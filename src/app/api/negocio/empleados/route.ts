@@ -1,0 +1,133 @@
+import { NextRequest, NextResponse } from "next/server"
+import { db } from "@/lib/db"
+import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { randomBytes } from "crypto"
+
+// Generate a unique token for mozo links
+function generateMozoToken(): string {
+  return randomBytes(8).toString("hex") // 16-char hex string
+}
+
+// GET - List empleados for negocio
+export async function GET(req: NextRequest) {
+  try {
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    if (!token) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    }
+
+    const user = await getUserFromToken(token)
+    if (!user || user.type !== "negocio") {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    }
+
+    const negocioId = user.id
+
+    const empleados = await db.empleado.findMany({
+      where: { negocioId },
+      orderBy: { nombre: "asc" },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        rol: true,
+        activo: true,
+        token: true,
+        negocioId: true,
+      },
+    })
+
+    // Generate tokens for any empleados that don't have one (legacy migration)
+    for (const emp of empleados) {
+      if (!emp.token) {
+        let newToken = generateMozoToken()
+        while (await db.empleado.findFirst({ where: { token: newToken } })) {
+          newToken = generateMozoToken()
+        }
+        await db.empleado.update({
+          where: { id: emp.id },
+          data: { token: newToken },
+        })
+        emp.token = newToken
+      }
+    }
+
+    return NextResponse.json(empleados)
+  } catch (error) {
+    console.error("Error listing empleados:", error)
+    return NextResponse.json(
+      { error: "Error al obtener empleados" },
+      { status: 500 }
+    )
+  }
+}
+
+// POST - Create empleado
+export async function POST(req: NextRequest) {
+  try {
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    if (!token) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    }
+
+    const user = await getUserFromToken(token)
+    if (!user || user.type !== "negocio") {
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    }
+
+    const negocioId = user.id
+    const body = await req.json()
+    const { nombre, codigo, rol, activo } = body
+
+    if (!nombre?.trim()) {
+      return NextResponse.json(
+        { error: "El nombre es obligatorio" },
+        { status: 400 }
+      )
+    }
+
+    if (!codigo?.trim()) {
+      return NextResponse.json(
+        { error: "El código es obligatorio" },
+        { status: 400 }
+      )
+    }
+
+    // Check for duplicate codigo within negocio
+    const existing = await db.empleado.findUnique({
+      where: { negocioId_codigo: { negocioId, codigo: codigo.trim().toUpperCase() } },
+    })
+    if (existing) {
+      return NextResponse.json(
+        { error: `Ya existe un empleado con el código "${codigo.trim().toUpperCase()}"` },
+        { status: 409 }
+      )
+    }
+
+    // Generate unique token for mozo link
+    let mozoToken = generateMozoToken()
+    // Ensure uniqueness (use findFirst since token doesn't have @unique constraint)
+    while (await db.empleado.findFirst({ where: { token: mozoToken } })) {
+      mozoToken = generateMozoToken()
+    }
+
+    const empleado = await db.empleado.create({
+      data: {
+        nombre: nombre.trim(),
+        codigo: codigo.trim().toUpperCase(),
+        token: mozoToken,
+        rol: rol || "mozo",
+        activo: activo !== undefined ? Boolean(activo) : true,
+        negocioId,
+      },
+    })
+
+    return NextResponse.json(empleado, { status: 201 })
+  } catch (error) {
+    console.error("Error creating empleado:", error)
+    return NextResponse.json(
+      { error: "Error al crear empleado" },
+      { status: 500 }
+    )
+  }
+}

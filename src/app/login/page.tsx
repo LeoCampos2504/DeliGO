@@ -1,0 +1,417 @@
+"use client"
+
+import { useState, useEffect, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useAuthStore } from "@/store/auth-store"
+import { useHydrated } from "@/hooks/use-hydrated"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent } from "@/components/ui/card"
+import { Logo } from "@/components/shared/logo"
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  Mail,
+  Lock,
+  ArrowLeft,
+  MailCheck,
+  RefreshCw,
+  CheckCircle2,
+} from "lucide-react"
+import Link from "next/link"
+import { toast } from "sonner"
+import { motion, AnimatePresence } from "framer-motion"
+
+// ============================================
+// Client Login Page
+// ============================================
+export default function ClienteLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-primary/10 animate-pulse" />
+          </div>
+        </div>
+      }
+    >
+      <ClienteLoginPageContent />
+    </Suspense>
+  )
+}
+
+// ============================================
+// Helper: Mask email
+// ============================================
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@")
+  if (!local || !domain) return email
+  if (local.length <= 2) return `${local[0]}***@${domain}`
+  return `${local[0]}***${local[local.length - 1]}@${domain}`
+}
+
+function ClienteLoginPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const hydrated = useHydrated()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const userType = useAuthStore((s) => s.userType)
+
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  // Verification state
+  const [view, setView] = useState<"login" | "verify-email">("login")
+  const [unverifiedEmail, setUnverifiedEmail] = useState("")
+  const [resending, setResending] = useState(false)
+  const [resent, setResent] = useState(false)
+
+  // Redirect if already authenticated as cliente
+  useEffect(() => {
+    if (!hydrated) return
+    if (isAuthenticated() && userType() === "cliente") {
+      router.replace("/")
+    }
+  }, [hydrated, isAuthenticated, userType, router])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: "cliente", email, password }),
+      })
+
+      const data = await res.json()
+
+      // Handle needsVerification (status 403)
+      if (data.needsVerification && data.email) {
+        setUnverifiedEmail(data.email)
+        setView("verify-email")
+        return
+      }
+
+      if (!res.ok) {
+        toast.error(data.error || "Error al iniciar sesión")
+        return
+      }
+
+      // Update auth store
+      useAuthStore.getState().loginCliente({
+        id: data.user.id,
+        nombre: data.user.nombre,
+        email: data.user.email,
+        token: data.token,
+      })
+
+      toast.success(`🍔 ¡Bienvenido, ${data.user.nombre}!`)
+
+      // Redirect to intended page or home
+      const redirectTo = searchParams.get("redirect") || "/"
+      router.replace(redirectTo)
+    } catch {
+      toast.error("Error de conexión. Intentá de nuevo.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setResending(true)
+    setResent(false)
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: unverifiedEmail, userType: "cliente" }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || "Error al reenviar el email")
+        return
+      }
+      setResent(true)
+      toast.success("Email reenviado")
+    } catch {
+      toast.error("Error de conexión. Intentá de nuevo.")
+    } finally {
+      setResending(false)
+    }
+  }
+
+  // Wait for hydration
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-primary/10 animate-pulse" />
+        </div>
+      </div>
+    )
+  }
+
+  // Already authenticated
+  if (isAuthenticated() && userType() === "cliente") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-sm text-muted-foreground">Redirigiendo...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4 py-8">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-primary/5" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full bg-primary/3" />
+      </div>
+
+      <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
+        {/* Back link */}
+        <Link
+          href="/"
+          className="self-start flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver al inicio
+        </Link>
+
+        {/* Header */}
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="h-16 w-16 rounded-3xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/20">
+            <span className="text-3xl">🍔</span>
+          </div>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">Ingresá a tu cuenta</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Pedí lo que quieras con DeliGO
+            </p>
+          </div>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {/* LOGIN VIEW */}
+          {view === "login" && (
+            <motion.div
+              key="login"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.2 }}
+              className="w-full"
+            >
+              <Card className="w-full border-border/50 shadow-lg shadow-primary/5">
+                <CardContent className="p-6">
+                  {/* Google Sign In */}
+                  <a
+                    href="/api/auth/google"
+                    className="w-full flex items-center justify-center gap-3 h-11 rounded-xl border border-border/50 bg-background hover:bg-muted/50 transition-all duration-200 text-sm font-semibold mb-4"
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24">
+                      <path
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+                        fill="#4285F4"
+                      />
+                      <path
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        fill="#34A853"
+                      />
+                      <path
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        fill="#FBBC05"
+                      />
+                      <path
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        fill="#EA4335"
+                      />
+                    </svg>
+                    Continuar con Google
+                  </a>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex-1 h-px bg-border/50" />
+                    <span className="text-[11px] text-muted-foreground font-medium">o</span>
+                    <div className="flex-1 h-px bg-border/50" />
+                  </div>
+
+                  {/* Email + Password form */}
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-sm font-semibold">
+                        Email
+                      </Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="tu@email.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="pl-10 h-11 rounded-xl"
+                          required
+                          autoComplete="email"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="password" className="text-sm font-semibold">
+                        Contraseña
+                      </Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="pl-10 pr-10 h-11 rounded-xl"
+                          required
+                          minLength={6}
+                          autoComplete="current-password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="w-full h-11 rounded-xl font-bold text-sm"
+                      disabled={loading}
+                    >
+                      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Iniciar sesión"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* VERIFY EMAIL VIEW */}
+          {view === "verify-email" && (
+            <motion.div
+              key="verify-email"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="w-full"
+            >
+              <Card className="w-full border-border/50 shadow-lg shadow-primary/5">
+                <CardContent className="p-6 text-center">
+                  <motion.div
+                    initial={{ scale: 0, rotate: -10 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: "spring", damping: 15, stiffness: 200, delay: 0.1 }}
+                    className="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-950/30 mx-auto mb-4 flex items-center justify-center"
+                  >
+                    <MailCheck className="h-8 w-8 text-orange-500" />
+                  </motion.div>
+
+                  <h2 className="text-lg font-extrabold mb-2">Verificá tu email</h2>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Para ingresar a tu cuenta, necesitamos verificar tu email primero.
+                  </p>
+
+                  <div className="inline-flex items-center gap-2 bg-muted/50 rounded-xl px-4 py-2 mb-4">
+                    <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold">{maskEmail(unverifiedEmail)}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 justify-center text-xs text-muted-foreground bg-muted/50 rounded-xl p-3 mb-4">
+                    <CheckCircle2 className="h-4 w-4 text-orange-500 shrink-0" />
+                    <span>Revisá tu bandeja de entrada y la carpeta de spam</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleResend}
+                      variant="outline"
+                      className="w-full rounded-xl font-semibold"
+                      disabled={resending || resent}
+                    >
+                      {resending ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : resent ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 mr-1.5 text-orange-500" />
+                          Email reenviado
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-1.5" />
+                          Reenviar email
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      onClick={() => {
+                        setView("login")
+                        setUnverifiedEmail("")
+                      }}
+                      variant="outline"
+                      className="w-full rounded-xl font-semibold"
+                    >
+                      Ya verifiqué mi email
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Register link */}
+        {view === "login" && (
+          <p className="text-sm text-muted-foreground text-center">
+            ¿No tenés cuenta?{" "}
+            <Link href="/login?register=true" className="text-primary font-semibold hover:underline">
+              Registrate acá
+            </Link>
+          </p>
+        )}
+
+        {/* Other roles */}
+        <div className="w-full border-t border-border/50 pt-4 space-y-2">
+          <p className="text-xs text-muted-foreground text-center">¿Tenés otro perfil?</p>
+          <div className="flex gap-2 justify-center">
+            <Link href="/negocio">
+              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
+                🏪 Negocio
+              </Button>
+            </Link>
+            <Link href="/repartidor">
+              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
+                🛵 Repartidor
+              </Button>
+            </Link>
+            <Link href="/admin">
+              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
+                🔐 Admin
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
