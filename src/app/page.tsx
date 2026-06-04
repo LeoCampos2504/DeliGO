@@ -370,6 +370,7 @@ function HomePageContent() {
   }, [shouldShowAddressPicker])
 
   const handleLogout = async () => {
+    // Remember role before clearing store — cliente stays on home
     await logout()
     // Clear React Query cache so stale data doesn't persist
     queryClient.clear()
@@ -807,60 +808,6 @@ function HomePageContent() {
             ))}
           </div>
         </div>
-
-        {/* Role Entry Cards */}
-        {!isAuthenticated() && (
-          <div className="px-4 pb-8">
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-muted-foreground text-center">
-                Ingresá según tu rol
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Cliente */}
-                <button
-                  onClick={() => openAuthModal("cliente")}
-                  className="flex items-center gap-3 p-4 rounded-2xl border-2 border-orange-200 dark:border-orange-900/50 bg-orange-50/50 dark:bg-orange-950/10 hover:bg-orange-100/70 dark:hover:bg-orange-950/20 transition-all text-left group"
-                >
-                  <div className="w-11 h-11 rounded-xl bg-orange-500/15 flex items-center justify-center shrink-0">
-                    <span className="text-xl">🍔</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-orange-700 dark:text-orange-400">Quiero pedir</p>
-                    <p className="text-[11px] text-muted-foreground">Encontrá locales y hacé tu pedido</p>
-                  </div>
-                </button>
-
-                {/* Negocio */}
-                <button
-                  onClick={() => openAuthModal("negocio")}
-                  className="flex items-center gap-3 p-4 rounded-2xl border-2 border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/10 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/20 transition-all text-left group"
-                >
-                  <div className="w-11 h-11 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0">
-                    <span className="text-xl">🏪</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Tengo un local</p>
-                    <p className="text-[11px] text-muted-foreground">Gestioná catálogo y pedidos</p>
-                  </div>
-                </button>
-
-                {/* Repartidor */}
-                <button
-                  onClick={() => openAuthModal("repartidor")}
-                  className="flex items-center gap-3 p-4 rounded-2xl border-2 border-sky-200 dark:border-sky-900/50 bg-sky-50/50 dark:bg-sky-950/10 hover:bg-sky-100/70 dark:hover:bg-sky-950/20 transition-all text-left group"
-                >
-                  <div className="w-11 h-11 rounded-xl bg-sky-500/15 flex items-center justify-center shrink-0">
-                    <span className="text-xl">🛵</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-sky-700 dark:text-sky-400">Soy repartidor</p>
-                    <p className="text-[11px] text-muted-foreground">Recibí y entregá pedidos</p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Bottom spacer for nav */}
         {isAuthenticated() && userType() === "cliente" && (

@@ -1,8 +1,22 @@
 "use client"
 
 import { useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { useAuthStore } from "@/store/auth-store"
 import type { UserType } from "@/lib/auth"
+import { ROLE_CONFIGS, type DeliGORole } from "@/lib/role-config"
+
+/**
+ * Map UserType to DeliGORole for logout redirect
+ */
+function userTypeToRole(userType: UserType | null): DeliGORole {
+  switch (userType) {
+    case "negocio": return "negocio"
+    case "repartidor": return "repartidor"
+    case "superadmin": return "admin"
+    default: return "cliente"
+  }
+}
 
 /**
  * Hook that syncs server-side session with client-side Zustand store.
@@ -10,6 +24,7 @@ import type { UserType } from "@/lib/auth"
  * This handles page refreshes where the cookie is still valid but Zustand is empty.
  */
 export function useAuth() {
+  const router = useRouter()
   const { user, token, isAuthenticated, userType, userName, logout } = useAuthStore()
 
   const syncSession = useCallback(async () => {
@@ -72,13 +87,20 @@ export function useAuth() {
   }, [user, token, syncSession])
 
   const handleLogout = useCallback(async () => {
+    // Remember the role BEFORE clearing the store
+    const currentRole = userTypeToRole(userType())
+    const loginUrl = ROLE_CONFIGS[currentRole].loginUrl
+
     try {
       await fetch("/api/auth/logout", { method: "POST" })
     } catch {
       // Continue even if API call fails
     }
     logout()
-  }, [logout])
+
+    // Redirect to the role-specific login page
+    router.replace(loginUrl)
+  }, [logout, userType, router])
 
   return {
     user,

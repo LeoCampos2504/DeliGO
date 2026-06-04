@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }
 
-    const repartidor = await db.repartidor.findUnique({
-      where: { id: user.id },
+    const repartidor = await db.repartidor.findFirst({
+      where: { id: user.id, eliminado: false },
       include: {
         negocios: {
           include: {
@@ -94,7 +94,7 @@ export async function PUT(req: NextRequest) {
         )
       }
 
-      const repartidor = await db.repartidor.findUnique({ where: { id: user.id } })
+      const repartidor = await db.repartidor.findFirst({ where: { id: user.id, eliminado: false } })
       if (!repartidor) {
         return NextResponse.json({ error: "Repartidor no encontrado" }, { status: 404 })
       }

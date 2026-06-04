@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { sendPushNotification, negocioSuspendedNotification } from "@/lib/push"
+import { auditLog } from "@/lib/audit"
 
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -28,6 +29,9 @@ export async function POST(
       where: { id },
       data: { suspendido: true },
     })
+
+    // Audit log
+    await auditLog({ userId: user.id, userType: "superadmin", accion: "negocio.suspendido", recurso: "negocio", recursoId: id, detalle: { suspendido: true } })
 
     // Notify negocio that they were suspended
     try {

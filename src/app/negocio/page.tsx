@@ -19,7 +19,6 @@ import {
   Loader2,
   AtSign,
   Lock,
-  ArrowLeft,
   MailCheck,
   Mail,
   RefreshCw,
@@ -29,7 +28,6 @@ import {
   Phone,
   MessageCircle,
 } from "lucide-react"
-import Link from "next/link"
 import { toast } from "sonner"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -200,15 +198,6 @@ function NegocioLoginForm() {
       </div>
 
       <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
-        {/* Back link */}
-        <Link
-          href="/"
-          className="self-start flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Volver al inicio
-        </Link>
-
         {/* Header */}
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="h-16 w-16 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
@@ -485,27 +474,7 @@ function NegocioLoginForm() {
           )}
         </AnimatePresence>
 
-        {/* Other roles */}
-        <div className="w-full border-t border-border/50 pt-4 space-y-2">
-          <p className="text-xs text-muted-foreground text-center">¿Tenés otro perfil?</p>
-          <div className="flex gap-2 justify-center">
-            <Link href="/login">
-              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
-                🍔 Cliente
-              </Button>
-            </Link>
-            <Link href="/repartidor">
-              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
-                🛵 Repartidor
-              </Button>
-            </Link>
-            <Link href="/admin">
-              <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5">
-                🔐 Admin
-              </Button>
-            </Link>
-          </div>
-        </div>
+
       </div>
     </div>
   )
@@ -552,6 +521,7 @@ export default function NegocioPage() {
 }
 
 function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
+  const router = useRouter()
   const logout = useAuthStore((s) => s.logout)
   const [loggingOut, setLoggingOut] = useState(false)
 
@@ -561,6 +531,8 @@ function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
       await fetch("/api/auth/logout", { method: "POST" })
     } catch { /* continue */ }
     logout()
+    // Stay on negocio login page
+    router.replace("/negocio")
   }
 
   return (
@@ -571,14 +543,6 @@ function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
       </div>
 
       <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
-        <Link
-          href="/"
-          className="self-start flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Volver al inicio
-        </Link>
-
         <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center">
           <AlertTriangle className="h-10 w-10 text-red-500" />
         </div>

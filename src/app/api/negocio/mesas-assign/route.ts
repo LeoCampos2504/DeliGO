@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { validateSession, SESSION_COOKIE_NAME } from "@/lib/auth"
 
 // POST — Assign a mozo to a mesa (or unassign)
 // Public endpoint used from the mozo link flow
@@ -14,6 +15,37 @@ export async function POST(req: NextRequest) {
 
     if (!negocioId) {
       return NextResponse.json({ error: "negocioId requerido" }, { status: 400 })
+    }
+
+    // Authentication: require negocio session or valid access token
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    let isAuthorized = false
+
+    if (token) {
+      const session = await validateSession(token)
+      if (session && session.userType === "negocio" && session.userId === negocioId) {
+        isAuthorized = true
+      }
+    }
+
+    // Also allow via tokenSalon or tokenEmpleados
+    if (!isAuthorized && body.token) {
+      const negocioByToken = await db.negocio.findFirst({
+        where: {
+          OR: [
+            { tokenSalon: body.token },
+            { tokenEmpleados: body.token },
+          ],
+          id: negocioId,
+        },
+      })
+      if (negocioByToken) {
+        isAuthorized = true
+      }
+    }
+
+    if (!isAuthorized) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
 
     // Find the mesa

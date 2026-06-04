@@ -231,6 +231,7 @@ model Producto {
   imagenesExtra   String   @default("[]") // JSON array of URLs
   negocioId       String
   stock           Boolean  @default(true)
+  eliminado       Boolean  @default(false)
 
   // Descuentos
   descuentoActivo Boolean  @default(false)
@@ -377,6 +378,7 @@ model Pedido {
   items                 PedidoItem[]
   mensajes              ChatMensaje[]
   resena                Resena?
+  eventos               PedidoEvento[]
 
   @@map("pedidos")
 }
@@ -460,6 +462,7 @@ model Repartidor {
   telefono         String   @default("")
   pushSubscription String?
   activo           Boolean  @default(true)
+  eliminado        Boolean  @default(false)
   fechaRegistro    DateTime @default(now())
 
   // Email verification
@@ -578,7 +581,9 @@ model Empleado {
   nombre      String
   codigo      String   // código corto para identificar al mozo
   rol         String   @default("mozo") // mozo, cajero, cocinero, admin
+  permisos    String   @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
   activo      Boolean  @default(true)
+  eliminado   Boolean  @default(false)
   token       String?  // token para notificaciones push
   negocioId   String
   negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
@@ -616,4 +621,43 @@ model OpcionesCompartidas {
   updatedAt   DateTime @updatedAt
 
   @@map("opciones_compartidas")
+}
+
+// ============================================
+// AUDITORÍA DE ACCIONES
+// ============================================
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String   // who
+  userType    String   // cliente, negocio, repartidor, superadmin, empleado
+  accion      String   // what: e.g. "producto.creado", "producto.eliminado", "pedido.estado_cambiado", "negocio.suspendido"
+  recurso     String   // e.g. "producto", "pedido", "empleado"
+  recursoId   String   @default("") // ID of the affected resource
+  detalle     String   @default("{}") // JSON with additional context (before/after values, etc.)
+  ip          String   @default("")
+  fecha       DateTime @default(now())
+
+  @@index([userId, fecha])
+  @@index([recurso, recursoId])
+  @@index([accion])
+  @@map("audit_logs")
+}
+
+// ============================================
+// HISTORIAL DE PEDIDOS (Eventos)
+// ============================================
+model PedidoEvento {
+  id          String   @id @default(cuid())
+  pedidoId    String
+  estado      String   // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
+  estadoAnterior String @default("") // previous state
+  userId      String?  // who triggered the change
+  userType    String?  // cliente, negocio, repartidor, superadmin, empleado
+  nota        String   @default("") // optional note (e.g. cancellation reason)
+  fecha       DateTime @default(now())
+
+  pedido      Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@index([pedidoId, fecha])
+  @@map("pedido_eventos")
 }

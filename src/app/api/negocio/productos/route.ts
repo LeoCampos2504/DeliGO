@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { auditLog } from "@/lib/audit"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
     const negocioId = user.id
 
     const productos = await db.producto.findMany({
-      where: { negocioId },
+      where: { negocioId, eliminado: false },
       include: {
         agregados: { include: { agregado: true } },
         ingredientes: { include: { ingrediente: true } },
@@ -210,6 +211,9 @@ export async function POST(req: NextRequest) {
         },
       })
     }
+
+    // Audit log
+    await auditLog({ userId: negocioId, userType: "negocio", accion: "producto.creado", recurso: "producto", recursoId: producto.id, detalle: { nombre: producto.nombre, precio: producto.precio } })
 
     // Fetch the created product with relations
     const created = await db.producto.findUnique({

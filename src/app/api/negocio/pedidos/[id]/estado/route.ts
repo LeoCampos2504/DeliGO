@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { sendPushNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
+import { acquireLock, releaseLock } from "@/lib/concurrency"
+import { logPedidoEstadoChange } from "@/lib/audit"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -31,6 +33,18 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Concurrency protection: compute lock key before try so it's accessible in finally
+  const { id: pedidoId } = await params
+  const estadoLockKey = `pedido-estado:${pedidoId}`
+
+  // Concurrency protection: prevent double status updates on the same order
+  if (!acquireLock(estadoLockKey)) {
+    return NextResponse.json(
+      { error: "El estado de este pedido se está actualizando. Intentá de nuevo." },
+      { status: 409 }
+    )
+  }
+
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
@@ -43,7 +57,6 @@ export async function PATCH(
     }
 
     const negocioId = user.id
-    const { id: pedidoId } = await params
     const body = await req.json()
     const { estado, motivo } = body
 
@@ -151,6 +164,15 @@ export async function PATCH(
       },
     })
 
+    // Audit log
+    await logPedidoEstadoChange({
+      pedidoId,
+      estadoNuevo: estado,
+      estadoAnterior: currentEstado,
+      userId: negocioId,
+      userType: "negocio",
+    })
+
     // Accumulate service fee debt when status becomes "entregado"
     if (estado === "entregado" && !pedido.deudaAcumulada) {
       const fee = SERVICE_FEE_FIXED
@@ -249,5 +271,8 @@ export async function PATCH(
       { error: "Error al actualizar estado del pedido" },
       { status: 500 }
     )
+  } finally {
+    // Always release the lock, even on error
+    releaseLock(estadoLockKey)
   }
 }

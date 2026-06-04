@@ -4,6 +4,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { sendPushNotification, newOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
+import { acquireLock, releaseLock } from "@/lib/concurrency"
 
 // Point-in-polygon algorithm (ray casting) — same as delivery-zonas route
 function pointInPolygon(lat: number, lng: number, polygon: { lat: number; lng: number }[]): boolean {
@@ -20,13 +21,24 @@ function pointInPolygon(lat: number, lng: number, polygon: { lat: number; lng: n
 }
 
 export async function POST(request: NextRequest) {
+  // Concurrency protection: compute lock key before try block so it's accessible in finally
+  const ip = getClientIp(request)
+  const rlKey = request.cookies.get(SESSION_COOKIE_NAME)?.value || ip
+  const orderLockKey = `order:${rlKey}`
+
   try {
     // Rate limit orders
-    const ip = getClientIp(request)
-    const rlKey = request.cookies.get(SESSION_COOKIE_NAME)?.value || ip
     const rl = checkRateLimit("order", rlKey)
     if (!rl.allowed) {
       return rateLimitResponse(rl, "Estás haciendo muchos pedidos. Esperá un momento.")
+    }
+
+    // Concurrency protection: prevent double orders from the same user/session
+    if (!acquireLock(orderLockKey)) {
+      return NextResponse.json(
+        { error: "Ya hay un pedido en proceso. Esperá un momento." },
+        { status: 409 }
+      )
     }
 
     const body = await request.json()
@@ -65,6 +77,68 @@ export async function POST(request: NextRequest) {
     if (!negocio || !negocio.aprobado || negocio.suspendido) {
       return NextResponse.json(
         { error: "Negocio no disponible" },
+        { status: 400 }
+      )
+    }
+
+    // ============================================
+    // SERVER-SIDE PRICE VALIDATION (anti-manipulation)
+    // ============================================
+    const productoIds = items.map((item: { productoId: string }) => item.productoId).filter(Boolean)
+    const dbProductos = await db.producto.findMany({
+      where: { id: { in: productoIds }, negocioId },
+      select: { id: true, precio: true, descuentoActivo: true, tipoDescuento: true, valorDescuento: true },
+    })
+    const precioMap = new Map(dbProductos.map(p => [p.id, p]))
+
+    // Also fetch agregado prices
+    const allAgregadoIds = items.flatMap((item: { agregados: Array<{ id: string }> }) =>
+      (item.agregados || []).map((a: { id: string }) => a.id)
+    ).filter(Boolean)
+    const dbAgregados = await db.agregado.findMany({
+      where: { id: { in: allAgregadoIds }, negocioId },
+      select: { id: true, precio: true },
+    })
+    const agregadoPrecioMap = new Map(dbAgregados.map(a => [a.id, a.precio]))
+
+    // Recalculate server-side
+    let serverTotalProductos = 0
+    for (const item of items) {
+      const dbProd = precioMap.get(item.productoId)
+      if (!dbProd) {
+        return NextResponse.json({ error: `Producto ${item.productoId} no encontrado` }, { status: 400 })
+      }
+
+      let unitPrice = dbProd.precio
+
+      // Apply discount if active
+      if (dbProd.descuentoActivo && dbProd.valorDescuento > 0) {
+        if (dbProd.tipoDescuento === 'porcentaje') {
+          unitPrice = unitPrice * (1 - dbProd.valorDescuento / 100)
+        } else {
+          unitPrice = Math.max(0, unitPrice - dbProd.valorDescuento)
+        }
+      }
+
+      // Validate agregado prices
+      let agregadosTotal = 0
+      for (const agregado of (item.agregados || [])) {
+        const dbAgr = agregadoPrecioMap.get(agregado.id)
+        if (!dbAgr) {
+          return NextResponse.json({ error: `Agregado ${agregado.id} no encontrado` }, { status: 400 })
+        }
+        agregadosTotal += dbAgr.precio
+      }
+
+      serverTotalProductos += (unitPrice + agregadosTotal) * (item.cantidad || 1)
+    }
+
+    serverTotalProductos = Math.round(serverTotalProductos * 100) / 100
+
+    // Verify totalProductos matches (with 2 decimal tolerance for rounding)
+    if (Math.abs(serverTotalProductos - totalProductos) > 2) {
+      return NextResponse.json(
+        { error: "El total de productos no coincide con los precios actuales" },
         { status: 400 }
       )
     }
@@ -230,7 +304,9 @@ export async function POST(request: NextRequest) {
     // Service fee disabled for mesa/mozo orders (will be activated in the future)
     const MESA_SERVICE_FEE_ENABLED = false
     const mesaTarifa = MESA_SERVICE_FEE_ENABLED ? tarifaServicio : 0
-    const finalTotal = isMesaOrder ? totalProductos + mesaTarifa : total
+    // Calculate server-validated total
+    const serverTotal = serverTotalProductos + (isMesaOrder ? 0 : (finalPrecioDelivery || 0)) + (isMesaOrder ? mesaTarifa : tarifaServicio)
+    const finalTotal = serverTotal
 
     // Create pedido
     const pedido = await db.pedido.create({
@@ -242,7 +318,7 @@ export async function POST(request: NextRequest) {
         clienteNombre,
         clienteTelefono,
         total: finalTotal,
-        totalProductos,
+        totalProductos: serverTotalProductos,
         tarifaServicio,
         precioDelivery: finalPrecioDelivery,
         metodoEntrega: metodoEntrega || "retiro",
@@ -329,42 +405,55 @@ export async function POST(request: NextRequest) {
       { error: msg },
       { status: 500 }
     )
+  } finally {
+    // Always release the lock, even on error
+    releaseLock(orderLockKey)
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
+    const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+    if (!token) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    }
+
+    const session = await db.sesion.findUnique({ where: { token } })
+    if (!session || session.expiresAt < new Date()) {
+      return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
-    const negocioId = searchParams.get("negocioId")
-    const clienteId = searchParams.get("clienteId")
+    const queryNegocioId = searchParams.get("negocioId")
+    const queryClienteId = searchParams.get("clienteId")
 
     const where: Record<string, unknown> = {}
 
-    if (negocioId) where.negocioId = negocioId
-    if (clienteId) where.clienteId = clienteId
-
-    // If no filter, return based on session
-    if (!negocioId && !clienteId) {
-      const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
-      if (token) {
-        const session = await db.sesion.findUnique({
-          where: { token },
-        })
-        if (session) {
-          if (session.userType === "cliente") {
-            where.clienteId = session.userId
-          } else if (session.userType === "negocio") {
-            where.negocioId = session.userId
-          }
-        }
+    // Security: only allow users to see their own data
+    if (session.userType === "cliente") {
+      where.clienteId = session.userId
+    } else if (session.userType === "negocio") {
+      where.negocioId = session.userId
+    } else if (session.userType === "repartidor") {
+      // Repartidor can only see orders from their associated negocios
+      const asociaciones = await db.repartidorNegocio.findMany({
+        where: { repartidorId: session.userId },
+        select: { negocioId: true },
+      })
+      const negocioIds = asociaciones.map(a => a.negocioId)
+      if (queryNegocioId && !negocioIds.includes(queryNegocioId)) {
+        return NextResponse.json({ error: "No autorizado" }, { status: 403 })
       }
+      where.negocioId = queryNegocioId || { in: negocioIds }
+    } else if (session.userType === "superadmin") {
+      // Superadmin can filter by any negocioId or clienteId
+      if (queryNegocioId) where.negocioId = queryNegocioId
+      if (queryClienteId) where.clienteId = queryClienteId
     }
 
     const pedidos = await db.pedido.findMany({
       where,
-      include: {
-        items: true,
-      },
+      include: { items: true },
       orderBy: { fecha: "desc" },
       take: 50,
     })
@@ -372,9 +461,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(pedidos)
   } catch (error) {
     console.error("Error fetching pedidos:", error)
-    return NextResponse.json(
-      { error: "Error al obtener pedidos" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Error al obtener pedidos" }, { status: 500 })
   }
 }

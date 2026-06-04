@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { auditLog } from "@/lib/audit"
 import { randomBytes } from "crypto"
 
 // Generate a unique token for mozo links
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     const negocioId = user.id
 
     const empleados = await db.empleado.findMany({
-      where: { negocioId },
+      where: { negocioId, eliminado: false },
       orderBy: { nombre: "asc" },
       select: {
         id: true,
@@ -121,6 +122,9 @@ export async function POST(req: NextRequest) {
         negocioId,
       },
     })
+
+    // Audit log
+    await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.creado", recurso: "empleado", recursoId: empleado.id, detalle: { nombre: empleado.nombre, codigo: empleado.codigo } })
 
     return NextResponse.json(empleado, { status: 201 })
   } catch (error) {

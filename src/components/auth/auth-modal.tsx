@@ -109,13 +109,29 @@ const roles = [
 // ============================================
 
 export function AuthModal({ isOpen, onClose, initialRole }: AuthModalProps) {
-  const [step, setStep] = useState<AuthStep>("role-select")
+  const [step, setStep] = useState<AuthStep>(initialRole ? "login" : "role-select")
   const [selectedRole, setSelectedRole] = useState<UserType | null>(initialRole ?? null)
   const [mode, setMode] = useState<"login" | "register">("login")
 
   // Email verification state
   const [unverifiedEmail, setUnverifiedEmail] = useState<string>("")
   const [unverifiedUserType, setUnverifiedUserType] = useState<string>("")
+
+  // Reset state when modal opens — if initialRole is set, go directly to that role's login
+  useEffect(() => {
+    if (isOpen) {
+      if (initialRole) {
+        setStep("login")
+        setSelectedRole(initialRole)
+      } else {
+        setStep("role-select")
+        setSelectedRole(null)
+      }
+      setMode("login")
+      setUnverifiedEmail("")
+      setUnverifiedUserType("")
+    }
+  }, [isOpen, initialRole])
 
   const handleRoleSelect = (type: UserType) => {
     setSelectedRole(type)
@@ -265,7 +281,7 @@ export function AuthModal({ isOpen, onClose, initialRole }: AuthModalProps) {
             {/* Header */}
             <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-md px-5 pt-4 pb-3 border-b border-border/50 flex items-center justify-between rounded-t-3xl sm:rounded-2xl">
               <div className="flex items-center gap-3">
-                {step !== "role-select" && (
+                {step !== "role-select" && !initialRole && (
                   <button
                     onClick={handleBack}
                     className="p-1.5 -ml-1.5 rounded-xl hover:bg-muted transition-colors"
@@ -311,6 +327,7 @@ export function AuthModal({ isOpen, onClose, initialRole }: AuthModalProps) {
                       roleData={currentRole!}
                       onSuccess={handleLoginSuccess}
                       onSwitchToRegister={handleSwitchMode}
+                      onClose={handleClose}
                     />
                   </motion.div>
                 )}
@@ -414,32 +431,6 @@ function RoleSelectStep({ onSelect }: { onSelect: (type: UserType) => void }) {
         })}
       </div>
 
-      {/* Dedicated login page links */}
-      <div className="mt-4 pt-3 border-t border-border/50">
-        <p className="text-[11px] text-muted-foreground text-center mb-2">
-          También podés ingresar desde la página dedicada de cada perfil
-        </p>
-        <div className="flex gap-2 justify-center">
-          <a
-            href="/negocio"
-            className="text-xs px-3 py-1.5 rounded-full border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors font-medium"
-          >
-            🏪 Negocio
-          </a>
-          <a
-            href="/repartidor"
-            className="text-xs px-3 py-1.5 rounded-full border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors font-medium"
-          >
-            🛵 Repartidor
-          </a>
-          <a
-            href="/admin"
-            className="text-xs px-3 py-1.5 rounded-full border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors font-medium"
-          >
-            🔐 Admin
-          </a>
-        </div>
-      </div>
     </div>
   )
 }
@@ -453,6 +444,7 @@ interface LoginStepProps {
   roleData: (typeof roles)[0]
   onSuccess: (data: any) => void
   onSwitchToRegister: () => void
+  onClose: () => void
 }
 
 function LoginStep({
@@ -460,6 +452,7 @@ function LoginStep({
   roleData,
   onSuccess,
   onSwitchToRegister,
+  onClose,
 }: LoginStepProps) {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -536,8 +529,13 @@ function LoginStep({
 
       {/* Google Sign In button (cliente only) */}
       {role === "cliente" && (
-        <a
-          href="/api/auth/google"
+        <button
+          type="button"
+          onClick={() => {
+            onClose()
+            // Small delay so modal closes before navigation
+            setTimeout(() => { window.location.href = "/api/auth/google" }, 150)
+          }}
           className="w-full flex items-center justify-center gap-3 h-11 rounded-xl border border-border/50 bg-background hover:bg-muted/50 transition-all duration-200 text-sm font-semibold"
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -559,7 +557,7 @@ function LoginStep({
             />
           </svg>
           Continuar con Google
-        </a>
+        </button>
       )}
 
       {/* Divider */}

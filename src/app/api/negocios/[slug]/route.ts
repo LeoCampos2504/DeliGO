@@ -45,6 +45,7 @@ export async function GET(
       where: { slug },
       include: {
         productos: {
+          where: { eliminado: false },
           orderBy: { orden: "asc" },
           include: {
             agregados: {
@@ -69,6 +70,7 @@ export async function GET(
         secciones: {
           include: {
             productos: {
+              where: { producto: { eliminado: false } },
               include: {
                 producto: {
                   include: {

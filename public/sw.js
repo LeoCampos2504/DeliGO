@@ -2,7 +2,7 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v3";
+const CACHE_NAME = "deligo-v4";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/"];
@@ -43,10 +43,10 @@ self.addEventListener("fetch", (event) => {
   // Skip chrome-extension and other non-http requests
   if (!request.url.startsWith("http")) return;
 
-  // NEVER cache manifest.json or PWA icons — Chrome must always fetch fresh copies
+  // NEVER cache manifest files or PWA icons — Chrome must always fetch fresh copies
   // to properly evaluate installability
   if (
-    request.url.includes("manifest.json") ||
+    request.url.includes("manifest") ||
     request.url.includes("icon-192") ||
     request.url.includes("icon-512")
   ) {
@@ -141,8 +141,8 @@ self.addEventListener("push", (event) => {
     const title = data.title || "DeliGO";
     const options = {
       body: data.body || "",
-      icon: data.icon || "/icon-192x192.png",
-      badge: data.badge || "/icon-192x192.png",
+      icon: data.icon || "/icon-cliente-192x192.png",
+      badge: data.badge || "/icon-cliente-192x192.png",
       vibrate: [100, 50, 100],
       data: {
         url: data.data?.url || "/",
@@ -159,7 +159,7 @@ self.addEventListener("push", (event) => {
     event.waitUntil(
       self.registration.showNotification("DeliGO", {
         body: event.data.text(),
-        icon: "/icon-192x192.png",
+        icon: "/icon-cliente-192x192.png",
       })
     );
   }

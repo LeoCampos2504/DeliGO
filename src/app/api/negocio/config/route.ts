@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { auditLog } from "@/lib/audit"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -269,6 +270,9 @@ export async function PATCH(req: NextRequest) {
       where: { id: negocioId },
       data: updateData,
     })
+
+    // Audit log
+    await auditLog({ userId: negocioId, userType: "negocio", accion: "negocio.config_cambiada", recurso: "negocio", recursoId: negocioId, detalle: { cambios: body } })
 
     // Parse JSON fields for response
     const parsed = {

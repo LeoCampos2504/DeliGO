@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useSyncExternalStore } from "react"
+import { useState, useEffect, useCallback, useSyncExternalStore, useRef } from "react"
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -91,6 +91,29 @@ function isStandaloneMode(): boolean {
   )
 }
 
+/**
+ * Check if the current page is served over a secure context.
+ * beforeinstallprompt requires HTTPS (or localhost).
+ */
+export function isSecureContext(): boolean {
+  if (typeof window === "undefined") return false
+  return window.isSecureContext
+}
+
+/**
+ * Detect the specific Android browser
+ */
+export function detectAndroidBrowser(): "chrome" | "firefox" | "samsung" | "opera" | "edge" | "other" {
+  if (typeof window === "undefined") return "other"
+  const ua = navigator.userAgent
+  if (/edg\//i.test(ua)) return "edge"
+  if (/opr\//i.test(ua)) return "opera"
+  if (/samsungbrowser/i.test(ua)) return "samsung"
+  if (/firefox/i.test(ua)) return "firefox"
+  if (/chrome/i.test(ua) && !/edg|opr|samsungbrowser/i.test(ua)) return "chrome"
+  return "other"
+}
+
 // ---- Hook ----
 export function useInstallPrompt() {
   const isInstalled = useSyncExternalStore(
@@ -110,6 +133,9 @@ export function useInstallPrompt() {
 
   // Track whether we've determined the platform needs a manual prompt
   const [manualPromptNeeded, setManualPromptNeeded] = useState(false)
+
+  // Re-check interval ref
+  const recheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Determine if we need a manual install prompt
   useEffect(() => {
@@ -134,13 +160,34 @@ export function useInstallPrompt() {
 
     // Android: wait for beforeinstallprompt, show manual fallback if it doesn't fire
     if (platform === "android") {
+      // Initial check after 3 seconds
       const timer = setTimeout(() => {
-        // Only show manual prompt if native prompt still isn't available
         if (!deferredPromptValue && !isInstalledValue) {
           setManualPromptNeeded(true)
         }
       }, 3000)
-      return () => clearTimeout(timer)
+
+      // Also set up a periodic re-check every 5 seconds for up to 30 seconds
+      // Chrome sometimes fires beforeinstallprompt late (e.g. after engagement heuristics are met)
+      let recheckCount = 0
+      recheckRef.current = setInterval(() => {
+        recheckCount++
+        if (deferredPromptValue) {
+          // Native prompt became available! Clear the interval and reset manual flag
+          if (recheckRef.current) clearInterval(recheckRef.current)
+          setManualPromptNeeded(false)
+          return
+        }
+        if (recheckCount >= 6) {
+          // Stop rechecking after 30 seconds
+          if (recheckRef.current) clearInterval(recheckRef.current)
+        }
+      }, 5000)
+
+      return () => {
+        clearTimeout(timer)
+        if (recheckRef.current) clearInterval(recheckRef.current)
+      }
     }
   }, [isInstalled, manualPromptNeeded])
 
@@ -166,6 +213,8 @@ export function useInstallPrompt() {
   }, [])
 
   const platform = detectPlatform()
+  const secureContext = isSecureContext()
+  const androidBrowser = detectAndroidBrowser()
 
   return {
     isInstallable,
@@ -173,5 +222,7 @@ export function useInstallPrompt() {
     promptInstall,
     shouldShowManualPrompt,
     platform,
+    secureContext,
+    androidBrowser,
   }
 }

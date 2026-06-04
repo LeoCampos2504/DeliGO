@@ -7,6 +7,7 @@ import { QueryProvider } from "@/providers/query-provider";
 import { ChatProvider } from "@/providers/chat-provider";
 import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
+import { DynamicManifest } from "@/components/shared/dynamic-manifest";
 import { Toaster } from "sonner";
 
 const nunito = Nunito({
@@ -36,15 +37,15 @@ export const metadata: Metadata = {
     "Argentina",
   ],
   authors: [{ name: "DeliGO" }],
-  manifest: "/manifest.json",
+  manifest: "/manifest-cliente.json",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
       { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-cliente-192x192.png", sizes: "192x192", type: "image/png" },
     ],
     apple: [
-      { url: "/icon-192x192.png" },
+      { url: "/icon-cliente-192x192.png" },
     ],
   },
   appleWebApp: {
@@ -78,6 +79,7 @@ export default function RootLayout({
             <div className="min-h-screen flex flex-col">
               <main className="flex-1">{children}</main>
             </div>
+            <DynamicManifest />
             <ChatProvider />
             <ServiceWorkerRegistration />
             <InstallPrompt />
