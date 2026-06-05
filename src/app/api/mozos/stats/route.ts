@@ -12,10 +12,11 @@ export async function GET(req: NextRequest) {
 
     const negocioId = user.id
 
-    // Get all mozos (active and inactive)
-    const mozos = await db.$queryRaw<
-      Array<{ id: string; nombre: string; codigo: string }>
-    >`SELECT id, nombre, codigo FROM empleados WHERE negocioId = ${negocioId}`
+    // Get all mozos using Prisma ORM (PostgreSQL compatible)
+    const mozos = await db.empleado.findMany({
+      where: { negocioId },
+      select: { id: true, nombre: true, codigo: true },
+    })
 
     // Today's date range
     const today = new Date()

@@ -87,18 +87,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "empleadoCodigo requerido para asignar" }, { status: 400 })
     }
 
-    // Find the empleado by codigo
-    const empleados = await db.$queryRaw<
-      Array<{ id: string; nombre: string; codigo: string; activo: number }>
-    >`SELECT id, nombre, codigo, activo FROM empleados WHERE codigo = ${empleadoCodigo} AND negocioId = ${negocioId} LIMIT 1`
+    // Find the empleado by codigo using Prisma ORM (PostgreSQL compatible)
+    const mozo = await db.empleado.findFirst({
+      where: { codigo: empleadoCodigo, negocioId, activo: true },
+      select: { id: true, nombre: true, codigo: true },
+    })
 
-    if (empleados.length === 0) {
-      return NextResponse.json({ error: "Mozo no encontrado" }, { status: 404 })
-    }
-
-    const mozo = empleados[0]
-    if (!mozo.activo) {
-      return NextResponse.json({ error: "Mozo inactivo" }, { status: 400 })
+    if (!mozo) {
+      return NextResponse.json({ error: "Mozo no encontrado o inactivo" }, { status: 404 })
     }
 
     // Check if mesa already has a DIFFERENT mozo assigned

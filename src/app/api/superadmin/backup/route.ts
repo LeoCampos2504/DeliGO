@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { copyFile, mkdir, readdir, stat, unlink } from "fs/promises"
+import { mkdir, readdir, stat, unlink, writeFile } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
+import { exec } from "child_process"
+import { promisify } from "util"
+
+const execAsync = promisify(exec)
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +21,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }
 
-    const DB_PATH = process.env.DATABASE_URL?.replace("file:", "") || "./db/custom.db"
     const BACKUP_DIR = join(process.cwd(), "backups")
     const TIMESTAMP = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
 
@@ -25,19 +28,75 @@ export async function POST(request: NextRequest) {
       await mkdir(BACKUP_DIR, { recursive: true })
     }
 
-    const sourcePath = DB_PATH.startsWith("/") ? DB_PATH : join(process.cwd(), DB_PATH)
-    const backupFilename = `deligo-backup-${TIMESTAMP}.db`
-    const backupPath = join(BACKUP_DIR, backupFilename)
+    const DATABASE_URL = process.env.DATABASE_URL || ""
+    const isPostgres = DATABASE_URL.startsWith("postgresql://") || DATABASE_URL.startsWith("postgres://")
 
-    await copyFile(sourcePath, backupPath)
-    
+    let backupFilename: string
+    let backupPath: string
+
+    if (isPostgres) {
+      // PostgreSQL: use pg_dump to create a SQL dump
+      backupFilename = `deligo-backup-${TIMESTAMP}.sql`
+      backupPath = join(BACKUP_DIR, backupFilename)
+
+      try {
+        // Use pg_dump with the DATABASE_URL
+        // The --no-password flag avoids prompts; set PGPASSWORD env if needed
+        const urlObj = new URL(DATABASE_URL)
+        const PGPASSWORD = urlObj.password || ""
+        const env = { ...process.env, PGPASSWORD }
+
+        await execAsync(
+          `pg_dump "${DATABASE_URL}" --no-owner --no-privileges -F p -f "${backupPath}"`,
+          { env, timeout: 60000 }
+        )
+      } catch (pgError) {
+        // If pg_dump is not available, create a JSON export using Prisma
+        console.warn("[Backup] pg_dump failed, falling back to JSON export:", pgError)
+        backupFilename = `deligo-backup-${TIMESTAMP}.json`
+        backupPath = join(BACKUP_DIR, backupFilename)
+
+        // Export all tables as JSON
+        const tables = [
+          "clientes", "negocios", "productos", "pedidos", "pedido_items",
+          "repartidores", "super_admins", "sesiones", "resenas",
+          "chat_mensajes", "favoritos", "direcciones", "promociones",
+          "mesas", "empleados", "config_plataforma", "deuda_historial",
+          "pedido_eventos", "repartidor_negocios", "agregados", "ingredientes",
+          "producto_agregados", "producto_ingredientes", "secciones_catalogo",
+          "seccion_productos", "opciones_compartidas", "audit_logs",
+        ]
+
+        const exportData: Record<string, unknown[]> = {}
+        for (const table of tables) {
+          try {
+            const rows = await db.$queryRawUnsafe(`SELECT * FROM ${table}`)
+            exportData[table] = rows as unknown[]
+          } catch {
+            // Table might not exist, skip
+          }
+        }
+
+        await writeFile(backupPath, JSON.stringify(exportData, null, 2), "utf-8")
+      }
+    } else {
+      // SQLite: file copy (legacy support)
+      const DB_PATH = DATABASE_URL.replace("file:", "") || "./db/custom.db"
+      const sourcePath = DB_PATH.startsWith("/") ? DB_PATH : join(process.cwd(), DB_PATH)
+      backupFilename = `deligo-backup-${TIMESTAMP}.db`
+      backupPath = join(BACKUP_DIR, backupFilename)
+
+      const { copyFile } = await import("fs/promises")
+      await copyFile(sourcePath, backupPath)
+    }
+
     const size = await stat(backupPath)
     const sizeMB = (size.size / (1024 * 1024)).toFixed(2)
 
     // Clean up old backups (keep 30)
     const files = await readdir(BACKUP_DIR)
     const backups = files
-      .filter(f => f.startsWith("deligo-backup-") && f.endsWith(".db"))
+      .filter(f => f.startsWith("deligo-backup-") && (f.endsWith(".sql") || f.endsWith(".db") || f.endsWith(".json")))
       .sort()
       .reverse()
 
@@ -74,14 +133,14 @@ export async function GET(request: NextRequest) {
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")
-    
+
     if (!existsSync(BACKUP_DIR)) {
       return NextResponse.json({ backups: [] })
     }
 
     const files = await readdir(BACKUP_DIR)
     const backups = files
-      .filter(f => f.startsWith("deligo-backup-") && f.endsWith(".db"))
+      .filter(f => f.startsWith("deligo-backup-") && (f.endsWith(".sql") || f.endsWith(".db") || f.endsWith(".json")))
       .sort()
       .reverse()
 

@@ -1,4 +1,4 @@
-// DeliGO - Prisma Schema (SQLite)
+// DeliGO - Prisma Schema (PostgreSQL)
 // Migrated from MongoDB plataforma_pedidos
 
 generator client {
@@ -186,6 +186,7 @@ model Negocio {
   repartidores        RepartidorNegocio[]
   secciones           SeccionCatalogo[]
   opcionesCompartidas OpcionesCompartidas[]
+  promociones         Promocion[]
 
   @@map("negocios")
 }
@@ -259,6 +260,7 @@ model Producto {
   ingredientes    ProductoIngrediente[]
   seccionItems    SeccionProducto[]
   itemsPedido     PedidoItem[]
+  promociones     Promocion[]
 
   @@map("productos")
 }
@@ -373,8 +375,8 @@ model Pedido {
   updatedAt             DateTime @updatedAt
 
   // Relations
-  negocio               Negocio     @relation(fields: [negocioId], references: [id])
-  cliente               Cliente?    @relation(fields: [clienteId], references: [id])
+  negocio               Negocio     @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente               Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   items                 PedidoItem[]
   mensajes              ChatMensaje[]
   resena                Resena?
@@ -399,7 +401,7 @@ model PedidoItem {
   color                 String  @default("")
 
   pedido                Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  producto              Producto? @relation(fields: [productoId], references: [id])
+  producto              Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
 
   @@map("pedido_items")
 }
@@ -420,7 +422,7 @@ model ChatMensaje {
   fecha       DateTime @default(now())
 
   pedido      Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  cliente     Cliente? @relation(fields: [clienteId], references: [id])
+  cliente     Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   clienteId   String?
 
   @@map("chat_mensajes")
@@ -444,9 +446,9 @@ model Resena {
   fechaRespuesta   DateTime?
   fecha           DateTime  @default(now())
 
-  negocio         Negocio   @relation(fields: [negocioId], references: [id])
-  cliente         Cliente   @relation(fields: [clienteId], references: [id])
-  pedido          Pedido    @relation(fields: [pedidoId], references: [id])
+  negocio         Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente         Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  pedido          Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
 
   @@map("resenas")
 }
@@ -458,7 +460,8 @@ model Repartidor {
   id               String   @id @default(cuid())
   nombre           String
   email            String   @unique
-  password         String
+  password         String?
+  googleId         String?   @unique
   telefono         String   @default("")
   pushSubscription String?
   activo           Boolean  @default(true)
@@ -515,7 +518,7 @@ model DeudaHistorial {
   fechaAbono     DateTime @default(now())
   tipo           String   @default("abono_total")
 
-  negocio        Negocio  @relation(fields: [negocioId], references: [id])
+  negocio        Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@map("deuda_historial")
 }
@@ -549,6 +552,9 @@ model Promocion {
   fechaInicio DateTime @default(now())
   fechaFin    DateTime?
   activa      Boolean  @default(true)
+
+  producto    Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@map("promociones")
 }

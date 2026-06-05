@@ -20,6 +20,37 @@ function pointInPolygon(lat: number, lng: number, polygon: { lat: number; lng: n
   return inside
 }
 
+/**
+ * Safely parse a value that might be a JSON string or already an object.
+ */
+function safeParseJSON<T>(value: T | string | undefined | null, fallback: T): T {
+  if (value === undefined || value === null) return fallback
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T
+    } catch {
+      return fallback
+    }
+  }
+  return value
+}
+
+/**
+ * Safely coerce a value to a finite number. Returns 0 if not finite.
+ */
+function toFiniteNum(value: unknown, fallback = 0): number {
+  const n = Number(value)
+  return isFinite(n) ? n : fallback
+}
+
+/**
+ * Check if an agregado ID is from a shared option (format: "opcionesCompartidasId::optionName")
+ * vs a regular Agregado table ID (format: "cl..." cuid)
+ */
+function isSharedOptionId(id: string): boolean {
+  return id.includes("::")
+}
+
 export async function POST(request: NextRequest) {
   // Concurrency protection: compute lock key before try block so it's accessible in finally
   const ip = getClientIp(request)
@@ -62,7 +93,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     // Validate required fields
-    if (!negocioId || !items || items.length === 0) {
+    if (!negocioId || !items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { error: "Faltan datos del pedido" },
         { status: 400 }
@@ -87,56 +118,245 @@ export async function POST(request: NextRequest) {
     const productoIds = items.map((item: { productoId: string }) => item.productoId).filter(Boolean)
     const dbProductos = await db.producto.findMany({
       where: { id: { in: productoIds }, negocioId },
-      select: { id: true, precio: true, descuentoActivo: true, tipoDescuento: true, valorDescuento: true },
+      select: { id: true, precio: true, descuentoActivo: true, tipoDescuento: true, valorDescuento: true, secciones: true, opcionesCompartidasIds: true },
     })
     const precioMap = new Map(dbProductos.map(p => [p.id, p]))
 
-    // Also fetch agregado prices
-    const allAgregadoIds = items.flatMap((item: { agregados: Array<{ id: string }> }) =>
+    // Separate real agregado IDs from shared option IDs
+    const allAgregadoIdsFromItems = items.flatMap((item: { agregados?: Array<{ id: string }> }) =>
       (item.agregados || []).map((a: { id: string }) => a.id)
     ).filter(Boolean)
-    const dbAgregados = await db.agregado.findMany({
-      where: { id: { in: allAgregadoIds }, negocioId },
-      select: { id: true, precio: true },
-    })
-    const agregadoPrecioMap = new Map(dbAgregados.map(a => [a.id, a.precio]))
+
+    const realAgregadoIds = allAgregadoIdsFromItems.filter((id: string) => !isSharedOptionId(id))
+    const sharedOptionIds = allAgregadoIdsFromItems.filter((id: string) => isSharedOptionId(id))
+
+    // Fetch real agregado prices from DB
+    let agregadoPrecioMap = new Map<string, number>()
+    if (realAgregadoIds.length > 0) {
+      const dbAgregados = await db.agregado.findMany({
+        where: { id: { in: realAgregadoIds }, negocioId },
+        select: { id: true, precio: true },
+      })
+      agregadoPrecioMap = new Map(dbAgregados.map(a => [a.id, a.precio]))
+    }
+
+    // Fetch shared options prices from DB
+    // Shared option IDs have format "opcionesCompartidasId::optionName"
+    // We need to extract the unique opcionesCompartidas IDs and look up prices
+    let sharedOptionsPrecioMap = new Map<string, number>()
+    if (sharedOptionIds.length > 0) {
+      const ocIds = [...new Set(sharedOptionIds.map((id: string) => id.split("::")[0]))]
+      if (ocIds.length > 0) {
+        const dbOpcionesCompartidas = await db.opcionesCompartidas.findMany({
+          where: { id: { in: ocIds }, negocioId },
+          select: { id: true, opciones: true },
+        })
+        for (const oc of dbOpcionesCompartidas) {
+          const opciones = safeParseJSON<Array<{ nombre: string; precio: number }>>(oc.opciones, [])
+          for (const opt of opciones) {
+            // Build the same key format the frontend uses: "ocId::optionName"
+            const key = `${oc.id}::${opt.nombre}`
+            sharedOptionsPrecioMap.set(key, toFiniteNum(opt.precio))
+          }
+        }
+      }
+    }
+
+    // Also fetch product secciones to validate seccion option prices
+    // The product's secciones JSON contains sections with opciones that may have prices
+    // stored as { nombre: string; precio?: number }[] — but our seed data uses string[] for opciones
+    // We build a price map from the product's secciones config for server-side validation
+    const seccionesPrecioByProduct = new Map<string, Map<string, number>>()
+    for (const dbProd of dbProductos) {
+      const secciones = safeParseJSON<Array<{ nombre: string; opciones: Array<string | { nombre: string; precio: number }>; obligatorio?: boolean; maximo?: number }>>(
+        dbProd.secciones, []
+      )
+      const priceMap = new Map<string, number>()
+      for (const section of secciones) {
+        for (const opt of section.opciones) {
+          if (typeof opt === "string") {
+            // Simple string option — no price
+            continue
+          }
+          // Object option with nombre + precio
+          const key = `${section.nombre}:${opt.nombre}`
+          priceMap.set(key, toFiniteNum(opt.precio))
+        }
+      }
+      if (priceMap.size > 0) {
+        seccionesPrecioByProduct.set(dbProd.id, priceMap)
+      }
+    }
 
     // Recalculate server-side
     let serverTotalProductos = 0
+    const processedItems: Array<{
+      productoId: string
+      nombre: string
+      precio: number
+      cantidad: number
+      agregados: Array<{ id: string; nombre: string; precio: number }>
+      secciones: Record<string, string | Record<string, number>>
+      seccionesPrecios: Record<string, number>
+      ingredientes: string[]
+      ingredientesQuitados: string[]
+      talle: string
+      color: string
+    }> = []
+
     for (const item of items) {
       const dbProd = precioMap.get(item.productoId)
       if (!dbProd) {
         return NextResponse.json({ error: `Producto ${item.productoId} no encontrado` }, { status: 400 })
       }
 
-      let unitPrice = dbProd.precio
+      // Ensure precio is a valid finite number
+      let unitPrice = toFiniteNum(dbProd.precio)
+      if (unitPrice <= 0) {
+        console.error(`[Pedido] Producto ${item.productoId} has invalid precio:`, dbProd.precio)
+        return NextResponse.json({ error: `Producto "${item.nombre || item.productoId}" tiene un precio inválido` }, { status: 400 })
+      }
 
       // Apply discount if active
-      if (dbProd.descuentoActivo && dbProd.valorDescuento > 0) {
-        if (dbProd.tipoDescuento === 'porcentaje') {
-          unitPrice = unitPrice * (1 - dbProd.valorDescuento / 100)
+      if (dbProd.descuentoActivo && toFiniteNum(dbProd.valorDescuento) > 0) {
+        if (dbProd.tipoDescuento === "porcentaje") {
+          unitPrice = unitPrice * (1 - toFiniteNum(dbProd.valorDescuento) / 100)
         } else {
-          unitPrice = Math.max(0, unitPrice - dbProd.valorDescuento)
+          unitPrice = Math.max(0, unitPrice - toFiniteNum(dbProd.valorDescuento))
         }
       }
 
-      // Validate agregado prices
+      // Validate agregado/shared option prices
       let agregadosTotal = 0
+      const validatedAgregados: Array<{ id: string; nombre: string; precio: number }> = []
       for (const agregado of (item.agregados || [])) {
-        const dbAgr = agregadoPrecioMap.get(agregado.id)
-        if (!dbAgr) {
-          return NextResponse.json({ error: `Agregado ${agregado.id} no encontrado` }, { status: 400 })
+        if (isSharedOptionId(agregado.id)) {
+          // Shared option — look up in sharedOptionsPrecioMap
+          const serverPrecio = sharedOptionsPrecioMap.get(agregado.id)
+          if (serverPrecio === undefined) {
+            // Shared option not found in DB — use the price sent by the frontend as fallback
+            // (the frontend already has the correct price from the catalog)
+            console.warn(`[Pedido] Shared option ${agregado.id} not found in DB, using frontend price: ${agregado.precio}`)
+            const fallbackPrecio = toFiniteNum(agregado.precio)
+            agregadosTotal += fallbackPrecio
+            validatedAgregados.push({
+              id: agregado.id,
+              nombre: agregado.nombre || "",
+              precio: fallbackPrecio,
+            })
+          } else {
+            agregadosTotal += serverPrecio
+            validatedAgregados.push({
+              id: agregado.id,
+              nombre: agregado.nombre || "",
+              precio: serverPrecio,
+            })
+          }
+        } else {
+          // Regular agregado — look up in agregadoPrecioMap
+          const dbAgr = agregadoPrecioMap.get(agregado.id)
+          if (!dbAgr) {
+            return NextResponse.json({ error: `Agregado ${agregado.id} no encontrado` }, { status: 400 })
+          }
+          agregadosTotal += toFiniteNum(dbAgr.precio)
+          validatedAgregados.push({
+            id: agregado.id,
+            nombre: agregado.nombre || "",
+            precio: toFiniteNum(dbAgr.precio),
+          })
         }
-        agregadosTotal += dbAgr.precio
       }
 
-      serverTotalProductos += (unitPrice + agregadosTotal) * (item.cantidad || 1)
+      // Parse secciones safely
+      const secciones = safeParseJSON<Record<string, string | Record<string, number>>>(
+        item.secciones, {}
+      )
+
+      // Calculate secciones price contribution using product's secciones config
+      const productSeccionesPrecios = seccionesPrecioByProduct.get(item.productoId)
+      let seccionesTotal = 0
+      const seccionesPrecios: Record<string, number> = {}
+
+      if (productSeccionesPrecios && productSeccionesPrecios.size > 0) {
+        for (const [sectionName, value] of Object.entries(secciones)) {
+          if (typeof value === "string") {
+            // Single select
+            const key = `${sectionName}:${value}`
+            const price = productSeccionesPrecios.get(key)
+            if (price !== undefined && isFinite(price)) {
+              seccionesTotal += price
+              seccionesPrecios[key] = price
+            }
+          } else if (typeof value === "object" && value !== null) {
+            // Multi select — value is { optionName: quantity }
+            for (const [optionName, qty] of Object.entries(value)) {
+              const key = `${sectionName}:${optionName}`
+              const price = productSeccionesPrecios.get(key)
+              if (price !== undefined && isFinite(price) && isFinite(Number(qty))) {
+                seccionesTotal += price * Number(qty)
+                seccionesPrecios[key] = price
+              }
+            }
+          }
+        }
+      }
+
+      // Also check if frontend sent seccionesPrecios directly (for backwards compatibility)
+      const frontendSeccionesPrecios = safeParseJSON<Record<string, number>>(item.seccionesPrecios, {})
+      if (Object.keys(frontendSeccionesPrecios).length > 0 && Object.keys(seccionesPrecios).length === 0) {
+        // Use frontend values as fallback
+        for (const [key, price] of Object.entries(frontendSeccionesPrecios)) {
+          if (isFinite(Number(price))) {
+            seccionesPrecios[key] = Number(price)
+          }
+        }
+      }
+
+      const cantidad = typeof item.cantidad === "number" && item.cantidad > 0 ? item.cantidad : 1
+
+      const itemTotal = (unitPrice + agregadosTotal + seccionesTotal) * cantidad
+      if (!isFinite(itemTotal)) {
+        console.error(`[Pedido] NaN detected for item ${item.productoId}:`, {
+          unitPrice, agregadosTotal, seccionesTotal, cantidad, itemTotal
+        })
+        return NextResponse.json(
+          { error: `Error en el precio del producto "${item.nombre || item.productoId}"` },
+          { status: 400 }
+        )
+      }
+
+      serverTotalProductos += itemTotal
+
+      processedItems.push({
+        productoId: item.productoId,
+        nombre: item.nombre || "",
+        precio: unitPrice,
+        cantidad,
+        agregados: validatedAgregados,
+        secciones,
+        seccionesPrecios,
+        ingredientes: safeParseJSON<string[]>(item.ingredientes, []),
+        ingredientesQuitados: safeParseJSON<string[]>(item.ingredientesQuitados, []),
+        talle: item.talle || "",
+        color: item.color || "",
+      })
     }
 
     serverTotalProductos = Math.round(serverTotalProductos * 100) / 100
 
-    // Verify totalProductos matches (with 2 decimal tolerance for rounding)
-    if (Math.abs(serverTotalProductos - totalProductos) > 2) {
+    // Validate that totals are finite numbers
+    if (!isFinite(serverTotalProductos)) {
+      console.error("[Pedido] serverTotalProductos is not finite:", serverTotalProductos)
+      return NextResponse.json(
+        { error: "Error en el cálculo del total de productos" },
+        { status: 400 }
+      )
+    }
+
+    // Verify totalProductos matches (with tolerance for rounding + shared options that frontend may calculate differently)
+    const clientTotalProductos = typeof totalProductos === "number" ? totalProductos : 0
+    if (isFinite(clientTotalProductos) && Math.abs(serverTotalProductos - clientTotalProductos) > 5) {
+      console.warn(`[Pedido] Total mismatch: server=${serverTotalProductos}, client=${clientTotalProductos}`)
       return NextResponse.json(
         { error: "El total de productos no coincide con los precios actuales" },
         { status: 400 }
@@ -208,23 +428,23 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Look up the mesa — prefer mesaId for direct lookup, fallback to negocioId+numero
-      let mesaRow: { id: string; numero: number; activa: number; empleadoId: string | null } | null = null
+      // Look up the mesa using Prisma ORM (PostgreSQL compatible)
+      let mesaRow: { id: string; numero: number; activa: boolean; empleadoId: string | null } | null = null
 
       if (mesaId) {
-        // Direct lookup by ID (more efficient, avoids extra query)
-        const mesasById = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE id = ${mesaId} AND negocioId = ${negocioId} LIMIT 1`
-        if (mesasById.length > 0) mesaRow = mesasById[0]
+        const mesaById = await db.mesa.findFirst({
+          where: { id: mesaId, negocioId },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        mesaRow = mesaById
       }
 
       if (!mesaRow && mesaNumero) {
-        // Fallback: look up by negocioId + numero
-        const mesasByNumero = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE negocioId = ${negocioId} AND numero = ${mesaNumero} LIMIT 1`
-        if (mesasByNumero.length > 0) mesaRow = mesasByNumero[0]
+        const mesaByNumero = await db.mesa.findFirst({
+          where: { negocioId, numero: mesaNumero },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        mesaRow = mesaByNumero
       }
 
       if (!mesaRow) {
@@ -244,33 +464,33 @@ export async function POST(request: NextRequest) {
       mesaId = mesaRow.id
       mesaNumero = mesaRow.numero
 
-      // Auto-resolve mozo from mesa assignment (always — this is the primary source of truth)
-      const mesaEmpleadoId = mesaRow.empleadoId
-      if (mesaEmpleadoId) {
-        const mesaEmpleados = await db.$queryRaw<
-          Array<{ id: string; nombre: string; codigo: string }>
-        >`SELECT id, nombre, codigo FROM empleados WHERE id = ${mesaEmpleadoId} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-        if (mesaEmpleados.length > 0) {
-          empleadoId = mesaEmpleados[0].id
-          empleadoNombre = mesaEmpleados[0].nombre
+      // Auto-resolve mozo from mesa assignment
+      if (mesaRow.empleadoId) {
+        const empleado = await db.empleado.findFirst({
+          where: { id: mesaRow.empleadoId!, negocioId, activo: true },
+          select: { id: true, nombre: true },
+        })
+        if (empleado) {
+          empleadoId = empleado.id
+          empleadoNombre = empleado.nombre
         }
       }
     }
 
     // Resolve empleado from codigo if provided (overrides mesa auto-assignment)
-    // This handles the mozo link flow where the mozo explicitly opened the order
     if (empleadoCodigo && isMesaOrder) {
-      const empleados = await db.$queryRaw<
-        Array<{ id: string; nombre: string }>
-      >`SELECT id, nombre FROM empleados WHERE codigo = ${empleadoCodigo} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-      if (empleados.length > 0) {
-        empleadoId = empleados[0].id
-        empleadoNombre = empleados[0].nombre
+      const empleadoByCodigo = await db.empleado.findFirst({
+        where: { codigo: empleadoCodigo, negocioId, activo: true },
+        select: { id: true, nombre: true },
+      })
+      if (empleadoByCodigo) {
+        empleadoId = empleadoByCodigo.id
+        empleadoNombre = empleadoByCodigo.nombre
       }
     }
 
     // Determine delivery-specific fields
-    let finalPrecioDelivery = isMesaOrder ? 0 : (precioDelivery || 0)
+    let finalPrecioDelivery = isMesaOrder ? 0 : toFiniteNum(precioDelivery)
 
     // Server-side delivery zone validation for delivery orders
     if (metodoEntrega === "domicilio" && !isMesaOrder && lat && lng) {
@@ -291,10 +511,10 @@ export async function POST(request: NextRequest) {
           )
         }
         // Use the server-validated zone price (don't trust client)
-        finalPrecioDelivery = foundZone.precio
+        finalPrecioDelivery = toFiniteNum(foundZone.precio)
       } else {
         // Simple mode: use the negocio's flat price
-        finalPrecioDelivery = negocio.precioDelivery
+        finalPrecioDelivery = toFiniteNum(negocio.precioDelivery)
       }
     }
     const finalDireccion = isMesaOrder ? null : (direccion || null)
@@ -305,64 +525,69 @@ export async function POST(request: NextRequest) {
     const MESA_SERVICE_FEE_ENABLED = false
     const mesaTarifa = MESA_SERVICE_FEE_ENABLED ? tarifaServicio : 0
     // Calculate server-validated total
-    const serverTotal = serverTotalProductos + (isMesaOrder ? 0 : (finalPrecioDelivery || 0)) + (isMesaOrder ? mesaTarifa : tarifaServicio)
-    const finalTotal = serverTotal
+    const finalTarifaServicio = toFiniteNum(tarifaServicio)
+    const serverTotal = serverTotalProductos + (isMesaOrder ? 0 : finalPrecioDelivery) + (isMesaOrder ? mesaTarifa : finalTarifaServicio)
+    const finalTotal = Math.round(serverTotal * 100) / 100
+
+    // Final validation — ensure no NaN
+    if (!isFinite(finalTotal) || !isFinite(serverTotalProductos)) {
+      console.error("[Pedido] Final total is not finite:", { finalTotal, serverTotalProductos })
+      return NextResponse.json(
+        { error: "Error en el cálculo del total del pedido" },
+        { status: 400 }
+      )
+    }
+
+    // Build pedido data with explicit relations for PostgreSQL
+    const pedidoData: Record<string, unknown> = {
+      negocio: { connect: { id: negocioId } },
+      negocioSlug: negocio.slug,
+      negocioNombre: negocio.nombre,
+      clienteNombre,
+      clienteTelefono,
+      total: finalTotal,
+      totalProductos: serverTotalProductos,
+      tarifaServicio: finalTarifaServicio,
+      precioDelivery: finalPrecioDelivery,
+      metodoEntrega: metodoEntrega || "retiro",
+      metodoPago: metodoPago || "efectivo",
+      notas: notas || null,
+      direccion: finalDireccion,
+      referencia: finalReferencia,
+      lat: finalLat,
+      lng: finalLng,
+      negocioLat: negocio.lat,
+      negocioLng: negocio.lng,
+      mesaId: isMesaOrder ? (mesaId || null) : null,
+      mesaNumero: isMesaOrder ? (mesaNumero ?? null) : null,
+      empleadoId,
+      empleadoNombre,
+      estado: "recibido",
+      items: {
+        create: processedItems.map((item) => ({
+          productoId: item.productoId,
+          nombre: item.nombre,
+          precio: item.precio,
+          cantidad: item.cantidad,
+          agregados: JSON.stringify(item.agregados || []),
+          secciones: JSON.stringify(item.secciones || {}),
+          ingredientes: JSON.stringify(item.ingredientes || []),
+          ingredientesQuitados: JSON.stringify(item.ingredientesQuitados || []),
+          seccionesPrecios: JSON.stringify(item.seccionesPrecios || {}),
+          talle: item.talle || "",
+          color: item.color || "",
+        })),
+      },
+    }
+
+    // Connect cliente if authenticated
+    if (clienteId) {
+      pedidoData.cliente = { connect: { id: clienteId } }
+    }
 
     // Create pedido
     const pedido = await db.pedido.create({
-      data: {
-        negocioId,
-        negocioSlug: negocio.slug,
-        negocioNombre: negocio.nombre,
-        clienteId,
-        clienteNombre,
-        clienteTelefono,
-        total: finalTotal,
-        totalProductos: serverTotalProductos,
-        tarifaServicio,
-        precioDelivery: finalPrecioDelivery,
-        metodoEntrega: metodoEntrega || "retiro",
-        metodoPago: metodoPago || "efectivo",
-        notas: notas || null,
-        direccion: finalDireccion,
-        referencia: finalReferencia,
-        lat: finalLat,
-        lng: finalLng,
-        negocioLat: negocio.lat,
-        negocioLng: negocio.lng,
-        mesaId: isMesaOrder ? (mesaId || null) : null,
-        mesaNumero: isMesaOrder ? (mesaNumero ?? null) : null,
-        empleadoId,
-        empleadoNombre,
-        estado: "recibido",
-        items: {
-          create: items.map(
-            (item: {
-              productoId: string
-              nombre: string
-              precio: number
-              cantidad: number
-              agregados: Array<{ id: string; nombre: string; precio: number }>
-              secciones: Record<string, string>
-              ingredientesQuitados: string[]
-              talle: string
-              color: string
-            }) => ({
-              productoId: item.productoId,
-              nombre: item.nombre,
-              precio: item.precio,
-              cantidad: item.cantidad,
-              agregados: JSON.stringify(item.agregados || []),
-              secciones: JSON.stringify(item.secciones || {}),
-              ingredientes: JSON.stringify([]),
-              ingredientesQuitados: JSON.stringify(item.ingredientesQuitados || []),
-              seccionesPrecios: JSON.stringify({}),
-              talle: item.talle || "",
-              color: item.color || "",
-            })
-          ),
-        },
-      },
+      data: pedidoData,
       include: {
         items: true,
       },
@@ -374,7 +599,7 @@ export async function POST(request: NextRequest) {
       await db.negocio.update({
         where: { id: negocioId },
         data: {
-          deudaTarifa: negocio.deudaTarifa + tarifaServicio,
+          deudaTarifa: negocio.deudaTarifa + finalTarifaServicio,
         },
       })
     }
@@ -389,7 +614,7 @@ export async function POST(request: NextRequest) {
         const notification = newOrderNotification(
           pedido.id,
           clienteNombre,
-          total
+          finalTotal
         )
         await sendPushNotification(negocioWithPush.pushSubscription, notification)
       }
