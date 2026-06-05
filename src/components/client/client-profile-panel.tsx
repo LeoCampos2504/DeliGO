@@ -1461,6 +1461,8 @@ function AddressMapPicker({
   const markerRef = useRef<L.Marker | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
+  const [gpsUsed, setGpsUsed] = useState(false)
+  const gpsAutoRequestedRef = useRef(false)
   const coordsRef = useRef<[number, number]>(
     lat !== null && lng !== null ? [lat, lng] : [-26.1856, -58.1732]
   )
@@ -1548,6 +1550,38 @@ function AddressMapPicker({
     markerRef.current = marker
     setTimeout(() => setIsMapReady(true), 0)
 
+    // Auto-request GPS if no initial coordinates set
+    if (lat === null && lng === null && !gpsAutoRequestedRef.current) {
+      gpsAutoRequestedRef.current = true
+      setTimeout(() => {
+        if (navigator.geolocation && mapInstanceRef.current) {
+          setIsLocating(true)
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const newCoords: [number, number] = [
+                Math.round(position.coords.latitude * 1000000) / 1000000,
+                Math.round(position.coords.longitude * 1000000) / 1000000,
+              ]
+              coordsRef.current = newCoords
+              onCoordsChange(newCoords[0], newCoords[1])
+              if (mapInstanceRef.current && markerRef.current) {
+                mapInstanceRef.current.setView(newCoords, 16)
+                markerRef.current.setLatLng(newCoords)
+              }
+              reverseGeocode(newCoords)
+              setGpsUsed(true)
+              setIsLocating(false)
+            },
+            () => {
+              // Auto-request failed — user will see the manual CTA button
+              setIsLocating(false)
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+          )
+        }
+      }, 800)
+    }
+
     return () => {
       map.remove()
       mapInstanceRef.current = null
@@ -1581,6 +1615,7 @@ function AddressMapPicker({
           markerRef.current.setLatLng(newCoords)
         }
         reverseGeocode(newCoords)
+        setGpsUsed(true)
         setIsLocating(false)
       },
       () => { setIsLocating(false) },
@@ -1589,25 +1624,59 @@ function AddressMapPicker({
   }
 
   return (
-    <div className="relative rounded-xl overflow-hidden border border-border/50">
-      <div
-        ref={mapContainerRef}
-        className="w-full h-[200px] bg-muted/30"
-        style={{ zIndex: 0 }}
-      />
-      {/* GPS button */}
-      <button
-        onClick={handleGetLocation}
-        disabled={isLocating}
-        className="absolute top-2 right-2 z-[1000] w-8 h-8 rounded-lg bg-background border border-border shadow-md flex items-center justify-center hover:bg-muted active:scale-95 transition-all"
-        title="Mi ubicación"
-      >
-        <Crosshair className={cn("h-4 w-4 text-primary", isLocating && "animate-spin")} />
-      </button>
-      {!isMapReady && (
-        <div className="absolute inset-0 bg-muted/50 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
+    <div className="space-y-2">
+      <div className="relative rounded-xl overflow-hidden border border-border/50">
+        <div
+          ref={mapContainerRef}
+          className="w-full h-[200px] bg-muted/30"
+          style={{ zIndex: 0 }}
+        />
+        {/* GPS button overlay */}
+        <button
+          onClick={handleGetLocation}
+          disabled={isLocating}
+          className="absolute top-2 right-2 z-[1000] w-9 h-9 rounded-lg bg-background border border-border shadow-md flex items-center justify-center hover:bg-muted active:scale-95 transition-all"
+          title="Mi ubicación"
+        >
+          {isLocating ? (
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          ) : (
+            <Crosshair className="h-4 w-4 text-primary" />
+          )}
+        </button>
+        {!isMapReady && (
+          <div className="absolute inset-0 bg-muted/50 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        )}
+      </div>
+      {/* GPS CTA — Prominent button when no initial coordinates */}
+      {lat === null && lng === null && !gpsUsed && (
+        <button
+          onClick={handleGetLocation}
+          disabled={isLocating}
+          className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl font-bold text-white text-sm transition-all active:scale-[0.98] bg-primary"
+          style={{
+            boxShadow: "0 4px 14px hsl(var(--primary) / 0.3)",
+          }}
+        >
+          {isLocating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Obteniendo ubicación...
+            </>
+          ) : (
+            <>
+              <Crosshair className="h-4 w-4" />
+              Usar mi ubicación actual
+            </>
+          )}
+        </button>
+      )}
+      {gpsUsed && (
+        <p className="text-[10px] text-muted-foreground text-center">
+          Arrastrá el marcador para ajustar la posición si es necesario.
+        </p>
       )}
     </div>
   )

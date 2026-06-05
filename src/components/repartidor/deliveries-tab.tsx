@@ -16,6 +16,11 @@ import {
   Banknote,
   CreditCard,
   Package,
+  Crosshair,
+  Loader2,
+  AlertCircle,
+  Wifi,
+  WifiOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -84,7 +89,7 @@ interface DeliveriesTabProps {
 // Deliveries Tab
 // ============================================
 export function DeliveriesTab({ pedidos, isLoading, onRefresh }: DeliveriesTabProps) {
-  const { trackingActive } = useRepartidorTracking(pedidos)
+  const { trackingActive, permissionStatus, requestPermission } = useRepartidorTracking(pedidos)
 
   if (isLoading) {
     return <DeliveriesSkeleton />
@@ -117,7 +122,7 @@ export function DeliveriesTab({ pedidos, isLoading, onRefresh }: DeliveriesTabPr
         <p className="text-sm font-semibold text-muted-foreground">
           {pedidos.length} entrega{pedidos.length !== 1 ? "s" : ""} en camino
         </p>
-        {trackingActive && (
+        {trackingActive ? (
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -127,8 +132,55 @@ export function DeliveriesTab({ pedidos, isLoading, onRefresh }: DeliveriesTabPr
               Compartiendo ubicación
             </span>
           </div>
-        )}
+        ) : permissionStatus === "denied" ? (
+          <div className="flex items-center gap-1.5">
+            <WifiOff className="h-3.5 w-3.5 text-red-500" />
+            <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
+              GPS desactivado
+            </span>
+          </div>
+        ) : permissionStatus === "prompting" ? (
+          <div className="flex items-center gap-1.5">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              Solicitando GPS...
+            </span>
+          </div>
+        ) : null}
       </div>
+
+      {/* GPS Permission Request Banner */}
+      {permissionStatus === "denied" && (
+        <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+              Ubicación no disponible
+            </p>
+            <p className="text-xs text-red-600/70 dark:text-red-400/70 mt-0.5">
+              Necesitás habilitar el acceso a tu ubicación para que los clientes puedan ver tu posición en tiempo real.
+            </p>
+            <button
+              onClick={requestPermission}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 active:scale-95 transition-all"
+            >
+              <Crosshair className="h-3.5 w-3.5" />
+              Habilitar ubicación
+            </button>
+          </div>
+        </div>
+      )}
+
+      {permissionStatus === "unknown" && (
+        <button
+          onClick={requestPermission}
+          className="w-full flex items-center justify-center gap-2.5 h-12 rounded-xl font-bold text-white text-sm transition-all active:scale-[0.98] bg-emerald-600 hover:bg-emerald-700"
+          style={{ boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)" }}
+        >
+          <Crosshair className="h-5 w-5" />
+          Activar seguimiento GPS
+        </button>
+      )}
 
       <AnimatePresence>
         {pedidos.map((pedido) => (

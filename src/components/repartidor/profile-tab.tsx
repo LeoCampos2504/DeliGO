@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   User,
@@ -14,6 +14,10 @@ import {
   Bike,
   Bell,
   BellOff,
+  Crosshair,
+  MapPin,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,6 +51,111 @@ interface PerfilData {
 interface ProfileTabProps {
   perfil: PerfilData | undefined
   isLoading: boolean
+}
+
+// ============================================
+// GPS Permission Section
+// ============================================
+function GpsPermissionSection() {
+  const [permissionState, setPermissionState] = useState<"unknown" | "granted" | "denied" | "prompting">("unknown")
+  const mountedRef = useRef(false)
+
+  // Check permission on mount — uses a flag to only run once
+  useEffect(() => {
+    if (mountedRef.current) return
+    mountedRef.current = true
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      return // stays "unknown" which will show the CTA
+    }
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "geolocation" }).then((result) => {
+        const newState = result.state === "granted" ? "granted" as const : result.state === "denied" ? "denied" as const : "unknown" as const
+        setPermissionState(newState)
+        result.addEventListener("change", () => {
+          const updated = result.state === "granted" ? "granted" as const : result.state === "denied" ? "denied" as const : "unknown" as const
+          setPermissionState(updated)
+        })
+      })
+    }
+  }, [])
+
+  const requestPermission = () => {
+    if (!navigator.geolocation) return
+    setPermissionState("prompting")
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setPermissionState("granted")
+      },
+      (error) => {
+        setPermissionState(error.code === 1 ? "denied" : "unknown")
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {permissionState === "granted" ? (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+              Ubicación activada
+            </p>
+            <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70">
+              Tu ubicación se comparte en tiempo real cuando tenés entregas activas.
+            </p>
+          </div>
+        </div>
+      ) : permissionState === "denied" ? (
+        <div className="flex items-start gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+              Ubicación desactivada
+            </p>
+            <p className="text-xs text-red-600/70 dark:text-red-400/70">
+              Necesitás habilitar el GPS para que los clientes puedan ver tu posición durante las entregas.
+            </p>
+            <button
+              onClick={requestPermission}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 active:scale-95 transition-all"
+            >
+              <Crosshair className="h-3.5 w-3.5" />
+              Habilitar ubicación
+            </button>
+          </div>
+        </div>
+      ) : permissionState === "prompting" ? (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
+          <Loader2 className="h-5 w-5 animate-spin text-amber-500 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+              Solicitando permiso...
+            </p>
+            <p className="text-xs text-amber-600/70 dark:text-amber-400/70">
+              Aceptá el permiso de ubicación en tu navegador.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Activá el GPS para compartir tu ubicación en tiempo real con los clientes durante las entregas.
+          </p>
+          <button
+            onClick={requestPermission}
+            className="w-full flex items-center justify-center gap-2 h-10 rounded-xl font-bold text-white text-sm transition-all active:scale-[0.98] bg-primary hover:bg-primary/90"
+            style={{ boxShadow: "0 4px 14px hsl(var(--primary) / 0.3)" }}
+          >
+            <Crosshair className="h-4 w-4" />
+            Activar GPS
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ============================================
@@ -285,6 +394,15 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* GPS Location Permission */}
+      <div className="rounded-2xl bg-card border border-border/50 p-4 space-y-3">
+        <h3 className="font-semibold text-sm flex items-center gap-2">
+          <MapPin className="h-4 w-4 text-primary" />
+          Seguimiento GPS
+        </h3>
+        <GpsPermissionSection />
       </div>
 
       {/* Notifications */}

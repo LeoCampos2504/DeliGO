@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useCallback, useState } from "react"
 import { io, Socket } from "socket.io-client"
 
 interface ActiveDelivery {
@@ -8,26 +8,66 @@ interface ActiveDelivery {
   estado: string
 }
 
+type PermissionStatus = "unknown" | "granted" | "denied" | "prompting"
+
 /**
- * Automatically sends GPS location to the server every 5 seconds
- * for all active deliveries (en_camino).
- * Also broadcasts via Socket.IO for real-time client tracking.
+ * Automatically sends GPS location to the server for real-time tracking.
  *
- * - Uses getCurrentPosition on an interval (battery-friendly)
+ * - Uses watchPosition for continuous real-time location updates
+ * - Falls back to getCurrentPosition on interval if watchPosition fails
  * - Pauses when the tab is hidden (document.visibilityState)
- * - Silently handles geolocation errors / denied permissions
+ * - Provides permission status for UI feedback
  * - Emits location-update via Socket.IO for instant client updates
+ * - Also persists via HTTP POST for polling fallback
  */
 export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const watchIdRef = useRef<number | null>(null)
   const deliveriesRef = useRef<ActiveDelivery[]>(activeDeliveries)
   const socketRef = useRef<Socket | null>(null)
   const userIdRef = useRef<string | null>(null)
+  const lastHttpSendRef = useRef<number>(0)
+  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>("unknown")
+  const [lastLocationTime, setLastLocationTime] = useState<Date | null>(null)
 
   // Keep the ref in sync so the interval callback always has fresh data
   useEffect(() => {
     deliveriesRef.current = activeDeliveries
   }, [activeDeliveries])
+
+  // Check initial permission status
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setPermissionStatus("denied")
+      return
+    }
+
+    // Try to check permission via Permissions API
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "geolocation" }).then((result) => {
+        if (result.state === "granted") {
+          setPermissionStatus("granted")
+        } else if (result.state === "denied") {
+          setPermissionStatus("denied")
+        } else {
+          setPermissionStatus("unknown")
+        }
+
+        // Listen for permission changes
+        result.addEventListener("change", () => {
+          if (result.state === "granted") {
+            setPermissionStatus("granted")
+          } else if (result.state === "denied") {
+            setPermissionStatus("denied")
+          } else {
+            setPermissionStatus("unknown")
+          }
+        })
+      }).catch(() => {
+        // Permissions API not available — status stays unknown
+      })
+    }
+  }, [])
 
   // Connect to Socket.IO for real-time location broadcasting
   useEffect(() => {
@@ -101,27 +141,35 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       (d) => d.estado === "en_camino"
     )
 
+    if (deliveries.length === 0) return
+
     const timestamp = new Date().toISOString()
+    setLastLocationTime(new Date())
 
-    // 1. Send via HTTP (persists to DB for polling fallback)
-    await Promise.allSettled(
-      deliveries.map(async (delivery) => {
-        try {
-          const res = await fetch("/api/repartidor/ubicacion", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pedidoId: delivery.id, lat, lng }),
-          })
-          if (!res.ok) {
-            // Silently ignore — we'll retry next interval
+    // 1. Send via HTTP (persists to DB for polling fallback) — throttle to every 3s
+    const now = Date.now()
+    if (now - lastHttpSendRef.current > 3000) {
+      lastHttpSendRef.current = now
+
+      Promise.allSettled(
+        deliveries.map(async (delivery) => {
+          try {
+            const res = await fetch("/api/repartidor/ubicacion", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pedidoId: delivery.id, lat, lng }),
+            })
+            if (!res.ok) {
+              // Silently ignore — we'll retry next interval
+            }
+          } catch {
+            // Network error — silently skip
           }
-        } catch {
-          // Network error — silently skip
-        }
-      })
-    )
+        })
+      )
+    }
 
-    // 2. Emit via Socket.IO for real-time client tracking
+    // 2. Emit via Socket.IO for real-time client tracking (always, no throttle)
     if (socketRef.current?.connected) {
       deliveries.forEach((delivery) => {
         socketRef.current?.emit("location-update", {
@@ -134,59 +182,133 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     }
   }, [])
 
-  const tick = useCallback(() => {
-    // Don't send if tab is hidden
-    if (document.visibilityState !== "visible") return
+  // Request geolocation permission explicitly — to be called from a user gesture
+  const requestPermission = useCallback(() => {
+    if (!navigator.geolocation) {
+      setPermissionStatus("denied")
+      return
+    }
 
-    const hasActive = deliveriesRef.current.some(
-      (d) => d.estado === "en_camino"
-    )
-    if (!hasActive) return
-
-    if (!navigator.geolocation) return
+    setPermissionStatus("prompting")
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const { latitude: lat, longitude: lng } = position.coords
-        sendLocation(lat, lng)
+        setPermissionStatus("granted")
+        // Send initial location immediately
+        sendLocation(position.coords.latitude, position.coords.longitude)
       },
-      () => {
-        // Permission denied, position unavailable, timeout — silently skip
+      (error) => {
+        if (error.code === 1) {
+          setPermissionStatus("denied")
+        } else {
+          setPermissionStatus("unknown")
+        }
       },
       {
-        enableHighAccuracy: false,
-        timeout: 4000,
-        maximumAge: 3000,
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
     )
   }, [sendLocation])
 
+  // Start watchPosition for real-time tracking when permission is granted
   useEffect(() => {
-    const enCamino = activeDeliveries.filter(
-      (d) => d.estado === "en_camino"
-    )
+    const enCamino = activeDeliveries.filter((d) => d.estado === "en_camino")
 
-    if (enCamino.length > 0 && !intervalRef.current) {
-      tick()
-      intervalRef.current = setInterval(tick, 5000)
+    // Clean up if no active deliveries
+    if (enCamino.length === 0) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      return
     }
 
-    if (enCamino.length === 0 && intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
+    // Only start tracking if permission is granted
+    if (permissionStatus !== "granted") return
+
+    // Use watchPosition for real-time continuous tracking
+    if (watchIdRef.current === null && navigator.geolocation) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng } = position.coords
+          // Only send when tab is visible
+          if (document.visibilityState === "visible") {
+            sendLocation(lat, lng)
+          }
+        },
+        () => {
+          // watchPosition failed — fall back to interval polling
+          if (intervalRef.current === null) {
+            const tick = () => {
+              if (document.visibilityState !== "visible") return
+              const hasActive = deliveriesRef.current.some(
+                (d) => d.estado === "en_camino"
+              )
+              if (!hasActive) return
+              if (!navigator.geolocation) return
+
+              navigator.geolocation.getCurrentPosition(
+                (position) => {
+                  const { latitude: lat, longitude: lng } = position.coords
+                  sendLocation(lat, lng)
+                },
+                () => {
+                  // Silently skip
+                },
+                {
+                  enableHighAccuracy: false,
+                  timeout: 4000,
+                  maximumAge: 3000,
+                }
+              )
+            }
+            tick()
+            intervalRef.current = setInterval(tick, 5000)
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 2000,
+        }
+      )
     }
 
     return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+        watchIdRef.current = null
+      }
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
         intervalRef.current = null
       }
     }
-  }, [activeDeliveries, tick])
+  }, [activeDeliveries, permissionStatus, sendLocation])
 
-  const trackingActive = activeDeliveries.some(
+  // Also auto-request permission when deliveries become active
+  useEffect(() => {
+    const enCamino = activeDeliveries.filter((d) => d.estado === "en_camino")
+    if (enCamino.length > 0 && permissionStatus === "unknown") {
+      // Auto-request — browsers may show the prompt on first geolocation call
+      requestPermission()
+    }
+  }, [activeDeliveries, permissionStatus, requestPermission])
+
+  const trackingActive = permissionStatus === "granted" && activeDeliveries.some(
     (d) => d.estado === "en_camino"
   )
 
-  return { trackingActive }
+  return {
+    trackingActive,
+    permissionStatus,
+    lastLocationTime,
+    requestPermission,
+  }
 }
