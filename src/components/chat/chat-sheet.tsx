@@ -55,11 +55,8 @@ export function ChatSheet() {
     setConnecting(true)
     setConnectionFailed(false)
 
-    // In development, connect directly to the chat service on port 3003
-    // In production, use relative URL (Caddy/Next.js rewrite handles routing)
-    const chatUrl = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3003'
-      : undefined // relative URL — Next.js rewrite proxies /socket.io to port 3003
+    // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
+    const chatUrl = "/?XTransformPort=3003"
 
     const socket = io(chatUrl, {
       transports: ["websocket", "polling"],

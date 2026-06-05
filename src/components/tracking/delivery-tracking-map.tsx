@@ -55,7 +55,8 @@ interface TrackingData {
 // ============================================
 const DEFAULT_CENTER: [number, number] = [-26.1856, -58.1732]
 const DEFAULT_ZOOM = 15
-const POLL_INTERVAL = 5_000 // 5 seconds (fallback when no Socket.IO)
+const POLL_INTERVAL = 8_000 // 8 seconds (fallback when no Socket.IO)
+const SOCKET_POLL_HEARTBEAT = 20_000 // 20 seconds heartbeat even with Socket.IO
 
 // ============================================
 // Custom marker icons
@@ -311,9 +312,7 @@ export function DeliveryTrackingMap({
   useEffect(() => {
     if (!open) return
 
-    const chatUrl = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3003'
-      : undefined
+    const chatUrl = "/?XTransformPort=3003"
 
     const socket = io(chatUrl, {
       transports: ["websocket", "polling"],
@@ -387,7 +386,7 @@ export function DeliveryTrackingMap({
   // Slow polling even with Socket.IO as heartbeat
   useEffect(() => {
     if (!open || !isLiveSocket) return
-    const interval = setInterval(fetchTracking, 15000)
+    const interval = setInterval(fetchTracking, SOCKET_POLL_HEARTBEAT)
     return () => clearInterval(interval)
   }, [open, fetchTracking, isLiveSocket])
 

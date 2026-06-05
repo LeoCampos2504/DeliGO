@@ -27,6 +27,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   const socketRef = useRef<Socket | null>(null)
   const userIdRef = useRef<string | null>(null)
   const lastHttpSendRef = useRef<number>(0)
+  const lastSocketEmitRef = useRef<number>(0)
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>("unknown")
   const [lastLocationTime, setLastLocationTime] = useState<Date | null>(null)
 
@@ -91,9 +92,8 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (!user) return
       userIdRef.current = user.id
 
-      const chatUrl = process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3003'
-        : undefined
+      // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
+      const chatUrl = "/?XTransformPort=3003"
 
       const socket = io(chatUrl, {
         transports: ["websocket", "polling"],
@@ -146,9 +146,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const timestamp = new Date().toISOString()
     setLastLocationTime(new Date())
 
-    // 1. Send via HTTP (persists to DB for polling fallback) — throttle to every 3s
+    // 1. Send via HTTP (persists to DB for polling fallback) — throttle to every 5s
     const now = Date.now()
-    if (now - lastHttpSendRef.current > 3000) {
+    if (now - lastHttpSendRef.current > 5000) {
       lastHttpSendRef.current = now
 
       Promise.allSettled(
@@ -169,16 +169,21 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       )
     }
 
-    // 2. Emit via Socket.IO for real-time client tracking (always, no throttle)
+    // 2. Emit via Socket.IO for real-time client tracking — throttle to every 2s
+    //    This prevents flooding with GPS updates when many orders are active
     if (socketRef.current?.connected) {
-      deliveries.forEach((delivery) => {
-        socketRef.current?.emit("location-update", {
-          pedidoId: delivery.id,
-          lat,
-          lng,
-          timestamp,
+      const lastSocketEmit = lastSocketEmitRef.current
+      if (now - lastSocketEmit > 2000) {
+        lastSocketEmitRef.current = now
+        deliveries.forEach((delivery) => {
+          socketRef.current?.emit("location-update", {
+            pedidoId: delivery.id,
+            lat,
+            lng,
+            timestamp,
+          })
         })
-      })
+      }
     }
   }, [])
 

@@ -355,6 +355,11 @@ model Pedido {
   negocioLat            Float?
   negocioLng            Float?
 
+  // Ubicación repartidor en tiempo real (seguimiento delivery)
+  repartidorLat         Float?
+  repartidorLng         Float?
+  repartidorLastUpdate  DateTime?
+
   // Pago
   metodoPago            String   @default("efectivo") // efectivo, transferencia
   notas                 String?

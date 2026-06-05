@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Bell, MapPin, Check, X, Shield, Loader2 } from "lucide-react"
+import { Bell, X, Shield, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
 
@@ -10,50 +10,33 @@ const STORAGE_KEY = "deligo-permissions-prompted"
 
 type PromptState = "idle" | "showing" | "requesting" | "done"
 
-interface PermissionStatus {
-  notifications: NotificationPermission | "default"
-  location: PermissionState | "prompt"
-}
-
 /**
- * PermissionPrompt — Auto-requests notification & location permissions
+ * PermissionPrompt — Auto-requests notification permissions after login
  *
  * Shows a friendly dialog after login when the user hasn't granted
- * permissions yet. Only prompts once per device (tracked via localStorage).
+ * notification permission yet. Only prompts once per device (tracked via localStorage).
  *
- * - Cliente: notifications only
- * - Repartidor: notifications + location
- * - Negocio: notifications only
+ * Permission strategy:
+ * - Notifications: requested here for ALL roles (cliente, negocio, repartidor)
+ * - Location (cliente): requested contextually when adding a delivery address
+ * - Location (negocio): requested contextually when adding business location
+ * - Real-time GPS (repartidor): requested contextually when starting delivery tracking
  */
 export function PermissionPrompt() {
   const [state, setState] = useState<PromptState>("idle")
-  const [permissions, setPermissions] = useState<PermissionStatus>({
-    notifications: "default",
-    location: "prompt",
-  })
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission | "default">("default")
 
   const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
-  // Check current permission states
-  const checkPermissions = useCallback(async () => {
-    const notifPerm: NotificationPermission | "default" =
+  // Check current notification permission
+  const checkPermission = useCallback(() => {
+    const perm =
       typeof window !== "undefined" && "Notification" in window
         ? Notification.permission
         : "default"
-
-    let locPerm: PermissionState | "prompt" = "prompt"
-    try {
-      if (typeof window !== "undefined" && navigator.permissions) {
-        const result = await navigator.permissions.query({ name: "geolocation" })
-        locPerm = result.state
-      }
-    } catch {
-      // permissions.query not supported for geolocation in some browsers
-    }
-
-    setPermissions({ notifications: notifPerm, location: locPerm })
-    return { notifications: notifPerm, location: locPerm }
+    setNotifPerm(perm)
+    return perm
   }, [])
 
   useEffect(() => {
@@ -67,15 +50,10 @@ export function PermissionPrompt() {
     if (alreadyPrompted) return
 
     // Delay showing the prompt so it doesn't clash with login animation
-    const timer = setTimeout(async () => {
-      const perms = await checkPermissions()
+    const timer = setTimeout(() => {
+      const perm = checkPermission()
 
-      // Determine if we need to prompt
-      const needsNotif = perms.notifications === "default"
-      const needsLocation =
-        uType === "repartidor" && perms.location === "prompt"
-
-      if (needsNotif || needsLocation) {
+      if (perm === "default") {
         setState("showing")
       } else {
         // Already granted or denied, mark as prompted
@@ -84,59 +62,41 @@ export function PermissionPrompt() {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [isAuth, uType, checkPermissions])
+  }, [isAuth, uType, checkPermission])
 
   const handleAccept = async () => {
     setState("requesting")
 
     try {
-      // Request notification permission
-      if (permissions.notifications === "default") {
-        const result = await Notification.requestPermission()
-        setPermissions((prev) => ({ ...prev, notifications: result }))
+      const result = await Notification.requestPermission()
+      setNotifPerm(result)
 
-        // If granted, also subscribe to push
-        if (result === "granted") {
-          try {
-            const registration = await navigator.serviceWorker.ready
-            const sub = await registration.pushManager.getSubscription()
-            if (!sub) {
-              // Get VAPID key and subscribe
-              const vapidRes = await fetch("/api/push/vapid-key")
-              if (vapidRes.ok) {
-                const { publicKey } = await vapidRes.json()
-                if (publicKey) {
-                  const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: publicKey,
-                  })
-                  await fetch("/api/push/subscribe", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      subscription: JSON.stringify(subscription),
-                    }),
-                  })
-                }
+      // If granted, also subscribe to push
+      if (result === "granted") {
+        try {
+          const registration = await navigator.serviceWorker.ready
+          const sub = await registration.pushManager.getSubscription()
+          if (!sub) {
+            const vapidRes = await fetch("/api/push/vapid-key")
+            if (vapidRes.ok) {
+              const { publicKey } = await vapidRes.json()
+              if (publicKey) {
+                const subscription = await registration.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey: publicKey,
+                })
+                await fetch("/api/push/subscribe", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    subscription: JSON.stringify(subscription),
+                  }),
+                })
               }
             }
-          } catch (err) {
-            console.error("Push subscription error:", err)
           }
-        }
-      }
-
-      // Request location permission (repartidor only)
-      if (uType === "repartidor" && permissions.location === "prompt") {
-        try {
-          await new Promise<void>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(
-              () => resolve(),
-              () => resolve() // Don't reject on denial
-            )
-          })
-        } catch {
-          // Silently handle
+        } catch (err) {
+          console.error("Push subscription error:", err)
         }
       }
     } catch (err) {
@@ -152,13 +112,21 @@ export function PermissionPrompt() {
     setState("done")
   }
 
-  // Determine what we need to ask for
-  const needsNotif = permissions.notifications === "default"
-  const needsLocation = uType === "repartidor" && permissions.location === "prompt"
+  // Role-specific descriptions
+  const getDescription = () => {
+    switch (uType) {
+      case "repartidor":
+        return "Para recibir pedidos nuevos necesitás tener las notificaciones activadas."
+      case "negocio":
+        return "Recibí alertas de nuevos pedidos y mensajes de tus clientes."
+      default:
+        return "Recibí alertas de tus pedidos y promociones exclusivas."
+    }
+  }
 
   return (
     <AnimatePresence>
-      {state === "showing" && (needsNotif || needsLocation) && (
+      {state === "showing" && notifPerm === "default" && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -201,68 +169,38 @@ export function PermissionPrompt() {
                 transition={{ type: "spring", damping: 15, stiffness: 200, delay: 0.1 }}
                 className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3"
               >
-                <span className="text-2xl">
-                  {needsLocation ? "📍" : "🔔"}
-                </span>
+                <span className="text-2xl">🔔</span>
               </motion.div>
 
-              <h2 className="text-lg font-extrabold">
-                {needsLocation
-                  ? "Activá notificaciones y ubicación"
-                  : "Activá las notificaciones"}
-              </h2>
+              <h2 className="text-lg font-extrabold">Activá las notificaciones</h2>
               <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-                {needsLocation
-                  ? "Para recibir pedidos y que los clientes vean tu ubicación en tiempo real, necesitamos estos permisos."
-                  : uType === "repartidor"
-                  ? "Para recibir pedidos nuevos necesitás tener las notificaciones activadas."
-                  : uType === "negocio"
-                  ? "Recibí alertas de nuevos pedidos y mensajes de tus clientes."
-                  : "Recibí alertas de tus pedidos y promociones exclusivas."}
+                {getDescription()}
               </p>
             </div>
 
             {/* Permission items */}
             <div className="px-5 py-4 space-y-3">
-              {needsNotif && (
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/30">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <Bell className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">Notificaciones</p>
-                    <p className="text-xs text-muted-foreground">
-                      Alertas de pedidos y mensajes
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    <Check className="w-4 h-4 text-primary opacity-50" />
-                  </div>
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/30">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <Bell className="w-5 h-5 text-primary" />
                 </div>
-              )}
-
-              {needsLocation && (
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 border border-border/30">
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-                    <MapPin className="w-5 h-5 text-blue-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">Ubicación</p>
-                    <p className="text-xs text-muted-foreground">
-                      Seguimiento en vivo de entregas
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    <Check className="w-4 h-4 text-blue-500 opacity-50" />
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">Notificaciones push</p>
+                  <p className="text-xs text-muted-foreground">
+                    {uType === "repartidor"
+                      ? "Alertas de pedidos nuevos y mensajes"
+                      : uType === "negocio"
+                      ? "Nuevos pedidos, mensajes y estado de entregas"
+                      : "Estado de tus pedidos y promociones"}
+                  </p>
                 </div>
-              )}
+              </div>
 
               {/* Privacy note */}
               <div className="flex items-start gap-2 px-1 pt-1">
                 <Shield className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Tu ubicación solo se comparte durante las entregas activas. Podés cambiar los permisos en cualquier momento desde la configuración.
+                  Solo recibís notificaciones importantes. Podés desactivarlas en cualquier momento desde la configuración.
                 </p>
               </div>
             </div>
@@ -280,9 +218,7 @@ export function PermissionPrompt() {
                     Activando...
                   </>
                 ) : (
-                  <>
-                    Activar permisos
-                  </>
+                  "Activar notificaciones"
                 )}
               </Button>
               <Button
