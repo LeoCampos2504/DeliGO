@@ -132,6 +132,18 @@
   body {
     @apply bg-background text-foreground font-sans;
   }
+  /* Prevent iOS auto-zoom on input focus — font-size must be ≥ 16px */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 /* Custom scrollbar */
@@ -237,6 +249,25 @@
 ::selection {
   background-color: rgba(251, 140, 0, 0.2);
   color: inherit;
+}
+
+/* Prevent viewport zoom drift on mobile after input focus */
+@supports (-webkit-touch-callout: none) {
+  /* iOS-specific fixes */
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Ensure layout doesn't shift when virtual keyboard appears */
+@media (max-width: 640px) {
+  html {
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
 }
 
 /* Focus ring override for orange theme */

@@ -171,6 +171,7 @@ function HomePageContent() {
   const [searchQuery, setSearchQuery] = useState("")
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authInitialRole, setAuthInitialRole] = useState<UserType | undefined>(undefined)
+  const [authInitialMode, setAuthInitialMode] = useState<"login" | "register">("login")
   const [locationModalOpen, setLocationModalOpen] = useState(false)
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
 
@@ -217,6 +218,16 @@ function HomePageContent() {
         server_error: "Error del servidor al autenticar con Google",
       }
       toast.error(errorMessages[authError] || "Error al iniciar sesión con Google")
+      window.history.replaceState({}, '', '/')
+    }
+
+    // Handle ?register=negocio or ?register=repartidor query params
+    const registerParam = searchParams.get("register")
+    if (registerParam === "negocio" || registerParam === "repartidor") {
+      setAuthInitialRole(registerParam)
+      setAuthInitialMode("register")
+      setAuthModalOpen(true)
+      // Clean URL
       window.history.replaceState({}, '', '/')
     }
   }, [searchParams])
@@ -347,8 +358,9 @@ function HomePageContent() {
     toggleFavoriteMutation.mutate(negocioId)
   }
 
-  const openAuthModal = (role?: UserType) => {
+  const openAuthModal = (role?: UserType, mode?: "login" | "register") => {
     setAuthInitialRole(role)
+    setAuthInitialMode(mode ?? "login")
     setAuthModalOpen(true)
   }
 
@@ -824,8 +836,10 @@ function HomePageContent() {
         onClose={() => {
           setAuthModalOpen(false)
           setAuthInitialRole(undefined)
+          setAuthInitialMode("login")
         }}
         initialRole={authInitialRole}
+        initialMode={authInitialMode}
       />
 
       {/* Location Picker Modal (kept for cart use) */}

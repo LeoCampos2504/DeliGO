@@ -44,6 +44,7 @@ interface AuthModalProps {
   isOpen: boolean
   onClose: () => void
   initialRole?: UserType
+  initialMode?: "login" | "register"
 }
 
 // ============================================
@@ -108,30 +109,36 @@ const roles = [
 // Main Auth Modal Component
 // ============================================
 
-export function AuthModal({ isOpen, onClose, initialRole }: AuthModalProps) {
-  const [step, setStep] = useState<AuthStep>(initialRole ? "login" : "role-select")
+export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthModalProps) {
+  const [step, setStep] = useState<AuthStep>(initialRole ? (initialMode === "register" ? "register" : "login") : "role-select")
   const [selectedRole, setSelectedRole] = useState<UserType | null>(initialRole ?? null)
-  const [mode, setMode] = useState<"login" | "register">("login")
+  const [mode, setMode] = useState<"login" | "register">(initialMode ?? "login")
 
   // Email verification state
   const [unverifiedEmail, setUnverifiedEmail] = useState<string>("")
   const [unverifiedUserType, setUnverifiedUserType] = useState<string>("")
 
-  // Reset state when modal opens — if initialRole is set, go directly to that role's login
+  // Reset state when modal opens — if initialRole is set, go directly to that role's login/register
   useEffect(() => {
     if (isOpen) {
       if (initialRole) {
-        setStep("login")
         setSelectedRole(initialRole)
+        if (initialMode === "register") {
+          setStep("register")
+          setMode("register")
+        } else {
+          setStep("login")
+          setMode("login")
+        }
       } else {
         setStep("role-select")
         setSelectedRole(null)
+        setMode("login")
       }
-      setMode("login")
       setUnverifiedEmail("")
       setUnverifiedUserType("")
     }
-  }, [isOpen, initialRole])
+  }, [isOpen, initialRole, initialMode])
 
   const handleRoleSelect = (type: UserType) => {
     setSelectedRole(type)

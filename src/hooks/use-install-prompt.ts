@@ -44,6 +44,25 @@ function subscribeDeferred(cb: () => void): () => void {
   return () => promptListeners.delete(cb)
 }
 
+// ---- Notification permission helper ----
+function requestNotificationPermission() {
+  if (typeof window === "undefined") return
+  if (!("Notification" in window)) return
+  if (Notification.permission === "granted") return
+
+  // Wait a moment after install to not overwhelm the user
+  setTimeout(async () => {
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission === "granted") {
+        console.log("[PWA] Notification permission granted")
+      }
+    } catch {
+      console.warn("[PWA] Notification permission request failed")
+    }
+  }, 2000)
+}
+
 // ---- CRITICAL: Capture beforeinstallprompt at MODULE LEVEL ----
 // This event fires very early — sometimes before React mounts.
 // Adding the listener at module level ensures we never miss it.
@@ -60,6 +79,9 @@ if (typeof window !== "undefined") {
       promptListeners.forEach((l) => l())
       isInstalledValue = true
       installedListeners.forEach((l) => l())
+
+      // Automatically request notification permission after install
+      requestNotificationPermission()
     })
   }
 }
@@ -207,6 +229,9 @@ export function useInstallPrompt() {
     if (outcome === "accepted") {
       isInstalledValue = true
       installedListeners.forEach((l) => l())
+
+      // Automatically request notification permission after install
+      requestNotificationPermission()
     }
 
     return outcome === "accepted"

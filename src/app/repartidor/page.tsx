@@ -258,6 +258,18 @@ function RepartidorLoginForm() {
                       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Ingresar al panel"}
                     </Button>
                   </form>
+
+                  <div className="mt-4 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      ¿No tenés cuenta?{" "}
+                      <a
+                        href="/?register=repartidor"
+                        className="text-blue-600 dark:text-blue-400 font-semibold hover:underline"
+                      >
+                        Registrate acá
+                      </a>
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
