@@ -6,6 +6,12 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || ""
 
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "http://localhost:3000"
+
 interface GoogleTokenResponse {
   access_token: string
   id_token: string
@@ -24,6 +30,7 @@ interface GoogleUserInfo {
 }
 
 // GET /api/auth/google/callback — Handle Google OAuth callback
+// Supports both cliente and repartidor roles (determined by google_oauth_role cookie)
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -31,25 +38,39 @@ export async function GET(req: NextRequest) {
     const state = searchParams.get("state")
     const error = searchParams.get("error")
 
+    // Determine role from cookie (default to cliente)
+    const role =
+      req.cookies.get("google_oauth_role")?.value === "repartidor"
+        ? "repartidor"
+        : "cliente"
+
+    // Error redirect helper.
+    // IMPORTANT: use APP_URL, not req.url, to avoid redirects to 0.0.0.0 on Railway.
+    const errorRedirect = (errorType: string) => {
+      const basePath = role === "repartidor" ? "/repartidor" : "/"
+      const redirectUrl = new URL(basePath, APP_URL)
+      redirectUrl.searchParams.set("auth_error", errorType)
+      return NextResponse.redirect(redirectUrl.toString())
+    }
+
     // Handle user denial
     if (error) {
-      return NextResponse.redirect(new URL(`/?auth_error=access_denied`, req.url))
+      return errorRedirect("access_denied")
     }
 
     if (!code || !state) {
-      return NextResponse.redirect(new URL("/?auth_error=missing_params", req.url))
+      return errorRedirect("missing_params")
     }
 
     // Verify state for CSRF protection
     const savedState = req.cookies.get("google_oauth_state")?.value
     if (!savedState || savedState !== state) {
-      return NextResponse.redirect(new URL("/?auth_error=invalid_state", req.url))
+      return errorRedirect("invalid_state")
     }
 
-    // Build redirect URI
-    const host = req.headers.get("host") || "localhost:3000"
-    const protocol = req.headers.get("x-forwarded-proto") || "https"
-    const redirectUri = GOOGLE_REDIRECT_URI || `${protocol}://${host}/api/auth/google/callback`
+    // Build redirect URI from the public app URL, not from HOSTNAME or request headers.
+    const redirectUri =
+      GOOGLE_REDIRECT_URI || `${APP_URL}/api/auth/google/callback`
 
     // Exchange code for tokens
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -66,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     if (!tokenResponse.ok) {
       console.error("Google token exchange failed:", await tokenResponse.text())
-      return NextResponse.redirect(new URL("/?auth_error=token_exchange", req.url))
+      return errorRedirect("token_exchange")
     }
 
     const tokens: GoogleTokenResponse = await tokenResponse.json()
@@ -78,58 +99,107 @@ export async function GET(req: NextRequest) {
 
     if (!userResponse.ok) {
       console.error("Google user info failed:", await userResponse.text())
-      return NextResponse.redirect(new URL("/?auth_error=user_info", req.url))
+      return errorRedirect("user_info")
     }
 
     const googleUser: GoogleUserInfo = await userResponse.json()
 
     if (!googleUser.email_verified) {
-      return NextResponse.redirect(new URL("/?auth_error=email_not_verified", req.url))
+      return errorRedirect("email_not_verified")
     }
 
-    // Try to find existing cliente by googleId or email
-    let cliente = await db.cliente.findUnique({
-      where: { googleId: googleUser.sub },
-    })
+    // Create session and redirect URL based on role
+    let userId: string
+    let userName: string
+    let userEmail: string
 
-    if (!cliente) {
-      // Try to find by email and link the Google account
-      cliente = await db.cliente.findUnique({
-        where: { email: googleUser.email.toLowerCase() },
+    if (role === "repartidor") {
+      // Try to find existing repartidor by googleId or email
+      let repartidor = await db.repartidor.findUnique({
+        where: { googleId: googleUser.sub },
       })
 
-      if (cliente) {
-        // Link Google account to existing email account
-        cliente = await db.cliente.update({
-          where: { id: cliente.id },
-          data: { googleId: googleUser.sub },
+      if (!repartidor) {
+        // Try to find by email and link the Google account
+        repartidor = await db.repartidor.findUnique({
+          where: { email: googleUser.email.toLowerCase() },
         })
-      } else {
-        // Create new cliente with Google account (no password)
-        // Google already verified the email, so set emailVerified automatically
-        cliente = await db.cliente.create({
-          data: {
-            nombre: googleUser.name,
-            email: googleUser.email.toLowerCase(),
-            password: null, // Google users don't have passwords
-            googleId: googleUser.sub,
-            telefono: "",
-            emailVerified: new Date(), // Google already verified the email
-          },
-        })
+
+        if (repartidor) {
+          // Link Google account to existing email account
+          repartidor = await db.repartidor.update({
+            where: { id: repartidor.id },
+            data: { googleId: googleUser.sub },
+          })
+        } else {
+          // Create new repartidor with Google account
+          repartidor = await db.repartidor.create({
+            data: {
+              nombre: googleUser.name,
+              email: googleUser.email.toLowerCase(),
+              password: null,
+              googleId: googleUser.sub,
+              telefono: "",
+              emailVerified: new Date(),
+            },
+          })
+        }
       }
+
+      userId = repartidor.id
+      userName = repartidor.nombre
+      userEmail = repartidor.email
+    } else {
+      // Cliente flow
+      let cliente = await db.cliente.findUnique({
+        where: { googleId: googleUser.sub },
+      })
+
+      if (!cliente) {
+        // Try to find by email and link the Google account
+        cliente = await db.cliente.findUnique({
+          where: { email: googleUser.email.toLowerCase() },
+        })
+
+        if (cliente) {
+          // Link Google account to existing email account
+          cliente = await db.cliente.update({
+            where: { id: cliente.id },
+            data: { googleId: googleUser.sub },
+          })
+        } else {
+          // Create new cliente with Google account
+          cliente = await db.cliente.create({
+            data: {
+              nombre: googleUser.name,
+              email: googleUser.email.toLowerCase(),
+              password: null,
+              googleId: googleUser.sub,
+              telefono: "",
+              emailVerified: new Date(),
+            },
+          })
+        }
+      }
+
+      userId = cliente.id
+      userName = cliente.nombre
+      userEmail = cliente.email
     }
 
     // Create session
-    const sessionToken = await createSession(cliente.id, "cliente")
+    const sessionToken = await createSession(userId, role)
 
-    // Build redirect URL with user data
-    const redirectUrl = new URL("/", req.url)
+    // Build redirect URL based on role.
+    // IMPORTANT: use APP_URL, not req.url, to avoid redirects to 0.0.0.0 on Railway.
+    const redirectBase = role === "repartidor" ? "/repartidor" : "/"
+    const redirectUrl = new URL(redirectBase, APP_URL)
+
     redirectUrl.searchParams.set("auth_success", "google")
-    redirectUrl.searchParams.set("user_id", cliente.id)
-    redirectUrl.searchParams.set("user_name", cliente.nombre)
-    redirectUrl.searchParams.set("user_email", cliente.email)
-    redirectUrl.searchParams.set("user_type", "cliente")
+    redirectUrl.searchParams.set("user_id", userId)
+    redirectUrl.searchParams.set("user_name", userName)
+    redirectUrl.searchParams.set("user_email", userEmail)
+    redirectUrl.searchParams.set("user_type", role)
     redirectUrl.searchParams.set("token", sessionToken)
 
     const response = NextResponse.redirect(redirectUrl.toString())
@@ -143,8 +213,16 @@ export async function GET(req: NextRequest) {
       maxAge: SESSION_DURATION_HOURS * 60 * 60,
     })
 
-    // Clear the OAuth state cookie
+    // Clear the OAuth state and role cookies
     response.cookies.set("google_oauth_state", "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    })
+
+    response.cookies.set("google_oauth_role", "", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -155,6 +233,10 @@ export async function GET(req: NextRequest) {
     return response
   } catch (error) {
     console.error("Google OAuth callback error:", error)
-    return NextResponse.redirect(new URL("/?auth_error=server_error", req.url))
+
+    const redirectUrl = new URL("/", APP_URL)
+    redirectUrl.searchParams.set("auth_error", "server_error")
+
+    return NextResponse.redirect(redirectUrl.toString())
   }
 }

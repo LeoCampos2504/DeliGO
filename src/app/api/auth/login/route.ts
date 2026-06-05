@@ -203,7 +203,7 @@ async function loginRepartidor(data: { email: string; password: string }) {
     where: { email: email.toLowerCase().trim() },
   })
 
-  if (!repartidor) {
+  if (!repartidor || !repartidor.password) {
     return NextResponse.json(
       { error: "Email o contraseña incorrectos" },
       { status: 401 }

@@ -534,14 +534,16 @@ function LoginStep({
         </p>
       </div>
 
-      {/* Google Sign In button (cliente only) */}
-      {role === "cliente" && (
+      {/* Google Sign In button (cliente & repartidor) */}
+      {(role === "cliente" || role === "repartidor") && (
         <button
           type="button"
           onClick={() => {
             onClose()
             // Small delay so modal closes before navigation
-            setTimeout(() => { window.location.href = "/api/auth/google" }, 150)
+            // Pass role so OAuth callback knows which user type to create
+            const googleUrl = role === "repartidor" ? "/api/auth/google?role=repartidor" : "/api/auth/google"
+            setTimeout(() => { window.location.href = googleUrl }, 150)
           }}
           className="w-full flex items-center justify-center gap-3 h-11 rounded-xl border border-border/50 bg-background hover:bg-muted/50 transition-all duration-200 text-sm font-semibold"
         >
@@ -568,7 +570,7 @@ function LoginStep({
       )}
 
       {/* Divider */}
-      {role === "cliente" && (
+      {(role === "cliente" || role === "repartidor") && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-border/50" />
           <span className="text-[11px] text-muted-foreground font-medium">o</span>
