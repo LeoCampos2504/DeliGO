@@ -353,14 +353,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify totalProductos matches (with tolerance for rounding + shared options that frontend may calculate differently)
+    // Verify totalProductos: anti-manipulation check
+    // The server always uses its own validated total, so this check only guards against
+    // extreme mismatches (potential price manipulation or stale client data).
+    // Tolerance: 10% of server total or minimum $50 (whichever is greater)
     const clientTotalProductos = typeof totalProductos === "number" ? totalProductos : 0
-    if (isFinite(clientTotalProductos) && Math.abs(serverTotalProductos - clientTotalProductos) > 5) {
-      console.warn(`[Pedido] Total mismatch: server=${serverTotalProductos}, client=${clientTotalProductos}`)
-      return NextResponse.json(
-        { error: "El total de productos no coincide con los precios actuales" },
-        { status: 400 }
-      )
+    const mismatchTolerance = Math.max(50, serverTotalProductos * 0.1)
+    if (isFinite(clientTotalProductos)) {
+      const diff = serverTotalProductos - clientTotalProductos
+      if (diff > mismatchTolerance) {
+        // Client is paying significantly LESS than server calculation (stale prices or manipulation)
+        console.warn(`[Pedido] Client total much lower: server=${serverTotalProductos}, client=${clientTotalProductos}, diff=${diff}`)
+        return NextResponse.json(
+          { error: "Los precios han cambiado. Recargá la página y volvé a intentar." },
+          { status: 400 }
+        )
+      }
+      if (diff < -mismatchTolerance) {
+        // Client is paying MORE than server — log but allow (server uses its own total)
+        console.warn(`[Pedido] Client total higher than server: server=${serverTotalProductos}, client=${clientTotalProductos}, diff=${diff}`)
+      }
     }
 
     // Check debt limit

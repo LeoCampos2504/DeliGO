@@ -57,8 +57,8 @@ function ClienteLoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const hydrated = useHydrated()
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const userType = useAuthStore((s) => s.userType)
+  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const uType = useAuthStore((s) => s.user?.type ?? null)
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -74,10 +74,10 @@ function ClienteLoginPageContent() {
   // Redirect if already authenticated as cliente
   useEffect(() => {
     if (!hydrated) return
-    if (isAuthenticated() && userType() === "cliente") {
+    if (isAuth && uType === "cliente") {
       router.replace("/")
     }
-  }, [hydrated, isAuthenticated, userType, router])
+  }, [hydrated, isAuth, uType, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

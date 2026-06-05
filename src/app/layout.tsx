@@ -8,6 +8,7 @@ import { ChatProvider } from "@/providers/chat-provider";
 import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
 import { DynamicManifest } from "@/components/shared/dynamic-manifest";
+import { PermissionPrompt } from "@/components/shared/permission-prompt";
 import { Toaster } from "sonner";
 
 const nunito = Nunito({
@@ -84,6 +85,7 @@ export default function RootLayout({
             <ChatProvider />
             <ServiceWorkerRegistration />
             <InstallPrompt />
+            <PermissionPrompt />
             <Toaster
               position="top-center"
               richColors

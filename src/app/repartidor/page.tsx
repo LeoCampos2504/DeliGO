@@ -435,10 +435,11 @@ function RepartidorLoginForm() {
 // Repartidor Page: Shows login or panel
 // ============================================
 function RepartidorPageContent() {
-  const router = useRouter()
   const hydrated = useHydrated()
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const userType = useAuthStore((s) => s.userType)
+  // Use value selectors instead of function references so the component re-renders
+  // when the store updates (e.g., after Google OAuth callback calls loginRepartidor)
+  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Wait for hydration
   if (!hydrated) {
@@ -454,7 +455,7 @@ function RepartidorPageContent() {
   }
 
   // Not authenticated — show login form
-  if (!isAuthenticated() || userType() !== "repartidor") {
+  if (!isAuth || uType !== "repartidor") {
     return <RepartidorLoginForm />
   }
 

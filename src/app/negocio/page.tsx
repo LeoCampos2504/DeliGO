@@ -487,8 +487,8 @@ export default function NegocioPage() {
   const router = useRouter()
   const hydrated = useHydrated()
   const user = useAuthStore((s) => s.user)
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const userType = useAuthStore((s) => s.userType)
+  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Real-time suspension/reactivation detection via polling
   useSuspensionCheck()
@@ -507,7 +507,7 @@ export default function NegocioPage() {
   }
 
   // Not authenticated — show login form
-  if (!isAuthenticated() || userType() !== "negocio") {
+  if (!isAuth || uType !== "negocio") {
     return <NegocioLoginForm />
   }
 

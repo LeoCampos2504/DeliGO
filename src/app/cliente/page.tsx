@@ -52,27 +52,27 @@ export default function ClientePage() {
   const router = useRouter()
   const hydrated = useHydrated()
   const user = useAuthStore((s) => s.user)
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const userType = useAuthStore((s) => s.userType)
+  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const uType = useAuthStore((s) => s.user?.type ?? null)
   const activeTab = useNavStore((s) => s.activeTab)
   const setActiveTab = useNavStore((s) => s.setActiveTab)
 
   useEffect(() => {
     if (!hydrated) return
 
-    if (!isAuthenticated() || userType() !== "cliente") {
+    if (!isAuth || uType !== "cliente") {
       router.replace("/")
     }
-  }, [hydrated, isAuthenticated, userType, router])
+  }, [hydrated, isAuth, uType, router])
 
   // Ensure cliente tab is active
   useEffect(() => {
-    if (hydrated && isAuthenticated() && userType() === "cliente") {
+    if (hydrated && isAuth && uType === "cliente") {
       if (activeTab === "inicio") {
         setActiveTab("pedidos")
       }
     }
-  }, [hydrated, isAuthenticated, userType, activeTab, setActiveTab])
+  }, [hydrated, isAuth, uType, activeTab, setActiveTab])
 
   // Wait for hydration
   if (!hydrated) {

@@ -190,8 +190,8 @@ function AdminLoginForm() {
 export default function AdminPage() {
   const router = useRouter()
   const hydrated = useHydrated()
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const userType = useAuthStore((s) => s.userType)
+  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Wait for hydration
   if (!hydrated) {
@@ -207,7 +207,7 @@ export default function AdminPage() {
   }
 
   // Not authenticated — show login form
-  if (!isAuthenticated() || userType() !== "superadmin") {
+  if (!isAuth || uType !== "superadmin") {
     return <AdminLoginForm />
   }
 
