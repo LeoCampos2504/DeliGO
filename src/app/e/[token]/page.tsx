@@ -518,7 +518,7 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
                                   <div className="flex flex-wrap gap-1">
                                     {item.agregados.map((a, i) => (
                                       <span key={a.id ?? i} className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-medium">
-                                        + {a.nombre}
+                                        + {a.nombre}{a.precio > 0 ? ` ($${a.precio})` : ""}
                                       </span>
                                     ))}
                                   </div>

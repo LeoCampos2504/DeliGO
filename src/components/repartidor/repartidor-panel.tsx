@@ -214,6 +214,8 @@ export function RepartidorPanel() {
             {activeTab === "entregas" && (
               <DeliveriesTab
                 pedidos={pedidosData?.pedidos ?? []}
+                disponibles={pedidosData?.disponibles ?? []}
+                mios={pedidosData?.mios ?? []}
                 isLoading={pedidosLoading}
                 onRefresh={handleRefresh}
               />

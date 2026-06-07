@@ -636,7 +636,7 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
                   </div>
                 )}
                 <p className="text-[10px] text-muted-foreground mt-2">
-                  Al regenerar el código, el anterior dejará de funcionar
+                  Al regenerar el código, el anterior dejará de funcionar y los repartidores asociados tendrán que volver a vincularse con el nuevo código
                 </p>
               </div>
             </>

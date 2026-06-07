@@ -65,6 +65,7 @@ import { AgregadosSection } from "./agregados-section"
 import { IngredientesSection } from "./ingredientes-section"
 import { SeccionesSection } from "./secciones-section"
 import { OpcionesCompartidasSection } from "./opciones-compartidas-section"
+import { SectionErrorBoundary } from "@/components/shared/section-error-boundary"
 
 // ============================================
 // Types
@@ -800,7 +801,9 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
-        <AgregadosSection negocio={negocio} />
+        <SectionErrorBoundary>
+          <AgregadosSection negocio={negocio} />
+        </SectionErrorBoundary>
       </div>
     )
   }
@@ -808,7 +811,9 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
-        <IngredientesSection negocio={negocio} />
+        <SectionErrorBoundary>
+          <IngredientesSection negocio={negocio} />
+        </SectionErrorBoundary>
       </div>
     )
   }
@@ -816,7 +821,9 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
-        <SeccionesSection negocio={negocio} />
+        <SectionErrorBoundary>
+          <SeccionesSection negocio={negocio} />
+        </SectionErrorBoundary>
       </div>
     )
   }
@@ -824,7 +831,9 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
-        <OpcionesCompartidasSection negocio={negocio} />
+        <SectionErrorBoundary>
+          <OpcionesCompartidasSection negocio={negocio} />
+        </SectionErrorBoundary>
       </div>
     )
   }
@@ -2244,7 +2253,15 @@ function ProductOptionSectionsEditor({
 }) {
   const sections: ProductOptionSection[] = useMemo(() => {
     try {
-      return JSON.parse(formData.secciones) as ProductOptionSection[]
+      const parsed = JSON.parse(formData.secciones)
+      if (!Array.isArray(parsed)) return []
+      // Normalize each section to ensure all properties exist (handles old/incomplete formats)
+      return parsed.map((s: Record<string, unknown>) => ({
+        nombre: typeof s?.nombre === "string" ? s.nombre : String(s ?? ""),
+        opciones: Array.isArray(s?.opciones) ? s.opciones as string[] : [],
+        obligatorio: s?.obligatorio === true,
+        maximo: typeof s?.maximo === "number" ? s.maximo : 0,
+      }))
     } catch {
       return []
     }
@@ -2507,7 +2524,7 @@ function ProductOptionSectionsEditor({
 
               {/* Options */}
               <div className="space-y-1.5 pl-1">
-                {section.opciones.map((option, oi) => (
+                {(section.opciones ?? []).map((option, oi) => (
                   <div key={oi} className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-muted-foreground/20 shrink-0" />
                     <Input

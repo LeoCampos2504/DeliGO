@@ -124,7 +124,10 @@ export async function GET(
     const productosTransformados = negocio.productos.map((p) => ({
       ...p,
       imagenesExtra: safeParseJSON(p.imagenesExtra, []),
-      secciones: safeParseJSON(p.secciones, []),
+      secciones: (safeParseJSON(p.secciones, []) as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        opciones: Array.isArray(s.opciones) ? s.opciones : [],
+      })),
       recomendados: safeParseJSON(p.recomendados, []),
       talles: safeParseJSON(p.talles, []),
       colores: safeParseJSON(p.colores, []),
@@ -168,7 +171,10 @@ export async function GET(
         return {
           ...p,
           imagenesExtra: safeParseJSON(p.imagenesExtra, []),
-          secciones: safeParseJSON(p.secciones, []),
+          secciones: (safeParseJSON(p.secciones, []) as Array<Record<string, unknown>>).map((s) => ({
+            ...s,
+            opciones: Array.isArray(s.opciones) ? s.opciones : [],
+          })),
           recomendados: safeParseJSON(p.recomendados, []),
           talles: safeParseJSON(p.talles, []),
           colores: safeParseJSON(p.colores, []),
@@ -222,10 +228,16 @@ export async function GET(
       ingredientesCategorias: safeParseJSON(negocio.ingredientesCategorias, []),
       horarios: safeParseJSON(negocio.horarios, {}),
       zonasDelivery: safeParseJSON(negocio.zonasDelivery, []),
-      opcionesCompartidas: (negocio.opcionesCompartidas || []).map((oc) => ({
-        ...oc,
-        opciones: safeParseJSON(oc.opciones, []),
-      })),
+      opcionesCompartidas: (negocio.opcionesCompartidas || []).map((oc) => {
+        const parsed = safeParseJSON(oc.opciones, [])
+        return {
+          id: oc.id,
+          nombre: oc.nombre,
+          opciones: Array.isArray(parsed) ? parsed : [],
+          obligatorio: oc.obligatorio,
+          maximo: oc.maximo,
+        }
+      }),
       productos: productosTransformados,
       productosSinSeccion,
       secciones: seccionesTransformadas,

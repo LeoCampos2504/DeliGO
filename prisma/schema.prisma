@@ -1,5 +1,5 @@
 // DeliGO - Prisma Schema (PostgreSQL)
-// Migrated from MongoDB plataforma_pedidos
+// For local dev: uses SQLite. For production: uses PostgreSQL on Railway.
 
 generator client {
   provider = "prisma-client-js"
@@ -355,6 +355,11 @@ model Pedido {
   negocioLat            Float?
   negocioLng            Float?
 
+  // Repartidor asignado (aceptación de pedido)
+  repartidorId          String?  // ID del repartidor que aceptó el pedido
+  repartidorNombre      String?  // Nombre del repartidor (denormalizado)
+  repartidorAceptaFecha DateTime? // Cuándo aceptó el pedido
+
   // Ubicación repartidor en tiempo real (seguimiento delivery)
   repartidorLat         Float?
   repartidorLng         Float?
@@ -367,7 +372,7 @@ model Pedido {
   // Estado
   estado                String   @default("recibido") // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
   deudaAcumulada        Boolean  @default(false)
-  canceladoPor          String?  // cliente, vendedor
+  canceladoPor          String?  // cliente, vendedor, sistema
   canceladoMotivo       String?
   canceladoFecha        DateTime?
   clienteConfirmaRecibido Boolean @default(false)
@@ -406,7 +411,7 @@ model PedidoItem {
   color                 String  @default("")
 
   pedido                Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  producto              Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  producto              Producto? @relation(fields: [productoId], references: [id])
 
   @@map("pedido_items")
 }
@@ -427,7 +432,7 @@ model ChatMensaje {
   fecha       DateTime @default(now())
 
   pedido      Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  cliente     Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  cliente     Cliente? @relation(fields: [clienteId], references: [id])
   clienteId   String?
 
   @@map("chat_mensajes")
@@ -451,9 +456,9 @@ model Resena {
   fechaRespuesta   DateTime?
   fecha           DateTime  @default(now())
 
-  negocio         Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  cliente         Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  pedido          Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  negocio         Negocio   @relation(fields: [negocioId], references: [id])
+  cliente         Cliente   @relation(fields: [clienteId], references: [id])
+  pedido          Pedido    @relation(fields: [pedidoId], references: [id])
 
   @@map("resenas")
 }
@@ -523,7 +528,7 @@ model DeudaHistorial {
   fechaAbono     DateTime @default(now())
   tipo           String   @default("abono_total")
 
-  negocio        Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  negocio        Negocio  @relation(fields: [negocioId], references: [id])
 
   @@map("deuda_historial")
 }

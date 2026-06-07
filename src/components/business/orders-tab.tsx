@@ -616,7 +616,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                               <div className="flex flex-wrap gap-1">
                                 {agregados.map((a, i) => (
                                   <Badge key={a.id ?? i} variant="secondary" className="text-[10px] h-5 px-1.5 font-normal bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-                                    + {a.nombre} ({formatPrice(a.precio)})
+                                    + {a.nombre}{a.precio > 0 ? ` (${formatPrice(a.precio)})` : ""}
                                   </Badge>
                                 ))}
                               </div>

@@ -1496,14 +1496,23 @@ function ProductDetailSheet({
   // Uses per-product obligatorio/maximo (not the shared option's defaults)
   const resolvedOpcionesCompartidas = useMemo(() => {
     if (!product.opcionesCompartidasIds || product.opcionesCompartidasIds.length === 0) return []
+    const sharedList = negocio.opcionesCompartidas || []
     return product.opcionesCompartidasIds
       .map((cfg) => {
-        const shared = negocio.opcionesCompartidas?.find(oc => oc.id === cfg.id)
+        const shared = sharedList.find(oc => oc.id === cfg.id)
         if (!shared) return null
+        // opciones might still be a JSON string if API didn't parse it properly
+        let opciones: Array<{ nombre: string; precio: number }> = []
+        if (Array.isArray(shared.opciones)) {
+          opciones = shared.opciones
+        } else if (typeof shared.opciones === 'string') {
+          try { opciones = JSON.parse(shared.opciones) } catch { opciones = [] }
+          if (!Array.isArray(opciones)) opciones = []
+        }
         return {
           id: shared.id,
           nombre: shared.nombre,
-          opciones: shared.opciones,
+          opciones,
           obligatorio: cfg.obligatorio, // per-product override
           maximo: cfg.maximo,           // per-product override
         }
@@ -1514,7 +1523,7 @@ function ProductDetailSheet({
   // Group agregados by category
   const agregadosByCategory = useMemo(() => {
     const map = new Map<string, ProductoAPI["agregados"]>()
-    for (const a of product.agregados) {
+    for (const a of product.agregados || []) {
       const cat = a.categoria || "Sin categoría"
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(a)
@@ -1525,7 +1534,7 @@ function ProductDetailSheet({
   // Group ingredientes by category
   const ingredientesByCategory = useMemo(() => {
     const map = new Map<string, ProductoAPI["ingredientes"]>()
-    for (const i of product.ingredientes) {
+    for (const i of product.ingredientes || []) {
       const cat = i.categoria || "Sin categoría"
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(i)
@@ -1626,7 +1635,7 @@ function ProductDetailSheet({
   // Handle add to cart
   const handleAdd = () => {
     // Validate required sections
-    for (const section of product.secciones) {
+    for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
       const val = selectedSecciones[section.nombre]
       const maximo = section.maximo || 0
@@ -1641,12 +1650,13 @@ function ProductDetailSheet({
     // Validate required shared options
     for (const oc of resolvedOpcionesCompartidas) {
       if (!oc.obligatorio) continue
-      const hasSelection = Array.from(selectedOpcionesCompartidas.keys()).some(key => key.startsWith(`${oc.id}::`))
-      if (!hasSelection) return
+      const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
+      const requiredCount = oc.maximo && oc.maximo > 1 ? oc.maximo : 1
+      if (selectedCount < requiredCount) return
     }
 
     // Get removed ingredient names for display
-    const removedNames = product.ingredientes
+    const removedNames = (product.ingredientes || [])
       .filter((i) => removedIngredientes.has(i.id))
       .map((i) => i.nombre)
 
@@ -1681,7 +1691,7 @@ function ProductDetailSheet({
 
   // Check if can add (required sections + shared options satisfied)
   const canAdd = (() => {
-    const sectionsOk = product.secciones
+    const sectionsOk = (product.secciones || [])
       .filter((s) => s.obligatorio)
       .every((s) => {
         const val = selectedSecciones[s.nombre]
@@ -1700,7 +1710,9 @@ function ProductDetailSheet({
     const sharedOk = resolvedOpcionesCompartidas
       .filter(oc => oc.obligatorio)
       .every(oc => {
-        return Array.from(selectedOpcionesCompartidas.keys()).some(key => key.startsWith(`${oc.id}::`))
+        const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
+        const requiredCount = oc.maximo && oc.maximo > 1 ? oc.maximo : 1
+        return selectedCount >= requiredCount
       })
 
     return sharedOk
@@ -1725,9 +1737,9 @@ function ProductDetailSheet({
                 </Badge>
               )}
               {/* Image dots */}
-              {((product.imagenUrl ? 1 : 0) + product.imagenesExtra.length) > 1 && (
+              {((product.imagenUrl ? 1 : 0) + (product.imagenesExtra || []).length) > 1 && (
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {[product.imagenUrl, ...product.imagenesExtra].filter(Boolean).map((_, idx) => (
+                  {[product.imagenUrl, ...(product.imagenesExtra || [])].filter(Boolean).map((_, idx) => (
                     <button
                       key={idx}
                       onClick={() => setActiveImageIdx(idx)}
@@ -1953,12 +1965,13 @@ function ProductDetailSheet({
                     {isMultiSelect ? (
                       /* Multi-select with per-option quantity */
                       <div className="space-y-1.5">
-                        {section.opciones.map((option) => {
-                          const qty = getOptionQty(section.nombre, option)
+                        {(section.opciones || []).map((option, optIdx) => {
+                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          const qty = getOptionQty(section.nombre, optLabel)
                           const isSelected = qty > 0
                           return (
                             <div
-                              key={option}
+                              key={`${section.nombre}-opt-${optIdx}`}
                               className={cn(
                                 "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all",
                                 isSelected
@@ -1971,11 +1984,11 @@ function ProductDetailSheet({
                                   : undefined
                               }
                             >
-                              <span className="font-medium flex-1">{option}</span>
+                              <span className="font-medium flex-1">{optLabel}</span>
                               <div className="flex items-center gap-2 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => adjustSectionOptionQty(section.nombre, option, -1, maximo)}
+                                  onClick={() => adjustSectionOptionQty(section.nombre, optLabel, -1, maximo)}
                                   className={cn(
                                     "w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all",
                                     isSelected
@@ -1998,7 +2011,7 @@ function ProductDetailSheet({
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => adjustSectionOptionQty(section.nombre, option, 1, maximo)}
+                                  onClick={() => adjustSectionOptionQty(section.nombre, optLabel, 1, maximo)}
                                   className={cn(
                                     "w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all",
                                     isAtMax && !isSelected
@@ -2018,18 +2031,20 @@ function ProductDetailSheet({
                     ) : (
                       /* Single-select (radio) */
                       <div className="space-y-1.5">
-                        {section.opciones.map((option) => (
+                        {(section.opciones || []).map((option, optIdx) => {
+                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          return (
                           <button
-                            key={option}
-                            onClick={() => selectSectionOption(section.nombre, option)}
+                            key={`${section.nombre}-opt-${optIdx}`}
+                            onClick={() => selectSectionOption(section.nombre, optLabel)}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left text-sm transition-all",
-                              selectedSecciones[section.nombre] === option
+                              selectedSecciones[section.nombre] === optLabel
                                 ? "border-primary bg-primary/5"
                                 : "border-border bg-card hover:border-primary/20"
                             )}
                             style={
-                              selectedSecciones[section.nombre] === option
+                              selectedSecciones[section.nombre] === optLabel
                                 ? { borderColor: negocio.colorPrincipal, backgroundColor: `${negocio.colorPrincipal}08` }
                                 : undefined
                             }
@@ -2037,26 +2052,27 @@ function ProductDetailSheet({
                             <div
                               className={cn(
                                 "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
-                                selectedSecciones[section.nombre] === option
+                                selectedSecciones[section.nombre] === optLabel
                                   ? "border-primary"
                                   : "border-muted-foreground/30"
                               )}
                               style={
-                                selectedSecciones[section.nombre] === option
+                                selectedSecciones[section.nombre] === optLabel
                                   ? { borderColor: negocio.colorPrincipal }
                                   : undefined
                               }
                             >
-                              {selectedSecciones[section.nombre] === option && (
+                              {selectedSecciones[section.nombre] === optLabel && (
                                 <div
                                   className="w-2.5 h-2.5 rounded-full"
                                   style={{ backgroundColor: negocio.colorPrincipal }}
                                 />
                               )}
                             </div>
-                            <span className="font-medium">{option}</span>
+                            <span className="font-medium">{optLabel}</span>
                           </button>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -2109,13 +2125,15 @@ function ProductDetailSheet({
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      {oc.opciones.map((option) => {
-                        const optKey = `${oc.id}::${option.nombre}`
-                        const isSelected = selectedOpcionesCompartidas.has(optKey)
+                      {(oc.opciones || []).map((option, optIdx) => {
+                        const optName = typeof option === 'object' && option !== null ? (option as { nombre?: string }).nombre || '' : String(option)
+                        const optPrecio = typeof option === 'object' && option !== null ? (option as { precio?: number }).precio || 0 : 0
+                        const selectionKey = `${oc.id}::${optName}`
+                        const isSelected = selectedOpcionesCompartidas.has(selectionKey)
                         return (
                           <button
-                            key={option.nombre}
-                            onClick={() => toggleSharedOption(option.nombre, option.precio)}
+                            key={`shared-${oc.id}-opt-${optIdx}`}
+                            onClick={() => toggleSharedOption(optName, optPrecio)}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all text-left",
                               isSelected
@@ -2128,15 +2146,15 @@ function ProductDetailSheet({
                                 : undefined
                             }
                           >
-                            <span className="font-medium flex-1">{option.nombre}</span>
-                            {option.precio > 0 && (
+                            <span className="font-medium flex-1">{optName}</span>
+                            {optPrecio > 0 && (
                               <span className={cn(
                                 "text-xs font-semibold shrink-0",
                                 isSelected ? "text-primary" : "text-muted-foreground"
                               )}
                               style={isSelected ? { color: negocio.colorPrincipal } : undefined}
                               >
-                                +{formatPrice(option.precio)}
+                                +{formatPrice(optPrecio)}
                               </span>
                             )}
                           </button>
