@@ -312,7 +312,9 @@ export function DeliveryTrackingMap({
   useEffect(() => {
     if (!open) return
 
-    const chatUrl = "/?XTransformPort=3003"
+    const chatUrl =
+      process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
+      "http://localhost:3003"
 
     const socket = io(chatUrl, {
       transports: ["websocket", "polling"],
