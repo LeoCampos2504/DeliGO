@@ -56,7 +56,9 @@ export function ChatSheet() {
     setConnectionFailed(false)
 
     // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
-    const chatUrl = "/?XTransformPort=3003"
+    const chatUrl =
+      process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
+      "http://localhost:3003"
 
     const socket = io(chatUrl, {
       transports: ["websocket", "polling"],
