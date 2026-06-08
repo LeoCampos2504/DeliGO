@@ -277,7 +277,5 @@ function shutdown(signal) {
     process.exit(0)
   }, 5000)
 }
-
 process.on("SIGTERM", () => shutdown("SIGTERM"))
-process.on("SIGINT", () => shutdown("SIGINT"))utdown("SIGTERM"))
 process.on("SIGINT", () => shutdown("SIGINT"))
