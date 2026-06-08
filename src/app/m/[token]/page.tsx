@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -21,6 +21,8 @@ import {
   Plus,
   Minus,
   ExternalLink,
+  Bell,
+  BellOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -37,6 +39,7 @@ interface MozoInfo {
   codigo: string
   rol: string
   token: string | null
+  hasPushSubscription: boolean
   negocio: {
     id: string
     nombre: string
@@ -78,6 +81,8 @@ export default function MozoPage() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [assigningMesa, setAssigningMesa] = useState<string | null>(null)
   const [unassigningMesa, setUnassigningMesa] = useState<string | null>(null)
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
 
   // Validate token and fetch mesas
   const fetchMozoData = useCallback(async () => {
@@ -95,9 +100,11 @@ export default function MozoPage() {
         codigo: data.codigo,
         rol: data.rol,
         token: data.token,
+        hasPushSubscription: data.hasPushSubscription || false,
         negocio: data.negocio,
       })
       setMesas(data.mesas || [])
+      setIsPushSubscribed(data.hasPushSubscription || false)
     } catch {
       setError("Error de conexión")
     } finally {
@@ -128,6 +135,7 @@ export default function MozoPage() {
           mesaId,
           empleadoCodigo: mozoInfo.codigo,
           negocioId: mozoInfo.negocio.id,
+          mozoToken: token,
         }),
       })
       if (!res.ok) {
@@ -163,6 +171,7 @@ export default function MozoPage() {
           empleadoCodigo: mozoInfo.codigo,
           negocioId: mozoInfo.negocio.id,
           unassign: true,
+          mozoToken: token,
         }),
       })
       if (!res.ok) {
@@ -181,6 +190,85 @@ export default function MozoPage() {
       toast.error(err instanceof Error ? err.message : "Error al desasignar mesa")
     } finally {
       setUnassigningMesa(null)
+    }
+  }
+
+  // Push notification subscription
+  const subscribeToPush = async () => {
+    if (!mozoInfo?.token || pushLoading) return
+    setPushLoading(true)
+    try {
+      // Request permission
+      const result = await Notification.requestPermission()
+      if (result !== "granted") {
+        toast.error("Necesitás permitir las notificaciones en tu navegador")
+        return
+      }
+
+      // Register service worker
+      const registration = await navigator.serviceWorker.register("/sw.js")
+      await navigator.serviceWorker.ready
+
+      // Get VAPID key
+      const vapidRes = await fetch("/api/push/vapid-key")
+      if (!vapidRes.ok) {
+        toast.error("Notificaciones push no configuradas")
+        return
+      }
+      const { publicKey } = await vapidRes.json()
+      if (!publicKey) return
+
+      // Subscribe
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: publicKey,
+      })
+
+      // Save to server via mozo token
+      const res = await fetch("/api/mozo/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mozoToken: mozoInfo.token,
+          subscription: JSON.stringify(subscription),
+        }),
+      })
+
+      if (res.ok) {
+        setIsPushSubscribed(true)
+        setMozoInfo(prev => prev ? { ...prev, hasPushSubscription: true } : prev)
+        toast.success("Notificaciones activadas 🔔")
+      }
+    } catch (err) {
+      console.error("Push subscribe error:", err)
+      toast.error("Error al activar notificaciones")
+    } finally {
+      setPushLoading(false)
+    }
+  }
+
+  const unsubscribeFromPush = async () => {
+    if (!mozoInfo?.token || pushLoading) return
+    setPushLoading(true)
+    try {
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+      if (subscription) await subscription.unsubscribe()
+
+      await fetch("/api/mozo/push/unsubscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mozoToken: mozoInfo.token }),
+      })
+
+      setIsPushSubscribed(false)
+      setMozoInfo(prev => prev ? { ...prev, hasPushSubscription: false } : prev)
+      toast.success("Notificaciones desactivadas")
+    } catch (err) {
+      console.error("Push unsubscribe error:", err)
+      toast.error("Error al desactivar notificaciones")
+    } finally {
+      setPushLoading(false)
     }
   }
 
@@ -252,7 +340,7 @@ export default function MozoPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div
-        className="p-4 pb-6 text-white"
+        className="p-4 pb-6 text-white relative"
         style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
       >
         <div className="max-w-md mx-auto">
@@ -263,6 +351,29 @@ export default function MozoPage() {
           <p className="text-2xl font-bold">¡Hola, {mozoInfo.nombre}!</p>
           <p className="text-sm opacity-80 mt-1">Seleccioná las mesas que estás atendiendo</p>
         </div>
+        {/* Notification bell */}
+        <button
+          onClick={isPushSubscribed ? unsubscribeFromPush : subscribeToPush}
+          disabled={pushLoading}
+          className={cn(
+            "absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50",
+            isPushSubscribed
+              ? "bg-white/20 hover:bg-white/30 text-white"
+              : "bg-white/90 hover:bg-white text-gray-800"
+          )}
+          title={isPushSubscribed ? "Desactivar notificaciones" : "Activar notificaciones"}
+        >
+          {pushLoading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : isPushSubscribed ? (
+            <Bell className="h-3.5 w-3.5" />
+          ) : (
+            <BellOff className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden sm:inline">
+            {isPushSubscribed ? "Activadas" : "Notificarme"}
+          </span>
+        </button>
       </div>
 
       {/* Content */}

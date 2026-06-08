@@ -17,10 +17,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "negocioId requerido" }, { status: 400 })
     }
 
-    // Authentication: require negocio session or valid access token
+    // Authentication: require negocio session, valid access token, or valid mozo token
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     let isAuthorized = false
 
+    // 1) Check negocio session cookie
     if (token) {
       const session = await validateSession(token)
       if (session && session.userType === "negocio" && session.userId === negocioId) {
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Also allow via tokenSalon or tokenEmpleados
+    // 2) Check tokenSalon or tokenEmpleados
     if (!isAuthorized && body.token) {
       const negocioByToken = await db.negocio.findFirst({
         where: {
@@ -40,6 +41,21 @@ export async function POST(req: NextRequest) {
         },
       })
       if (negocioByToken) {
+        isAuthorized = true
+      }
+    }
+
+    // 3) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone
+    if (!isAuthorized && body.mozoToken) {
+      const empleado = await db.empleado.findFirst({
+        where: {
+          token: body.mozoToken,
+          negocioId,
+          activo: true,
+          eliminado: false,
+        },
+      })
+      if (empleado) {
         isAuthorized = true
       }
     }
@@ -87,14 +103,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "empleadoCodigo requerido para asignar" }, { status: 400 })
     }
 
-    // Find the empleado by codigo using Prisma ORM (PostgreSQL compatible)
+    // Find the empleado by codigo using Prisma ORM (avoids PostgreSQL case-sensitivity issues)
     const mozo = await db.empleado.findFirst({
-      where: { codigo: empleadoCodigo, negocioId, activo: true },
-      select: { id: true, nombre: true, codigo: true },
+      where: { codigo: empleadoCodigo, negocioId },
     })
 
     if (!mozo) {
-      return NextResponse.json({ error: "Mozo no encontrado o inactivo" }, { status: 404 })
+      return NextResponse.json({ error: "Mozo no encontrado" }, { status: 404 })
+    }
+
+    if (!mozo.activo) {
+      return NextResponse.json({ error: "Mozo inactivo" }, { status: 400 })
     }
 
     // Check if mesa already has a DIFFERENT mozo assigned

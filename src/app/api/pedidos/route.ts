@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendPushNotification, newOrderNotification } from "@/lib/push"
+import { createNotification, newOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -272,23 +272,25 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Look up the mesa — prefer mesaId for direct lookup, fallback to negocioId+numero
-      let mesaRow: { id: string; numero: number; activa: number; empleadoId: string | null } | null = null
+      // Look up the mesa using Prisma ORM (avoids PostgreSQL case-sensitivity issues with $queryRaw)
+      let mesaRow: { id: string; numero: number; activa: boolean; empleadoId: string | null } | null = null
 
       if (mesaId) {
-        // Direct lookup by ID (more efficient, avoids extra query)
-        const mesasById = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE id = ${mesaId} AND negocioId = ${negocioId} LIMIT 1`
-        if (mesasById.length > 0) mesaRow = mesasById[0]
+        // Direct lookup by ID
+        const found = await db.mesa.findFirst({
+          where: { id: mesaId, negocioId },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        if (found) mesaRow = found
       }
 
       if (!mesaRow && mesaNumero) {
         // Fallback: look up by negocioId + numero
-        const mesasByNumero = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE negocioId = ${negocioId} AND numero = ${mesaNumero} LIMIT 1`
-        if (mesasByNumero.length > 0) mesaRow = mesasByNumero[0]
+        const found = await db.mesa.findFirst({
+          where: { negocioId, numero: mesaNumero },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        if (found) mesaRow = found
       }
 
       if (!mesaRow) {
@@ -311,12 +313,13 @@ export async function POST(request: NextRequest) {
       // Auto-resolve mozo from mesa assignment (always — this is the primary source of truth)
       const mesaEmpleadoId = mesaRow.empleadoId
       if (mesaEmpleadoId) {
-        const mesaEmpleados = await db.$queryRaw<
-          Array<{ id: string; nombre: string; codigo: string }>
-        >`SELECT id, nombre, codigo FROM empleados WHERE id = ${mesaEmpleadoId} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-        if (mesaEmpleados.length > 0) {
-          empleadoId = mesaEmpleados[0].id
-          empleadoNombre = mesaEmpleados[0].nombre
+        const mesaEmpleado = await db.empleado.findFirst({
+          where: { id: mesaEmpleadoId, negocioId, activo: true },
+          select: { id: true, nombre: true },
+        })
+        if (mesaEmpleado) {
+          empleadoId = mesaEmpleado.id
+          empleadoNombre = mesaEmpleado.nombre
         }
       }
     }
@@ -324,12 +327,13 @@ export async function POST(request: NextRequest) {
     // Resolve empleado from codigo if provided (overrides mesa auto-assignment)
     // This handles the mozo link flow where the mozo explicitly opened the order
     if (empleadoCodigo && isMesaOrder) {
-      const empleados = await db.$queryRaw<
-        Array<{ id: string; nombre: string }>
-      >`SELECT id, nombre FROM empleados WHERE codigo = ${empleadoCodigo} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-      if (empleados.length > 0) {
-        empleadoId = empleados[0].id
-        empleadoNombre = empleados[0].nombre
+      const empleado = await db.empleado.findFirst({
+        where: { codigo: empleadoCodigo, negocioId, activo: true },
+        select: { id: true, nombre: true },
+      })
+      if (empleado) {
+        empleadoId = empleado.id
+        empleadoNombre = empleado.nombre
       }
     }
 
@@ -449,14 +453,19 @@ export async function POST(request: NextRequest) {
         where: { id: negocioId },
         select: { pushSubscription: true },
       })
-      if (negocioWithPush?.pushSubscription) {
-        const notification = newOrderNotification(
-          pedido.id,
-          clienteNombre,
-          total
-        )
-        await sendPushNotification(negocioWithPush.pushSubscription, notification)
-      }
+      const payload = newOrderNotification(pedido.id, clienteNombre, total)
+      await createNotification({
+        userId: negocioId,
+        userType: "negocio",
+        tipo: "new_order",
+        titulo: payload.title,
+        cuerpo: payload.body,
+        pedidoId: pedido.id,
+        negocioId: negocioId,
+        pushSubscription: negocioWithPush?.pushSubscription ?? null,
+        pushPayload: payload,
+        cleanupExpired: { model: "negocio", id: negocioId },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send new order notification:", pushError)
     }

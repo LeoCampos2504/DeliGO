@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     const negocioId = user.id
 
-    // Get all mozos using Prisma ORM (PostgreSQL compatible)
+    // Get all mozos using Prisma ORM (avoids PostgreSQL case-sensitivity issues)
     const mozos = await db.empleado.findMany({
       where: { negocioId },
       select: { id: true, nombre: true, codigo: true },

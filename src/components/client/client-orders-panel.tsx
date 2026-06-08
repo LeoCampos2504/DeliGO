@@ -26,6 +26,7 @@ import {
   Ban,
   ArrowRight,
   Navigation,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -102,6 +103,7 @@ interface Pedido {
   logoUrl?: string | null
   colorPrincipal?: string | null
   seguimientoDeliveryActivo?: boolean
+  toleranciaCancelacion?: number
 }
 
 // API response type for repeat order
@@ -113,8 +115,9 @@ interface RepeatOrderItem {
   precioActual: number | null
   cantidad: number
   agregados: { id: string; nombre: string; precio: number }[]
-  secciones: string
-  ingredientesQuitados: string
+  secciones: Record<string, string | Record<string, number>> | string
+  seccionesPrecios: Record<string, number> | string
+  ingredientesQuitados: string[] | string
   talle: string
   color: string
   disponible: boolean
@@ -396,18 +399,23 @@ function RepeatOrderDialog({
 
       // Add each available item to cart
       for (const item of availableItems) {
-        // Parse secciones
+        // Parse secciones (API may return parsed object or string)
         let seccionesParsed: Record<string, string | Record<string, number>> = {}
         try {
-          seccionesParsed = JSON.parse(item.secciones || "{}")
+          seccionesParsed = typeof item.secciones === "string"
+            ? JSON.parse(item.secciones || "{}")
+            : (item.secciones || {})
         } catch {
           seccionesParsed = {}
         }
+        if (typeof seccionesParsed !== "object" || Array.isArray(seccionesParsed)) seccionesParsed = {}
 
-        // Parse ingredientes quitados
+        // Parse ingredientes quitados (API may return parsed array or string)
         let ingredientesQuitados: string[] = []
         try {
-          ingredientesQuitados = JSON.parse(item.ingredientesQuitados || "[]")
+          ingredientesQuitados = typeof item.ingredientesQuitados === "string"
+            ? JSON.parse(item.ingredientesQuitados || "[]")
+            : (Array.isArray(item.ingredientesQuitados) ? item.ingredientesQuitados : [])
         } catch {
           ingredientesQuitados = []
         }
@@ -589,10 +597,52 @@ function RepeatOrderDialog({
                     )}
                     {/* Agregados */}
                     {item.disponible && item.agregados.length > 0 && (
-                      <p className="text-[11px] text-primary/70 mt-0.5">
+                      <p className="text-[11px] text-emerald-600/70 dark:text-emerald-400/70 mt-0.5">
                         + {item.agregados.map((a) => a.nombre).join(", ")}
                       </p>
                     )}
+                    {/* Secciones (option sections) */}
+                    {item.disponible && (() => {
+                      let parsed: Record<string, string | Record<string, number>> = {}
+                      try {
+                        parsed = typeof item.secciones === "string" ? JSON.parse(item.secciones || "{}") : (item.secciones || {})
+                      } catch { parsed = {} }
+                      if (typeof parsed !== "object" || Array.isArray(parsed)) parsed = {}
+                      return Object.keys(parsed).length > 0 ? (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {Object.entries(parsed).map(([k, v]) => {
+                            let display: string
+                            if (typeof v === "string") {
+                              display = `${k}: ${v}`
+                            } else {
+                              const parts = Object.entries(v as Record<string, number>)
+                                .filter(([, qty]) => qty > 0)
+                                .map(([opt, qty]) => qty > 1 ? `${opt} x${qty}` : opt)
+                              display = `${k}: ${parts.join(", ")}`
+                            }
+                            return (
+                              <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                {display}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : null
+                    })()}
+                    {/* Ingredientes quitados */}
+                    {item.disponible && (() => {
+                      let parsed: string[] = []
+                      try {
+                        parsed = typeof item.ingredientesQuitados === "string"
+                          ? JSON.parse(item.ingredientesQuitados || "[]")
+                          : (Array.isArray(item.ingredientesQuitados) ? item.ingredientesQuitados : [])
+                      } catch { parsed = [] }
+                      return parsed.length > 0 ? (
+                        <p className="text-[11px] text-orange-600/70 dark:text-orange-400/70 mt-0.5">
+                          Sin {parsed.join(", ")}
+                        </p>
+                      ) : null
+                    })()}
                     {/* Price change notice */}
                     {item.disponible && item.precioActual !== null && item.precioActual !== item.precio && (
                       <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
@@ -780,7 +830,14 @@ function ActiveOrderCard({ pedido, onTrackDelivery }: { pedido: Pedido; onTrackD
   const [expanded, setExpanded] = useState(false)
   const queryClient = useQueryClient()
 
-  const canCancel = pedido.estado === "recibido" || pedido.estado === "confirmado"
+  const canCancel = (() => {
+    if (pedido.estado !== "recibido" && pedido.estado !== "confirmado") return false
+    const tolerancia = pedido.toleranciaCancelacion ?? 5
+    if (tolerancia <= 0) return false // negocio doesn't allow cancellation
+    const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()
+    const toleranciaMs = tolerancia * 60 * 1000
+    return tiempoTranscurrido <= toleranciaMs
+  })()
   const canConfirm = (pedido.estado === "listo_para_retirar" || pedido.estado === "en_camino") && !pedido.clienteConfirmaRecibido
 
   const actionMutation = useMutation({
@@ -953,6 +1010,28 @@ function ActiveOrderCard({ pedido, onTrackDelivery }: { pedido: Pedido; onTrackD
             <Navigation className="h-4 w-4" />
             🛵 Seguir delivery en vivo
           </Button>
+        </>
+      )}
+
+      {/* Pickup: show store location when ready */}
+      {!isDelivery && pedido.estado === "listo_para_retirar" && pedido.negocioLat && pedido.negocioLng && (
+        <>
+          <Separator className="opacity-50 my-2" />
+          <a
+            href={`https://www.google.com/maps?q=${pedido.negocioLat},${pedido.negocioLng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/30 transition-colors"
+          >
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+              <Navigation className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">¡Listo para retirar!</p>
+              <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/70">Ver ubicación del local en Google Maps</p>
+            </div>
+            <ExternalLink className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+          </a>
         </>
       )}
 

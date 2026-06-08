@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { createNotification, orderUpdateNotification } from "@/lib/push"
 
 // POST - Repartidor accepts a pending delivery order
 // This uses optimistic concurrency: only accept if no other repartidor has claimed it yet
@@ -113,6 +114,60 @@ export async function POST(
         nota: "Pedido aceptado por repartidor",
       },
     })
+
+    // Notify the cliente that a repartidor was assigned
+    const pedidoConCliente = await db.pedido.findUnique({
+      where: { id: pedidoId },
+      select: {
+        clienteId: true,
+        clienteNombre: true,
+        negocioNombre: true,
+      },
+    })
+
+    if (pedidoConCliente?.clienteId) {
+      const cliente = await db.cliente.findUnique({
+        where: { id: pedidoConCliente.clienteId },
+        select: { id: true, pushSubscription: true },
+      })
+
+      if (cliente) {
+        const payload = orderUpdateNotification(pedidoId, pedidoConCliente.negocioNombre, "en_camino")
+        await createNotification({
+          userId: cliente.id,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: "Repartidor asignado 🛵",
+          cuerpo: `Tu pedido de ${pedidoConCliente.negocioNombre} ya tiene repartidor`,
+          pedidoId,
+          pushSubscription: cliente.pushSubscription,
+          pushPayload: payload,
+          cleanupExpired: { model: "cliente", id: cliente.id },
+        })
+      }
+    }
+
+    // Notify the negocio that a repartidor accepted
+    const negocio = await db.negocio.findUnique({
+      where: { id: pedido.negocioId },
+      select: { id: true, pushSubscription: true },
+    })
+
+    if (negocio) {
+      const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, "en_camino")
+      await createNotification({
+        userId: negocio.id,
+        userType: "negocio",
+        tipo: "order_update",
+        titulo: "Repartidor aceptó el delivery 🛵",
+        cuerpo: `${repartidor?.nombre || "Repartidor"} aceptó el pedido de delivery`,
+        pedidoId,
+        negocioId: negocio.id,
+        pushSubscription: negocio.pushSubscription,
+        pushPayload: payload,
+        cleanupExpired: { model: "negocio", id: negocio.id },
+      })
+    }
 
     // Return the updated pedido
     const pedidoActualizado = await db.pedido.findUnique({

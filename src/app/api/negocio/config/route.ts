@@ -268,6 +268,7 @@ export async function PATCH(req: NextRequest) {
     if (body.empleadosActivos !== undefined) updateData.empleadosActivos = body.empleadosActivos
     if (body.zonasSalon !== undefined) updateData.zonasSalon = JSON.stringify(body.zonasSalon)
     if (body.panelMode !== undefined) updateData.panelMode = body.panelMode
+    if (body.mostrarVentas !== undefined) updateData.mostrarVentas = body.mostrarVentas
     if (body.horarioMode !== undefined) updateData.horarioMode = body.horarioMode
     if (body.abiertoManual !== undefined) updateData.abiertoManual = body.abiertoManual
 

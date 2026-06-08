@@ -15,7 +15,9 @@ export function ChatFab() {
   const pathname = usePathname()
 
   const canChat = isAuthenticated() && userType() !== "superadmin"
-  const isHidden = pathname.startsWith("/n/") || pathname.startsWith("/mozo/") || pathname.startsWith("/s/") || pathname.startsWith("/e/")
+  // Hide chat on: catalog page (/n/), mozo/mesas link (/m/), salon link (/s/), repartidor page
+  // Show chat on: employee orders/reviews link (/e/) — chat is for cliente-negocio only, not for mozo mesas or delivery
+  const isHidden = pathname.startsWith("/n/") || pathname.startsWith("/m/") || pathname.startsWith("/s/") || pathname.startsWith("/repartidor")
 
   // Periodically fetch unread count
   useEffect(() => {

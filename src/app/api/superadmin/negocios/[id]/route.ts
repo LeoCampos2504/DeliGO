@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { sendPushNotification, negocioApprovedNotification } from "@/lib/push"
+import { createNotification, negocioApprovedNotification } from "@/lib/push"
 
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -46,11 +46,19 @@ export async function POST(
         where: { id },
         select: { pushSubscription: true, nombre: true },
       })
-      if (updatedNegocio?.pushSubscription) {
-        await sendPushNotification(
-          updatedNegocio.pushSubscription,
-          negocioApprovedNotification(updatedNegocio.nombre)
-        )
+      if (updatedNegocio) {
+        const payload = negocioApprovedNotification(updatedNegocio.nombre)
+        await createNotification({
+          userId: id,
+          userType: "negocio",
+          tipo: "account_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          negocioId: id,
+          pushSubscription: updatedNegocio.pushSubscription,
+          pushPayload: payload,
+          cleanupExpired: { model: "negocio", id },
+        })
       }
     } catch (pushError) {
       console.error("[Push] Failed to send approval notification:", pushError)

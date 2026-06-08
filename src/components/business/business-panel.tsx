@@ -23,8 +23,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Logo } from "@/components/shared/logo"
+import { NotificationBell } from "@/components/shared/notification-center"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
+import type { NotificationItem } from "@/store/notification-store"
 import { DashboardTab } from "./dashboard-tab"
 import { ProductsTab } from "./products-tab"
 import { OrdersTab } from "./orders-tab"
@@ -85,6 +87,22 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   const [abiertoManual, setAbiertoManual] = useState(negocio.abiertoManual !== false)
   const { logout } = useAuth()
   const queryClient = useQueryClient()
+
+  // Handle notification click → navigate to correct tab
+  const handleNotificationNavigate = useCallback((tab: string, _notif: NotificationItem) => {
+    // Map notification tab names to PanelTab
+    const tabMap: Record<string, PanelTab> = {
+      pedidos: "pedidos",
+      resenas: "resenas",
+      config: "config",
+      dashboard: "dashboard",
+      ventas: "ventas",
+      productos: "productos",
+      salon: "salon",
+    }
+    const target = tabMap[tab]
+    if (target) setActiveTab(target)
+  }, [])
 
   // Sync horario state with negocio prop changes (from query refetch)
   useEffect(() => {
@@ -175,6 +193,29 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
     loadMode()
   }, [])
 
+  // Handle URL tab parameter (from push notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get("tab")
+    if (tabParam) {
+      const tabMap: Record<string, PanelTab> = {
+        dashboard: "dashboard",
+        ventas: "ventas",
+        productos: "productos",
+        pedidos: "pedidos",
+        resenas: "resenas",
+        salon: "salon",
+        config: "config",
+      }
+      const target = tabMap[tabParam]
+      if (target) {
+        setActiveTab(target)
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    }
+  }, [])
+
   const handleModeChange = useCallback((newMode: PanelMode) => {
     setMode(newMode)
     // Save to database (fire and forget)
@@ -210,6 +251,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
           <div className="flex items-center justify-between">
             <Logo size="sm" />
             <div className="flex items-center gap-1.5">
+              <NotificationBell onNavigate={handleNotificationNavigate} />
               {/* Simple mode: Open/Closed toggle */}
               {horarioMode === "simple" && (
                 <Button

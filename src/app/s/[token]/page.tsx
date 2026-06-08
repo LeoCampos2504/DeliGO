@@ -518,18 +518,12 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
                                     </div>
                                     {hasDetails && (
                                       <div className="ml-7 mt-1 space-y-1">
-                                        {/* Talle / Color */}
                                         {(item.talle || item.color) && (
                                           <div className="flex flex-wrap gap-1">
-                                            {item.talle && (
-                                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Talle: {item.talle}</span>
-                                            )}
-                                            {item.color && (
-                                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Color: {item.color}</span>
-                                            )}
+                                            {item.talle && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Talle: {item.talle}</span>}
+                                            {item.color && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Color: {item.color}</span>}
                                           </div>
                                         )}
-                                        {/* Secciones */}
                                         {Object.keys(item.secciones || {}).length > 0 && (
                                           <div className="flex flex-wrap gap-1">
                                             {Object.entries(item.secciones).map(([k, v]) => {
@@ -542,31 +536,21 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
                                                   .map(([opt, qty]) => qty > 1 ? `${opt} x${qty}` : opt)
                                                 display = `${k}: ${parts.join(", ")}`
                                               }
-                                              return (
-                                                <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                                                  {display}
-                                                </span>
-                                              )
+                                              return <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">{display}</span>
                                             })}
                                           </div>
                                         )}
-                                        {/* Agregados */}
                                         {item.agregados?.length > 0 && (
                                           <div className="flex flex-wrap gap-1">
                                             {item.agregados.map((a, i) => (
-                                              <span key={a.id ?? i} className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-medium">
-                                                + {a.nombre}{a.precio > 0 ? ` ($${a.precio})` : ""}
-                                              </span>
+                                              <span key={a.id ?? i} className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-medium">+ {a.nombre}{a.precio > 0 ? ` ($${a.precio})` : ""}</span>
                                             ))}
                                           </div>
                                         )}
-                                        {/* Ingredientes quitados */}
                                         {item.ingredientesQuitados?.length > 0 && (
                                           <div className="flex flex-wrap gap-1">
                                             {item.ingredientesQuitados.map((ing, i) => (
-                                              <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium">
-                                                Sin {ing}
-                                              </span>
+                                              <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium">Sin {ing}</span>
                                             ))}
                                           </div>
                                         )}

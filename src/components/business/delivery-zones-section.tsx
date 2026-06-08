@@ -427,7 +427,7 @@ function ZoneMapDialog({
   onClose: () => void
   colorPrincipal: string
 }) {
-  const [activeZonaId, setActiveZonaId] = useState<string | null>(zonas.length > 0 ? zonas[0].id : null)
+  const [activeZonaId, setActiveZonaId] = useState<string | null>(zonas.length > 0 ? zonas[zonas.length - 1].id : null)
   const [mapReady, setMapReady] = useState(false)
   const [closedZonaIds, setClosedZonaIds] = useState<Set<string>>(() => {
     // Zones that already have 3+ points are considered closed on init

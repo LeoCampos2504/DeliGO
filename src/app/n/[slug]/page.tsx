@@ -132,6 +132,8 @@ interface NegocioAPI {
   mostrarVentas?: boolean
   totalVentas?: number
   opcionesCompartidas: Array<{ id: string; nombre: string; opciones: Array<{ nombre: string; precio: number }>; obligatorio: boolean; maximo: number }>
+  lat?: number | null
+  lng?: number | null
   productos: ProductoAPI[]
   productosSinSeccion: ProductoAPI[]
   secciones: SeccionAPI[]
@@ -503,11 +505,20 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
         {/* Back button */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-          <Link href="/">
-            <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
+          {mozoParam ? (
+            <button
+              onClick={() => window.history.back()}
+              className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors"
+            >
               <ArrowLeft className="h-5 w-5" />
             </button>
-          </Link>
+          ) : (
+            <Link href="/">
+              <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            </Link>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => {
@@ -613,7 +624,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <span className="text-sm font-semibold" style={{ color: negocio.colorPrincipal }}>
               Modo mozo — {mozoData.nombre}
             </span>
-            {mozoSelectedMesa && (
+            {(mozoSelectedMesa || mesaNumero) && (
               <Badge
                 className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-lg"
                 style={{
@@ -622,13 +633,35 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
                   border: `1px solid ${negocio.colorPrincipal}25`,
                 }}
               >
-                Mesa {mozoSelectedMesa.numero}
+                Mesa {mozoSelectedMesa?.numero ?? mesaNumero}
               </Badge>
             )}
           </div>
 
-          {/* Mesa selection row */}
-          {!mozoSelectedMesa ? (
+          {/* Mesa selection row — if mesaNumero is already set (from URL), show the mesa directly */}
+          {mesaNumero && mozoData ? (
+            <div
+              className="w-full flex items-center gap-3 px-4 py-3"
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: `${negocio.colorPrincipal}12` }}
+              >
+                <Armchair
+                  className="h-5 w-5"
+                  style={{ color: negocio.colorPrincipal }}
+                />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-bold" style={{ color: negocio.colorPrincipal }}>
+                  Mesa {mesaNumero}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Pedido para esta mesa
+                </p>
+              </div>
+            </div>
+          ) : !mozoSelectedMesa ? (
             <button
               onClick={() => setMesaSelectorOpen(true)}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors active:scale-[0.99]"

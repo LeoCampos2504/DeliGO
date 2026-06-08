@@ -1,5 +1,4 @@
 // DeliGO - Prisma Schema (PostgreSQL)
-// For local dev: uses SQLite. For production: uses PostgreSQL on Railway.
 
 generator client {
   provider = "prisma-client-js"
@@ -600,8 +599,9 @@ model Empleado {
   permisos    String   @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
   activo      Boolean  @default(true)
   eliminado   Boolean  @default(false)
-  token       String?  // token para notificaciones push
-  negocioId   String
+  token           String?  // token para notificaciones push
+  pushSubscription String?  // push subscription JSON for browser notifications
+  negocioId       String
   negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   mesas       Mesa[]   // Mesas asignadas a este mozo
 
@@ -657,6 +657,27 @@ model AuditLog {
   @@index([recurso, recursoId])
   @@index([accion])
   @@map("audit_logs")
+}
+
+// ============================================
+// NOTIFICACIONES (In-app + Push)
+// ============================================
+model Notificacion {
+  id           String   @id @default(cuid())
+  userId       String   // ID del destinatario
+  userType     String   // cliente, negocio, repartidor, superadmin, empleado
+  tipo         String   // order_update, new_order, new_delivery, review, chat, review_request, account_update
+  titulo       String   // notification title
+  cuerpo       String   // notification body text
+  leido        Boolean  @default(false)
+  pedidoId     String?  // related order ID (for navigation)
+  negocioId    String?  // related business ID
+  datos        String   @default("{}") // JSON: additional data for navigation/action
+  createdAt    DateTime @default(now())
+
+  @@index([userId, userType, leido, createdAt])
+  @@index([userId, userType, createdAt])
+  @@map("notificaciones")
 }
 
 // ============================================

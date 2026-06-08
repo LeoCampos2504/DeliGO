@@ -745,8 +745,9 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               </p>
             </div>
             <Switch
-              checked={config?.mostrarVentas ?? false}
+              checked={mergedOrders.mostrarVentas ?? false}
               onCheckedChange={(v) => {
+                setOrders((p) => ({ ...p, mostrarVentas: v }))
                 saveSection("visibility", { mostrarVentas: v })
               }}
             />

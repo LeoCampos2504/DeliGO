@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
           orderBy: { numero: "asc" },
         },
       },
+      // Also select pushSubscription
     })
 
     if (!empleado) {
@@ -102,6 +103,7 @@ export async function GET(req: NextRequest) {
       codigo: empleado.codigo,
       rol: empleado.rol,
       token: empleado.token,
+      hasPushSubscription: !!empleado.pushSubscription,
       negocio: empleado.negocio,
       mesas: enrichedMesas,
       myAssignedMesas: empleado.mesas,

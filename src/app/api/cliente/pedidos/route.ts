@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
             lat: true,
             lng: true,
             seguimientoDeliveryActivo: true,
+            toleranciaCancelacion: true,
           },
         },
       },
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
         logoUrl: negocio?.logoUrl ?? null,
         colorPrincipal: negocio?.colorPrincipal ?? null,
         seguimientoDeliveryActivo: negocio?.seguimientoDeliveryActivo ?? true,
+        toleranciaCancelacion: negocio?.toleranciaCancelacion ?? 5,
       }
     })
 

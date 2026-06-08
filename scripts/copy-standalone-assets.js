@@ -23,16 +23,14 @@ function copyDir(src, dest) {
 
 const root = process.cwd()
 
-const staticSrc = path.join(root, ".next", "static")
-const staticDest = path.join(root, ".next", "standalone", ".next", "static")
+copyDir(
+  path.join(root, ".next", "static"),
+  path.join(root, ".next", "standalone", ".next", "static")
+)
 
-const publicSrc = path.join(root, "public")
-const publicDest = path.join(root, ".next", "standalone", "public")
+copyDir(
+  path.join(root, "public"),
+  path.join(root, ".next", "standalone", "public")
+)
 
-console.log("[copy-assets] Copiando .next/static...")
-copyDir(staticSrc, staticDest)
-
-console.log("[copy-assets] Copiando public...")
-copyDir(publicSrc, publicDest)
-
-console.log("[copy-assets] Listo.")
+console.log("[copy-assets] Assets copiados correctamente.")
