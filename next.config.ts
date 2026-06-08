@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
-const chatServiceUrl =
-  process.env.CHAT_SERVICE_URL || "http://localhost:3003";
+const chatServiceUrl = "https://harmonious-empathy.up.railway.app";
+
+console.log("[next.config] CHAT_SERVICE_URL =", chatServiceUrl);
 
 const nextConfig: NextConfig = {
   output: "standalone",
