@@ -4,10 +4,10 @@ const { Server } = require("socket.io")
 const PORT = process.env.PORT || 3003
 
 // Permite uno o varios dominios.
-// En Railway podés usar:
+// En Railway usá:
 // CLIENT_URLS=https://deligo.up.railway.app,https://deligo-copy-production.up.railway.app
 //
-// Mantiene compatibilidad con CLIENT_URL si ya lo tenías configurado.
+// También mantiene compatibilidad con CLIENT_URL si ya lo tenías.
 const CLIENT_URLS =
   process.env.CLIENT_URLS ||
   process.env.CLIENT_URL ||
@@ -19,14 +19,17 @@ const allowedOrigins = [
   ...CLIENT_URLS.split(",").map((url) => url.trim()).filter(Boolean),
 ]
 
-// Quita duplicados
+// Quitar duplicados
 const uniqueAllowedOrigins = [...new Set(allowedOrigins)]
 
 console.log("[Chat] Allowed origins:", uniqueAllowedOrigins)
 
-// HTTP server con health check para Railway/navegador
+// HTTP server con health check.
+// Importante: no responder 404 a /socket.io porque esa ruta la maneja Socket.IO.
 const httpServer = createServer((req, res) => {
-  if (req.url === "/" || req.url === "/health") {
+  const url = req.url || ""
+
+  if (url === "/" || url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" })
     res.end(
       JSON.stringify({
@@ -39,6 +42,11 @@ const httpServer = createServer((req, res) => {
     return
   }
 
+  // Dejar que Socket.IO maneje estas requests.
+  if (url.startsWith("/socket.io")) {
+    return
+  }
+
   res.writeHead(404, { "Content-Type": "text/plain" })
   res.end("Not found")
 })
@@ -46,7 +54,7 @@ const httpServer = createServer((req, res) => {
 const io = new Server(httpServer, {
   cors: {
     origin(origin, callback) {
-      // Permitir requests sin origin, por ejemplo health checks o algunos clientes nativos
+      // Permitir requests sin origin, como health checks o algunos clientes internos
       if (!origin) {
         return callback(null, true)
       }
@@ -256,9 +264,11 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`  DeliGO Chat Service running on port ${PORT}`)
   console.log(`  Health: /health`)
   console.log(`  Allowed origins:`)
+
   for (const origin of uniqueAllowedOrigins) {
     console.log(`   - ${origin}`)
   }
+
   console.log("============================================")
 })
 
@@ -277,5 +287,6 @@ function shutdown(signal) {
     process.exit(0)
   }, 5000)
 }
+
 process.on("SIGTERM", () => shutdown("SIGTERM"))
 process.on("SIGINT", () => shutdown("SIGINT"))
