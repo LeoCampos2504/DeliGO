@@ -59,9 +59,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (!user) return
       userIdRef.current = user.id
 
-      const chatUrl = process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3003'
-        : undefined
+      const chatUrl =
+        process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
+        "http://localhost:3003"
 
       const socket = io(chatUrl, {
         transports: ["websocket", "polling"],
