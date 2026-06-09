@@ -3,17 +3,18 @@
 import { useEffect } from "react"
 
 /**
- * Prevents iOS Safari viewport scroll drift when the virtual keyboard opens.
+ * Prevents iOS Safari/PWA viewport scroll drift when the virtual keyboard opens.
  *
- * On iOS, when a text input is focused and the virtual keyboard appears,
- * `position: fixed` elements can drift or float because Safari adjusts the
- * visual viewport but not the layout viewport consistently.
+ * On iOS PWA, when a text input is focused:
+ * 1. The browser scrolls the page to bring the input above the keyboard
+ * 2. `position: fixed` elements can detach and scroll with the content
+ * 3. The page content shifts upward unpredictably
  *
  * This component:
  * 1. Detects iOS via user agent
- * 2. Listens for focusin/focusout on editable elements
+ * 2. Listens for visualViewport changes (most reliable keyboard detection on iOS)
  * 3. Adds/removes a `keyboard-open` class on <body>
- * 4. CSS rules using `.keyboard-open` can then hide/reposition elements
+ * 4. CSS rules using `.keyboard-open` can hide/reposition elements
  *
  * Returns null — no UI rendered.
  */
@@ -34,14 +35,30 @@ export function IOSInputScrollGuard() {
       return Boolean(target.closest(editableSelector))
     }
 
+    // Track the scroll position before keyboard opens so we can restore it
+    let scrollBeforeKeyboard = 0
+
+    const handleViewportResize = () => {
+      if (!window.visualViewport) return
+      const vv = window.visualViewport
+      const keyboardOpen = vv.height < window.innerHeight - 50
+
+      if (keyboardOpen) {
+        document.body.classList.add("keyboard-open")
+      } else {
+        document.body.classList.remove("keyboard-open")
+      }
+    }
+
     const handleFocusIn = (e: FocusEvent) => {
       if (isEditable(e.target)) {
+        // Record scroll position before keyboard animation starts
+        scrollBeforeKeyboard = window.scrollY
         document.body.classList.add("keyboard-open")
       }
     }
 
     const handleFocusOut = () => {
-      // Delay to handle rapid focus switches between inputs
       setTimeout(() => {
         if (!isEditable(document.activeElement)) {
           document.body.classList.remove("keyboard-open")
@@ -49,24 +66,22 @@ export function IOSInputScrollGuard() {
       }, 150)
     }
 
-    // Also listen for visualViewport resize as a fallback signal
-    const handleViewportResize = () => {
-      if (!window.visualViewport) return
-      const viewport = window.visualViewport
-      // If viewport height is significantly less than window height, keyboard is likely open
-      if (viewport.height < window.innerHeight - 100) {
-        document.body.classList.add("keyboard-open")
-      }
+    // visualViewport is the most reliable way to detect keyboard on iOS
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleViewportResize)
+      window.visualViewport.addEventListener("scroll", handleViewportResize)
     }
 
     document.addEventListener("focusin", handleFocusIn)
     document.addEventListener("focusout", handleFocusOut)
-    window.visualViewport?.addEventListener("resize", handleViewportResize)
 
     return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleViewportResize)
+        window.visualViewport.removeEventListener("scroll", handleViewportResize)
+      }
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
-      window.visualViewport?.removeEventListener("resize", handleViewportResize)
       document.body.classList.remove("keyboard-open")
     }
   }, [])

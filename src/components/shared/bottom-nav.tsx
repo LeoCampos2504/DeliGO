@@ -2,7 +2,7 @@
 
 import { Home, ClipboardList, Heart, Tag, User } from "lucide-react"
 import { motion } from "framer-motion"
-import { useEffect, useState } from "react"
+import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore, type ClientTab } from "@/store/nav-store"
@@ -18,11 +18,32 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
-  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
 
-  // Keyboard detection for mobile — hides nav when virtual keyboard opens
+  // Keyboard detection — uses DIRECT DOM manipulation (not React state)
+  // to avoid the delay that causes the nav to float/detach on iOS PWA.
+  // visualViewport events fire instantly when keyboard starts opening.
   useEffect(() => {
-    const isMobileViewport = () => window.innerWidth <= 768
+    const nav = navRef.current
+    if (!nav) return
+
+    let isHidden = false
+
+    const hideNav = () => {
+      if (isHidden) return
+      isHidden = true
+      // Slide down instantly — no transition delay
+      nav.style.transform = "translateY(100%)"
+      nav.style.transition = "none"
+    }
+
+    const showNav = () => {
+      if (!isHidden) return
+      isHidden = false
+      nav.style.transform = ""
+      nav.style.transition = "transform 0.2s ease"
+    }
+
     const isEditableTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) return false
       return Boolean(
@@ -31,38 +52,61 @@ export function BottomNav() {
         )
       )
     }
-    const handleFocusIn = (event: FocusEvent) => {
-      if (isMobileViewport() && isEditableTarget(event.target)) {
-        setKeyboardOpen(true)
+
+    // Method 1: focusin — fastest possible detection (fires before keyboard opens)
+    const handleFocusIn = (e: FocusEvent) => {
+      if (window.innerWidth <= 768 && isEditableTarget(e.target)) {
+        hideNav()
       }
     }
+
     const handleFocusOut = () => {
-      // Small delay to avoid flicker when switching between inputs
-      window.setTimeout(() => {
+      setTimeout(() => {
         if (!isEditableTarget(document.activeElement)) {
-          setKeyboardOpen(false)
+          showNav()
         }
       }, 150)
     }
+
+    // Method 2: visualViewport — confirms keyboard state on iOS
+    // Also handles edge cases where focusin doesn't fire
+    const handleViewportChange = () => {
+      if (!window.visualViewport) return
+      const vv = window.visualViewport
+      const keyboardOpen = vv.height < window.innerHeight - 50
+      if (keyboardOpen) {
+        hideNav()
+      } else {
+        showNav()
+      }
+    }
+
     document.addEventListener("focusin", handleFocusIn)
     document.addEventListener("focusout", handleFocusOut)
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleViewportChange)
+      window.visualViewport.addEventListener("scroll", handleViewportChange)
+    }
+
     return () => {
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleViewportChange)
+        window.visualViewport.removeEventListener("scroll", handleViewportChange)
+      }
     }
   }, [])
 
   // Only show for logged-in clients
   if (!isAuthenticated() || userType() !== "cliente") return null
 
-  // Hide nav when virtual keyboard is open — prevents floating/overlap issues
-  if (keyboardOpen) return null
-
   return (
     <nav
+      ref={navRef}
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80",
-        "keyboard-hide-when-editing"
+        "fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80"
       )}
     >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
