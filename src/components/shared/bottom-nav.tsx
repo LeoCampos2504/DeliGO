@@ -33,13 +33,15 @@ export function BottomNav() {
       if (isHidden) return
       isHidden = true
       // Slide down instantly — no transition delay
-      nav.style.transform = "translateY(100%)"
+      nav.style.display = "none"
+      nav.style.transform = ""
       nav.style.transition = "none"
     }
 
     const showNav = () => {
       if (!isHidden) return
       isHidden = false
+      nav.style.display = ""
       nav.style.transform = ""
       nav.style.transition = "transform 0.2s ease"
     }
@@ -72,6 +74,11 @@ export function BottomNav() {
     // Also handles edge cases where focusin doesn't fire
     const handleViewportChange = () => {
       if (!window.visualViewport) return
+      if (isEditableTarget(document.activeElement)) {
+        hideNav()
+        return
+      }
+
       const vv = window.visualViewport
       const keyboardOpen = vv.height < window.innerHeight - 50
       if (keyboardOpen) {
@@ -106,7 +113,7 @@ export function BottomNav() {
     <nav
       ref={navRef}
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80"
+        "keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80"
       )}
     >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">

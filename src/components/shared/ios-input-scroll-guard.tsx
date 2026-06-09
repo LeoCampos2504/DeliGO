@@ -40,6 +40,11 @@ export function IOSInputScrollGuard() {
 
     const handleViewportResize = () => {
       if (!window.visualViewport) return
+      if (isEditable(document.activeElement)) {
+        document.body.classList.add("keyboard-open")
+        return
+      }
+
       const vv = window.visualViewport
       const keyboardOpen = vv.height < window.innerHeight - 50
 
@@ -62,8 +67,14 @@ export function IOSInputScrollGuard() {
       setTimeout(() => {
         if (!isEditable(document.activeElement)) {
           document.body.classList.remove("keyboard-open")
+          window.scrollTo(0, scrollBeforeKeyboard)
         }
       }, 150)
+      setTimeout(() => {
+        if (!isEditable(document.activeElement)) {
+          window.scrollTo(0, scrollBeforeKeyboard)
+        }
+      }, 450)
     }
 
     // visualViewport is the most reliable way to detect keyboard on iOS
