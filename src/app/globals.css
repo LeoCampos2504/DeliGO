@@ -288,15 +288,22 @@ body.ios-device main {
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ─── Bottom nav: GPU layer + smooth transition ─── */
-.ios-bottom-nav {
-  transform: translateZ(0);
+/* ─── Bottom nav: GPU layer + smooth transition (iOS only) ───
+   Use backface-visibility:hidden instead of translateZ(0) to promote
+   to a GPU compositing layer — translateZ(0) triggers an iOS Safari
+   bug where content inside position:fixed elements becomes invisible
+   (still interactive but not painted). backface-visibility is equally
+   effective for preventing the nav from detaching on keyboard open
+   without the rendering bug. ─── */
+html.ios-device .ios-bottom-nav {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   will-change: transform;
   transition: transform 200ms ease-in-out;
 }
 
 /* ─── Hide bottom nav when iOS keyboard opens ─── */
-.ios-keyboard-open .ios-bottom-nav {
+html.ios-device.ios-keyboard-open .ios-bottom-nav {
   transform: translateY(calc(var(--ios-keyboard-offset, 0px) + 100%));
   pointer-events: none;
 }
