@@ -2,6 +2,7 @@
 
 import { Home, ClipboardList, Heart, Tag, User } from "lucide-react"
 import { motion } from "framer-motion"
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore, type ClientTab } from "@/store/nav-store"
@@ -17,6 +18,52 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false
+      return Boolean(
+        target.closest(
+          'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"]'
+        )
+      )
+    }
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isEditableTarget(event.target)) {
+        setKeyboardOpen(true)
+      }
+    }
+
+    const handleFocusOut = () => {
+      window.setTimeout(() => {
+        if (!isEditableTarget(document.activeElement)) {
+          setKeyboardOpen(false)
+        }
+      }, 120)
+    }
+
+    const handleViewportResize = () => {
+      if (!window.visualViewport) return
+      const keyboardLikelyOpen = window.visualViewport.height < window.innerHeight - 120
+      if (keyboardLikelyOpen) {
+        setKeyboardOpen(true)
+      } else if (!isEditableTarget(document.activeElement)) {
+        setKeyboardOpen(false)
+      }
+    }
+
+    document.addEventListener("focusin", handleFocusIn)
+    document.addEventListener("focusout", handleFocusOut)
+    window.visualViewport?.addEventListener("resize", handleViewportResize)
+
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn)
+      document.removeEventListener("focusout", handleFocusOut)
+      window.visualViewport?.removeEventListener("resize", handleViewportResize)
+    }
+  }, [])
 
   // Only show for logged-in clients
   if (!isAuthenticated() || userType() !== "cliente") {
@@ -24,7 +71,12 @@ export function BottomNav() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80">
+    <nav
+      className={cn(
+        "keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border supports-[backdrop-filter]:bg-card/80 transition-[opacity,transform] duration-200",
+        keyboardOpen && "translate-y-full opacity-0 pointer-events-none"
+      )}
+    >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id

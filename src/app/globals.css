@@ -256,6 +256,24 @@ body {
   html {
     touch-action: manipulation;
   }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+    line-height: 1.35;
+  }
+}
+
+@supports selector(body:has(input:focus)) {
+  body:has(input:focus) .keyboard-hide-when-editing,
+  body:has(textarea:focus) .keyboard-hide-when-editing,
+  body:has(select:focus) .keyboard-hide-when-editing,
+  body:has([contenteditable="true"]:focus) .keyboard-hide-when-editing {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(100%);
+  }
 }
 
 /* Force form controls to the mobile-safe size that avoids browser auto-zoom. */
