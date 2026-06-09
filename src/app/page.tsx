@@ -224,16 +224,47 @@ function HomePageContent() {
     // Handle ?register=negocio or ?register=repartidor query params
     const registerParam = searchParams.get("register")
     if (registerParam === "negocio" || registerParam === "repartidor") {
-      const registerTimer = window.setTimeout(() => {
-        setAuthInitialRole(registerParam)
-        setAuthInitialMode("register")
-        setAuthModalOpen(true)
-      }, 0)
+      setAuthInitialRole(registerParam)
+      setAuthInitialMode("register")
+      setAuthModalOpen(true)
       // Clean URL
       window.history.replaceState({}, '', '/')
-      return () => window.clearTimeout(registerTimer)
     }
   }, [searchParams])
+
+  // Invalidate delivery-precios when switching to home tab so prices are always fresh
+  useEffect(() => {
+    if (activeTab === "inicio") {
+      queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+      queryClient.invalidateQueries({ queryKey: ["negocios"] })
+    }
+  }, [activeTab, queryClient])
+
+  // iOS PWA fix: invalidate queries when app becomes visible again.
+  // In standalone PWA mode, refetchOnWindowFocus doesn't fire because
+  // there's no window focus event. We use visibilitychange instead.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+        queryClient.invalidateQueries({ queryKey: ["negocios"] })
+        queryClient.invalidateQueries({ queryKey: ["negocios-promocionados"] })
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [queryClient])
+
+  // Invalidate delivery-precios when delivery address changes explicitly
+  // This ensures the prices update immediately after the user picks a new address
+  const prevAddressRef = useRef<string | null>(null)
+  useEffect(() => {
+    const addressKey = deliveryAddress ? `${deliveryAddress.lat},${deliveryAddress.lng}` : null
+    if (addressKey !== prevAddressRef.current && prevAddressRef.current !== null) {
+      queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+    }
+    prevAddressRef.current = addressKey
+  }, [deliveryAddress, queryClient])
 
   // Fetch negocio data for business panel (only when negocio user is logged in)
   const { data: negocioData } = useQuery({
@@ -290,7 +321,7 @@ function HomePageContent() {
       isAuthenticated() &&
       userType() === "cliente" &&
       negocios.length > 0,
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 30, // 30 seconds — short staleTime for iOS PWA where visibility events may be delayed
   })
 
   // Filter out businesses that are out of delivery zone when user has a delivery address
@@ -469,7 +500,7 @@ function HomePageContent() {
   if (isAuthenticated() && userType() === "cliente" && activeTab !== "inicio") {
     if (activeTab === "perfil") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientProfilePanel />
           <BottomNav />
         </div>
@@ -478,7 +509,7 @@ function HomePageContent() {
 
     if (activeTab === "promos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientPromosPanel deliveryPrecios={deliveryPrecios} hasDeliveryAddress={!!deliveryAddress} />
           <BottomNav />
         </div>
@@ -487,7 +518,7 @@ function HomePageContent() {
 
     if (activeTab === "favoritos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientFavoritesPanel />
           <BottomNav />
         </div>
@@ -496,7 +527,7 @@ function HomePageContent() {
 
     if (activeTab === "pedidos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientOrdersPanel />
           <BottomNav />
         </div>
@@ -505,7 +536,7 @@ function HomePageContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-dvh flex flex-col bg-background">
       {/* ===== HEADER ===== */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/50">
         <div className="max-w-4xl mx-auto px-4 py-3">
@@ -824,9 +855,9 @@ function HomePageContent() {
           </div>
         </div>
 
-        {/* Bottom spacer for nav */}
+        {/* Bottom spacer for nav — accounts for safe area on iPhone */}
         {isAuthenticated() && userType() === "cliente" && (
-          <div className="h-20" />
+          <div className="h-bottom-nav-spacer" />
         )}
       </main>
 
