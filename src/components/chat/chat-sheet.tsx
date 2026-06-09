@@ -25,6 +25,7 @@ export function ChatSheet() {
     setConversations,
     setUnreadCount,
     updateConversationUnread,
+    updateConversationLastMessage,
   } = useChatStore()
 
   const { user } = useAuthStore()
@@ -107,6 +108,7 @@ export function ChatSheet() {
     socket.on("new-message", (message: any) => {
       if (message && message.pedidoId) {
         addMessage(message.pedidoId, message)
+        updateConversationLastMessage(message.pedidoId, message)
 
         // Update unread count for conversation
         if (message.remitente !== getRemitenteForUserType(user.type)) {

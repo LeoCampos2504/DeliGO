@@ -132,18 +132,6 @@
   body {
     @apply bg-background text-foreground font-sans;
   }
-  /* Prevent iOS auto-zoom on input focus — font-size must be ≥ 16px */
-  input[type="text"],
-  input[type="email"],
-  input[type="password"],
-  input[type="search"],
-  input[type="tel"],
-  input[type="url"],
-  input[type="number"],
-  textarea,
-  select {
-    font-size: 16px !important;
-  }
 }
 
 /* Custom scrollbar */
@@ -256,9 +244,17 @@
   /* iOS-specific fixes */
   html {
     -webkit-text-size-adjust: 100%;
+    /* Prevent iOS from zooming when input font-size < 16px */
+    touch-action: manipulation;
   }
   body {
     overflow-x: hidden;
+  }
+  /* Force all text inputs to 16px minimum to prevent iOS auto-zoom */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+  textarea,
+  select {
+    font-size: 16px !important;
   }
 }
 

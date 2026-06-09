@@ -2,7 +2,7 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v6";
+const CACHE_NAME = "deligo-v7";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/"];

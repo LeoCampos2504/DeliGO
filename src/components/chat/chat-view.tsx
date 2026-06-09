@@ -71,6 +71,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
     setLoadingMessages,
     setSending,
     updateConversationUnread,
+    updateConversationLastMessage,
   } = useChatStore()
 
   const { user } = useAuthStore()
@@ -327,6 +328,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       // Add message to local state
       if (data.mensaje) {
         addMessage(pedidoId, data.mensaje)
+        updateConversationLastMessage(pedidoId, data.mensaje)
 
         // Broadcast via socket to other users in the room
         const socket = getSocket()
@@ -349,7 +351,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
     } finally {
       setSending(false)
     }
-  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, setSending, getSocket])
+  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, updateConversationLastMessage, setSending, getSocket])
 
   // Typing indicator
   const handleTyping = useCallback(

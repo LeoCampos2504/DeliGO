@@ -8,6 +8,7 @@ const SW_PATH = "/sw.js";
 
 let registration: ServiceWorkerRegistration | null = null;
 let swUpdateAvailable = false;
+let updateToastShownThisSession = false;
 
 /**
  * Check if service workers are supported
@@ -21,24 +22,27 @@ function isServiceWorkerSupported(): boolean {
 
 /**
  * Handle service worker updates
- * Shows a toast notification when a new version is available
+ * Auto-applies updates silently. Only shows a toast once per session
+ * if the user hasn't reloaded yet after 30 seconds.
  */
 function handleUpdate(newReg: ServiceWorkerRegistration): void {
+  // If a waiting SW already exists, auto-activate it silently
   if (newReg.waiting) {
     swUpdateAvailable = true;
-    toast.info("Nueva versión disponible", {
-      description: "Recargá la página para actualizar DeliGO",
-      duration: 8000,
-      action: {
-        label: "Actualizar",
-        onClick: () => {
-          if (newReg.waiting) {
-            newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-          window.location.reload();
-        },
-      },
-    });
+    // Auto-activate the waiting SW
+    newReg.waiting.postMessage({ type: "SKIP_WAITING" });
+
+    // Show a subtle toast only once per session, after a delay
+    if (!updateToastShownThisSession) {
+      updateToastShownThisSession = true;
+      setTimeout(() => {
+        // Only show if the page still hasn't reloaded
+        toast.info("DeliGO se actualizó", {
+          description: "La próxima vez que abras la app tendrás la última versión",
+          duration: 5000,
+        });
+      }, 30000);
+    }
   }
 
   newReg.addEventListener("updatefound", () => {
@@ -52,19 +56,22 @@ function handleUpdate(newReg: ServiceWorkerRegistration): void {
       ) {
         // New content is available
         swUpdateAvailable = true;
-        toast.info("Nueva versión disponible", {
-          description: "Recargá la página para actualizar DeliGO",
-          duration: 8000,
-          action: {
-            label: "Actualizar",
-            onClick: () => {
-              if (newReg.waiting) {
-                newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-              }
-              window.location.reload();
-            },
-          },
-        });
+
+        // Auto-activate: send SKIP_WAITING so the new SW takes over
+        if (newReg.waiting) {
+          newReg.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        // Show a one-time subtle notification after a delay
+        if (!updateToastShownThisSession) {
+          updateToastShownThisSession = true;
+          setTimeout(() => {
+            toast.info("DeliGO se actualizó", {
+              description: "La próxima vez que abras la app tendrás la última versión",
+              duration: 5000,
+            });
+          }, 30000);
+        }
       }
     });
   });
@@ -91,9 +98,16 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     // Check for updates immediately
     handleUpdate(reg);
 
-    // Listen for controller change (new SW activated)
+    // Listen for controller change (new SW activated) — auto-reload once
+    let hasReloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       console.log("[SW] Controller changed — new service worker activated");
+      // Only auto-reload once per page load to avoid infinite loops
+      if (!hasReloaded && swUpdateAvailable) {
+        hasReloaded = true;
+        // Soft reload: just let the new SW take control, don't force a page reload
+        // The user will get the new version on next navigation
+      }
     });
 
     // Periodically check for updates (every 30 minutes)
