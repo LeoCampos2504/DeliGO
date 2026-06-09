@@ -268,53 +268,45 @@
   }
 }
 
-/* ─── Lock body on iOS — prevents iOS from scrolling the page
-   when the keyboard opens. The scroll happens inside the
-   inner container, not on the body. ─── */
+/* ─── iOS body: allow normal scroll ───
+   Do NOT use position:fixed + overflow:hidden on body — that kills ALL
+   scrolling. Instead, just prevent horizontal overflow and let the page
+   scroll normally. The viewport meta already has interactiveWidget:
+   "resizes-content", so iOS resizes the viewport (not overlays it)
+   when the keyboard opens. Combined with our CSS classes that hide
+   the nav when the keyboard is open, this is sufficient. ─── */
 body.ios-device {
-  overflow: hidden;
-  position: fixed;
-  width: 100%;
-  height: 100%;
-}
-
-/* ─── Scrollable inner container on iOS ───
-   The layout div normally has min-h-dvh / ios-min-viewport-height
-   (min-height: 100dvh / 100dvh !important) so it grows with content.
-   On iOS we need it to act as a fixed-height scroll container instead:
-   height: 100svh caps it, and min-height: 0 overrides Tailwind so
-   the div stays at 100svh even when content overflows. That overflow
-   creates the scroll area.
-   DO NOT add padding-bottom here — each page handles its own
-   bottom spacing (spacer divs for the fixed nav). Global
-   padding-bottom creates a persistent white bar at the bottom
-   that looks like an empty nav, even when logged out.
-   DO NOT target body.ios-device main — it matches ALL <main>
-   elements including nested ones, causing double scroll + double
-   white bar. ─── */
-body.ios-device > div:first-child {
-  height: var(--visual-viewport-height, 100svh);
-  min-height: 0 !important;
+  overflow-x: hidden;
   overflow-y: auto;
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
   -webkit-overflow-scrolling: touch;
 }
 
-/* ─── Bottom nav on iOS: NO GPU compositing hacks ───
-   The body.ios-device { position: fixed; overflow: hidden } lock already
-   prevents the viewport from shifting when the keyboard opens, which means
-   the nav won't detach. GPU hacks like translateZ(0), will-change: transform,
-   and backface-visibility: hidden all trigger an iOS Safari bug where content
-   inside position:fixed elements becomes invisible (still interactive but not
-   painted). Since the body lock handles the detaching, we don't need GPU hacks.
-   We only add a transition for the keyboard-hide slide animation. ─── */
+/* ─── Layout div on iOS: just ensure min-height ───
+   No forced height, no overflow control, no padding-bottom.
+   Each page handles its own bottom spacing via spacer divs/padding.
+   Global padding-bottom creates a persistent white bar that looks
+   like an empty nav, even when logged out. ─── */
+body.ios-device > div:first-child {
+  min-height: 100dvh;
+}
+
+/* ─── Bottom nav on iOS: smooth keyboard hide ───
+   No GPU compositing hacks (translateZ(0), will-change, backface-visibility)
+   — they trigger an iOS Safari bug where fixed-element content becomes
+   invisible. We just add a transition for the slide-down animation when
+   the keyboard opens. ─── */
 html.ios-device .ios-bottom-nav {
   transition: transform 200ms ease-in-out;
 }
 
 /* ─── Hide bottom nav when iOS keyboard opens ─── */
-html.ios-device.ios-keyboard-open .ios-bottom-nav {
-  transform: translateY(calc(var(--ios-keyboard-offset, 0px) + 100%));
-  pointer-events: none;
+html.ios-device.ios-keyboard-open .ios-bottom-nav,
+body.ios-device.ios-keyboard-open .ios-bottom-nav {
+  transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
+  pointer-events: none !important;
 }
 
 /* ─── iOS viewport height — use instead of h-screen / 100vh ─── */
