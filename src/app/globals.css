@@ -242,26 +242,23 @@
 /* ============================================
    iOS / PWA keyboard fixes
    ============================================
-   All driven by CSS classes set by IOSKeyboardFix component:
+   Driven by CSS classes set by IOSKeyboardFix:
    - .ios-device          → always on iOS devices
-   - .ios-keyboard-open   → when virtual keyboard is open on iOS
-   - .keyboard-open       → alias (for other elements that need it)
+   - .ios-keyboard-open   → when virtual keyboard is open
+   - .keyboard-open       → alias
    
-   CSS custom properties available:
+   CSS custom properties from IOSKeyboardFix:
    - --visual-viewport-height
    - --visual-viewport-width
    - --visual-viewport-offset-top
    - --ios-keyboard-offset
    ============================================ */
 
-/* iOS base fixes — prevent auto-zoom on inputs */
+/* ─── iOS base: prevent auto-zoom on inputs ─── */
 @supports (-webkit-touch-callout: none) {
   html {
     -webkit-text-size-adjust: 100%;
     touch-action: manipulation;
-  }
-  body {
-    overflow-x: hidden;
   }
   /* Force all text inputs to 16px minimum to prevent iOS auto-zoom */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
@@ -271,30 +268,50 @@
   }
 }
 
-/* Hide bottom nav when iOS keyboard is open — CSS-driven, no JS hacks */
-@supports (-webkit-touch-callout: none) {
-  html.ios-keyboard-open .ios-bottom-nav,
-  body.ios-keyboard-open .ios-bottom-nav {
-    transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
-    pointer-events: none !important;
-  }
+/* ─── Lock body on iOS — prevents iOS from scrolling the page
+   when the keyboard opens. The scroll happens inside the
+   inner container, not on the body. ─── */
+body.ios-device {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
 }
 
-/* iOS viewport height helper — use instead of h-screen / 100vh on iOS */
-@supports (-webkit-touch-callout: none) {
-  .ios-viewport-height {
-    height: var(--visual-viewport-height, 100dvh) !important;
-  }
-  .ios-min-viewport-height {
-    min-height: var(--visual-viewport-height, 100dvh) !important;
-  }
+/* ─── Scrollable inner container on iOS ─── */
+body.ios-device > div,
+body.ios-device main {
+  height: 100svh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Leave room for bottom nav (~64px + safe area) */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
-/* iOS keyboard offset for bottom-positioned elements (sheets, input bars) */
-@supports (-webkit-touch-callout: none) {
-  html.ios-keyboard-open .ios-keyboard-bottom {
-    bottom: var(--ios-keyboard-offset, 0px) !important;
-  }
+/* ─── Bottom nav: GPU layer + smooth transition ─── */
+.ios-bottom-nav {
+  transform: translateZ(0);
+  will-change: transform;
+  transition: transform 200ms ease-in-out;
+}
+
+/* ─── Hide bottom nav when iOS keyboard opens ─── */
+.ios-keyboard-open .ios-bottom-nav {
+  transform: translateY(calc(var(--ios-keyboard-offset, 0px) + 100%));
+  pointer-events: none;
+}
+
+/* ─── iOS viewport height — use instead of h-screen / 100vh ─── */
+.ios-viewport-height {
+  height: var(--visual-viewport-height, 100dvh) !important;
+}
+.ios-min-viewport-height {
+  min-height: var(--visual-viewport-height, 100dvh) !important;
+}
+
+/* ─── iOS keyboard offset for bottom-positioned elements ─── */
+.ios-keyboard-open .ios-keyboard-bottom {
+  bottom: var(--ios-keyboard-offset, 0px) !important;
 }
 
 /* Ensure layout doesn't shift when virtual keyboard appears */
