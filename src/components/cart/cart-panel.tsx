@@ -320,7 +320,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
     <>
       {/* ===== COLLAPSED BAR - visible when drawer is closed ===== */}
       {!sheetOpen && (
-        <div className="fixed bottom-0 left-0 right-0 z-40">
+        <div className="ios-keyboard-hide keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-40">
           <div className="max-w-lg md:max-w-2xl mx-auto px-3 pb-3">
             <button
               onClick={() => handleOpenChange(true)}
@@ -384,12 +384,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
           {/* Sheet panel */}
           <div
             className={cn(
-              "fixed inset-x-0 bottom-0 z-50 max-w-lg md:max-w-2xl mx-auto transition-transform duration-300 ease-out touch-none",
+              "ios-keyboard-bottom fixed inset-x-0 bottom-0 z-50 max-w-lg md:max-w-2xl mx-auto transition-transform duration-300 ease-out touch-none",
               sheetOpen && !isDragging ? "translate-y-0" : !sheetOpen ? "translate-y-full" : undefined
             )}
             style={isDragging ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
           >
-            <div className="bg-background rounded-t-2xl border-t border-border shadow-2xl flex flex-col h-[96dvh] overflow-hidden">
+            <div className="bg-background rounded-t-2xl border-t border-border shadow-2xl flex flex-col h-[96dvh] ios-viewport-height overflow-hidden">
               {/* Drag handle - only this area triggers drag-to-dismiss */}
               <div
                 ref={handleRef}

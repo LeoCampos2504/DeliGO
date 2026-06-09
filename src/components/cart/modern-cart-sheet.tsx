@@ -175,7 +175,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
   if (showSuccess) {
     return (
       <Drawer open={open} onOpenChange={handleOpenChange}>
-        <DrawerContent className="h-[100dvh] rounded-none border-0 md:max-w-2xl md:mx-auto md:rounded-2xl">
+        <DrawerContent className="h-[100dvh] ios-viewport-height rounded-none border-0 md:max-w-2xl md:mx-auto md:rounded-2xl">
           <DrawerTitle className="sr-only">Pedido confirmado</DrawerTitle>
           <div className="flex flex-col items-center justify-center h-full bg-gradient-to-b from-emerald-50 to-white dark:from-emerald-950/30 dark:to-background">
             <motion.div
@@ -228,7 +228,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="h-[95dvh] rounded-t-2xl md:max-w-2xl md:mx-auto md:rounded-2xl">
+      <DrawerContent className="h-[95dvh] ios-viewport-height rounded-t-2xl md:max-w-2xl md:mx-auto md:rounded-2xl">
         <DrawerTitle className="sr-only">Carrito de compras</DrawerTitle>
         <div className="flex flex-col h-full bg-background">
           {/* ===== HEADER ===== */}

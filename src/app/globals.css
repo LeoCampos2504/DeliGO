@@ -266,15 +266,9 @@
   }
 }
 
-/* Hide elements marked with .keyboard-hide-when-editing when virtual keyboard is open */
-body.keyboard-open .keyboard-hide-when-editing {
-  display: none !important;
-}
-
-/* Prevent iOS Safari from pushing fixed elements up when keyboard opens.
-   Instead of fixing the body (which causes scroll jump), we rely on:
-   1. JS keyboard detection in BottomNav to hide the nav entirely
-   2. CSS .keyboard-hide-when-editing to hide other floating elements */
+/* Hide elements with .keyboard-hide-when-editing when virtual keyboard is open.
+   BottomNav handles itself via direct DOM manipulation (no CSS class needed).
+   This rule is for OTHER floating elements that need to hide during keyboard. */
 
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {

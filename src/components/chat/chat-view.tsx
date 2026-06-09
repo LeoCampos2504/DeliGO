@@ -405,9 +405,9 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   const canSend = (messageText.trim() || pendingAttachment) && !isSending && !isUploading
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border/50 bg-card">
+      <div className="shrink-0 px-4 py-3 border-b border-border/50 bg-card">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -479,7 +479,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-1"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1"
         onScroll={handleScroll}
       >
         {isLoading ? (
@@ -553,7 +553,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Upload progress bar */}
       {isUploading && (
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <div className="flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
             <span className="text-xs text-muted-foreground">Subiendo archivo...</span>
@@ -564,7 +564,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Pending attachment preview */}
       {pendingAttachment && !isUploading && (
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <div className="flex items-center gap-2 p-2 rounded-xl bg-muted/50 border border-border/50">
             {pendingAttachment.type === "image" && pendingAttachment.preview ? (
               <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0">
@@ -600,7 +600,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       )}
 
       {/* Input */}
-      <div className="px-3 py-3 border-t border-border/50 bg-card">
+      <div className="shrink-0 px-3 py-3 border-t border-border/50 bg-card">
         <div className="flex items-center gap-1.5">
           {/* Paperclip attachment popover */}
           <Popover open={attachPopoverOpen} onOpenChange={setAttachPopoverOpen}>

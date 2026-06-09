@@ -9,7 +9,7 @@ import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
 import { DynamicManifest } from "@/components/shared/dynamic-manifest";
 import { PermissionPrompt } from "@/components/shared/permission-prompt";
-import { IOSInputScrollGuard } from "@/components/shared/ios-input-scroll-guard";
+import { IOSKeyboardFix } from "@/components/pwa/ios-keyboard-fix";
 import { Toaster } from "sonner";
 
 const nunito = Nunito({
@@ -79,11 +79,11 @@ export default function RootLayout({
       <body className={`${nunito.variable} font-sans antialiased bg-background text-foreground`}>
         <ThemeProvider>
           <QueryProvider>
-            <div className="min-h-screen flex flex-col">
+            <div className="min-h-dvh ios-min-viewport-height flex flex-col">
               <main className="flex-1">{children}</main>
             </div>
             <DynamicManifest />
-            <IOSInputScrollGuard />
+            <IOSKeyboardFix />
             <ChatProvider />
             <ServiceWorkerRegistration />
             <InstallPrompt />

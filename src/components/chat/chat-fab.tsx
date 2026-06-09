@@ -55,7 +55,7 @@ export function ChatFab() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setSheetOpen(true)}
-        className="fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
+        className="ios-keyboard-hide keyboard-hide-when-editing fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
         aria-label="Abrir chat"
       >
         <MessageCircle className="h-6 w-6" />

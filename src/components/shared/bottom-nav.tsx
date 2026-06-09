@@ -20,30 +20,44 @@ export function BottomNav() {
   const { activeTab, setActiveTab } = useNavStore()
   const navRef = useRef<HTMLElement>(null)
 
-  // Keyboard detection — uses DIRECT DOM manipulation (not React state)
-  // to avoid the delay that causes the nav to float/detach on iOS PWA.
-  // visualViewport events fire instantly when keyboard starts opening.
+  // Keyboard detection — uses DIRECT DOM manipulation only (no React state).
+  // Single source of truth: no CSS class conflicts.
   useEffect(() => {
     const nav = navRef.current
     if (!nav) return
 
     let isHidden = false
+    let showTimer: ReturnType<typeof setTimeout> | null = null
+    let forceShowUntil = 0 // timestamp: after focusout, prevent re-hiding briefly
 
     const hideNav = () => {
+      if (showTimer) {
+        clearTimeout(showTimer)
+        showTimer = null
+      }
       if (isHidden) return
       isHidden = true
-      // Slide down instantly — no transition delay
-      nav.style.display = "none"
-      nav.style.transform = ""
+      nav.style.transform = "translateY(100%)"
       nav.style.transition = "none"
     }
 
     const showNav = () => {
       if (!isHidden) return
       isHidden = false
-      nav.style.display = ""
       nav.style.transform = ""
       nav.style.transition = "transform 0.2s ease"
+    }
+
+    const scheduleShow = (delay: number) => {
+      if (showTimer) clearTimeout(showTimer)
+      showTimer = setTimeout(() => {
+        showTimer = null
+        // Double-check: no editable element focused
+        if (!isEditableTarget(document.activeElement)) {
+          forceShowUntil = Date.now() + 300 // prevent visualViewport from re-hiding
+          showNav()
+        }
+      }, delay)
     }
 
     const isEditableTarget = (target: EventTarget | null) => {
@@ -55,7 +69,7 @@ export function BottomNav() {
       )
     }
 
-    // Method 1: focusin — fastest possible detection (fires before keyboard opens)
+    // Method 1: focusin/focusout — the primary and most reliable method
     const handleFocusIn = (e: FocusEvent) => {
       if (window.innerWidth <= 768 && isEditableTarget(e.target)) {
         hideNav()
@@ -63,27 +77,30 @@ export function BottomNav() {
     }
 
     const handleFocusOut = () => {
-      setTimeout(() => {
-        if (!isEditableTarget(document.activeElement)) {
-          showNav()
-        }
-      }, 150)
+      // Schedule show with a small delay to handle rapid focus switches
+      scheduleShow(150)
+      // Safety: force show after longer delay no matter what
+      scheduleShow(500)
     }
 
-    // Method 2: visualViewport — confirms keyboard state on iOS
-    // Also handles edge cases where focusin doesn't fire
+    // Method 2: visualViewport — ONLY to show nav when viewport is back to full.
+    // Never re-hide: focusout is the only thing that triggers showing,
+    // and once shown we use forceShowUntil to prevent viewport jitter from re-hiding.
     const handleViewportChange = () => {
       if (!window.visualViewport) return
+
+      // If an editable element is focused, definitely hide
       if (isEditableTarget(document.activeElement)) {
         hideNav()
         return
       }
 
       const vv = window.visualViewport
-      const keyboardOpen = vv.height < window.innerHeight - 50
-      if (keyboardOpen) {
-        hideNav()
-      } else {
+      const viewportIsFull = vv.height >= window.innerHeight - 50
+
+      if (viewportIsFull && isHidden && Date.now() > forceShowUntil - 300) {
+        // Viewport is back to full size — show nav if it was hidden
+        forceShowUntil = Date.now() + 300
         showNav()
       }
     }
@@ -103,6 +120,7 @@ export function BottomNav() {
         window.visualViewport.removeEventListener("resize", handleViewportChange)
         window.visualViewport.removeEventListener("scroll", handleViewportChange)
       }
+      if (showTimer) clearTimeout(showTimer)
     }
   }, [])
 
@@ -113,7 +131,7 @@ export function BottomNav() {
     <nav
       ref={navRef}
       className={cn(
-        "keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80"
+        "fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border pb-safe supports-[backdrop-filter]:bg-card/80"
       )}
     >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
