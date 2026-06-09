@@ -2,7 +2,7 @@
 
 import { Home, ClipboardList, Heart, Tag, User } from "lucide-react"
 import { motion } from "framer-motion"
-import { useEffect, useState } from "react"
+import { useEffect, useState, type CSSProperties } from "react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore, type ClientTab } from "@/store/nav-store"
@@ -15,10 +15,18 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
   { id: "perfil", icon: User, label: "Perfil" },
 ]
 
+const NAV_HEIGHT = 64
+
+function isIOSLike() {
+  if (typeof navigator === "undefined") return false
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+}
+
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const [iosNavTop, setIosNavTop] = useState<number | null>(null)
 
   useEffect(() => {
     const isMobileViewport = () => window.innerWidth <= 768
@@ -55,6 +63,41 @@ export function BottomNav() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isIOSLike()) return
+
+    let frame = 0
+
+    const updatePosition = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        if (window.innerWidth > 768 || !window.visualViewport) {
+          setIosNavTop(null)
+          return
+        }
+
+        const viewportBottom =
+          window.visualViewport.pageTop + window.visualViewport.height
+        setIosNavTop(Math.max(0, Math.round(viewportBottom - NAV_HEIGHT)))
+      })
+    }
+
+    updatePosition()
+
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, { passive: true })
+    window.visualViewport?.addEventListener("resize", updatePosition)
+    window.visualViewport?.addEventListener("scroll", updatePosition)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition)
+      window.visualViewport?.removeEventListener("resize", updatePosition)
+      window.visualViewport?.removeEventListener("scroll", updatePosition)
+    }
+  }, [])
+
   // Only show for logged-in clients
   if (!isAuthenticated() || userType() !== "cliente") {
     return null
@@ -64,9 +107,18 @@ export function BottomNav() {
     return null
   }
 
+  const navStyle: CSSProperties | undefined =
+    iosNavTop === null
+      ? undefined
+      : { position: "absolute", top: iosNavTop, bottom: "auto" }
+
   return (
     <nav
-      className="keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border supports-[backdrop-filter]:bg-card/80"
+      style={navStyle}
+      className={cn(
+        "keyboard-hide-when-editing fixed left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border supports-[backdrop-filter]:bg-card/80",
+        iosNavTop === null && "bottom-0"
+      )}
     >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
         {tabs.map((tab) => {
