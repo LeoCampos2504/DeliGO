@@ -15,20 +15,22 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
   { id: "perfil", icon: User, label: "Perfil" },
 ]
 
+const NAV_HEIGHT = 64
+
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
   const navRef = useRef<HTMLElement>(null)
 
-  // Keyboard detection — uses DIRECT DOM manipulation only (no React state).
-  // Single source of truth: no CSS class conflicts.
+  // Keyboard detection — hides nav when virtual keyboard opens.
+  // Uses direct DOM manipulation for instant response.
+  // After keyboard closes, repositions nav correctly via visualViewport.
   useEffect(() => {
     const nav = navRef.current
     if (!nav) return
 
     let isHidden = false
     let showTimer: ReturnType<typeof setTimeout> | null = null
-    let forceShowUntil = 0 // timestamp: after focusout, prevent re-hiding briefly
 
     const hideNav = () => {
       if (showTimer) {
@@ -44,17 +46,37 @@ export function BottomNav() {
     const showNav = () => {
       if (!isHidden) return
       isHidden = false
-      nav.style.transform = ""
-      nav.style.transition = "transform 0.2s ease"
+
+      // On iOS PWA, after keyboard closes, `fixed; bottom: 0` may not
+      // work correctly right away. Use visualViewport to position the nav
+      // at the real bottom, then let CSS take over after viewport settles.
+      if (window.visualViewport && window.innerWidth <= 768) {
+        const vv = window.visualViewport
+        const bottomPosition = vv.height - NAV_HEIGHT + vv.offsetTop
+        nav.style.position = "absolute"
+        nav.style.top = `${bottomPosition}px`
+        nav.style.bottom = "auto"
+        nav.style.transform = ""
+        nav.style.transition = "none"
+
+        // Switch back to CSS fixed positioning after viewport settles
+        setTimeout(() => {
+          nav.style.position = ""
+          nav.style.top = ""
+          nav.style.bottom = ""
+          nav.style.transform = ""
+        }, 500)
+      } else {
+        nav.style.transform = ""
+        nav.style.transition = "transform 0.2s ease"
+      }
     }
 
     const scheduleShow = (delay: number) => {
       if (showTimer) clearTimeout(showTimer)
       showTimer = setTimeout(() => {
         showTimer = null
-        // Double-check: no editable element focused
         if (!isEditableTarget(document.activeElement)) {
-          forceShowUntil = Date.now() + 300 // prevent visualViewport from re-hiding
           showNav()
         }
       }, delay)
@@ -69,7 +91,6 @@ export function BottomNav() {
       )
     }
 
-    // Method 1: focusin/focusout — the primary and most reliable method
     const handleFocusIn = (e: FocusEvent) => {
       if (window.innerWidth <= 768 && isEditableTarget(e.target)) {
         hideNav()
@@ -77,19 +98,12 @@ export function BottomNav() {
     }
 
     const handleFocusOut = () => {
-      // Schedule show with a small delay to handle rapid focus switches
-      scheduleShow(150)
-      // Safety: force show after longer delay no matter what
-      scheduleShow(500)
+      scheduleShow(200)
     }
 
-    // Method 2: visualViewport — ONLY to show nav when viewport is back to full.
-    // Never re-hide: focusout is the only thing that triggers showing,
-    // and once shown we use forceShowUntil to prevent viewport jitter from re-hiding.
     const handleViewportChange = () => {
       if (!window.visualViewport) return
 
-      // If an editable element is focused, definitely hide
       if (isEditableTarget(document.activeElement)) {
         hideNav()
         return
@@ -98,10 +112,8 @@ export function BottomNav() {
       const vv = window.visualViewport
       const viewportIsFull = vv.height >= window.innerHeight - 50
 
-      if (viewportIsFull && isHidden && Date.now() > forceShowUntil - 300) {
-        // Viewport is back to full size — show nav if it was hidden
-        forceShowUntil = Date.now() + 300
-        showNav()
+      if (viewportIsFull && isHidden) {
+        scheduleShow(50)
       }
     }
 

@@ -5,11 +5,15 @@ import { useEffect } from "react"
 /**
  * Prevents iOS Safari/PWA viewport scroll drift when the virtual keyboard opens.
  *
- * Adds/removes `keyboard-open` class on <body> for CSS-based hiding of elements
- * with the `.keyboard-hide-when-editing` class.
+ * On iOS PWA, when a text input is focused:
+ * 1. The browser scrolls the page to bring the input above the keyboard
+ * 2. When the keyboard closes, iOS does NOT scroll back — page stays shifted up
+ * 3. `position: fixed` elements appear misplaced because the layout viewport is off
  *
- * The BottomNav handles its own show/hide via direct DOM manipulation,
- * so this component only manages the body class for OTHER floating elements.
+ * This component:
+ * 1. Saves the scroll position before the keyboard opens
+ * 2. After keyboard closes, restores the scroll position
+ * 3. Adds/removes `keyboard-open` class on <body> for CSS-based hiding
  *
  * Returns null — no UI rendered.
  */
@@ -29,32 +33,59 @@ export function IOSInputScrollGuard() {
       return Boolean(target.closest(editableSelector))
     }
 
-    const addClass = () => document.body.classList.add("keyboard-open")
-    const removeClass = () => document.body.classList.remove("keyboard-open")
+    // Save scroll position before keyboard animation
+    let scrollBeforeKeyboard = 0
+    let keyboardIsOpen = false
+
+    const addClass = () => {
+      if (!keyboardIsOpen) {
+        keyboardIsOpen = true
+        document.body.classList.add("keyboard-open")
+      }
+    }
+
+    const removeClass = () => {
+      if (keyboardIsOpen) {
+        keyboardIsOpen = false
+        document.body.classList.remove("keyboard-open")
+      }
+    }
 
     const handleFocusIn = (e: FocusEvent) => {
-      if (isEditable(e.target)) addClass()
+      if (isEditable(e.target)) {
+        // Save where we are before iOS scrolls us
+        scrollBeforeKeyboard = window.scrollY
+        addClass()
+      }
     }
 
     const handleFocusOut = () => {
       setTimeout(() => {
-        if (!isEditable(document.activeElement)) removeClass()
-      }, 200)
-      // Safety: force remove after longer delay
+        if (!isEditable(document.activeElement)) {
+          removeClass()
+          // Restore scroll position — iOS leaves the page shifted up
+          // Use scrollTo to snap back to where we were before keyboard opened
+          window.scrollTo(0, scrollBeforeKeyboard)
+        }
+      }, 100)
+      // Second attempt with longer delay for slow keyboard animations
       setTimeout(() => {
-        if (!isEditable(document.activeElement)) removeClass()
-      }, 600)
+        if (!isEditable(document.activeElement)) {
+          removeClass()
+          window.scrollTo(0, scrollBeforeKeyboard)
+        }
+      }, 400)
     }
 
     const handleViewportResize = () => {
       if (!window.visualViewport) return
-      if (isEditable(document.activeElement)) {
-        addClass()
-        return
-      }
       const vv = window.visualViewport
-      if (vv.height >= window.innerHeight - 50) {
+      const viewportIsFull = vv.height >= window.innerHeight - 50
+
+      if (viewportIsFull && keyboardIsOpen && !isEditable(document.activeElement)) {
         removeClass()
+        // Viewport is back to full — restore scroll
+        window.scrollTo(0, scrollBeforeKeyboard)
       }
     }
 
