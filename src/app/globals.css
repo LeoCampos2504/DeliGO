@@ -279,7 +279,12 @@ body.ios-device {
 }
 
 /* ─── Scrollable inner container on iOS ───
-   Only the outer layout div is the scroll container.
+   The layout div normally has min-h-dvh / ios-min-viewport-height
+   (min-height: 100dvh / 100dvh !important) so it grows with content.
+   On iOS we need it to act as a fixed-height scroll container instead:
+   height: 100svh caps it, and min-height: 0 overrides Tailwind so
+   the div stays at 100svh even when content overflows. That overflow
+   creates the scroll area.
    DO NOT add padding-bottom here — each page handles its own
    bottom spacing (spacer divs for the fixed nav). Global
    padding-bottom creates a persistent white bar at the bottom
@@ -288,7 +293,8 @@ body.ios-device {
    elements including nested ones, causing double scroll + double
    white bar. ─── */
 body.ios-device > div:first-child {
-  height: 100svh;
+  height: var(--visual-viewport-height, 100svh);
+  min-height: 0 !important;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
