@@ -691,7 +691,6 @@ function MozoQRScanner({
   const lastScanRef = useRef<string>("")
 
   function createScanner(elementId: string) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Html5Qrcode } = require("html5-qrcode")
     return new Html5Qrcode(elementId)
   }

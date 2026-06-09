@@ -21,8 +21,9 @@ export const viewport: Viewport = {
   themeColor: "#FB8C00",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
-  userScalable: true,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
@@ -39,7 +40,7 @@ export const metadata: Metadata = {
     "Argentina",
   ],
   authors: [{ name: "DeliGO" }],
-  manifest: "/api/manifest?role=cliente",
+  manifest: "/manifest-cliente.json",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },

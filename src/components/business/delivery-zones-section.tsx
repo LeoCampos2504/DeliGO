@@ -49,7 +49,6 @@ const ZONE_COLORS = [
   "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16",
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LeafletRef = any
 
 // ============================================

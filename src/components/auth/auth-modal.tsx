@@ -120,7 +120,9 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
 
   // Reset state when modal opens — if initialRole is set, go directly to that role's login/register
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return
+
+    const resetTimer = window.setTimeout(() => {
       if (initialRole) {
         setSelectedRole(initialRole)
         if (initialMode === "register") {
@@ -137,7 +139,9 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
       }
       setUnverifiedEmail("")
       setUnverifiedUserType("")
-    }
+    }, 0)
+
+    return () => window.clearTimeout(resetTimer)
   }, [isOpen, initialRole, initialMode])
 
   const handleRoleSelect = (type: UserType) => {

@@ -2,13 +2,10 @@
 // DeliGO - Service Worker Registration
 // ============================================
 
-import { toast } from "sonner";
-
 const SW_PATH = "/sw.js";
 
 let registration: ServiceWorkerRegistration | null = null;
 let swUpdateAvailable = false;
-let updateToastShownThisSession = false;
 
 /**
  * Check if service workers are supported
@@ -22,27 +19,13 @@ function isServiceWorkerSupported(): boolean {
 
 /**
  * Handle service worker updates
- * Auto-applies updates silently. Only shows a toast once per session
- * if the user hasn't reloaded yet after 30 seconds.
+ * Auto-applies updates silently so refreshes do not interrupt the user.
  */
 function handleUpdate(newReg: ServiceWorkerRegistration): void {
   // If a waiting SW already exists, auto-activate it silently
   if (newReg.waiting) {
     swUpdateAvailable = true;
-    // Auto-activate the waiting SW
     newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-
-    // Show a subtle toast only once per session, after a delay
-    if (!updateToastShownThisSession) {
-      updateToastShownThisSession = true;
-      setTimeout(() => {
-        // Only show if the page still hasn't reloaded
-        toast.info("DeliGO se actualizó", {
-          description: "La próxima vez que abras la app tendrás la última versión",
-          duration: 5000,
-        });
-      }, 30000);
-    }
   }
 
   newReg.addEventListener("updatefound", () => {
@@ -54,23 +37,10 @@ function handleUpdate(newReg: ServiceWorkerRegistration): void {
         newWorker.state === "installed" &&
         navigator.serviceWorker.controller
       ) {
-        // New content is available
         swUpdateAvailable = true;
 
-        // Auto-activate: send SKIP_WAITING so the new SW takes over
         if (newReg.waiting) {
           newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-        }
-
-        // Show a one-time subtle notification after a delay
-        if (!updateToastShownThisSession) {
-          updateToastShownThisSession = true;
-          setTimeout(() => {
-            toast.info("DeliGO se actualizó", {
-              description: "La próxima vez que abras la app tendrás la última versión",
-              duration: 5000,
-            });
-          }, 30000);
         }
       }
     });

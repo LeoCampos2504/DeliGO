@@ -302,8 +302,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   useEffect(() => {
     if (!negocio) return
     if (negocio.deliveryMode !== "expert" || !deliveryAddress?.lat || !deliveryAddress?.lng) {
-      setZoneDeliveryPrice(null)
-      return
+      const resetTimer = window.setTimeout(() => setZoneDeliveryPrice(null), 0)
+      return () => window.clearTimeout(resetTimer)
     }
     fetch(`/api/negocio/delivery-zonas?slug=${negocio.slug}&lat=${deliveryAddress.lat}&lng=${deliveryAddress.lng}`)
       .then(r => r.json())

@@ -240,26 +240,33 @@
 }
 
 /* Prevent viewport zoom drift on mobile after input focus */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
 @supports (-webkit-touch-callout: none) {
-  /* iOS-specific fixes */
   html {
-    -webkit-text-size-adjust: 100%;
-    /* Prevent iOS from zooming when input font-size < 16px */
     touch-action: manipulation;
   }
-  body {
-    overflow-x: hidden;
-  }
-  /* Force all text inputs to 16px minimum to prevent iOS auto-zoom */
+}
+
+/* Force form controls to the mobile-safe size that avoids browser auto-zoom. */
+@media (max-width: 768px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
   textarea,
   select {
     font-size: 16px !important;
+    line-height: 1.35;
   }
-}
 
-/* Ensure layout doesn't shift when virtual keyboard appears */
-@media (max-width: 640px) {
   html {
     overflow-y: auto;
     scroll-behavior: smooth;

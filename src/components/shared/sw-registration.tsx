@@ -11,15 +11,21 @@ import { registerServiceWorker } from "@/lib/register-sw";
  */
 export function ServiceWorkerRegistration() {
   useEffect(() => {
+    const register = () => {
+      registerServiceWorker();
+    };
+
     // Register service worker after the page has loaded
     // to avoid blocking the initial render
     if (document.readyState === "complete") {
-      registerServiceWorker();
+      register();
     } else {
-      window.addEventListener("load", () => {
-        registerServiceWorker();
-      });
+      window.addEventListener("load", register, { once: true });
     }
+
+    return () => {
+      window.removeEventListener("load", register);
+    };
   }, []);
 
   return null;
