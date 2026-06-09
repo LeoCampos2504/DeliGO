@@ -288,17 +288,15 @@ body.ios-device main {
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
-/* ─── Bottom nav: GPU layer + smooth transition (iOS only) ───
-   Use backface-visibility:hidden instead of translateZ(0) to promote
-   to a GPU compositing layer — translateZ(0) triggers an iOS Safari
-   bug where content inside position:fixed elements becomes invisible
-   (still interactive but not painted). backface-visibility is equally
-   effective for preventing the nav from detaching on keyboard open
-   without the rendering bug. ─── */
+/* ─── Bottom nav on iOS: NO GPU compositing hacks ───
+   The body.ios-device { position: fixed; overflow: hidden } lock already
+   prevents the viewport from shifting when the keyboard opens, which means
+   the nav won't detach. GPU hacks like translateZ(0), will-change: transform,
+   and backface-visibility: hidden all trigger an iOS Safari bug where content
+   inside position:fixed elements becomes invisible (still interactive but not
+   painted). Since the body lock handles the detaching, we don't need GPU hacks.
+   We only add a transition for the keyboard-hide slide animation. ─── */
 html.ios-device .ios-bottom-nav {
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-  will-change: transform;
   transition: transform 200ms ease-in-out;
 }
 
