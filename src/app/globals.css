@@ -267,9 +267,9 @@ body {
 
 @media (max-width: 768px) {
   body.keyboard-open .keyboard-hide-when-editing {
+    display: none !important;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(100%);
   }
 
   @supports selector(body:has(input:focus)) {
@@ -277,9 +277,9 @@ body {
     body:has(textarea:focus) .keyboard-hide-when-editing,
     body:has(select:focus) .keyboard-hide-when-editing,
     body:has([contenteditable="true"]:focus) .keyboard-hide-when-editing {
+      display: none !important;
       opacity: 0;
       pointer-events: none;
-      transform: translateY(100%);
     }
   }
 }

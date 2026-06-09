@@ -46,24 +46,12 @@ export function BottomNav() {
       }, 120)
     }
 
-    const handleViewportResize = () => {
-      if (!window.visualViewport) return
-      const keyboardLikelyOpen = window.visualViewport.height < window.innerHeight - 120
-      if (isMobileViewport() && keyboardLikelyOpen) {
-        setKeyboardOpen(true)
-      } else if (!isEditableTarget(document.activeElement)) {
-        setKeyboardOpen(false)
-      }
-    }
-
     document.addEventListener("focusin", handleFocusIn)
     document.addEventListener("focusout", handleFocusOut)
-    window.visualViewport?.addEventListener("resize", handleViewportResize)
 
     return () => {
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
-      window.visualViewport?.removeEventListener("resize", handleViewportResize)
     }
   }, [])
 
@@ -72,12 +60,13 @@ export function BottomNav() {
     return null
   }
 
+  if (keyboardOpen) {
+    return null
+  }
+
   return (
     <nav
-      className={cn(
-        "keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border supports-[backdrop-filter]:bg-card/80 transition-[opacity,transform] duration-200",
-        keyboardOpen && "translate-y-full opacity-0 pointer-events-none"
-      )}
+      className="keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border supports-[backdrop-filter]:bg-card/80"
     >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
         {tabs.map((tab) => {
