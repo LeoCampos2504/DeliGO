@@ -239,12 +239,25 @@
   color: inherit;
 }
 
-/* Prevent viewport zoom drift on mobile after input focus */
+/* ============================================
+   iOS / PWA keyboard fixes
+   ============================================
+   All driven by CSS classes set by IOSKeyboardFix component:
+   - .ios-device          → always on iOS devices
+   - .ios-keyboard-open   → when virtual keyboard is open on iOS
+   - .keyboard-open       → alias (for other elements that need it)
+   
+   CSS custom properties available:
+   - --visual-viewport-height
+   - --visual-viewport-width
+   - --visual-viewport-offset-top
+   - --ios-keyboard-offset
+   ============================================ */
+
+/* iOS base fixes — prevent auto-zoom on inputs */
 @supports (-webkit-touch-callout: none) {
-  /* iOS-specific fixes */
   html {
     -webkit-text-size-adjust: 100%;
-    /* Prevent iOS from zooming when input font-size < 16px */
     touch-action: manipulation;
   }
   body {
@@ -258,6 +271,32 @@
   }
 }
 
+/* Hide bottom nav when iOS keyboard is open — CSS-driven, no JS hacks */
+@supports (-webkit-touch-callout: none) {
+  html.ios-keyboard-open .ios-bottom-nav,
+  body.ios-keyboard-open .ios-bottom-nav {
+    transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
+    pointer-events: none !important;
+  }
+}
+
+/* iOS viewport height helper — use instead of h-screen / 100vh on iOS */
+@supports (-webkit-touch-callout: none) {
+  .ios-viewport-height {
+    height: var(--visual-viewport-height, 100dvh) !important;
+  }
+  .ios-min-viewport-height {
+    min-height: var(--visual-viewport-height, 100dvh) !important;
+  }
+}
+
+/* iOS keyboard offset for bottom-positioned elements (sheets, input bars) */
+@supports (-webkit-touch-callout: none) {
+  html.ios-keyboard-open .ios-keyboard-bottom {
+    bottom: var(--ios-keyboard-offset, 0px) !important;
+  }
+}
+
 /* Ensure layout doesn't shift when virtual keyboard appears */
 @media (max-width: 640px) {
   html {
@@ -265,10 +304,6 @@
     scroll-behavior: smooth;
   }
 }
-
-/* Hide elements with .keyboard-hide-when-editing when virtual keyboard is open.
-   BottomNav handles itself via direct DOM manipulation (no CSS class needed).
-   This rule is for OTHER floating elements that need to hide during keyboard. */
 
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {

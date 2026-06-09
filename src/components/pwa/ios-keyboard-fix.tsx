@@ -2,26 +2,41 @@
 
 import { useEffect } from "react"
 
+/**
+ * IOSKeyboardFix — Global iOS virtual keyboard handler.
+ *
+ * Detects when the virtual keyboard opens/closes on iOS Safari & PWA,
+ * and manages CSS classes + CSS custom properties so that the entire
+ * app can react via CSS (no inline style hacks needed in components).
+ *
+ * What it does:
+ * 1. Adds `ios-device` to <html> and <body> on iOS devices
+ * 2. Adds `ios-keyboard-open` and `keyboard-open` when keyboard is open
+ * 3. Sets CSS custom properties:
+ *    --visual-viewport-height  (actual visible height)
+ *    --visual-viewport-width   (actual visible width)
+ *    --visual-viewport-offset-top
+ *    --ios-keyboard-offset     (how much the keyboard takes up)
+ * 4. Cleans up everything on unmount
+ *
+ * Components should use CSS classes driven by `ios-keyboard-open`,
+ * NOT their own JS keyboard detection. This is the single source of truth.
+ */
+
 const EDITABLE_SELECTOR =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"], [contenteditable=""]'
 
-function isIOSDevice() {
+function isIOSDevice(): boolean {
   if (typeof navigator === "undefined") return false
-
   return (
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
   )
 }
 
-function isEditableTarget(target: EventTarget | Element | null) {
+function isEditableTarget(target: EventTarget | Element | null): boolean {
   if (!(target instanceof HTMLElement)) return false
-
   return target.isContentEditable || Boolean(target.closest(EDITABLE_SELECTOR))
-}
-
-function setClass(element: Element, className: string, enabled: boolean) {
-  element.classList.toggle(className, enabled)
 }
 
 export function IOSKeyboardFix() {
@@ -31,26 +46,26 @@ export function IOSKeyboardFix() {
 
     const root = document.documentElement
     const body = document.body
-    const visualViewport = window.visualViewport
+    const vv = window.visualViewport
     const keyboardThreshold = 80
 
     let rafId = 0
     let hasEditableFocus = isEditableTarget(document.activeElement)
 
     const setKeyboardClasses = (isOpen: boolean) => {
-      for (const element of [root, body]) {
-        setClass(element, "ios-device", true)
-        setClass(element, "ios-keyboard-open", isOpen)
-        setClass(element, "keyboard-open", isOpen)
+      for (const el of [root, body]) {
+        el.classList.toggle("ios-device", true)
+        el.classList.toggle("ios-keyboard-open", isOpen)
+        el.classList.toggle("keyboard-open", isOpen)
       }
     }
 
     const updateViewportState = () => {
       rafId = 0
 
-      const viewportHeight = visualViewport?.height ?? window.innerHeight
-      const viewportWidth = visualViewport?.width ?? window.innerWidth
-      const offsetTop = visualViewport?.offsetTop ?? 0
+      const viewportHeight = vv?.height ?? window.innerHeight
+      const viewportWidth = vv?.width ?? window.innerWidth
+      const offsetTop = vv?.offsetTop ?? 0
       const heightDiff = Math.max(0, window.innerHeight - viewportHeight)
       const keyboardOffset = Math.max(0, heightDiff - offsetTop)
       const keyboardOpenFromViewport =
@@ -68,7 +83,7 @@ export function IOSKeyboardFix() {
       setKeyboardClasses(keyboardOpen)
     }
 
-    const scheduleViewportUpdate = () => {
+    const scheduleUpdate = () => {
       if (rafId) return
       rafId = window.requestAnimationFrame(updateViewportState)
     }
@@ -76,45 +91,45 @@ export function IOSKeyboardFix() {
     const handleFocusIn = (event: FocusEvent) => {
       if (!isEditableTarget(event.target)) return
       hasEditableFocus = true
-      scheduleViewportUpdate()
+      scheduleUpdate()
     }
 
     const handleFocusOut = () => {
       hasEditableFocus = isEditableTarget(document.activeElement)
-      scheduleViewportUpdate()
+      scheduleUpdate()
     }
 
     const handleViewportChange = () => {
       hasEditableFocus = isEditableTarget(document.activeElement)
-      scheduleViewportUpdate()
+      scheduleUpdate()
     }
 
+    // Initial state
     setKeyboardClasses(false)
     updateViewportState()
 
+    // Event listeners
     document.addEventListener("focusin", handleFocusIn)
     document.addEventListener("focusout", handleFocusOut)
     window.addEventListener("resize", handleViewportChange)
     window.addEventListener("orientationchange", handleViewportChange)
     window.addEventListener("pageshow", handleViewportChange)
-    visualViewport?.addEventListener("resize", handleViewportChange)
-    visualViewport?.addEventListener("scroll", handleViewportChange)
+    vv?.addEventListener("resize", handleViewportChange)
+    vv?.addEventListener("scroll", handleViewportChange)
 
     return () => {
-      if (rafId) {
-        window.cancelAnimationFrame(rafId)
-      }
+      if (rafId) window.cancelAnimationFrame(rafId)
 
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
       window.removeEventListener("resize", handleViewportChange)
       window.removeEventListener("orientationchange", handleViewportChange)
       window.removeEventListener("pageshow", handleViewportChange)
-      visualViewport?.removeEventListener("resize", handleViewportChange)
-      visualViewport?.removeEventListener("scroll", handleViewportChange)
+      vv?.removeEventListener("resize", handleViewportChange)
+      vv?.removeEventListener("scroll", handleViewportChange)
 
-      for (const element of [root, body]) {
-        element.classList.remove("ios-keyboard-open", "keyboard-open", "ios-device")
+      for (const el of [root, body]) {
+        el.classList.remove("ios-keyboard-open", "keyboard-open", "ios-device")
       }
 
       root.style.removeProperty("--visual-viewport-height")

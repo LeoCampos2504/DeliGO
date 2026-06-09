@@ -53,10 +53,8 @@ export function ChatSheet() {
 
     // Clean up any dead socket first
     cleanupSocket()
-    const resetTimer = window.setTimeout(() => {
-      setConnecting(true)
-      setConnectionFailed(false)
-    }, 0)
+    setConnecting(true)
+    setConnectionFailed(false)
 
     // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
     const chatUrl =
@@ -157,7 +155,6 @@ export function ChatSheet() {
     socketRef.current = socket
 
     return () => {
-      window.clearTimeout(resetTimer)
       // Don't disconnect on sheet close, keep connection alive
     }
   }, [isSheetOpen, user, cleanupSocket, retryCount])
