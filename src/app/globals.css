@@ -278,14 +278,19 @@ body.ios-device {
   height: 100%;
 }
 
-/* ─── Scrollable inner container on iOS ─── */
-body.ios-device > div,
-body.ios-device main {
+/* ─── Scrollable inner container on iOS ───
+   Only the outer layout div is the scroll container.
+   DO NOT add padding-bottom here — each page handles its own
+   bottom spacing (spacer divs for the fixed nav). Global
+   padding-bottom creates a persistent white bar at the bottom
+   that looks like an empty nav, even when logged out.
+   DO NOT target body.ios-device main — it matches ALL <main>
+   elements including nested ones, causing double scroll + double
+   white bar. ─── */
+body.ios-device > div:first-child {
   height: 100svh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  /* Leave room for bottom nav (~64px + safe area) */
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ─── Bottom nav on iOS: NO GPU compositing hacks ───
