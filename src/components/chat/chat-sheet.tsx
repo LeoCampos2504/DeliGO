@@ -9,6 +9,7 @@ import { ConversationList } from "./conversation-list"
 import { ChatView } from "./chat-view"
 import { MessageCircle, Loader2, WifiOff, RefreshCw } from "lucide-react"
 import { SheetDescription } from "@/components/ui/sheet"
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock"
 
 export function ChatSheet() {
   const {
@@ -33,6 +34,8 @@ export function ChatSheet() {
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({})
   const [connectionFailed, setConnectionFailed] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
+
+  useBodyScrollLock(isSheetOpen)
 
   // Cleanup dead socket reference
   const cleanupSocket = useCallback(() => {
@@ -245,7 +248,7 @@ export function ChatSheet() {
     <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md p-0 flex flex-col"
+        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden"
       >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>

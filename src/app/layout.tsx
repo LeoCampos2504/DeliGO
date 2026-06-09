@@ -8,6 +8,7 @@ import { ChatProvider } from "@/providers/chat-provider";
 import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
 import { DynamicManifest } from "@/components/shared/dynamic-manifest";
+import { IOSInputScrollGuard } from "@/components/shared/ios-input-scroll-guard";
 import { PermissionPrompt } from "@/components/shared/permission-prompt";
 import { Toaster } from "sonner";
 
@@ -82,6 +83,7 @@ export default function RootLayout({
               <main className="flex-1">{children}</main>
             </div>
             <DynamicManifest />
+            <IOSInputScrollGuard />
             <ChatProvider />
             <ServiceWorkerRegistration />
             <InstallPrompt />

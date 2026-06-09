@@ -21,6 +21,8 @@ export function BottomNav() {
   const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   useEffect(() => {
+    const isMobileViewport = () => window.innerWidth <= 768
+
     const isEditableTarget = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) return false
       return Boolean(
@@ -31,7 +33,7 @@ export function BottomNav() {
     }
 
     const handleFocusIn = (event: FocusEvent) => {
-      if (isEditableTarget(event.target)) {
+      if (isMobileViewport() && isEditableTarget(event.target)) {
         setKeyboardOpen(true)
       }
     }
@@ -47,7 +49,7 @@ export function BottomNav() {
     const handleViewportResize = () => {
       if (!window.visualViewport) return
       const keyboardLikelyOpen = window.visualViewport.height < window.innerHeight - 120
-      if (keyboardLikelyOpen) {
+      if (isMobileViewport() && keyboardLikelyOpen) {
         setKeyboardOpen(true)
       } else if (!isEditableTarget(document.activeElement)) {
         setKeyboardOpen(false)

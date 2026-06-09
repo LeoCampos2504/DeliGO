@@ -84,6 +84,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   const [attachPopoverOpen, setAttachPopoverOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -126,8 +127,9 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
   // Auto-scroll to bottom
   useEffect(() => {
-    if (isAtBottomRef.current && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+    const container = messagesContainerRef.current
+    if (isAtBottomRef.current && container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" })
     }
   }, [currentMessages])
 
@@ -476,6 +478,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Messages */}
       <div
+        ref={messagesContainerRef}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-1"
         onScroll={handleScroll}
       >
