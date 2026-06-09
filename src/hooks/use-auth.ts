@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useCallback } from "react"
+import { useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthStore } from "@/store/auth-store"
 import type { UserType } from "@/lib/auth"
@@ -20,71 +20,89 @@ function userTypeToRole(userType: UserType | null): DeliGORole {
 
 /**
  * Hook that syncs server-side session with client-side Zustand store.
- * On mount, it checks /api/auth/me and updates the store if a session exists.
- * This handles page refreshes where the cookie is still valid but Zustand is empty.
+ *
+ * On mount, it calls /api/auth/me:
+ * - If Zustand has no user → tries to restore session from httpOnly cookie
+ * - If Zustand has a user → validates that the session is still active on server.
+ *   If the session expired (401), clears the stale Zustand data so the app
+ *   doesn't show a ghost logged-in state.
+ *
+ * The validation runs once on mount (not on every render) to avoid loops.
  */
 export function useAuth() {
   const router = useRouter()
   const { user, token, isAuthenticated, userType, userName, logout } = useAuthStore()
+  const hasValidated = useRef(false)
 
   const syncSession = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me")
-      if (!res.ok) return
 
-      const data = await res.json()
-      if (!data.ok || !data.user) return
+      // Session is still valid — update store with latest server data
+      if (res.ok) {
+        const data = await res.json()
+        if (data.ok && data.user) {
+          const { user: serverUser } = data
 
-      const { user: serverUser } = data
+          switch (serverUser.type as UserType) {
+            case "cliente":
+              useAuthStore.getState().loginCliente({
+                id: serverUser.id,
+                nombre: serverUser.nombre,
+                email: serverUser.email,
+                token: "synced",
+              })
+              break
+            case "negocio":
+              useAuthStore.getState().loginNegocio({
+                id: serverUser.id,
+                nombre: serverUser.nombre,
+                slug: serverUser.slug,
+                rubro: serverUser.rubro,
+                aprobado: serverUser.aprobado,
+                suspendido: serverUser.suspendido,
+                token: "synced",
+              })
+              break
+            case "repartidor":
+              useAuthStore.getState().loginRepartidor({
+                id: serverUser.id,
+                nombre: serverUser.nombre,
+                email: serverUser.email,
+                activo: serverUser.activo,
+                token: "synced",
+              })
+              break
+            case "superadmin":
+              useAuthStore.getState().loginSuperAdmin({
+                id: serverUser.id,
+                token: "synced",
+              })
+              break
+          }
+          return
+        }
+      }
 
-      // Update Zustand store based on user type
-      switch (serverUser.type as UserType) {
-        case "cliente":
-          useAuthStore.getState().loginCliente({
-            id: serverUser.id,
-            nombre: serverUser.nombre,
-            email: serverUser.email,
-            token: "synced", // Token is in httpOnly cookie, not needed client-side
-          })
-          break
-        case "negocio":
-          useAuthStore.getState().loginNegocio({
-            id: serverUser.id,
-            nombre: serverUser.nombre,
-            slug: serverUser.slug,
-            rubro: serverUser.rubro,
-            aprobado: serverUser.aprobado,
-            suspendido: serverUser.suspendido,
-            token: "synced",
-          })
-          break
-        case "repartidor":
-          useAuthStore.getState().loginRepartidor({
-            id: serverUser.id,
-            nombre: serverUser.nombre,
-            email: serverUser.email,
-            activo: serverUser.activo,
-            token: "synced",
-          })
-          break
-        case "superadmin":
-          useAuthStore.getState().loginSuperAdmin({
-            id: serverUser.id,
-            token: "synced",
-          })
-          break
+      // 401 = session expired / no cookie — clear stale Zustand data
+      if (res.status === 401) {
+        const store = useAuthStore.getState()
+        if (store.user || store.token) {
+          store.logout()
+        }
       }
     } catch {
-      // Silently fail — user just stays logged out
+      // Network error — don't clear, might be offline (PWA)
     }
   }, [])
 
   useEffect(() => {
-    // Only sync if Zustand has no user but might have a cookie
-    if (!user || !token) {
-      syncSession()
-    }
-  }, [user, token, syncSession])
+    // Only validate once per mount to avoid infinite loops
+    // (syncSession updates the store which would re-trigger this effect)
+    if (hasValidated.current) return
+    hasValidated.current = true
+    syncSession()
+  }, [syncSession])
 
   const handleLogout = useCallback(async () => {
     // Remember the role BEFORE clearing the store

@@ -62,6 +62,9 @@ export async function PUT(
         precio: true,
         stock: true,
         imagenUrl: true,
+        descuentoActivo: true,
+        tipoDescuento: true,
+        valorDescuento: true,
       },
     })
 
@@ -86,12 +89,16 @@ export async function PUT(
         disponible = false
         motivoIndisponibilidad = "Sin stock"
       } else {
-        precioActual = productoActual.precio
-        // Check if price changed
-        if (productoActual.precio !== item.precio) {
-          // Still available, but note the price change
-          precioActual = productoActual.precio
+        // Calculate the effective price (with discount if active)
+        let precioEfectivo = productoActual.precio
+        if (productoActual.descuentoActivo && productoActual.valorDescuento > 0) {
+          if (productoActual.tipoDescuento === "porcentaje") {
+            precioEfectivo = precioEfectivo * (1 - productoActual.valorDescuento / 100)
+          } else {
+            precioEfectivo = Math.max(0, precioEfectivo - productoActual.valorDescuento)
+          }
         }
+        precioActual = precioEfectivo
       }
 
       // Parse agregados for frontend
@@ -132,6 +139,10 @@ export async function PUT(
         nombre: item.nombre,
         precio: item.precio,
         precioActual,
+        precioOriginal: productoActual?.precio ?? null,
+        descuentoActivo: productoActual?.descuentoActivo ?? false,
+        tipoDescuento: productoActual?.tipoDescuento ?? "porcentaje",
+        valorDescuento: productoActual?.valorDescuento ?? 0,
         cantidad: item.cantidad,
         agregados: agregadosParsed,
         secciones: seccionesParsed,

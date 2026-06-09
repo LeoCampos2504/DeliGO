@@ -1034,6 +1034,11 @@ function PushNotificationsConfig({ color }: { color: string }) {
   const push = usePushNotifications()
   const [enabled, setEnabled] = useState(push.isSubscribed)
 
+  // Sync enabled state with the async isSubscribed value from the hook
+  useEffect(() => {
+    setEnabled(push.isSubscribed)
+  }, [push.isSubscribed])
+
   const handleToggle = async (val: boolean) => {
     setEnabled(val)
     if (val) {

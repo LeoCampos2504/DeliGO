@@ -88,6 +88,18 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   const { logout } = useAuth()
   const queryClient = useQueryClient()
 
+  // Fetch negocio config to get accurate horarioMode/abiertoManual from the database
+  const { data: configData } = useQuery({
+    queryKey: ["negocio-config", negocio.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/negocio/config?negocioId=${negocio.id}`)
+      if (!res.ok) throw new Error("Error")
+      const json = await res.json()
+      return json.data ?? json
+    },
+    staleTime: 0,
+  })
+
   // Handle notification click → navigate to correct tab
   const handleNotificationNavigate = useCallback((tab: string, _notif: NotificationItem) => {
     // Map notification tab names to PanelTab
@@ -104,11 +116,14 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
     if (target) setActiveTab(target)
   }, [])
 
-  // Sync horario state with negocio prop changes (from query refetch)
+  // Sync horario state with negocio prop changes AND config query data
   useEffect(() => {
-    if (negocio.horarioMode !== undefined) setHorarioMode(negocio.horarioMode)
-    if (negocio.abiertoManual !== undefined) setAbiertoManual(negocio.abiertoManual !== false)
-  }, [negocio.horarioMode, negocio.abiertoManual])
+    // Prefer configData (from negocio-config query) as it's the most authoritative source
+    const sourceMode = configData?.horarioMode ?? negocio.horarioMode
+    const sourceAbierto = configData?.abiertoManual ?? negocio.abiertoManual
+    if (sourceMode !== undefined) setHorarioMode(sourceMode)
+    if (sourceAbierto !== undefined) setAbiertoManual(sourceAbierto !== false)
+  }, [configData?.horarioMode, configData?.abiertoManual, negocio.horarioMode, negocio.abiertoManual])
 
   // Handler for horario changes from config-tab or header toggle
   const handleHorarioChange = useCallback(async (changes: { horarioMode?: string; abiertoManual?: boolean }) => {

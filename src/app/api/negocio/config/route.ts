@@ -161,6 +161,10 @@ export async function PUT(req: NextRequest) {
     if (tiempoEntrega !== undefined) updateData.tiempoEntrega = tiempoEntrega
     if (horarios !== undefined) updateData.horarios = JSON.stringify(horarios)
     if (zonasDelivery !== undefined) updateData.zonasDelivery = JSON.stringify(zonasDelivery)
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
     if (categorias !== undefined) updateData.categorias = JSON.stringify(categorias)
     if (agregadosCategorias !== undefined) updateData.agregadosCategorias = JSON.stringify(agregadosCategorias)
     if (ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(ingredientesCategorias)
@@ -240,6 +244,10 @@ export async function PATCH(req: NextRequest) {
     if (body.tiempoEntrega !== undefined) updateData.tiempoEntrega = body.tiempoEntrega
     if (body.horarios !== undefined) updateData.horarios = JSON.stringify(body.horarios)
     if (body.zonasDelivery !== undefined) updateData.zonasDelivery = JSON.stringify(body.zonasDelivery)
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
     if (body.categorias !== undefined) updateData.categorias = JSON.stringify(body.categorias)
     if (body.agregadosCategorias !== undefined) updateData.agregadosCategorias = JSON.stringify(body.agregadosCategorias)
     if (body.ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(body.ingredientesCategorias)
@@ -271,6 +279,10 @@ export async function PATCH(req: NextRequest) {
     if (body.mostrarVentas !== undefined) updateData.mostrarVentas = body.mostrarVentas
     if (body.horarioMode !== undefined) updateData.horarioMode = body.horarioMode
     if (body.abiertoManual !== undefined) updateData.abiertoManual = body.abiertoManual
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
 
     // Auto-generate repartidorCodigo when delivery is enabled and no code exists
     if (body.ofreceDelivery === true) {

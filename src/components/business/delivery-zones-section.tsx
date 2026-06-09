@@ -49,6 +49,7 @@ const ZONE_COLORS = [
   "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16",
 ]
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LeafletRef = any
 
 // ============================================
@@ -106,6 +107,8 @@ export function DeliveryZonesSection({ negocio }: DeliveryZonesSectionProps) {
         old ? { ...old, ...data } : data
       )
       queryClient.invalidateQueries({ queryKey: ["negocio-config", negocio.id] })
+      // Also invalidate negocio-profile so the business panel and client view update in real-time
+      queryClient.invalidateQueries({ queryKey: ["negocio-profile"] })
       toast.success("Configuración de delivery guardada")
     } catch {
       toast.error("Error al guardar la configuración")

@@ -161,74 +161,10 @@ export async function GET(req: NextRequest) {
         })
       }
     } else if (userType === "repartidor") {
-      // Get active orders for businesses assigned to this repartidor
-      const repartidorNegocios = await db.repartidorNegocio.findMany({
-        where: { repartidorId: userId },
-        select: { negocioId: true },
-      })
-      const negocioIds = repartidorNegocios.map((rn) => rn.negocioId)
-
-      if (negocioIds.length === 0) {
-        return NextResponse.json({ conversations: [] })
-      }
-
-      const pedidos = await db.pedido.findMany({
-        where: {
-          negocioId: { in: negocioIds },
-          estado: { notIn: ["entregado", "cancelado"] },
-        },
-        select: {
-          id: true,
-          negocioNombre: true,
-          negocioSlug: true,
-          clienteNombre: true,
-          estado: true,
-          total: true,
-          metodoEntrega: true,
-          metodoPago: true,
-          fecha: true,
-          negocio: {
-            select: { logoUrl: true },
-          },
-          mensajes: {
-            orderBy: { fecha: "desc" },
-            take: 1,
-            select: {
-              texto: true,
-              fecha: true,
-              remitente: true,
-            },
-          },
-        },
-        orderBy: { fecha: "desc" },
-      })
-
-      for (const pedido of pedidos) {
-        const unreadCount = await db.chatMensaje.count({
-          where: {
-            pedidoId: pedido.id,
-            remitente: { in: ["cliente", "vendedor"] },
-            leido: false,
-          },
-        })
-
-        conversations.push({
-          pedidoId: pedido.id,
-          negocioNombre: pedido.negocioNombre,
-          negocioSlug: pedido.negocioSlug,
-          clienteNombre: pedido.clienteNombre,
-          estado: pedido.estado,
-          total: pedido.total,
-          metodoEntrega: pedido.metodoEntrega,
-          metodoPago: pedido.metodoPago,
-          fecha: pedido.fecha,
-          lastMessage: pedido.mensajes[0]?.texto || null,
-          lastMessageDate: pedido.mensajes[0]?.fecha || null,
-          lastMessageRemitente: pedido.mensajes[0]?.remitente || null,
-          unreadCount,
-          negocioLogoUrl: pedido.negocio.logoUrl,
-        })
-      }
+      // Repartidores don't participate in chat — they only receive
+      // location updates via Socket.IO for orders assigned to them.
+      // Return empty conversations list.
+      return NextResponse.json({ conversations: [] })
     }
 
     return NextResponse.json({ conversations })

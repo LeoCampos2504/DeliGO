@@ -113,6 +113,10 @@ interface RepeatOrderItem {
   nombre: string
   precio: number
   precioActual: number | null
+  precioOriginal: number | null
+  descuentoActivo: boolean
+  tipoDescuento: string
+  valorDescuento: number
   cantidad: number
   agregados: { id: string; nombre: string; precio: number }[]
   secciones: Record<string, string | Record<string, number>> | string
@@ -579,16 +583,25 @@ function RepeatOrderDialog({
                       >
                         {item.nombre}
                       </p>
-                      {!item.disponible && (
-                        <Badge
-                          variant="secondary"
-                          className="text-[9px] h-4 px-1 bg-destructive/10 text-destructive border-destructive/20 shrink-0"
-                        >
-                          <Ban className="h-2.5 w-2.5 mr-0.5" />
-                          No disponible
-                        </Badge>
-                      )}
-                    </div>
+                    {/* Discount badge */}
+                    {item.disponible && item.descuentoActivo && item.valorDescuento > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] h-4 px-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 shrink-0"
+                      >
+                        -{item.tipoDescuento === "porcentaje" ? `${item.valorDescuento}%` : formatPrice(item.valorDescuento)}
+                      </Badge>
+                    )}
+                    {!item.disponible && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] h-4 px-1 bg-destructive/10 text-destructive border-destructive/20 shrink-0"
+                      >
+                        <Ban className="h-2.5 w-2.5 mr-0.5" />
+                        No disponible
+                      </Badge>
+                    )}
+                  </div>
                     {/* Unavailable reason */}
                     {!item.disponible && item.motivoIndisponibilidad && (
                       <p className="text-[10px] text-destructive/70 mt-0.5">
@@ -643,8 +656,13 @@ function RepeatOrderDialog({
                         </p>
                       ) : null
                     })()}
-                    {/* Price change notice */}
-                    {item.disponible && item.precioActual !== null && item.precioActual !== item.precio && (
+                    {/* Price / Discount notice */}
+                    {item.disponible && item.descuentoActivo && item.valorDescuento > 0 && item.precioOriginal !== null && (
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                        En oferta: {formatPrice(item.precioActual ?? item.precio)} <span className="line-through text-muted-foreground">{formatPrice(item.precioOriginal)}</span>
+                      </p>
+                    )}
+                    {item.disponible && !item.descuentoActivo && item.precioActual !== null && item.precioActual !== item.precio && (
                       <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
                         Precio actualizado: {formatPrice(item.precioActual)} (era {formatPrice(item.precio)})
                       </p>
@@ -652,14 +670,27 @@ function RepeatOrderDialog({
                   </div>
 
                   {/* Price */}
-                  <span
-                    className={cn(
-                      "text-xs font-semibold shrink-0",
-                      !item.disponible && "text-muted-foreground/50"
+                  <div className="flex flex-col items-end shrink-0">
+                    {item.disponible && item.descuentoActivo && item.valorDescuento > 0 && item.precioOriginal !== null ? (
+                      <>
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                          {formatPrice((item.precioActual ?? item.precio) * item.cantidad)}
+                        </span>
+                        <span className="text-[10px] line-through text-muted-foreground">
+                          {formatPrice(item.precioOriginal * item.cantidad)}
+                        </span>
+                      </>
+                    ) : (
+                      <span
+                        className={cn(
+                          "text-xs font-semibold",
+                          !item.disponible && "text-muted-foreground/50"
+                        )}
+                      >
+                        {formatPrice((item.precioActual ?? item.precio) * item.cantidad)}
+                      </span>
                     )}
-                  >
-                    {formatPrice(item.precio * item.cantidad)}
-                  </span>
+                  </div>
                 </motion.div>
               ))}
             </div>
