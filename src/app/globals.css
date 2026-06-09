@@ -240,64 +240,41 @@
 }
 
 /* Prevent viewport zoom drift on mobile after input focus */
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
-html,
-body {
-  max-width: 100%;
-  overflow-x: hidden;
-  overscroll-behavior-x: none;
-}
-
 @supports (-webkit-touch-callout: none) {
+  /* iOS-specific fixes */
   html {
+    -webkit-text-size-adjust: 100%;
+    /* Prevent iOS from zooming when input font-size < 16px */
     touch-action: manipulation;
   }
-
+  body {
+    overflow-x: hidden;
+  }
+  /* Force all text inputs to 16px minimum to prevent iOS auto-zoom */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
   textarea,
   select {
     font-size: 16px !important;
-    line-height: 1.35;
   }
 }
 
-@media (max-width: 768px) {
-  body.keyboard-open .keyboard-hide-when-editing {
-    display: none !important;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  @supports selector(body:has(input:focus)) {
-    body:has(input:focus) .keyboard-hide-when-editing,
-    body:has(textarea:focus) .keyboard-hide-when-editing,
-    body:has(select:focus) .keyboard-hide-when-editing,
-    body:has([contenteditable="true"]:focus) .keyboard-hide-when-editing {
-      display: none !important;
-      opacity: 0;
-      pointer-events: none;
-    }
-  }
-}
-
-/* Force form controls to the mobile-safe size that avoids browser auto-zoom. */
-@media (max-width: 768px) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
-  textarea,
-  select {
-    font-size: 16px !important;
-    line-height: 1.35;
-  }
-
+/* Ensure layout doesn't shift when virtual keyboard appears */
+@media (max-width: 640px) {
   html {
     overflow-y: auto;
     scroll-behavior: smooth;
   }
 }
+
+/* Hide elements marked with .keyboard-hide-when-editing when virtual keyboard is open */
+body.keyboard-open .keyboard-hide-when-editing {
+  display: none !important;
+}
+
+/* Prevent iOS Safari from pushing fixed elements up when keyboard opens.
+   Instead of fixing the body (which causes scroll jump), we rely on:
+   1. JS keyboard detection in BottomNav to hide the nav entirely
+   2. CSS .keyboard-hide-when-editing to hide other floating elements */
 
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {
