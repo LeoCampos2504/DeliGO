@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Logo } from "@/components/shared/logo"
+import { LegalDialog } from "@/components/shared/legal-content"
 import { useAuthStore } from "@/store/auth-store"
 import { toast } from "sonner"
 import type { UserType } from "@/lib/auth"
@@ -711,6 +712,10 @@ function RegisterStep({
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [legalDialog, setLegalDialog] = useState<{ open: boolean; type: "terms" | "privacy" }>({
+    open: false,
+    type: "terms",
+  })
 
   // Common fields
   const [nombre, setNombre] = useState("")
@@ -1051,13 +1056,27 @@ function RegisterStep({
             className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
           >
             Acepto los{" "}
-            <span className="text-primary font-semibold">
+            <button
+              type="button"
+              className="text-primary font-semibold hover:underline"
+              onClick={(e) => {
+                e.preventDefault()
+                setLegalDialog({ open: true, type: "terms" })
+              }}
+            >
               Términos y Condiciones
-            </span>{" "}
+            </button>{" "}
             y la{" "}
-            <span className="text-primary font-semibold">
+            <button
+              type="button"
+              className="text-primary font-semibold hover:underline"
+              onClick={(e) => {
+                e.preventDefault()
+                setLegalDialog({ open: true, type: "privacy" })
+              }}
+            >
               Política de Privacidad
-            </span>
+            </button>
             , incluyendo el tratamiento de mis datos personales.
           </label>
         </div>
@@ -1098,6 +1117,13 @@ function RegisterStep({
           </button>
         </p>
       </div>
+
+      {/* Legal Dialogs */}
+      <LegalDialog
+        open={legalDialog.open}
+        onOpenChange={(open) => setLegalDialog({ ...legalDialog, open })}
+        type={legalDialog.type}
+      />
     </div>
   )
 }

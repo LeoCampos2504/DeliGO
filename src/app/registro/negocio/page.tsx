@@ -6,13 +6,20 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Logo } from "@/components/shared/logo"
-import { Loader2, Store, AtSign, Lock, Mail, Tag } from "lucide-react"
+import { LegalDialog } from "@/components/shared/legal-content"
+import { Loader2, Store, AtSign, Lock, Mail, Tag, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 
 export default function NegocioRegisterPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [legalDialog, setLegalDialog] = useState<{ open: boolean; type: "terms" | "privacy" }>({
+    open: false,
+    type: "terms",
+  })
   const [form, setForm] = useState({
     nombre_local: "",
     usuario: "",
@@ -23,12 +30,18 @@ export default function NegocioRegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!termsAccepted) {
+      toast.error("Debés aceptar los términos y condiciones para registrarte")
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, role: "negocio" }),
+        body: JSON.stringify({ ...form, tipo: "negocio", termsAccepted: "true" }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -157,12 +170,59 @@ export default function NegocioRegisterPage() {
                 </div>
               </div>
 
+              {/* Terms & Privacy Consent */}
+              <div className="flex items-start gap-3 py-1">
+                <Checkbox
+                  id="terms-accept"
+                  checked={termsAccepted}
+                  onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                  className="mt-0.5"
+                />
+                <label
+                  htmlFor="terms-accept"
+                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+                >
+                  Acepto los{" "}
+                  <button
+                    type="button"
+                    className="text-primary font-semibold hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setLegalDialog({ open: true, type: "terms" })
+                    }}
+                  >
+                    Términos y Condiciones
+                  </button>{" "}
+                  y la{" "}
+                  <button
+                    type="button"
+                    className="text-primary font-semibold hover:underline"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setLegalDialog({ open: true, type: "privacy" })
+                    }}
+                  >
+                    Política de Privacidad
+                  </button>
+                  , incluyendo el tratamiento de mis datos personales.
+                </label>
+              </div>
+
               <Button
                 type="submit"
                 className="w-full h-11 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white"
-                disabled={loading}
+                disabled={loading || !termsAccepted}
               >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Crear cuenta"}
+                {loading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : !termsAccepted ? (
+                  <>
+                    <ShieldCheck className="h-4 w-4 mr-1.5" />
+                    Aceptá los términos para continuar
+                  </>
+                ) : (
+                  "Crear cuenta"
+                )}
               </Button>
 
               <p className="text-center text-sm text-muted-foreground">
@@ -175,6 +235,13 @@ export default function NegocioRegisterPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Legal Dialogs */}
+      <LegalDialog
+        open={legalDialog.open}
+        onOpenChange={(open) => setLegalDialog({ ...legalDialog, open })}
+        type={legalDialog.type}
+      />
     </div>
   )
 }
