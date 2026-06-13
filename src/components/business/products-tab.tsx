@@ -785,6 +785,24 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
   }
 
   const handleSave = () => {
+    // Validate discount limits
+    if (formData.descuentoActivo && formData.valorDescuento > 0) {
+      if (formData.tipoDescuento === "porcentaje") {
+        if (formData.valorDescuento < 1) {
+          toast.error("El descuento por porcentaje debe ser al menos 1%")
+          return
+        }
+        if (formData.valorDescuento > 100) {
+          toast.error("El descuento por porcentaje no puede superar el 100%")
+          return
+        }
+      } else {
+        if (formData.valorDescuento >= formData.precio) {
+          toast.error("El descuento en monto no puede ser igual o superior al precio del producto")
+          return
+        }
+      }
+    }
     saveMutation.mutate({ ...formData, id: editingProduct?.id })
   }
 
@@ -1783,21 +1801,21 @@ function StepBasicInfo({
         />
       </div>
 
-      {/* Stock toggle in simple mode for ropa */}
-      {isRopa && (
-        <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-          <div>
-            <p className="text-sm font-semibold">Stock disponible</p>
-            <p className="text-xs text-muted-foreground">
-              {formData.stock ? "La prenda aparece en el catálogo" : "Oculta del catálogo"}
-            </p>
-          </div>
-          <Switch
-            checked={formData.stock}
-            onCheckedChange={(v) => setFormData((p) => ({ ...p, stock: v }))}
-          />
+      {/* Stock toggle — always visible in StepBasicInfo (simple mode) */}
+      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+        <div>
+          <p className="text-sm font-semibold">Stock disponible</p>
+          <p className="text-xs text-muted-foreground">
+            {formData.stock
+              ? (isRopa ? "La prenda aparece en el catálogo" : "El producto aparece en el catálogo")
+              : (isRopa ? "Oculta del catálogo" : "Oculto del catálogo")}
+          </p>
         </div>
-      )}
+        <Switch
+          checked={formData.stock}
+          onCheckedChange={(v) => setFormData((p) => ({ ...p, stock: v }))}
+        />
+      </div>
     </motion.div>
   )
 }
@@ -1860,10 +1878,18 @@ function StepRopaDetails({
             </Select>
             <Input
               type="number"
-              min={0}
+              min={1}
+              max={formData.tipoDescuento === "porcentaje" ? 100 : formData.precio}
               value={formData.valorDescuento || ""}
-              onChange={(e) => setFormData((p) => ({ ...p, valorDescuento: parseFloat(e.target.value) || 0 }))}
-              placeholder="0"
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0
+                if (formData.tipoDescuento === "porcentaje") {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, 100) }))
+                } else {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, p.precio) }))
+                }
+              }}
+              placeholder={formData.tipoDescuento === "porcentaje" ? "1-100" : `Max $${formData.precio}`}
               className="rounded-xl"
             />
           </div>
@@ -2016,10 +2042,18 @@ function StepNegocioDetails({
             </Select>
             <Input
               type="number"
-              min={0}
+              min={1}
+              max={formData.tipoDescuento === "porcentaje" ? 100 : formData.precio}
               value={formData.valorDescuento || ""}
-              onChange={(e) => setFormData((p) => ({ ...p, valorDescuento: parseFloat(e.target.value) || 0 }))}
-              placeholder="0"
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0
+                if (formData.tipoDescuento === "porcentaje") {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, 100) }))
+                } else {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, p.precio) }))
+                }
+              }}
+              placeholder={formData.tipoDescuento === "porcentaje" ? "1-100" : `Max $${formData.precio}`}
               className="rounded-xl"
             />
           </div>
@@ -2047,6 +2081,209 @@ function StepNegocioDetails({
         opcionesCompartidas={opcionesCompartidas}
       />
     </motion.div>
+  )
+}
+
+// ============================================
+// Agregado helpers (grouped by category)
+// ============================================
+
+function AgregadoItem({
+  ag,
+  formData,
+  setFormData,
+}: {
+  ag: Agregado
+  formData: ProductFormData
+  setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
+}) {
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors",
+        formData.agregadosIds.includes(ag.id)
+          ? "bg-primary/10 border border-primary/30"
+          : "bg-muted/40 hover:bg-muted/60 border border-transparent"
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={formData.agregadosIds.includes(ag.id)}
+        onChange={() => {
+          const ids = formData.agregadosIds.includes(ag.id)
+            ? formData.agregadosIds.filter((i) => i !== ag.id)
+            : [...formData.agregadosIds, ag.id]
+          setFormData((p) => ({ ...p, agregadosIds: ids }))
+        }}
+        className="sr-only"
+      />
+      <div className={cn(
+        "w-4 h-4 rounded border flex items-center justify-center shrink-0",
+        formData.agregadosIds.includes(ag.id)
+          ? "bg-primary border-primary"
+          : "border-border"
+      )}>
+        {formData.agregadosIds.includes(ag.id) && <Check className="h-3 w-3 text-primary-foreground" />}
+      </div>
+      <span className="text-sm flex-1">{ag.nombre}</span>
+      <span className="text-xs font-semibold text-muted-foreground">
+        +{formatPrice(ag.precio)}
+      </span>
+    </label>
+  )
+}
+
+function AgregadoCategoryGroup({
+  categoria,
+  items,
+  formData,
+  setFormData,
+}: {
+  categoria: string
+  items: Agregado[]
+  formData: ProductFormData
+  setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
+}) {
+  const [open, setOpen] = useState(true)
+  const selectedCount = items.filter((ag) => formData.agregadosIds.includes(ag.id)).length
+
+  return (
+    <div className="rounded-xl border border-border/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className={cn("shrink-0 transition-transform", open && "rotate-90")}
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <span className="text-xs font-semibold flex-1 truncate">{categoria}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {selectedCount > 0 && (
+            <Badge className="text-[9px] px-1.5 py-0 border-0 mr-1" variant="secondary">
+              {selectedCount}
+            </Badge>
+          )}
+          {items.length}
+        </span>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="px-2 py-1.5 space-y-1">
+              {items.map((ag) => (
+                <AgregadoItem key={ag.id} ag={ag} formData={formData} setFormData={setFormData} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ============================================
+// Ingrediente helpers (grouped by category)
+// ============================================
+
+function IngredienteChip({
+  ing,
+  formData,
+  setFormData,
+}: {
+  ing: Ingrediente
+  formData: ProductFormData
+  setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const ids = formData.ingredientesIds.includes(ing.id)
+          ? formData.ingredientesIds.filter((i) => i !== ing.id)
+          : [...formData.ingredientesIds, ing.id]
+        setFormData((p) => ({ ...p, ingredientesIds: ids }))
+      }}
+      className={cn(
+        "px-2.5 py-1 rounded-full text-xs font-medium transition-all border",
+        formData.ingredientesIds.includes(ing.id)
+          ? "bg-primary/10 border-primary/30 text-primary"
+          : "bg-muted/40 border-transparent text-muted-foreground hover:bg-muted/60"
+      )}
+    >
+      {ing.nombre}
+    </button>
+  )
+}
+
+function IngredienteCategoryGroup({
+  categoria,
+  items,
+  formData,
+  setFormData,
+}: {
+  categoria: string
+  items: Ingrediente[]
+  formData: ProductFormData
+  setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
+}) {
+  const [open, setOpen] = useState(true)
+  const selectedCount = items.filter((ing) => formData.ingredientesIds.includes(ing.id)).length
+
+  return (
+    <div className="rounded-xl border border-border/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className={cn("shrink-0 transition-transform", open && "rotate-90")}
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <span className="text-xs font-semibold flex-1 truncate">{categoria}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {selectedCount > 0 && (
+            <Badge className="text-[9px] px-1.5 py-0 border-0 mr-1" variant="secondary">
+              {selectedCount}
+            </Badge>
+          )}
+          {items.length}
+        </span>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 py-2">
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((ing) => (
+                  <IngredienteChip key={ing.id} ing={ing} formData={formData} setFormData={setFormData} />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 
@@ -2114,10 +2351,18 @@ function StepOptions({
             </Select>
             <Input
               type="number"
-              min={0}
+              min={1}
+              max={formData.tipoDescuento === "porcentaje" ? 100 : formData.precio}
               value={formData.valorDescuento || ""}
-              onChange={(e) => setFormData((p) => ({ ...p, valorDescuento: parseFloat(e.target.value) || 0 }))}
-              placeholder="0"
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0
+                if (formData.tipoDescuento === "porcentaje") {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, 100) }))
+                } else {
+                  setFormData((p) => ({ ...p, valorDescuento: Math.min(val, p.precio) }))
+                }
+              }}
+              placeholder={formData.tipoDescuento === "porcentaje" ? "1-100" : `Max $${formData.precio}`}
               className="rounded-xl"
             />
           </div>
@@ -2147,42 +2392,37 @@ function StepOptions({
                 <Plus className="h-3.5 w-3.5" />
                 Agregados
               </Label>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {agregados.map((ag) => (
-                  <label
-                    key={ag.id}
-                    className={cn(
-                      "flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors",
-                      formData.agregadosIds.includes(ag.id)
-                        ? "bg-primary/10 border border-primary/30"
-                        : "bg-muted/40 hover:bg-muted/60 border border-transparent"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={formData.agregadosIds.includes(ag.id)}
-                      onChange={() => {
-                        const ids = formData.agregadosIds.includes(ag.id)
-                          ? formData.agregadosIds.filter((i) => i !== ag.id)
-                          : [...formData.agregadosIds, ag.id]
-                        setFormData((p) => ({ ...p, agregadosIds: ids }))
-                      }}
-                      className="sr-only"
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {(() => {
+                  // Group agregados by categoria
+                  const grouped = new Map<string, Agregado[]>()
+                  for (const ag of agregados) {
+                    const cat = ag.categoria || "Sin categoría"
+                    if (!grouped.has(cat)) grouped.set(cat, [])
+                    grouped.get(cat)!.push(ag)
+                  }
+                  const catNames = Array.from(grouped.keys())
+                  // If only one category or all "Sin categoría", show flat list
+                  if (catNames.length <= 1 && catNames[0] === "Sin categoría") {
+                    return (
+                      <div className="space-y-1.5">
+                        {agregados.map((ag) => (
+                          <AgregadoItem key={ag.id} ag={ag} formData={formData} setFormData={setFormData} />
+                        ))}
+                      </div>
+                    )
+                  }
+                  // Show grouped by category
+                  return catNames.map((cat) => (
+                    <AgregadoCategoryGroup
+                      key={cat}
+                      categoria={cat}
+                      items={grouped.get(cat)!}
+                      formData={formData}
+                      setFormData={setFormData}
                     />
-                    <div className={cn(
-                      "w-4 h-4 rounded border flex items-center justify-center shrink-0",
-                      formData.agregadosIds.includes(ag.id)
-                        ? "bg-primary border-primary"
-                        : "border-border"
-                    )}>
-                      {formData.agregadosIds.includes(ag.id) && <Check className="h-3 w-3 text-primary-foreground" />}
-                    </div>
-                    <span className="text-sm flex-1">{ag.nombre}</span>
-                    <span className="text-xs font-semibold text-muted-foreground">
-                      +{formatPrice(ag.precio)}
-                    </span>
-                  </label>
-                ))}
+                  ))
+                })()}
               </div>
             </div>
           )}
@@ -2193,27 +2433,37 @@ function StepOptions({
               <Label className="text-sm font-semibold mb-2 flex items-center gap-1.5">
                 🥬 Ingredientes
               </Label>
-              <div className="flex flex-wrap gap-1.5">
-                {ingredientes.map((ing) => (
-                  <button
-                    key={ing.id}
-                    type="button"
-                    onClick={() => {
-                      const ids = formData.ingredientesIds.includes(ing.id)
-                        ? formData.ingredientesIds.filter((i) => i !== ing.id)
-                        : [...formData.ingredientesIds, ing.id]
-                      setFormData((p) => ({ ...p, ingredientesIds: ids }))
-                    }}
-                    className={cn(
-                      "px-2.5 py-1 rounded-full text-xs font-medium transition-all border",
-                      formData.ingredientesIds.includes(ing.id)
-                        ? "bg-primary/10 border-primary/30 text-primary"
-                        : "bg-muted/40 border-transparent text-muted-foreground hover:bg-muted/60"
-                    )}
-                  >
-                    {ing.nombre}
-                  </button>
-                ))}
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {(() => {
+                  // Group ingredientes by categoria
+                  const grouped = new Map<string, Ingrediente[]>()
+                  for (const ing of ingredientes) {
+                    const cat = ing.categoria || "Sin categoría"
+                    if (!grouped.has(cat)) grouped.set(cat, [])
+                    grouped.get(cat)!.push(ing)
+                  }
+                  const catNames = Array.from(grouped.keys())
+                  // If only one category or all "Sin categoría", show flat list
+                  if (catNames.length <= 1 && catNames[0] === "Sin categoría") {
+                    return (
+                      <div className="flex flex-wrap gap-1.5">
+                        {ingredientes.map((ing) => (
+                          <IngredienteChip key={ing.id} ing={ing} formData={formData} setFormData={setFormData} />
+                        ))}
+                      </div>
+                    )
+                  }
+                  // Show grouped by category
+                  return catNames.map((cat) => (
+                    <IngredienteCategoryGroup
+                      key={cat}
+                      categoria={cat}
+                      items={grouped.get(cat)!}
+                      formData={formData}
+                      setFormData={setFormData}
+                    />
+                  ))
+                })()}
               </div>
             </div>
           )}
@@ -2420,7 +2670,7 @@ function ProductOptionSectionsEditor({
                         <Input
                           type="number"
                           min={0}
-                          value={cfg.maximo}
+                          value={cfg.maximo || ""}
                           onChange={(e) => updateOpcionCompartidaConfig(cfg.id, "maximo", parseInt(e.target.value) || 0)}
                           className="h-6 w-12 text-xs text-center p-0 border-border/50"
                         />
@@ -2510,7 +2760,7 @@ function ProductOptionSectionsEditor({
                 <Input
                   type="number"
                   min={0}
-                  value={section.maximo || 0}
+                  value={section.maximo || ""}
                   onChange={(e) => updateSection(si, { maximo: parseInt(e.target.value) || 0 })}
                   className="rounded-lg text-sm h-7 w-20"
                   placeholder="0"

@@ -206,7 +206,7 @@ export function DeliveryZonesSection({ negocio }: DeliveryZonesSectionProps) {
             <Input
               type="number"
               min={0}
-              value={precioSimple}
+              value={precioSimple || ""}
               onChange={(e) => setPrecioSimple(parseFloat(e.target.value) || 0)}
               className="rounded-xl pl-7"
               placeholder="0"
@@ -342,7 +342,7 @@ function ZonaCard({
           <Input
             type="number"
             min={0}
-            value={zona.precio}
+            value={zona.precio || ""}
             onChange={(e) => onUpdate({ precio: parseFloat(e.target.value) || 0 })}
             className="rounded-xl h-8 text-sm pl-6"
             placeholder="0"

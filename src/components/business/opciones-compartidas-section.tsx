@@ -316,7 +316,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
                   <Input
                     type="number"
                     min={0}
-                    value={formData.maximo || 0}
+                    value={formData.maximo || ""}
                     onChange={(e) => setFormData((p) => ({ ...p, maximo: parseInt(e.target.value) || 0 }))}
                     className="rounded-lg text-sm h-7 w-20"
                     placeholder="0"

@@ -98,6 +98,25 @@ export async function PUT(
     const finalTipoDescuento = tipoDescuento || existing.tipoDescuento
     const finalValorDescuento = valorDescuento !== undefined ? valorDescuento : existing.valorDescuento
 
+    // Validate discount limits
+    if (finalDescuentoActivo && finalValorDescuento > 0) {
+      if (finalTipoDescuento === "porcentaje") {
+        if (finalValorDescuento < 1 || finalValorDescuento > 100) {
+          return NextResponse.json(
+            { error: "El descuento por porcentaje debe estar entre 1% y 100%" },
+            { status: 400 }
+          )
+        }
+      } else {
+        if (finalValorDescuento >= finalPrecio) {
+          return NextResponse.json(
+            { error: "El descuento en monto no puede ser igual o superior al precio del producto" },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     // Calculate precioPromo if descuentoActivo
     let precioPromo: number | null = null
     if (finalDescuentoActivo && finalValorDescuento > 0) {

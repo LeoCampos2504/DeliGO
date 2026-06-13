@@ -220,7 +220,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       if (!mozoParam || !negocio?.id) return null
       const res = await fetch(`/api/empleados/by-codigo?codigo=${mozoParam}&negocioId=${negocio.id}`)
       if (!res.ok) return null
-      return res.json() as Promise<{ id: string; nombre: string; codigo: string }>
+      return res.json() as Promise<{ id: string; nombre: string; codigo: string; token: string }>
     },
     enabled: !!mozoParam && !!negocio?.id,
   })
@@ -976,6 +976,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           colorPrincipal={negocio.colorPrincipal}
           mozoCodigo={mozoData.codigo}
           mozoNombre={mozoData.nombre}
+          mozoToken={mozoData.token}
           onMesaSelected={(mesa) => setMozoSelectedMesa(mesa)}
           selectedMesaId={mozoSelectedMesa?.id}
         />
@@ -1667,25 +1668,22 @@ function ProductDetailSheet({
 
   // Handle add to cart
   const handleAdd = () => {
-    // Validate required sections
+    // Validate required sections — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
       const val = selectedSecciones[section.nombre]
-      const maximo = section.maximo || 0
       if (!val) return // nothing selected
       if (typeof val === "object") {
         const total = Object.values(val).reduce((s, v) => s + v, 0)
-        if (maximo > 1 && total < maximo) return // must reach max for multi-select
-        if (total === 0) return
+        if (total === 0) return // must select at least 1
       }
     }
 
-    // Validate required shared options
+    // Validate required shared options — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const oc of resolvedOpcionesCompartidas) {
       if (!oc.obligatorio) continue
       const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
-      const requiredCount = oc.maximo && oc.maximo > 1 ? oc.maximo : 1
-      if (selectedCount < requiredCount) return
+      if (selectedCount < 1) return
     }
 
     // Get removed ingredient names for display
@@ -1728,12 +1726,10 @@ function ProductDetailSheet({
       .filter((s) => s.obligatorio)
       .every((s) => {
         const val = selectedSecciones[s.nombre]
-        const maximo = s.maximo || 0
         if (!val) return false
         if (typeof val === "object") {
           const total = Object.values(val).reduce((sum, v) => sum + v, 0)
-          if (maximo > 1) return total >= maximo
-          return total > 0
+          return total > 0 // at least 1 selection required, maximo is just an upper limit
         }
         return !!val
       })
@@ -1744,8 +1740,7 @@ function ProductDetailSheet({
       .filter(oc => oc.obligatorio)
       .every(oc => {
         const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
-        const requiredCount = oc.maximo && oc.maximo > 1 ? oc.maximo : 1
-        return selectedCount >= requiredCount
+        return selectedCount >= 1 // at least 1 selection required, maximo is just an upper limit
       })
 
     return sharedOk
@@ -1966,7 +1961,6 @@ function ProductDetailSheet({
                 const isMultiSelect = maximo > 1
                 const sectionTotal = getSectionTotal(section.nombre)
                 const isAtMax = isMultiSelect && sectionTotal >= maximo
-                const isIncomplete = isMultiSelect && section.obligatorio && sectionTotal > 0 && sectionTotal < maximo
 
                 return (
                   <div key={section.nombre}>
@@ -1984,9 +1978,7 @@ function ProductDetailSheet({
                             "text-[10px] px-1.5",
                             isAtMax
                               ? "border-primary text-primary"
-                              : isIncomplete
-                                ? "border-orange-400 text-orange-600 dark:text-orange-400"
-                                : "text-muted-foreground"
+                              : "text-muted-foreground"
                           )}
                           style={isAtMax ? { borderColor: negocio.colorPrincipal, color: negocio.colorPrincipal } : undefined}
                         >
