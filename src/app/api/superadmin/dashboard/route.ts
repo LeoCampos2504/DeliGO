@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get all negocios with computed data
-    const [pendientes, activosRaw, repartidoresCount, clientesCount, pedidosCount] =
+    const [pendientes, activosRaw, repartidoresCount, clientesCount, pedidosCount, denunciasCount, clientesBloqueadosCount] =
       await Promise.all([
         // Pending approval (only show email-verified negocios — unverified ones shouldn't appear yet)
         db.negocio.findMany({
@@ -91,6 +91,7 @@ export async function GET(req: NextRequest) {
             ofreceDelivery: true,
             promocionado: true,
             ordenPromocion: true,
+            destacadoHasta: true,
             puntuacionPromedio: true,
             whatsapp: true,
             createdAt: true,
@@ -109,6 +110,8 @@ export async function GET(req: NextRequest) {
         db.pedido.count({
           where: { estado: "entregado" },
         }),
+        db.denuncia.count(),
+        db.cliente.count({ where: { bloqueado: true } }),
       ])
 
     // Compute subscription status and debt for each active negocio
@@ -169,6 +172,8 @@ export async function GET(req: NextRequest) {
       totalRepartidores: repartidoresCount,
       totalClientes: clientesCount,
       totalPedidosEntregados: pedidosCount,
+      denuncias: denunciasCount,
+      clientesBloqueados: clientesBloqueadosCount,
     }
 
     return NextResponse.json({

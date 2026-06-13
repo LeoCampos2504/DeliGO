@@ -26,11 +26,18 @@ model Cliente {
   emailVerified     DateTime?
   verificationToken String?   @unique
 
+  // Protección contra clientes maliciosos
+  bloqueado              Boolean  @default(false)
+  bloqueadoFecha         DateTime?
+  ultimoIp               String   @default("")
+  dispositivoFingerprint String   @default("")
+
   direcciones    Direccion[]
   favoritos      Favorito[]
   pedidos        Pedido[]
   resenas        Resena[]
   chatMensajes   ChatMensaje[]
+  denuncias      Denuncia[]
 
   @@map("clientes")
 }
@@ -187,6 +194,7 @@ model Negocio {
   secciones           SeccionCatalogo[]
   opcionesCompartidas OpcionesCompartidas[]
   promociones         Promocion[]
+  denuncias           Denuncia[]
 
   @@map("negocios")
 }
@@ -638,6 +646,44 @@ model OpcionesCompartidas {
   updatedAt   DateTime @updatedAt
 
   @@map("opciones_compartidas")
+}
+
+// ============================================
+// DENUNCIAS (Customer Reports)
+// ============================================
+model Denuncia {
+  id              String   @id @default(cuid())
+  clienteId       String
+  negocioId       String
+  pedidoId        String?  // optional: linked order
+  negocioNombre   String   // denormalized for quick display
+  clienteNombre   String   // denormalized
+  motivoTipo      String   @default("otro") // "direccion_falsa", "no_retiro", "no_pago", "comportamiento", "otro"
+  motivo          String   // reason text (preset label or custom)
+  fecha           DateTime @default(now())
+
+  cliente         Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([clienteId])
+  @@index([negocioId])
+  @@map("denuncias")
+}
+
+// ============================================
+// CLIENTES BLOQUEADOS (IP/Device tracking)
+// ============================================
+model ClienteBloqueado {
+  id              String   @id @default(cuid())
+  ip              String
+  fingerprint     String   @default("")
+  clienteId       String?  // may be null if just IP block
+  clienteNombre   String   @default("")
+  fecha           DateTime @default(now())
+
+  @@index([ip])
+  @@index([fingerprint])
+  @@map("clientes_bloqueados")
 }
 
 // ============================================
