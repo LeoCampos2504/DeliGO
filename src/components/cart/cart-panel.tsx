@@ -149,6 +149,9 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   const [metodoEntrega, setMetodoEntrega] = useState<"retiro" | "domicilio" | "mesa">(
     isMesaOrder ? "mesa" : (negocio.ofreceDelivery ? "domicilio" : "retiro")
   )
+
+  // Track whether delivery is unavailable due to zone
+  const [deliveryUnavailable, setDeliveryUnavailable] = useState(false)
   const [metodoPago, setMetodoPago] = useState<"efectivo" | "transferencia">("efectivo")
   const [empleadoCodigo, setEmpleadoCodigo] = useState(mozoCodigo ?? "")
   const [notas, setNotas] = useState("")
@@ -178,10 +181,11 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   } | null>(null)
   const [checkingZone, setCheckingZone] = useState(false)
 
-  // Check delivery zone when address changes
+  // Check delivery zone when address changes (check regardless of metodoEntrega so we know if delivery is available)
   useEffect(() => {
-    if (metodoEntrega !== "domicilio" || !deliveryAddress?.lat || !deliveryAddress?.lng) {
+    if (!deliveryAddress?.lat || !deliveryAddress?.lng || !negocio.ofreceDelivery) {
       setDeliveryZoneInfo(null)
+      setDeliveryUnavailable(false)
       return
     }
     let cancelled = false
@@ -190,14 +194,21 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return
-        setDeliveryZoneInfo({
+        const zoneInfo = {
           checked: true,
           delivery: data.delivery ?? false,
           precioDelivery: data.precioDelivery ?? negocio.precioDelivery,
           zonaNombre: data.zonaNombre ?? null,
           reason: data.reason ?? null,
           mode: data.mode ?? null,
-        })
+        }
+        setDeliveryZoneInfo(zoneInfo)
+        const outsideZone = zoneInfo.checked && !zoneInfo.delivery && zoneInfo.reason === "outside_zones"
+        setDeliveryUnavailable(outsideZone)
+        // If outside zone and currently on domicilio, switch to retiro
+        if (outsideZone && metodoEntrega === "domicilio") {
+          setMetodoEntrega("retiro")
+        }
         // Update cart store with the zone-specific price
         if (data.delivery) {
           setActiveNegocio(negocio.id, negocio.slug, negocio.nombre, data.precioDelivery ?? negocio.precioDelivery)
@@ -207,10 +218,11 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
       .catch(() => {
         if (cancelled) return
         setDeliveryZoneInfo(null)
+        setDeliveryUnavailable(false)
         setCheckingZone(false)
       })
     return () => { cancelled = true }
-  }, [metodoEntrega, deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio])
+  }, [deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio, negocio.ofreceDelivery, metodoEntrega])
 
   const deliveryFee = metodoEntrega === "domicilio" ? storePrecioDelivery : 0
   const isOutsideDeliveryZone = deliveryZoneInfo?.checked && !deliveryZoneInfo.delivery && deliveryZoneInfo.reason === "outside_zones"
@@ -487,6 +499,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
                         deliveryZoneInfo={deliveryZoneInfo}
                         isOutsideDeliveryZone={isOutsideDeliveryZone ?? false}
                         checkingZone={checkingZone ?? false}
+                        deliveryUnavailable={deliveryUnavailable}
                         disabled={isSubmitting}
                       />
                     )}
@@ -870,6 +883,7 @@ function CartCheckoutStep({
   deliveryZoneInfo,
   isOutsideDeliveryZone,
   checkingZone,
+  deliveryUnavailable = false,
   disabled,
 }: {
   negocio: NegocioAPI
@@ -896,6 +910,7 @@ function CartCheckoutStep({
   } | null
   isOutsideDeliveryZone: boolean
   checkingZone: boolean
+  deliveryUnavailable?: boolean
   disabled?: boolean
 }) {
   return (
@@ -989,7 +1004,7 @@ function CartCheckoutStep({
             )}
           </button>
 
-          {negocio.ofreceDelivery && (
+          {negocio.ofreceDelivery && !deliveryUnavailable && (
             <button
               onClick={() => setMetodoEntrega("domicilio")}
               disabled={disabled}
@@ -1047,6 +1062,16 @@ function CartCheckoutStep({
             </button>
           )}
         </div>
+
+        {/* Outside zone notice — delivery not available */}
+        {deliveryUnavailable && (
+          <div className="mt-2 flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+            <Store className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              Tu ubicación está fuera de la zona de delivery. Solo podés retirar en local.
+            </p>
+          </div>
+        )}
 
         {/* Delivery address display — READ ONLY, cannot change from cart */}
         {metodoEntrega === "domicilio" && (

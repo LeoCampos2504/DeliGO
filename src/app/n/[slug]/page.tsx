@@ -28,6 +28,7 @@ import {
   Armchair,
   ShoppingBag,
   UserCheck,
+  Store,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -298,20 +299,26 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
   // Delivery zone price based on client's location
   const [zoneDeliveryPrice, setZoneDeliveryPrice] = useState<number | null>(null)
+  const [isOutsideDeliveryZone, setIsOutsideDeliveryZone] = useState(false)
 
   useEffect(() => {
     if (!negocio) return
-    if (negocio.deliveryMode !== "expert" || !deliveryAddress?.lat || !deliveryAddress?.lng) {
-      const resetTimer = window.setTimeout(() => setZoneDeliveryPrice(null), 0)
-      return () => window.clearTimeout(resetTimer)
+    if (!negocio.ofreceDelivery || !deliveryAddress?.lat || !deliveryAddress?.lng) {
+      setZoneDeliveryPrice(null)
+      setIsOutsideDeliveryZone(false)
+      return
     }
     fetch(`/api/negocio/delivery-zonas?slug=${negocio.slug}&lat=${deliveryAddress.lat}&lng=${deliveryAddress.lng}`)
       .then(r => r.json())
       .then(data => {
         setZoneDeliveryPrice(data.delivery ? data.precioDelivery : null)
+        setIsOutsideDeliveryZone(data.delivery === false && data.reason === "outside_zones")
       })
-      .catch(() => setZoneDeliveryPrice(null))
-  }, [negocio?.slug, negocio?.deliveryMode, deliveryAddress?.lat, deliveryAddress?.lng])
+      .catch(() => {
+        setZoneDeliveryPrice(null)
+        setIsOutsideDeliveryZone(false)
+      })
+  }, [negocio?.slug, negocio?.ofreceDelivery, deliveryAddress?.lat, deliveryAddress?.lng])
 
   // Effective delivery price: zone price if available, otherwise negocio's base price
   const effectiveDeliveryPrice = zoneDeliveryPrice ?? negocio?.precioDelivery ?? 0
@@ -781,12 +788,18 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             </span>
           </button>
         )}
-        {negocio.ofreceDelivery && (
+        {negocio.ofreceDelivery && !isOutsideDeliveryZone && (
           <span className={cn("flex items-center gap-1 text-xs", isRopa ? "text-muted-foreground" : "text-muted-foreground")}>
             <Bike className="h-3.5 w-3.5 text-primary" />
             <span className={cn("font-semibold", isRopa ? "text-muted-foreground" : "text-foreground")}>
               {effectiveDeliveryPrice > 0 ? formatPrice(effectiveDeliveryPrice) : "Gratis"}
             </span>
+          </span>
+        )}
+        {isOutsideDeliveryZone && (
+          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+            <Store className="h-3.5 w-3.5" />
+            <span className="font-semibold">Solo retiro en local</span>
           </span>
         )}
         {!isRopa && (

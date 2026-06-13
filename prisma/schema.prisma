@@ -126,6 +126,7 @@ model Negocio {
   panelMode           String   @default("")
   promocionado        Boolean  @default(false)
   ordenPromocion      Int      @default(0)
+  destacadoHasta      DateTime? // fecha hasta la cual el negocio es destacado
   seguimientoDeliveryActivo Boolean @default(false)
 
   // Salón / Mesas

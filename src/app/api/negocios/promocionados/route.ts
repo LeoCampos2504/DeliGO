@@ -11,7 +11,23 @@ export async function GET() {
       return NextResponse.json({ activo: false, negocios: [] })
     }
 
-    // 2. Query all promoted, approved, non-suspended negocios
+    // 2. Auto-expire destacados whose destacadoHasta has passed
+    const ahora = new Date()
+    const expirados = await db.negocio.findMany({
+      where: {
+        promocionado: true,
+        destacadoHasta: { not: null, lt: ahora },
+      },
+      select: { id: true },
+    })
+    if (expirados.length > 0) {
+      await db.negocio.updateMany({
+        where: { id: { in: expirados.map((n) => n.id) } },
+        data: { promocionado: false, ordenPromocion: 0, destacadoHasta: null },
+      })
+    }
+
+    // 3. Query all promoted, approved, non-suspended negocios (only vigentes)
     const negocios = await db.negocio.findMany({
       where: {
         promocionado: true,

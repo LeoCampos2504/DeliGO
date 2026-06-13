@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Phone,
   MessageCircle,
+  Store,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -174,6 +175,7 @@ function HomePageContent() {
   const [authInitialMode, setAuthInitialMode] = useState<"login" | "register">("login")
   const [locationModalOpen, setLocationModalOpen] = useState(false)
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
+  const [soloDelivery, setSoloDelivery] = useState(false)
 
   const { isAuthenticated, userType, userName, logout } = useAuth()
   const authUser = useAuthStore((s) => s.user)
@@ -324,18 +326,39 @@ function HomePageContent() {
     staleTime: 1000 * 30, // 30 seconds — short staleTime for iOS PWA where visibility events may be delayed
   })
 
-  // Filter out businesses that are out of delivery zone when user has a delivery address
-  const filteredNegocios = useMemo(() => {
-    if (!deliveryPrecios || !deliveryAddress) return negocios
-    return negocios.filter((n) => {
-      // If business doesn't offer delivery or doesn't use zone-based delivery, keep it
-      if (!n.ofreceDelivery || !n.zonaDeliveryActiva) return true
-      // If we have a delivery price for this business, check if it's in zone
+  // Compute whether each business is outside delivery zone
+  const negocioOutsideZone = useMemo(() => {
+    const map: Record<string, boolean> = {}
+    if (!deliveryPrecios || !deliveryAddress) return map
+    for (const n of negocios) {
+      if (!n.ofreceDelivery || !n.zonaDeliveryActiva) {
+        map[n.id] = false // not zone-based, never outside
+        continue
+      }
       const precio = deliveryPrecios[n.id]
-      if (!precio) return true // Still loading, keep it visible
+      if (!precio) {
+        map[n.id] = false // still loading, assume ok
+        continue
+      }
+      map[n.id] = precio.delivery === false
+    }
+    return map
+  }, [negocios, deliveryPrecios, deliveryAddress])
+
+  // Filter businesses: show all by default (out-of-zone ones are pickup-only)
+  // If soloDelivery is ON, only show businesses that deliver to the user's zone
+  const filteredNegocios = useMemo(() => {
+    if (!deliveryAddress || !deliveryPrecios) return negocios
+    if (!soloDelivery) return negocios
+    // Solo delivery mode: only show businesses that deliver to user's zone
+    return negocios.filter((n) => {
+      if (!n.ofreceDelivery) return false // no delivery at all
+      if (!n.zonaDeliveryActiva) return true // flat-rate delivery, always in zone
+      const precio = deliveryPrecios[n.id]
+      if (!precio) return true // still loading
       return precio.delivery !== false
     })
-  }, [negocios, deliveryPrecios, deliveryAddress])
+  }, [negocios, deliveryPrecios, deliveryAddress, soloDelivery])
 
   const totalPromos = useMemo(
     () => filteredNegocios.reduce((sum, n) => sum + n.totalPromociones, 0),
@@ -770,7 +793,7 @@ function HomePageContent() {
           />
         </div>
 
-        {/* Sort Options */}
+        {/* Sort Options + Delivery Filter */}
         <div className="px-4 pb-3">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             {sortOptions.map((opt) => {
@@ -792,6 +815,29 @@ function HomePageContent() {
               )
             })}
           </div>
+
+          {/* Delivery-only toggle */}
+          {deliveryAddress && (
+            <div className="mt-2 flex items-center gap-2.5">
+              <button
+                onClick={() => setSoloDelivery(!soloDelivery)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 border",
+                  soloDelivery
+                    ? "border-primary/30 bg-primary/5 text-primary"
+                    : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                <Bike className="h-3.5 w-3.5" />
+                Solo con delivery
+              </button>
+              {soloDelivery && (
+                <span className="text-[10px] text-muted-foreground">
+                  Mostrando locales que entregan en tu zona
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Section Header */}
@@ -822,6 +868,7 @@ function HomePageContent() {
                     isToggling={toggleFavoriteMutation.isPending}
                     deliveryPrecio={deliveryPrecios?.[negocio.id]}
                     hasDeliveryAddress={!!deliveryAddress}
+                    isOutsideZone={!!negocioOutsideZone[negocio.id]}
                   />
                 </div>
               ))}
@@ -906,6 +953,7 @@ function BusinessCard({
   isToggling = false,
   deliveryPrecio,
   hasDeliveryAddress = false,
+  isOutsideZone = false,
 }: {
   negocio: NegocioHome
   isFavorite?: boolean
@@ -913,6 +961,7 @@ function BusinessCard({
   isToggling?: boolean
   deliveryPrecio?: DeliveryPrecio
   hasDeliveryAddress?: boolean
+  isOutsideZone?: boolean
 }) {
   const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
 
@@ -1043,7 +1092,7 @@ function BusinessCard({
 
           {/* Delivery + Promos + Ventas info row */}
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2.5">
-            {negocio.ofreceDelivery && (
+            {negocio.ofreceDelivery && !isOutsideZone && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Bike className="h-3.5 w-3.5 text-primary" />
                 <span className={cn(
@@ -1052,6 +1101,12 @@ function BusinessCard({
                 )}>
                   {deliveryLabel}
                 </span>
+              </span>
+            )}
+            {isOutsideZone && (
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <Store className="h-3.5 w-3.5" />
+                <span className="font-semibold">Solo retiro en local</span>
               </span>
             )}
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
