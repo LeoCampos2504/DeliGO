@@ -15,7 +15,9 @@ export function ChatFab() {
   const pathname = usePathname()
 
   const canChat = isAuthenticated() && userType() !== "superadmin"
-  const isHidden = pathname.startsWith("/n/") || pathname.startsWith("/mozo/") || pathname.startsWith("/s/") || pathname.startsWith("/e/")
+  // Hide chat on: catalog page (/n/), mozo/mesas link (/m/), salon link (/s/), repartidor page
+  // Show chat on: employee orders/reviews link (/e/) — chat is for cliente-negocio only, not for mozo mesas or delivery
+  const isHidden = pathname.startsWith("/n/") || pathname.startsWith("/m/") || pathname.startsWith("/s/") || pathname.startsWith("/repartidor")
 
   // Periodically fetch unread count
   useEffect(() => {
@@ -53,7 +55,7 @@ export function ChatFab() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setSheetOpen(true)}
-        className="fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
+        className="ios-keyboard-hide keyboard-hide-when-editing fixed right-4 bottom-20 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
         aria-label="Abrir chat"
       >
         <MessageCircle className="h-6 w-6" />

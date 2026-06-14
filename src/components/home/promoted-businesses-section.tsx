@@ -12,7 +12,7 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel"
 import { Badge } from "@/components/ui/badge"
-import { Star, Bike, Clock, Flame, ChevronRight, ShoppingCart, Sparkles } from "lucide-react"
+import { Star, Bike, Clock, Flame, ChevronRight, ShoppingCart, Sparkles, Store } from "lucide-react"
 import { formatPrice, isNegocioOpen } from "@/lib/utils"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -129,20 +129,26 @@ export function PromotedBusinessesSection({
     staleTime: 1000 * 60 * 5,
   })
 
-  // Filter out promoted businesses where the user is outside their delivery zones
-  const filteredNegocios = useMemo(() => {
-    if (!data?.activo || !data.negocios.length) return []
-    if (!hasDeliveryAddress || !deliveryPrecios) return data.negocios
-    return data.negocios.filter((negocio) => {
+  // Compute outside-zone status for promoted businesses
+  const negocioOutsideZone = useMemo(() => {
+    const map: Record<string, boolean> = {}
+    if (!hasDeliveryAddress || !deliveryPrecios) return map
+    for (const negocio of (data?.negocios ?? [])) {
       if (negocio.zonaDeliveryActiva && deliveryPrecios[negocio.id]) {
         const precioInfo = deliveryPrecios[negocio.id]
-        if (precioInfo.delivery === false && precioInfo.reason === "outside_zones") {
-          return false
-        }
+        map[negocio.id] = precioInfo.delivery === false && precioInfo.reason === "outside_zones"
+      } else {
+        map[negocio.id] = false
       }
-      return true
-    })
+    }
+    return map
   }, [data, hasDeliveryAddress, deliveryPrecios])
+
+  // Show all promoted businesses (out-of-zone ones show as pickup-only)
+  const filteredNegocios = useMemo(() => {
+    if (!data?.activo || !data.negocios.length) return []
+    return data.negocios
+  }, [data])
 
   // Entrance animation
   useEffect(() => {
@@ -221,6 +227,7 @@ export function PromotedBusinessesSection({
                 negocio={negocio}
                 deliveryPrecio={deliveryPrecios?.[negocio.id]}
                 hasDeliveryAddress={hasDeliveryAddress}
+                isOutsideZone={!!negocioOutsideZone[negocio.id]}
               />
             </CarouselItem>
           ))}
@@ -243,10 +250,12 @@ function NegocioFullSlide({
   negocio,
   deliveryPrecio,
   hasDeliveryAddress,
+  isOutsideZone,
 }: {
   negocio: NegocioPromocionado
   deliveryPrecio?: DeliveryPrecio
   hasDeliveryAddress?: boolean
+  isOutsideZone?: boolean
 }) {
   const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
   const rubroEmoji = getRubroEmoji(negocio.rubro)
@@ -354,7 +363,7 @@ function NegocioFullSlide({
 
             {/* Delivery info - right aligned */}
             <div className="flex flex-col items-end gap-1 pb-1 shrink-0">
-              {negocio.ofreceDelivery && (
+              {negocio.ofreceDelivery && !isOutsideZone && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Bike className="h-3.5 w-3.5 text-primary" />
                   <span className={cn(
@@ -363,6 +372,12 @@ function NegocioFullSlide({
                   )}>
                     {deliveryLabel}
                   </span>
+                </span>
+              )}
+              {isOutsideZone && (
+                <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                  <Store className="h-3.5 w-3.5" />
+                  <span className="font-semibold">Solo retiro</span>
                 </span>
               )}
               <span className="flex items-center gap-1 text-xs text-muted-foreground">

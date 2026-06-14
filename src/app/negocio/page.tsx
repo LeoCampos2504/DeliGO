@@ -278,6 +278,13 @@ function NegocioLoginForm() {
                     >
                       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Ingresar al panel"}
                     </Button>
+
+                    <p className="text-center text-sm text-muted-foreground mt-3">
+                      ¿No tenés cuenta?{" "}
+                      <a href="/registro/negocio" className="text-emerald-600 hover:text-emerald-700 font-semibold underline underline-offset-2">
+                        Registrá tu local
+                      </a>
+                    </p>
                   </form>
                 </CardContent>
               </Card>

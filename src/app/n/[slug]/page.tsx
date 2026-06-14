@@ -28,6 +28,7 @@ import {
   Armchair,
   ShoppingBag,
   UserCheck,
+  Store,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -132,6 +133,8 @@ interface NegocioAPI {
   mostrarVentas?: boolean
   totalVentas?: number
   opcionesCompartidas: Array<{ id: string; nombre: string; opciones: Array<{ nombre: string; precio: number }>; obligatorio: boolean; maximo: number }>
+  lat?: number | null
+  lng?: number | null
   productos: ProductoAPI[]
   productosSinSeccion: ProductoAPI[]
   secciones: SeccionAPI[]
@@ -218,7 +221,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       if (!mozoParam || !negocio?.id) return null
       const res = await fetch(`/api/empleados/by-codigo?codigo=${mozoParam}&negocioId=${negocio.id}`)
       if (!res.ok) return null
-      return res.json() as Promise<{ id: string; nombre: string; codigo: string }>
+      return res.json() as Promise<{ id: string; nombre: string; codigo: string; token: string }>
     },
     enabled: !!mozoParam && !!negocio?.id,
   })
@@ -296,20 +299,26 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
   // Delivery zone price based on client's location
   const [zoneDeliveryPrice, setZoneDeliveryPrice] = useState<number | null>(null)
+  const [isOutsideDeliveryZone, setIsOutsideDeliveryZone] = useState(false)
 
   useEffect(() => {
     if (!negocio) return
-    if (negocio.deliveryMode !== "expert" || !deliveryAddress?.lat || !deliveryAddress?.lng) {
+    if (!negocio.ofreceDelivery || !deliveryAddress?.lat || !deliveryAddress?.lng) {
       setZoneDeliveryPrice(null)
+      setIsOutsideDeliveryZone(false)
       return
     }
     fetch(`/api/negocio/delivery-zonas?slug=${negocio.slug}&lat=${deliveryAddress.lat}&lng=${deliveryAddress.lng}`)
       .then(r => r.json())
       .then(data => {
         setZoneDeliveryPrice(data.delivery ? data.precioDelivery : null)
+        setIsOutsideDeliveryZone(data.delivery === false && data.reason === "outside_zones")
       })
-      .catch(() => setZoneDeliveryPrice(null))
-  }, [negocio?.slug, negocio?.deliveryMode, deliveryAddress?.lat, deliveryAddress?.lng])
+      .catch(() => {
+        setZoneDeliveryPrice(null)
+        setIsOutsideDeliveryZone(false)
+      })
+  }, [negocio?.slug, negocio?.ofreceDelivery, deliveryAddress?.lat, deliveryAddress?.lng])
 
   // Effective delivery price: zone price if available, otherwise negocio's base price
   const effectiveDeliveryPrice = zoneDeliveryPrice ?? negocio?.precioDelivery ?? 0
@@ -503,11 +512,20 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
         {/* Back button */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-          <Link href="/">
-            <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
+          {mozoParam ? (
+            <button
+              onClick={() => window.history.back()}
+              className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors"
+            >
               <ArrowLeft className="h-5 w-5" />
             </button>
-          </Link>
+          ) : (
+            <Link href="/">
+              <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            </Link>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => {
@@ -613,7 +631,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <span className="text-sm font-semibold" style={{ color: negocio.colorPrincipal }}>
               Modo mozo — {mozoData.nombre}
             </span>
-            {mozoSelectedMesa && (
+            {(mozoSelectedMesa || mesaNumero) && (
               <Badge
                 className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-lg"
                 style={{
@@ -622,13 +640,35 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
                   border: `1px solid ${negocio.colorPrincipal}25`,
                 }}
               >
-                Mesa {mozoSelectedMesa.numero}
+                Mesa {mozoSelectedMesa?.numero ?? mesaNumero}
               </Badge>
             )}
           </div>
 
-          {/* Mesa selection row */}
-          {!mozoSelectedMesa ? (
+          {/* Mesa selection row — if mesaNumero is already set (from URL), show the mesa directly */}
+          {mesaNumero && mozoData ? (
+            <div
+              className="w-full flex items-center gap-3 px-4 py-3"
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: `${negocio.colorPrincipal}12` }}
+              >
+                <Armchair
+                  className="h-5 w-5"
+                  style={{ color: negocio.colorPrincipal }}
+                />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-bold" style={{ color: negocio.colorPrincipal }}>
+                  Mesa {mesaNumero}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Pedido para esta mesa
+                </p>
+              </div>
+            </div>
+          ) : !mozoSelectedMesa ? (
             <button
               onClick={() => setMesaSelectorOpen(true)}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors active:scale-[0.99]"
@@ -748,12 +788,18 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             </span>
           </button>
         )}
-        {negocio.ofreceDelivery && (
+        {negocio.ofreceDelivery && !isOutsideDeliveryZone && (
           <span className={cn("flex items-center gap-1 text-xs", isRopa ? "text-muted-foreground" : "text-muted-foreground")}>
             <Bike className="h-3.5 w-3.5 text-primary" />
             <span className={cn("font-semibold", isRopa ? "text-muted-foreground" : "text-foreground")}>
               {effectiveDeliveryPrice > 0 ? formatPrice(effectiveDeliveryPrice) : "Gratis"}
             </span>
+          </span>
+        )}
+        {isOutsideDeliveryZone && (
+          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+            <Store className="h-3.5 w-3.5" />
+            <span className="font-semibold">Solo retiro en local</span>
           </span>
         )}
         {!isRopa && (
@@ -943,6 +989,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           colorPrincipal={negocio.colorPrincipal}
           mozoCodigo={mozoData.codigo}
           mozoNombre={mozoData.nombre}
+          mozoToken={mozoData.token}
           onMesaSelected={(mesa) => setMozoSelectedMesa(mesa)}
           selectedMesaId={mozoSelectedMesa?.id}
         />
@@ -1496,14 +1543,23 @@ function ProductDetailSheet({
   // Uses per-product obligatorio/maximo (not the shared option's defaults)
   const resolvedOpcionesCompartidas = useMemo(() => {
     if (!product.opcionesCompartidasIds || product.opcionesCompartidasIds.length === 0) return []
+    const sharedList = negocio.opcionesCompartidas || []
     return product.opcionesCompartidasIds
       .map((cfg) => {
-        const shared = negocio.opcionesCompartidas?.find(oc => oc.id === cfg.id)
+        const shared = sharedList.find(oc => oc.id === cfg.id)
         if (!shared) return null
+        // opciones might still be a JSON string if API didn't parse it properly
+        let opciones: Array<{ nombre: string; precio: number }> = []
+        if (Array.isArray(shared.opciones)) {
+          opciones = shared.opciones
+        } else if (typeof shared.opciones === 'string') {
+          try { opciones = JSON.parse(shared.opciones) } catch { opciones = [] }
+          if (!Array.isArray(opciones)) opciones = []
+        }
         return {
           id: shared.id,
           nombre: shared.nombre,
-          opciones: shared.opciones,
+          opciones,
           obligatorio: cfg.obligatorio, // per-product override
           maximo: cfg.maximo,           // per-product override
         }
@@ -1514,7 +1570,7 @@ function ProductDetailSheet({
   // Group agregados by category
   const agregadosByCategory = useMemo(() => {
     const map = new Map<string, ProductoAPI["agregados"]>()
-    for (const a of product.agregados) {
+    for (const a of product.agregados || []) {
       const cat = a.categoria || "Sin categoría"
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(a)
@@ -1525,7 +1581,7 @@ function ProductDetailSheet({
   // Group ingredientes by category
   const ingredientesByCategory = useMemo(() => {
     const map = new Map<string, ProductoAPI["ingredientes"]>()
-    for (const i of product.ingredientes) {
+    for (const i of product.ingredientes || []) {
       const cat = i.categoria || "Sin categoría"
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(i)
@@ -1625,28 +1681,26 @@ function ProductDetailSheet({
 
   // Handle add to cart
   const handleAdd = () => {
-    // Validate required sections
-    for (const section of product.secciones) {
+    // Validate required sections — obligatorio means at least 1 selection, maximo is just an upper limit
+    for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
       const val = selectedSecciones[section.nombre]
-      const maximo = section.maximo || 0
       if (!val) return // nothing selected
       if (typeof val === "object") {
         const total = Object.values(val).reduce((s, v) => s + v, 0)
-        if (maximo > 1 && total < maximo) return // must reach max for multi-select
-        if (total === 0) return
+        if (total === 0) return // must select at least 1
       }
     }
 
-    // Validate required shared options
+    // Validate required shared options — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const oc of resolvedOpcionesCompartidas) {
       if (!oc.obligatorio) continue
-      const hasSelection = Array.from(selectedOpcionesCompartidas.keys()).some(key => key.startsWith(`${oc.id}::`))
-      if (!hasSelection) return
+      const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
+      if (selectedCount < 1) return
     }
 
     // Get removed ingredient names for display
-    const removedNames = product.ingredientes
+    const removedNames = (product.ingredientes || [])
       .filter((i) => removedIngredientes.has(i.id))
       .map((i) => i.nombre)
 
@@ -1681,16 +1735,14 @@ function ProductDetailSheet({
 
   // Check if can add (required sections + shared options satisfied)
   const canAdd = (() => {
-    const sectionsOk = product.secciones
+    const sectionsOk = (product.secciones || [])
       .filter((s) => s.obligatorio)
       .every((s) => {
         const val = selectedSecciones[s.nombre]
-        const maximo = s.maximo || 0
         if (!val) return false
         if (typeof val === "object") {
           const total = Object.values(val).reduce((sum, v) => sum + v, 0)
-          if (maximo > 1) return total >= maximo
-          return total > 0
+          return total > 0 // at least 1 selection required, maximo is just an upper limit
         }
         return !!val
       })
@@ -1700,7 +1752,8 @@ function ProductDetailSheet({
     const sharedOk = resolvedOpcionesCompartidas
       .filter(oc => oc.obligatorio)
       .every(oc => {
-        return Array.from(selectedOpcionesCompartidas.keys()).some(key => key.startsWith(`${oc.id}::`))
+        const selectedCount = Array.from(selectedOpcionesCompartidas.keys()).filter(key => key.startsWith(`${oc.id}::`)).length
+        return selectedCount >= 1 // at least 1 selection required, maximo is just an upper limit
       })
 
     return sharedOk
@@ -1725,9 +1778,9 @@ function ProductDetailSheet({
                 </Badge>
               )}
               {/* Image dots */}
-              {((product.imagenUrl ? 1 : 0) + product.imagenesExtra.length) > 1 && (
+              {((product.imagenUrl ? 1 : 0) + (product.imagenesExtra || []).length) > 1 && (
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {[product.imagenUrl, ...product.imagenesExtra].filter(Boolean).map((_, idx) => (
+                  {[product.imagenUrl, ...(product.imagenesExtra || [])].filter(Boolean).map((_, idx) => (
                     <button
                       key={idx}
                       onClick={() => setActiveImageIdx(idx)}
@@ -1921,7 +1974,6 @@ function ProductDetailSheet({
                 const isMultiSelect = maximo > 1
                 const sectionTotal = getSectionTotal(section.nombre)
                 const isAtMax = isMultiSelect && sectionTotal >= maximo
-                const isIncomplete = isMultiSelect && section.obligatorio && sectionTotal > 0 && sectionTotal < maximo
 
                 return (
                   <div key={section.nombre}>
@@ -1939,9 +1991,7 @@ function ProductDetailSheet({
                             "text-[10px] px-1.5",
                             isAtMax
                               ? "border-primary text-primary"
-                              : isIncomplete
-                                ? "border-orange-400 text-orange-600 dark:text-orange-400"
-                                : "text-muted-foreground"
+                              : "text-muted-foreground"
                           )}
                           style={isAtMax ? { borderColor: negocio.colorPrincipal, color: negocio.colorPrincipal } : undefined}
                         >
@@ -1953,12 +2003,13 @@ function ProductDetailSheet({
                     {isMultiSelect ? (
                       /* Multi-select with per-option quantity */
                       <div className="space-y-1.5">
-                        {section.opciones.map((option) => {
-                          const qty = getOptionQty(section.nombre, option)
+                        {(section.opciones || []).map((option, optIdx) => {
+                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          const qty = getOptionQty(section.nombre, optLabel)
                           const isSelected = qty > 0
                           return (
                             <div
-                              key={option}
+                              key={`${section.nombre}-opt-${optIdx}`}
                               className={cn(
                                 "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all",
                                 isSelected
@@ -1971,11 +2022,11 @@ function ProductDetailSheet({
                                   : undefined
                               }
                             >
-                              <span className="font-medium flex-1">{option}</span>
+                              <span className="font-medium flex-1">{optLabel}</span>
                               <div className="flex items-center gap-2 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => adjustSectionOptionQty(section.nombre, option, -1, maximo)}
+                                  onClick={() => adjustSectionOptionQty(section.nombre, optLabel, -1, maximo)}
                                   className={cn(
                                     "w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all",
                                     isSelected
@@ -1998,7 +2049,7 @@ function ProductDetailSheet({
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => adjustSectionOptionQty(section.nombre, option, 1, maximo)}
+                                  onClick={() => adjustSectionOptionQty(section.nombre, optLabel, 1, maximo)}
                                   className={cn(
                                     "w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all",
                                     isAtMax && !isSelected
@@ -2018,18 +2069,20 @@ function ProductDetailSheet({
                     ) : (
                       /* Single-select (radio) */
                       <div className="space-y-1.5">
-                        {section.opciones.map((option) => (
+                        {(section.opciones || []).map((option, optIdx) => {
+                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          return (
                           <button
-                            key={option}
-                            onClick={() => selectSectionOption(section.nombre, option)}
+                            key={`${section.nombre}-opt-${optIdx}`}
+                            onClick={() => selectSectionOption(section.nombre, optLabel)}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left text-sm transition-all",
-                              selectedSecciones[section.nombre] === option
+                              selectedSecciones[section.nombre] === optLabel
                                 ? "border-primary bg-primary/5"
                                 : "border-border bg-card hover:border-primary/20"
                             )}
                             style={
-                              selectedSecciones[section.nombre] === option
+                              selectedSecciones[section.nombre] === optLabel
                                 ? { borderColor: negocio.colorPrincipal, backgroundColor: `${negocio.colorPrincipal}08` }
                                 : undefined
                             }
@@ -2037,26 +2090,27 @@ function ProductDetailSheet({
                             <div
                               className={cn(
                                 "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
-                                selectedSecciones[section.nombre] === option
+                                selectedSecciones[section.nombre] === optLabel
                                   ? "border-primary"
                                   : "border-muted-foreground/30"
                               )}
                               style={
-                                selectedSecciones[section.nombre] === option
+                                selectedSecciones[section.nombre] === optLabel
                                   ? { borderColor: negocio.colorPrincipal }
                                   : undefined
                               }
                             >
-                              {selectedSecciones[section.nombre] === option && (
+                              {selectedSecciones[section.nombre] === optLabel && (
                                 <div
                                   className="w-2.5 h-2.5 rounded-full"
                                   style={{ backgroundColor: negocio.colorPrincipal }}
                                 />
                               )}
                             </div>
-                            <span className="font-medium">{option}</span>
+                            <span className="font-medium">{optLabel}</span>
                           </button>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -2109,13 +2163,15 @@ function ProductDetailSheet({
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      {oc.opciones.map((option) => {
-                        const optKey = `${oc.id}::${option.nombre}`
-                        const isSelected = selectedOpcionesCompartidas.has(optKey)
+                      {(oc.opciones || []).map((option, optIdx) => {
+                        const optName = typeof option === 'object' && option !== null ? (option as { nombre?: string }).nombre || '' : String(option)
+                        const optPrecio = typeof option === 'object' && option !== null ? (option as { precio?: number }).precio || 0 : 0
+                        const selectionKey = `${oc.id}::${optName}`
+                        const isSelected = selectedOpcionesCompartidas.has(selectionKey)
                         return (
                           <button
-                            key={option.nombre}
-                            onClick={() => toggleSharedOption(option.nombre, option.precio)}
+                            key={`shared-${oc.id}-opt-${optIdx}`}
+                            onClick={() => toggleSharedOption(optName, optPrecio)}
                             className={cn(
                               "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-sm transition-all text-left",
                               isSelected
@@ -2128,15 +2184,15 @@ function ProductDetailSheet({
                                 : undefined
                             }
                           >
-                            <span className="font-medium flex-1">{option.nombre}</span>
-                            {option.precio > 0 && (
+                            <span className="font-medium flex-1">{optName}</span>
+                            {optPrecio > 0 && (
                               <span className={cn(
                                 "text-xs font-semibold shrink-0",
                                 isSelected ? "text-primary" : "text-muted-foreground"
                               )}
                               style={isSelected ? { color: negocio.colorPrincipal } : undefined}
                               >
-                                +{formatPrice(option.precio)}
+                                +{formatPrice(optPrecio)}
                               </span>
                             )}
                           </button>

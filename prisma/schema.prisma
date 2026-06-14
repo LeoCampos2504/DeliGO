@@ -1,5 +1,4 @@
-// DeliGO - Prisma Schema (SQLite)
-// Migrated from MongoDB plataforma_pedidos
+// DeliGO - Prisma Schema (PostgreSQL)
 
 generator client {
   provider = "prisma-client-js"
@@ -27,11 +26,18 @@ model Cliente {
   emailVerified     DateTime?
   verificationToken String?   @unique
 
+  // Protección contra clientes maliciosos
+  bloqueado              Boolean  @default(false)
+  bloqueadoFecha         DateTime?
+  ultimoIp               String   @default("")
+  dispositivoFingerprint String   @default("")
+
   direcciones    Direccion[]
   favoritos      Favorito[]
   pedidos        Pedido[]
   resenas        Resena[]
   chatMensajes   ChatMensaje[]
+  denuncias      Denuncia[]
 
   @@map("clientes")
 }
@@ -127,6 +133,7 @@ model Negocio {
   panelMode           String   @default("")
   promocionado        Boolean  @default(false)
   ordenPromocion      Int      @default(0)
+  destacadoHasta      DateTime? // fecha hasta la cual el negocio es destacado
   seguimientoDeliveryActivo Boolean @default(false)
 
   // Salón / Mesas
@@ -186,6 +193,9 @@ model Negocio {
   repartidores        RepartidorNegocio[]
   secciones           SeccionCatalogo[]
   opcionesCompartidas OpcionesCompartidas[]
+  promociones         Promocion[]
+  denuncias           Denuncia[]
+  solicitudesDestacado DestacadoSolicitud[]
 
   @@map("negocios")
 }
@@ -259,6 +269,7 @@ model Producto {
   ingredientes    ProductoIngrediente[]
   seccionItems    SeccionProducto[]
   itemsPedido     PedidoItem[]
+  promociones     Promocion[]
 
   @@map("productos")
 }
@@ -353,6 +364,16 @@ model Pedido {
   negocioLat            Float?
   negocioLng            Float?
 
+  // Repartidor asignado (aceptación de pedido)
+  repartidorId          String?  // ID del repartidor que aceptó el pedido
+  repartidorNombre      String?  // Nombre del repartidor (denormalizado)
+  repartidorAceptaFecha DateTime? // Cuándo aceptó el pedido
+
+  // Ubicación repartidor en tiempo real (seguimiento delivery)
+  repartidorLat         Float?
+  repartidorLng         Float?
+  repartidorLastUpdate  DateTime?
+
   // Pago
   metodoPago            String   @default("efectivo") // efectivo, transferencia
   notas                 String?
@@ -360,7 +381,7 @@ model Pedido {
   // Estado
   estado                String   @default("recibido") // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
   deudaAcumulada        Boolean  @default(false)
-  canceladoPor          String?  // cliente, vendedor
+  canceladoPor          String?  // cliente, vendedor, sistema
   canceladoMotivo       String?
   canceladoFecha        DateTime?
   clienteConfirmaRecibido Boolean @default(false)
@@ -373,8 +394,8 @@ model Pedido {
   updatedAt             DateTime @updatedAt
 
   // Relations
-  negocio               Negocio     @relation(fields: [negocioId], references: [id])
-  cliente               Cliente?    @relation(fields: [clienteId], references: [id])
+  negocio               Negocio     @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente               Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   items                 PedidoItem[]
   mensajes              ChatMensaje[]
   resena                Resena?
@@ -458,7 +479,8 @@ model Repartidor {
   id               String   @id @default(cuid())
   nombre           String
   email            String   @unique
-  password         String
+  password         String?
+  googleId         String?   @unique
   telefono         String   @default("")
   pushSubscription String?
   activo           Boolean  @default(true)
@@ -550,6 +572,9 @@ model Promocion {
   fechaFin    DateTime?
   activa      Boolean  @default(true)
 
+  producto    Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
   @@map("promociones")
 }
 
@@ -584,8 +609,9 @@ model Empleado {
   permisos    String   @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
   activo      Boolean  @default(true)
   eliminado   Boolean  @default(false)
-  token       String?  // token para notificaciones push
-  negocioId   String
+  token           String?  // token para notificaciones push
+  pushSubscription String?  // push subscription JSON for browser notifications
+  negocioId       String
   negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   mesas       Mesa[]   // Mesas asignadas a este mozo
 
@@ -624,6 +650,44 @@ model OpcionesCompartidas {
 }
 
 // ============================================
+// DENUNCIAS (Customer Reports)
+// ============================================
+model Denuncia {
+  id              String   @id @default(cuid())
+  clienteId       String
+  negocioId       String
+  pedidoId        String?  // optional: linked order
+  negocioNombre   String   // denormalized for quick display
+  clienteNombre   String   // denormalized
+  motivoTipo      String   @default("otro") // "direccion_falsa", "no_retiro", "no_pago", "comportamiento", "otro"
+  motivo          String   // reason text (preset label or custom)
+  fecha           DateTime @default(now())
+
+  cliente         Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([clienteId])
+  @@index([negocioId])
+  @@map("denuncias")
+}
+
+// ============================================
+// CLIENTES BLOQUEADOS (IP/Device tracking)
+// ============================================
+model ClienteBloqueado {
+  id              String   @id @default(cuid())
+  ip              String
+  fingerprint     String   @default("")
+  clienteId       String?  // may be null if just IP block
+  clienteNombre   String   @default("")
+  fecha           DateTime @default(now())
+
+  @@index([ip])
+  @@index([fingerprint])
+  @@map("clientes_bloqueados")
+}
+
+// ============================================
 // AUDITORÍA DE ACCIONES
 // ============================================
 model AuditLog {
@@ -644,6 +708,27 @@ model AuditLog {
 }
 
 // ============================================
+// NOTIFICACIONES (In-app + Push)
+// ============================================
+model Notificacion {
+  id           String   @id @default(cuid())
+  userId       String   // ID del destinatario
+  userType     String   // cliente, negocio, repartidor, superadmin, empleado
+  tipo         String   // order_update, new_order, new_delivery, review, chat, review_request, account_update
+  titulo       String   // notification title
+  cuerpo       String   // notification body text
+  leido        Boolean  @default(false)
+  pedidoId     String?  // related order ID (for navigation)
+  negocioId    String?  // related business ID
+  datos        String   @default("{}") // JSON: additional data for navigation/action
+  createdAt    DateTime @default(now())
+
+  @@index([userId, userType, leido, createdAt])
+  @@index([userId, userType, createdAt])
+  @@map("notificaciones")
+}
+
+// ============================================
 // HISTORIAL DE PEDIDOS (Eventos)
 // ============================================
 model PedidoEvento {
@@ -660,4 +745,36 @@ model PedidoEvento {
 
   @@index([pedidoId, fecha])
   @@map("pedido_eventos")
+}
+
+// ============================================
+// SOLICITUDES DESTACADO
+// ============================================
+model DestacadoSolicitud {
+  id              String   @id @default(cuid())
+  negocioId       String
+  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  // Período solicitado
+  meses           Int      @default(0)
+  dias            Int      @default(0)
+
+  // Precio calculado
+  precio          Float
+
+  // Estado: pendiente, aprobada, rechazada
+  estado          String   @default("pendiente")
+
+  // Comprobante
+  comprobanteUrl  String?
+
+  // Nota del admin al rechazar
+  notaAdmin       String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([estado, createdAt])
+  @@index([negocioId])
+  @@map("destacado_solicitudes")
 }

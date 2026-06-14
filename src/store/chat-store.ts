@@ -88,6 +88,7 @@ interface ChatState {
   setPedidoInfo: (pedidoId: string, info: PedidoInfo) => void
   setUnreadCount: (count: number) => void
   updateConversationUnread: (pedidoId: string, count: number) => void
+  updateConversationLastMessage: (pedidoId: string, message: ChatMessage) => void
 
   // Typing actions
   addTypingUser: (pedidoId: string, user: TypingUser) => void
@@ -161,6 +162,20 @@ export const useChatStore = create<ChatState>()((set) => ({
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.pedidoId === pedidoId ? { ...c, unreadCount: count } : c
+      ),
+    })),
+
+  updateConversationLastMessage: (pedidoId, message) =>
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.pedidoId === pedidoId
+          ? {
+              ...c,
+              lastMessage: message.texto || (message.imagenUrl ? "📷 Imagen" : message.archivoUrl ? "📄 Archivo" : null),
+              lastMessageDate: message.fecha,
+              lastMessageRemitente: message.remitente,
+            }
+          : c
       ),
     })),
 

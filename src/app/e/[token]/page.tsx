@@ -112,7 +112,7 @@ const REJECT_REASONS = [
 function StarRating({ rating, size = "sm" }: { rating: number; size?: "sm" | "md" }) {
   const sizeClass = size === "sm" ? "h-3.5 w-3.5" : "h-5 w-5"
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-0.5 shrink-0">
       {[1, 2, 3, 4, 5].map((star) => {
         const fill = Math.min(1, Math.max(0, rating - star + 1))
         return (
@@ -518,7 +518,7 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
                                   <div className="flex flex-wrap gap-1">
                                     {item.agregados.map((a, i) => (
                                       <span key={a.id ?? i} className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-medium">
-                                        + {a.nombre}
+                                        + {a.nombre}{a.precio > 0 ? ` ($${a.precio})` : ""}
                                       </span>
                                     ))}
                                   </div>
@@ -787,7 +787,7 @@ function ResenasSection({ token, color }: { token: string; negocioId: string; co
 
               {/* Sub-ratings */}
               {(resena.rapidez || resena.calidad || resena.precio) && (
-                <div className="flex gap-4">
+                <div className="flex flex-wrap gap-4">
                   {resena.rapidez && (
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-muted-foreground">Rapidez</span>

@@ -107,6 +107,8 @@ export function DeliveryZonesSection({ negocio }: DeliveryZonesSectionProps) {
         old ? { ...old, ...data } : data
       )
       queryClient.invalidateQueries({ queryKey: ["negocio-config", negocio.id] })
+      // Also invalidate negocio-profile so the business panel and client view update in real-time
+      queryClient.invalidateQueries({ queryKey: ["negocio-profile"] })
       toast.success("Configuración de delivery guardada")
     } catch {
       toast.error("Error al guardar la configuración")
@@ -204,7 +206,7 @@ export function DeliveryZonesSection({ negocio }: DeliveryZonesSectionProps) {
             <Input
               type="number"
               min={0}
-              value={precioSimple}
+              value={precioSimple || ""}
               onChange={(e) => setPrecioSimple(parseFloat(e.target.value) || 0)}
               className="rounded-xl pl-7"
               placeholder="0"
@@ -340,7 +342,7 @@ function ZonaCard({
           <Input
             type="number"
             min={0}
-            value={zona.precio}
+            value={zona.precio || ""}
             onChange={(e) => onUpdate({ precio: parseFloat(e.target.value) || 0 })}
             className="rounded-xl h-8 text-sm pl-6"
             placeholder="0"
@@ -427,7 +429,7 @@ function ZoneMapDialog({
   onClose: () => void
   colorPrincipal: string
 }) {
-  const [activeZonaId, setActiveZonaId] = useState<string | null>(zonas.length > 0 ? zonas[0].id : null)
+  const [activeZonaId, setActiveZonaId] = useState<string | null>(zonas.length > 0 ? zonas[zonas.length - 1].id : null)
   const [mapReady, setMapReady] = useState(false)
   const [closedZonaIds, setClosedZonaIds] = useState<Set<string>>(() => {
     // Zones that already have 3+ points are considered closed on init

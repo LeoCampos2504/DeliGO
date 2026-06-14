@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Logo } from "@/components/shared/logo"
+import { LegalDialog } from "@/components/shared/legal-content"
 import { useAuthStore } from "@/store/auth-store"
 import { toast } from "sonner"
 import type { UserType } from "@/lib/auth"
@@ -44,6 +45,7 @@ interface AuthModalProps {
   isOpen: boolean
   onClose: () => void
   initialRole?: UserType
+  initialMode?: "login" | "register"
 }
 
 // ============================================
@@ -108,30 +110,40 @@ const roles = [
 // Main Auth Modal Component
 // ============================================
 
-export function AuthModal({ isOpen, onClose, initialRole }: AuthModalProps) {
-  const [step, setStep] = useState<AuthStep>(initialRole ? "login" : "role-select")
+export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthModalProps) {
+  const [step, setStep] = useState<AuthStep>(initialRole ? (initialMode === "register" ? "register" : "login") : "role-select")
   const [selectedRole, setSelectedRole] = useState<UserType | null>(initialRole ?? null)
-  const [mode, setMode] = useState<"login" | "register">("login")
+  const [mode, setMode] = useState<"login" | "register">(initialMode ?? "login")
 
   // Email verification state
   const [unverifiedEmail, setUnverifiedEmail] = useState<string>("")
   const [unverifiedUserType, setUnverifiedUserType] = useState<string>("")
 
-  // Reset state when modal opens — if initialRole is set, go directly to that role's login
+  // Reset state when modal opens — if initialRole is set, go directly to that role's login/register
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return
+
+    const resetTimer = window.setTimeout(() => {
       if (initialRole) {
-        setStep("login")
         setSelectedRole(initialRole)
+        if (initialMode === "register") {
+          setStep("register")
+          setMode("register")
+        } else {
+          setStep("login")
+          setMode("login")
+        }
       } else {
         setStep("role-select")
         setSelectedRole(null)
+        setMode("login")
       }
-      setMode("login")
       setUnverifiedEmail("")
       setUnverifiedUserType("")
-    }
-  }, [isOpen, initialRole])
+    }, 0)
+
+    return () => window.clearTimeout(resetTimer)
+  }, [isOpen, initialRole, initialMode])
 
   const handleRoleSelect = (type: UserType) => {
     setSelectedRole(type)
@@ -527,14 +539,16 @@ function LoginStep({
         </p>
       </div>
 
-      {/* Google Sign In button (cliente only) */}
-      {role === "cliente" && (
+      {/* Google Sign In button (cliente & repartidor) */}
+      {(role === "cliente" || role === "repartidor") && (
         <button
           type="button"
           onClick={() => {
             onClose()
             // Small delay so modal closes before navigation
-            setTimeout(() => { window.location.href = "/api/auth/google" }, 150)
+            // Pass role so OAuth callback knows which user type to create
+            const googleUrl = role === "repartidor" ? "/api/auth/google?role=repartidor" : "/api/auth/google"
+            setTimeout(() => { window.location.href = googleUrl }, 150)
           }}
           className="w-full flex items-center justify-center gap-3 h-11 rounded-xl border border-border/50 bg-background hover:bg-muted/50 transition-all duration-200 text-sm font-semibold"
         >
@@ -561,7 +575,7 @@ function LoginStep({
       )}
 
       {/* Divider */}
-      {role === "cliente" && (
+      {(role === "cliente" || role === "repartidor") && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-border/50" />
           <span className="text-[11px] text-muted-foreground font-medium">o</span>
@@ -698,6 +712,10 @@ function RegisterStep({
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [legalDialog, setLegalDialog] = useState<{ open: boolean; type: "terms" | "privacy" }>({
+    open: false,
+    type: "terms",
+  })
 
   // Common fields
   const [nombre, setNombre] = useState("")
@@ -1038,13 +1056,27 @@ function RegisterStep({
             className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
           >
             Acepto los{" "}
-            <span className="text-primary font-semibold">
+            <button
+              type="button"
+              className="text-primary font-semibold hover:underline"
+              onClick={(e) => {
+                e.preventDefault()
+                setLegalDialog({ open: true, type: "terms" })
+              }}
+            >
               Términos y Condiciones
-            </span>{" "}
+            </button>{" "}
             y la{" "}
-            <span className="text-primary font-semibold">
+            <button
+              type="button"
+              className="text-primary font-semibold hover:underline"
+              onClick={(e) => {
+                e.preventDefault()
+                setLegalDialog({ open: true, type: "privacy" })
+              }}
+            >
               Política de Privacidad
-            </span>
+            </button>
             , incluyendo el tratamiento de mis datos personales.
           </label>
         </div>
@@ -1085,6 +1117,13 @@ function RegisterStep({
           </button>
         </p>
       </div>
+
+      {/* Legal Dialogs */}
+      <LegalDialog
+        open={legalDialog.open}
+        onOpenChange={(open) => setLegalDialog({ ...legalDialog, open })}
+        type={legalDialog.type}
+      />
     </div>
   )
 }

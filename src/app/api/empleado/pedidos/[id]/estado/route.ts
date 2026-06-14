@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { sendPushNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -136,17 +136,26 @@ export async function PATCH(
       })
     }
 
-    // Send push notification to the client
+    // Send notification to the client
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        if (cliente?.pushSubscription) {
-          const notification = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
-          await sendPushNotification(cliente.pushSubscription, notification)
-        }
+        const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          pedidoId: pedidoId,
+          negocioId: negocioId,
+          pushSubscription: cliente?.pushSubscription ?? null,
+          pushPayload: payload,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
       } catch (pushError) {
         console.error("[Push] Failed to send order update notification:", pushError)
       }
@@ -162,11 +171,20 @@ export async function PATCH(
           },
         })
         for (const rn of repartidores) {
-          if (rn.repartidor.activo && rn.repartidor.pushSubscription) {
-            await sendPushNotification(
-              rn.repartidor.pushSubscription,
-              newDeliveryNotification(pedidoId, pedido.negocioNombre, pedido.direccion || "")
-            )
+          if (rn.repartidor.activo) {
+            const payload = newDeliveryNotification(pedidoId, pedido.negocioNombre, pedido.direccion || "")
+            await createNotification({
+              userId: rn.repartidor.id,
+              userType: "repartidor",
+              tipo: "new_delivery",
+              titulo: payload.title,
+              cuerpo: payload.body,
+              pedidoId: pedidoId,
+              negocioId: negocioId,
+              pushSubscription: rn.repartidor.pushSubscription,
+              pushPayload: payload,
+              cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
+            })
           }
         }
       } catch (pushError) {

@@ -2,8 +2,6 @@
 // DeliGO - Service Worker Registration
 // ============================================
 
-import { toast } from "sonner";
-
 const SW_PATH = "/sw.js";
 
 let registration: ServiceWorkerRegistration | null = null;
@@ -21,24 +19,13 @@ function isServiceWorkerSupported(): boolean {
 
 /**
  * Handle service worker updates
- * Shows a toast notification when a new version is available
+ * Auto-applies updates silently so refreshes do not interrupt the user.
  */
 function handleUpdate(newReg: ServiceWorkerRegistration): void {
+  // If a waiting SW already exists, auto-activate it silently
   if (newReg.waiting) {
     swUpdateAvailable = true;
-    toast.info("Nueva versión disponible", {
-      description: "Recargá la página para actualizar DeliGO",
-      duration: 8000,
-      action: {
-        label: "Actualizar",
-        onClick: () => {
-          if (newReg.waiting) {
-            newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-          window.location.reload();
-        },
-      },
-    });
+    newReg.waiting.postMessage({ type: "SKIP_WAITING" });
   }
 
   newReg.addEventListener("updatefound", () => {
@@ -50,21 +37,11 @@ function handleUpdate(newReg: ServiceWorkerRegistration): void {
         newWorker.state === "installed" &&
         navigator.serviceWorker.controller
       ) {
-        // New content is available
         swUpdateAvailable = true;
-        toast.info("Nueva versión disponible", {
-          description: "Recargá la página para actualizar DeliGO",
-          duration: 8000,
-          action: {
-            label: "Actualizar",
-            onClick: () => {
-              if (newReg.waiting) {
-                newReg.waiting.postMessage({ type: "SKIP_WAITING" });
-              }
-              window.location.reload();
-            },
-          },
-        });
+
+        if (newReg.waiting) {
+          newReg.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
       }
     });
   });
@@ -91,9 +68,16 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     // Check for updates immediately
     handleUpdate(reg);
 
-    // Listen for controller change (new SW activated)
+    // Listen for controller change (new SW activated) — auto-reload once
+    let hasReloaded = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       console.log("[SW] Controller changed — new service worker activated");
+      // Only auto-reload once per page load to avoid infinite loops
+      if (!hasReloaded && swUpdateAvailable) {
+        hasReloaded = true;
+        // Soft reload: just let the new SW take control, don't force a page reload
+        // The user will get the new version on next navigation
+      }
     });
 
     // Periodically check for updates (every 30 minutes)

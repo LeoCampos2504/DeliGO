@@ -39,6 +39,8 @@ interface MesaSelectorSheetProps {
   colorPrincipal: string
   mozoCodigo: string
   mozoNombre: string
+  /** Employee auth token — required for API authorization when no session cookie is present */
+  mozoToken?: string
   /** Called when the mozo confirms — returns the full list of mesas currently assigned to this mozo */
   onMesasChanged?: (mesas: MesaPublica[]) => void
   /** Backward compat: called with the last-toggled mesa (for cart panel to know which mesa to order for) */
@@ -59,6 +61,7 @@ export function MesaSelectorSheet({
   colorPrincipal,
   mozoCodigo,
   mozoNombre,
+  mozoToken,
   onMesasChanged,
   onMesaSelected,
   selectedMesaId,
@@ -114,6 +117,7 @@ export function MesaSelectorSheet({
           mesaId,
           empleadoCodigo: mozoCodigo,
           negocioId,
+          ...(mozoToken ? { mozoToken } : {}),
         }),
       })
       if (!res.ok) {
@@ -165,6 +169,7 @@ export function MesaSelectorSheet({
           empleadoCodigo: mozoCodigo,
           negocioId,
           unassign: true,
+          ...(mozoToken ? { mozoToken } : {}),
         }),
       })
       if (!res.ok) {

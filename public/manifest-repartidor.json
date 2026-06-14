@@ -16,5 +16,9 @@
     { "src": "/icon-repartidor-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon-repartidor-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "capture_links": "existing-client-navigate",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "prefer_related_applications": false
 }

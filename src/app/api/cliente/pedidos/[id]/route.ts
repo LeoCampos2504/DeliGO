@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
-import { sendPushNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
+import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
 
 // PUT /api/cliente/pedidos/[id] - Order actions (cancel, confirm receipt, repeat)
 export async function PUT(
@@ -37,6 +37,25 @@ export async function PUT(
         )
       }
 
+      // Check cancellation tolerance time
+      const tolerancia = pedido.negocio.toleranciaCancelacion ?? 5
+      if (tolerancia > 0) {
+        const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()
+        const toleranciaMs = tolerancia * 60 * 1000
+        if (tiempoTranscurrido > toleranciaMs) {
+          return NextResponse.json(
+            { error: `El tiempo de cancelación de ${tolerancia} min ya pasó` },
+            { status: 400 }
+          )
+        }
+      } else {
+        // tolerancia = 0 means no cancellation allowed
+        return NextResponse.json(
+          { error: "Este negocio no permite cancelaciones" },
+          { status: 400 }
+        )
+      }
+
       const updated = await db.pedido.update({
         where: { id },
         data: {
@@ -60,12 +79,18 @@ export async function PUT(
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
         })
-        if (negocioData?.pushSubscription) {
-          await sendPushNotification(
-            negocioData.pushSubscription,
-            orderCancelledByClienteNotification(id, pedido.clienteNombre)
-          )
-        }
+        const payload = orderCancelledByClienteNotification(id, pedido.clienteNombre)
+        await createNotification({
+          userId: pedido.negocioId,
+          userType: "negocio",
+          tipo: "order_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          pedidoId: id,
+          pushSubscription: negocioData?.pushSubscription ?? null,
+          pushPayload: payload,
+          cleanupExpired: { model: "negocio", id: pedido.negocioId },
+        })
       } catch (pushError) {
         console.error("[Push] Failed to send cancellation notification:", pushError)
       }
@@ -98,12 +123,18 @@ export async function PUT(
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
         })
-        if (negocioData?.pushSubscription) {
-          await sendPushNotification(
-            negocioData.pushSubscription,
-            clientConfirmedNotification(id, pedido.clienteNombre)
-          )
-        }
+        const confirmedPayload = clientConfirmedNotification(id, pedido.clienteNombre)
+        await createNotification({
+          userId: pedido.negocioId,
+          userType: "negocio",
+          tipo: "order_update",
+          titulo: confirmedPayload.title,
+          cuerpo: confirmedPayload.body,
+          pedidoId: id,
+          pushSubscription: negocioData?.pushSubscription ?? null,
+          pushPayload: confirmedPayload,
+          cleanupExpired: { model: "negocio", id: pedido.negocioId },
+        })
 
         // Notify repartidor (if delivery order, find associated repartidores)
         if (pedido.metodoEntrega === "domicilio") {
@@ -114,11 +145,19 @@ export async function PUT(
             },
           })
           for (const rn of repartidores) {
-            if (rn.repartidor.activo && rn.repartidor.pushSubscription) {
-              await sendPushNotification(
-                rn.repartidor.pushSubscription,
-                clientConfirmedNotification(id, pedido.clienteNombre)
-              )
+            if (rn.repartidor.activo) {
+              const repPayload = clientConfirmedNotification(id, pedido.clienteNombre)
+              await createNotification({
+                userId: rn.repartidor.id,
+                userType: "repartidor",
+                tipo: "order_update",
+                titulo: repPayload.title,
+                cuerpo: repPayload.body,
+                pedidoId: id,
+                pushSubscription: rn.repartidor.pushSubscription,
+                pushPayload: repPayload,
+                cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
+              })
             }
           }
         }
@@ -140,12 +179,18 @@ export async function PUT(
                 where: { id: pedido.clienteId! },
                 select: { pushSubscription: true },
               })
-              if (clienteForReview?.pushSubscription) {
-                await sendPushNotification(
-                  clienteForReview.pushSubscription,
-                  reviewRequestNotification(id, negocioNombre)
-                )
-              }
+              const reviewPayload = reviewRequestNotification(id, negocioNombre)
+              await createNotification({
+                userId: pedido.clienteId!,
+                userType: "cliente",
+                tipo: "review_request",
+                titulo: reviewPayload.title,
+                cuerpo: reviewPayload.body,
+                pedidoId: id,
+                pushSubscription: clienteForReview?.pushSubscription ?? null,
+                pushPayload: reviewPayload,
+                cleanupExpired: { model: "cliente", id: pedido.clienteId! },
+              })
             }
           } catch (reviewPushError) {
             console.error("[Push] Failed to send review request notification:", reviewPushError)

@@ -26,7 +26,7 @@ export function CartStickyBar({ negocioColor, negocioId, onClick }: CartStickyBa
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 80, opacity: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="fixed bottom-0 left-0 right-0 z-40"
+      className="ios-keyboard-hide keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-40"
     >
       <div className="max-w-lg md:max-w-2xl mx-auto px-3 pb-3">
         <button

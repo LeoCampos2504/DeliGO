@@ -147,11 +147,27 @@ io.on("connection", (socket) => {
     if (!data?.pedidoId || !data?.message) return
 
     const room = `pedido:${data.pedidoId}`
+    const senderType = userType
 
-    // Broadcast a todos en la sala excepto al emisor
-    socket.to(room).emit("new-message", data.message)
+    // Solo enviar mensajes de chat a participantes válidos.
+    // cliente ↔ negocio pueden chatear.
+    // repartidor solo usa ubicación, no mensajes de chat.
+    const socketsInRoom = io.sockets.adapter.rooms.get(room)
 
-    console.log(`[Chat] Message sent to room ${room}`)
+    if (socketsInRoom) {
+      for (const socketId of socketsInRoom) {
+        if (socketId === socket.id) continue
+
+        const recipient = connectedUsers.get(socketId)
+        if (!recipient) continue
+
+        if (recipient.userType === "repartidor") continue
+
+        io.to(socketId).emit("new-message", data.message)
+      }
+    }
+
+    console.log(`[Chat] Message from ${senderType} in room ${room}`)
   })
 
   // ===== TYPING =====
@@ -160,12 +176,24 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
-    socket.to(room).emit("user-typing", {
-      pedidoId,
-      userId,
-      userType,
-      userName: userName || "Usuario",
-    })
+    // Solo enviar typing a participantes que no sean repartidor
+    const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
+    if (socketsInRoom) {
+      for (const socketId of socketsInRoom) {
+        if (socketId === socket.id) continue
+
+        const recipient = connectedUsers.get(socketId)
+        if (!recipient || recipient.userType === "repartidor") continue
+
+        io.to(socketId).emit("user-typing", {
+          pedidoId,
+          userId,
+          userType,
+          userName: userName || "Usuario",
+        })
+      }
+    }
   })
 
   // ===== STOP TYPING =====
@@ -174,10 +202,21 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
-    socket.to(room).emit("user-stop-typing", {
-      pedidoId,
-      userId,
-    })
+    const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
+    if (socketsInRoom) {
+      for (const socketId of socketsInRoom) {
+        if (socketId === socket.id) continue
+
+        const recipient = connectedUsers.get(socketId)
+        if (!recipient || recipient.userType === "repartidor") continue
+
+        io.to(socketId).emit("user-stop-typing", {
+          pedidoId,
+          userId,
+        })
+      }
+    }
   })
 
   // ===== MARK READ =====
@@ -186,11 +225,23 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
-    socket.to(room).emit("messages-read", {
-      pedidoId,
-      readBy: userId,
-      userType,
-    })
+    // Solo enviar confirmación de lectura a participantes que no sean repartidor
+    const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
+    if (socketsInRoom) {
+      for (const socketId of socketsInRoom) {
+        if (socketId === socket.id) continue
+
+        const recipient = connectedUsers.get(socketId)
+        if (!recipient || recipient.userType === "repartidor") continue
+
+        io.to(socketId).emit("messages-read", {
+          pedidoId,
+          readBy: userId,
+          userType,
+        })
+      }
+    }
   })
 
   // ===== LOCATION UPDATE =====

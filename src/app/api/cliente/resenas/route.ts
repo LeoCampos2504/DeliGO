@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendPushNotification, newReviewNotification } from "@/lib/push"
+import { createNotification, newReviewNotification } from "@/lib/push"
 
 // POST /api/cliente/resenas — Create a review for a delivered order
 export async function POST(req: NextRequest) {
@@ -122,14 +122,23 @@ export async function POST(req: NextRequest) {
         where: { id: pedido.negocioId },
         select: { pushSubscription: true, nombre: true },
       })
-      if (negocioData?.pushSubscription) {
-        const notification = newReviewNotification(
-          negocioData.nombre,
-          Math.round(puntuacion),
-          user.nombre
-        )
-        await sendPushNotification(negocioData.pushSubscription, notification)
-      }
+      const notification = newReviewNotification(
+        negocioData?.nombre ?? "",
+        Math.round(puntuacion),
+        user.nombre
+      )
+      await createNotification({
+        userId: pedido.negocioId,
+        userType: "negocio",
+        tipo: "review",
+        titulo: notification.title,
+        cuerpo: notification.body,
+        pedidoId: pedidoId,
+        negocioId: pedido.negocioId,
+        pushSubscription: negocioData?.pushSubscription ?? null,
+        pushPayload: notification,
+        cleanupExpired: { model: "negocio", id: pedido.negocioId },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send review notification:", pushError)
     }

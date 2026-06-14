@@ -32,7 +32,7 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     themeColor: "#FB8C00",
     manifestFile: "/manifest-cliente.json",
     startUrl: "/",
-    loginUrl: "/login",
+    loginUrl: "/",
     icon192: "/icon-cliente-192x192.png",
     icon512: "/icon-cliente-512x512.png",
     gradientFrom: "from-orange-500",

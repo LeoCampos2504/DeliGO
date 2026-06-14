@@ -61,32 +61,9 @@ export async function GET(req: NextRequest) {
         },
       })
     } else if (userType === "repartidor") {
-      // Count unread messages from cliente/vendedor across orders of assigned businesses
-      const repartidorNegocios = await db.repartidorNegocio.findMany({
-        where: { repartidorId: userId },
-        select: { negocioId: true },
-      })
-      const negocioIds = repartidorNegocios.map((rn) => rn.negocioId)
-
-      if (negocioIds.length > 0) {
-        pedidosActivos = await db.pedido.count({
-          where: {
-            negocioId: { in: negocioIds },
-            estado: { notIn: ["entregado", "cancelado"] },
-          },
-        })
-
-        noLeidos = await db.chatMensaje.count({
-          where: {
-            pedido: {
-              negocioId: { in: negocioIds },
-              estado: { notIn: ["entregado", "cancelado"] },
-            },
-            remitente: { in: ["cliente", "vendedor"] },
-            leido: false,
-          },
-        })
-      }
+      // Repartidores don't participate in chat
+      noLeidos = 0
+      pedidosActivos = 0
     }
 
     return NextResponse.json({ noLeidos, pedidosActivos })

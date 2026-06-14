@@ -8,6 +8,8 @@ import { ChatProvider } from "@/providers/chat-provider";
 import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
 import { DynamicManifest } from "@/components/shared/dynamic-manifest";
+import { PermissionPrompt } from "@/components/shared/permission-prompt";
+import { IOSKeyboardFix } from "@/components/pwa/ios-keyboard-fix";
 import { Toaster } from "sonner";
 
 const nunito = Nunito({
@@ -20,7 +22,10 @@ export const viewport: Viewport = {
   themeColor: "#FB8C00",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
+  maximumScale: 1,
+  userScalable: false,
+  interactiveWidget: "resizes-content",
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
@@ -37,7 +42,7 @@ export const metadata: Metadata = {
     "Argentina",
   ],
   authors: [{ name: "DeliGO" }],
-  manifest: "/manifest-cliente.json",
+  manifest: "/api/manifest?role=cliente",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
@@ -76,13 +81,15 @@ export default function RootLayout({
       <body className={`${nunito.variable} font-sans antialiased bg-background text-foreground`}>
         <ThemeProvider>
           <QueryProvider>
-            <div className="min-h-screen flex flex-col">
+            <div className="min-h-dvh ios-min-viewport-height flex flex-col">
               <main className="flex-1">{children}</main>
             </div>
             <DynamicManifest />
+            <IOSKeyboardFix />
             <ChatProvider />
             <ServiceWorkerRegistration />
             <InstallPrompt />
+            <PermissionPrompt />
             <Toaster
               position="top-center"
               richColors

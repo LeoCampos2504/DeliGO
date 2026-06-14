@@ -23,6 +23,9 @@ import {
   Check,
   RefreshCw,
   Loader2,
+  AlertTriangle,
+  ShieldAlert,
+  Flag,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -74,6 +77,7 @@ type SubTab = "activos" | "historial"
 
 interface Pedido {
   id: string
+  clienteId: string | null
   clienteNombre: string
   total: number
   totalProductos: number
@@ -90,6 +94,11 @@ interface Pedido {
   mesaNumero: number | null
   empleadoNombre: string | null
   items: PedidoItemData[]
+}
+
+interface DenunciaWarning {
+  count: number
+  denuncias: Array<{ motivoTipo: string; motivo: string; negocioNombre: string; fecha: string }>
 }
 
 interface PedidoItemData {
@@ -150,6 +159,12 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
   const [customReason, setCustomReason] = useState("")
   const [filterStatus, setFilterStatus] = useState("todos")
 
+  // Denuncia dialog state
+  const [denunciaDialog, setDenunciaDialog] = useState<Pedido | null>(null)
+  const [denunciaMotivoTipo, setDenunciaMotivoTipo] = useState("")
+  const [denunciaMotivoCustom, setDenunciaMotivoCustom] = useState("")
+  const [denunciando, setDenunciando] = useState(false)
+
   // Shared employee link state
   const [tokenEmpleados, setTokenEmpleados] = useState<string | null>(null)
   const [copiedLink, setCopiedLink] = useState(false)
@@ -199,10 +214,17 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
       const res = await fetch(`/api/negocio/pedidos?negocioId=${negocio.id}`)
       if (!res.ok) throw new Error("Error cargando pedidos")
       const json = await res.json()
+      // Store denuncia warnings separately
+      if (json.denunciaWarnings) {
+        denunciaWarningsRef.current = json.denunciaWarnings
+      }
       return json.data ?? json.pedidos ?? json
     },
     refetchInterval: 15000,
   })
+
+  // Denuncia warnings ref (populated from API response)
+  const denunciaWarningsRef = useRef<Record<string, DenunciaWarning>>({})
 
   // When orders data refreshes (e.g. new order from customer), also refresh tab counts
   const prevActiveCountRef = useRef(-1)
@@ -287,6 +309,61 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
         return null
       default:
         return null
+    }
+  }
+
+  // Handle denuncia submission
+  const handleDenunciar = async () => {
+    if (!denunciaDialog?.clienteId) {
+      toast.error("No se puede denunciar a un invitado")
+      return
+    }
+    if (!denunciaMotivoTipo) {
+      toast.error("Seleccioná un motivo")
+      return
+    }
+    if (denunciaMotivoTipo === "otro" && !denunciaMotivoCustom.trim()) {
+      toast.error("Escribí el motivo de la denuncia")
+      return
+    }
+
+    setDenunciando(true)
+    try {
+      const motivoMap: Record<string, string> = {
+        direccion_falsa: "Dirección falsa o incorrecta",
+        no_retiro: "No retiró el pedido",
+        no_pago: "No pagó el pedido",
+        comportamiento: "Comportamiento inadecuado",
+      }
+      const motivo = denunciaMotivoTipo === "otro" ? denunciaMotivoCustom.trim() : (motivoMap[denunciaMotivoTipo] || denunciaMotivoTipo)
+
+      const res = await fetch("/api/denuncias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clienteId: denunciaDialog.clienteId,
+          pedidoId: denunciaDialog.id,
+          motivoTipo: denunciaMotivoTipo,
+          motivo,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Error al denunciar")
+      }
+
+      const data = await res.json()
+      toast.success(data.mensaje || "Denuncia registrada")
+      setDenunciaDialog(null)
+      setDenunciaMotivoTipo("")
+      setDenunciaMotivoCustom("")
+      // Refresh orders to update warnings
+      queryClient.invalidateQueries({ queryKey: ["negocio-pedidos", negocio.id] })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error al denunciar")
+    } finally {
+      setDenunciando(false)
     }
   }
 
@@ -407,6 +484,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                       order={order}
                       colorPrincipal={negocio.colorPrincipal}
                       delay={i * 0.04}
+                      denunciaWarning={order.clienteId ? denunciaWarningsRef.current[order.clienteId] : undefined}
                       onViewDetail={() => setSelectedOrder(order)}
                       onNextStatus={nextAction ? () => updateStatusMutation.mutate({ id: order.id, estado: nextAction.nextStatus }) : undefined}
                       nextAction={nextAction}
@@ -453,6 +531,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                   <HistoryCard
                     key={order.id}
                     order={order}
+                    denunciaWarning={order.clienteId ? denunciaWarningsRef.current[order.clienteId] : undefined}
                     onViewDetail={() => setSelectedOrder(order)}
                   />
                 ))}
@@ -494,6 +573,26 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                   </p>
                 )}
               </div>
+
+              {/* Denuncia Warning */}
+              {selectedOrder.clienteId && denunciaWarningsRef.current[selectedOrder.clienteId] && (
+                <div className="mx-4 mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <ShieldAlert className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+                    <span className="text-sm font-bold text-red-700 dark:text-red-300">
+                      Cliente denunciado ({denunciaWarningsRef.current[selectedOrder.clienteId].count} denuncia{denunciaWarningsRef.current[selectedOrder.clienteId].count !== 1 ? "s" : ""})
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 ml-6">
+                    {denunciaWarningsRef.current[selectedOrder.clienteId].denuncias.slice(0, 3).map((d, i) => (
+                      <div key={i} className="text-xs text-red-600 dark:text-red-400">
+                        <span className="font-medium">{d.motivo}</span>
+                        <span className="text-red-400 dark:text-red-500"> — {d.negocioNombre}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Separator className="mx-4" />
 
@@ -616,7 +715,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                               <div className="flex flex-wrap gap-1">
                                 {agregados.map((a, i) => (
                                   <Badge key={a.id ?? i} variant="secondary" className="text-[10px] h-5 px-1.5 font-normal bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-                                    + {a.nombre} ({formatPrice(a.precio)})
+                                    + {a.nombre}{a.precio > 0 ? ` (${formatPrice(a.precio)})` : ""}
                                   </Badge>
                                 ))}
                               </div>
@@ -681,6 +780,25 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                   <span>{formatPrice(selectedOrder.total)}</span>
                 </div>
               </div>
+
+              {/* Denunciar cliente button */}
+              {selectedOrder.clienteId && selectedOrder.estado !== "cancelado" && (
+                <div className="px-4 pb-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full rounded-xl h-9 text-xs gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+                    onClick={() => {
+                      setDenunciaDialog(selectedOrder)
+                      setDenunciaMotivoTipo("")
+                      setDenunciaMotivoCustom("")
+                    }}
+                  >
+                    <Flag className="h-3.5 w-3.5" />
+                    Denunciar cliente
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </SheetContent>
@@ -754,6 +872,78 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ===== DENUNCIA DIALOG ===== */}
+      <Dialog open={!!denunciaDialog} onOpenChange={(open) => { if (!open) setDenunciaDialog(null) }}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-red-500" />
+              Denunciar cliente
+            </DialogTitle>
+            <DialogDescription>
+              Denunciar a {denunciaDialog?.clienteNombre} por mala conducta. A las 3 denuncias la cuenta se bloquea automáticamente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {[
+              { value: "direccion_falsa", label: "Dirección falsa o incorrecta", icon: "📍" },
+              { value: "no_retiro", label: "No retiró el pedido", icon: "🚫" },
+              { value: "no_pago", label: "No pagó el pedido", icon: "💸" },
+              { value: "comportamiento", label: "Comportamiento inadecuado", icon: "⚠️" },
+              { value: "otro", label: "Otro motivo", icon: "📝" },
+            ].map((option) => (
+              <label
+                key={option.value}
+                className={cn(
+                  "flex items-center gap-2.5 p-3 rounded-xl cursor-pointer transition-colors border",
+                  denunciaMotivoTipo === option.value
+                    ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                    : "border-border/50 hover:bg-muted/50"
+                )}
+              >
+                <input
+                  type="radio"
+                  name="denuncia-motivo"
+                  value={option.value}
+                  checked={denunciaMotivoTipo === option.value}
+                  onChange={(e) => { setDenunciaMotivoTipo(e.target.value); setDenunciaMotivoCustom("") }}
+                  className="accent-red-500"
+                />
+                <span className="text-base">{option.icon}</span>
+                <span className="text-sm">{option.label}</span>
+              </label>
+            ))}
+            {denunciaMotivoTipo === "otro" && (
+              <textarea
+                value={denunciaMotivoCustom}
+                onChange={(e) => setDenunciaMotivoCustom(e.target.value)}
+                placeholder="Describí el motivo de la denuncia..."
+                className="w-full mt-2 px-3 py-2 rounded-xl border border-border/50 bg-background text-sm resize-none min-h-[80px]"
+                autoFocus
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setDenunciaDialog(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-xl"
+              disabled={!denunciaMotivoTipo || (denunciaMotivoTipo === "otro" && !denunciaMotivoCustom.trim()) || denunciando}
+              onClick={handleDenunciar}
+            >
+              {denunciando ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Flag className="h-4 w-4" />
+              )}
+              Denunciar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -765,6 +955,7 @@ function OrderCard({
   order,
   colorPrincipal,
   delay,
+  denunciaWarning,
   onViewDetail,
   onNextStatus,
   nextAction,
@@ -774,6 +965,7 @@ function OrderCard({
   order: Pedido
   colorPrincipal: string
   delay: number
+  denunciaWarning?: DenunciaWarning
   onViewDetail: () => void
   onNextStatus?: () => void
   nextAction: { label: string; nextStatus: string; icon: typeof Clock } | null
@@ -805,7 +997,13 @@ function OrderCard({
           </div>
 
           {/* Badges */}
-          <div className="flex items-center gap-1.5 mb-3">
+          <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+            {denunciaWarning && denunciaWarning.count > 0 && (
+              <Badge className="text-[10px] font-semibold px-1.5 py-0 bg-red-100 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800">
+                <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                {denunciaWarning.count} denuncia{denunciaWarning.count !== 1 ? "s" : ""}
+              </Badge>
+            )}
             <Badge variant="outline" className={cn(
               "text-[10px] font-semibold px-1.5 py-0",
               order.metodoEntrega === "domicilio"
@@ -891,9 +1089,11 @@ function OrderCard({
 // ============================================
 function HistoryCard({
   order,
+  denunciaWarning,
   onViewDetail,
 }: {
   order: Pedido
+  denunciaWarning?: DenunciaWarning
   onViewDetail: () => void
 }) {
   return (
@@ -905,6 +1105,12 @@ function HistoryCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-sm font-semibold truncate">{order.clienteNombre}</span>
+            {denunciaWarning && denunciaWarning.count > 0 && (
+              <Badge className="text-[9px] px-1 py-0 bg-red-100 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800 shrink-0">
+                <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                {denunciaWarning.count}
+              </Badge>
+            )}
             {order.metodoEntrega === "mesa" && order.mesaNumero && (
               <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-300 text-amber-700 dark:text-amber-300 shrink-0">
                 🪑 {order.mesaNumero}

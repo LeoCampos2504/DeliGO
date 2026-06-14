@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-import { MapPin } from "lucide-react"
+import { MapPin, Crosshair, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 // Fix Leaflet default icon
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
@@ -15,6 +16,7 @@ L.Icon.Default.mergeOptions({
 })
 
 const DEFAULT_CENTER: [number, number] = [-26.1856, -58.1732] // Formosa
+const GPS_ZOOM = 16
 
 function createStoreIcon(colorPrincipal: string, logoUrl?: string | null) {
   if (logoUrl) {
@@ -97,11 +99,48 @@ export function LocationPickerInline({
   const [selectedPos, setSelectedPos] = useState<[number, number]>(
     initialLat != null && initialLng != null ? [initialLat, initialLng] : DEFAULT_CENTER
   )
+  const [isLocating, setIsLocating] = useState(false)
+  const [gpsUsed, setGpsUsed] = useState(false)
+  const gpsAutoRequestedRef = useRef(false)
+
+  // GPS location — triggered by user tap
+  const handleGetLocation = useCallback(() => {
+    if (!navigator.geolocation) return
+
+    setIsLocating(true)
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const newCoords: [number, number] = [
+          Math.round(position.coords.latitude * 1000000) / 1000000,
+          Math.round(position.coords.longitude * 1000000) / 1000000,
+        ]
+        setSelectedPos(newCoords)
+        setGpsUsed(true)
+
+        if (mapInstanceRef.current && markerRef.current) {
+          mapInstanceRef.current.setView(newCoords, GPS_ZOOM, { animate: true })
+          markerRef.current.setLatLng(newCoords)
+        }
+
+        setIsLocating(false)
+      },
+      () => {
+        setIsLocating(false)
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    )
+  }, [])
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
-    const center = initialLat != null && initialLng != null
+    const hasInitial = initialLat != null && initialLng != null
+    const center = hasInitial
       ? [initialLat, initialLng] as [number, number]
       : DEFAULT_CENTER
 
@@ -137,6 +176,40 @@ export function LocationPickerInline({
     mapInstanceRef.current = map
     markerRef.current = marker
 
+    // Auto-request GPS if no initial location set
+    if (!hasInitial && !gpsAutoRequestedRef.current) {
+      gpsAutoRequestedRef.current = true
+      setTimeout(() => {
+        if (navigator.geolocation) {
+          setIsLocating(true)
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const newCoords: [number, number] = [
+                Math.round(position.coords.latitude * 1000000) / 1000000,
+                Math.round(position.coords.longitude * 1000000) / 1000000,
+              ]
+              setSelectedPos(newCoords)
+              setGpsUsed(true)
+              if (mapInstanceRef.current && markerRef.current) {
+                mapInstanceRef.current.setView(newCoords, GPS_ZOOM, { animate: true })
+                markerRef.current.setLatLng(newCoords)
+              }
+              setIsLocating(false)
+            },
+            () => {
+              // Auto-request failed — user will see the manual CTA button
+              setIsLocating(false)
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 8000,
+              maximumAge: 60000,
+            }
+          )
+        }
+      }, 800)
+    }
+
     return () => {
       map.remove()
       mapInstanceRef.current = null
@@ -146,11 +219,56 @@ export function LocationPickerInline({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl overflow-hidden border border-border/50" style={{ height: 250 }}>
+      <div className="relative rounded-xl overflow-hidden border border-border/50" style={{ height: 250 }}>
         <div ref={mapRef} className="w-full h-full" />
+
+        {/* GPS button overlay */}
+        <button
+          onClick={handleGetLocation}
+          disabled={isLocating}
+          className={cn(
+            "absolute top-3 right-3 z-[1000] w-10 h-10 rounded-xl bg-background border border-border shadow-lg flex items-center justify-center transition-all hover:bg-muted active:scale-95",
+            isLocating && "opacity-70 cursor-wait"
+          )}
+          title="Mi ubicación"
+        >
+          {isLocating ? (
+            <Loader2 className="h-4.5 w-4.5 animate-spin text-primary" />
+          ) : (
+            <Crosshair className="h-4.5 w-4.5 text-primary" />
+          )}
+        </button>
       </div>
+
+      {/* GPS CTA — Prominent button when no initial location */}
+      {initialLat == null && initialLng == null && !gpsUsed && (
+        <button
+          onClick={handleGetLocation}
+          disabled={isLocating}
+          className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl font-bold text-white text-sm transition-all active:scale-[0.98]"
+          style={{
+            backgroundColor: colorPrincipal,
+            boxShadow: `0 4px 14px ${colorPrincipal}30`,
+          }}
+        >
+          {isLocating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Obteniendo ubicación...
+            </>
+          ) : (
+            <>
+              <Crosshair className="h-4 w-4" />
+              Usar mi ubicación actual
+            </>
+          )}
+        </button>
+      )}
+
       <p className="text-xs text-muted-foreground text-center">
-        Hacé clic en el mapa o arrastrá el marcador para setear la ubicación de tu local
+        {gpsUsed
+          ? "Arrastrá el marcador para ajustar la posición si es necesario."
+          : "Hacé clic en el mapa o arrastrá el marcador para setear la ubicación de tu local"}
       </p>
       <div className="flex gap-2">
         <Button

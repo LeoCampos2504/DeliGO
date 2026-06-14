@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendPushNotification, newOrderNotification } from "@/lib/push"
+import { createNotification, newOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -92,18 +92,48 @@ export async function POST(request: NextRequest) {
     const precioMap = new Map(dbProductos.map(p => [p.id, p]))
 
     // Also fetch agregado prices
+    // Filter out composite IDs (shared options use "id::name" format)
     const allAgregadoIds = items.flatMap((item: { agregados: Array<{ id: string }> }) =>
       (item.agregados || []).map((a: { id: string }) => a.id)
-    ).filter(Boolean)
+    ).filter((id: string) => id && !id.includes("::"))
     const dbAgregados = await db.agregado.findMany({
       where: { id: { in: allAgregadoIds }, negocioId },
       select: { id: true, precio: true },
     })
-    const agregadoPrecioMap = new Map(dbAgregados.map(a => [a.id, a.precio]))
+    const agregadoPrecioMap = new Map(dbAgregados.map(a => [a.id, a]))
+
+    // Also fetch shared options (OpcionesCompartidas) for server-side price validation
+    const allSharedOptionIds = items.flatMap((item: { agregados: Array<{ id: string }> }) =>
+      (item.agregados || [])
+        .map((a: { id: string }) => a.id)
+        .filter((id: string) => id && id.includes("::"))
+        .map((id: string) => id.split("::")[0])
+    ).filter(Boolean)
+    const uniqueSharedOptionIds = [...new Set(allSharedOptionIds)]
+    const dbOpcionesCompartidas = uniqueSharedOptionIds.length > 0
+      ? await db.opcionesCompartidas.findMany({
+          where: { id: { in: uniqueSharedOptionIds }, negocioId },
+          select: { id: true, opciones: true },
+        })
+      : []
+    // Build a map: sharedOptionId -> Map<optionName, price>
+    const sharedOptionPrecioMap = new Map<string, Map<string, number>>()
+    for (const oc of dbOpcionesCompartidas) {
+      let opciones: Array<{ nombre: string; precio: number }> = []
+      try {
+        const parsed = JSON.parse(oc.opciones || "[]")
+        if (Array.isArray(parsed)) opciones = parsed
+      } catch { /* ignore parse errors */ }
+      const optMap = new Map(opciones.map(o => [o.nombre, o.precio]))
+      sharedOptionPrecioMap.set(oc.id, optMap)
+    }
 
     // Recalculate server-side
     let serverTotalProductos = 0
-    for (const item of items) {
+    // Map: item index -> validated agregados array (to use when creating PedidoItem)
+    const validatedAgregadosMap = new Map<number, Array<{ id: string; nombre: string; precio: number; tipo: string }>>()
+    for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+      const item = items[itemIdx]
       const dbProd = precioMap.get(item.productoId)
       if (!dbProd) {
         return NextResponse.json({ error: `Producto ${item.productoId} no encontrado` }, { status: 400 })
@@ -120,17 +150,51 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Validate agregado prices
+      // Validate agregado prices (handle both regular agregados and shared options)
       let agregadosTotal = 0
+      const validatedAgregados: Array<{ id: string; nombre: string; precio: number; tipo: string }> = []
       for (const agregado of (item.agregados || [])) {
-        const dbAgr = agregadoPrecioMap.get(agregado.id)
-        if (!dbAgr) {
-          return NextResponse.json({ error: `Agregado ${agregado.id} no encontrado` }, { status: 400 })
+        const agregadoId = String(agregado?.id || "")
+        const esOpcionCompartida = agregadoId.includes("::")
+
+        if (esOpcionCompartida) {
+          // Shared option: validate price against DB
+          const [sharedId, optName] = agregadoId.split("::")
+          const optPrecioMap = sharedOptionPrecioMap.get(sharedId)
+          let precioOpcion = Number(agregado?.precio) || 0
+          if (optPrecioMap && optName && optPrecioMap.has(optName)) {
+            // Use server-validated price
+            precioOpcion = optPrecioMap.get(optName)!
+          } else if (!optPrecioMap) {
+            // Shared option config not found in DB — reject
+            return NextResponse.json({ error: `Opción compartida ${sharedId} no encontrada` }, { status: 400 })
+          }
+          agregadosTotal += precioOpcion
+          validatedAgregados.push({
+            id: agregadoId,
+            nombre: agregado?.nombre || optName || "",
+            precio: precioOpcion,
+            tipo: "opcion_compartida",
+          })
+        } else {
+          // Regular agregado: validate against DB price
+          const dbAgr = agregadoPrecioMap.get(agregadoId)
+          if (dbAgr === undefined) {
+            return NextResponse.json({ error: `Agregado ${agregadoId} no encontrado` }, { status: 400 })
+          }
+          const precioAgregado = dbAgr.precio
+          agregadosTotal += precioAgregado
+          validatedAgregados.push({
+            id: agregadoId,
+            nombre: agregado?.nombre || "",
+            precio: precioAgregado,
+            tipo: "agregado",
+          })
         }
-        agregadosTotal += dbAgr.precio
       }
 
       serverTotalProductos += (unitPrice + agregadosTotal) * (item.cantidad || 1)
+      validatedAgregadosMap.set(itemIdx, validatedAgregados)
     }
 
     serverTotalProductos = Math.round(serverTotalProductos * 100) / 100
@@ -208,23 +272,25 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Look up the mesa — prefer mesaId for direct lookup, fallback to negocioId+numero
-      let mesaRow: { id: string; numero: number; activa: number; empleadoId: string | null } | null = null
+      // Look up the mesa using Prisma ORM (avoids PostgreSQL case-sensitivity issues with $queryRaw)
+      let mesaRow: { id: string; numero: number; activa: boolean; empleadoId: string | null } | null = null
 
       if (mesaId) {
-        // Direct lookup by ID (more efficient, avoids extra query)
-        const mesasById = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE id = ${mesaId} AND negocioId = ${negocioId} LIMIT 1`
-        if (mesasById.length > 0) mesaRow = mesasById[0]
+        // Direct lookup by ID
+        const found = await db.mesa.findFirst({
+          where: { id: mesaId, negocioId },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        if (found) mesaRow = found
       }
 
       if (!mesaRow && mesaNumero) {
         // Fallback: look up by negocioId + numero
-        const mesasByNumero = await db.$queryRaw<
-          Array<{ id: string; numero: number; activa: number; empleadoId: string | null }>
-        >`SELECT id, numero, activa, empleadoId FROM mesas WHERE negocioId = ${negocioId} AND numero = ${mesaNumero} LIMIT 1`
-        if (mesasByNumero.length > 0) mesaRow = mesasByNumero[0]
+        const found = await db.mesa.findFirst({
+          where: { negocioId, numero: mesaNumero },
+          select: { id: true, numero: true, activa: true, empleadoId: true },
+        })
+        if (found) mesaRow = found
       }
 
       if (!mesaRow) {
@@ -247,12 +313,13 @@ export async function POST(request: NextRequest) {
       // Auto-resolve mozo from mesa assignment (always — this is the primary source of truth)
       const mesaEmpleadoId = mesaRow.empleadoId
       if (mesaEmpleadoId) {
-        const mesaEmpleados = await db.$queryRaw<
-          Array<{ id: string; nombre: string; codigo: string }>
-        >`SELECT id, nombre, codigo FROM empleados WHERE id = ${mesaEmpleadoId} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-        if (mesaEmpleados.length > 0) {
-          empleadoId = mesaEmpleados[0].id
-          empleadoNombre = mesaEmpleados[0].nombre
+        const mesaEmpleado = await db.empleado.findFirst({
+          where: { id: mesaEmpleadoId, negocioId, activo: true },
+          select: { id: true, nombre: true },
+        })
+        if (mesaEmpleado) {
+          empleadoId = mesaEmpleado.id
+          empleadoNombre = mesaEmpleado.nombre
         }
       }
     }
@@ -260,12 +327,13 @@ export async function POST(request: NextRequest) {
     // Resolve empleado from codigo if provided (overrides mesa auto-assignment)
     // This handles the mozo link flow where the mozo explicitly opened the order
     if (empleadoCodigo && isMesaOrder) {
-      const empleados = await db.$queryRaw<
-        Array<{ id: string; nombre: string }>
-      >`SELECT id, nombre FROM empleados WHERE codigo = ${empleadoCodigo} AND negocioId = ${negocioId} AND activo = 1 LIMIT 1`
-      if (empleados.length > 0) {
-        empleadoId = empleados[0].id
-        empleadoNombre = empleados[0].nombre
+      const empleado = await db.empleado.findFirst({
+        where: { codigo: empleadoCodigo, negocioId, activo: true },
+        select: { id: true, nombre: true },
+      })
+      if (empleado) {
+        empleadoId = empleado.id
+        empleadoNombre = empleado.nombre
       }
     }
 
@@ -347,12 +415,12 @@ export async function POST(request: NextRequest) {
               ingredientesQuitados: string[]
               talle: string
               color: string
-            }) => ({
+            }, idx: number) => ({
               productoId: item.productoId,
               nombre: item.nombre,
               precio: item.precio,
               cantidad: item.cantidad,
-              agregados: JSON.stringify(item.agregados || []),
+              agregados: JSON.stringify(validatedAgregadosMap.get(idx) || item.agregados || []),
               secciones: JSON.stringify(item.secciones || {}),
               ingredientes: JSON.stringify([]),
               ingredientesQuitados: JSON.stringify(item.ingredientesQuitados || []),
@@ -385,14 +453,19 @@ export async function POST(request: NextRequest) {
         where: { id: negocioId },
         select: { pushSubscription: true },
       })
-      if (negocioWithPush?.pushSubscription) {
-        const notification = newOrderNotification(
-          pedido.id,
-          clienteNombre,
-          total
-        )
-        await sendPushNotification(negocioWithPush.pushSubscription, notification)
-      }
+      const payload = newOrderNotification(pedido.id, clienteNombre, total)
+      await createNotification({
+        userId: negocioId,
+        userType: "negocio",
+        tipo: "new_order",
+        titulo: payload.title,
+        cuerpo: payload.body,
+        pedidoId: pedido.id,
+        negocioId: negocioId,
+        pushSubscription: negocioWithPush?.pushSubscription ?? null,
+        pushPayload: payload,
+        cleanupExpired: { model: "negocio", id: negocioId },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send new order notification:", pushError)
     }

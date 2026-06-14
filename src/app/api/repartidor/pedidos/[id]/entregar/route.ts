@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { sendPushNotification, orderDeliveredNotification, reviewRequestNotification } from "@/lib/push"
+import { createNotification, orderDeliveredNotification, orderDeliveredByRepartidorNotification, reviewRequestNotification } from "@/lib/push"
 
 // PUT - Mark order as delivered by repartidor
 export async function PUT(
@@ -131,12 +131,18 @@ export async function PUT(
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        if (cliente?.pushSubscription) {
-          await sendPushNotification(
-            cliente.pushSubscription,
-            orderDeliveredNotification(pedidoId, pedido.negocioNombre)
-          )
-        }
+        const deliveredPayload = orderDeliveredNotification(pedidoId, pedido.negocioNombre)
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: deliveredPayload.title,
+          cuerpo: deliveredPayload.body,
+          pedidoId,
+          pushSubscription: cliente?.pushSubscription ?? null,
+          pushPayload: deliveredPayload,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
 
         // Schedule "rate your order" notification (2 minutes delay)
         setTimeout(async () => {
@@ -151,12 +157,18 @@ export async function PUT(
                 where: { id: pedido.clienteId! },
                 select: { pushSubscription: true },
               })
-              if (clienteForReview?.pushSubscription) {
-                await sendPushNotification(
-                  clienteForReview.pushSubscription,
-                  reviewRequestNotification(pedidoId, pedido.negocioNombre)
-                )
-              }
+              const reviewPayload = reviewRequestNotification(pedidoId, pedido.negocioNombre)
+              await createNotification({
+                userId: pedido.clienteId!,
+                userType: "cliente",
+                tipo: "review_request",
+                titulo: reviewPayload.title,
+                cuerpo: reviewPayload.body,
+                pedidoId,
+                pushSubscription: clienteForReview?.pushSubscription ?? null,
+                pushPayload: reviewPayload,
+                cleanupExpired: { model: "cliente", id: pedido.clienteId! },
+              })
             }
           } catch (reviewPushError) {
             console.error("[Push] Failed to send review request notification:", reviewPushError)
@@ -169,20 +181,18 @@ export async function PUT(
         where: { id: pedido.negocioId },
         select: { pushSubscription: true },
       })
-      if (negocio?.pushSubscription) {
-        await sendPushNotification(
-          negocio.pushSubscription,
-          {
-            title: "Pedido entregado por repartidor ✅",
-            body: `El pedido de ${pedido.clienteNombre} fue entregado`,
-            tag: `order-delivered-${pedidoId}`,
-            data: {
-              type: "order_update",
-              pedidoId,
-            },
-          }
-        )
-      }
+      const negocioPayload = orderDeliveredByRepartidorNotification(pedidoId, pedido.clienteNombre)
+      await createNotification({
+        userId: pedido.negocioId,
+        userType: "negocio",
+        tipo: "order_update",
+        titulo: negocioPayload.title,
+        cuerpo: negocioPayload.body,
+        pedidoId,
+        pushSubscription: negocio?.pushSubscription ?? null,
+        pushPayload: negocioPayload,
+        cleanupExpired: { model: "negocio", id: pedido.negocioId },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send delivery notifications:", pushError)
     }

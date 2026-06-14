@@ -239,6 +239,97 @@
   color: inherit;
 }
 
+/* ============================================
+   iOS / PWA keyboard fixes
+   ============================================
+   Driven by CSS classes set by IOSKeyboardFix:
+   - .ios-device          → always on iOS devices
+   - .ios-keyboard-open   → when virtual keyboard is open
+   - .keyboard-open       → alias
+   
+   CSS custom properties from IOSKeyboardFix:
+   - --visual-viewport-height
+   - --visual-viewport-width
+   - --visual-viewport-offset-top
+   - --ios-keyboard-offset
+   ============================================ */
+
+/* ─── iOS base: prevent auto-zoom on inputs ─── */
+@supports (-webkit-touch-callout: none) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+  /* Force all text inputs to 16px minimum to prevent iOS auto-zoom */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* ─── iOS body: allow normal scroll ───
+   Do NOT use position:fixed + overflow:hidden on body — that kills ALL
+   scrolling. Instead, just prevent horizontal overflow and let the page
+   scroll normally. The viewport meta already has interactiveWidget:
+   "resizes-content", so iOS resizes the viewport (not overlays it)
+   when the keyboard opens. Combined with our CSS classes that hide
+   the nav when the keyboard is open, this is sufficient. ─── */
+body.ios-device {
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Layout div on iOS: just ensure min-height ───
+   No forced height, no overflow control, no padding-bottom.
+   Each page handles its own bottom spacing via spacer divs/padding.
+   Global padding-bottom creates a persistent white bar that looks
+   like an empty nav, even when logged out. ─── */
+body.ios-device > div:first-child {
+  min-height: 100dvh;
+}
+
+/* ─── Bottom nav on iOS: smooth keyboard hide ───
+   No GPU compositing hacks (translateZ(0), will-change, backface-visibility)
+   — they trigger an iOS Safari bug where fixed-element content becomes
+   invisible. We just add a transition for the slide-down animation when
+   the keyboard opens. ─── */
+html.ios-device .ios-bottom-nav {
+  transition: transform 200ms ease-in-out;
+}
+
+/* ─── Hide bottom nav when iOS keyboard opens ─── */
+html.ios-device.ios-keyboard-open .ios-bottom-nav,
+body.ios-device.ios-keyboard-open .ios-bottom-nav {
+  transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
+  pointer-events: none !important;
+}
+
+/* ─── iOS viewport height — use instead of h-screen / 100vh ─── */
+.ios-viewport-height {
+  height: var(--visual-viewport-height, 100dvh) !important;
+}
+.ios-min-viewport-height {
+  min-height: var(--visual-viewport-height, 100dvh) !important;
+}
+
+/* ─── iOS keyboard offset for bottom-positioned elements ─── */
+.ios-keyboard-open .ios-keyboard-bottom {
+  bottom: var(--ios-keyboard-offset, 0px) !important;
+}
+
+/* Ensure layout doesn't shift when virtual keyboard appears */
+@media (max-width: 640px) {
+  html {
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+}
+
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {
   outline: 2px solid #FB8C00;

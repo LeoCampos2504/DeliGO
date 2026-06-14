@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Phone,
   MessageCircle,
+  Store,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -171,8 +172,10 @@ function HomePageContent() {
   const [searchQuery, setSearchQuery] = useState("")
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authInitialRole, setAuthInitialRole] = useState<UserType | undefined>(undefined)
+  const [authInitialMode, setAuthInitialMode] = useState<"login" | "register">("login")
   const [locationModalOpen, setLocationModalOpen] = useState(false)
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
+  const [soloDelivery, setSoloDelivery] = useState(false)
 
   const { isAuthenticated, userType, userName, logout } = useAuth()
   const authUser = useAuthStore((s) => s.user)
@@ -219,7 +222,51 @@ function HomePageContent() {
       toast.error(errorMessages[authError] || "Error al iniciar sesión con Google")
       window.history.replaceState({}, '', '/')
     }
+
+    // Handle ?register=negocio or ?register=repartidor query params
+    const registerParam = searchParams.get("register")
+    if (registerParam === "negocio" || registerParam === "repartidor") {
+      setAuthInitialRole(registerParam)
+      setAuthInitialMode("register")
+      setAuthModalOpen(true)
+      // Clean URL
+      window.history.replaceState({}, '', '/')
+    }
   }, [searchParams])
+
+  // Invalidate delivery-precios when switching to home tab so prices are always fresh
+  useEffect(() => {
+    if (activeTab === "inicio") {
+      queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+      queryClient.invalidateQueries({ queryKey: ["negocios"] })
+    }
+  }, [activeTab, queryClient])
+
+  // iOS PWA fix: invalidate queries when app becomes visible again.
+  // In standalone PWA mode, refetchOnWindowFocus doesn't fire because
+  // there's no window focus event. We use visibilitychange instead.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+        queryClient.invalidateQueries({ queryKey: ["negocios"] })
+        queryClient.invalidateQueries({ queryKey: ["negocios-promocionados"] })
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [queryClient])
+
+  // Invalidate delivery-precios when delivery address changes explicitly
+  // This ensures the prices update immediately after the user picks a new address
+  const prevAddressRef = useRef<string | null>(null)
+  useEffect(() => {
+    const addressKey = deliveryAddress ? `${deliveryAddress.lat},${deliveryAddress.lng}` : null
+    if (addressKey !== prevAddressRef.current && prevAddressRef.current !== null) {
+      queryClient.invalidateQueries({ queryKey: ["delivery-precios"] })
+    }
+    prevAddressRef.current = addressKey
+  }, [deliveryAddress, queryClient])
 
   // Fetch negocio data for business panel (only when negocio user is logged in)
   const { data: negocioData } = useQuery({
@@ -276,21 +323,42 @@ function HomePageContent() {
       isAuthenticated() &&
       userType() === "cliente" &&
       negocios.length > 0,
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 30, // 30 seconds — short staleTime for iOS PWA where visibility events may be delayed
   })
 
-  // Filter out businesses that are out of delivery zone when user has a delivery address
-  const filteredNegocios = useMemo(() => {
-    if (!deliveryPrecios || !deliveryAddress) return negocios
-    return negocios.filter((n) => {
-      // If business doesn't offer delivery or doesn't use zone-based delivery, keep it
-      if (!n.ofreceDelivery || !n.zonaDeliveryActiva) return true
-      // If we have a delivery price for this business, check if it's in zone
+  // Compute whether each business is outside delivery zone
+  const negocioOutsideZone = useMemo(() => {
+    const map: Record<string, boolean> = {}
+    if (!deliveryPrecios || !deliveryAddress) return map
+    for (const n of negocios) {
+      if (!n.ofreceDelivery || !n.zonaDeliveryActiva) {
+        map[n.id] = false // not zone-based, never outside
+        continue
+      }
       const precio = deliveryPrecios[n.id]
-      if (!precio) return true // Still loading, keep it visible
+      if (!precio) {
+        map[n.id] = false // still loading, assume ok
+        continue
+      }
+      map[n.id] = precio.delivery === false
+    }
+    return map
+  }, [negocios, deliveryPrecios, deliveryAddress])
+
+  // Filter businesses: show all by default (out-of-zone ones are pickup-only)
+  // If soloDelivery is ON, only show businesses that deliver to the user's zone
+  const filteredNegocios = useMemo(() => {
+    if (!deliveryAddress || !deliveryPrecios) return negocios
+    if (!soloDelivery) return negocios
+    // Solo delivery mode: only show businesses that deliver to user's zone
+    return negocios.filter((n) => {
+      if (!n.ofreceDelivery) return false // no delivery at all
+      if (!n.zonaDeliveryActiva) return true // flat-rate delivery, always in zone
+      const precio = deliveryPrecios[n.id]
+      if (!precio) return true // still loading
       return precio.delivery !== false
     })
-  }, [negocios, deliveryPrecios, deliveryAddress])
+  }, [negocios, deliveryPrecios, deliveryAddress, soloDelivery])
 
   const totalPromos = useMemo(
     () => filteredNegocios.reduce((sum, n) => sum + n.totalPromociones, 0),
@@ -347,8 +415,9 @@ function HomePageContent() {
     toggleFavoriteMutation.mutate(negocioId)
   }
 
-  const openAuthModal = (role?: UserType) => {
+  const openAuthModal = (role?: UserType, mode?: "login" | "register") => {
     setAuthInitialRole(role)
+    setAuthInitialMode(mode ?? "login")
     setAuthModalOpen(true)
   }
 
@@ -454,7 +523,7 @@ function HomePageContent() {
   if (isAuthenticated() && userType() === "cliente" && activeTab !== "inicio") {
     if (activeTab === "perfil") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientProfilePanel />
           <BottomNav />
         </div>
@@ -463,7 +532,7 @@ function HomePageContent() {
 
     if (activeTab === "promos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientPromosPanel deliveryPrecios={deliveryPrecios} hasDeliveryAddress={!!deliveryAddress} />
           <BottomNav />
         </div>
@@ -472,7 +541,7 @@ function HomePageContent() {
 
     if (activeTab === "favoritos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientFavoritesPanel />
           <BottomNav />
         </div>
@@ -481,7 +550,7 @@ function HomePageContent() {
 
     if (activeTab === "pedidos") {
       return (
-        <div className="min-h-screen flex flex-col bg-background">
+        <div className="min-h-dvh flex flex-col bg-background">
           <ClientOrdersPanel />
           <BottomNav />
         </div>
@@ -490,7 +559,7 @@ function HomePageContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-dvh flex flex-col bg-background">
       {/* ===== HEADER ===== */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/50">
         <div className="max-w-4xl mx-auto px-4 py-3">
@@ -724,7 +793,7 @@ function HomePageContent() {
           />
         </div>
 
-        {/* Sort Options */}
+        {/* Sort Options + Delivery Filter */}
         <div className="px-4 pb-3">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             {sortOptions.map((opt) => {
@@ -746,6 +815,29 @@ function HomePageContent() {
               )
             })}
           </div>
+
+          {/* Delivery-only toggle */}
+          {deliveryAddress && (
+            <div className="mt-2 flex items-center gap-2.5">
+              <button
+                onClick={() => setSoloDelivery(!soloDelivery)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 border",
+                  soloDelivery
+                    ? "border-primary/30 bg-primary/5 text-primary"
+                    : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                <Bike className="h-3.5 w-3.5" />
+                Solo con delivery
+              </button>
+              {soloDelivery && (
+                <span className="text-[10px] text-muted-foreground">
+                  Mostrando locales que entregan en tu zona
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Section Header */}
@@ -776,6 +868,7 @@ function HomePageContent() {
                     isToggling={toggleFavoriteMutation.isPending}
                     deliveryPrecio={deliveryPrecios?.[negocio.id]}
                     hasDeliveryAddress={!!deliveryAddress}
+                    isOutsideZone={!!negocioOutsideZone[negocio.id]}
                   />
                 </div>
               ))}
@@ -809,9 +902,9 @@ function HomePageContent() {
           </div>
         </div>
 
-        {/* Bottom spacer for nav */}
+        {/* Bottom spacer for nav — accounts for safe area on iPhone */}
         {isAuthenticated() && userType() === "cliente" && (
-          <div className="h-20" />
+          <div className="h-bottom-nav-spacer" />
         )}
       </main>
 
@@ -824,8 +917,10 @@ function HomePageContent() {
         onClose={() => {
           setAuthModalOpen(false)
           setAuthInitialRole(undefined)
+          setAuthInitialMode("login")
         }}
         initialRole={authInitialRole}
+        initialMode={authInitialMode}
       />
 
       {/* Location Picker Modal (kept for cart use) */}
@@ -858,6 +953,7 @@ function BusinessCard({
   isToggling = false,
   deliveryPrecio,
   hasDeliveryAddress = false,
+  isOutsideZone = false,
 }: {
   negocio: NegocioHome
   isFavorite?: boolean
@@ -865,6 +961,7 @@ function BusinessCard({
   isToggling?: boolean
   deliveryPrecio?: DeliveryPrecio
   hasDeliveryAddress?: boolean
+  isOutsideZone?: boolean
 }) {
   const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
 
@@ -995,7 +1092,7 @@ function BusinessCard({
 
           {/* Delivery + Promos + Ventas info row */}
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2.5">
-            {negocio.ofreceDelivery && (
+            {negocio.ofreceDelivery && !isOutsideZone && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Bike className="h-3.5 w-3.5 text-primary" />
                 <span className={cn(
@@ -1004,6 +1101,12 @@ function BusinessCard({
                 )}>
                   {deliveryLabel}
                 </span>
+              </span>
+            )}
+            {isOutsideZone && (
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <Store className="h-3.5 w-3.5" />
+                <span className="font-semibold">Solo retiro en local</span>
               </span>
             )}
             <span className="flex items-center gap-1 text-xs text-muted-foreground">

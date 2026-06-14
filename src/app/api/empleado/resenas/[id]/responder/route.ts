@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { sendPushNotification, reviewReplyNotification } from "@/lib/push"
+import { createNotification, reviewReplyNotification } from "@/lib/push"
 
 // Validate token — supports shared empleados token and legacy empleado tokens
 async function validateAccess(token: string, type?: string | null): Promise<{ negocioId: string } | null> {
@@ -72,11 +72,19 @@ export async function PATCH(
           where: { id: negocioId },
           select: { nombre: true },
         })
-        if (cliente?.pushSubscription && negocio) {
-          await sendPushNotification(
-            cliente.pushSubscription,
-            reviewReplyNotification(negocio.nombre)
-          )
+        if (negocio) {
+          const payload = reviewReplyNotification(negocio.nombre)
+          await createNotification({
+            userId: resenaWithCliente.clienteId,
+            userType: "cliente",
+            tipo: "review",
+            titulo: payload.title,
+            cuerpo: payload.body,
+            negocioId: negocioId,
+            pushSubscription: cliente?.pushSubscription,
+            pushPayload: payload,
+            cleanupExpired: { model: "cliente", id: resenaWithCliente.clienteId },
+          })
         }
       }
     } catch (pushError) {

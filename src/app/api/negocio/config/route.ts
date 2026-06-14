@@ -161,6 +161,10 @@ export async function PUT(req: NextRequest) {
     if (tiempoEntrega !== undefined) updateData.tiempoEntrega = tiempoEntrega
     if (horarios !== undefined) updateData.horarios = JSON.stringify(horarios)
     if (zonasDelivery !== undefined) updateData.zonasDelivery = JSON.stringify(zonasDelivery)
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
     if (categorias !== undefined) updateData.categorias = JSON.stringify(categorias)
     if (agregadosCategorias !== undefined) updateData.agregadosCategorias = JSON.stringify(agregadosCategorias)
     if (ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(ingredientesCategorias)
@@ -240,6 +244,10 @@ export async function PATCH(req: NextRequest) {
     if (body.tiempoEntrega !== undefined) updateData.tiempoEntrega = body.tiempoEntrega
     if (body.horarios !== undefined) updateData.horarios = JSON.stringify(body.horarios)
     if (body.zonasDelivery !== undefined) updateData.zonasDelivery = JSON.stringify(body.zonasDelivery)
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
     if (body.categorias !== undefined) updateData.categorias = JSON.stringify(body.categorias)
     if (body.agregadosCategorias !== undefined) updateData.agregadosCategorias = JSON.stringify(body.agregadosCategorias)
     if (body.ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(body.ingredientesCategorias)
@@ -247,13 +255,34 @@ export async function PATCH(req: NextRequest) {
     if (body.facebook !== undefined) updateData.facebook = body.facebook
     if (body.logoUrl !== undefined) updateData.logoUrl = body.logoUrl || null
     if (body.bannerUrl !== undefined) updateData.bannerUrl = body.bannerUrl || null
-    if (body.repartidorCodigo !== undefined) updateData.repartidorCodigo = body.repartidorCodigo
+    if (body.repartidorCodigo !== undefined) {
+      // If the code is being changed, invalidate all existing repartidor associations
+      // that used the old code so they can no longer access this negocio's orders
+      const currentNegocio = await db.negocio.findUnique({
+        where: { id: negocioId },
+        select: { repartidorCodigo: true },
+      })
+      const oldCode = currentNegocio?.repartidorCodigo
+      if (oldCode && oldCode !== body.repartidorCodigo) {
+        // Delete all repartidor associations for this negocio
+        // They will need to re-associate with the new code
+        await db.repartidorNegocio.deleteMany({
+          where: { negocioId },
+        })
+      }
+      updateData.repartidorCodigo = body.repartidorCodigo
+    }
     if (body.salonActivo !== undefined) updateData.salonActivo = body.salonActivo
     if (body.empleadosActivos !== undefined) updateData.empleadosActivos = body.empleadosActivos
     if (body.zonasSalon !== undefined) updateData.zonasSalon = JSON.stringify(body.zonasSalon)
     if (body.panelMode !== undefined) updateData.panelMode = body.panelMode
+    if (body.mostrarVentas !== undefined) updateData.mostrarVentas = body.mostrarVentas
     if (body.horarioMode !== undefined) updateData.horarioMode = body.horarioMode
     if (body.abiertoManual !== undefined) updateData.abiertoManual = body.abiertoManual
+    if (body.deliveryMode !== undefined) updateData.deliveryMode = body.deliveryMode
+    if (body.precioDelivery !== undefined) updateData.precioDelivery = body.precioDelivery
+    if (body.precioDeliveryDefault !== undefined) updateData.precioDeliveryDefault = body.precioDeliveryDefault
+    if (body.zonaDeliveryActiva !== undefined) updateData.zonaDeliveryActiva = body.zonaDeliveryActiva
 
     // Auto-generate repartidorCodigo when delivery is enabled and no code exists
     if (body.ofreceDelivery === true) {
@@ -264,6 +293,13 @@ export async function PATCH(req: NextRequest) {
       if (!current?.repartidorCodigo && !body.repartidorCodigo) {
         updateData.repartidorCodigo = `NF-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
       }
+    }
+
+    // When delivery is disabled, remove all repartidor associations
+    if (body.ofreceDelivery === false) {
+      await db.repartidorNegocio.deleteMany({
+        where: { negocioId },
+      })
     }
 
     const updated = await db.negocio.update({

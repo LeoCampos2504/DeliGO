@@ -8,6 +8,7 @@ import {
   Clock,
   Store,
   AlertTriangle,
+  ShieldAlert,
   DollarSign,
   Users,
   Bike,
@@ -15,6 +16,7 @@ import {
   LogOut,
   RefreshCw,
   Flame,
+  FileCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/shared/logo"
@@ -28,6 +30,8 @@ import { ActivosTab } from "./activos-tab"
 import { AlertasTab } from "./alertas-tab"
 import { DeudasTab } from "./deudas-tab"
 import { PromocionadosTab } from "./promocionados-tab"
+import { DenunciasTab } from "./denuncias-tab"
+import { SolicitudesDestacadoTab } from "./solicitudes-destacado-tab"
 
 // ============================================
 // Tab config
@@ -37,8 +41,10 @@ const tabItems: { id: SuperAdminTab; label: string; icon: typeof Shield }[] = [
   { id: "pendientes", label: "Pendientes", icon: Clock },
   { id: "activos", label: "Activos", icon: Store },
   { id: "promocionados", label: "Destacados", icon: Flame },
+  { id: "solicitudes-destacado", label: "Sol. Destacado", icon: FileCheck },
   { id: "alertas", label: "Alertas", icon: AlertTriangle },
   { id: "deudas", label: "Deudas", icon: DollarSign },
+  { id: "denuncias", label: "Denuncias", icon: ShieldAlert },
 ]
 
 // ============================================
@@ -115,7 +121,7 @@ export function SuperAdminPanel() {
           </div>
 
           {/* Quick stats row */}
-          <div className="mt-3 grid grid-cols-4 gap-2">
+          <div className="mt-3 grid grid-cols-5 gap-2">
             <button onClick={() => setActiveTab("pendientes")} className="text-left">
               <div className="rounded-xl bg-amber-500/10 px-2.5 py-2 transition-colors hover:bg-amber-500/15">
                 <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Pendientes</p>
@@ -132,6 +138,12 @@ export function SuperAdminPanel() {
               <div className="rounded-xl bg-red-500/10 px-2.5 py-2 transition-colors hover:bg-red-500/15">
                 <p className="text-[10px] text-red-700 dark:text-red-400 font-medium">Alertas</p>
                 <p className="text-lg font-bold text-red-800 dark:text-red-300">{stats?.alertas ?? "—"}</p>
+              </div>
+            </button>
+            <button onClick={() => setActiveTab("denuncias")} className="text-left">
+              <div className="rounded-xl bg-orange-500/10 px-2.5 py-2 transition-colors hover:bg-orange-500/15">
+                <p className="text-[10px] text-orange-700 dark:text-orange-400 font-medium">Denuncias</p>
+                <p className="text-lg font-bold text-orange-800 dark:text-orange-300">{stats?.denuncias ?? "—"}</p>
               </div>
             </button>
             <button onClick={() => setActiveTab("deudas")} className="text-left">
@@ -177,6 +189,16 @@ export function SuperAdminPanel() {
                   {tab.id === "alertas" && (stats?.alertas ?? 0) > 0 && (
                     <span className="ml-0.5 h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
                       {stats?.alertas}
+                    </span>
+                  )}
+                  {tab.id === "denuncias" && (stats?.denuncias ?? 0) > 0 && (
+                    <span className="ml-0.5 h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-orange-500 text-white">
+                      {stats?.denuncias}
+                    </span>
+                  )}
+                  {tab.id === "solicitudes-destacado" && (stats?.solicitudesDestacado ?? 0) > 0 && (
+                    <span className="ml-0.5 h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-amber-500 text-white">
+                      {stats?.solicitudesDestacado}
                     </span>
                   )}
                   {isActive && (
@@ -234,6 +256,12 @@ export function SuperAdminPanel() {
             )}
             {activeTab === "promocionados" && (
               <PromocionadosTab />
+            )}
+            {activeTab === "denuncias" && (
+              <DenunciasTab />
+            )}
+            {activeTab === "solicitudes-destacado" && (
+              <SolicitudesDestacadoTab />
             )}
           </motion.div>
         </AnimatePresence>

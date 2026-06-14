@@ -25,6 +25,7 @@ export function ChatSheet() {
     setConversations,
     setUnreadCount,
     updateConversationUnread,
+    updateConversationLastMessage,
   } = useChatStore()
 
   const { user } = useAuthStore()
@@ -55,11 +56,10 @@ export function ChatSheet() {
     setConnecting(true)
     setConnectionFailed(false)
 
-    // In development, connect directly to the chat service on port 3003
-    // In production, use relative URL (Caddy/Next.js rewrite handles routing)
-    const chatUrl = process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3003'
-      : undefined // relative URL — Next.js rewrite proxies /socket.io to port 3003
+    // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
+    const chatUrl =
+      process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
+      "http://localhost:3003"
 
     const socket = io(chatUrl, {
       transports: ["websocket", "polling"],
@@ -108,6 +108,7 @@ export function ChatSheet() {
     socket.on("new-message", (message: any) => {
       if (message && message.pedidoId) {
         addMessage(message.pedidoId, message)
+        updateConversationLastMessage(message.pedidoId, message)
 
         // Update unread count for conversation
         if (message.remitente !== getRemitenteForUserType(user.type)) {
@@ -241,7 +242,7 @@ export function ChatSheet() {
     <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md p-0 flex flex-col"
+        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh ios-viewport-height"
       >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>

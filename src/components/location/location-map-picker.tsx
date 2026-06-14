@@ -66,6 +66,10 @@ export function LocationMapPicker({
   const [referencia, setReferencia] = useState(initialAddress?.referencia ?? "")
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false)
   const [hasUserInteracted, setHasUserInteracted] = useState(!!initialAddress)
+  // Track if GPS was used successfully — controls the big CTA visibility
+  const [gpsUsed, setGpsUsed] = useState(false)
+  // Track if GPS auto-request was already attempted
+  const gpsAutoRequestedRef = useRef(false)
 
   // Debounce timer for reverse geocoding on map move
   const reverseGeocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -148,6 +152,43 @@ export function LocationMapPicker({
       reverseGeocode(initialCenter)
     }
 
+    // Auto-request GPS on first mount (after a short delay).
+    // Most browsers allow geolocation prompts on page load,
+    // and this ensures the user sees the permission dialog immediately.
+    if (!initialAddress && !gpsAutoRequestedRef.current) {
+      gpsAutoRequestedRef.current = true
+      setTimeout(() => {
+        if (navigator.geolocation && mapInstanceRef.current) {
+          setIsLocating(true)
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const newCoords: [number, number] = [
+                Math.round(position.coords.latitude * 1000000) / 1000000,
+                Math.round(position.coords.longitude * 1000000) / 1000000,
+              ]
+              setCoords(newCoords)
+              setHasUserInteracted(true)
+              setGpsUsed(true)
+              if (mapInstanceRef.current) {
+                mapInstanceRef.current.setView(newCoords, GPS_ZOOM, { animate: true })
+              }
+              reverseGeocode(newCoords)
+              setIsLocating(false)
+            },
+            () => {
+              // Auto-request failed — user will see the manual CTA button
+              setIsLocating(false)
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 8000,
+              maximumAge: 60000,
+            }
+          )
+        }
+      }, 800) // Small delay to let the map render first
+    }
+
     return () => {
       if (reverseGeocodeTimerRef.current) {
         clearTimeout(reverseGeocodeTimerRef.current)
@@ -158,7 +199,7 @@ export function LocationMapPicker({
   // Only run once on mount
   }, [])
 
-  // GPS location
+  // GPS location — triggered by user tap (required by browsers for permission prompt)
   const handleGetLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsError("Tu navegador no soporta geolocalización")
@@ -176,6 +217,7 @@ export function LocationMapPicker({
         ]
         setCoords(newCoords)
         setHasUserInteracted(true)
+        setGpsUsed(true)
 
         if (mapInstanceRef.current) {
           mapInstanceRef.current.setView(newCoords, GPS_ZOOM, { animate: true })
@@ -284,11 +326,43 @@ export function LocationMapPicker({
         )}
       </div>
 
+      {/* ===== GPS PROMPT — Prominent CTA when no initial address ===== */}
+      {!initialAddress && !gpsUsed && !gpsError && (
+        <button
+          onClick={handleGetLocation}
+          disabled={isLocating}
+          className="w-full flex items-center justify-center gap-2.5 h-12 rounded-2xl font-bold text-white text-sm transition-all active:scale-[0.98]"
+          style={{
+            backgroundColor: colorPrincipal,
+            boxShadow: `0 4px 14px ${colorPrincipal}30`,
+          }}
+        >
+          {isLocating ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Obteniendo ubicación...
+            </>
+          ) : (
+            <>
+              <Crosshair className="h-5 w-5" />
+              Usar mi ubicación actual
+            </>
+          )}
+        </button>
+      )}
+
       {/* GPS Error */}
       {gpsError && (
         <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
           <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700 dark:text-red-300">{gpsError}</p>
+          <div className="flex-1">
+            <p className="text-xs text-red-700 dark:text-red-300">{gpsError}</p>
+            {gpsError.includes("denegado") && (
+              <p className="text-[11px] text-red-600/70 dark:text-red-400/70 mt-1">
+                Podés mover el mapa manualmente para ubicar tu dirección.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -296,7 +370,9 @@ export function LocationMapPicker({
       <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
         <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700 dark:text-amber-300">
-          Arrastrá el mapa para posicionar el pin en tu ubicación. Usá el botón de GPS para mayor precisión.
+          {gpsUsed
+            ? "Arrastrá el mapa para ajustar la posición del pin si es necesario."
+            : "Tocá \"Usar mi ubicación\" para centrar el mapa, o arrastrá el mapa manualmente."}
         </p>
       </div>
 

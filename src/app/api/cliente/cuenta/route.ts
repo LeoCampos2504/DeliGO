@@ -21,13 +21,42 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
-    // Delete the cliente (cascade will handle relations)
-    await db.cliente.delete({ where: { id: cliente.id } })
+    const clienteId = cliente.id
 
-    // Also delete the session
+    // Use a transaction to explicitly delete ALL related records before deleting the cliente.
+    // This ensures the delete works even if PostgreSQL cascade constraints aren't properly set
+    // at the database level (common issue after migrations or prisma db push).
+    await db.$transaction(async (tx) => {
+      // 1. Delete resenas (cascade from cliente)
+      await tx.resena.deleteMany({ where: { clienteId } })
+
+      // 2. Set clienteId to null on pedidos (SetNull from cliente)
+      await tx.pedido.updateMany({
+        where: { clienteId },
+        data: { clienteId: null },
+      })
+
+      // 3. Set clienteId to null on chat mensajes (SetNull from cliente)
+      await tx.chatMensaje.updateMany({
+        where: { clienteId },
+        data: { clienteId: null },
+      })
+
+      // 4. Delete favoritos (cascade from cliente)
+      await tx.favorito.deleteMany({ where: { clienteId } })
+
+      // 5. Delete direcciones (cascade from cliente)
+      await tx.direccion.deleteMany({ where: { clienteId } })
+
+      // 6. Finally, delete the cliente itself
+      await tx.cliente.delete({ where: { id: clienteId } })
+    }, { timeout: 15000 })
+
+    // Delete the session (outside transaction — it's independent)
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (token) {
-      await db.sesion.delete({ where: { token } }).catch(() => {})
+      // Delete ALL sessions for this user, not just the current one
+      await db.sesion.deleteMany({ where: { userId: clienteId } }).catch(() => {})
     }
 
     const response = NextResponse.json({
@@ -39,7 +68,9 @@ export async function DELETE(req: NextRequest) {
     return response
   } catch (error) {
     console.error("Cuenta DELETE error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    // Provide more specific error info for debugging
+    const errorMsg = error instanceof Error ? error.message : "Error interno del servidor"
+    return NextResponse.json({ error: "Error al eliminar la cuenta. Intentá de nuevo más tarde.", detail: errorMsg }, { status: 500 })
   }
 }
 

@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
       id: repartidor.id,
       nombre: repartidor.nombre,
       email: repartidor.email,
+      googleId: repartidor.googleId,
       telefono: repartidor.telefono,
       activo: repartidor.activo,
       fechaRegistro: repartidor.fechaRegistro,
@@ -97,6 +98,14 @@ export async function PUT(req: NextRequest) {
       const repartidor = await db.repartidor.findFirst({ where: { id: user.id, eliminado: false } })
       if (!repartidor) {
         return NextResponse.json({ error: "Repartidor no encontrado" }, { status: 404 })
+      }
+
+      // Google OAuth users can't change password (they don't have one)
+      if (!repartidor.password) {
+        return NextResponse.json(
+          { error: "Tu cuenta usa Google. No tenés contraseña configurada." },
+          { status: 400 }
+        )
       }
 
       const valid = await comparePassword(currentPassword, repartidor.password)

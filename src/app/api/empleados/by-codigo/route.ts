@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
         codigo: true,
         rol: true,
         activo: true,
+        token: true,
       },
     })
 

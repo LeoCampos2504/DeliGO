@@ -6,11 +6,16 @@ import { io, Socket } from "socket.io-client"
 interface ActiveDelivery {
   id: string
   estado: string
+  repartidorId?: string | null
 }
 
 /**
  * Automatically sends GPS location to the server every 5 seconds
- * for all active deliveries (en_camino).
+ * for all active deliveries (en_camino) that the repartidor has ACCEPTED.
+ * 
+ * KEY: Only shares location for orders where repartidorId is set (accepted).
+ * Pending available orders (no repartidorId) are NOT tracked.
+ * 
  * Also broadcasts via Socket.IO for real-time client tracking.
  *
  * - Uses getCurrentPosition on an interval (battery-friendly)
@@ -30,11 +35,14 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   }, [activeDeliveries])
 
   // Connect to Socket.IO for real-time location broadcasting
+  // ONLY for accepted deliveries (repartidorId is set)
   useEffect(() => {
-    const enCamino = activeDeliveries.filter((d) => d.estado === "en_camino")
+    const enCamino = activeDeliveries.filter(
+      (d) => d.estado === "en_camino" && d.repartidorId
+    )
 
     if (enCamino.length === 0) {
-      // No active deliveries — disconnect socket
+      // No accepted deliveries — disconnect socket
       if (socketRef.current) {
         socketRef.current.disconnect()
         socketRef.current = null
@@ -51,9 +59,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (!user) return
       userIdRef.current = user.id
 
-      const chatUrl = process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3003'
-        : undefined
+      const chatUrl =
+        process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
+        "http://localhost:3003"
 
       const socket = io(chatUrl, {
         transports: ["websocket", "polling"],
@@ -69,8 +77,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       })
 
       socket.on("connect", () => {
-        // Join rooms for all active deliveries
-        const current = deliveriesRef.current.filter((d) => d.estado === "en_camino")
+        // Join rooms for all accepted deliveries
+        const current = deliveriesRef.current.filter(
+          (d) => d.estado === "en_camino" && d.repartidorId
+        )
         current.forEach((d) => {
           socket.emit("join-room", d.id)
         })
@@ -87,18 +97,21 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     }
   }, [activeDeliveries])
 
-  // Join new rooms when deliveries change
+  // Join new rooms when accepted deliveries change
   useEffect(() => {
     if (!socketRef.current?.connected) return
-    const enCamino = activeDeliveries.filter((d) => d.estado === "en_camino")
+    const enCamino = activeDeliveries.filter(
+      (d) => d.estado === "en_camino" && d.repartidorId
+    )
     enCamino.forEach((d) => {
       socketRef.current?.emit("join-room", d.id)
     })
   }, [activeDeliveries])
 
   const sendLocation = useCallback(async (lat: number, lng: number) => {
+    // Only send location for accepted deliveries (repartidorId is set)
     const deliveries = deliveriesRef.current.filter(
-      (d) => d.estado === "en_camino"
+      (d) => d.estado === "en_camino" && d.repartidorId
     )
 
     const timestamp = new Date().toISOString()
@@ -139,7 +152,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     if (document.visibilityState !== "visible") return
 
     const hasActive = deliveriesRef.current.some(
-      (d) => d.estado === "en_camino"
+      (d) => d.estado === "en_camino" && d.repartidorId
     )
     if (!hasActive) return
 
@@ -163,7 +176,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
   useEffect(() => {
     const enCamino = activeDeliveries.filter(
-      (d) => d.estado === "en_camino"
+      (d) => d.estado === "en_camino" && d.repartidorId
     )
 
     if (enCamino.length > 0 && !intervalRef.current) {
@@ -185,7 +198,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   }, [activeDeliveries, tick])
 
   const trackingActive = activeDeliveries.some(
-    (d) => d.estado === "en_camino"
+    (d) => d.estado === "en_camino" && d.repartidorId
   )
 
   return { trackingActive }

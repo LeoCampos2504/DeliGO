@@ -29,6 +29,8 @@ export async function GET(req: NextRequest) {
         bannerUrl: true,
         deudaTarifa: true,
         limiteDeuda: true,
+        destacadoHasta: true,
+        promocionado: true,
         panelMode: true,
       },
     })
@@ -108,6 +110,8 @@ export async function GET(req: NextRequest) {
         resenasSinRespuesta,
         deudaTarifa: negocio.deudaTarifa ?? 0,
         limiteDeuda: negocio.limiteDeuda,
+        destacadoHasta: negocio.destacadoHasta?.toISOString() ?? null,
+        promocionado: negocio.promocionado,
         pedidosRecientes: recentOrders.map((o) => ({
           id: o.id,
           clienteNombre: o.clienteNombre,

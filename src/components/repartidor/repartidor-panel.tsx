@@ -14,10 +14,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Logo } from "@/components/shared/logo"
+import { NotificationBell } from "@/components/shared/notification-center"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/store/auth-store"
 import { useRepartidorStore, type RepartidorTab } from "@/store/repartidor-store"
+import type { NotificationItem } from "@/store/notification-store"
 import { DeliveriesTab } from "./deliveries-tab"
 import { NegociosTab } from "./negocios-tab"
 import { HistoryTab } from "./history-tab"
@@ -41,6 +43,37 @@ export function RepartidorPanel() {
   const { logout } = useAuth()
   const authUser = useAuthStore((s) => s.user)
   const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Handle notification click → navigate to correct tab
+  const handleNotificationNavigate = useCallback((tab: string, _notif: NotificationItem) => {
+    const tabMap: Record<string, RepartidorTab> = {
+      entregas: "entregas",
+      negocios: "negocios",
+      historial: "historial",
+      perfil: "perfil",
+    }
+    const target = tabMap[tab]
+    if (target) setActiveTab(target)
+  }, [setActiveTab])
+
+  // Handle URL tab parameter (from push notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get("tab")
+    if (tabParam) {
+      const tabMap: Record<string, RepartidorTab> = {
+        entregas: "entregas",
+        negocios: "negocios",
+        historial: "historial",
+        perfil: "perfil",
+      }
+      const target = tabMap[tabParam]
+      if (target) {
+        setActiveTab(target)
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    }
+  }, [setActiveTab])
 
   // Fetch repartidor profile
   const { data: perfil, isLoading: perfilLoading } = useQuery({
@@ -101,6 +134,7 @@ export function RepartidorPanel() {
           <div className="flex items-center justify-between">
             <Logo size="sm" />
             <div className="flex items-center gap-1.5">
+              <NotificationBell onNavigate={handleNotificationNavigate} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -214,6 +248,8 @@ export function RepartidorPanel() {
             {activeTab === "entregas" && (
               <DeliveriesTab
                 pedidos={pedidosData?.pedidos ?? []}
+                disponibles={pedidosData?.disponibles ?? []}
+                mios={pedidosData?.mios ?? []}
                 isLoading={pedidosLoading}
                 onRefresh={handleRefresh}
               />

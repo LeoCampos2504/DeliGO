@@ -588,6 +588,7 @@ function ProductPicker({
 }) {
   const [search, setSearch] = useState("")
   const [manualExpandedCats, setManualExpandedCats] = useState<Set<string>>(new Set())
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set())
 
   // Group products by category
   const productsByCategory = useMemo(() => {
@@ -609,7 +610,7 @@ function ProductPicker({
 
   const categories = Array.from(productsByCategory.keys())
 
-  // Auto-expand categories that have selected products - derive during render
+  // Auto-expand categories that have selected products
   const autoExpandedCats = useMemo(() => {
     const result = new Set<string>()
     for (const [cat, prods] of productsByCategory) {
@@ -620,22 +621,37 @@ function ProductPicker({
     return result
   }, [productsByCategory, selectedIds])
 
-  // Merge auto-expanded with manually toggled
+  // Merge: auto-expanded + manually expanded, MINUS explicitly collapsed
   const expandedCats = useMemo(() => {
     const merged = new Set(autoExpandedCats)
     for (const cat of manualExpandedCats) {
       merged.add(cat)
     }
+    // Explicitly collapsed categories override auto-expand
+    for (const cat of collapsedCats) {
+      merged.delete(cat)
+    }
     return merged
-  }, [autoExpandedCats, manualExpandedCats])
+  }, [autoExpandedCats, manualExpandedCats, collapsedCats])
 
   const toggleCat = (cat: string) => {
-    setManualExpandedCats((prev) => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
+    if (expandedCats.has(cat)) {
+      // Currently expanded → collapse it
+      setManualExpandedCats((prev) => {
+        const next = new Set(prev)
+        next.delete(cat)
+        return next
+      })
+      setCollapsedCats((prev) => new Set(prev).add(cat))
+    } else {
+      // Currently collapsed → expand it
+      setCollapsedCats((prev) => {
+        const next = new Set(prev)
+        next.delete(cat)
+        return next
+      })
+      setManualExpandedCats((prev) => new Set(prev).add(cat))
+    }
   }
 
   const selectAllInCategory = (cat: string) => {

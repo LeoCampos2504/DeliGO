@@ -16,5 +16,23 @@
     { "src": "/icon-negocio-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon-negocio-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
-  "prefer_related_applications": false
+  "capture_links": "existing-client-navigate",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Pedidos",
+      "short_name": "Pedidos",
+      "url": "/negocio?tab=pedidos",
+      "icons": [{ "src": "/icon-negocio-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Catálogo",
+      "short_name": "Catálogo",
+      "url": "/negocio?tab=productos",
+      "icons": [{ "src": "/icon-negocio-192x192.png", "sizes": "192x192" }]
+    }
+  ]
 }

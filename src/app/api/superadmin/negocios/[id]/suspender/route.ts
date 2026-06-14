@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { sendPushNotification, negocioSuspendedNotification } from "@/lib/push"
+import { createNotification, negocioSuspendedNotification } from "@/lib/push"
 import { auditLog } from "@/lib/audit"
 
 async function verifySuperAdmin(req: NextRequest) {
@@ -35,12 +35,18 @@ export async function POST(
 
     // Notify negocio that they were suspended
     try {
-      if (negocio.pushSubscription) {
-        await sendPushNotification(
-          negocio.pushSubscription,
-          negocioSuspendedNotification(negocio.nombre)
-        )
-      }
+      const payload = negocioSuspendedNotification(negocio.nombre)
+      await createNotification({
+        userId: id,
+        userType: "negocio",
+        tipo: "account_update",
+        titulo: payload.title,
+        cuerpo: payload.body,
+        negocioId: id,
+        pushSubscription: negocio.pushSubscription,
+        pushPayload: payload,
+        cleanupExpired: { model: "negocio", id },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send suspension notification:", pushError)
     }

@@ -1,7 +1,7 @@
 // ============================================
 // DeliGO - Push Notification Utilities
 // ============================================
-// VAPID-based web push notifications
+// VAPID-based web push notifications + DB persistence
 
 import webpush from "web-push"
 
@@ -29,6 +29,17 @@ export function getVapidPublicKey(): string {
 // Push Notification Types
 // ============================================
 
+export type NotificationType =
+  | "order_update"
+  | "new_order"
+  | "new_delivery"
+  | "review"
+  | "chat"
+  | "general"
+  | "review_request"
+  | "account_update"
+  | "mesa_order_ready"
+
 export interface PushNotificationPayload {
   title: string
   body: string
@@ -37,7 +48,7 @@ export interface PushNotificationPayload {
   image?: string
   tag?: string
   data?: {
-    type: "order_update" | "new_order" | "new_delivery" | "review" | "chat" | "general" | "review_request" | "account_update"
+    type: NotificationType
     url?: string
     pedidoId?: string
     negocioId?: string
@@ -53,7 +64,146 @@ export interface PushNotificationPayload {
 }
 
 // ============================================
-// Send Push Notification
+// Navigation Target per Role
+// ============================================
+// When a notification is clicked, we navigate the user to the correct tab/section
+
+export interface NavigationTarget {
+  cliente?: string   // tab for cliente page
+  negocio?: string   // tab for negocio panel
+  repartidor?: string // tab for repartidor panel
+  empleado?: string  // tab/section for empleado (e.g., salon)
+}
+
+// Maps notification type → navigation target per role
+function getNavigationTarget(
+  tipo: NotificationType,
+  pedidoId?: string | null,
+  negocioId?: string | null
+): NavigationTarget {
+  switch (tipo) {
+    case "new_order":
+      return {
+        negocio: `pedidos`,
+        // For negocio, we also want to highlight the specific order
+      }
+    case "order_update":
+      return {
+        cliente: "pedidos",
+        negocio: "pedidos",
+        repartidor: "entregas",
+      }
+    case "new_delivery":
+      return {
+        repartidor: "entregas",
+      }
+    case "chat":
+      return {
+        cliente: "pedidos",
+        negocio: "pedidos",
+        repartidor: "entregas",
+      }
+    case "review":
+      return {
+        negocio: "resenas",
+        cliente: "pedidos",
+      }
+    case "review_request":
+      return {
+        cliente: "pedidos",
+      }
+    case "account_update":
+      return {
+        negocio: "config",
+      }
+    case "mesa_order_ready":
+      return {
+        // Mozo notifications go back to the salon page
+        empleado: "salon",
+      }
+    default:
+      return {}
+  }
+}
+
+// ============================================
+// Create + Persist Notification
+// ============================================
+
+interface CreateNotificationParams {
+  userId: string
+  userType: string // "cliente" | "negocio" | "repartidor" | "superadmin" | "empleado"
+  tipo: NotificationType
+  titulo: string
+  cuerpo: string
+  pedidoId?: string | null
+  negocioId?: string | null
+  /** Additional data for navigation/action (JSON-serializable) */
+  datos?: Record<string, unknown>
+  /** If provided, also send a push notification to this subscription */
+  pushSubscription?: string | null
+  pushPayload?: PushNotificationPayload
+  /** If provided, clean up expired push subscription on failure */
+  cleanupExpired?: { model: string; id: string }
+}
+
+/**
+ * Creates a notification in the database and optionally sends a push notification.
+ * This is the main entry point for all notification creation.
+ */
+export async function createNotification(params: CreateNotificationParams): Promise<void> {
+  const {
+    userId,
+    userType,
+    tipo,
+    titulo,
+    cuerpo,
+    pedidoId,
+    negocioId,
+    datos,
+    pushSubscription,
+    pushPayload,
+    cleanupExpired,
+  } = params
+
+  // Build navigation data
+  const navTarget = getNavigationTarget(tipo, pedidoId, negocioId)
+  const navigationData: Record<string, unknown> = {
+    ...datos,
+    // Store the navigation target for the recipient's role
+    navigateTo: navTarget,
+  }
+
+  // 1. Persist notification in DB
+  try {
+    const { db } = await import("@/lib/db")
+    await db.notificacion.create({
+      data: {
+        userId,
+        userType,
+        tipo,
+        titulo,
+        cuerpo,
+        pedidoId: pedidoId || null,
+        negocioId: negocioId || null,
+        datos: JSON.stringify(navigationData),
+      },
+    })
+  } catch (error) {
+    console.error("[Notificacion] Error persisting notification:", error)
+    // Don't fail the whole operation if DB write fails
+  }
+
+  // 2. Send push notification if subscription exists
+  if (pushSubscription && pushPayload) {
+    sendPushNotification(pushSubscription, pushPayload, cleanupExpired).catch((err) => {
+      console.error("[Push] Error sending push notification:", err)
+    })
+  }
+}
+
+// ============================================
+// Send Push Notification (raw push only)
 // ============================================
 
 export async function sendPushNotification(
@@ -84,10 +234,11 @@ export async function sendPushNotification(
             negocio: "negocio",
             repartidor: "repartidor",
             superadmin: "superAdmin",
+            empleado: "empleado",
           }
           const prismaModel = modelMap[cleanupExpired.model]
           if (prismaModel) {
-            // @ts-expect-error — dynamic model access for cleanup
+            // Dynamic model access for cleanup
             await db[prismaModel].update({
               where: { id: cleanupExpired.id },
               data: { pushSubscription: null },
@@ -360,6 +511,27 @@ export function reviewRequestNotification(
     },
     actions: [
       { action: "review", title: "Calificar" },
+    ],
+    requireInteraction: true,
+  }
+}
+
+export function mesaOrderReadyNotification(
+  pedidoId: string,
+  mesaNumero: number,
+  clienteNombre: string
+): PushNotificationPayload {
+  return {
+    title: `Mesa ${mesaNumero} — Pedido listo 🍽️`,
+    body: `El pedido de ${clienteNombre} en la mesa ${mesaNumero} está listo para servir`,
+    tag: `mesa-ready-${pedidoId}`,
+    data: {
+      type: "mesa_order_ready",
+      pedidoId,
+      mesaNumero,
+    },
+    actions: [
+      { action: "view", title: "Ver pedido" },
     ],
     requireInteraction: true,
   }

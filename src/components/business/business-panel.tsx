@@ -23,8 +23,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Logo } from "@/components/shared/logo"
+import { NotificationBell } from "@/components/shared/notification-center"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
+import type { NotificationItem } from "@/store/notification-store"
 import { DashboardTab } from "./dashboard-tab"
 import { ProductsTab } from "./products-tab"
 import { OrdersTab } from "./orders-tab"
@@ -86,11 +88,42 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   const { logout } = useAuth()
   const queryClient = useQueryClient()
 
-  // Sync horario state with negocio prop changes (from query refetch)
+  // Fetch negocio config to get accurate horarioMode/abiertoManual from the database
+  const { data: configData } = useQuery({
+    queryKey: ["negocio-config", negocio.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/negocio/config?negocioId=${negocio.id}`)
+      if (!res.ok) throw new Error("Error")
+      const json = await res.json()
+      return json.data ?? json
+    },
+    staleTime: 0,
+  })
+
+  // Handle notification click → navigate to correct tab
+  const handleNotificationNavigate = useCallback((tab: string, _notif: NotificationItem) => {
+    // Map notification tab names to PanelTab
+    const tabMap: Record<string, PanelTab> = {
+      pedidos: "pedidos",
+      resenas: "resenas",
+      config: "config",
+      dashboard: "dashboard",
+      ventas: "ventas",
+      productos: "productos",
+      salon: "salon",
+    }
+    const target = tabMap[tab]
+    if (target) setActiveTab(target)
+  }, [])
+
+  // Sync horario state with negocio prop changes AND config query data
   useEffect(() => {
-    if (negocio.horarioMode !== undefined) setHorarioMode(negocio.horarioMode)
-    if (negocio.abiertoManual !== undefined) setAbiertoManual(negocio.abiertoManual !== false)
-  }, [negocio.horarioMode, negocio.abiertoManual])
+    // Prefer configData (from negocio-config query) as it's the most authoritative source
+    const sourceMode = configData?.horarioMode ?? negocio.horarioMode
+    const sourceAbierto = configData?.abiertoManual ?? negocio.abiertoManual
+    if (sourceMode !== undefined) setHorarioMode(sourceMode)
+    if (sourceAbierto !== undefined) setAbiertoManual(sourceAbierto !== false)
+  }, [configData?.horarioMode, configData?.abiertoManual, negocio.horarioMode, negocio.abiertoManual])
 
   // Handler for horario changes from config-tab or header toggle
   const handleHorarioChange = useCallback(async (changes: { horarioMode?: string; abiertoManual?: boolean }) => {
@@ -175,6 +208,29 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
     loadMode()
   }, [])
 
+  // Handle URL tab parameter (from push notification click)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get("tab")
+    if (tabParam) {
+      const tabMap: Record<string, PanelTab> = {
+        dashboard: "dashboard",
+        ventas: "ventas",
+        productos: "productos",
+        pedidos: "pedidos",
+        resenas: "resenas",
+        salon: "salon",
+        config: "config",
+      }
+      const target = tabMap[tabParam]
+      if (target) {
+        setActiveTab(target)
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    }
+  }, [])
+
   const handleModeChange = useCallback((newMode: PanelMode) => {
     setMode(newMode)
     // Save to database (fire and forget)
@@ -210,6 +266,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
           <div className="flex items-center justify-between">
             <Logo size="sm" />
             <div className="flex items-center gap-1.5">
+              <NotificationBell onNavigate={handleNotificationNavigate} />
               {/* Simple mode: Open/Closed toggle */}
               {horarioMode === "simple" && (
                 <Button

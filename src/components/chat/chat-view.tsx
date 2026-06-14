@@ -71,6 +71,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
     setLoadingMessages,
     setSending,
     updateConversationUnread,
+    updateConversationLastMessage,
   } = useChatStore()
 
   const { user } = useAuthStore()
@@ -83,6 +84,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   const [attachPopoverOpen, setAttachPopoverOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -125,8 +127,9 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
   // Auto-scroll to bottom
   useEffect(() => {
-    if (isAtBottomRef.current && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+    const container = messagesContainerRef.current
+    if (isAtBottomRef.current && container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" })
     }
   }, [currentMessages])
 
@@ -327,6 +330,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       // Add message to local state
       if (data.mensaje) {
         addMessage(pedidoId, data.mensaje)
+        updateConversationLastMessage(pedidoId, data.mensaje)
 
         // Broadcast via socket to other users in the room
         const socket = getSocket()
@@ -349,7 +353,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
     } finally {
       setSending(false)
     }
-  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, setSending, getSocket])
+  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, updateConversationLastMessage, setSending, getSocket])
 
   // Typing indicator
   const handleTyping = useCallback(
@@ -401,9 +405,9 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   const canSend = (messageText.trim() || pendingAttachment) && !isSending && !isUploading
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border/50 bg-card">
+      <div className="shrink-0 px-4 py-3 border-b border-border/50 bg-card">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -474,7 +478,8 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Messages */}
       <div
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-1"
+        ref={messagesContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1"
         onScroll={handleScroll}
       >
         {isLoading ? (
@@ -548,7 +553,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Upload progress bar */}
       {isUploading && (
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <div className="flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
             <span className="text-xs text-muted-foreground">Subiendo archivo...</span>
@@ -559,7 +564,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
       {/* Pending attachment preview */}
       {pendingAttachment && !isUploading && (
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <div className="flex items-center gap-2 p-2 rounded-xl bg-muted/50 border border-border/50">
             {pendingAttachment.type === "image" && pendingAttachment.preview ? (
               <div className="relative w-12 h-12 rounded-lg overflow-hidden shrink-0">
@@ -595,7 +600,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       )}
 
       {/* Input */}
-      <div className="px-3 py-3 border-t border-border/50 bg-card">
+      <div className="shrink-0 px-3 py-3 border-t border-border/50 bg-card">
         <div className="flex items-center gap-1.5">
           {/* Paperclip attachment popover */}
           <Popover open={attachPopoverOpen} onOpenChange={setAttachPopoverOpen}>

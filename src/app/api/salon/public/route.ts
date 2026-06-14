@@ -74,6 +74,23 @@ export async function GET(req: NextRequest) {
       })),
     }))
 
+    // Fetch empleados (mozos) that have mesas assigned — for notification identification
+    const empleados = await db.empleado.findMany({
+      where: {
+        negocioId: negocio.id,
+        activo: true,
+        eliminado: false,
+        mesas: { some: {} }, // only empleados with at least one assigned mesa
+      },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        pushSubscription: true,
+      },
+      orderBy: { nombre: "asc" },
+    })
+
     return NextResponse.json({
       negocio: {
         id: negocio.id,
@@ -84,6 +101,12 @@ export async function GET(req: NextRequest) {
       },
       mesas,
       pedidos: pedidosParsed,
+      empleados: empleados.map(e => ({
+        id: e.id,
+        nombre: e.nombre,
+        codigo: e.codigo,
+        hasPushSubscription: !!e.pushSubscription,
+      })),
     })
   } catch (error) {
     console.error("Error getting salon public data:", error)

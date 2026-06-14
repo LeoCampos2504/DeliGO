@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { sendPushNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 
@@ -184,21 +184,26 @@ export async function PATCH(
       })
     }
 
-    // Send push notification to the client about order status update
+    // Send notification to the client about order status update
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        if (cliente?.pushSubscription) {
-          const notification = orderUpdateNotification(
-            pedidoId,
-            pedido.negocioNombre,
-            estado
-          )
-          await sendPushNotification(cliente.pushSubscription, notification)
-        }
+        const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          pedidoId: pedidoId,
+          negocioId: negocioId,
+          pushSubscription: cliente?.pushSubscription ?? null,
+          pushPayload: payload,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
       } catch (pushError) {
         console.error("[Push] Failed to send order update notification:", pushError)
       }
@@ -214,11 +219,20 @@ export async function PATCH(
           },
         })
         for (const rn of repartidores) {
-          if (rn.repartidor.activo && rn.repartidor.pushSubscription) {
-            await sendPushNotification(
-              rn.repartidor.pushSubscription,
-              newDeliveryNotification(pedidoId, pedido.negocioNombre, pedido.direccion || "")
-            )
+          if (rn.repartidor.activo) {
+            const payload = newDeliveryNotification(pedidoId, pedido.negocioNombre, pedido.direccion || "")
+            await createNotification({
+              userId: rn.repartidor.id,
+              userType: "repartidor",
+              tipo: "new_delivery",
+              titulo: payload.title,
+              cuerpo: payload.body,
+              pedidoId: pedidoId,
+              negocioId: negocioId,
+              pushSubscription: rn.repartidor.pushSubscription,
+              pushPayload: payload,
+              cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
+            })
           }
         }
       } catch (pushError) {
@@ -240,12 +254,19 @@ export async function PATCH(
               where: { id: pedido.clienteId! },
               select: { pushSubscription: true },
             })
-            if (clienteForReview?.pushSubscription) {
-              await sendPushNotification(
-                clienteForReview.pushSubscription,
-                reviewRequestNotification(pedidoId, negocioNombre)
-              )
-            }
+            const payload = reviewRequestNotification(pedidoId, negocioNombre)
+            await createNotification({
+              userId: pedido.clienteId!,
+              userType: "cliente",
+              tipo: "review_request",
+              titulo: payload.title,
+              cuerpo: payload.body,
+              pedidoId: pedidoId,
+              negocioId: negocioId,
+              pushSubscription: clienteForReview?.pushSubscription ?? null,
+              pushPayload: payload,
+              cleanupExpired: { model: "cliente", id: pedido.clienteId! },
+            })
           }
         } catch (reviewPushError) {
           console.error("[Push] Failed to send review request notification:", reviewPushError)

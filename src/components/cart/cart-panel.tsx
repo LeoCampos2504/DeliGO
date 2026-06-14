@@ -23,6 +23,7 @@ import {
   Clock,
   Armchair,
   UserCheck,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -47,6 +48,9 @@ interface NegocioAPI {
   tiempoEntrega: number
   aceptaTransferencia: boolean
   aliasBancario: string
+  lat?: number | null
+  lng?: number | null
+  direccion?: string | null
 }
 
 interface CartPanelProps {
@@ -145,6 +149,9 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   const [metodoEntrega, setMetodoEntrega] = useState<"retiro" | "domicilio" | "mesa">(
     isMesaOrder ? "mesa" : (negocio.ofreceDelivery ? "domicilio" : "retiro")
   )
+
+  // Track whether delivery is unavailable due to zone
+  const [deliveryUnavailable, setDeliveryUnavailable] = useState(false)
   const [metodoPago, setMetodoPago] = useState<"efectivo" | "transferencia">("efectivo")
   const [empleadoCodigo, setEmpleadoCodigo] = useState(mozoCodigo ?? "")
   const [notas, setNotas] = useState("")
@@ -174,10 +181,11 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   } | null>(null)
   const [checkingZone, setCheckingZone] = useState(false)
 
-  // Check delivery zone when address changes
+  // Check delivery zone when address changes (check regardless of metodoEntrega so we know if delivery is available)
   useEffect(() => {
-    if (metodoEntrega !== "domicilio" || !deliveryAddress?.lat || !deliveryAddress?.lng) {
+    if (!deliveryAddress?.lat || !deliveryAddress?.lng || !negocio.ofreceDelivery) {
       setDeliveryZoneInfo(null)
+      setDeliveryUnavailable(false)
       return
     }
     let cancelled = false
@@ -186,14 +194,21 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return
-        setDeliveryZoneInfo({
+        const zoneInfo = {
           checked: true,
           delivery: data.delivery ?? false,
           precioDelivery: data.precioDelivery ?? negocio.precioDelivery,
           zonaNombre: data.zonaNombre ?? null,
           reason: data.reason ?? null,
           mode: data.mode ?? null,
-        })
+        }
+        setDeliveryZoneInfo(zoneInfo)
+        const outsideZone = zoneInfo.checked && !zoneInfo.delivery && zoneInfo.reason === "outside_zones"
+        setDeliveryUnavailable(outsideZone)
+        // If outside zone and currently on domicilio, switch to retiro
+        if (outsideZone && metodoEntrega === "domicilio") {
+          setMetodoEntrega("retiro")
+        }
         // Update cart store with the zone-specific price
         if (data.delivery) {
           setActiveNegocio(negocio.id, negocio.slug, negocio.nombre, data.precioDelivery ?? negocio.precioDelivery)
@@ -203,10 +218,11 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
       .catch(() => {
         if (cancelled) return
         setDeliveryZoneInfo(null)
+        setDeliveryUnavailable(false)
         setCheckingZone(false)
       })
     return () => { cancelled = true }
-  }, [metodoEntrega, deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio])
+  }, [deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio, negocio.ofreceDelivery, metodoEntrega])
 
   const deliveryFee = metodoEntrega === "domicilio" ? storePrecioDelivery : 0
   const isOutsideDeliveryZone = deliveryZoneInfo?.checked && !deliveryZoneInfo.delivery && deliveryZoneInfo.reason === "outside_zones"
@@ -316,7 +332,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
     <>
       {/* ===== COLLAPSED BAR - visible when drawer is closed ===== */}
       {!sheetOpen && (
-        <div className="fixed bottom-0 left-0 right-0 z-40">
+        <div className="ios-keyboard-hide keyboard-hide-when-editing fixed bottom-0 left-0 right-0 z-40">
           <div className="max-w-lg md:max-w-2xl mx-auto px-3 pb-3">
             <button
               onClick={() => handleOpenChange(true)}
@@ -380,12 +396,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
           {/* Sheet panel */}
           <div
             className={cn(
-              "fixed inset-x-0 bottom-0 z-50 max-w-lg md:max-w-2xl mx-auto transition-transform duration-300 ease-out",
+              "ios-keyboard-bottom fixed inset-x-0 bottom-0 z-50 max-w-lg md:max-w-2xl mx-auto transition-transform duration-300 ease-out touch-none",
               sheetOpen && !isDragging ? "translate-y-0" : !sheetOpen ? "translate-y-full" : undefined
             )}
             style={isDragging ? { transform: `translateY(${dragY}px)`, transition: 'none' } : undefined}
           >
-            <div className="bg-background rounded-t-2xl border-t border-border shadow-2xl flex flex-col h-[96dvh] overflow-hidden">
+            <div className="bg-background rounded-t-2xl border-t border-border shadow-2xl flex flex-col h-[96dvh] ios-viewport-height overflow-hidden">
               {/* Drag handle - only this area triggers drag-to-dismiss */}
               <div
                 ref={handleRef}
@@ -406,7 +422,8 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
                         {step === "checkout" ? (
                           <button
                             onClick={() => setStep("items")}
-                            className="p-1.5 rounded-full hover:bg-muted transition-colors"
+                            disabled={isSubmitting}
+                            className="p-1.5 rounded-full hover:bg-muted transition-colors disabled:opacity-50 disabled:pointer-events-none"
                           >
                             <ArrowLeft className="h-5 w-5" />
                           </button>
@@ -454,13 +471,14 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
                   </div>
 
                   {/* ===== CONTENT - scrollable ===== */}
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-behavior-contain">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y">
                     {step === "items" ? (
                       <CartItemsStep
                         items={items}
                         negocio={negocio}
                         onRemove={removeItem}
                         onUpdateQuantity={updateQuantity}
+                        disabled={isSubmitting}
                       />
                     ) : (
                       <CartCheckoutStep
@@ -481,6 +499,8 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
                         deliveryZoneInfo={deliveryZoneInfo}
                         isOutsideDeliveryZone={isOutsideDeliveryZone ?? false}
                         checkingZone={checkingZone ?? false}
+                        deliveryUnavailable={deliveryUnavailable}
+                        disabled={isSubmitting}
                       />
                     )}
                   </div>
@@ -649,11 +669,13 @@ function CartItemsStep({
   negocio,
   onRemove,
   onUpdateQuantity,
+  disabled,
 }: {
   items: CartItem[]
   negocio: NegocioAPI
   onRemove: (key: string) => void
   onUpdateQuantity: (key: string, cantidad: number) => void
+  disabled?: boolean
 }) {
   if (items.length === 0) {
     return (
@@ -681,6 +703,7 @@ function CartItemsStep({
           onRemove={() => onRemove(item.key)}
           onUpdateQuantity={(qty) => onUpdateQuantity(item.key, qty)}
           index={idx}
+          disabled={disabled}
         />
       ))}
     </div>
@@ -696,12 +719,14 @@ function CartItemCard({
   onRemove,
   onUpdateQuantity,
   index,
+  disabled,
 }: {
   item: CartItem
   negocio: NegocioAPI
   onRemove: () => void
   onUpdateQuantity: (qty: number) => void
   index: number
+  disabled?: boolean
 }) {
   const [isRemoving, setIsRemoving] = useState(false)
 
@@ -760,7 +785,8 @@ function CartItemCard({
             <h4 className="font-bold text-sm leading-tight">{item.nombre}</h4>
             <button
               onClick={handleRemove}
-              className="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors shrink-0"
+              disabled={disabled}
+              className="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors shrink-0 disabled:opacity-40 disabled:pointer-events-none"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -801,7 +827,8 @@ function CartItemCard({
                     onUpdateQuantity(item.cantidad - 1)
                   }
                 }}
-                className="w-8 h-8 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors active:scale-95"
+                disabled={disabled}
+                className="w-8 h-8 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               >
                 {item.cantidad <= 1 ? (
                   <Trash2 className="h-3.5 w-3.5 text-red-400" />
@@ -816,7 +843,8 @@ function CartItemCard({
               </span>
               <button
                 onClick={() => onUpdateQuantity(item.cantidad + 1)}
-                className="w-8 h-8 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors active:scale-95"
+                disabled={disabled}
+                className="w-8 h-8 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -855,6 +883,8 @@ function CartCheckoutStep({
   deliveryZoneInfo,
   isOutsideDeliveryZone,
   checkingZone,
+  deliveryUnavailable = false,
+  disabled,
 }: {
   negocio: NegocioAPI
   metodoEntrega: "retiro" | "domicilio" | "mesa"
@@ -880,6 +910,8 @@ function CartCheckoutStep({
   } | null
   isOutsideDeliveryZone: boolean
   checkingZone: boolean
+  deliveryUnavailable?: boolean
+  disabled?: boolean
 }) {
   return (
     <div className="px-4 py-4 space-y-5">
@@ -920,8 +952,9 @@ function CartCheckoutStep({
         <div className="grid grid-cols-2 gap-2.5">
           <button
             onClick={() => setMetodoEntrega("retiro")}
+            disabled={disabled}
             className={cn(
-              "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200",
+              "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none",
               metodoEntrega === "retiro"
                 ? "border-foreground shadow-md"
                 : "border-border bg-card hover:border-foreground/20"
@@ -971,11 +1004,12 @@ function CartCheckoutStep({
             )}
           </button>
 
-          {negocio.ofreceDelivery && (
+          {negocio.ofreceDelivery && !deliveryUnavailable && (
             <button
               onClick={() => setMetodoEntrega("domicilio")}
+              disabled={disabled}
               className={cn(
-                "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200",
+                "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none",
                 metodoEntrega === "domicilio"
                   ? "border-foreground shadow-md"
                   : "border-border bg-card hover:border-foreground/20"
@@ -1028,6 +1062,16 @@ function CartCheckoutStep({
             </button>
           )}
         </div>
+
+        {/* Outside zone notice — delivery not available */}
+        {deliveryUnavailable && (
+          <div className="mt-2 flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+            <Store className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              Tu ubicación está fuera de la zona de delivery. Solo podés retirar en local.
+            </p>
+          </div>
+        )}
 
         {/* Delivery address display — READ ONLY, cannot change from cart */}
         {metodoEntrega === "domicilio" && (
@@ -1120,7 +1164,28 @@ function CartCheckoutStep({
       </section>
       )}
 
-      {/* ===== MOZO INFO (mesa + mozo only — hidden for clients) ===== */}
+      {/* Business location for retiro orders */}
+      {metodoEntrega === "retiro" && negocio.lat && negocio.lng && (
+        <section>
+          <a
+            href={`https://www.google.com/maps?q=${negocio.lat},${negocio.lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors"
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-primary/10">
+              <MapPin className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">Ver ubicación del local</p>
+              <p className="text-[10px] text-muted-foreground">
+                Tocá para abrir en Google Maps
+              </p>
+            </div>
+            <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
+          </a>
+        </section>
+      )}
       {isMesaOrder && mozoCodigo && (
         <section>
           <div
@@ -1151,8 +1216,9 @@ function CartCheckoutStep({
         <div className="grid grid-cols-2 gap-2.5">
           <button
             onClick={() => setMetodoPago("efectivo")}
+            disabled={disabled}
             className={cn(
-              "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200",
+              "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none",
               metodoPago === "efectivo"
                 ? "border-emerald-500 shadow-md bg-emerald-50/50 dark:bg-emerald-950/20"
                 : "border-border bg-card hover:border-emerald-200 dark:hover:border-emerald-900"
@@ -1191,8 +1257,9 @@ function CartCheckoutStep({
           {negocio.aceptaTransferencia && (
             <button
               onClick={() => setMetodoPago("transferencia")}
+              disabled={disabled}
               className={cn(
-                "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200",
+                "relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none",
                 metodoPago === "transferencia"
                   ? "border-sky-500 shadow-md bg-sky-50/50 dark:bg-sky-950/20"
                   : "border-border bg-card hover:border-sky-200 dark:hover:border-sky-900"
@@ -1269,7 +1336,8 @@ function CartCheckoutStep({
             value={notas}
             onChange={(e) => setNotas(e.target.value.slice(0, 200))}
             placeholder="Instrucciones especiales, alergias, sin cebolla..."
-            className="w-full min-h-[80px] p-4 rounded-2xl border-2 border-border bg-card text-sm resize-none focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground/60"
+            disabled={disabled}
+            className="w-full min-h-[80px] p-4 rounded-2xl border-2 border-border bg-card text-sm resize-none focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-muted-foreground/60 disabled:opacity-50 disabled:cursor-not-allowed"
             rows={3}
           />
           <span className="absolute bottom-3 right-3 text-[10px] text-muted-foreground/50">

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendPushNotification, chatMessageNotification } from "@/lib/push"
+import { createNotification, chatMessageNotification } from "@/lib/push"
 
 // Phone number filtering regex (Argentine phone patterns)
 const PHONE_PATTERN = /(?:(?:\+?54|0)?(?:11|[2-9]\d{2,4})[\s\-]?\d{4,}[\s\-]?\d{0,4})|(?:whatsapp\.com|wa\.me|\/send\?phone)/gi
@@ -328,20 +328,38 @@ export async function POST(
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
         })
-        if (negocioData?.pushSubscription) {
-          const notification = chatMessageNotification(pedidoId, senderName, messagePreview)
-          await sendPushNotification(negocioData.pushSubscription, notification)
-        }
+        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview)
+        await createNotification({
+          userId: pedido.negocioId,
+          userType: "negocio",
+          tipo: "chat",
+          titulo: chatPayload.title,
+          cuerpo: chatPayload.body,
+          pedidoId,
+          negocioId: pedido.negocioId,
+          pushSubscription: negocioData?.pushSubscription ?? null,
+          pushPayload: chatPayload,
+          cleanupExpired: { model: "negocio", id: pedido.negocioId },
+        })
       } else if (userType === "negocio" && pedido.clienteId) {
         // Negocio sent message → notify cliente
         const clienteData = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        if (clienteData?.pushSubscription) {
-          const notification = chatMessageNotification(pedidoId, senderName, messagePreview)
-          await sendPushNotification(clienteData.pushSubscription, notification)
-        }
+        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview)
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "chat",
+          titulo: chatPayload.title,
+          cuerpo: chatPayload.body,
+          pedidoId,
+          negocioId: pedido.negocioId,
+          pushSubscription: clienteData?.pushSubscription ?? null,
+          pushPayload: chatPayload,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
       }
 
       // Repartidor chat notifications (both as sender and receiver)
@@ -352,20 +370,36 @@ export async function POST(
             where: { id: pedido.clienteId },
             select: { pushSubscription: true },
           })
-          if (clienteData?.pushSubscription) {
-            const notification = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
-            await sendPushNotification(clienteData.pushSubscription, notification)
-          }
+          const chatPayload = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
+          await createNotification({
+            userId: pedido.clienteId,
+            userType: "cliente",
+            tipo: "chat",
+            titulo: chatPayload.title,
+            cuerpo: chatPayload.body,
+            pedidoId,
+            pushSubscription: clienteData?.pushSubscription ?? null,
+            pushPayload: chatPayload,
+            cleanupExpired: { model: "cliente", id: pedido.clienteId },
+          })
         }
         if (pedido.negocioId) {
           const negocioData = await db.negocio.findUnique({
             where: { id: pedido.negocioId },
             select: { pushSubscription: true },
           })
-          if (negocioData?.pushSubscription) {
-            const notification = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
-            await sendPushNotification(negocioData.pushSubscription, notification)
-          }
+          const chatPayload = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
+          await createNotification({
+            userId: pedido.negocioId,
+            userType: "negocio",
+            tipo: "chat",
+            titulo: chatPayload.title,
+            cuerpo: chatPayload.body,
+            pedidoId,
+            pushSubscription: negocioData?.pushSubscription ?? null,
+            pushPayload: chatPayload,
+            cleanupExpired: { model: "negocio", id: pedido.negocioId },
+          })
         }
       } else if (pedido.metodoEntrega === "domicilio" && pedido.negocioId) {
         // If cliente or negocio sends a message on a delivery order → also notify repartidores
@@ -377,11 +411,19 @@ export async function POST(
         })
         const chatSenderName = userType === "cliente" ? pedido.clienteNombre : pedido.negocioNombre
         for (const rn of repartidores) {
-          if (rn.repartidor.activo && rn.repartidor.pushSubscription && rn.repartidor.id !== userId) {
-            await sendPushNotification(
-              rn.repartidor.pushSubscription,
-              chatMessageNotification(pedidoId, chatSenderName, messagePreview)
-            )
+          if (rn.repartidor.activo && rn.repartidor.id !== userId) {
+            const repChatPayload = chatMessageNotification(pedidoId, chatSenderName, messagePreview)
+            await createNotification({
+              userId: rn.repartidor.id,
+              userType: "repartidor",
+              tipo: "chat",
+              titulo: repChatPayload.title,
+              cuerpo: repChatPayload.body,
+              pedidoId,
+              pushSubscription: rn.repartidor.pushSubscription,
+              pushPayload: repChatPayload,
+              cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
+            })
           }
         }
       }

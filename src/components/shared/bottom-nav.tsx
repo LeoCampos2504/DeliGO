@@ -14,17 +14,36 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
   { id: "perfil", icon: User, label: "Perfil" },
 ]
 
+/**
+ * BottomNav — Pure CSS-driven keyboard handling.
+ *
+ * NO inline style manipulation, NO useEffect for keyboard detection,
+ * NO manual position: absolute hacks.
+ *
+ * The global IOSKeyboardFix component adds `ios-keyboard-open` to <html>/<body>
+ * when the virtual keyboard is open on iOS. CSS rules in globals.css use that
+ * class to hide this nav with transform + pointer-events.
+ *
+ * This component is stateless — it only renders the nav and lets CSS do the rest.
+ */
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
 
   // Only show for logged-in clients
-  if (!isAuthenticated() || userType() !== "cliente") {
-    return null
-  }
+  if (!isAuthenticated() || userType() !== "cliente") return null
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border pb-safe">
+    <nav
+      className={cn(
+        "ios-bottom-nav",
+        "fixed bottom-0 left-0 right-0 z-50",
+        "bg-card/95 backdrop-blur-md border-t border-border",
+        "pb-safe",
+        "supports-[backdrop-filter]:bg-card/80",
+        "transition-transform duration-200 ease-in-out"
+      )}
+    >
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id

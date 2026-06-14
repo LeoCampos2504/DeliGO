@@ -636,7 +636,7 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
                   </div>
                 )}
                 <p className="text-[10px] text-muted-foreground mt-2">
-                  Al regenerar el código, el anterior dejará de funcionar
+                  Al regenerar el código, el anterior dejará de funcionar y los repartidores asociados tendrán que volver a vincularse con el nuevo código
                 </p>
               </div>
             </>
@@ -745,8 +745,9 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               </p>
             </div>
             <Switch
-              checked={config?.mostrarVentas ?? false}
+              checked={mergedOrders.mostrarVentas ?? false}
               onCheckedChange={(v) => {
+                setOrders((p) => ({ ...p, mostrarVentas: v }))
                 saveSection("visibility", { mostrarVentas: v })
               }}
             />
@@ -1032,6 +1033,11 @@ function SectionSaveButton({
 function PushNotificationsConfig({ color }: { color: string }) {
   const push = usePushNotifications()
   const [enabled, setEnabled] = useState(push.isSubscribed)
+
+  // Sync enabled state with the async isSubscribed value from the hook
+  useEffect(() => {
+    setEnabled(push.isSubscribed)
+  }, [push.isSubscribed])
 
   const handleToggle = async (val: boolean) => {
     setEnabled(val)

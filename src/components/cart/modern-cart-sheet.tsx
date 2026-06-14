@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Sparkles,
   Pencil,
+  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -46,6 +47,9 @@ interface NegocioAPI {
   tiempoEntrega: number
   aceptaTransferencia: boolean
   aliasBancario: string
+  lat?: number | null
+  lng?: number | null
+  direccion?: string | null
 }
 
 interface ModernCartSheetProps {
@@ -171,7 +175,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
   if (showSuccess) {
     return (
       <Drawer open={open} onOpenChange={handleOpenChange}>
-        <DrawerContent className="h-[100dvh] rounded-none border-0 md:max-w-2xl md:mx-auto md:rounded-2xl">
+        <DrawerContent className="h-[100dvh] ios-viewport-height rounded-none border-0 md:max-w-2xl md:mx-auto md:rounded-2xl">
           <DrawerTitle className="sr-only">Pedido confirmado</DrawerTitle>
           <div className="flex flex-col items-center justify-center h-full bg-gradient-to-b from-emerald-50 to-white dark:from-emerald-950/30 dark:to-background">
             <motion.div
@@ -224,7 +228,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="h-[95dvh] rounded-t-2xl md:max-w-2xl md:mx-auto md:rounded-2xl">
+      <DrawerContent className="h-[95dvh] ios-viewport-height rounded-t-2xl md:max-w-2xl md:mx-auto md:rounded-2xl">
         <DrawerTitle className="sr-only">Carrito de compras</DrawerTitle>
         <div className="flex flex-col h-full bg-background">
           {/* ===== HEADER ===== */}
@@ -279,7 +283,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
           </div>
 
           {/* ===== CONTENT - scrollable ===== */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y">
             <AnimatePresence mode="wait">
               {step === "items" ? (
                 <CartItemsStep
@@ -782,6 +786,27 @@ function CartCheckoutStep({
               )}
             </div>
           </div>
+        )}
+
+        {/* Business location for retiro orders */}
+        {metodoEntrega === "retiro" && negocio.lat && negocio.lng && (
+          <a
+            href={`https://www.google.com/maps?q=${negocio.lat},${negocio.lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full mt-3 flex items-center gap-3 p-3.5 rounded-2xl text-left border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors"
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-primary/10">
+              <MapPin className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">Ver ubicación del local</p>
+              <p className="text-[10px] text-muted-foreground">
+                Tocá para abrir en Google Maps
+              </p>
+            </div>
+            <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
+          </a>
         )}
       </section>
 

@@ -231,6 +231,11 @@ export function NegociosTab({ negocios, isLoading }: NegociosTabProps) {
                           Suspendido
                         </Badge>
                       )}
+                      {negocio.negocio && !negocio.negocio.ofreceDelivery && (
+                        <Badge variant="secondary" className="text-[10px] shrink-0 border-0 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                          Sin delivery
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { sendPushNotification, negocioReactivatedNotification } from "@/lib/push"
+import { createNotification, negocioReactivatedNotification } from "@/lib/push"
 
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -31,12 +31,18 @@ export async function POST(
 
     // Notify negocio that they were reactivated
     try {
-      if (negocio.pushSubscription) {
-        await sendPushNotification(
-          negocio.pushSubscription,
-          negocioReactivatedNotification(negocio.nombre)
-        )
-      }
+      const payload = negocioReactivatedNotification(negocio.nombre)
+      await createNotification({
+        userId: id,
+        userType: "negocio",
+        tipo: "account_update",
+        titulo: payload.title,
+        cuerpo: payload.body,
+        negocioId: id,
+        pushSubscription: negocio.pushSubscription,
+        pushPayload: payload,
+        cleanupExpired: { model: "negocio", id },
+      })
     } catch (pushError) {
       console.error("[Push] Failed to send reactivation notification:", pushError)
     }

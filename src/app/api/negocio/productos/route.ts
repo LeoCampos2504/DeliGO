@@ -125,6 +125,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Validate discount limits
+    if (descuentoActivo && valorDescuento > 0) {
+      if (tipoDescuento === "porcentaje") {
+        if (valorDescuento < 1 || valorDescuento > 100) {
+          return NextResponse.json(
+            { error: "El descuento por porcentaje debe estar entre 1% y 100%" },
+            { status: 400 }
+          )
+        }
+      } else {
+        if (valorDescuento >= precio) {
+          return NextResponse.json(
+            { error: "El descuento en monto no puede ser igual o superior al precio del producto" },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     // Calculate precioPromo if descuentoActivo
     let precioPromo: number | null = null
     if (descuentoActivo && valorDescuento > 0) {

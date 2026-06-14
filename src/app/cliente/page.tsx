@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import { useAuthStore } from "@/store/auth-store"
 import { useHydrated } from "@/hooks/use-hydrated"
-import { useNavStore } from "@/store/nav-store"
+import { useNavStore, type ClientTab } from "@/store/nav-store"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BottomNav } from "@/components/shared/bottom-nav"
+import { NotificationBell } from "@/components/shared/notification-center"
+import type { NotificationItem } from "@/store/notification-store"
 
 const ClientOrdersPanel = dynamic(
   () => import("@/components/client/client-orders-panel").then((mod) => mod.ClientOrdersPanel),
@@ -74,6 +76,41 @@ export default function ClientePage() {
     }
   }, [hydrated, isAuthenticated, userType, activeTab, setActiveTab])
 
+  // Handle URL tab parameter (from push notification click)
+  useEffect(() => {
+    if (!hydrated || !isAuthenticated() || userType() !== "cliente") return
+
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get("tab")
+    if (tabParam) {
+      const tabMap: Record<string, ClientTab> = {
+        pedidos: "pedidos",
+        perfil: "perfil",
+        favoritos: "favoritos",
+        promos: "promos",
+      }
+      const target = tabMap[tabParam]
+      if (target) {
+        setActiveTab(target)
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    }
+  }, [hydrated, isAuthenticated, userType, setActiveTab])
+
+  // Handle notification click → navigate to correct tab
+  const handleNotificationNavigate = useCallback((tab: string, _notif: NotificationItem) => {
+    const tabMap: Record<string, ClientTab> = {
+      pedidos: "pedidos",
+      perfil: "perfil",
+      favoritos: "favoritos",
+      promos: "promos",
+      inicio: "pedidos",
+    }
+    const target = tabMap[tab]
+    if (target) setActiveTab(target)
+  }, [setActiveTab])
+
   // Wait for hydration
   if (!hydrated) {
     return (
@@ -106,6 +143,10 @@ export default function ClientePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* Notification bell — fixed top-right */}
+      <div className="fixed top-3 right-3 z-50">
+        <NotificationBell onNavigate={handleNotificationNavigate} />
+      </div>
       <ActiveComponent />
       <BottomNav />
     </div>

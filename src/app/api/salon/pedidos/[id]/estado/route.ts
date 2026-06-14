@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { sendPushNotification, orderUpdateNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, mesaOrderReadyNotification } from "@/lib/push"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -103,19 +103,61 @@ export async function PATCH(
       })
     }
 
-    // Send push notification to the client
+    // Send notification to the client
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        if (cliente?.pushSubscription) {
-          const notification = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
-          await sendPushNotification(cliente.pushSubscription, notification)
-        }
+        const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          pedidoId: pedidoId,
+          negocioId: negocioId,
+          pushSubscription: cliente?.pushSubscription ?? null,
+          pushPayload: payload,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
       } catch (pushError) {
         console.error("[Push] Failed to send order update notification:", pushError)
+      }
+    }
+
+    // Send push notification to the assigned mozo when order is ready (listo_para_retirar)
+    if (estado === "listo_para_retirar" && pedido.mesaId) {
+      try {
+        const mesa = await db.mesa.findUnique({
+          where: { id: pedido.mesaId },
+          include: { empleado: { select: { id: true, nombre: true, pushSubscription: true } } },
+        })
+
+        if (mesa?.empleado?.pushSubscription) {
+          const mozoPayload = mesaOrderReadyNotification(
+            pedidoId,
+            mesa.numero,
+            pedido.clienteNombre
+          )
+          await createNotification({
+            userId: mesa.empleado.id,
+            userType: "empleado",
+            tipo: "mesa_order_ready",
+            titulo: mozoPayload.title,
+            cuerpo: mozoPayload.body,
+            pedidoId: pedidoId,
+            negocioId: negocioId,
+            datos: { mesaNumero: mesa.numero },
+            pushSubscription: mesa.empleado.pushSubscription,
+            pushPayload: mozoPayload,
+            cleanupExpired: { model: "empleado", id: mesa.empleado.id },
+          })
+        }
+      } catch (mozoPushError) {
+        console.error("[Push] Failed to send mozo notification:", mozoPushError)
       }
     }
 
