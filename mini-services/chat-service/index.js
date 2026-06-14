@@ -149,22 +149,20 @@ io.on("connection", (socket) => {
     const room = `pedido:${data.pedidoId}`
     const senderType = userType
 
-    // Only deliver messages to the relevant participants:
-    // - cliente ↔ negocio: both can chat with each other
-    // - repartidor: only location updates, NOT chat messages
-    // So we emit only to sockets whose userType is a valid chat participant
+    // Solo enviar mensajes de chat a participantes válidos.
+    // cliente ↔ negocio pueden chatear.
+    // repartidor solo usa ubicación, no mensajes de chat.
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
     if (socketsInRoom) {
       for (const socketId of socketsInRoom) {
-        if (socketId === socket.id) continue // skip sender
+        if (socketId === socket.id) continue
+
         const recipient = connectedUsers.get(socketId)
         if (!recipient) continue
 
-        // Skip repartidores — they don't participate in chat,
-        // they only receive location updates
         if (recipient.userType === "repartidor") continue
 
-        // Deliver message
         io.to(socketId).emit("new-message", data.message)
       }
     }
@@ -178,11 +176,13 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
-    // Only send typing to non-repartidor participants
+    // Solo enviar typing a participantes que no sean repartidor
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
     if (socketsInRoom) {
       for (const socketId of socketsInRoom) {
         if (socketId === socket.id) continue
+
         const recipient = connectedUsers.get(socketId)
         if (!recipient || recipient.userType === "repartidor") continue
 
@@ -203,9 +203,11 @@ io.on("connection", (socket) => {
     const room = `pedido:${pedidoId}`
 
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
     if (socketsInRoom) {
       for (const socketId of socketsInRoom) {
         if (socketId === socket.id) continue
+
         const recipient = connectedUsers.get(socketId)
         if (!recipient || recipient.userType === "repartidor") continue
 
@@ -223,11 +225,13 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
-    // Only send read receipt to non-repartidor participants
+    // Solo enviar confirmación de lectura a participantes que no sean repartidor
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
+
     if (socketsInRoom) {
       for (const socketId of socketsInRoom) {
         if (socketId === socket.id) continue
+
         const recipient = connectedUsers.get(socketId)
         if (!recipient || recipient.userType === "repartidor") continue
 
