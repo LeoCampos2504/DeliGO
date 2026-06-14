@@ -195,6 +195,7 @@ model Negocio {
   opcionesCompartidas OpcionesCompartidas[]
   promociones         Promocion[]
   denuncias           Denuncia[]
+  solicitudesDestacado DestacadoSolicitud[]
 
   @@map("negocios")
 }
@@ -744,4 +745,36 @@ model PedidoEvento {
 
   @@index([pedidoId, fecha])
   @@map("pedido_eventos")
+}
+
+// ============================================
+// SOLICITUDES DESTACADO
+// ============================================
+model DestacadoSolicitud {
+  id              String   @id @default(cuid())
+  negocioId       String
+  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  // Período solicitado
+  meses           Int      @default(0)
+  dias            Int      @default(0)
+
+  // Precio calculado
+  precio          Float
+
+  // Estado: pendiente, aprobada, rechazada
+  estado          String   @default("pendiente")
+
+  // Comprobante
+  comprobanteUrl  String?
+
+  // Nota del admin al rechazar
+  notaAdmin       String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([estado, createdAt])
+  @@index([negocioId])
+  @@map("destacado_solicitudes")
 }

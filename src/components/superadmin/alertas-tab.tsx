@@ -72,7 +72,7 @@ export function AlertasTab({ negocios, isLoading }: AlertasTabProps) {
         <span className="text-5xl mb-4">🎉</span>
         <h3 className="font-bold text-lg">Sin alertas</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Todos los negocios están en buen estado.
+          Todos los negocios destacados están en buen estado.
         </p>
       </div>
     )
@@ -81,9 +81,9 @@ export function AlertasTab({ negocios, isLoading }: AlertasTabProps) {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-bold text-lg">Negocios con alerta</h2>
+        <h2 className="font-bold text-lg">Negocios destacados con alerta</h2>
         <p className="text-sm text-muted-foreground">
-          {negocios.length} negocio{negocios.length !== 1 ? "s" : ""} requieren atención
+          {negocios.length} negocio{negocios.length !== 1 ? "s" : ""} destacado{negocios.length !== 1 ? "s" : ""} requieren atención
         </p>
       </div>
 

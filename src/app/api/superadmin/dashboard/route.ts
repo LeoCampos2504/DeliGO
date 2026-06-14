@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get all negocios with computed data
-    const [pendientes, activosRaw, repartidoresCount, clientesCount, pedidosCount, denunciasCount, clientesBloqueadosCount] =
+    const [pendientes, activosRaw, repartidoresCount, clientesCount, pedidosCount, denunciasCount, clientesBloqueadosCount, solicitudesDestacadoCount] =
       await Promise.all([
         // Pending approval (only show email-verified negocios — unverified ones shouldn't appear yet)
         db.negocio.findMany({
@@ -112,6 +112,7 @@ export async function GET(req: NextRequest) {
         }),
         db.denuncia.count(),
         db.cliente.count({ where: { bloqueado: true } }),
+        db.destacadoSolicitud.count({ where: { estado: "pendiente" } }),
       ])
 
     // Compute subscription status and debt for each active negocio
@@ -139,12 +140,14 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    // Categorize activos
+    // Categorize activos — Alertas solo para negocios destacados (promocionados)
+    // ya que los negocios activos no se pueden re-subscribir
     const conAlerta = activos.filter(
       (n) =>
-        n.estadoSuscripcion === "vencido" ||
+        (n.estadoSuscripcion === "vencido" ||
         n.estadoSuscripcion === "por_vencer" ||
-        n.estadoSuscripcion === "suspendido"
+        n.estadoSuscripcion === "suspendido") &&
+        (n.promocionado || n.destacadoHasta !== null)
     )
 
     const soloActivos = activos.filter(
@@ -174,6 +177,7 @@ export async function GET(req: NextRequest) {
       totalPedidosEntregados: pedidosCount,
       denuncias: denunciasCount,
       clientesBloqueados: clientesBloqueadosCount,
+      solicitudesDestacado: solicitudesDestacadoCount,
     }
 
     return NextResponse.json({

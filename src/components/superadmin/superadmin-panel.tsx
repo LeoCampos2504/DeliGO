@@ -16,6 +16,7 @@ import {
   LogOut,
   RefreshCw,
   Flame,
+  FileCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/shared/logo"
@@ -30,6 +31,7 @@ import { AlertasTab } from "./alertas-tab"
 import { DeudasTab } from "./deudas-tab"
 import { PromocionadosTab } from "./promocionados-tab"
 import { DenunciasTab } from "./denuncias-tab"
+import { SolicitudesDestacadoTab } from "./solicitudes-destacado-tab"
 
 // ============================================
 // Tab config
@@ -39,6 +41,7 @@ const tabItems: { id: SuperAdminTab; label: string; icon: typeof Shield }[] = [
   { id: "pendientes", label: "Pendientes", icon: Clock },
   { id: "activos", label: "Activos", icon: Store },
   { id: "promocionados", label: "Destacados", icon: Flame },
+  { id: "solicitudes-destacado", label: "Sol. Destacado", icon: FileCheck },
   { id: "alertas", label: "Alertas", icon: AlertTriangle },
   { id: "deudas", label: "Deudas", icon: DollarSign },
   { id: "denuncias", label: "Denuncias", icon: ShieldAlert },
@@ -193,6 +196,11 @@ export function SuperAdminPanel() {
                       {stats?.denuncias}
                     </span>
                   )}
+                  {tab.id === "solicitudes-destacado" && (stats?.solicitudesDestacado ?? 0) > 0 && (
+                    <span className="ml-0.5 h-4 min-w-4 px-1 text-[10px] font-bold rounded-full bg-amber-500 text-white">
+                      {stats?.solicitudesDestacado}
+                    </span>
+                  )}
                   {isActive && (
                     <motion.div
                       layoutId="admin-tab-indicator"
@@ -251,6 +259,9 @@ export function SuperAdminPanel() {
             )}
             {activeTab === "denuncias" && (
               <DenunciasTab />
+            )}
+            {activeTab === "solicitudes-destacado" && (
+              <SolicitudesDestacadoTab />
             )}
           </motion.div>
         </AnimatePresence>

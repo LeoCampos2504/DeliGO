@@ -5,14 +5,12 @@ import { useMutation } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Store,
-  Calendar,
   Package,
   ShoppingCart,
   Ban,
   Eye,
   RefreshCw,
   Loader2,
-  ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -56,15 +54,6 @@ interface NegocioActivo {
 interface ActivosTabProps {
   negocios: NegocioActivo[]
   isLoading: boolean
-}
-
-const planLabels: Record<string, string> = {
-  prueba: "Prueba",
-  mensual: "Mensual",
-  trimestral: "Trimestral",
-  semestral: "Semestral",
-  anual: "Anual",
-  vitalicio: "Vitalicio",
 }
 
 // ============================================
@@ -134,8 +123,6 @@ function NegocioActivoCard({ negocio }: { negocio: NegocioActivo }) {
     negocio: "🏪",
   }
 
-  const diasRestantes = negocio.diasRestantes
-
   return (
     <motion.div
       layout
@@ -165,24 +152,12 @@ function NegocioActivoCard({ negocio }: { negocio: NegocioActivo }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-bold text-sm truncate">{negocio.nombre}</h3>
-            <Badge variant="secondary" className="text-[10px] shrink-0 border-0 capitalize">
-              {planLabels[negocio.planTipo] || negocio.planTipo}
+            <Badge variant="secondary" className="text-[10px] shrink-0 border-0">
+              {rubroLabels[negocio.rubro] || "🏪"} {negocio.rubro}
             </Badge>
-            {diasRestantes !== null && (
-              <Badge
-                className={cn(
-                  "text-[10px] shrink-0 border-0",
-                  diasRestantes <= 7
-                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                )}
-              >
-                {diasRestantes}d restantes
-              </Badge>
-            )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {rubroLabels[negocio.rubro] || ""} /{negocio.slug}
+            /{negocio.slug}
           </p>
 
           {/* Stats */}
@@ -195,12 +170,11 @@ function NegocioActivoCard({ negocio }: { negocio: NegocioActivo }) {
               <ShoppingCart className="h-3 w-3" />
               {negocio.totalPedidos} pedidos
             </span>
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              {negocio.planVencimiento
-                ? `Vence ${new Date(negocio.planVencimiento).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}`
-                : "Sin vencimiento"}
-            </span>
+            {negocio.deudaTarifa > 0 && (
+              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                Deuda: {formatPrice(negocio.deudaTarifa)}
+              </span>
+            )}
           </div>
 
           {/* Debt bar (if any) */}
@@ -235,8 +209,6 @@ function NegocioActivoCard({ negocio }: { negocio: NegocioActivo }) {
             Ver catálogo
           </Button>
         </Link>
-
-        <RenovarDialog negocioId={negocio.id} negocioNombre={negocio.nombre} planVencimiento={negocio.planVencimiento} />
 
         <Button
           variant="outline"
