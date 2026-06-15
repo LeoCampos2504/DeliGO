@@ -31,6 +31,7 @@ import {
 import { cn, formatPrice } from "@/lib/utils"
 import { useCartStore, type CartItem, type DeliveryAddress } from "@/store/cart-store"
 import { toast } from "sonner"
+import { generateFingerprint } from "@/lib/fingerprint"
 
 // ============================================
 // Types
@@ -129,6 +130,7 @@ export function ModernCartSheet({ negocio, open, onOpenChange }: ModernCartSheet
           referencia: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.referencia : null,
           lat: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.lat : null,
           lng: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.lng : null,
+          fingerprint: await generateFingerprint(),
         }),
       })
       if (!res.ok) {
@@ -926,7 +928,7 @@ function CartCheckoutStep({
               </button>
             </div>
             <p className="text-[10px] text-sky-600/70 dark:text-sky-400/70 mt-2">
-              Enviá el comprobante por mensaje directo al confirmar tu pedido
+              Enviá el comprobante por el chat de la app al confirmar tu pedido
             </p>
           </motion.div>
         )}

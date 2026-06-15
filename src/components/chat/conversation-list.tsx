@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect } from "react"
-import { Clock, Bike, CreditCard, Store, User, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Clock, Bike, CreditCard, Store, User, Loader2, ChevronDown, ChevronUp, Archive } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Badge } from "@/components/ui/badge"
 import { useChatStore, type Conversation } from "@/store/chat-store"
@@ -12,13 +12,16 @@ import { timeAgo } from "@/lib/utils"
 export function ConversationList() {
   const {
     conversations,
+    archivedConversations,
     isLoadingConversations,
     openConversation,
     setLoadingConversations,
     setConversations,
+    setArchivedConversations,
   } = useChatStore()
 
   const { user } = useAuthStore()
+  const [showArchived, setShowArchived] = useState(false)
 
   // Load conversations
   useEffect(() => {
@@ -29,6 +32,7 @@ export function ConversationList() {
         if (!res.ok) return
         const data = await res.json()
         setConversations(data.conversations || [])
+        setArchivedConversations(data.archived || [])
       } catch {
         // silently fail
       } finally {
@@ -36,7 +40,7 @@ export function ConversationList() {
       }
     }
     load()
-  }, [setLoadingConversations, setConversations])
+  }, [setLoadingConversations, setConversations, setArchivedConversations])
 
   if (isLoadingConversations) {
     return (
@@ -49,7 +53,9 @@ export function ConversationList() {
     )
   }
 
-  if (conversations.length === 0) {
+  const hasNoChats = conversations.length === 0 && archivedConversations.length === 0
+
+  if (hasNoChats) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="flex flex-col items-center gap-3 text-center">
@@ -71,6 +77,7 @@ export function ConversationList() {
 
   return (
     <div className="flex-1 overflow-y-auto">
+      {/* Active conversations */}
       <AnimatePresence>
         {conversations.map((conv) => (
           <ConversationItem
@@ -81,6 +88,50 @@ export function ConversationList() {
           />
         ))}
       </AnimatePresence>
+
+      {/* Archived conversations */}
+      {archivedConversations.length > 0 && (
+        <div className="mt-1">
+          {/* Toggle button */}
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 text-muted-foreground hover:bg-muted/30 transition-colors"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            <span className="text-xs font-semibold">
+              Chats anteriores ({archivedConversations.length})
+            </span>
+            {showArchived ? (
+              <ChevronUp className="h-3.5 w-3.5 ml-auto" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 ml-auto" />
+            )}
+          </button>
+
+          {/* Archived list */}
+          <AnimatePresence>
+            {showArchived && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                {archivedConversations.map((conv) => (
+                  <ConversationItem
+                    key={conv.pedidoId}
+                    conversation={conv}
+                    userType={user?.type || "cliente"}
+                    onClick={() => openConversation(conv.pedidoId)}
+                    isArchived
+                  />
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
     </div>
   )
 }
@@ -89,10 +140,12 @@ function ConversationItem({
   conversation: conv,
   userType,
   onClick,
+  isArchived = false,
 }: {
   conversation: Conversation
   userType: string
   onClick: () => void
+  isArchived?: boolean
 }) {
   // Determine the "other party" name based on user type
   const otherParty =
@@ -119,12 +172,18 @@ function ConversationItem({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       onClick={onClick}
-      className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors border-b border-border/30"
+      className={cn(
+        "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors border-b border-border/30",
+        isArchived && "opacity-60 hover:opacity-100"
+      )}
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div className="relative shrink-0">
-          <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden">
+          <div className={cn(
+            "w-11 h-11 rounded-xl flex items-center justify-center overflow-hidden",
+            isArchived ? "bg-muted" : "bg-primary/10"
+          )}>
             {conv.negocioLogoUrl && userType === "cliente" ? (
               <img
                 src={conv.negocioLogoUrl}
@@ -132,7 +191,10 @@ function ConversationItem({
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-lg font-bold text-primary">
+              <span className={cn(
+                "text-lg font-bold",
+                isArchived ? "text-muted-foreground" : "text-primary"
+              )}>
                 {otherParty.charAt(0).toUpperCase()}
               </span>
             )}
@@ -150,7 +212,10 @@ function ConversationItem({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
               {otherPartyIcon}
-              <span className="font-semibold text-sm truncate">
+              <span className={cn(
+                "font-semibold text-sm truncate",
+                isArchived && "text-muted-foreground"
+              )}>
                 {otherParty}
               </span>
             </div>
@@ -228,6 +293,10 @@ function getEstadoColor(estado: string): string {
       return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
     case "listo_para_retirar":
       return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+    case "entregado":
+      return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+    case "cancelado":
+      return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
     default:
       return "bg-muted text-muted-foreground"
   }

@@ -1322,7 +1322,7 @@ function CartCheckoutStep({
               </button>
             </div>
             <p className="text-[10px] text-sky-600/70 dark:text-sky-400/70 mt-2">
-              Enviá el comprobante por WhatsApp al confirmar tu pedido
+              Enviá el comprobante por el chat de la app al confirmar tu pedido
             </p>
           </div>
         )}

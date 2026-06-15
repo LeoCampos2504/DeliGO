@@ -26,6 +26,10 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth",
   "/api/negocios", // public catalog
   "/api/pedidos",  // auth checked in handler (allows guest checkout)
+  "/api/pdf-proxy", // proxies Cloudinary PDFs (no auth needed)
+  "/api/upload",    // file upload (auth checked in handler)
+  "/api/cloudinary", // Cloudinary config (public)
+  "/api/chat/cleanup", // cron cleanup (auth via header secret)
 ]
 
 /** Role-specific protected route prefixes and the required userType */
@@ -70,6 +74,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
       "img-src 'self' data: blob: https://res.cloudinary.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org",
       "font-src 'self' https://fonts.gstatic.com",
       "connect-src 'self' ws: wss: https://res.cloudinary.com https://nominatim.openstreetmap.org",
+      "worker-src 'self' blob:",
       "frame-ancestors 'self'",
       "base-uri 'self'",
       "form-action 'self'",

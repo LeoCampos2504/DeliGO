@@ -120,25 +120,70 @@ export async function uploadFile(
 
     const isPdf = originalName.toLowerCase().endsWith(".pdf")
 
-    const result = await cloudinary.uploader.upload(
-      `data:${isPdf ? "application/pdf" : "application/octet-stream"};base64,${buffer.toString("base64")}`,
-      {
-        folder,
-        overwrite: true,
-        resource_type: isPdf ? "raw" : "image",
-        type: "upload",
-        ...(isPdf ? {} : { transformation: [{ width: 800, crop: "limit" }] }),
-      }
-    )
+    if (isPdf) {
+      // Upload PDF as "raw" resource type — this is the correct way for non-image files
+      // The URL returned will be directly accessible and downloadable
+      const result = await cloudinary.uploader.upload(
+        `data:application/pdf;base64,${buffer.toString("base64")}`,
+        {
+          folder,
+          overwrite: true,
+          resource_type: "raw",
+          type: "upload",
+          // Use the original filename so the downloaded file has the correct name
+          public_id: `${folder}/${originalName.replace(/\.pdf$/i, "")}_${Date.now()}`,
+        }
+      )
 
-    return {
-      url: result.secure_url,
-      publicId: result.public_id,
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+      }
+    } else {
+      // Non-PDF file (image) — use standard image upload
+      const result = await cloudinary.uploader.upload(
+        `data:application/octet-stream;base64,${buffer.toString("base64")}`,
+        {
+          folder,
+          overwrite: true,
+          transformation: [{ width: 800, crop: "limit" }],
+        }
+      )
+
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+      }
     }
   } catch (error) {
     console.error("Error uploading file to Cloudinary:", error)
     return null
   }
+}
+
+// ============================================
+// Get a viewable URL for a PDF stored in Cloudinary
+// Cloudinary raw URLs serve the PDF directly with correct content-type,
+// so the browser/react-pdf can render them inline without any wrapper.
+// ============================================
+export function getPdfViewUrl(archivoUrl: string): string {
+  if (!archivoUrl) return archivoUrl
+  // Return the URL as-is — react-pdf fetches and renders it directly
+  return archivoUrl
+}
+
+// ============================================
+// Get a direct download URL for a PDF stored in Cloudinary
+// ============================================
+export function getPdfDownloadUrl(archivoUrl: string): string {
+  if (!archivoUrl) return archivoUrl
+
+  // For Cloudinary URLs, add fl_attachment flag to force download
+  if (archivoUrl.includes("res.cloudinary.com") && archivoUrl.includes("/raw/upload/")) {
+    return archivoUrl.replace("/raw/upload/", "/raw/upload/fl_attachment/")
+  }
+
+  return archivoUrl
 }
 
 // ============================================

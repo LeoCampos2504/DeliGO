@@ -62,6 +62,7 @@ interface ChatState {
 
   // Data
   conversations: Conversation[]
+  archivedConversations: Conversation[]
   messages: Record<string, ChatMessage[]> // pedidoId -> messages
   pedidoInfo: Record<string, PedidoInfo>
   unreadCount: number
@@ -83,6 +84,7 @@ interface ChatState {
 
   // Data actions
   setConversations: (conversations: Conversation[]) => void
+  setArchivedConversations: (conversations: Conversation[]) => void
   setMessages: (pedidoId: string, messages: ChatMessage[]) => void
   addMessage: (pedidoId: string, message: ChatMessage) => void
   setPedidoInfo: (pedidoId: string, info: PedidoInfo) => void
@@ -109,6 +111,7 @@ export const useChatStore = create<ChatState>()((set) => ({
 
   // Data
   conversations: [],
+  archivedConversations: [],
   messages: {},
   pedidoInfo: {},
   unreadCount: 0,
@@ -135,6 +138,7 @@ export const useChatStore = create<ChatState>()((set) => ({
 
   // Data actions
   setConversations: (conversations) => set({ conversations }),
+  setArchivedConversations: (archivedConversations) => set({ archivedConversations }),
 
   setMessages: (pedidoId, messages) =>
     set((state) => ({
