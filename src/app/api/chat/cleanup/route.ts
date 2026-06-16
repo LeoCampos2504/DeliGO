@@ -3,18 +3,27 @@ import { db } from "@/lib/db"
 import { cloudinary, extractPublicId } from "@/lib/cloudinary"
 
 // ============================================
-// POST /api/chat/cleanup
+// GET/POST /api/chat/cleanup
 // Deletes chat files (images & PDFs) from Cloudinary
 // for messages older than 10 days.
 // Called by cron job — requires a secret API key.
+//
+// Auth options:
+//   Header: x-cleanup-secret <value>
+//   Query:  ?secret=<value>
 // ============================================
 
 const CLEANUP_DAYS = 10
 
-export async function POST(req: NextRequest) {
-  // Simple auth: require a secret header to prevent unauthorized calls
-  const secret = req.headers.get("x-cleanup-secret")
-  if (secret !== process.env.CLEANUP_SECRET && process.env.CLEANUP_SECRET) {
+// Shared cleanup logic — works with both GET and POST
+async function runCleanup(req: NextRequest) {
+  // Simple auth: require a secret to prevent unauthorized calls
+  // Supports both header (x-cleanup-secret) and query param (?secret=)
+  const headerSecret = req.headers.get("x-cleanup-secret")
+  const querySecret = req.nextUrl.searchParams.get("secret")
+  const providedSecret = headerSecret || querySecret
+
+  if (process.env.CLEANUP_SECRET && providedSecret !== process.env.CLEANUP_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -114,4 +123,13 @@ export async function POST(req: NextRequest) {
     console.error("[Chat Cleanup] Error:", error)
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
   }
+}
+
+// Support both GET and POST so cron-job.org works with its default (GET)
+export async function GET(req: NextRequest) {
+  return runCleanup(req)
+}
+
+export async function POST(req: NextRequest) {
+  return runCleanup(req)
 }
