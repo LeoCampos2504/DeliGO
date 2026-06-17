@@ -30,8 +30,11 @@ async function runCleanup(req: NextRequest) {
   try {
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - CLEANUP_DAYS)
+    console.log(`[Chat Cleanup] Cutoff: ${cutoff.toISOString()}`)
 
-    // Find messages older than cutoff that still have files
+    // ─────────────────────────────────────────────
+    // Step 1: Find messages older than cutoff that still have files
+    // ─────────────────────────────────────────────
     const oldMessages = await db.chatMensaje.findMany({
       where: {
         fecha: { lt: cutoff },
@@ -46,11 +49,15 @@ async function runCleanup(req: NextRequest) {
         archivoUrl: true,
       },
     })
+    console.log(`[Chat Cleanup] Found ${oldMessages.length} old messages with files`)
 
     let deletedFiles = 0
     let failedFiles = 0
     const updatedMessageIds: string[] = []
 
+    // ─────────────────────────────────────────────
+    // Step 2: Delete each file from Cloudinary
+    // ─────────────────────────────────────────────
     for (const msg of oldMessages) {
       // Delete image from Cloudinary
       if (msg.imagenUrl) {
@@ -59,7 +66,8 @@ async function runCleanup(req: NextRequest) {
           try {
             await cloudinary.uploader.destroy(publicId)
             deletedFiles++
-          } catch {
+          } catch (err) {
+            console.error(`[Chat Cleanup] Failed to delete image ${publicId}:`, err)
             failedFiles++
           }
         }
@@ -78,7 +86,8 @@ async function runCleanup(req: NextRequest) {
             try {
               await cloudinary.uploader.destroy(publicId, { resource_type: "image" })
               deletedFiles++
-            } catch {
+            } catch (err) {
+              console.error(`[Chat Cleanup] Failed to delete file ${publicId}:`, err)
               failedFiles++
             }
           }
@@ -88,7 +97,9 @@ async function runCleanup(req: NextRequest) {
       updatedMessageIds.push(msg.id)
     }
 
-    // Clear the URLs from the DB so we don't try to delete them again
+    // ─────────────────────────────────────────────
+    // Step 3: Clear the URLs from the DB so we don't try to delete them again
+    // ─────────────────────────────────────────────
     if (updatedMessageIds.length > 0) {
       await db.chatMensaje.updateMany({
         where: { id: { in: updatedMessageIds } },
@@ -99,17 +110,25 @@ async function runCleanup(req: NextRequest) {
           archivoTipo: null,
         },
       })
+      console.log(`[Chat Cleanup] Cleared URLs for ${updatedMessageIds.length} messages`)
     }
 
-    // Also delete messages with no content at all (text + files all null) older than cutoff
+    // ─────────────────────────────────────────────
+    // Step 4: Delete messages with no content at all (text + files all null) older than cutoff
+    // FIXED: use top-level OR instead of field-level "or" (which doesn't exist in Prisma)
+    // ─────────────────────────────────────────────
     const deletedEmpty = await db.chatMensaje.deleteMany({
       where: {
         fecha: { lt: cutoff },
-        texto: { or: [{ equals: "" }, { equals: null }] },
+        OR: [
+          { texto: "" },
+          { texto: null },
+        ],
         imagenUrl: null,
         archivoUrl: null,
       },
     })
+    console.log(`[Chat Cleanup] Deleted ${deletedEmpty.count} empty messages`)
 
     return NextResponse.json({
       success: true,
@@ -120,8 +139,13 @@ async function runCleanup(req: NextRequest) {
       emptyMessagesDeleted: deletedEmpty.count,
     })
   } catch (error) {
+    // Log the full error so it shows up in Railway logs
     console.error("[Chat Cleanup] Error:", error)
-    return NextResponse.json({ error: "Error interno" }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    return NextResponse.json(
+      { error: "Error interno", details: errorMessage },
+      { status: 500 }
+    )
   }
 }
 
