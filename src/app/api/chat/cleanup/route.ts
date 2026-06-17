@@ -115,15 +115,12 @@ async function runCleanup(req: NextRequest) {
 
     // ─────────────────────────────────────────────
     // Step 4: Delete messages with no content at all (text + files all null) older than cutoff
-    // FIXED: use top-level OR instead of field-level "or" (which doesn't exist in Prisma)
+    // NOTE: texto is NOT nullable (has @default("")), so we only check for empty string ""
     // ─────────────────────────────────────────────
     const deletedEmpty = await db.chatMensaje.deleteMany({
       where: {
         fecha: { lt: cutoff },
-        OR: [
-          { texto: "" },
-          { texto: null },
-        ],
+        texto: "",
         imagenUrl: null,
         archivoUrl: null,
       },
