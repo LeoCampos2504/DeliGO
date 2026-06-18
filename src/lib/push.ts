@@ -165,6 +165,8 @@ interface CreateNotificationParams {
   pushPayload?: PushNotificationPayload
   /** If provided, clean up expired push subscription on failure */
   cleanupExpired?: { model: string; id: string; field?: string }
+  /** If true, await the push send so errors surface in logs (default: false, fire-and-forget) */
+  awaitPush?: boolean
 }
 
 /**
@@ -184,6 +186,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
     pushSubscription,
     pushPayload,
     cleanupExpired,
+    awaitPush,
   } = params
 
   // Build navigation data
@@ -216,9 +219,23 @@ export async function createNotification(params: CreateNotificationParams): Prom
 
   // 2. Send push notification if subscription exists
   if (pushSubscription && pushPayload) {
-    sendPushNotification(pushSubscription, pushPayload, cleanupExpired).catch((err) => {
-      console.error("[Push] Error sending push notification:", err)
-    })
+    const pushPromise = sendPushNotification(pushSubscription, pushPayload, cleanupExpired)
+    if (awaitPush) {
+      // Await the push so errors surface in the caller's logs
+      try {
+        const sent = await pushPromise
+        if (!sent) {
+          console.warn(`[Push] sendPushNotification returned false for tipo=${tipo} userId=${userId} (VAPID not configured or subscription expired)`)
+        }
+      } catch (err) {
+        console.error(`[Push] Error sending push notification (tipo=${tipo} userId=${userId}):`, err)
+      }
+    } else {
+      // Fire-and-forget (default for non-critical notifications)
+      pushPromise.catch((err) => {
+        console.error("[Push] Error sending push notification:", err)
+      })
+    }
   }
 }
 
@@ -236,15 +253,17 @@ export async function sendPushNotification(
     return false
   }
 
+  let subscription: { endpoint?: string } | null = null
   try {
-    const subscription = JSON.parse(subscriptionJson)
+    subscription = JSON.parse(subscriptionJson)
     await webpush.sendNotification(subscription, JSON.stringify(payload))
     return true
   } catch (error: unknown) {
-    const err = error as { statusCode?: number }
+    const err = error as { statusCode?: number; message?: string; body?: string }
+    const endpoint = subscription?.endpoint || "unknown"
     // 410 = subscription expired, 404 = subscription gone
     if (err.statusCode === 410 || err.statusCode === 404) {
-      console.log("[Push] Subscription expired, should be removed")
+      console.log(`[Push] Subscription expired (statusCode=${err.statusCode}, endpoint=${endpoint}), should be removed`)
       // Auto-cleanup expired subscriptions to prevent future send attempts
       if (cleanupExpired) {
         try {
@@ -276,7 +295,11 @@ export async function sendPushNotification(
       }
       return false
     }
-    console.error("[Push] Error sending notification:", error)
+    // Log the full error details so we can diagnose 400/403/etc. on Railway
+    console.error(`[Push] Error sending notification (statusCode=${err.statusCode}, endpoint=${endpoint}):`, err.message || error)
+    if (err.body) {
+      console.error(`[Push] Response body:`, err.body)
+    }
     return false
   }
 }
@@ -546,9 +569,16 @@ export function mesaOrderReadyNotification(
   mesaNumero: number,
   clienteNombre: string
 ): PushNotificationPayload {
+  // For mesa orders there is often no customer session (the mozo took the
+  // order), so clienteNombre may be "Invitado". In that case we just reference
+  // the mesa number instead of showing "Invitado" to the mozo.
+  const autor = clienteNombre && clienteNombre !== "Invitado" ? clienteNombre : null
+  const body = autor
+    ? `El pedido de ${autor} en la mesa ${mesaNumero} está listo para servir`
+    : `El pedido de la mesa ${mesaNumero} está listo para servir`
   return {
     title: `Mesa ${mesaNumero} — Pedido listo 🍽️`,
-    body: `El pedido de ${clienteNombre} en la mesa ${mesaNumero} está listo para servir`,
+    body,
     tag: `mesa-ready-${pedidoId}`,
     data: {
       type: "mesa_order_ready",
@@ -570,16 +600,26 @@ export function salonNewOrderNotification(
   pedidoId: string,
   mesaNumero: number,
   clienteNombre: string,
-  total: number
+  total: number,
+  mozoNombre?: string | null
 ): PushNotificationPayload {
+  // For mesa orders placed by a mozo, the "cliente" is really the mozo
+  // (there's no customer session). Show the mozo's name so the salon staff
+  // know who took the order. Fall back to the customer name for regular
+  // mesa orders (e.g. a customer scanning a QR without a mozo).
+  const autor = mozoNombre || clienteNombre
+  const body = mozoNombre
+    ? `${mozoNombre} tomó un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`
+    : `${clienteNombre} hizo un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`
   return {
     title: `Mesa ${mesaNumero} — Nuevo pedido 📩`,
-    body: `${clienteNombre} hizo un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`,
+    body,
     tag: `salon-new-order-${pedidoId}`,
     data: {
       type: "salon_new_order",
       pedidoId,
       mesaNumero,
+      autor,
     },
     actions: [
       { action: "view", title: "Ver pedido" },

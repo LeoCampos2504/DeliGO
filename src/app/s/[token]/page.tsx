@@ -510,7 +510,14 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
                             <div className="flex items-center gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-semibold truncate">{pedido.clienteNombre}</p>
+                                  <p className="text-sm font-semibold truncate">
+                                    {pedido.empleadoNombre || pedido.clienteNombre}
+                                  </p>
+                                  {pedido.empleadoNombre && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                                      Mozo
+                                    </span>
+                                  )}
                                   <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", config?.color, config?.bg)}>
                                     {config?.label}
                                   </span>

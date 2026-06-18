@@ -9,28 +9,32 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { empleadosToken, subscription } = body as {
-      empleadosToken: string
+    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
+    // and `empleadosToken` (legacy field name) for backward compatibility.
+    const { token, empleadosToken, subscription } = body as {
+      token?: string
+      empleadosToken?: string
       subscription: string
     }
+    const resolvedToken = token || empleadosToken
 
-    if (!empleadosToken || !subscription) {
+    if (!resolvedToken || !subscription) {
       return NextResponse.json(
-        { error: "empleadosToken y subscription son obligatorios" },
+        { error: "token y subscription son obligatorios" },
         { status: 400 }
       )
     }
 
     // Rate limit
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:empleados:${empleadosToken}`)
+    const rl = checkRateLimit("push", `${ip}:empleados:${resolvedToken}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }
 
     // Validate empleados token (stored on Negocio.tokenEmpleados)
     const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: empleadosToken },
+      where: { tokenEmpleados: resolvedToken },
       select: { id: true },
     })
 

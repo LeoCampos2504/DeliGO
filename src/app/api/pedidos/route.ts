@@ -506,7 +506,8 @@ export async function POST(request: NextRequest) {
             pedido.id,
             mesaNumero,
             clienteNombre,
-            total
+            total,
+            empleadoNombre
           )
           await createNotification({
             userId: negocioId,

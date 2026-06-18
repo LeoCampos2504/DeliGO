@@ -216,7 +216,10 @@ export default function MozoPage() {
         return
       }
       const { publicKey } = await vapidRes.json()
-      if (!publicKey) return
+      if (!publicKey) {
+        toast.error("Notificaciones push no configuradas")
+        return
+      }
 
       // Subscribe
       const subscription = await registration.pushManager.subscribe({
@@ -238,6 +241,10 @@ export default function MozoPage() {
         setIsPushSubscribed(true)
         setMozoInfo(prev => prev ? { ...prev, hasPushSubscription: true } : prev)
         toast.success("Notificaciones activadas 🔔")
+      } else {
+        // Subscribe failed — unsubscribe locally so the bell state stays honest
+        try { await subscription.unsubscribe() } catch { /* ignore */ }
+        toast.error("Error al activar notificaciones")
       }
     } catch (err) {
       console.error("Push subscribe error:", err)

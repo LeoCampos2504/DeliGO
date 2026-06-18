@@ -6,18 +6,24 @@ import { db } from "@/lib/db"
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { empleadosToken } = body as { empleadosToken: string }
+    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
+    // and `empleadosToken` (legacy field name) for backward compatibility.
+    const { token, empleadosToken } = body as {
+      token?: string
+      empleadosToken?: string
+    }
+    const resolvedToken = token || empleadosToken
 
-    if (!empleadosToken) {
+    if (!resolvedToken) {
       return NextResponse.json(
-        { error: "empleadosToken es obligatorio" },
+        { error: "token es obligatorio" },
         { status: 400 }
       )
     }
 
     // Validate empleados token
     const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: empleadosToken },
+      where: { tokenEmpleados: resolvedToken },
       select: { id: true },
     })
 

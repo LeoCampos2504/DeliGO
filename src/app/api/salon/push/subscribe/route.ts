@@ -9,28 +9,32 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { salonToken, subscription } = body as {
-      salonToken: string
+    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
+    // and `salonToken` (legacy field name) for backward compatibility.
+    const { token, salonToken, subscription } = body as {
+      token?: string
+      salonToken?: string
       subscription: string
     }
+    const resolvedToken = token || salonToken
 
-    if (!salonToken || !subscription) {
+    if (!resolvedToken || !subscription) {
       return NextResponse.json(
-        { error: "salonToken y subscription son obligatorios" },
+        { error: "token y subscription son obligatorios" },
         { status: 400 }
       )
     }
 
     // Rate limit
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:salon:${salonToken}`)
+    const rl = checkRateLimit("push", `${ip}:salon:${resolvedToken}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }
 
     // Validate salon token
     const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: salonToken },
+      where: { tokenSalon: resolvedToken },
       select: { id: true },
     })
 

@@ -245,6 +245,8 @@ export async function PATCH(
     // Fallback: mesa.empleadoId (the mozo currently assigned to the mesa)
     if (estado === "listo_para_retirar" && pedido.metodoEntrega === "mesa") {
       try {
+        console.log(`[Push/Mozo] (negocio) Pedido ${pedidoId} → listo_para_retirar. Resolviendo mozo (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
+
         let mozo: { id: string; nombre: string; pushSubscription: string | null } | null = null
 
         // Try the mozo who took the order first
@@ -253,6 +255,7 @@ export async function PATCH(
             where: { id: pedido.empleadoId },
             select: { id: true, nombre: true, pushSubscription: true },
           })
+          console.log(`[Push/Mozo] (negocio) Mozo del pedido (empleadoId=${pedido.empleadoId}):`, mozo ? `${mozo.nombre} (push=${mozo.pushSubscription ? "sí" : "no"})` : "no encontrado")
         }
 
         // Fallback: mozo currently assigned to the mesa
@@ -263,6 +266,7 @@ export async function PATCH(
               empleado: { select: { id: true, nombre: true, pushSubscription: true } },
             },
           })
+          console.log(`[Push/Mozo] (negocio) Mesa ${pedido.mesaId}:`, mesa ? `empleadoId=${mesa.empleadoId}, push=${mesa.empleado?.pushSubscription ? "sí" : "no"}` : "no encontrada")
           if (mesa?.empleado?.pushSubscription) {
             mozo = mesa.empleado
           }
@@ -275,6 +279,7 @@ export async function PATCH(
             mesaNumero,
             pedido.clienteNombre
           )
+          console.log(`[Push/Mozo] (negocio) Enviando push a mozo ${mozo.id} (${mozo.nombre}) para mesa ${mesaNumero}`)
           await createNotification({
             userId: mozo.id,
             userType: "empleado",
@@ -287,12 +292,14 @@ export async function PATCH(
             pushSubscription: mozo.pushSubscription,
             pushPayload: mozoPayload,
             cleanupExpired: { model: "empleado", id: mozo.id },
+            awaitPush: true,
           })
+          console.log(`[Push/Mozo] (negocio) Push enviado para pedido ${pedidoId}`)
         } else {
-          console.log(`[Push] No mozo with push subscription for pedido ${pedidoId} (empleadoId=${pedido.empleadoId})`)
+          console.warn(`[Push/Mozo] (negocio) No se encontró mozo con push subscription para pedido ${pedidoId} (empleadoId=${pedido.empleadoId})`)
         }
       } catch (mozoPushError) {
-        console.error("[Push] Failed to send mozo notification:", mozoPushError)
+        console.error(`[Push/Mozo] (negocio) Failed to send mozo notification for pedido ${pedidoId}:`, mozoPushError)
       }
     }
 

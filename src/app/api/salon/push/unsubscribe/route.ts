@@ -7,18 +7,24 @@ import { db } from "@/lib/db"
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { salonToken } = body as { salonToken: string }
+    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
+    // and `salonToken` (legacy field name) for backward compatibility.
+    const { token, salonToken } = body as {
+      token?: string
+      salonToken?: string
+    }
+    const resolvedToken = token || salonToken
 
-    if (!salonToken) {
+    if (!resolvedToken) {
       return NextResponse.json(
-        { error: "salonToken es obligatorio" },
+        { error: "token es obligatorio" },
         { status: 400 }
       )
     }
 
     // Validate salon token
     const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: salonToken },
+      where: { tokenSalon: resolvedToken },
       select: { id: true },
     })
 
