@@ -49,8 +49,16 @@ export async function GET(request: NextRequest) {
     // Override start_url to include the token, so the installed PWA
     // opens directly to this user's dashboard
     manifest.start_url = `${config.pathPrefix}${token}`
-    // Scope must allow the start_url
-    manifest.scope = "/"
+    // Scope must match the role's path prefix (e.g. "/m/", "/s/", "/e/")
+    // — NOT "/" — otherwise the installed PWA would capture ALL routes
+    // (including "/", "/negocio", "/repartidor") and prevent the user
+    // from installing the cliente/negocio/repartidor PWAs separately.
+    manifest.scope = config.pathPrefix
+    // Stable id (does NOT include the token) so the PWA stays the same
+    // app even if the token changes (e.g. mozo re-logs in). Without an
+    // explicit id the browser would derive it from start_url, which
+    // contains the token → every new token = a "new" app.
+    manifest.id = `${config.pathPrefix}?pwa=${role}`
 
     return NextResponse.json(manifest, {
       headers: {

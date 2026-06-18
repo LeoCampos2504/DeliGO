@@ -1,13 +1,14 @@
 {
+  "id": "/e/?pwa=empleado",
   "name": "DeliGO Empleados - Pedidos y Reseñas",
   "short_name": "DeliGO Empleados",
   "description": "Gestioná pedidos, reseñas y chat del negocio. App para empleados.",
-  "start_url": "/e",
+  "start_url": "/e/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0891B2",
   "orientation": "portrait-primary",
-  "scope": "/",
+  "scope": "/e/",
   "lang": "es",
   "categories": ["business", "productivity"],
   "icons": [

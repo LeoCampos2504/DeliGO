@@ -1,13 +1,14 @@
 {
+  "id": "/s/?pwa=salon",
   "name": "DeliGO Salón - Vista del Salón",
   "short_name": "DeliGO Salón",
   "description": "Vista en vivo de todas las mesas y pedidos del salón. Pantalla para cocina y salon.",
-  "start_url": "/s",
+  "start_url": "/s/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#475569",
   "orientation": "any",
-  "scope": "/",
+  "scope": "/s/",
   "lang": "es",
   "categories": ["business", "productivity"],
   "icons": [
