@@ -1,38 +1,29 @@
-import nodemailer from "nodemailer"
 import { randomUUID } from "crypto"
+import { Resend } from "resend"
 
 // ============================================
-// Email Configuration
+// Email Configuration - Resend API
 // ============================================
 
-const SMTP_HOST = process.env.SMTP_HOST || ""
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10)
-const SMTP_USER = process.env.SMTP_USER || ""
-const SMTP_PASS = process.env.SMTP_PASS || ""
-const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || "DeliGO"
-const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || SMTP_USER || "noreply@deligo.app"
-const SMTP_FROM = `"${SMTP_FROM_NAME}" <${SMTP_FROM_EMAIL}>`
+const RESEND_API_KEY = process.env.RESEND_API_KEY || ""
+const EMAIL_FROM =
+  process.env.EMAIL_FROM ||
+  process.env.RESEND_FROM ||
+  "DeliGO <no-reply@deligo.ar>"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
-// Whether email sending is enabled (requires SMTP config)
-const EMAIL_ENABLED = !!(SMTP_HOST && SMTP_USER && SMTP_PASS)
+// Whether email sending is enabled (requires Resend API key)
+const EMAIL_ENABLED = !!RESEND_API_KEY
 
-// Create reusable transporter
-let transporter: nodemailer.Transporter | null = null
+const resend = EMAIL_ENABLED ? new Resend(RESEND_API_KEY) : null
 
-function getTransporter(): nodemailer.Transporter {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      auth: {
-        user: SMTP_USER,
-        pass: SMTP_PASS,
-      },
-    })
-  }
-  return transporter
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;")
 }
 
 // ============================================
@@ -53,10 +44,16 @@ export async function sendVerificationEmail(
   token: string,
   userType: "cliente" | "negocio" | "repartidor"
 ): Promise<boolean> {
-  const verificationUrl = `${APP_URL}/api/auth/verify-email?token=${token}`
+  const verificationUrl = `${APP_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`
+
+  const safeNombre = escapeHtml(nombre)
 
   const roleLabel =
-    userType === "negocio" ? "tu local" : userType === "repartidor" ? "tu cuenta de repartidor" : "tu cuenta"
+    userType === "negocio"
+      ? "tu local"
+      : userType === "repartidor"
+        ? "tu cuenta de repartidor"
+        : "tu cuenta"
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -79,7 +76,7 @@ export async function sendVerificationEmail(
           <!-- Body -->
           <tr>
             <td style="padding: 40px;">
-              <h2 style="margin: 0 0 8px; color: #1a1a1a; font-size: 22px; font-weight: 700;">¡Hola, ${nombre}! 👋</h2>
+              <h2 style="margin: 0 0 8px; color: #1a1a1a; font-size: 22px; font-weight: 700;">¡Hola, ${safeNombre}! 👋</h2>
               <p style="margin: 0 0 24px; color: #666666; font-size: 16px; line-height: 1.5;">
                 Para completar el registro de ${roleLabel}, necesitamos verificar tu email.
               </p>
@@ -132,7 +129,7 @@ Este enlace expira en 24 horas.
 Si no creaste esta cuenta, ignorá este email.
   `
 
-  if (!EMAIL_ENABLED) {
+  if (!EMAIL_ENABLED || !resend) {
     // In development, log the verification link instead of sending
     console.log(`\n📧 [EMAIL DEV MODE] Verification email for ${email} (${userType})`)
     console.log(`   Verification URL: ${verificationUrl}\n`)
@@ -140,14 +137,20 @@ Si no creaste esta cuenta, ignorá este email.
   }
 
   try {
-    const info = await getTransporter().sendMail({
-      from: SMTP_FROM,
-      to: email,
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to: [email],
       subject: "DeliGO — Verificá tu email",
       html: htmlBody,
       text: textBody,
     })
-    console.log(`[Email] Verification sent to ${email}: ${info.messageId}`)
+
+    if (error) {
+      console.error(`[Email] Resend API error sending verification to ${email}:`, error)
+      return false
+    }
+
+    console.log(`[Email] Verification sent to ${email}: ${data?.id}`)
     return true
   } catch (error) {
     console.error(`[Email] Failed to send verification to ${email}:`, error)
@@ -164,23 +167,38 @@ export async function sendPasswordResetEmail(
   nombre: string,
   token: string
 ): Promise<boolean> {
-  const resetUrl = `${APP_URL}/reset-password?token=${token}`
+  const resetUrl = `${APP_URL}/reset-password?token=${encodeURIComponent(token)}`
+  const safeNombre = escapeHtml(nombre)
 
-  if (!EMAIL_ENABLED) {
+  const htmlBody = `
+    <p>Hola ${safeNombre},</p>
+    <p>Hacé click <a href="${resetUrl}">acá</a> para restablecer tu contraseña.</p>
+    <p>Este enlace expira en 1 hora.</p>
+  `
+
+  const textBody = `Hola ${nombre},\n\nRestablecé tu contraseña con este enlace: ${resetUrl}\n\nEste enlace expira en 1 hora.`
+
+  if (!EMAIL_ENABLED || !resend) {
     console.log(`\n📧 [EMAIL DEV MODE] Password reset email for ${email}`)
     console.log(`   Reset URL: ${resetUrl}\n`)
     return true
   }
 
   try {
-    const info = await getTransporter().sendMail({
-      from: SMTP_FROM,
-      to: email,
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
+      to: [email],
       subject: "DeliGO — Restablecé tu contraseña",
-      html: `<p>Hola ${nombre},</p><p>Hacé click <a href="${resetUrl}">acá</a> para restablecer tu contraseña.</p><p>Este enlace expira en 1 hora.</p>`,
-      text: `Hola ${nombre},\n\nRestablecé tu contraseña con este enlace: ${resetUrl}\n\nEste enlace expira en 1 hora.`,
+      html: htmlBody,
+      text: textBody,
     })
-    console.log(`[Email] Password reset sent to ${email}: ${info.messageId}`)
+
+    if (error) {
+      console.error(`[Email] Resend API error sending password reset to ${email}:`, error)
+      return false
+    }
+
+    console.log(`[Email] Password reset sent to ${email}: ${data?.id}`)
     return true
   } catch (error) {
     console.error(`[Email] Failed to send password reset to ${email}:`, error)
