@@ -42,6 +42,8 @@ export type NotificationType =
   | "salon_new_order"
   | "empleados_new_order"
   | "empleados_new_review"
+  | "empleados_order_cancelled"
+  | "salon_order_cancelled"
 
 export interface PushNotificationPayload {
   title: string
@@ -140,6 +142,16 @@ function getNavigationTarget(
       // New review arrived at the empleados panel
       return {
         empleados: "resenas",
+      }
+    case "empleados_order_cancelled":
+      // Order was cancelled — notify empleados panel so it disappears from the queue
+      return {
+        empleados: "pedidos",
+      }
+    case "salon_order_cancelled":
+      // Order was cancelled — notify salon shared display
+      return {
+        salon: "salon",
       }
     default:
       return {}
@@ -673,6 +685,64 @@ export function empleadosNewReviewNotification(
     actions: [
       { action: "view", title: "Ver reseña" },
     ],
+  }
+}
+
+// Order cancelled — sent to empleados PWA (/e/[token]) so the shared display
+// updates and the order disappears from the active queue. Mirrors the
+// empleadosNewOrderNotification pattern (retiro/domicilio orders).
+export function empleadosOrderCancelledNotification(
+  pedidoId: string,
+  clienteNombre: string,
+  canceladoPor: string
+): PushNotificationPayload {
+  const porLabel =
+    canceladoPor === "cliente"
+      ? "por el cliente"
+      : canceladoPor === "sistema"
+      ? "automáticamente"
+      : "por el local"
+  return {
+    title: "Pedido cancelado ❌",
+    body: `El pedido de ${clienteNombre} fue cancelado ${porLabel}`,
+    tag: `empleados-order-cancelled-${pedidoId}`,
+    data: {
+      type: "empleados_order_cancelled",
+      pedidoId,
+    },
+    actions: [
+      { action: "view", title: "Ver pedidos" },
+    ],
+    requireInteraction: true,
+  }
+}
+
+// Order cancelled — sent to salon PWA (/s/[token]) for mesa orders.
+export function salonOrderCancelledNotification(
+  pedidoId: string,
+  mesaNumero: string | number | null,
+  clienteNombre: string,
+  canceladoPor: string
+): PushNotificationPayload {
+  const mesaLabel = mesaNumero ? ` (Mesa ${mesaNumero})` : ""
+  const porLabel =
+    canceladoPor === "cliente"
+      ? "por el cliente"
+      : canceladoPor === "sistema"
+      ? "automáticamente"
+      : "por el salón"
+  return {
+    title: "Pedido cancelado ❌",
+    body: `El pedido${mesaLabel} de ${clienteNombre} fue cancelado ${porLabel}`,
+    tag: `salon-order-cancelled-${pedidoId}`,
+    data: {
+      type: "salon_order_cancelled",
+      pedidoId,
+    },
+    actions: [
+      { action: "view", title: "Ver salón" },
+    ],
+    requireInteraction: true,
   }
 }
 

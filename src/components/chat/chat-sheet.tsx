@@ -28,7 +28,7 @@ export function ChatSheet() {
     updateConversationLastMessage,
   } = useChatStore()
 
-  const { user } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const socketRef = useRef<Socket | null>(null)
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({})
   const [connectionFailed, setConnectionFailed] = useState(false)

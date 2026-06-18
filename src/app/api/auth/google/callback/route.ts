@@ -233,7 +233,15 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("Google OAuth callback error:", error)
 
-    const redirectUrl = new URL("/cliente/", APP_URL)
+    // Determine role from cookie so errors redirect to the correct app
+    // (previously this was hardcoded to /cliente/, which meant repartidor
+    // users saw the error on the wrong app).
+    const roleForError =
+      req.cookies.get("google_oauth_role")?.value === "repartidor"
+        ? "repartidor"
+        : "cliente"
+    const errorBase = roleForError === "repartidor" ? "/repartidor" : "/cliente/"
+    const redirectUrl = new URL(errorBase, APP_URL)
     redirectUrl.searchParams.set("auth_error", "server_error")
 
     return NextResponse.redirect(redirectUrl.toString())

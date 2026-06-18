@@ -75,7 +75,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
     updateConversationLastMessage,
   } = useChatStore()
 
-  const { user } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
 
   const [messageText, setMessageText] = useState("")
   const [telefonoFiltrado, setTelefonoFiltrado] = useState(false)

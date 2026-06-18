@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
-import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
+import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification, empleadosOrderCancelledNotification, salonOrderCancelledNotification } from "@/lib/push"
 
 // PUT /api/cliente/pedidos/[id] - Order actions (cancel, confirm receipt, repeat)
 export async function PUT(
@@ -77,7 +77,7 @@ export async function PUT(
       try {
         const negocioData = await db.negocio.findUnique({
           where: { id: pedido.negocioId },
-          select: { pushSubscription: true },
+          select: { pushSubscription: true, pushSubscriptionSalon: true, pushSubscriptionEmpleados: true },
         })
         const payload = orderCancelledByClienteNotification(id, pedido.clienteNombre)
         await createNotification({
@@ -91,6 +91,54 @@ export async function PUT(
           pushPayload: payload,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
         })
+
+        // Also notify shared-display PWAs (empleados / salon) so cancelled
+        // orders disappear from the active queue on /e/[token] and /s/[token].
+        const isMesaOrder = pedido.metodoEntrega === "mesa"
+        if (isMesaOrder) {
+          if (negocioData?.pushSubscriptionSalon) {
+            const salonPayload = salonOrderCancelledNotification(
+              id,
+              pedido.mesaNumero ?? null,
+              pedido.clienteNombre,
+              "cliente"
+            )
+            await createNotification({
+              userId: pedido.negocioId,
+              userType: "negocio",
+              tipo: "salon_order_cancelled",
+              titulo: salonPayload.title,
+              cuerpo: salonPayload.body,
+              pedidoId: id,
+              negocioId: pedido.negocioId,
+              datos: { mesaNumero: pedido.mesaNumero ?? null, canceladoPor: "cliente" },
+              pushSubscription: negocioData.pushSubscriptionSalon,
+              pushPayload: salonPayload,
+              cleanupExpired: { model: "negocio", id: pedido.negocioId, field: "pushSubscriptionSalon" },
+            })
+          }
+        } else {
+          if (negocioData?.pushSubscriptionEmpleados) {
+            const empPayload = empleadosOrderCancelledNotification(
+              id,
+              pedido.clienteNombre,
+              "cliente"
+            )
+            await createNotification({
+              userId: pedido.negocioId,
+              userType: "negocio",
+              tipo: "empleados_order_cancelled",
+              titulo: empPayload.title,
+              cuerpo: empPayload.body,
+              pedidoId: id,
+              negocioId: pedido.negocioId,
+              datos: { canceladoPor: "cliente" },
+              pushSubscription: negocioData.pushSubscriptionEmpleados,
+              pushPayload: empPayload,
+              cleanupExpired: { model: "negocio", id: pedido.negocioId, field: "pushSubscriptionEmpleados" },
+            })
+          }
+        }
       } catch (pushError) {
         console.error("[Push] Failed to send cancellation notification:", pushError)
       }

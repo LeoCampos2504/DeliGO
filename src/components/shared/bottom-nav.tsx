@@ -27,11 +27,13 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
  * This component is stateless — it only renders the nav and lets CSS do the rest.
  */
 export function BottomNav() {
-  const { isAuthenticated, userType } = useAuthStore()
+  // Subscribe to `user` directly so the nav re-renders immediately when the
+  // user logs out (Zustand v5 requires explicit selectors for reliable updates).
+  const user = useAuthStore((s) => s.user)
   const { activeTab, setActiveTab } = useNavStore()
 
   // Only show for logged-in clients
-  if (!isAuthenticated() || userType() !== "cliente") return null
+  if (!user || user.type !== "cliente") return null
 
   return (
     <nav

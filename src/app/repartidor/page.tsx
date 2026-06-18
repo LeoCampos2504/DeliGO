@@ -91,7 +91,6 @@ type RepartidorLoginView = "login" | "verify-email"
 
 function RepartidorLoginForm() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [view, setView] = useState<RepartidorLoginView>("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -102,47 +101,6 @@ function RepartidorLoginForm() {
   const [unverifiedEmail, setUnverifiedEmail] = useState("")
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
-
-  // Handle Google OAuth callback
-  useEffect(() => {
-    const authSuccess = searchParams.get("auth_success")
-    const authError = searchParams.get("auth_error")
-
-    if (authSuccess === "google") {
-      const userId = searchParams.get("user_id")
-      const userNameParam = searchParams.get("user_name")
-      const userEmail = searchParams.get("user_email")
-      const token = searchParams.get("token")
-
-      if (userId && userNameParam && userEmail && token) {
-        useAuthStore.getState().loginRepartidor({
-          id: userId,
-          nombre: decodeURIComponent(userNameParam),
-          email: decodeURIComponent(userEmail),
-          activo: true,
-          token,
-        })
-        toast.success(`🛵 ¡Bienvenido, ${decodeURIComponent(userNameParam)}!`)
-      }
-
-      // Clean URL
-      window.history.replaceState({}, '', '/repartidor')
-    }
-
-    if (authError) {
-      const errorMessages: Record<string, string> = {
-        access_denied: "Cancelaste el inicio de sesión con Google",
-        missing_params: "Error en la autenticación con Google",
-        invalid_state: "Error de seguridad en la autenticación",
-        token_exchange: "Error al conectar con Google",
-        user_info: "No se pudo obtener tu información de Google",
-        email_not_verified: "Tu email de Google no está verificado",
-        server_error: "Error del servidor al autenticar con Google",
-      }
-      toast.error(errorMessages[authError] || "Error al iniciar sesión con Google")
-      window.history.replaceState({}, '', '/repartidor')
-    }
-  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -175,7 +133,6 @@ function RepartidorLoginForm() {
         nombre: data.user.nombre,
         email: data.user.email,
         activo: data.user.activo,
-        token: data.token,
       })
 
       toast.success(`🛵 ¡Bienvenido, ${data.user.nombre}!`)
@@ -436,10 +393,57 @@ function RepartidorLoginForm() {
 // ============================================
 function RepartidorPageContent() {
   const hydrated = useHydrated()
+  const searchParams = useSearchParams()
   // Use value selectors instead of function references so the component re-renders
   // when the store updates (e.g., after Google OAuth callback calls loginRepartidor)
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
+
+  // Handle Google OAuth callback here (in the always-mounted page content)
+  // instead of inside RepartidorLoginForm. Previously this effect lived inside
+  // the login form, which is only mounted when the user is NOT authenticated as
+  // repartidor. If the persisted store already held a repartidor user (from a
+  // previous session), the form never mounted, the effect never ran, and the
+  // store was never updated with the new Google user — so the panel showed
+  // stale data or the login appeared to "not work". Moving the effect here
+  // guarantees it runs on every mount regardless of auth state.
+  useEffect(() => {
+    const authSuccess = searchParams.get("auth_success")
+    const authError = searchParams.get("auth_error")
+
+    if (authSuccess === "google") {
+      const userId = searchParams.get("user_id")
+      const userNameParam = searchParams.get("user_name")
+      const userEmail = searchParams.get("user_email")
+
+      if (userId && userNameParam && userEmail) {
+        useAuthStore.getState().loginRepartidor({
+          id: userId,
+          nombre: decodeURIComponent(userNameParam),
+          email: decodeURIComponent(userEmail),
+          activo: true,
+        })
+        toast.success(`🛵 ¡Bienvenido, ${decodeURIComponent(userNameParam)}!`)
+      }
+
+      // Clean URL
+      window.history.replaceState({}, '', '/repartidor')
+    }
+
+    if (authError) {
+      const errorMessages: Record<string, string> = {
+        access_denied: "Cancelaste el inicio de sesión con Google",
+        missing_params: "Error en la autenticación con Google",
+        invalid_state: "Error de seguridad en la autenticación",
+        token_exchange: "Error al conectar con Google",
+        user_info: "No se pudo obtener tu información de Google",
+        email_not_verified: "Tu email de Google no está verificado",
+        server_error: "Error del servidor al autenticar con Google",
+      }
+      toast.error(errorMessages[authError] || "Error al iniciar sesión con Google")
+      window.history.replaceState({}, '', '/repartidor')
+    }
+  }, [searchParams])
 
   // Wait for hydration
   if (!hydrated) {

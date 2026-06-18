@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification, mesaOrderReadyNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification, mesaOrderReadyNotification, empleadosOrderCancelledNotification, salonOrderCancelledNotification } from "@/lib/push"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 
@@ -206,6 +206,67 @@ export async function PATCH(
         })
       } catch (pushError) {
         console.error("[Push] Failed to send order update notification:", pushError)
+      }
+    }
+
+    // Notify shared-display PWAs (empleados / salon) when an order is cancelled.
+    // Previously only the negocio owner was notified; the /e/[token] and /s/[token]
+    // shared displays never learned about cancellations, so cancelled orders kept
+    // appearing in the active queue until the next manual refresh.
+    if (estado === "cancelado") {
+      try {
+        const sharedPush = await db.negocio.findUnique({
+          where: { id: negocioId },
+          select: { pushSubscriptionSalon: true, pushSubscriptionEmpleados: true },
+        })
+        const isMesaOrder = pedido.metodoEntrega === "mesa"
+
+        if (isMesaOrder) {
+          if (sharedPush?.pushSubscriptionSalon) {
+            const salonPayload = salonOrderCancelledNotification(
+              pedidoId,
+              pedido.mesaNumero ?? null,
+              pedido.clienteNombre,
+              "vendedor"
+            )
+            await createNotification({
+              userId: negocioId,
+              userType: "negocio",
+              tipo: "salon_order_cancelled",
+              titulo: salonPayload.title,
+              cuerpo: salonPayload.body,
+              pedidoId: pedidoId,
+              negocioId: negocioId,
+              datos: { mesaNumero: pedido.mesaNumero ?? null, canceladoPor: "vendedor", motivo: motivo ?? null },
+              pushSubscription: sharedPush.pushSubscriptionSalon,
+              pushPayload: salonPayload,
+              cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
+            })
+          }
+        } else {
+          if (sharedPush?.pushSubscriptionEmpleados) {
+            const empPayload = empleadosOrderCancelledNotification(
+              pedidoId,
+              pedido.clienteNombre,
+              "vendedor"
+            )
+            await createNotification({
+              userId: negocioId,
+              userType: "negocio",
+              tipo: "empleados_order_cancelled",
+              titulo: empPayload.title,
+              cuerpo: empPayload.body,
+              pedidoId: pedidoId,
+              negocioId: negocioId,
+              datos: { canceladoPor: "vendedor", motivo: motivo ?? null },
+              pushSubscription: sharedPush.pushSubscriptionEmpleados,
+              pushPayload: empPayload,
+              cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionEmpleados" },
+            })
+          }
+        }
+      } catch (sharedPushError) {
+        console.error("[Push] Failed to send shared-display cancellation notification:", sharedPushError)
       }
     }
 

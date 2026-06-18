@@ -1305,13 +1305,22 @@ function ItemsList({ items }: { items: PedidoItem[] }) {
         }
 
         // Parse secciones (options chosen from each section)
+        // Group quantities so that the same option chosen twice shows as "x2",
+        // matching the rendering used by the empleados PWA (/e/[token]).
+        // Secciones JSON shape:
+        //   single-select: { "Tamaño": "Grande" }
+        //   multi-select:  { "Toppings": { "Queso extra": 2, "Bacon": 1 } }
         let secciones: string[] = []
         try {
           const parsed = JSON.parse(item.secciones || "{}")
           if (typeof parsed === "object" && parsed !== null) {
             secciones = Object.entries(parsed).map(([section, value]) => {
               const val = value as Record<string, number> | string
-              return typeof val === "string" ? val : Object.keys(val).join(", ")
+              if (typeof val === "string") return `${section}: ${val}`
+              const parts = Object.entries(val)
+                .filter(([, qty]) => qty > 0)
+                .map(([opt, qty]) => (qty > 1 ? `${opt} x${qty}` : opt))
+              return `${section}: ${parts.join(", ")}`
             })
           }
         } catch {
