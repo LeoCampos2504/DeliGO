@@ -42,7 +42,12 @@ export const metadata: Metadata = {
     "Argentina",
   ],
   authors: [{ name: "DeliGO" }],
-  manifest: "/api/manifest?role=cliente",
+  // NOTE: No hardcoded `manifest` here. The DynamicManifest component sets
+  // the correct <link rel="manifest"> per route (cliente on "/", negocio on
+  // "/negocio", salon on "/s/[token]", etc.). Hardcoding the cliente manifest
+  // here caused Chrome to evaluate EVERY page as the cliente PWA, so once the
+  // cliente was installed (scope "/"), Chrome suppressed the install prompt
+  // for negocio/repartidor/salon/etc. and offered "Open DeliGO" instead.
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
