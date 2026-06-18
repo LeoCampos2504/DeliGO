@@ -2,40 +2,40 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
-// POST /api/salon/push/subscribe — Save a push subscription for the shared
-// salon display (/s/[token]). The subscription is stored on the Negocio model
-// in `pushSubscriptionSalon` (separate from the owner's personal
-// `pushSubscription`) so multiple devices can each receive notifications.
+// POST /api/empleados/push/subscribe — Save a push subscription for the shared
+// empleados panel (/e/[token]). Stored on the Negocio model in
+// `pushSubscriptionEmpleados` so the owner's personal subscription on
+// `pushSubscription` is not affected.
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { salonToken, subscription } = body as {
-      salonToken: string
+    const { empleadosToken, subscription } = body as {
+      empleadosToken: string
       subscription: string
     }
 
-    if (!salonToken || !subscription) {
+    if (!empleadosToken || !subscription) {
       return NextResponse.json(
-        { error: "salonToken y subscription son obligatorios" },
+        { error: "empleadosToken y subscription son obligatorios" },
         { status: 400 }
       )
     }
 
     // Rate limit
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:salon:${salonToken}`)
+    const rl = checkRateLimit("push", `${ip}:empleados:${empleadosToken}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }
 
-    // Validate salon token
+    // Validate empleados token (stored on Negocio.tokenEmpleados)
     const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: salonToken },
+      where: { tokenEmpleados: empleadosToken },
       select: { id: true },
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Token de salón inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token de empleados inválido" }, { status: 401 })
     }
 
     // Validate subscription is valid JSON
@@ -48,15 +48,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Save push subscription on the Negocio model (dedicated salon field)
+    // Save push subscription on the Negocio model (dedicated empleados field)
     await db.negocio.update({
       where: { id: negocio.id },
-      data: { pushSubscriptionSalon: subscription },
+      data: { pushSubscriptionEmpleados: subscription },
     })
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error saving salon push subscription:", error)
+    console.error("Error saving empleados push subscription:", error)
     return NextResponse.json(
       { error: "Error al guardar la suscripción" },
       { status: 500 }

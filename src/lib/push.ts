@@ -39,6 +39,9 @@ export type NotificationType =
   | "review_request"
   | "account_update"
   | "mesa_order_ready"
+  | "salon_new_order"
+  | "empleados_new_order"
+  | "empleados_new_review"
 
 export interface PushNotificationPayload {
   title: string
@@ -72,7 +75,9 @@ export interface NavigationTarget {
   cliente?: string   // tab for cliente page
   negocio?: string   // tab for negocio panel
   repartidor?: string // tab for repartidor panel
-  empleado?: string  // tab/section for empleado (e.g., salon)
+  empleado?: string  // tab/section for empleado (mozo PWA at /m/[token])
+  salon?: string     // tab/section for salon shared display (/s/[token])
+  empleados?: string // tab for empleados shared panel (/e/[token])
 }
 
 // Maps notification type → navigation target per role
@@ -121,6 +126,21 @@ function getNavigationTarget(
         // Mozo notifications go back to the salon page
         empleado: "salon",
       }
+    case "salon_new_order":
+      // New mesa order arrived at the salon shared display
+      return {
+        salon: "salon",
+      }
+    case "empleados_new_order":
+      // New general (non-mesa) order arrived at the empleados panel
+      return {
+        empleados: "pedidos",
+      }
+    case "empleados_new_review":
+      // New review arrived at the empleados panel
+      return {
+        empleados: "resenas",
+      }
     default:
       return {}
   }
@@ -144,7 +164,7 @@ interface CreateNotificationParams {
   pushSubscription?: string | null
   pushPayload?: PushNotificationPayload
   /** If provided, clean up expired push subscription on failure */
-  cleanupExpired?: { model: string; id: string }
+  cleanupExpired?: { model: string; id: string; field?: string }
 }
 
 /**
@@ -209,7 +229,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
 export async function sendPushNotification(
   subscriptionJson: string,
   payload: PushNotificationPayload,
-  cleanupExpired?: { model: string; id: string }
+  cleanupExpired?: { model: string; id: string; field?: string }
 ): Promise<boolean> {
   if (!isPushConfigured()) {
     console.warn("[Push] VAPID keys not configured, skipping notification")
@@ -238,12 +258,17 @@ export async function sendPushNotification(
           }
           const prismaModel = modelMap[cleanupExpired.model]
           if (prismaModel) {
-            // Dynamic model access for cleanup
-            await db[prismaModel].update({
+            // Determine which field to clear. Defaults to "pushSubscription".
+            // For shared-display subscriptions (salon, empleados) we pass a
+            // custom field name so we don't wipe the business owner's personal
+            // push subscription.
+            const fieldToClear = cleanupExpired.field || "pushSubscription"
+            // Dynamic model + field access for cleanup
+            await (db as Record<string, { update: (args: { where: { id: string }; data: Record<string, null> }) => Promise<unknown> }>)[prismaModel].update({
               where: { id: cleanupExpired.id },
-              data: { pushSubscription: null },
+              data: { [fieldToClear]: null },
             })
-            console.log(`[Push] Cleaned up expired subscription for ${cleanupExpired.model}:${cleanupExpired.id}`)
+            console.log(`[Push] Cleaned up expired subscription for ${cleanupExpired.model}:${cleanupExpired.id} (field=${fieldToClear})`)
           }
         } catch (cleanupError) {
           console.error("[Push] Failed to cleanup expired subscription:", cleanupError)
@@ -534,6 +559,80 @@ export function mesaOrderReadyNotification(
       { action: "view", title: "Ver pedido" },
     ],
     requireInteraction: true,
+  }
+}
+
+// ============================================
+// Salon PWA notifications (/s/[token])
+// ============================================
+
+export function salonNewOrderNotification(
+  pedidoId: string,
+  mesaNumero: number,
+  clienteNombre: string,
+  total: number
+): PushNotificationPayload {
+  return {
+    title: `Mesa ${mesaNumero} — Nuevo pedido 📩`,
+    body: `${clienteNombre} hizo un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`,
+    tag: `salon-new-order-${pedidoId}`,
+    data: {
+      type: "salon_new_order",
+      pedidoId,
+      mesaNumero,
+    },
+    actions: [
+      { action: "view", title: "Ver pedido" },
+    ],
+    requireInteraction: true,
+  }
+}
+
+// ============================================
+// Empleados PWA notifications (/e/[token])
+// ============================================
+
+export function empleadosNewOrderNotification(
+  pedidoId: string,
+  clienteNombre: string,
+  total: number,
+  metodoEntrega: string
+): PushNotificationPayload {
+  const entregaLabel =
+    metodoEntrega === "domicilio" ? "Delivery" : metodoEntrega === "retiro" ? "Retiro en local" : "Pedido"
+  return {
+    title: `¡Nuevo pedido! 📩 (${entregaLabel})`,
+    body: `${clienteNombre} hizo un pedido de $${total.toFixed(0)}`,
+    tag: `empleados-new-order-${pedidoId}`,
+    data: {
+      type: "empleados_new_order",
+      pedidoId,
+    },
+    actions: [
+      { action: "view", title: "Ver pedido" },
+    ],
+    requireInteraction: true,
+  }
+}
+
+export function empleadosNewReviewNotification(
+  pedidoId: string,
+  negocioNombre: string,
+  puntuacion: number,
+  clienteNombre: string
+): PushNotificationPayload {
+  const stars = "⭐".repeat(puntuacion)
+  return {
+    title: "Nueva reseña ⭐",
+    body: `${clienteNombre} dejó ${stars} en ${negocioNombre}`,
+    tag: `empleados-new-review-${pedidoId}`,
+    data: {
+      type: "empleados_new_review",
+      pedidoId,
+    },
+    actions: [
+      { action: "view", title: "Ver reseña" },
+    ],
   }
 }
 

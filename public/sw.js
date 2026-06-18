@@ -2,7 +2,7 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v8";
+const CACHE_NAME = "deligo-v10";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/"];
@@ -180,15 +180,31 @@ self.addEventListener("push", (event) => {
   try {
     const data = event.data.json();
     const title = data.title || "DeliGO";
+    const notifType = data.data?.type || "general";
+
+    // Pick the icon/badge per notification type so the user can tell at a
+    // glance which PWA the notification belongs to.
+    let icon = "/icon-cliente-192x192.png";
+    if (notifType === "salon_new_order") {
+      icon = "/icon-salon-192x192.png";
+    } else if (notifType === "empleados_new_order" || notifType === "empleados_new_review") {
+      icon = "/icon-empleado-192x192.png";
+    } else if (notifType === "mesa_order_ready") {
+      icon = "/icon-mozo-192x192.png";
+    } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
+      icon = "/icon-negocio-192x192.png";
+    }
+
     const options = {
       body: data.body || "",
-      icon: data.icon || "/icon-cliente-192x192.png",
-      badge: data.badge || "/icon-cliente-192x192.png",
+      icon: data.icon || icon,
+      badge: data.badge || icon,
       vibrate: [100, 50, 100],
       data: {
         url: data.data?.url || "/",
-        type: data.data?.type || "general",
+        type: notifType,
         pedidoId: data.data?.pedidoId || null,
+        mesaNumero: data.data?.mesaNumero || null,
       },
       actions: data.actions || [],
       requireInteraction: data.requireInteraction || false,
@@ -206,16 +222,93 @@ self.addEventListener("push", (event) => {
   }
 });
 
+// Helper: focus the first open client whose pathname starts with one of the
+// given prefixes. Returns true if a client was focused, false otherwise.
+function focusClientByPath(clients, prefixes) {
+  for (const prefix of prefixes) {
+    for (const client of clients) {
+      if ("focus" in client && "navigate" in client) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.pathname.startsWith(prefix)) {
+          client.focus();
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+// Helper: focus any open window (last resort).
+function focusAnyClient(clients) {
+  for (const client of clients) {
+    if ("focus" in client) {
+      client.focus();
+      return true;
+    }
+  }
+  return false;
+}
+
 // Notification click event — deep linking based on notification type
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
   const notificationData = event.notification.data || {};
-  const { type, pedidoId, url: customUrl } = notificationData;
+  const { type, pedidoId } = notificationData;
 
   // Handle action button clicks
   const action = event.action;
 
+  // ── Shared-display PWA notifications ──
+  // These PWAs are token-based (no session cookie), so we focus the already-
+  // open page rather than navigating to a /cliente, /negocio, etc. URL.
+  //
+  //   salon_new_order            → /s/[token]  (salon shared display)
+  //   empleados_new_order        → /e/[token]  (empleados shared panel, pedidos tab)
+  //   empleados_new_review       → /e/[token]  (empleados shared panel, reseñas tab)
+  //   mesa_order_ready           → /m/[token]  (mozo PWA), fallback /s/[token]
+  if (
+    type === "salon_new_order" ||
+    type === "empleados_new_order" ||
+    type === "empleados_new_review" ||
+    type === "mesa_order_ready"
+  ) {
+    // Determine the preferred path prefix(es) for this notification type.
+    let preferredPrefixes;
+    if (type === "salon_new_order") {
+      preferredPrefixes = ["/s/"];
+    } else if (type === "empleados_new_order" || type === "empleados_new_review") {
+      preferredPrefixes = ["/e/"];
+    } else {
+      // mesa_order_ready: mozo first, then salon as fallback
+      preferredPrefixes = ["/m/", "/s/"];
+    }
+
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        // 1) Try to focus an already-open page matching the preferred prefix
+        for (const prefix of preferredPrefixes) {
+          for (const client of clients) {
+            if ("focus" in client && "navigate" in client) {
+              const clientUrl = new URL(client.url);
+              if (clientUrl.pathname.startsWith(prefix)) {
+                client.focus();
+                return;
+              }
+            }
+          }
+        }
+        // 2) Fallback: focus any open window
+        if (focusAnyClient(clients)) return;
+        // 3) Last resort: open the root (user will need to navigate manually)
+        return self.clients.openWindow("/");
+      })
+    );
+    return;
+  }
+
+  // ── Personal (session-based) notifications ──
   // Build deep link URL based on notification type and action
   let targetPath = "/";
   let targetTab = "";
@@ -231,8 +324,6 @@ self.addEventListener("notificationclick", (event) => {
     targetTab = "resenas";
   } else if (type === "account_update") {
     targetTab = "config";
-  } else if (type === "mesa_order_ready") {
-    targetTab = "salon";
   }
 
   // Override tab based on action
@@ -240,44 +331,6 @@ self.addEventListener("notificationclick", (event) => {
     targetTab = "pedidos";
   } else if (action === "navigate" && pedidoId) {
     targetTab = "entregas";
-  }
-
-  // Handle mesa_order_ready — navigate to the employee page
-  if (type === "mesa_order_ready") {
-    event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        // Try to find the employee page (/m/[token]) that's already open
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            // If already on an employee page, just focus it
-            if (clientUrl.pathname.startsWith("/m/")) {
-              client.focus();
-              return;
-            }
-          }
-        }
-        // If no employee page is open, try salon page
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.pathname.startsWith("/s/")) {
-              client.focus();
-              return;
-            }
-          }
-        }
-        // Just focus any existing window
-        for (const client of clients) {
-          if ("focus" in client) {
-            client.focus();
-            return;
-          }
-        }
-        return self.clients.openWindow("/");
-      })
-    );
-    return;
   }
 
   // Build target URL with tab parameter
