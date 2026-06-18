@@ -193,14 +193,12 @@ function HomePageContent() {
       const userId = searchParams.get("user_id")
       const userNameParam = searchParams.get("user_name")
       const userEmail = searchParams.get("user_email")
-      const token = searchParams.get("token")
 
-      if (userId && userNameParam && userEmail && token) {
+      if (userId && userNameParam && userEmail) {
         useAuthStore.getState().loginCliente({
           id: userId,
           nombre: decodeURIComponent(userNameParam),
           email: decodeURIComponent(userEmail),
-          token,
         })
         toast.success(`🍔 ¡Bienvenido, ${decodeURIComponent(userNameParam)}!`)
       }

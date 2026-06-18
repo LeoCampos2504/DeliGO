@@ -26,7 +26,7 @@ export function PermissionPrompt() {
   const [state, setState] = useState<PromptState>("idle")
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | "default">("default")
 
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Check current notification permission

@@ -199,7 +199,6 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
       aprobado?: boolean
       activo?: boolean
     }
-    token?: string
     needsApproval?: boolean
     needsVerification?: boolean
     email?: string
@@ -216,9 +215,9 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
       return
     }
 
-    if (!data.user || !data.token) return
+    if (!data.user) return
 
-    const { user, token } = data
+    const { user } = data
 
     switch (user.type) {
       case "cliente":
@@ -226,7 +225,6 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
           id: user.id,
           nombre: user.nombre,
           email: user.email!,
-          token,
         })
         break
       case "negocio":
@@ -236,7 +234,6 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
           slug: user.slug!,
           rubro: user.rubro!,
           aprobado: user.aprobado!,
-          token,
         })
         break
       case "repartidor":
@@ -245,13 +242,11 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
           nombre: user.nombre,
           email: user.email!,
           activo: user.activo!,
-          token,
         })
         break
       case "superadmin":
         useAuthStore.getState().loginSuperAdmin({
           id: user.id,
-          token,
         })
         break
     }

@@ -95,7 +95,6 @@ async function loginCliente(data: { email: string; password: string }) {
       email: cliente.email,
       telefono: cliente.telefono,
     },
-    token,
   })
   setCookie(res, token)
   return res
@@ -166,7 +165,6 @@ async function loginNegocio(data: { usuario: string; password: string }) {
         aprobado: negocio.aprobado,
         suspendido: true,
       },
-      token,
     })
     setCookie(res, token)
     return res
@@ -183,7 +181,6 @@ async function loginNegocio(data: { usuario: string; password: string }) {
       rubro: negocio.rubro,
       aprobado: negocio.aprobado,
     },
-    token,
   })
   setCookie(res, token)
   return res
@@ -243,7 +240,6 @@ async function loginRepartidor(data: { email: string; password: string }) {
       email: repartidor.email,
       activo: repartidor.activo,
     },
-    token,
   })
   setCookie(res, token)
   return res
@@ -284,7 +280,6 @@ async function loginSuperAdmin(data: { password: string }) {
       type: "superadmin",
       nombre: "SuperAdmin",
     },
-    token,
   })
   setCookie(res, token)
   return res

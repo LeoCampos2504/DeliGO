@@ -200,7 +200,6 @@ export async function GET(req: NextRequest) {
     redirectUrl.searchParams.set("user_name", userName)
     redirectUrl.searchParams.set("user_email", userEmail)
     redirectUrl.searchParams.set("user_type", role)
-    redirectUrl.searchParams.set("token", sessionToken)
 
     const response = NextResponse.redirect(redirectUrl.toString())
 

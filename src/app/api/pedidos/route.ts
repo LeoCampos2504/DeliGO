@@ -553,9 +553,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(pedido, { status: 201 })
   } catch (error) {
     console.error("Error creating pedido:", error)
-    const msg = error instanceof Error ? error.message : "Error al crear el pedido"
     return NextResponse.json(
-      { error: msg },
+      { error: "Error interno del servidor" },
       { status: 500 }
     )
   } finally {

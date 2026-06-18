@@ -141,7 +141,6 @@ function NegocioLoginForm() {
           rubro: data.user.rubro,
           aprobado: data.user.aprobado,
           suspendido: true,
-          token: data.token,
         })
         setView("suspended")
         return
@@ -154,7 +153,6 @@ function NegocioLoginForm() {
         slug: data.user.slug,
         rubro: data.user.rubro,
         aprobado: data.user.aprobado,
-        token: data.token,
       })
 
       toast.success(`🏪 ¡Bienvenido, ${data.user.nombre}!`)

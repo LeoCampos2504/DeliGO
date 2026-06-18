@@ -138,9 +138,8 @@ async function runCleanup(req: NextRequest) {
   } catch (error) {
     // Log the full error so it shows up in Railway logs
     console.error("[Chat Cleanup] Error:", error)
-    const errorMessage = error instanceof Error ? error.message : "Unknown error"
     return NextResponse.json(
-      { error: "Error interno", details: errorMessage },
+      { error: "Error interno del servidor" },
       { status: 500 }
     )
   }

@@ -57,7 +57,7 @@ function ClienteLoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const hydrated = useHydrated()
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   const [email, setEmail] = useState("")
@@ -109,7 +109,6 @@ function ClienteLoginPageContent() {
         id: data.user.id,
         nombre: data.user.nombre,
         email: data.user.email,
-        token: data.token,
       })
 
       toast.success(`🍔 ¡Bienvenido, ${data.user.nombre}!`)

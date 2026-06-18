@@ -68,9 +68,10 @@ export async function DELETE(req: NextRequest) {
     return response
   } catch (error) {
     console.error("Cuenta DELETE error:", error)
-    // Provide more specific error info for debugging
-    const errorMsg = error instanceof Error ? error.message : "Error interno del servidor"
-    return NextResponse.json({ error: "Error al eliminar la cuenta. Intentá de nuevo más tarde.", detail: errorMsg }, { status: 500 })
+    return NextResponse.json(
+      { error: "Error al eliminar la cuenta. Intentá de nuevo más tarde." },
+      { status: 500 }
+    )
   }
 }
 

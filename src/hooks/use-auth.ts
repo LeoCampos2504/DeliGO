@@ -31,7 +31,7 @@ function userTypeToRole(userType: UserType | null): DeliGORole {
  */
 export function useAuth() {
   const router = useRouter()
-  const { user, token, isAuthenticated, userType, userName, logout } = useAuthStore()
+  const { user, isAuthenticated, userType, userName, logout } = useAuthStore()
   const hasValidated = useRef(false)
 
   const syncSession = useCallback(async () => {
@@ -50,7 +50,6 @@ export function useAuth() {
                 id: serverUser.id,
                 nombre: serverUser.nombre,
                 email: serverUser.email,
-                token: "synced",
               })
               break
             case "negocio":
@@ -61,7 +60,6 @@ export function useAuth() {
                 rubro: serverUser.rubro,
                 aprobado: serverUser.aprobado,
                 suspendido: serverUser.suspendido,
-                token: "synced",
               })
               break
             case "repartidor":
@@ -70,13 +68,11 @@ export function useAuth() {
                 nombre: serverUser.nombre,
                 email: serverUser.email,
                 activo: serverUser.activo,
-                token: "synced",
               })
               break
             case "superadmin":
               useAuthStore.getState().loginSuperAdmin({
                 id: serverUser.id,
-                token: "synced",
               })
               break
           }
@@ -87,7 +83,7 @@ export function useAuth() {
       // 401 = session expired / no cookie — clear stale Zustand data
       if (res.status === 401) {
         const store = useAuthStore.getState()
-        if (store.user || store.token) {
+        if (store.user) {
           store.logout()
         }
       }
@@ -122,7 +118,6 @@ export function useAuth() {
 
   return {
     user,
-    token,
     isAuthenticated,
     userType,
     userName,
