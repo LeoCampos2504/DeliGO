@@ -2,10 +2,10 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v12";
+const CACHE_NAME = "deligo-v13";
 
 // Assets to pre-cache on install
-const PRE_CACHE_URLS = ["/"];
+const PRE_CACHE_URLS = ["/cliente/"];
 
 // Maximum number of entries in the cache (prevent QuotaExceededError)
 const MAX_CACHE_ENTRIES = 150;
@@ -302,7 +302,7 @@ self.addEventListener("notificationclick", (event) => {
         // 2) Fallback: focus any open window
         if (focusAnyClient(clients)) return;
         // 3) Last resort: open the root (user will need to navigate manually)
-        return self.clients.openWindow("/");
+        return self.clients.openWindow("/cliente/");
       })
     );
     return;
@@ -310,7 +310,7 @@ self.addEventListener("notificationclick", (event) => {
 
   // ── Personal (session-based) notifications ──
   // Build deep link URL based on notification type and action
-  let targetPath = "/";
+  let targetPath = "/cliente/";
   let targetTab = "";
 
   // First, determine which tab to navigate to based on notification type
@@ -334,7 +334,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // Build target URL with tab parameter
-  targetPath = `/?tab=${targetTab}`;
+  targetPath = `/cliente/?tab=${targetTab}`;
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
@@ -344,9 +344,9 @@ self.addEventListener("notificationclick", (event) => {
           const clientUrl = new URL(client.url);
 
           // If the client is already on a role page, navigate with tab param on that page
-          if (clientUrl.pathname === "/cliente" && (type === "order_update" || type === "review_request" || type === "chat" || type === "review")) {
+          if (clientUrl.pathname.startsWith("/cliente") && (type === "order_update" || type === "review_request" || type === "chat" || type === "review")) {
             client.focus();
-            client.navigate(`/cliente?tab=${targetTab}`);
+            client.navigate(`/cliente/?tab=${targetTab}`);
             return;
           }
           if (clientUrl.pathname === "/negocio" && (type === "new_order" || type === "order_update" || type === "review" || type === "chat" || type === "account_update")) {

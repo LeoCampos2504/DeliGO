@@ -42,8 +42,8 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     color: "orange",
     themeColor: "#FB8C00",
     manifestFile: "/manifest-cliente.json",
-    startUrl: "/",
-    loginUrl: "/",
+    startUrl: "/cliente/",
+    loginUrl: "/cliente/",
     icon192: "/icon-cliente-192x192.png",
     icon512: "/icon-cliente-512x512.png",
     gradientFrom: "from-orange-500",
@@ -177,6 +177,8 @@ export function getRoleConfig(userType: string): RoleConfig {
  *   /e/{token}   → empleado
  */
 export function getRoleFromPath(pathname: string): DeliGORole {
+  // Cliente PWA lives at /cliente/ (scope: "/cliente/")
+  if (pathname.startsWith("/cliente")) return "cliente"
   if (pathname.startsWith("/negocio")) return "negocio"
   if (pathname.startsWith("/repartidor")) return "repartidor"
   if (pathname.startsWith("/admin")) return "admin"
@@ -185,6 +187,7 @@ export function getRoleFromPath(pathname: string): DeliGORole {
   if (pathname.startsWith("/mozo/")) return "mozo"
   if (pathname.startsWith("/s/") || pathname === "/s") return "salon"
   if (pathname.startsWith("/e/") || pathname === "/e") return "empleado"
+  // Fallback: root "/" redirects to /cliente/ so treat it as cliente too
   return "cliente"
 }
 

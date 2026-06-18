@@ -75,7 +75,7 @@ function ClienteLoginPageContent() {
   useEffect(() => {
     if (!hydrated) return
     if (isAuth && uType === "cliente") {
-      router.replace("/")
+      router.replace("/cliente/")
     }
   }, [hydrated, isAuth, uType, router])
 
@@ -115,7 +115,7 @@ function ClienteLoginPageContent() {
       toast.success(`🍔 ¡Bienvenido, ${data.user.nombre}!`)
 
       // Redirect to intended page or home
-      const redirectTo = searchParams.get("redirect") || "/"
+      const redirectTo = searchParams.get("redirect") || "/cliente/"
       router.replace(redirectTo)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
@@ -178,7 +178,7 @@ function ClienteLoginPageContent() {
       <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
         {/* Back link */}
         <Link
-          href="/"
+          href="/cliente/"
           className="self-start flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
