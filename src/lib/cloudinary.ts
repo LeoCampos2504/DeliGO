@@ -205,14 +205,17 @@ export async function deleteImage(publicId: string): Promise<boolean> {
 export function extractPublicId(url: string): string | null {
   if (!url || !url.includes("res.cloudinary.com")) return null
   try {
-    // URL format: https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{public_id}.{ext}
+    // URL formats:
+    // https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{public_id}.{ext}
+    // https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{folder}/{public_id}.pdf
     const parts = url.split("/upload/")
     if (parts.length < 2) return null
     const pathAfterUpload = parts[1]
-    // Remove version prefix (v1234567890/) and extension
+    // Remove version prefix (v1234567890/)
     const withoutVersion = pathAfterUpload.replace(/^v\d+\//, "")
+    // Remove file extension
     const withoutExtension = withoutVersion.replace(/\.[^.]+$/, "")
-    return withoutVersion
+    return withoutExtension
   } catch {
     return null
   }

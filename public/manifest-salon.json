@@ -1,0 +1,24 @@
+{
+  "name": "DeliGO Salón - Vista del Salón",
+  "short_name": "DeliGO Salón",
+  "description": "Vista en vivo de todas las mesas y pedidos del salón. Pantalla para cocina y salon.",
+  "start_url": "/s",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#475569",
+  "orientation": "any",
+  "scope": "/",
+  "lang": "es",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-salon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-salon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-salon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-salon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "capture_links": "existing-client-navigate",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "prefer_related_applications": false
+}
