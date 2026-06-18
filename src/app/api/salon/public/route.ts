@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
         colorPrincipal: true,
         rubro: true,
         salonActivo: true,
+        pushSubscriptionSalon: true,
       },
     })
 
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
         nombre: negocio.nombre,
         colorPrincipal: negocio.colorPrincipal,
         rubro: negocio.rubro,
+        hasPushSubscription: !!negocio.pushSubscriptionSalon,
       },
       mesas,
       pedidos: pedidosParsed,

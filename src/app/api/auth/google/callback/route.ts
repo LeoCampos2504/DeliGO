@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
     // Error redirect helper.
     // IMPORTANT: use APP_URL, not req.url, to avoid redirects to 0.0.0.0 on Railway.
     const errorRedirect = (errorType: string) => {
-      const basePath = role === "repartidor" ? "/repartidor" : "/"
+      const basePath = role === "repartidor" ? "/repartidor" : "/cliente/"
       const redirectUrl = new URL(basePath, APP_URL)
       redirectUrl.searchParams.set("auth_error", errorType)
       return NextResponse.redirect(redirectUrl.toString())
@@ -192,7 +192,7 @@ export async function GET(req: NextRequest) {
 
     // Build redirect URL based on role.
     // IMPORTANT: use APP_URL, not req.url, to avoid redirects to 0.0.0.0 on Railway.
-    const redirectBase = role === "repartidor" ? "/repartidor" : "/"
+    const redirectBase = role === "repartidor" ? "/repartidor" : "/cliente/"
     const redirectUrl = new URL(redirectBase, APP_URL)
 
     redirectUrl.searchParams.set("auth_success", "google")
@@ -234,7 +234,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("Google OAuth callback error:", error)
 
-    const redirectUrl = new URL("/", APP_URL)
+    const redirectUrl = new URL("/cliente/", APP_URL)
     redirectUrl.searchParams.set("auth_error", "server_error")
 
     return NextResponse.redirect(redirectUrl.toString())

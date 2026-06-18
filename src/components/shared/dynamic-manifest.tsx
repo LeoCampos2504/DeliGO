@@ -2,27 +2,39 @@
 
 import { useEffect } from "react"
 import { usePathname } from "next/navigation"
-import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
+import { getRoleFromPath, getRoleConfig, getTokenFromPath } from "@/lib/role-config"
 
 /**
  * Dynamic Manifest Link Component
  * Updates the <link rel="manifest"> and meta theme-color based on the current route's role.
  * Also updates the apple-touch-icon for each role.
+ *
+ * For token-based roles (mozo/salon/empleado), the manifest URL includes the token
+ * so the installed PWA's start_url points to the user's specific dashboard.
  */
 export function DynamicManifest() {
   const pathname = usePathname()
   const role = getRoleFromPath(pathname)
   const config = getRoleConfig(role)
+  const token = getTokenFromPath(pathname)
 
   useEffect(() => {
+    // ── Compute manifest href ──
+    // For token-based roles with a token in URL, use the dynamic API endpoint
+    // so the installed PWA opens to /{m|s|e}/{token} directly
+    let manifestHref = config.manifestFile
+    if (config.tokenBased && token) {
+      manifestHref = `/api/manifest?role=${role}&token=${encodeURIComponent(token)}`
+    }
+
     // Update manifest link
     const existingManifest = document.querySelector('link[rel="manifest"]')
     if (existingManifest) {
-      existingManifest.setAttribute("href", config.manifestFile)
+      existingManifest.setAttribute("href", manifestHref)
     } else {
       const link = document.createElement("link")
       link.rel = "manifest"
-      link.href = config.manifestFile
+      link.href = manifestHref
       document.head.appendChild(link)
     }
 
@@ -56,7 +68,7 @@ export function DynamicManifest() {
 
     // Update page title based on role
     document.title = `${config.name} - ${config.description}`
-  }, [config])
+  }, [config, role, token])
 
   return null
 }

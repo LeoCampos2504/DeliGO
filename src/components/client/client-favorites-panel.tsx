@@ -337,7 +337,7 @@ function EmptyFavorites() {
         Explorá los locales disponibles y tocá el corazón para guardar tus
         preferidos acá.
       </p>
-      <Link href="/">
+      <Link href="/cliente/">
         <Button
           size="sm"
           className="mt-5 gap-2 rounded-full"

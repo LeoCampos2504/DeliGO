@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { createNotification, newOrderNotification } from "@/lib/push"
+import { createNotification, newOrderNotification, salonNewOrderNotification, empleadosNewOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -239,9 +239,27 @@ export async function POST(request: NextRequest) {
           where: { id: session.userId },
         })
         if (cliente) {
+          // Check if customer is blocked
+          if (cliente.bloqueado) {
+            return NextResponse.json(
+              { error: "Tu cuenta ha sido bloqueada. Contactá a soporte para más información." },
+              { status: 403 }
+            )
+          }
           clienteId = cliente.id
           clienteNombre = cliente.nombre
           clienteTelefono = cliente.telefono
+
+          // Update last known IP and device fingerprint
+          const clientIp = getClientIp(request)
+          const fingerprint = body.fingerprint || ""
+          await db.cliente.update({
+            where: { id: cliente.id },
+            data: {
+              ultimoIp: clientIp,
+              ...(fingerprint ? { dispositivoFingerprint: fingerprint } : {}),
+            },
+          })
         }
       }
     }
@@ -468,6 +486,68 @@ export async function POST(request: NextRequest) {
       })
     } catch (pushError) {
       console.error("[Push] Failed to send new order notification:", pushError)
+    }
+
+    // Send push notification to the shared-display PWA that handles this order.
+    //  - Mesa orders      → salon PWA     (/s/[token])   via Negocio.pushSubscriptionSalon
+    //  - Retiro/domicilio → empleados PWA (/e/[token])   via Negocio.pushSubscriptionEmpleados
+    // Both subscriptions live on the Negocio model (separate fields) so multiple
+    // shared devices can each be notified without wiping the owner's subscription.
+    try {
+      const sharedPush = await db.negocio.findUnique({
+        where: { id: negocioId },
+        select: { pushSubscriptionSalon: true, pushSubscriptionEmpleados: true },
+      })
+
+      if (isMesaOrder && mesaNumero) {
+        // ── Salon PWA: mesa order ──
+        if (sharedPush?.pushSubscriptionSalon) {
+          const salonPayload = salonNewOrderNotification(
+            pedido.id,
+            mesaNumero,
+            clienteNombre,
+            total,
+            empleadoNombre
+          )
+          await createNotification({
+            userId: negocioId,
+            userType: "negocio", // stored on Negocio row; salon PWA reads via token
+            tipo: "salon_new_order",
+            titulo: salonPayload.title,
+            cuerpo: salonPayload.body,
+            pedidoId: pedido.id,
+            negocioId: negocioId,
+            datos: { mesaNumero },
+            pushSubscription: sharedPush.pushSubscriptionSalon,
+            pushPayload: salonPayload,
+            cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
+          })
+        }
+      } else {
+        // ── Empleados PWA: retiro / domicilio order ──
+        if (sharedPush?.pushSubscriptionEmpleados) {
+          const empleadosPayload = empleadosNewOrderNotification(
+            pedido.id,
+            clienteNombre,
+            total,
+            metodoEntrega || "retiro"
+          )
+          await createNotification({
+            userId: negocioId,
+            userType: "negocio", // stored on Negocio row; empleados PWA reads via token
+            tipo: "empleados_new_order",
+            titulo: empleadosPayload.title,
+            cuerpo: empleadosPayload.body,
+            pedidoId: pedido.id,
+            negocioId: negocioId,
+            pushSubscription: sharedPush.pushSubscriptionEmpleados,
+            pushPayload: empleadosPayload,
+            cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionEmpleados" },
+          })
+        }
+      }
+    } catch (sharedPushError) {
+      console.error("[Push] Failed to send shared-display notification:", sharedPushError)
     }
 
     return NextResponse.json(pedido, { status: 201 })

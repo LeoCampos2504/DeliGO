@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { createNotification, newReviewNotification } from "@/lib/push"
+import { createNotification, newReviewNotification, empleadosNewReviewNotification } from "@/lib/push"
 
 // POST /api/cliente/resenas — Create a review for a delivered order
 export async function POST(req: NextRequest) {
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     try {
       const negocioData = await db.negocio.findUnique({
         where: { id: pedido.negocioId },
-        select: { pushSubscription: true, nombre: true },
+        select: { pushSubscription: true, nombre: true, pushSubscriptionEmpleados: true },
       })
       const notification = newReviewNotification(
         negocioData?.nombre ?? "",
@@ -139,6 +139,31 @@ export async function POST(req: NextRequest) {
         pushPayload: notification,
         cleanupExpired: { model: "negocio", id: pedido.negocioId },
       })
+
+      // Also notify the shared empleados PWA (/e/[token]) — that's the panel
+      // where employees triage incoming reviews. The subscription lives on
+      // Negocio.pushSubscriptionEmpleados, separate from the owner's personal
+      // subscription handled above.
+      if (negocioData?.pushSubscriptionEmpleados) {
+        const empleadosPayload = empleadosNewReviewNotification(
+          pedidoId,
+          negocioData.nombre ?? "",
+          Math.round(puntuacion),
+          user.nombre
+        )
+        await createNotification({
+          userId: pedido.negocioId,
+          userType: "negocio", // stored on Negocio row; empleados PWA reads via token
+          tipo: "empleados_new_review",
+          titulo: empleadosPayload.title,
+          cuerpo: empleadosPayload.body,
+          pedidoId: pedidoId,
+          negocioId: pedido.negocioId,
+          pushSubscription: negocioData.pushSubscriptionEmpleados,
+          pushPayload: empleadosPayload,
+          cleanupExpired: { model: "negocio", id: pedido.negocioId, field: "pushSubscriptionEmpleados" },
+        })
+      }
     } catch (pushError) {
       console.error("[Push] Failed to send review notification:", pushError)
     }

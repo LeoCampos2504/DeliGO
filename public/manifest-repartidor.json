@@ -1,13 +1,14 @@
 {
+  "id": "/repartidor/?pwa=repartidor",
   "name": "DeliGO Repartidores - Panel de Delivery",
   "short_name": "DeliGO Delivery",
   "description": "Recibí y entregá pedidos con DeliGO. Panel exclusivo para repartidores.",
-  "start_url": "/repartidor",
+  "start_url": "/repartidor/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0284C7",
   "orientation": "portrait-primary",
-  "scope": "/repartidor",
+  "scope": "/repartidor/",
   "lang": "es",
   "categories": ["business", "lifestyle"],
   "icons": [

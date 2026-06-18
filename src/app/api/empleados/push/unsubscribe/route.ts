@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 
-// POST /api/salon/push/unsubscribe — Remove the shared salon display's push
-// subscription. Only requires the salonToken (no empleadoId anymore since the
-// subscription lives on the Negocio model itself).
+// POST /api/empleados/push/unsubscribe — Remove the shared empleados panel's
+// push subscription. Only requires the empleadosToken.
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     // Accept both `token` (generic, sent by useSharedPushNotifications hook)
-    // and `salonToken` (legacy field name) for backward compatibility.
-    const { token, salonToken } = body as {
+    // and `empleadosToken` (legacy field name) for backward compatibility.
+    const { token, empleadosToken } = body as {
       token?: string
-      salonToken?: string
+      empleadosToken?: string
     }
-    const resolvedToken = token || salonToken
+    const resolvedToken = token || empleadosToken
 
     if (!resolvedToken) {
       return NextResponse.json(
@@ -22,25 +21,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate salon token
+    // Validate empleados token
     const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: resolvedToken },
+      where: { tokenEmpleados: resolvedToken },
       select: { id: true },
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Token de salón inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token de empleados inválido" }, { status: 401 })
     }
 
     // Remove push subscription from the Negocio model
     await db.negocio.update({
       where: { id: negocio.id },
-      data: { pushSubscriptionSalon: null },
+      data: { pushSubscriptionEmpleados: null },
     })
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error removing salon push subscription:", error)
+    console.error("Error removing empleados push subscription:", error)
     return NextResponse.json(
       { error: "Error al eliminar la suscripción" },
       { status: 500 }

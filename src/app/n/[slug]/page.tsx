@@ -459,7 +459,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         <p className="text-muted-foreground text-sm mb-4 text-center">
           Puede que no exista o no esté disponible en este momento.
         </p>
-        <Link href="/">
+        <Link href="/cliente/">
           <Button className="rounded-full gap-2">
             <ArrowLeft className="h-4 w-4" />
             Volver al inicio
@@ -478,7 +478,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <Eye className="h-4 w-4 shrink-0" />
             <span className="text-sm font-bold truncate">Estás en modo vista previa</span>
           </div>
-          <Link href="/" className="shrink-0">
+          <Link href="/cliente/" className="shrink-0">
             <Button
               size="sm"
               variant="secondary"
@@ -520,7 +520,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
               <ArrowLeft className="h-5 w-5" />
             </button>
           ) : (
-            <Link href="/">
+            <Link href="/cliente/">
               <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
                 <ArrowLeft className="h-5 w-5" />
               </button>

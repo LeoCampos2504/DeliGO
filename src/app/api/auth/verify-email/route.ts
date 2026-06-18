@@ -174,7 +174,7 @@ function renderHtmlPage(params: {
     localStorage.setItem("deligo-auth", JSON.stringify(authData));
 
     // Redirect after 3 seconds
-    setTimeout(() => { window.location.href = "/"; }, 3000);
+    setTimeout(() => { window.location.href = "/cliente/"; }, 3000);
   `
     : ""
 
@@ -313,7 +313,7 @@ function renderHtmlPage(params: {
       ${autoLogin ? `
         <div class="countdown">Redirigiendo en <span id="seconds">3</span> segundos...</div>
       ` : `
-        <a href="/" class="btn">Volver al inicio</a>
+        <a href="/cliente/" class="btn">Volver al inicio</a>
       `}
     </div>
     <div class="footer">

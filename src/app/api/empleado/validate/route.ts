@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
           colorPrincipal: true,
           rubro: true,
           salonActivo: true,
+          pushSubscriptionEmpleados: true,
         },
       })
 
@@ -34,7 +35,15 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json({
         empleado: null,
-        negocio,
+        negocio: {
+          id: negocio.id,
+          slug: negocio.slug,
+          nombre: negocio.nombre,
+          colorPrincipal: negocio.colorPrincipal,
+          rubro: negocio.rubro,
+          salonActivo: negocio.salonActivo,
+          hasPushSubscription: !!negocio.pushSubscriptionEmpleados,
+        },
         accessType: "empleados",
       })
     }

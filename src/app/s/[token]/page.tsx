@@ -16,8 +16,11 @@ import {
   Users,
   UserCheck,
   RefreshCw,
+  Bell,
+  BellOff,
 } from "lucide-react"
 import { cn, formatPrice } from "@/lib/utils"
+import { useSharedPushNotifications } from "@/hooks/use-shared-push-notifications"
 
 // ============================================
 // Types
@@ -28,6 +31,7 @@ interface NegocioInfo {
   nombre: string
   colorPrincipal: string
   rubro: string
+  hasPushSubscription?: boolean
 }
 
 interface MesaInfo {
@@ -148,6 +152,7 @@ export default function SalonSharedPage() {
               <p className="text-sm font-bold truncate">{negocio.nombre}</p>
               <p className="text-xs text-muted-foreground">Vista del salón</p>
             </div>
+            <SalonPushBell token={token} initialSubscribed={!!negocio.hasPushSubscription} />
           </div>
         </div>
       </div>
@@ -155,6 +160,45 @@ export default function SalonSharedPage() {
       {/* Content */}
       <SalonView token={token} negocio={negocio} color={color} />
     </div>
+  )
+}
+
+// ============================================
+// Salon Push Bell — shared-display push subscription
+// ============================================
+function SalonPushBell({ token, initialSubscribed }: { token: string; initialSubscribed: boolean }) {
+  const push = useSharedPushNotifications({
+    token,
+    subscribeEndpoint: "/api/salon/push/subscribe",
+    unsubscribeEndpoint: "/api/salon/push/unsubscribe",
+    initialSubscribed,
+  })
+
+  if (!push.isSupported) return null
+
+  return (
+    <button
+      onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
+      disabled={push.loading}
+      className={cn(
+        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50",
+        push.isSubscribed
+          ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 dark:hover:bg-emerald-950/50"
+          : "bg-muted/60 text-foreground hover:bg-muted border border-border/50"
+      )}
+      title={push.isSubscribed ? "Desactivar notificaciones" : "Activar notificaciones de pedidos nuevos"}
+    >
+      {push.loading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : push.isSubscribed ? (
+        <Bell className="h-3.5 w-3.5" />
+      ) : (
+        <BellOff className="h-3.5 w-3.5" />
+      )}
+      <span className="hidden sm:inline">
+        {push.isSubscribed ? "Activadas" : "Notificarme"}
+      </span>
+    </button>
   )
 }
 
@@ -466,7 +510,14 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
                             <div className="flex items-center gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-semibold truncate">{pedido.clienteNombre}</p>
+                                  <p className="text-sm font-semibold truncate">
+                                    {pedido.empleadoNombre || pedido.clienteNombre}
+                                  </p>
+                                  {pedido.empleadoNombre && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                                      Mozo
+                                    </span>
+                                  )}
                                   <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", config?.color, config?.bg)}>
                                     {config?.label}
                                   </span>

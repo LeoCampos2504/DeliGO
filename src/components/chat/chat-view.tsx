@@ -30,6 +30,7 @@ import { useChatStore, type ChatMessage, type PedidoInfo } from "@/store/chat-st
 import { useAuthStore } from "@/store/auth-store"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
+import { PdfViewerModal } from "./pdf-viewer-modal"
 
 // ============================================
 // Types
@@ -82,6 +83,11 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [attachPopoverOpen, setAttachPopoverOpen] = useState(false)
+  const [pdfViewer, setPdfViewer] = useState<{ open: boolean; url: string; fileName: string }>({
+    open: false,
+    url: "",
+    fileName: "",
+  })
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -508,6 +514,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
                   (i === 0 || currentMessages[i - 1]?.remitente !== msg.remitente)
                 }
                 userType={user?.type || "cliente"}
+                onOpenPdf={(url, name) => setPdfViewer({ open: true, url, fileName: name })}
               />
             ))}
           </>
@@ -695,6 +702,14 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
         onChange={handleFileSelect}
         className="hidden"
       />
+
+      {/* PDF Viewer Modal */}
+      <PdfViewerModal
+        open={pdfViewer.open}
+        onClose={() => setPdfViewer({ open: false, url: "", fileName: "" })}
+        url={pdfViewer.url}
+        fileName={pdfViewer.fileName}
+      />
     </div>
   )
 }
@@ -707,11 +722,13 @@ function MessageBubble({
   isMine,
   showSender,
   userType,
+  onOpenPdf,
 }: {
   message: ChatMessage
   isMine: boolean
   showSender: boolean
   userType: string
+  onOpenPdf: (url: string, name: string) => void
 }) {
   const time = new Date(message.fecha).toLocaleTimeString("es-AR", {
     hour: "2-digit",
@@ -758,18 +775,33 @@ function MessageBubble({
 
         {/* File attachment */}
         {message.archivoUrl && (
-          <a
-            href={message.archivoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs underline opacity-80 hover:opacity-100 mb-1.5"
+          <button
+            onClick={() => onOpenPdf(message.archivoUrl!, message.archivoNombre || "Documento PDF")}
+            className="flex items-center gap-2 p-2 rounded-lg bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors mb-1.5 w-full text-left"
           >
-            📎 {message.archivoNombre || "Archivo"}
-          </a>
+            <div className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center shrink-0">
+              <FileText className="h-4 w-4 text-red-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">
+                {message.archivoNombre || "Archivo"}
+              </p>
+              <p className="text-[10px] opacity-60">
+                {message.archivoTipo === "application/pdf" ? "PDF" : "Archivo"} — Tocá para ver
+              </p>
+            </div>
+          </button>
         )}
 
         {/* Text */}
         {message.texto && <p className="whitespace-pre-wrap break-words">{message.texto}</p>}
+
+        {/* Expired content notice (message had a file that was auto-cleaned) */}
+        {!message.texto && !message.imagenUrl && !message.archivoUrl && (
+          <p className="text-xs italic opacity-40 whitespace-pre-wrap break-words">
+            Archivo ya no disponible
+          </p>
+        )}
 
         {/* Time and read status */}
         <div

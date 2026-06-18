@@ -13,54 +13,54 @@ datasource db {
 // CLIENTES
 // ============================================
 model Cliente {
-  id             String    @id @default(cuid())
-  nombre         String
-  email          String    @unique
-  password       String?
-  googleId       String?   @unique
-  telefono       String    @default("")
+  id               String   @id @default(cuid())
+  nombre           String
+  email            String   @unique
+  password         String?
+  googleId         String?  @unique
+  telefono         String   @default("")
   pushSubscription String?
-  fechaRegistro  DateTime  @default(now())
+  fechaRegistro    DateTime @default(now())
 
   // Email verification
   emailVerified     DateTime?
   verificationToken String?   @unique
 
   // Protección contra clientes maliciosos
-  bloqueado              Boolean  @default(false)
+  bloqueado              Boolean   @default(false)
   bloqueadoFecha         DateTime?
-  ultimoIp               String   @default("")
-  dispositivoFingerprint String   @default("")
+  ultimoIp               String    @default("")
+  dispositivoFingerprint String    @default("")
 
-  direcciones    Direccion[]
-  favoritos      Favorito[]
-  pedidos        Pedido[]
-  resenas        Resena[]
-  chatMensajes   ChatMensaje[]
-  denuncias      Denuncia[]
+  direcciones  Direccion[]
+  favoritos    Favorito[]
+  pedidos      Pedido[]
+  resenas      Resena[]
+  chatMensajes ChatMensaje[]
+  denuncias    Denuncia[]
 
   @@map("clientes")
 }
 
 model Direccion {
-  id          String  @id @default(cuid())
-  alias       String
-  direccion   String
-  referencia  String  @default("")
-  lat         Float?
-  lng         Float?
-  clienteId   String
-  cliente     Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id         String  @id @default(cuid())
+  alias      String
+  direccion  String
+  referencia String  @default("")
+  lat        Float?
+  lng        Float?
+  clienteId  String
+  cliente    Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   @@map("direcciones")
 }
 
 model Favorito {
-  id         String  @id @default(cuid())
-  clienteId  String
-  negocioId  String
-  cliente    Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  negocio    Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  clienteId String
+  negocioId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@unique([clienteId, negocioId])
   @@map("favoritos")
@@ -70,131 +70,140 @@ model Favorito {
 // NEGOCIOS
 // ============================================
 model Negocio {
-  id                  String   @id @default(cuid())
-  slug                String   @unique
-  nombre              String   @unique
-  usuario             String   @unique
-  email               String   @unique @default("pending@deligo.app")
-  password            String
-  rubro               String   @default("restaurante") // restaurante, ropa, otro
-  aprobado            Boolean  @default(false)
-  suspendido          Boolean  @default(false)
+  id         String  @id @default(cuid())
+  slug       String  @unique
+  nombre     String  @unique
+  usuario    String  @unique
+  email      String  @unique @default("pending@deligo.app")
+  password   String
+  rubro      String  @default("restaurante") // restaurante, ropa, otro
+  aprobado   Boolean @default(false)
+  suspendido Boolean @default(false)
 
   // Email verification
   emailVerified     DateTime?
   verificationToken String?   @unique
 
   // Personalización visual
-  colorPrincipal      String   @default("#FB8C00")
-  mensajeBienvenida   String   @default("")
-  logoEnCirculo       Boolean  @default(false)
-  colorCirculoLogo    String   @default("")
-  colorFondo          String   @default("")
+  colorPrincipal    String  @default("#FB8C00")
+  mensajeBienvenida String  @default("")
+  logoEnCirculo     Boolean @default(false)
+  colorCirculoLogo  String  @default("")
+  colorFondo        String  @default("")
 
   // Categorías de productos
-  categorias          String   @default("[]") // JSON array of strings
+  categorias String @default("[]") // JSON array of strings
 
   // Categorías de agregados e ingredientes
-  agregadosCategorias String   @default("[]") // JSON array of strings
+  agregadosCategorias    String @default("[]") // JSON array of strings
   ingredientesCategorias String @default("[]") // JSON array of strings
 
   // Secciones del catálogo
-  seccionesCatalogo   String   @default("[]") // JSON array of section objects
+  seccionesCatalogo String @default("[]") // JSON array of section objects
 
   // Horarios (JSON: keys "1"-"7" with apertura/cierre/turno2 etc.)
-  horarios            String   @default("{}")
-  horarioMode         String   @default("experto") // "simple" = toggle manual, "experto" = horarios por día
-  abiertoManual       Boolean  @default(true) // solo aplica cuando horarioMode = "simple"
+  horarios      String  @default("{}")
+  horarioMode   String  @default("experto") // "simple" = toggle manual, "experto" = horarios por día
+  abiertoManual Boolean @default(true) // solo aplica cuando horarioMode = "simple"
 
   // Redes sociales
-  whatsapp            String   @default("")
-  instagram           String   @default("")
-  facebook            String   @default("")
+  whatsapp  String @default("")
+  instagram String @default("")
+  facebook  String @default("")
 
   // Imágenes
-  logoUrl             String?
-  bannerUrl           String?
-  fondoImagenUrl      String?
+  logoUrl        String?
+  bannerUrl      String?
+  fondoImagenUrl String?
 
   // Delivery
-  ofreceDelivery      Boolean  @default(false)
-  zonaDeliveryActiva  Boolean  @default(false)
-  zonasDelivery       String   @default("[]") // JSON array of zone objects
-  precioDelivery      Float    @default(0)
-  precioDeliveryDefault Float  @default(0)
-  deliveryMode        String   @default("") // modo de delivery
+  ofreceDelivery        Boolean @default(false)
+  zonaDeliveryActiva    Boolean @default(false)
+  zonasDelivery         String  @default("[]") // JSON array of zone objects
+  precioDelivery        Float   @default(0)
+  precioDeliveryDefault Float   @default(0)
+  deliveryMode          String  @default("") // modo de delivery
 
   // Ubicación del negocio
-  lat                 Float?
-  lng                 Float?
+  lat Float?
+  lng Float?
 
   // Configuración visual/panel
-  mostrarVentas       Boolean  @default(false)
-  panelMode           String   @default("")
-  promocionado        Boolean  @default(false)
-  ordenPromocion      Int      @default(0)
-  destacadoHasta      DateTime? // fecha hasta la cual el negocio es destacado
-  seguimientoDeliveryActivo Boolean @default(false)
+  mostrarVentas             Boolean   @default(false)
+  panelMode                 String    @default("")
+  promocionado              Boolean   @default(false)
+  ordenPromocion            Int       @default(0)
+  destacadoHasta            DateTime? // fecha hasta la cual el negocio es destacado
+  seguimientoDeliveryActivo Boolean   @default(false)
 
   // Salón / Mesas
-  salonActivo         Boolean  @default(false)
-  empleadosActivos    Boolean  @default(false)
-  zonasSalon          String   @default("[]") // JSON array of zone names
+  salonActivo      Boolean @default(false)
+  empleadosActivos Boolean @default(false)
+  zonasSalon       String  @default("[]") // JSON array of zone names
 
   // Pago
-  aceptaTransferencia Boolean  @default(false)
-  aliasBancario       String   @default("")
+  aceptaTransferencia Boolean @default(false)
+  aliasBancario       String  @default("")
 
   // Configuración de pedidos
-  toleranciaCancelacion Int    @default(5) // minutes
-  tiempoEntrega        Int     @default(30) // minutes
+  toleranciaCancelacion Int @default(5) // minutes
+  tiempoEntrega         Int @default(30) // minutes
 
   // Repartidores
-  repartidorCodigo    String?  @unique
+  repartidorCodigo String? @unique
 
   // Access token for employees (single shared link for pedidos + reseñas)
-  tokenEmpleados      String?  @unique // token for /e/[token] — combined employee view
+  tokenEmpleados String? @unique // token for /e/[token] — combined employee view
 
   // Access token for salon (shared link for mesas/orders view)
-  tokenSalon          String?  @unique // token for /s/[token] — salon mesas view
+  tokenSalon String? @unique // token for /s/[token] — salon mesas view
 
   // Relations (salón)
-  mesas               Mesa[]
-  empleados           Empleado[]
+  mesas     Mesa[]
+  empleados Empleado[]
 
   // Plan
-  planTipo            String   @default("prueba")
+  planTipo            String  @default("prueba")
   planVencimiento     String?
   planFechaInicio     String?
   planFechaRenovacion String?
 
   // Push
-  pushSubscription    String?
+  pushSubscription          String?
+  // Separate push subscriptions for the shared-display PWAs:
+  //  - pushSubscriptionSalon:      /s/[token] salon view (kitchen/tablet)
+  //  - pushSubscriptionEmpleados:  /e/[token] empleados panel (pedidos + reseñas)
+  // These are intentionally separate from `pushSubscription` (which is the
+  // business owner's personal subscription on the /negocio panel) so a
+  // single device can subscribe on multiple shared displays without wiping
+  // the owner's subscription.
+  pushSubscriptionSalon     String?
+  pushSubscriptionEmpleados String?
 
   // Monetización
-  deudaTarifa         Float    @default(0)
-  limiteDeuda         Float?
+  deudaTarifa Float  @default(0)
+  limiteDeuda Float?
 
   // Rating cache
-  puntuacionPromedio  Float    @default(0)
-  totalResenas        Int      @default(0)
+  puntuacionPromedio Float @default(0)
+  totalResenas       Int   @default(0)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  productos           Producto[]
-  agregados           Agregado[]
-  ingredientes        Ingrediente[]
-  pedidos             Pedido[]
-  resenas             Resena[]
-  favoritos           Favorito[]
-  deudaHistorial      DeudaHistorial[]
-  repartidores        RepartidorNegocio[]
-  secciones           SeccionCatalogo[]
-  opcionesCompartidas OpcionesCompartidas[]
-  promociones         Promocion[]
-  denuncias           Denuncia[]
+  productos            Producto[]
+  agregados            Agregado[]
+  ingredientes         Ingrediente[]
+  pedidos              Pedido[]
+  resenas              Resena[]
+  favoritos            Favorito[]
+  deudaHistorial       DeudaHistorial[]
+  repartidores         RepartidorNegocio[]
+  secciones            SeccionCatalogo[]
+  opcionesCompartidas  OpcionesCompartidas[]
+  promociones          Promocion[]
+  denuncias            Denuncia[]
   solicitudesDestacado DestacadoSolicitud[]
 
   @@map("negocios")
@@ -212,18 +221,18 @@ model SeccionCatalogo {
   negocioId   String
   negocio     Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
-  productos   SeccionProducto[]
+  productos SeccionProducto[]
 
   @@map("secciones_catalogo")
 }
 
 model SeccionProducto {
-  id         String  @id @default(cuid())
+  id         String          @id @default(cuid())
   seccionId  String
   productoId String
   seccion    SeccionCatalogo @relation(fields: [seccionId], references: [id], onDelete: Cascade)
-  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
-  orden      Int     @default(0)
+  producto   Producto        @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  orden      Int             @default(0)
 
   @@unique([seccionId, productoId])
   @@map("seccion_productos")
@@ -233,43 +242,43 @@ model SeccionProducto {
 // PRODUCTOS
 // ============================================
 model Producto {
-  id              String   @id @default(cuid())
-  nombre          String
-  precio          Float
-  categoria       String   @default("Sin Categoria")
-  imagenUrl       String?
-  imagenesExtra   String   @default("[]") // JSON array of URLs
-  negocioId       String
-  stock           Boolean  @default(true)
-  eliminado       Boolean  @default(false)
+  id            String  @id @default(cuid())
+  nombre        String
+  precio        Float
+  categoria     String  @default("Sin Categoria")
+  imagenUrl     String?
+  imagenesExtra String  @default("[]") // JSON array of URLs
+  negocioId     String
+  stock         Boolean @default(true)
+  eliminado     Boolean @default(false)
 
   // Descuentos
-  descuentoActivo Boolean  @default(false)
-  tipoDescuento   String   @default("porcentaje") // porcentaje, monto
-  valorDescuento  Float    @default(0)
+  descuentoActivo Boolean @default(false)
+  tipoDescuento   String  @default("porcentaje") // porcentaje, monto
+  valorDescuento  Float   @default(0)
 
   // Restaurante
-  descripcion     String?
-  secciones       String   @default("[]") // JSON: product option sections
-  recomendados    String   @default("[]") // JSON array of product IDs
-  opcionesCompartidasIds String @default("[]") // JSON array of shared option IDs
+  descripcion            String?
+  secciones              String  @default("[]") // JSON: product option sections
+  recomendados           String  @default("[]") // JSON array of product IDs
+  opcionesCompartidasIds String  @default("[]") // JSON array of shared option IDs
 
   // Ropa
-  talles          String   @default("[]") // JSON array
-  colores         String   @default("[]") // JSON array
-  material        String   @default("")
-  genero          String   @default("")
+  talles   String @default("[]") // JSON array
+  colores  String @default("[]") // JSON array
+  material String @default("")
+  genero   String @default("")
 
-  orden           Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  orden     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  agregados       ProductoAgregado[]
-  ingredientes    ProductoIngrediente[]
-  seccionItems    SeccionProducto[]
-  itemsPedido     PedidoItem[]
-  promociones     Promocion[]
+  negocio      Negocio               @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  agregados    ProductoAgregado[]
+  ingredientes ProductoIngrediente[]
+  seccionItems SeccionProducto[]
+  itemsPedido  PedidoItem[]
+  promociones  Promocion[]
 
   @@map("productos")
 }
@@ -286,10 +295,10 @@ model ProductoAgregado {
 }
 
 model ProductoIngrediente {
-  id            String     @id @default(cuid())
+  id            String      @id @default(cuid())
   productoId    String
   ingredienteId String
-  producto      Producto   @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  producto      Producto    @relation(fields: [productoId], references: [id], onDelete: Cascade)
   ingrediente   Ingrediente @relation(fields: [ingredienteId], references: [id], onDelete: Cascade)
 
   @@unique([productoId, ingredienteId])
@@ -300,13 +309,13 @@ model ProductoIngrediente {
 // AGREGADOS (Add-ons)
 // ============================================
 model Agregado {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   nombre    String
-  precio    Float    @default(0)
-  categoria String   @default("")
+  precio    Float   @default(0)
+  categoria String  @default("")
   imagenUrl String?
   negocioId String
-  negocio   Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   productos ProductoAgregado[]
 
@@ -317,12 +326,12 @@ model Agregado {
 // INGREDIENTES
 // ============================================
 model Ingrediente {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   nombre    String
-  categoria String   @default("")
+  categoria String  @default("")
   imagenUrl String?
   negocioId String
-  negocio   Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   productos ProductoIngrediente[]
 
@@ -333,94 +342,94 @@ model Ingrediente {
 // PEDIDOS (Orders)
 // ============================================
 model Pedido {
-  id                    String   @id @default(cuid())
-  negocioId             String
-  negocioSlug           String
-  negocioNombre         String
-  clienteId             String?
-  clienteNombre         String
-  clienteTelefono       String   @default("")
+  id              String  @id @default(cuid())
+  negocioId       String
+  negocioSlug     String
+  negocioNombre   String
+  clienteId       String?
+  clienteNombre   String
+  clienteTelefono String  @default("")
 
   // Totales
-  total                 Float
-  totalProductos        Float
-  tarifaServicio        Float    @default(0)
-  precioDelivery        Float    @default(0)
+  total          Float
+  totalProductos Float
+  tarifaServicio Float @default(0)
+  precioDelivery Float @default(0)
 
   // Entrega
-  metodoEntrega         String   @default("retiro") // retiro, domicilio, mesa
-  direccion             String?
-  referencia            String?
-  lat                   Float?
-  lng                   Float?
+  metodoEntrega String  @default("retiro") // retiro, domicilio, mesa
+  direccion     String?
+  referencia    String?
+  lat           Float?
+  lng           Float?
 
   // Mesa / Salón
-  mesaId                String?
-  mesaNumero            Int?
-  empleadoId            String?
-  empleadoNombre        String?
+  mesaId         String?
+  mesaNumero     Int?
+  empleadoId     String?
+  empleadoNombre String?
 
   // Ubicación negocio al momento del pedido
-  negocioLat            Float?
-  negocioLng            Float?
+  negocioLat Float?
+  negocioLng Float?
 
   // Repartidor asignado (aceptación de pedido)
-  repartidorId          String?  // ID del repartidor que aceptó el pedido
-  repartidorNombre      String?  // Nombre del repartidor (denormalizado)
+  repartidorId          String? // ID del repartidor que aceptó el pedido
+  repartidorNombre      String? // Nombre del repartidor (denormalizado)
   repartidorAceptaFecha DateTime? // Cuándo aceptó el pedido
 
   // Ubicación repartidor en tiempo real (seguimiento delivery)
-  repartidorLat         Float?
-  repartidorLng         Float?
-  repartidorLastUpdate  DateTime?
+  repartidorLat        Float?
+  repartidorLng        Float?
+  repartidorLastUpdate DateTime?
 
   // Pago
-  metodoPago            String   @default("efectivo") // efectivo, transferencia
-  notas                 String?
+  metodoPago String  @default("efectivo") // efectivo, transferencia
+  notas      String?
 
   // Estado
-  estado                String   @default("recibido") // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
-  deudaAcumulada        Boolean  @default(false)
-  canceladoPor          String?  // cliente, vendedor, sistema
-  canceladoMotivo       String?
-  canceladoFecha        DateTime?
-  clienteConfirmaRecibido Boolean @default(false)
-  clienteConfirmaFecha  DateTime?
-  entregadoPorRepartidor Boolean @default(false)
-  entregadoFecha        DateTime?
+  estado                  String    @default("recibido") // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
+  deudaAcumulada          Boolean   @default(false)
+  canceladoPor            String? // cliente, vendedor, sistema
+  canceladoMotivo         String?
+  canceladoFecha          DateTime?
+  clienteConfirmaRecibido Boolean   @default(false)
+  clienteConfirmaFecha    DateTime?
+  entregadoPorRepartidor  Boolean   @default(false)
+  entregadoFecha          DateTime?
 
-  fecha                 DateTime @default(now())
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  fecha     DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  negocio               Negocio     @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  cliente               Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  items                 PedidoItem[]
-  mensajes              ChatMensaje[]
-  resena                Resena?
-  eventos               PedidoEvento[]
+  negocio  Negocio        @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente  Cliente?       @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  items    PedidoItem[]
+  mensajes ChatMensaje[]
+  resena   Resena?
+  eventos  PedidoEvento[]
 
   @@map("pedidos")
 }
 
 model PedidoItem {
-  id                    String  @id @default(cuid())
-  pedidoId              String
-  productoId            String?
-  nombre                String
-  precio                Float
-  cantidad              Int     @default(1)
-  agregados             String  @default("[]") // JSON: [{id, nombre, precio}]
-  secciones             String  @default("{}") // JSON: {sectionName: option}
-  seccionesPrecios      String  @default("{}") // JSON: {key: price}
-  ingredientes          String  @default("[]") // JSON
-  ingredientesQuitados  String  @default("[]") // JSON
-  talle                 String  @default("")
-  color                 String  @default("")
+  id                   String  @id @default(cuid())
+  pedidoId             String
+  productoId           String?
+  nombre               String
+  precio               Float
+  cantidad             Int     @default(1)
+  agregados            String  @default("[]") // JSON: [{id, nombre, precio}]
+  secciones            String  @default("{}") // JSON: {sectionName: option}
+  seccionesPrecios     String  @default("{}") // JSON: {key: price}
+  ingredientes         String  @default("[]") // JSON
+  ingredientesQuitados String  @default("[]") // JSON
+  talle                String  @default("")
+  color                String  @default("")
 
-  pedido                Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  producto              Producto? @relation(fields: [productoId], references: [id])
+  pedido   Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  producto Producto? @relation(fields: [productoId], references: [id])
 
   @@map("pedido_items")
 }
@@ -429,20 +438,20 @@ model PedidoItem {
 // CHAT
 // ============================================
 model ChatMensaje {
-  id          String   @id @default(cuid())
-  pedidoId    String
-  remitente   String   // cliente, vendedor, repartidor
-  texto       String   @default("")
-  imagenUrl   String?
-  archivoUrl  String?
+  id            String   @id @default(cuid())
+  pedidoId      String
+  remitente     String // cliente, vendedor, repartidor
+  texto         String   @default("")
+  imagenUrl     String?
+  archivoUrl    String?
   archivoNombre String?
-  archivoTipo String?
-  leido       Boolean  @default(false)
-  fecha       DateTime @default(now())
+  archivoTipo   String?
+  leido         Boolean  @default(false)
+  fecha         DateTime @default(now())
 
-  pedido      Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  cliente     Cliente? @relation(fields: [clienteId], references: [id])
-  clienteId   String?
+  pedido    Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
+  clienteId String?
 
   @@map("chat_mensajes")
 }
@@ -451,23 +460,23 @@ model ChatMensaje {
 // RESEÑAS
 // ============================================
 model Resena {
-  id              String    @id @default(cuid())
-  negocioId       String
-  clienteId       String
-  clienteNombre   String
-  pedidoId        String    @unique
-  puntuacion      Int       // 1-5
-  comentario      String    @default("")
-  rapidez         Int?
-  calidad         Int?
-  precio          Int?
+  id               String    @id @default(cuid())
+  negocioId        String
+  clienteId        String
+  clienteNombre    String
+  pedidoId         String    @unique
+  puntuacion       Int // 1-5
+  comentario       String    @default("")
+  rapidez          Int?
+  calidad          Int?
+  precio           Int?
   respuestaNegocio String?
   fechaRespuesta   DateTime?
-  fecha           DateTime  @default(now())
+  fecha            DateTime  @default(now())
 
-  negocio         Negocio   @relation(fields: [negocioId], references: [id])
-  cliente         Cliente   @relation(fields: [clienteId], references: [id])
-  pedido          Pedido    @relation(fields: [pedidoId], references: [id])
+  negocio Negocio @relation(fields: [negocioId], references: [id])
+  cliente Cliente @relation(fields: [clienteId], references: [id])
+  pedido  Pedido  @relation(fields: [pedidoId], references: [id])
 
   @@map("resenas")
 }
@@ -480,7 +489,7 @@ model Repartidor {
   nombre           String
   email            String   @unique
   password         String?
-  googleId         String?   @unique
+  googleId         String?  @unique
   telefono         String   @default("")
   pushSubscription String?
   activo           Boolean  @default(true)
@@ -491,23 +500,23 @@ model Repartidor {
   emailVerified     DateTime?
   verificationToken String?   @unique
 
-  negocios         RepartidorNegocio[]
+  negocios RepartidorNegocio[]
 
   @@map("repartidores")
 }
 
 model RepartidorNegocio {
-  id              String     @id @default(cuid())
+  id              String   @id @default(cuid())
   repartidorId    String
   negocioId       String
   negocioSlug     String
   negocioNombre   String
   negocioLogoUrl  String?
   codigoAcceso    String
-  fechaAsociacion DateTime   @default(now())
+  fechaAsociacion DateTime @default(now())
 
-  repartidor      Repartidor @relation(fields: [repartidorId], references: [id], onDelete: Cascade)
-  negocio         Negocio    @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  repartidor Repartidor @relation(fields: [repartidorId], references: [id], onDelete: Cascade)
+  negocio    Negocio    @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@unique([repartidorId, negocioId])
   @@map("repartidor_negocios")
@@ -529,15 +538,15 @@ model SuperAdmin {
 // DEUDA HISTORIAL
 // ============================================
 model DeudaHistorial {
-  id             String   @id @default(cuid())
-  negocioId      String
-  negocioNombre  String
-  montoAbonado   Float
-  deudaAnterior  Float
-  fechaAbono     DateTime @default(now())
-  tipo           String   @default("abono_total")
+  id            String   @id @default(cuid())
+  negocioId     String
+  negocioNombre String
+  montoAbonado  Float
+  deudaAnterior Float
+  fechaAbono    DateTime @default(now())
+  tipo          String   @default("abono_total")
 
-  negocio        Negocio  @relation(fields: [negocioId], references: [id])
+  negocio Negocio @relation(fields: [negocioId], references: [id])
 
   @@map("deuda_historial")
 }
@@ -546,12 +555,12 @@ model DeudaHistorial {
 // SESIONES
 // ============================================
 model Sesion {
-  id          String   @id @default(cuid())
-  token       String   @unique
-  userId      String
-  userType    String   // cliente, negocio, repartidor, superadmin
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  userType  String // cliente, negocio, repartidor, superadmin
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@map("sesiones")
 }
@@ -560,20 +569,20 @@ model Sesion {
 // PROMOCIONES (cached view of discounted products)
 // ============================================
 model Promocion {
-  id          String   @id @default(cuid())
-  productoId  String   @unique
-  negocioId   String
-  negocioSlug String
-  negocioNombre String
+  id             String    @id @default(cuid())
+  productoId     String    @unique
+  negocioId      String
+  negocioSlug    String
+  negocioNombre  String
   precioOriginal Float
-  precioPromo Float
-  descuento   String  // e.g. "20%" or "$500"
-  fechaInicio DateTime @default(now())
-  fechaFin    DateTime?
-  activa      Boolean  @default(true)
+  precioPromo    Float
+  descuento      String // e.g. "20%" or "$500"
+  fechaInicio    DateTime  @default(now())
+  fechaFin       DateTime?
+  activa         Boolean   @default(true)
 
-  producto    Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
-  negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  negocio  Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@map("promociones")
 }
@@ -582,17 +591,17 @@ model Promocion {
 // MESAS (Salón)
 // ============================================
 model Mesa {
-  id          String   @id @default(cuid())
-  numero      Int
-  nombre      String   @default("") // "Patio 1", "Barra 3", etc.
-  zona        String   @default("") // zone grouping (e.g., "Patio", "Adentro")
-  forma       String   @default("") // "redonda", "cuadrada", etc.
-  capacidad   Int      @default(4)
-  activa      Boolean  @default(true)
-  negocioId   String
-  negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  empleadoId  String?  // Mozo asignado a esta mesa
-  empleado    Empleado? @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
+  id         String    @id @default(cuid())
+  numero     Int
+  nombre     String    @default("") // "Patio 1", "Barra 3", etc.
+  zona       String    @default("") // zone grouping (e.g., "Patio", "Adentro")
+  forma      String    @default("") // "redonda", "cuadrada", etc.
+  capacidad  Int       @default(4)
+  activa     Boolean   @default(true)
+  negocioId  String
+  negocio    Negocio   @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  empleadoId String? // Mozo asignado a esta mesa
+  empleado   Empleado? @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
 
   @@unique([negocioId, numero])
   @@map("mesas")
@@ -602,18 +611,18 @@ model Mesa {
 // EMPLEADOS (Mozos / Personal)
 // ============================================
 model Empleado {
-  id          String   @id @default(cuid())
-  nombre      String
-  codigo      String   // código corto para identificar al mozo
-  rol         String   @default("mozo") // mozo, cajero, cocinero, admin
-  permisos    String   @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
-  activo      Boolean  @default(true)
-  eliminado   Boolean  @default(false)
-  token           String?  // token para notificaciones push
-  pushSubscription String?  // push subscription JSON for browser notifications
-  negocioId       String
-  negocio     Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  mesas       Mesa[]   // Mesas asignadas a este mozo
+  id               String  @id @default(cuid())
+  nombre           String
+  codigo           String // código corto para identificar al mozo
+  rol              String  @default("mozo") // mozo, cajero, cocinero, admin
+  permisos         String  @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
+  activo           Boolean @default(true)
+  eliminado        Boolean @default(false)
+  token            String? // token para notificaciones push
+  pushSubscription String? // push subscription JSON for browser notifications
+  negocioId        String
+  negocio          Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  mesas            Mesa[] // Mesas asignadas a este mozo
 
   @@unique([negocioId, codigo])
   @@map("empleados")
@@ -623,11 +632,11 @@ model Empleado {
 // CONFIG PLATAFORMA
 // ============================================
 model ConfigPlataforma {
-  id                    String   @id @default(cuid())
-  clave                 String   @unique @default("")
-  valor                 String   @default("")
-  promocionadosActivos  Boolean  @default(false)
-  updatedAt             DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  clave                String   @unique @default("")
+  valor                String   @default("")
+  promocionadosActivos Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
 
   @@map("config_plataforma")
 }
@@ -653,18 +662,18 @@ model OpcionesCompartidas {
 // DENUNCIAS (Customer Reports)
 // ============================================
 model Denuncia {
-  id              String   @id @default(cuid())
-  clienteId       String
-  negocioId       String
-  pedidoId        String?  // optional: linked order
-  negocioNombre   String   // denormalized for quick display
-  clienteNombre   String   // denormalized
-  motivoTipo      String   @default("otro") // "direccion_falsa", "no_retiro", "no_pago", "comportamiento", "otro"
-  motivo          String   // reason text (preset label or custom)
-  fecha           DateTime @default(now())
+  id            String   @id @default(cuid())
+  clienteId     String
+  negocioId     String
+  pedidoId      String? // optional: linked order
+  negocioNombre String // denormalized for quick display
+  clienteNombre String // denormalized
+  motivoTipo    String   @default("otro") // "direccion_falsa", "no_retiro", "no_pago", "comportamiento", "otro"
+  motivo        String // reason text (preset label or custom)
+  fecha         DateTime @default(now())
 
-  cliente         Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@index([clienteId])
   @@index([negocioId])
@@ -675,12 +684,12 @@ model Denuncia {
 // CLIENTES BLOQUEADOS (IP/Device tracking)
 // ============================================
 model ClienteBloqueado {
-  id              String   @id @default(cuid())
-  ip              String
-  fingerprint     String   @default("")
-  clienteId       String?  // may be null if just IP block
-  clienteNombre   String   @default("")
-  fecha           DateTime @default(now())
+  id            String   @id @default(cuid())
+  ip            String
+  fingerprint   String   @default("")
+  clienteId     String? // may be null if just IP block
+  clienteNombre String   @default("")
+  fecha         DateTime @default(now())
 
   @@index([ip])
   @@index([fingerprint])
@@ -691,15 +700,15 @@ model ClienteBloqueado {
 // AUDITORÍA DE ACCIONES
 // ============================================
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String   // who
-  userType    String   // cliente, negocio, repartidor, superadmin, empleado
-  accion      String   // what: e.g. "producto.creado", "producto.eliminado", "pedido.estado_cambiado", "negocio.suspendido"
-  recurso     String   // e.g. "producto", "pedido", "empleado"
-  recursoId   String   @default("") // ID of the affected resource
-  detalle     String   @default("{}") // JSON with additional context (before/after values, etc.)
-  ip          String   @default("")
-  fecha       DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String // who
+  userType  String // cliente, negocio, repartidor, superadmin, empleado
+  accion    String // what: e.g. "producto.creado", "producto.eliminado", "pedido.estado_cambiado", "negocio.suspendido"
+  recurso   String // e.g. "producto", "pedido", "empleado"
+  recursoId String   @default("") // ID of the affected resource
+  detalle   String   @default("{}") // JSON with additional context (before/after values, etc.)
+  ip        String   @default("")
+  fecha     DateTime @default(now())
 
   @@index([userId, fecha])
   @@index([recurso, recursoId])
@@ -711,17 +720,17 @@ model AuditLog {
 // NOTIFICACIONES (In-app + Push)
 // ============================================
 model Notificacion {
-  id           String   @id @default(cuid())
-  userId       String   // ID del destinatario
-  userType     String   // cliente, negocio, repartidor, superadmin, empleado
-  tipo         String   // order_update, new_order, new_delivery, review, chat, review_request, account_update
-  titulo       String   // notification title
-  cuerpo       String   // notification body text
-  leido        Boolean  @default(false)
-  pedidoId     String?  // related order ID (for navigation)
-  negocioId    String?  // related business ID
-  datos        String   @default("{}") // JSON: additional data for navigation/action
-  createdAt    DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String // ID del destinatario
+  userType  String // cliente, negocio, repartidor, superadmin, empleado
+  tipo      String // order_update, new_order, new_delivery, review, chat, review_request, account_update
+  titulo    String // notification title
+  cuerpo    String // notification body text
+  leido     Boolean  @default(false)
+  pedidoId  String? // related order ID (for navigation)
+  negocioId String? // related business ID
+  datos     String   @default("{}") // JSON: additional data for navigation/action
+  createdAt DateTime @default(now())
 
   @@index([userId, userType, leido, createdAt])
   @@index([userId, userType, createdAt])
@@ -732,16 +741,16 @@ model Notificacion {
 // HISTORIAL DE PEDIDOS (Eventos)
 // ============================================
 model PedidoEvento {
-  id          String   @id @default(cuid())
-  pedidoId    String
-  estado      String   // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
-  estadoAnterior String @default("") // previous state
-  userId      String?  // who triggered the change
-  userType    String?  // cliente, negocio, repartidor, superadmin, empleado
-  nota        String   @default("") // optional note (e.g. cancellation reason)
-  fecha       DateTime @default(now())
+  id             String   @id @default(cuid())
+  pedidoId       String
+  estado         String // recibido, preparando, en_camino, listo_para_retirar, entregado, cancelado
+  estadoAnterior String   @default("") // previous state
+  userId         String? // who triggered the change
+  userType       String? // cliente, negocio, repartidor, superadmin, empleado
+  nota           String   @default("") // optional note (e.g. cancellation reason)
+  fecha          DateTime @default(now())
 
-  pedido      Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
 
   @@index([pedidoId, fecha])
   @@map("pedido_eventos")
@@ -751,28 +760,28 @@ model PedidoEvento {
 // SOLICITUDES DESTACADO
 // ============================================
 model DestacadoSolicitud {
-  id              String   @id @default(cuid())
-  negocioId       String
-  negocio         Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   // Período solicitado
-  meses           Int      @default(0)
-  dias            Int      @default(0)
+  meses Int @default(0)
+  dias  Int @default(0)
 
   // Precio calculado
-  precio          Float
+  precio Float
 
   // Estado: pendiente, aprobada, rechazada
-  estado          String   @default("pendiente")
+  estado String @default("pendiente")
 
   // Comprobante
-  comprobanteUrl  String?
+  comprobanteUrl String?
 
   // Nota del admin al rechazar
-  notaAdmin       String?
+  notaAdmin String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([estado, createdAt])
   @@index([negocioId])

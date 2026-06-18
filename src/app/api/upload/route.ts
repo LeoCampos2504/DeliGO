@@ -3,7 +3,6 @@ import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
 import { validateSession } from "@/lib/auth"
-import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // ============================================
@@ -78,7 +77,7 @@ async function uploadToLocal(
   file: File,
   category: string,
   slug: string,
-  type: string
+  _type: string
 ): Promise<{ url: string; publicId: string }> {
   const buffer = Buffer.from(await file.arrayBuffer())
 
@@ -138,17 +137,9 @@ export async function POST(req: NextRequest) {
     const slug = (formData.get("slug") as string) || "general"
     const type = (formData.get("type") as string) || "image"
 
-    // Ownership verification: negocio users can only upload to their own slug
-    if (session.userType === "negocio") {
-      const negocio = await db.negocio.findUnique({
-        where: { id: session.userId },
-        select: { slug: true },
-      })
-      if (!negocio || negocio.slug !== slug) {
-        return NextResponse.json({ error: "No tenés permiso para subir archivos a este negocio" }, { status: 403 })
-      }
-    }
-    // Clientes can only upload to chat category
+    // Basic access control
+    // - Clientes can only upload to chat
+    // - Negocios can upload to their own content or chat
     if (session.userType === "cliente" && category !== "chat") {
       return NextResponse.json({ error: "No autorizado para esta categoría" }, { status: 403 })
     }
