@@ -2,10 +2,10 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v13";
+const CACHE_NAME = "deligo-v14";
 
 // Assets to pre-cache on install
-const PRE_CACHE_URLS = ["/cliente/"];
+const PRE_CACHE_URLS = ["/cliente"];
 
 // Maximum number of entries in the cache (prevent QuotaExceededError)
 const MAX_CACHE_ENTRIES = 150;
@@ -182,23 +182,46 @@ self.addEventListener("push", (event) => {
     const title = data.title || "DeliGO";
     const notifType = data.data?.type || "general";
 
-    // Pick the icon/badge per notification type so the user can tell at a
-    // glance which PWA the notification belongs to.
+    // Pick the icon per notification type so the user can tell at a glance
+    // which PWA the notification belongs to. The icon maps to the RECIPIENT
+    // of the notification (not the sender), so each PWA shows its own icon.
+    //
+    //   cliente  ← order_update, review_request, chat, review
+    //   negocio  ← new_order, order_update, review, account_update, chat
+    //   repartidor ← new_delivery, order_update, chat
+    //   salon    ← salon_new_order, salon_order_cancelled
+    //   empleado ← empleados_new_order, empleados_new_review, empleados_order_cancelled
+    //   mozo     ← mesa_order_ready
     let icon = "/icon-cliente-192x192.png";
-    if (notifType === "salon_new_order") {
+    if (notifType === "salon_new_order" || notifType === "salon_order_cancelled") {
       icon = "/icon-salon-192x192.png";
-    } else if (notifType === "empleados_new_order" || notifType === "empleados_new_review") {
+    } else if (
+      notifType === "empleados_new_order" ||
+      notifType === "empleados_new_review" ||
+      notifType === "empleados_order_cancelled"
+    ) {
       icon = "/icon-empleado-192x192.png";
     } else if (notifType === "mesa_order_ready") {
       icon = "/icon-mozo-192x192.png";
-    } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
+    } else if (notifType === "new_delivery") {
+      icon = "/icon-repartidor-192x192.png";
+    } else if (
+      notifType === "new_order" ||
+      notifType === "order_update" ||
+      notifType === "review" ||
+      notifType === "account_update"
+    ) {
       icon = "/icon-negocio-192x192.png";
     }
 
     const options = {
       body: data.body || "",
       icon: data.icon || icon,
+      // badge = small status-bar icon. Android prefers monochrome; we reuse
+      // the role icon as a fallback (no dedicated monochrome badge exists).
       badge: data.badge || icon,
+      image: data.image || undefined,
+      tag: data.tag || undefined,
       vibrate: [100, 50, 100],
       data: {
         url: data.data?.url || "/",
@@ -302,7 +325,7 @@ self.addEventListener("notificationclick", (event) => {
         // 2) Fallback: focus any open window
         if (focusAnyClient(clients)) return;
         // 3) Last resort: open the root (user will need to navigate manually)
-        return self.clients.openWindow("/cliente/");
+        return self.clients.openWindow("/cliente");
       })
     );
     return;
@@ -310,7 +333,7 @@ self.addEventListener("notificationclick", (event) => {
 
   // ── Personal (session-based) notifications ──
   // Build deep link URL based on notification type and action
-  let targetPath = "/cliente/";
+  let targetPath = "/cliente";
   let targetTab = "";
 
   // First, determine which tab to navigate to based on notification type
@@ -334,7 +357,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // Build target URL with tab parameter
-  targetPath = `/cliente/?tab=${targetTab}`;
+  targetPath = `/cliente?tab=${targetTab}`;
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
@@ -346,7 +369,7 @@ self.addEventListener("notificationclick", (event) => {
           // If the client is already on a role page, navigate with tab param on that page
           if (clientUrl.pathname.startsWith("/cliente") && (type === "order_update" || type === "review_request" || type === "chat" || type === "review")) {
             client.focus();
-            client.navigate(`/cliente/?tab=${targetTab}`);
+            client.navigate(`/cliente?tab=${targetTab}`);
             return;
           }
           if (clientUrl.pathname === "/negocio" && (type === "new_order" || type === "order_update" || type === "review" || type === "chat" || type === "account_update")) {

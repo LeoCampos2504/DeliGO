@@ -1,14 +1,14 @@
 {
-  "id": "/negocio/?pwa=negocio",
+  "id": "/negocio?pwa=negocio",
   "name": "DeliGO Negocios - Panel de Vendedor",
   "short_name": "DeliGO Negocios",
   "description": "Gestioná tu catálogo, pedidos y delivery desde tu panel de vendedor en DeliGO.",
-  "start_url": "/negocio/",
+  "start_url": "/negocio",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#059669",
   "orientation": "portrait-primary",
-  "scope": "/negocio/",
+  "scope": "/negocio",
   "lang": "es",
   "categories": ["business", "food", "shopping"],
   "icons": [
@@ -26,13 +26,13 @@
     {
       "name": "Pedidos",
       "short_name": "Pedidos",
-      "url": "/negocio/?tab=pedidos",
+      "url": "/negocio?tab=pedidos",
       "icons": [{ "src": "/icon-negocio-192x192.png", "sizes": "192x192" }]
     },
     {
       "name": "Catálogo",
       "short_name": "Catálogo",
-      "url": "/negocio/?tab=productos",
+      "url": "/negocio?tab=productos",
       "icons": [{ "src": "/icon-negocio-192x192.png", "sizes": "192x192" }]
     }
   ]

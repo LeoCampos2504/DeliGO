@@ -36,6 +36,7 @@ import { Logo } from "@/components/shared/logo"
 import { BottomNav } from "@/components/shared/bottom-nav"
 import { AuthModal } from "@/components/auth/auth-modal"
 import { BusinessPanel } from "@/components/business/business-panel"
+import { WrongRoleNotice } from "@/components/shared/wrong-role-notice"
 import { PromotedBusinessesSection } from "@/components/home/promoted-businesses-section"
 import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
@@ -485,36 +486,23 @@ function HomePageContent() {
     )
   }
 
-  // If the logged-in user is a negocio, show the Business Panel
-  if (isAuthenticated() && userType() === "negocio" && authUser) {
-    // If suspended, show suspended screen instead of panel
-    if (authUser.suspendido) {
-      return <NegocioSuspendedScreen nombre={authUser.nombre} />
-    }
+  // ── BUG 3 fix: Session mixing between PWAs ──
+  // The cliente PWA (/cliente/) must ONLY render the cliente experience.
+  // If the user is authenticated as a different role (negocio, repartidor, or
+  // superadmin) — which happens because all PWAs share the same origin and
+  // session cookie — show a clear notice instead of the wrong panel. The user
+  // can then navigate to the correct PWA or log out.
+  //
+  // Previously this page rendered <BusinessPanel/>, <RepartidorPanel/>, and
+  // <SuperAdminPanel/> for non-cliente users, which caused the cliente PWA to
+  // appear as the negocio PWA after logging in as negocio on the same device.
+  if (isAuthenticated() && userType() && userType() !== "cliente") {
     return (
-      <BusinessPanel
-        negocio={{
-          id: authUser.id,
-          nombre: authUser.nombre,
-          slug: authUser.slug ?? "",
-          rubro: authUser.rubro ?? "restaurante",
-          colorPrincipal: negocioData?.colorPrincipal ?? "#FB8C00",
-          aprobado: authUser.aprobado ?? false,
-          horarioMode: negocioData?.horarioMode,
-          abiertoManual: negocioData?.abiertoManual,
-        }}
+      <WrongRoleNotice
+        expectedRole="cliente"
+        currentType={userType() as UserType}
       />
     )
-  }
-
-  // If the logged-in user is a repartidor, show the Repartidor Panel
-  if (isAuthenticated() && userType() === "repartidor" && authUser) {
-    return <RepartidorPanel />
-  }
-
-  // If the logged-in user is a superadmin, show the SuperAdmin Panel
-  if (isAuthenticated() && userType() === "superadmin" && authUser) {
-    return <SuperAdminPanel />
   }
 
   // If the logged-in user is a cliente and on a non-home tab, show the appropriate panel

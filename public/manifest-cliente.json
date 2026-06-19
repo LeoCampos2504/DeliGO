@@ -1,14 +1,14 @@
 {
-  "id": "/cliente/?pwa=cliente",
+  "id": "/cliente?pwa=cliente",
   "name": "DeliGO - Pedí lo que quieras",
   "short_name": "DeliGO",
   "description": "DeliGO: Pedí comida, ropa y más a tu puerta. La plataforma de delivery y comercio local más rápida.",
-  "start_url": "/cliente/",
+  "start_url": "/cliente",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#FB8C00",
   "orientation": "portrait-primary",
-  "scope": "/cliente/",
+  "scope": "/cliente",
   "lang": "es",
   "categories": ["food", "shopping", "lifestyle"],
   "icons": [
@@ -26,13 +26,13 @@
     {
       "name": "Mi Carrito",
       "short_name": "Carrito",
-      "url": "/cliente/?tab=carrito",
+      "url": "/cliente?tab=carrito",
       "icons": [{ "src": "/icon-cliente-192x192.png", "sizes": "192x192" }]
     },
     {
       "name": "Mis Pedidos",
       "short_name": "Pedidos",
-      "url": "/cliente/?tab=pedidos",
+      "url": "/cliente?tab=pedidos",
       "icons": [{ "src": "/icon-cliente-192x192.png", "sizes": "192x192" }]
     }
   ]

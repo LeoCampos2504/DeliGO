@@ -1,14 +1,14 @@
 {
-  "id": "/admin/?pwa=admin",
+  "id": "/admin?pwa=admin",
   "name": "DeliGO Admin - Panel de Administración",
   "short_name": "DeliGO Admin",
   "description": "Panel de administración de DeliGO. Solo para administradores de la plataforma.",
-  "start_url": "/admin/",
+  "start_url": "/admin",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#7C3AED",
   "orientation": "portrait-primary",
-  "scope": "/admin/",
+  "scope": "/admin",
   "lang": "es",
   "categories": ["business"],
   "icons": [

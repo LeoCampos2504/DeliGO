@@ -149,6 +149,14 @@ io.on("connection", (socket) => {
     const room = `pedido:${data.pedidoId}`
     const senderType = userType
 
+    // Defense in depth: el repartidor solo usa ubicación, no chat.
+    // Si un repartidor emite message-sent (por bug del cliente o intento
+    // malicioso), se ignora para que no llegue a cliente/negocio.
+    if (senderType === "repartidor") {
+      console.warn(`[Chat] Blocked message-sent from repartidor ${userId} in room ${room}`)
+      return
+    }
+
     // Solo enviar mensajes de chat a participantes válidos.
     // cliente ↔ negocio pueden chatear.
     // repartidor solo usa ubicación, no mensajes de chat.
@@ -176,6 +184,9 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
+    // El repartidor no participa del chat cliente-negocio.
+    if (userType === "repartidor") return
+
     // Solo enviar typing a participantes que no sean repartidor
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
 
@@ -202,6 +213,9 @@ io.on("connection", (socket) => {
 
     const room = `pedido:${pedidoId}`
 
+    // El repartidor no participa del chat cliente-negocio.
+    if (userType === "repartidor") return
+
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
 
     if (socketsInRoom) {
@@ -224,6 +238,9 @@ io.on("connection", (socket) => {
     if (!pedidoId) return
 
     const room = `pedido:${pedidoId}`
+
+    // El repartidor no participa del chat cliente-negocio.
+    if (userType === "repartidor") return
 
     // Solo enviar confirmación de lectura a participantes que no sean repartidor
     const socketsInRoom = io.sockets.adapter.rooms.get(room)
@@ -276,11 +293,21 @@ io.on("connection", (socket) => {
       console.log(`[Chat] Disconnected: ${user.userName} (${reason})`)
 
       for (const room of user.rooms) {
-        socket.to(room).emit("user-stop-typing", {
-          pedidoId: room.replace("pedido:", ""),
-          userId,
-        })
+        // `user-stop-typing` is a chat typing receipt → skip repartidor recipients.
+        const socketsInRoom = io.sockets.adapter.rooms.get(room)
+        if (socketsInRoom) {
+          for (const socketId of socketsInRoom) {
+            if (socketId === socket.id) continue
+            const recipient = connectedUsers.get(socketId)
+            if (!recipient || recipient.userType === "repartidor") continue
+            io.to(socketId).emit("user-stop-typing", {
+              pedidoId: room.replace("pedido:", ""),
+              userId,
+            })
+          }
+        }
 
+        // `user-left-room` is a presence event → notify everyone (including repartidor).
         socket.to(room).emit("user-left-room", {
           pedidoId: room.replace("pedido:", ""),
           userId,

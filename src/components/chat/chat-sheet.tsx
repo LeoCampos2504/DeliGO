@@ -48,6 +48,11 @@ export function ChatSheet() {
   useEffect(() => {
     if (!isSheetOpen || !user) return
 
+    // El repartidor no participa del chat cliente-negocio: nunca conectar al
+    // socket de chat desde esta PWA. La ubicación del repartidor usa su propio
+    // socket (use-repartidor-tracking) que solo emite location-update.
+    if (user.type === "repartidor") return
+
     // If already connected, skip
     if (socketRef.current?.connected) return
 
