@@ -326,7 +326,7 @@ function RepartidorLoginForm() {
                     <p className="text-sm text-muted-foreground">
                       ¿No tenés cuenta?{" "}
                       <a
-                        href="/cliente/?register=repartidor"
+                        href="/repartidor/registro/"
                         className="text-blue-600 dark:text-blue-400 font-semibold hover:underline"
                       >
                         Registrate acá

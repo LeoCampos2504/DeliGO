@@ -63,7 +63,7 @@ function maskEmail(email: string): string {
 // Role card data
 // ============================================
 
-const roles = [
+export const roles = [
   {
     type: "cliente" as UserType,
     label: "Quiero pedir",
@@ -159,6 +159,11 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
 
   const handleSwitchMode = () => {
     if (mode === "login") {
+      if (selectedRole === "repartidor") {
+        window.location.href = "/repartidor/registro/"
+        return
+      }
+
       setMode("register")
       setStep("register")
     } else {
@@ -696,13 +701,15 @@ interface RegisterStepProps {
   roleData: (typeof roles)[0]
   onSuccess: (data: any) => void
   onSwitchToLogin: () => void
+  showSwitchToLogin?: boolean
 }
 
-function RegisterStep({
+export function RegisterStep({
   role,
   roleData,
   onSuccess,
   onSwitchToLogin,
+  showSwitchToLogin = true,
 }: RegisterStepProps) {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -1101,17 +1108,19 @@ function RegisterStep({
       </form>
 
       {/* Switch to login */}
-      <div className="mt-5 text-center">
-        <p className="text-sm text-muted-foreground">
-          ¿Ya tenés cuenta?{" "}
-          <button
-            onClick={onSwitchToLogin}
-            className="text-primary font-semibold hover:underline"
-          >
-            Iniciá sesión
-          </button>
-        </p>
-      </div>
+      {showSwitchToLogin && (
+        <div className="mt-5 text-center">
+          <p className="text-sm text-muted-foreground">
+            ¿Ya tenés cuenta?{" "}
+            <button
+              onClick={onSwitchToLogin}
+              className="text-primary font-semibold hover:underline"
+            >
+              Iniciá sesión
+            </button>
+          </p>
+        </div>
+      )}
 
       {/* Legal Dialogs */}
       <LegalDialog
@@ -1134,7 +1143,7 @@ interface VerifyEmailStepProps {
   onBackToLogin: () => void
 }
 
-function VerifyEmailStep({ email, userType, onClose, onBackToLogin }: VerifyEmailStepProps) {
+export function VerifyEmailStep({ email, userType, onClose, onBackToLogin }: VerifyEmailStepProps) {
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
 

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef, Suspense } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import { useHydrated } from "@/hooks/use-hydrated"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 import {
   Search,
@@ -166,6 +166,7 @@ export default function HomePage() {
 
 function HomePageContent() {
   const hydrated = useHydrated()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [activeCategory, setActiveCategory] = useState("todos")
   const [activeSort, setActiveSort] = useState("populares")
@@ -214,7 +215,12 @@ function HomePageContent() {
     // Handle ?register=negocio or ?register=repartidor query params
     const registerParam = searchParams.get("register")
     const registerRole = registerParam === "delivery" ? "repartidor" : registerParam
-    if (registerRole === "negocio" || registerRole === "repartidor") {
+    if (registerRole === "repartidor") {
+      router.replace("/repartidor/registro/")
+      return
+    }
+
+    if (registerRole === "negocio") {
       const timer = window.setTimeout(() => {
         setAuthInitialRole(registerRole)
         setAuthInitialMode("register")
@@ -225,7 +231,7 @@ function HomePageContent() {
 
       return () => window.clearTimeout(timer)
     }
-  }, [searchParams, syncSession])
+  }, [router, searchParams, syncSession])
 
   // Invalidate delivery-precios when switching to home tab so prices are always fresh
   useEffect(() => {

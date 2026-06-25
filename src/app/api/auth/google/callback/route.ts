@@ -223,7 +223,11 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("Google OAuth callback error:", error)
 
-    const redirectUrl = new URL("/cliente/", APP_URL)
+    const role =
+      req.cookies.get("google_oauth_role")?.value === "repartidor"
+        ? "repartidor"
+        : "cliente"
+    const redirectUrl = new URL(role === "repartidor" ? "/repartidor" : "/cliente/", APP_URL)
     redirectUrl.searchParams.set("auth_error", "server_error")
 
     return NextResponse.redirect(redirectUrl.toString())

@@ -21,8 +21,12 @@ export default async function RootPage({ searchParams }: RootPageProps) {
     : params?.register
   const register = rawRegister === "delivery" ? "repartidor" : rawRegister
 
-  if (register === "negocio" || register === "repartidor") {
-    redirect(`/cliente/?register=${register}`)
+  if (register === "repartidor") {
+    redirect("/repartidor/registro/")
+  }
+
+  if (register === "negocio") {
+    redirect("/cliente/?register=negocio")
   }
 
   redirect("/cliente/")
