@@ -1,4 +1,10 @@
 import { NextResponse, NextRequest } from "next/server"
+import {
+  getAllowedCorsOrigin,
+  hasDisallowedCorsOrigin,
+  isMutatingMethod,
+  validateMutationOrigin,
+} from "@/lib/request-security"
 
 // ============================================
 // DeliGO - Global Middleware
@@ -87,26 +93,74 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
 // CORS headers for API routes
 // ---------------------------------------------------------------------------
 
-const CORS_ALLOW_METHODS = "GET, POST, PUT, DELETE, OPTIONS"
-const CORS_ALLOW_HEADERS = "Content-Type, Authorization"
+const CORS_ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+const CORS_ALLOW_HEADERS = "Content-Type, X-Requested-With, X-Cleanup-Secret"
+
+function addVaryOrigin(response: NextResponse): void {
+  const current = response.headers.get("Vary")
+  if (!current) {
+    response.headers.set("Vary", "Origin")
+    return
+  }
+
+  const values = current.split(",").map((value) => value.trim().toLowerCase())
+  if (!values.includes("origin")) {
+    response.headers.set("Vary", `${current}, Origin`)
+  }
+}
 
 function addCorsHeaders(
   response: NextResponse,
   request: NextRequest
 ): NextResponse {
-  // Allow same-origin by default
-  const origin = request.headers.get("origin")
-  if (origin) {
-    // In production you'd validate against an allow-list;
-    // for now, reflect the origin (same-domain requests only in practice)
-    response.headers.set("Access-Control-Allow-Origin", origin)
-  } else {
-    response.headers.set("Access-Control-Allow-Origin", "*")
+  const allowedOrigin = getAllowedCorsOrigin(request)
+  if (!allowedOrigin) {
+    return response
   }
+
+  response.headers.set("Access-Control-Allow-Origin", allowedOrigin)
+  response.headers.set("Access-Control-Allow-Credentials", "true")
   response.headers.set("Access-Control-Allow-Methods", CORS_ALLOW_METHODS)
   response.headers.set("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS)
   response.headers.set("Access-Control-Max-Age", "86400") // 24 h preflight cache
+  addVaryOrigin(response)
   return response
+}
+
+// ---------------------------------------------------------------------------
+// Origin protection for selected cookie-auth mutating API routes
+// ---------------------------------------------------------------------------
+
+const ORIGIN_PROTECTED_PREFIXES = [
+  "/api/auth/logout",
+  "/api/cliente",
+  "/api/denuncias",
+  "/api/destacado-solicitud",
+  "/api/notificaciones",
+  "/api/pedidos",
+  "/api/repartidor",
+  "/api/superadmin",
+]
+
+const NEGOCIO_ORIGIN_PROTECTED_PREFIXES = [
+  "/api/negocio/agregados",
+  "/api/negocio/categorias",
+  "/api/negocio/config",
+  "/api/negocio/ingredientes",
+  "/api/negocio/opciones-compartidas",
+  "/api/negocio/pedidos",
+  "/api/negocio/productos",
+  "/api/negocio/resenas",
+  "/api/negocio/secciones",
+]
+
+function shouldValidateOrigin(pathname: string, method: string): boolean {
+  if (!isMutatingMethod(method)) return false
+
+  return (
+    matchesPrefix(pathname, ORIGIN_PROTECTED_PREFIXES) ||
+    matchesPrefix(pathname, NEGOCIO_ORIGIN_PROTECTED_PREFIXES)
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -241,12 +295,16 @@ export function proxy(request: NextRequest) {
 
   // --- Handle CORS preflight for API routes ---
   if (isApiRoute && request.method === "OPTIONS") {
-    const response = new NextResponse(null, { status: 204 })
+    const blockedStatus = hasDisallowedCorsOrigin(request) ? 403 : 204
+    const response =
+      blockedStatus === 403
+        ? NextResponse.json({ error: "Origen no permitido" }, { status: 403 })
+        : new NextResponse(null, { status: 204 })
     addCorsHeaders(response, request)
     addSecurityHeaders(response)
     addRateLimitHintHeaders(response)
     const duration = Date.now() - startTime
-    logApiRequest("OPTIONS", pathname, 204, duration)
+    logApiRequest("OPTIONS", pathname, blockedStatus, duration)
     return response
   }
 
@@ -265,6 +323,17 @@ export function proxy(request: NextRequest) {
       const duration = Date.now() - startTime
       logApiRequest(request.method, pathname, check.status, duration)
       return response
+    }
+
+    if (shouldValidateOrigin(pathname, request.method)) {
+      const originError = validateMutationOrigin(request)
+      if (originError) {
+        addCorsHeaders(originError, request)
+        addSecurityHeaders(originError)
+        const duration = Date.now() - startTime
+        logApiRequest(request.method, pathname, 403, duration)
+        return originError
+      }
     }
   }
 
