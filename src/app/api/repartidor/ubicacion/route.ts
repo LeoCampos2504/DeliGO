@@ -102,6 +102,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    if (pedido.repartidorId !== user.id) {
+      return NextResponse.json(
+        { error: "No estas asignado a este pedido" },
+        { status: 403 }
+      )
+    }
+
     // 4. Update the pedido with repartidor location
     const now = new Date()
     await db.pedido.update({

@@ -84,6 +84,13 @@ export async function PUT(
       )
     }
 
+    if (pedido.repartidorId !== user.id) {
+      return NextResponse.json(
+        { error: "No estas asignado a este pedido" },
+        { status: 403 }
+      )
+    }
+
     // Validate: client must have confirmed receipt (key business rule from Flask)
     if (!pedido.clienteConfirmaRecibido) {
       return NextResponse.json(
