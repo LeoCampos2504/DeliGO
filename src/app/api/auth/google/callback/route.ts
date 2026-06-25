@@ -110,8 +110,6 @@ export async function GET(req: NextRequest) {
 
     // Create session and redirect URL based on role
     let userId: string
-    let userName: string
-    let userEmail: string
 
     if (role === "repartidor") {
       // Try to find existing repartidor by googleId or email
@@ -147,8 +145,6 @@ export async function GET(req: NextRequest) {
       }
 
       userId = repartidor.id
-      userName = repartidor.nombre
-      userEmail = repartidor.email
     } else {
       // Cliente flow
       let cliente = await db.cliente.findUnique({
@@ -183,8 +179,6 @@ export async function GET(req: NextRequest) {
       }
 
       userId = cliente.id
-      userName = cliente.nombre
-      userEmail = cliente.email
     }
 
     // Create session
@@ -196,11 +190,6 @@ export async function GET(req: NextRequest) {
     const redirectUrl = new URL(redirectBase, APP_URL)
 
     redirectUrl.searchParams.set("auth_success", "google")
-    redirectUrl.searchParams.set("user_id", userId)
-    redirectUrl.searchParams.set("user_name", userName)
-    redirectUrl.searchParams.set("user_email", userEmail)
-    redirectUrl.searchParams.set("user_type", role)
-    redirectUrl.searchParams.set("token", sessionToken)
 
     const response = NextResponse.redirect(redirectUrl.toString())
 

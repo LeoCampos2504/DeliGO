@@ -353,7 +353,6 @@ function PersonalInfoSection({ perfil }: { perfil: PerfilData }) {
           id: data.perfil.id,
           nombre: data.perfil.nombre,
           email: data.perfil.email,
-          token: store.token ?? "synced",
         })
       }
       queryClient.invalidateQueries({ queryKey: ["cliente-perfil"] })

@@ -4,6 +4,16 @@ import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/li
 
 const HOURS_24 = 24 * 60 * 60 * 1000
 
+function setSessionCookie(response: NextResponse, token: string): void {
+  response.cookies.set(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_DURATION_HOURS * 60 * 60,
+  })
+}
+
 export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get("token")
@@ -35,17 +45,15 @@ export async function GET(req: NextRequest) {
       // Create session for auto-login
       const sessionToken = await createSession(cliente.id, "cliente")
 
-      return renderHtmlPage({
+      const response = renderHtmlPage({
         success: true,
         title: "¡Email verificado!",
         message: "Tu email fue verificado correctamente. Ya podés usar tu cuenta.",
         autoLogin: true,
-        sessionToken,
-        userType: "cliente",
-        userName: cliente.nombre,
-        userId: cliente.id,
-        userEmail: cliente.email,
+        redirectUrl: "/cliente/",
       })
+      setSessionCookie(response, sessionToken)
+      return response
     }
 
     const negocio = await db.negocio.findUnique({ where: { verificationToken: token } })
@@ -67,18 +75,15 @@ export async function GET(req: NextRequest) {
       // Negocio is approved — create session and auto-login
       const sessionToken = await createSession(negocio.id, "negocio")
 
-      return renderHtmlPage({
+      const response = renderHtmlPage({
         success: true,
         title: "¡Email verificado!",
         message: "Tu email fue verificado correctamente. Ya podés usar tu cuenta.",
         autoLogin: true,
-        sessionToken,
-        userType: "negocio",
-        userName: negocio.nombre,
-        userId: negocio.id,
-        userSlug: negocio.slug,
-        userRubro: negocio.rubro,
+        redirectUrl: "/negocio",
       })
+      setSessionCookie(response, sessionToken)
+      return response
     }
 
     const repartidor = await db.repartidor.findUnique({ where: { verificationToken: token } })
@@ -91,17 +96,15 @@ export async function GET(req: NextRequest) {
       // Create session for auto-login
       const sessionToken = await createSession(repartidor.id, "repartidor")
 
-      return renderHtmlPage({
+      const response = renderHtmlPage({
         success: true,
         title: "¡Email verificado!",
         message: "Tu email fue verificado correctamente. Ya podés usar tu cuenta.",
         autoLogin: true,
-        sessionToken,
-        userType: "repartidor",
-        userName: repartidor.nombre,
-        userId: repartidor.id,
-        userEmail: repartidor.email,
+        redirectUrl: "/repartidor",
       })
+      setSessionCookie(response, sessionToken)
+      return response
     }
 
     // Token not found
@@ -125,13 +128,7 @@ function renderHtmlPage(params: {
   title: string
   message: string
   autoLogin?: boolean
-  sessionToken?: string
-  userType?: string
-  userName?: string
-  userId?: string
-  userEmail?: string
-  userSlug?: string
-  userRubro?: string
+  redirectUrl?: string
   isNegocioPendingApproval?: boolean
 }): NextResponse {
   const {
@@ -139,42 +136,13 @@ function renderHtmlPage(params: {
     title,
     message,
     autoLogin,
-    sessionToken,
-    userType,
-    userName,
-    userId,
-    userEmail,
-    userSlug,
-    userRubro,
+    redirectUrl,
     isNegocioPendingApproval,
   } = params
 
-  const cookieScript = autoLogin && sessionToken
+  const redirectScript = autoLogin
     ? `
-    // Set session cookie
-    document.cookie = "deligo_session=${sessionToken}; path=/; max-age=${SESSION_DURATION_HOURS * 60 * 60}; SameSite=Lax" + (location.protocol === 'https:' ? '; Secure' : '');
-
-    // Set auth in localStorage for client-side
-    const authData = {
-      state: {
-        user: {
-          id: "${userId}",
-          type: "${userType}",
-          nombre: "${userName}",
-          ${userEmail ? `email: "${userEmail}",` : ""}
-          ${userSlug ? `slug: "${userSlug}",` : ""}
-          ${userRubro ? `rubro: "${userRubro}",` : ""}
-          ${userType === "negocio" ? "aprobado: true," : ""}
-          ${userType === "repartidor" ? "activo: true," : ""}
-        },
-        token: "${sessionToken}"
-      },
-      version: 0
-    };
-    localStorage.setItem("deligo-auth", JSON.stringify(authData));
-
-    // Redirect after 3 seconds
-    setTimeout(() => { window.location.href = "/cliente/"; }, 3000);
+    setTimeout(() => { window.location.href = ${JSON.stringify(redirectUrl ?? "/cliente/")}; }, 3000);
   `
     : ""
 
@@ -321,7 +289,7 @@ function renderHtmlPage(params: {
     </div>
   </div>
   <script>
-    ${cookieScript}
+    ${redirectScript}
     ${autoLogin ? `
     let secs = 3;
     const el = document.getElementById("seconds");

@@ -553,9 +553,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(pedido, { status: 201 })
   } catch (error) {
     console.error("Error creating pedido:", error)
-    const msg = error instanceof Error ? error.message : "Error al crear el pedido"
     return NextResponse.json(
-      { error: msg },
+      { error: "Error interno del servidor" },
       { status: 500 }
     )
   } finally {
@@ -614,6 +613,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(pedidos)
   } catch (error) {
     console.error("Error fetching pedidos:", error)
-    return NextResponse.json({ error: "Error al obtener pedidos" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

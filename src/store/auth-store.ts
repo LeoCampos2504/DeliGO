@@ -22,14 +22,13 @@ interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null
-  token: string | null
   _hasHydrated: boolean
 
   // Actions
-  loginCliente: (data: { id: string; nombre: string; email: string; token: string }) => void
-  loginNegocio: (data: { id: string; nombre: string; slug: string; rubro: string; aprobado: boolean; suspendido?: boolean; token: string }) => void
-  loginRepartidor: (data: { id: string; nombre: string; email: string; activo: boolean; token: string }) => void
-  loginSuperAdmin: (data: { id: string; token: string }) => void
+  loginCliente: (data: { id: string; nombre: string; email: string }) => void
+  loginNegocio: (data: { id: string; nombre: string; slug: string; rubro: string; aprobado: boolean; suspendido?: boolean }) => void
+  loginRepartidor: (data: { id: string; nombre: string; email: string; activo: boolean }) => void
+  loginSuperAdmin: (data: { id: string }) => void
   logout: () => void
   setSuspendido: (suspendido: boolean) => void
   setHasHydrated: (v: boolean) => void
@@ -40,11 +39,16 @@ interface AuthState {
   userName: () => string | null
 }
 
+function getPersistedUser(persistedState: unknown): AuthUser | null {
+  if (!persistedState || typeof persistedState !== "object") return null
+  const state = persistedState as { user?: AuthUser | null }
+  return state.user ?? null
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      token: null,
       _hasHydrated: false,
 
       loginCliente: (data) => {
@@ -55,7 +59,6 @@ export const useAuthStore = create<AuthState>()(
             nombre: data.nombre,
             email: data.email,
           },
-          token: data.token,
         })
       },
 
@@ -70,7 +73,6 @@ export const useAuthStore = create<AuthState>()(
             aprobado: data.aprobado,
             suspendido: data.suspendido,
           },
-          token: data.token,
         })
       },
 
@@ -83,7 +85,6 @@ export const useAuthStore = create<AuthState>()(
             email: data.email,
             activo: data.activo,
           },
-          token: data.token,
         })
       },
 
@@ -94,12 +95,11 @@ export const useAuthStore = create<AuthState>()(
             type: "superadmin",
             nombre: "SuperAdmin",
           },
-          token: data.token,
         })
       },
 
       logout: () => {
-        set({ user: null, token: null })
+        set({ user: null })
       },
 
       setSuspendido: (suspendido: boolean) => {
@@ -114,7 +114,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       isAuthenticated: () => {
-        return get().token !== null && get().user !== null
+        return get().user !== null
       },
 
       userType: () => {
@@ -127,9 +127,16 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "deligo-auth",
+      version: 1,
+      migrate: (persistedState) => ({
+        user: getPersistedUser(persistedState),
+      }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        user: getPersistedUser(persistedState),
+      }),
       partialize: (state) => ({
         user: state.user,
-        token: state.token,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true)

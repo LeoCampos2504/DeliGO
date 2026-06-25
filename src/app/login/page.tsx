@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuthStore } from "@/store/auth-store"
+import { useAuth } from "@/hooks/use-auth"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,7 +58,8 @@ function ClienteLoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const hydrated = useHydrated()
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  useAuth()
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   const [email, setEmail] = useState("")
@@ -109,7 +111,6 @@ function ClienteLoginPageContent() {
         id: data.user.id,
         nombre: data.user.nombre,
         email: data.user.email,
-        token: data.token,
       })
 
       toast.success(`🍔 ¡Bienvenido, ${data.user.nombre}!`)

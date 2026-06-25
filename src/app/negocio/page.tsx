@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import { useQuery } from "@tanstack/react-query"
 import { useAuthStore } from "@/store/auth-store"
+import { useAuth } from "@/hooks/use-auth"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { useSuspensionCheck } from "@/hooks/use-suspension-check"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -141,7 +142,6 @@ function NegocioLoginForm() {
           rubro: data.user.rubro,
           aprobado: data.user.aprobado,
           suspendido: true,
-          token: data.token,
         })
         setView("suspended")
         return
@@ -154,7 +154,6 @@ function NegocioLoginForm() {
         slug: data.user.slug,
         rubro: data.user.rubro,
         aprobado: data.user.aprobado,
-        token: data.token,
       })
 
       toast.success(`🏪 ¡Bienvenido, ${data.user.nombre}!`)
@@ -491,8 +490,8 @@ function NegocioLoginForm() {
 // Business Page: Shows login or panel
 // ============================================
 export default function NegocioPage() {
-  const router = useRouter()
   const hydrated = useHydrated()
+  useAuth()
   const user = useAuthStore((s) => s.user)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const userType = useAuthStore((s) => s.userType)
@@ -534,10 +533,10 @@ function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
 
   const handleLogout = async () => {
     setLoggingOut(true)
+    logout()
     try {
       await fetch("/api/auth/logout", { method: "POST" })
     } catch { /* continue */ }
-    logout()
     // Stay on negocio login page
     router.replace("/negocio")
   }

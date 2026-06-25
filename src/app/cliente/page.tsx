@@ -177,7 +177,7 @@ function HomePageContent() {
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
   const [soloDelivery, setSoloDelivery] = useState(false)
 
-  const { isAuthenticated, userType, userName, logout } = useAuth()
+  const { isAuthenticated, userType, userName, logout, syncSession } = useAuth()
   const authUser = useAuthStore((s) => s.user)
   const { activeTab, setActiveTab, setOpenAddressForm } = useNavStore()
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
@@ -190,20 +190,8 @@ function HomePageContent() {
     const authError = searchParams.get("auth_error")
 
     if (authSuccess === "google") {
-      const userId = searchParams.get("user_id")
-      const userNameParam = searchParams.get("user_name")
-      const userEmail = searchParams.get("user_email")
-      const token = searchParams.get("token")
-
-      if (userId && userNameParam && userEmail && token) {
-        useAuthStore.getState().loginCliente({
-          id: userId,
-          nombre: decodeURIComponent(userNameParam),
-          email: decodeURIComponent(userEmail),
-          token,
-        })
-        toast.success(`🍔 ¡Bienvenido, ${decodeURIComponent(userNameParam)}!`)
-      }
+      void syncSession()
+      toast.success("Inicio de sesión con Google exitoso")
 
       // Clean URL
       window.history.replaceState({}, '', '/cliente/')
@@ -232,7 +220,7 @@ function HomePageContent() {
       // Clean URL
       window.history.replaceState({}, '', '/cliente/')
     }
-  }, [searchParams])
+  }, [searchParams, syncSession])
 
   // Invalidate delivery-precios when switching to home tab so prices are always fresh
   useEffect(() => {

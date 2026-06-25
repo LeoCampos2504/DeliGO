@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import dynamic from "next/dynamic"
 import { useAuthStore } from "@/store/auth-store"
+import { useAuth } from "@/hooks/use-auth"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -92,6 +93,7 @@ type RepartidorLoginView = "login" | "verify-email"
 function RepartidorLoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { syncSession } = useAuth()
   const [view, setView] = useState<RepartidorLoginView>("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -109,21 +111,8 @@ function RepartidorLoginForm() {
     const authError = searchParams.get("auth_error")
 
     if (authSuccess === "google") {
-      const userId = searchParams.get("user_id")
-      const userNameParam = searchParams.get("user_name")
-      const userEmail = searchParams.get("user_email")
-      const token = searchParams.get("token")
-
-      if (userId && userNameParam && userEmail && token) {
-        useAuthStore.getState().loginRepartidor({
-          id: userId,
-          nombre: decodeURIComponent(userNameParam),
-          email: decodeURIComponent(userEmail),
-          activo: true,
-          token,
-        })
-        toast.success(`🛵 ¡Bienvenido, ${decodeURIComponent(userNameParam)}!`)
-      }
+      void syncSession()
+      toast.success("Inicio de sesión con Google exitoso")
 
       // Clean URL
       window.history.replaceState({}, '', '/repartidor')
@@ -142,7 +131,7 @@ function RepartidorLoginForm() {
       toast.error(errorMessages[authError] || "Error al iniciar sesión con Google")
       window.history.replaceState({}, '', '/repartidor')
     }
-  }, [searchParams])
+  }, [searchParams, syncSession])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -175,7 +164,6 @@ function RepartidorLoginForm() {
         nombre: data.user.nombre,
         email: data.user.email,
         activo: data.user.activo,
-        token: data.token,
       })
 
       toast.success(`🛵 ¡Bienvenido, ${data.user.nombre}!`)
@@ -437,8 +425,8 @@ function RepartidorLoginForm() {
 function RepartidorPageContent() {
   const hydrated = useHydrated()
   // Use value selectors instead of function references so the component re-renders
-  // when the store updates (e.g., after Google OAuth callback calls loginRepartidor)
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  // when the store updates (e.g., after Google OAuth callback syncs /api/auth/me)
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Wait for hydration

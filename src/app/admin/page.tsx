@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import { useAuthStore } from "@/store/auth-store"
+import { useAuth } from "@/hooks/use-auth"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -96,7 +97,6 @@ function AdminLoginForm() {
       // Update auth store
       useAuthStore.getState().loginSuperAdmin({
         id: data.user.id,
-        token: data.token,
       })
 
       toast.success("🔐 Panel de administración activado")
@@ -188,9 +188,9 @@ function AdminLoginForm() {
 // Admin Page: Shows login or panel
 // ============================================
 export default function AdminPage() {
-  const router = useRouter()
   const hydrated = useHydrated()
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  useAuth()
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Wait for hydration
