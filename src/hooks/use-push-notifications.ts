@@ -75,8 +75,9 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         return
       }
 
-      // Subscribe
-      const subscription = await registration.pushManager.subscribe({
+      // Reuse the browser subscription when it already exists on this origin.
+      const existingSubscription = await registration.pushManager.getSubscription()
+      const subscription = existingSubscription ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: vapidKey,
       })
@@ -113,13 +114,20 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       const subscription = await registration.pushManager.getSubscription()
 
       if (subscription) {
+        const res = await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: JSON.stringify(subscription),
+          }),
+        })
+
+        if (!res.ok) {
+          throw new Error("Error removing subscription")
+        }
+
         await subscription.unsubscribe()
       }
-
-      // Remove from server
-      await fetch("/api/push/unsubscribe", {
-        method: "POST",
-      })
 
       setIsSubscribed(false)
       setPermission("default")

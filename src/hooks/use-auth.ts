@@ -18,6 +18,31 @@ function userTypeToRole(userType: UserType | null): DeliGORole {
   }
 }
 
+async function getCurrentPushSubscription(): Promise<string | null> {
+  if (
+    typeof window === "undefined" ||
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window)
+  ) {
+    return null
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration("/")
+  const subscription = await registration?.pushManager.getSubscription()
+  return subscription ? JSON.stringify(subscription) : null
+}
+
+async function unlinkCurrentPushSubscription(): Promise<void> {
+  const subscription = await getCurrentPushSubscription()
+  if (!subscription) return
+
+  await fetch("/api/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription }),
+  })
+}
+
 /**
  * Hook that syncs server-side session with client-side Zustand store.
  *
@@ -106,6 +131,12 @@ export function useAuth() {
     const loginUrl = ROLE_CONFIGS[currentRole].loginUrl
 
     logout()
+
+    try {
+      await unlinkCurrentPushSubscription()
+    } catch {
+      // Continue even if push cleanup fails
+    }
 
     try {
       await fetch("/api/auth/logout", { method: "POST" })

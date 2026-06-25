@@ -92,6 +92,7 @@ type NegocioLoginView = "login" | "verify-email" | "approval-pending" | "suspend
 
 function NegocioLoginForm() {
   const router = useRouter()
+  const { logout } = useAuth()
   const [view, setView] = useState<NegocioLoginView>("login")
   const [usuario, setUsuario] = useState("")
   const [password, setPassword] = useState("")
@@ -186,6 +187,11 @@ function NegocioLoginForm() {
     } finally {
       setResending(false)
     }
+  }
+
+  const handleSuspendedLogout = async () => {
+    await logout()
+    setView("login")
   }
 
   return (
@@ -419,10 +425,7 @@ function NegocioLoginForm() {
 
                   <div className="mt-3">
                     <Button
-                      onClick={() => {
-                        useAuthStore.getState().logout()
-                        setView("login")
-                      }}
+                      onClick={handleSuspendedLogout}
                       variant="outline"
                       className="w-full rounded-xl font-semibold"
                     >
@@ -527,18 +530,12 @@ export default function NegocioPage() {
 }
 
 function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
-  const router = useRouter()
-  const logout = useAuthStore((s) => s.logout)
+  const { logout } = useAuth()
   const [loggingOut, setLoggingOut] = useState(false)
 
   const handleLogout = async () => {
     setLoggingOut(true)
-    logout()
-    try {
-      await fetch("/api/auth/logout", { method: "POST" })
-    } catch { /* continue */ }
-    // Stay on negocio login page
-    router.replace("/negocio")
+    await logout()
   }
 
   return (

@@ -10,6 +10,16 @@ const STORAGE_KEY = "deligo-permissions-prompted"
 
 type PromptState = "idle" | "showing" | "requesting" | "done"
 
+async function savePushSubscription(subscription: PushSubscription): Promise<void> {
+  await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      subscription: JSON.stringify(subscription),
+    }),
+  })
+}
+
 /**
  * PermissionPrompt — Auto-requests notification permissions after login
  *
@@ -26,7 +36,7 @@ export function PermissionPrompt() {
   const [state, setState] = useState<PromptState>("idle")
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | "default">("default")
 
-  const isAuth = useAuthStore((s) => s.token !== null && s.user !== null)
+  const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
 
   // Check current notification permission
@@ -39,9 +49,34 @@ export function PermissionPrompt() {
     return perm
   }, [])
 
+  const syncExistingPushSubscription = useCallback(async () => {
+    if (
+      typeof window === "undefined" ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window) ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    ) {
+      return
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration("/")
+    const subscription = await registration?.pushManager.getSubscription()
+    if (subscription) {
+      await savePushSubscription(subscription)
+    }
+  }, [])
+
   useEffect(() => {
     if (!isAuth || !uType) {
       setState("idle")
+      return
+    }
+
+    const perm = checkPermission()
+    if (perm === "granted") {
+      void syncExistingPushSubscription()
+      localStorage.setItem(STORAGE_KEY, "true")
       return
     }
 
@@ -51,8 +86,6 @@ export function PermissionPrompt() {
 
     // Delay showing the prompt so it doesn't clash with login animation
     const timer = setTimeout(() => {
-      const perm = checkPermission()
-
       if (perm === "default") {
         setState("showing")
       } else {
@@ -62,7 +95,7 @@ export function PermissionPrompt() {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [isAuth, uType, checkPermission])
+  }, [isAuth, uType, checkPermission, syncExistingPushSubscription])
 
   const handleAccept = async () => {
     setState("requesting")
@@ -75,25 +108,24 @@ export function PermissionPrompt() {
       if (result === "granted") {
         try {
           const registration = await navigator.serviceWorker.ready
-          const sub = await registration.pushManager.getSubscription()
-          if (!sub) {
+          const existingSubscription = await registration.pushManager.getSubscription()
+          let subscription = existingSubscription
+
+          if (!subscription) {
             const vapidRes = await fetch("/api/push/vapid-key")
             if (vapidRes.ok) {
               const { publicKey } = await vapidRes.json()
               if (publicKey) {
-                const subscription = await registration.pushManager.subscribe({
+                subscription = await registration.pushManager.subscribe({
                   userVisibleOnly: true,
                   applicationServerKey: publicKey,
                 })
-                await fetch("/api/push/subscribe", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    subscription: JSON.stringify(subscription),
-                  }),
-                })
               }
             }
+          }
+
+          if (subscription) {
+            await savePushSubscription(subscription)
           }
         } catch (err) {
           console.error("Push subscription error:", err)

@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation"
 
+type RootPageProps = {
+  searchParams?: Promise<{ register?: string | string[] }>
+}
+
 // ============================================
 // Root page — redirects to the cliente PWA at /cliente/
 //
@@ -10,6 +14,16 @@ import { redirect } from "next/navigation"
 // Any internal link pointing to "/" will land here and be redirected to
 // /cliente/ — this preserves backwards compatibility with existing links.
 // ============================================
-export default function RootPage() {
+export default async function RootPage({ searchParams }: RootPageProps) {
+  const params = await searchParams
+  const rawRegister = Array.isArray(params?.register)
+    ? params.register[0]
+    : params?.register
+  const register = rawRegister === "delivery" ? "repartidor" : rawRegister
+
+  if (register === "negocio" || register === "repartidor") {
+    redirect(`/cliente/?register=${register}`)
+  }
+
   redirect("/cliente/")
 }

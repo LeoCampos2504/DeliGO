@@ -15,31 +15,54 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
     }
 
-    // Remove subscription based on user type
+    let subscription: string | null = null
+    try {
+      const body = await req.json()
+      subscription = typeof body?.subscription === "string" ? body.subscription : null
+    } catch {
+      subscription = null
+    }
+
+    if (!subscription) {
+      return NextResponse.json({ ok: true, removed: false })
+    }
+
+    try {
+      JSON.parse(subscription)
+    } catch {
+      return NextResponse.json(
+        { error: "subscription debe ser un JSON vÃ¡lido" },
+        { status: 400 }
+      )
+    }
+
+    let removed = false
+
+    // Remove only this browser subscription for the authenticated user.
     switch (user.type) {
       case "cliente":
-        await db.cliente.update({
-          where: { id: user.id },
+        removed = (await db.cliente.updateMany({
+          where: { id: user.id, pushSubscription: subscription },
           data: { pushSubscription: null },
-        })
+        })).count > 0
         break
       case "negocio":
-        await db.negocio.update({
-          where: { id: user.id },
+        removed = (await db.negocio.updateMany({
+          where: { id: user.id, pushSubscription: subscription },
           data: { pushSubscription: null },
-        })
+        })).count > 0
         break
       case "repartidor":
-        await db.repartidor.update({
-          where: { id: user.id },
+        removed = (await db.repartidor.updateMany({
+          where: { id: user.id, pushSubscription: subscription },
           data: { pushSubscription: null },
-        })
+        })).count > 0
         break
       case "superadmin":
-        await db.superAdmin.update({
-          where: { id: user.id },
+        removed = (await db.superAdmin.updateMany({
+          where: { id: user.id, pushSubscription: subscription },
           data: { pushSubscription: null },
-        })
+        })).count > 0
         break
       default:
         return NextResponse.json(
@@ -48,7 +71,7 @@ export async function POST(req: NextRequest) {
         )
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, removed })
   } catch (error) {
     console.error("Error removing push subscription:", error)
     return NextResponse.json(

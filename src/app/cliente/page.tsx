@@ -213,12 +213,17 @@ function HomePageContent() {
 
     // Handle ?register=negocio or ?register=repartidor query params
     const registerParam = searchParams.get("register")
-    if (registerParam === "negocio" || registerParam === "repartidor") {
-      setAuthInitialRole(registerParam)
-      setAuthInitialMode("register")
-      setAuthModalOpen(true)
-      // Clean URL
-      window.history.replaceState({}, '', '/cliente/')
+    const registerRole = registerParam === "delivery" ? "repartidor" : registerParam
+    if (registerRole === "negocio" || registerRole === "repartidor") {
+      const timer = window.setTimeout(() => {
+        setAuthInitialRole(registerRole)
+        setAuthInitialMode("register")
+        setAuthModalOpen(true)
+        // Clean URL
+        window.history.replaceState({}, '', '/cliente/')
+      }, 0)
+
+      return () => window.clearTimeout(timer)
     }
   }, [searchParams, syncSession])
 
