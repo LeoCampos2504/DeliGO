@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     // ── Legacy: empleado token validation (for /m/[token] mozo page) ──
     const empleado = await db.empleado.findFirst({
-      where: { token },
+      where: { token, activo: true, eliminado: false },
       select: {
         id: true,
         nombre: true,

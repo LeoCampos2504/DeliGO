@@ -27,7 +27,7 @@ async function validateAccess(token: string, type?: string | null): Promise<{ ne
 
   // Legacy: empleado token (for /m/[token] mozo page)
   const empleado = await db.empleado.findFirst({
-    where: { token, activo: true },
+    where: { token, activo: true, eliminado: false },
     select: { id: true, nombre: true, codigo: true, rol: true, negocioId: true },
   })
   return empleado ? { negocioId: empleado.negocioId, empleadoNombre: empleado.nombre } : null

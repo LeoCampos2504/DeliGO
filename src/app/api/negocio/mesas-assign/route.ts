@@ -2,65 +2,77 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { validateSession, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+type AssignmentAuth =
+  | { kind: "negocio" | "shared" }
+  | { kind: "mozo"; empleado: { id: string; codigo: string; nombre: string; negocioId: string } }
+
 // POST — Assign a mozo to a mesa (or unassign)
 // Public endpoint used from the mozo link flow
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { mesaId, empleadoCodigo, negocioId, unassign } = body
+    const { mesaId, empleadoCodigo, unassign } = body
+    const empleadoCodigoInput =
+      typeof empleadoCodigo === "string" ? empleadoCodigo.trim().toUpperCase() : ""
 
     if (!mesaId) {
       return NextResponse.json({ error: "mesaId requerido" }, { status: 400 })
     }
 
-    if (!negocioId) {
-      return NextResponse.json({ error: "negocioId requerido" }, { status: 400 })
-    }
-
-    // Authentication: require negocio session, valid access token, or valid mozo token
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    let isAuthorized = false
+    // Authentication: derive the negocio from session or from the validated token.
+    const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    let auth: AssignmentAuth | null = null
+    let negocioId: string | null = null
 
     // 1) Check negocio session cookie
-    if (token) {
-      const session = await validateSession(token)
-      if (session && session.userType === "negocio" && session.userId === negocioId) {
-        isAuthorized = true
+    if (sessionCookie) {
+      const session = await validateSession(sessionCookie)
+      if (session && session.userType === "negocio") {
+        auth = { kind: "negocio" }
+        negocioId = session.userId
       }
     }
 
     // 2) Check tokenSalon or tokenEmpleados
-    if (!isAuthorized && body.token) {
+    if (!auth && typeof body.token === "string") {
       const negocioByToken = await db.negocio.findFirst({
         where: {
           OR: [
             { tokenSalon: body.token },
             { tokenEmpleados: body.token },
           ],
-          id: negocioId,
         },
+        select: { id: true },
       })
       if (negocioByToken) {
-        isAuthorized = true
+        auth = { kind: "shared" }
+        negocioId = negocioByToken.id
       }
     }
 
     // 3) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone
-    if (!isAuthorized && body.mozoToken) {
+    if (!auth && typeof body.mozoToken === "string") {
       const empleado = await db.empleado.findFirst({
         where: {
           token: body.mozoToken,
-          negocioId,
           activo: true,
           eliminado: false,
+          rol: "mozo",
+        },
+        select: {
+          id: true,
+          codigo: true,
+          nombre: true,
+          negocioId: true,
         },
       })
       if (empleado) {
-        isAuthorized = true
+        auth = { kind: "mozo", empleado }
+        negocioId = empleado.negocioId
       }
     }
 
-    if (!isAuthorized) {
+    if (!auth || !negocioId) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
 
@@ -79,16 +91,35 @@ export async function POST(req: NextRequest) {
 
     // If unassigning
     if (unassign) {
-      // Only allow unassign if the same mozo or no auth needed
-      const updated = await db.mesa.update({
-        where: { id: mesaId },
+      const unassignResult = await db.mesa.updateMany({
+        where: {
+          id: mesaId,
+          negocioId,
+          ...(auth.kind === "mozo" ? { empleadoId: auth.empleado.id } : {}),
+        },
         data: { empleadoId: null },
+      })
+
+      if (unassignResult.count === 0) {
+        return NextResponse.json(
+          { error: auth.kind === "mozo" ? "Sin acceso a este recurso" : "Mesa no encontrada" },
+          { status: auth.kind === "mozo" ? 403 : 404 }
+        )
+      }
+
+      const updated = await db.mesa.findUnique({
+        where: { id: mesaId },
         include: {
           empleado: {
             select: { id: true, nombre: true, codigo: true },
           },
         },
       })
+
+      if (!updated) {
+        return NextResponse.json({ error: "Mesa no encontrada" }, { status: 404 })
+      }
+
       return NextResponse.json({
         id: updated.id,
         numero: updated.numero,
@@ -99,41 +130,73 @@ export async function POST(req: NextRequest) {
     }
 
     // Assigning — need empleadoCodigo
-    if (!empleadoCodigo) {
+    if (auth.kind !== "mozo" && !empleadoCodigoInput) {
       return NextResponse.json({ error: "empleadoCodigo requerido para asignar" }, { status: 400 })
     }
 
     // Find the empleado by codigo using Prisma ORM (avoids PostgreSQL case-sensitivity issues)
-    const mozo = await db.empleado.findFirst({
-      where: { codigo: empleadoCodigo, negocioId },
-    })
+    const mozo =
+      auth.kind === "mozo"
+        ? auth.empleado
+        : await db.empleado.findFirst({
+            where: {
+              codigo: empleadoCodigoInput,
+              negocioId,
+              eliminado: false,
+              rol: "mozo",
+            },
+            select: {
+              id: true,
+              nombre: true,
+              codigo: true,
+              negocioId: true,
+              activo: true,
+            },
+          })
 
     if (!mozo) {
       return NextResponse.json({ error: "Mozo no encontrado" }, { status: 404 })
     }
 
-    if (!mozo.activo) {
+    if ("activo" in mozo && !mozo.activo) {
       return NextResponse.json({ error: "Mozo inactivo" }, { status: 400 })
     }
 
-    // Check if mesa already has a DIFFERENT mozo assigned
-    if (mesa.empleadoId && mesa.empleadoId !== mozo.id) {
+    if (auth.kind === "mozo" && empleadoCodigoInput && empleadoCodigoInput !== auth.empleado.codigo) {
+      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
+    }
+
+    const assignResult = await db.mesa.updateMany({
+      where: {
+        id: mesaId,
+        negocioId,
+        OR: [
+          { empleadoId: null },
+          { empleadoId: mozo.id },
+        ],
+      },
+      data: { empleadoId: mozo.id },
+    })
+
+    if (assignResult.count === 0) {
       return NextResponse.json(
         { error: "Esta mesa ya tiene otro mozo asignado" },
         { status: 409 }
       )
     }
 
-    // Assign the mozo to the mesa
-    const updated = await db.mesa.update({
+    const updated = await db.mesa.findUnique({
       where: { id: mesaId },
-      data: { empleadoId: mozo.id },
       include: {
         empleado: {
           select: { id: true, nombre: true, codigo: true },
         },
       },
     })
+
+    if (!updated) {
+      return NextResponse.json({ error: "Mesa no encontrada" }, { status: 404 })
+    }
 
     return NextResponse.json({
       id: updated.id,

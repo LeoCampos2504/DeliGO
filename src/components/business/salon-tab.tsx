@@ -94,6 +94,8 @@ interface Empleado {
   activo: boolean
   negocioId: string
   token: string | null
+  tokenMasked?: string | null
+  tokenRevealed?: boolean
 }
 
 interface PedidoMesa {
@@ -185,13 +187,21 @@ export function SalonTab({ negocio }: SalonTabProps) {
 
   // Salon shared link token
   const [tokenSalon, setTokenSalon] = useState<string | null>(null)
+  const [tokenSalonMasked, setTokenSalonMasked] = useState<string | null>(null)
   const [regeneratingSalon, setRegeneratingSalon] = useState(false)
   const [copiedSalon, setCopiedSalon] = useState(false)
+  const hasSalonLinkMetadata = !!tokenSalon || !!tokenSalonMasked
 
   useEffect(() => {
     fetch("/api/negocio/access-tokens")
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setTokenSalon(data.tokenSalon) })
+      .then(data => {
+        if (data) {
+          const revealed = data.tokenSalonRevealed === true
+          setTokenSalon(revealed ? data.tokenSalon : null)
+          setTokenSalonMasked(data.tokenSalonMasked ?? (revealed ? data.tokenSalon : null))
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -202,6 +212,7 @@ export function SalonTab({ negocio }: SalonTabProps) {
       if (res.ok) {
         const data = await res.json()
         setTokenSalon(data.tokenSalon)
+        setTokenSalonMasked(data.tokenSalonMasked ?? data.tokenSalon)
         toast.success("Link del salón regenerado. El link anterior ya no funciona.")
       } else {
         toast.error("Error al regenerar el link")
@@ -384,10 +395,13 @@ export function SalonTab({ negocio }: SalonTabProps) {
                       <p className="text-[11px] text-muted-foreground">Vista de mesas y pedidos para el salón</p>
                     </div>
                   </div>
-                  {tokenSalon && (
+                  {hasSalonLinkMetadata && (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 px-3 py-2 rounded-lg bg-background border border-border/50 text-xs font-mono text-muted-foreground truncate">
-                        {typeof window !== "undefined" ? window.location.origin : ""}/s/{tokenSalon}
+                        {tokenSalon
+                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${tokenSalon}`
+                          : "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
+                        {!tokenSalon && tokenSalonMasked ? ` (${tokenSalonMasked})` : ""}
                       </div>
                       <Button
                         size="icon"
@@ -399,6 +413,10 @@ export function SalonTab({ negocio }: SalonTabProps) {
                             : ""
                         )}
                         onClick={async () => {
+                          if (!tokenSalon) {
+                            await regenerateSalonToken()
+                            return
+                          }
                           const url = `${window.location.origin}/s/${tokenSalon}`
                           try {
                             await navigator.clipboard.writeText(url)
@@ -409,12 +427,17 @@ export function SalonTab({ negocio }: SalonTabProps) {
                             toast.error("No se pudo copiar")
                           }
                         }}
-                        title="Copiar link del salón"
+                        title={tokenSalon ? "Copiar link del salón" : "Regenerar link del salón"}
+                        disabled={regeneratingSalon}
                       >
-                        {copiedSalon ? (
+                        {regeneratingSalon && !tokenSalon ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : copiedSalon ? (
                           <Check className="h-4 w-4" />
-                        ) : (
+                        ) : tokenSalon ? (
                           <Copy className="h-4 w-4" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
                         )}
                       </Button>
                     </div>
@@ -2009,6 +2032,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [copiedMozoId, setCopiedMozoId] = useState<string | null>(null)
+  const [regeneratingMozoId, setRegeneratingMozoId] = useState<string | null>(null)
 
   const [formNombre, setFormNombre] = useState("")
   const [formCodigo, setFormCodigo] = useState("")
@@ -2147,6 +2171,49 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     },
     onError: () => {
       toast.error("Error al actualizar el mozo")
+    },
+  })
+
+  const regenerateMozoTokenMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/negocio/empleados/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerateToken: true }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Error regenerando link")
+      }
+      return res.json() as Promise<Empleado>
+    },
+    onMutate: (id) => {
+      setRegeneratingMozoId(id)
+    },
+    onSuccess: async (updatedEmpleado) => {
+      queryClient.setQueryData<Empleado[]>(["empleados", negocio.id], (old) =>
+        old ? old.map((e) => e.id === updatedEmpleado.id ? updatedEmpleado : e) : []
+      )
+
+      if (!updatedEmpleado.token) {
+        toast.success("Link del mozo regenerado")
+        return
+      }
+
+      try {
+        await navigator.clipboard.writeText(`${window.location.origin}/m/${updatedEmpleado.token}`)
+        setCopiedMozoId(updatedEmpleado.id)
+        toast.success("Link del mozo regenerado y copiado")
+        setTimeout(() => setCopiedMozoId(null), 2000)
+      } catch {
+        toast.success("Link del mozo regenerado")
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+    onSettled: () => {
+      setRegeneratingMozoId(null)
     },
   })
 
@@ -2294,6 +2361,9 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             const totalPedidos = stats?.totalPedidos ?? 0
             const pedidosHoy = stats?.pedidosHoy ?? 0
             const mozoLink = empleado.token ? `/m/${empleado.token}` : null
+            const hasMozoLinkMetadata = !!mozoLink || !!empleado.tokenMasked
+            const hasFullMozoToken = !!empleado.token
+            const isRegeneratingMozo = regeneratingMozoId === empleado.id
 
             return (
               <motion.div
@@ -2409,24 +2479,42 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                         </div>
                       </div>
                       {/* Mozo link with copy button */}
-                      {mozoLink ? (
+                      {hasMozoLinkMetadata ? (
                         <div className="space-y-1 mt-1.5">
                           <div className="flex items-center gap-1.5">
                             <Link2 className="h-3 w-3 text-muted-foreground/50" />
                             <span className="text-[10px] text-muted-foreground/70 truncate max-w-[140px]">
-                              {mozoLink}
+                              {mozoLink ?? "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
+                              {!mozoLink && empleado.tokenMasked ? ` (${empleado.tokenMasked})` : ""}
                             </span>
                             <button
-                              onClick={() => copyMozoLink(empleado.token, empleado.id)}
+                              onClick={() => {
+                                if (hasFullMozoToken) {
+                                  copyMozoLink(empleado.token, empleado.id)
+                                  return
+                                }
+                                regenerateMozoTokenMutation.mutate(empleado.id)
+                              }}
                               className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors shrink-0"
-                              title="Copiar link del mozo"
+                              title={hasFullMozoToken ? "Copiar link del mozo" : "Regenerar link del mozo"}
+                              disabled={isRegeneratingMozo}
                             >
-                              {copiedMozoId === empleado.id ? (
+                              {isRegeneratingMozo ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : copiedMozoId === empleado.id ? (
                                 <Check className="h-3 w-3 text-emerald-500" />
-                              ) : (
+                              ) : hasFullMozoToken ? (
                                 <Copy className="h-3 w-3" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3" />
                               )}
-                              {copiedMozoId === empleado.id ? "Copiado" : "Copiar"}
+                              {isRegeneratingMozo
+                                ? "Regenerando"
+                                : copiedMozoId === empleado.id
+                                  ? "Copiado"
+                                  : hasFullMozoToken
+                                    ? "Copiar"
+                                    : "Regenerar"}
                             </button>
                           </div>
 

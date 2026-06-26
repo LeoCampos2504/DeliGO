@@ -11,24 +11,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "codigo y negocioId requeridos" }, { status: 400 })
     }
 
-    const empleado = await db.empleado.findUnique({
-      where: { negocioId_codigo: { negocioId, codigo: codigo.toUpperCase() } },
+    const empleado = await db.empleado.findFirst({
+      where: {
+        negocioId,
+        codigo: codigo.toUpperCase(),
+        activo: true,
+        eliminado: false,
+        rol: "mozo",
+      },
       select: {
         id: true,
         nombre: true,
         codigo: true,
         rol: true,
         activo: true,
-        token: true,
       },
     })
 
     if (!empleado) {
       return NextResponse.json({ error: "Empleado no encontrado" }, { status: 404 })
-    }
-
-    if (!empleado.activo) {
-      return NextResponse.json({ error: "Empleado inactivo" }, { status: 403 })
     }
 
     return NextResponse.json(empleado)

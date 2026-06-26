@@ -3,6 +3,12 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { generateToken } from "@/lib/access-tokens"
 
+function maskToken(token?: string | null) {
+  if (!token) return null
+  if (token.length <= 8) return "********"
+  return `${token.slice(0, 4)}...${token.slice(-4)}`
+}
+
 // GET /api/negocio/access-tokens — Get or create the shared access tokens
 export async function GET(req: NextRequest) {
   try {
@@ -41,7 +47,14 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    return NextResponse.json({ tokenEmpleados, tokenSalon })
+    return NextResponse.json({
+      tokenEmpleados: null,
+      tokenEmpleadosMasked: maskToken(tokenEmpleados),
+      tokenEmpleadosRevealed: false,
+      tokenSalon: null,
+      tokenSalonMasked: maskToken(tokenSalon),
+      tokenSalonRevealed: false,
+    })
   } catch (error) {
     console.error("Error getting access tokens:", error)
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
@@ -69,7 +82,11 @@ export async function POST(req: NextRequest) {
         where: { id: user.id },
         data: { tokenSalon: newToken },
       })
-      return NextResponse.json({ tokenSalon: newToken })
+      return NextResponse.json({
+        tokenSalon: newToken,
+        tokenSalonMasked: maskToken(newToken),
+        tokenSalonRevealed: true,
+      })
     }
 
     // Default: regenerate empleados token
@@ -78,7 +95,11 @@ export async function POST(req: NextRequest) {
       data: { tokenEmpleados: newToken },
     })
 
-    return NextResponse.json({ tokenEmpleados: newToken })
+    return NextResponse.json({
+      tokenEmpleados: newToken,
+      tokenEmpleadosMasked: maskToken(newToken),
+      tokenEmpleadosRevealed: true,
+    })
   } catch (error) {
     console.error("Error regenerating access token:", error)
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 })

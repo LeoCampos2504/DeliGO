@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { randomBytes } from "crypto"
+
+function generateMozoToken(): string {
+  return randomBytes(32).toString("hex")
+}
+
+function maskToken(token?: string | null) {
+  if (!token) return null
+  if (token.length <= 8) return "********"
+  return `${token.slice(0, 4)}...${token.slice(-4)}`
+}
+
+function serializeEmpleado<T extends { token: string | null }>(empleado: T, revealToken = false) {
+  return {
+    ...empleado,
+    token: revealToken ? empleado.token : null,
+    tokenMasked: maskToken(empleado.token),
+    tokenRevealed: revealToken,
+  }
+}
 
 // PUT - Update empleado
 export async function PUT(
@@ -31,7 +51,7 @@ export async function PUT(
     }
 
     const body = await req.json()
-    const { nombre, codigo, rol, activo } = body
+    const { nombre, codigo, rol, activo, regenerateToken } = body
 
     // If codigo is changing, check for duplicates
     if (codigo !== undefined) {
@@ -54,13 +74,20 @@ export async function PUT(
     if (codigo !== undefined) updateData.codigo = codigo.trim().toUpperCase()
     if (rol !== undefined) updateData.rol = rol
     if (activo !== undefined) updateData.activo = Boolean(activo)
+    if (regenerateToken === true) {
+      let newToken = generateMozoToken()
+      while (await db.empleado.findFirst({ where: { token: newToken } })) {
+        newToken = generateMozoToken()
+      }
+      updateData.token = newToken
+    }
 
     const updated = await db.empleado.update({
       where: { id },
       data: updateData,
     })
 
-    return NextResponse.json(updated)
+    return NextResponse.json(serializeEmpleado(updated, regenerateToken === true))
   } catch (error) {
     console.error("Error updating empleado:", error)
     return NextResponse.json(

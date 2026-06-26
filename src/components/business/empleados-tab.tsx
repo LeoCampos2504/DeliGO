@@ -88,12 +88,20 @@ export function EmpleadosTab({ negocio }: EmpleadosTabProps) {
 
   // Shared employee access token
   const [tokenEmpleados, setTokenEmpleados] = useState<string | null>(null)
+  const [tokenEmpleadosMasked, setTokenEmpleadosMasked] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+  const hasEmployeeLinkMetadata = !!tokenEmpleados || !!tokenEmpleadosMasked
 
   useEffect(() => {
     fetch("/api/negocio/access-tokens")
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setTokenEmpleados(data.tokenEmpleados) })
+      .then(data => {
+        if (data) {
+          const revealed = data.tokenEmpleadosRevealed === true
+          setTokenEmpleados(revealed ? data.tokenEmpleados : null)
+          setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? (revealed ? data.tokenEmpleados : null))
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -104,6 +112,7 @@ export function EmpleadosTab({ negocio }: EmpleadosTabProps) {
       if (res.ok) {
         const data = await res.json()
         setTokenEmpleados(data.tokenEmpleados)
+        setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? data.tokenEmpleados)
         toast.success("Link regenerado. El link anterior ya no funciona.")
       } else {
         toast.error("Error al regenerar el link")
@@ -360,10 +369,13 @@ export function EmpleadosTab({ negocio }: EmpleadosTabProps) {
                         <p className="text-[11px] text-muted-foreground">Pedidos + Reseñas en un solo link</p>
                       </div>
                     </div>
-                    {tokenEmpleados && (
+                    {hasEmployeeLinkMetadata && (
                       <div className="flex items-center gap-2">
                         <div className="flex-1 px-3 py-2 rounded-lg bg-background border border-border/50 text-xs font-mono text-muted-foreground truncate">
-                          {window?.location?.origin || ""}/e/{tokenEmpleados}
+                          {tokenEmpleados
+                            ? `${window?.location?.origin || ""}/e/${tokenEmpleados}`
+                            : "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
+                          {!tokenEmpleados && tokenEmpleadosMasked ? ` (${tokenEmpleadosMasked})` : ""}
                         </div>
                         <Button
                           size="icon"
@@ -375,6 +387,10 @@ export function EmpleadosTab({ negocio }: EmpleadosTabProps) {
                               : ""
                           )}
                           onClick={async () => {
+                            if (!tokenEmpleados) {
+                              await regenerateToken()
+                              return
+                            }
                             const url = `${window.location.origin}/e/${tokenEmpleados}`
                             try {
                               await navigator.clipboard.writeText(url)
@@ -385,12 +401,17 @@ export function EmpleadosTab({ negocio }: EmpleadosTabProps) {
                               toast.error("No se pudo copiar")
                             }
                           }}
-                          title="Copiar link de empleados"
+                          title={tokenEmpleados ? "Copiar link de empleados" : "Regenerar link de empleados"}
+                          disabled={regenerating}
                         >
-                          {copiedLink === "empleados" ? (
+                          {regenerating && !tokenEmpleados ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : copiedLink === "empleados" ? (
                             <Check className="h-4 w-4" />
-                          ) : (
+                          ) : tokenEmpleados ? (
                             <Copy className="h-4 w-4" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
                           )}
                         </Button>
                       </div>

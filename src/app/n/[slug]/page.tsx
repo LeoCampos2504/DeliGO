@@ -183,6 +183,11 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const mesaNumero = mesaParam ? parseInt(mesaParam, 10) : null
   const isMesaOrder = !!mesaNumero
   const mozoParam = searchParams.get("mozo")
+  const mozoTokenStorageKey = mozoParam ? `deligo:mozo-token:${slug}:${mozoParam.toUpperCase()}` : null
+  const storedMozoToken =
+    hydrated && mozoTokenStorageKey && typeof window !== "undefined"
+      ? window.sessionStorage.getItem(mozoTokenStorageKey)
+      : null
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState("Todas")
@@ -216,26 +221,70 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
   // Fetch mozo info when mozo param is present
   const { data: mozoData } = useQuery({
-    queryKey: ["mozo-info", mozoParam, negocio?.id],
+    queryKey: ["mozo-info", mozoParam, negocio?.id, storedMozoToken],
     queryFn: async () => {
-      if (!mozoParam || !negocio?.id) return null
-      const res = await fetch(`/api/empleados/by-codigo?codigo=${mozoParam}&negocioId=${negocio.id}`)
-      if (!res.ok) return null
-      return res.json() as Promise<{ id: string; nombre: string; codigo: string; token: string }>
+      if (!negocio?.id) return null
+
+      const fetchPublicMozo = async () => {
+        if (!mozoParam) return null
+        const res = await fetch(`/api/empleados/by-codigo?codigo=${mozoParam}&negocioId=${negocio.id}`)
+        if (!res.ok) return null
+        return res.json() as Promise<{ id: string; nombre: string; codigo: string; token?: null }>
+      }
+
+      const clearStoredMozoToken = () => {
+        if (mozoTokenStorageKey && typeof window !== "undefined") {
+          window.sessionStorage.removeItem(mozoTokenStorageKey)
+        }
+      }
+
+      if (storedMozoToken) {
+        const res = await fetch("/api/mozo", {
+          headers: {
+            Authorization: `Bearer ${storedMozoToken}`,
+          },
+          cache: "no-store",
+        })
+        if (res.ok) {
+          const data = await res.json() as {
+            id: string
+            nombre: string
+            codigo: string
+            negocio?: { id: string }
+          }
+          if (
+            data.negocio?.id === negocio.id &&
+            (!mozoParam || data.codigo === mozoParam.toUpperCase())
+          ) {
+            return {
+              id: data.id,
+              nombre: data.nombre,
+              codigo: data.codigo,
+              token: storedMozoToken,
+            }
+          }
+          clearStoredMozoToken()
+        } else if ([400, 401, 403, 404].includes(res.status)) {
+          clearStoredMozoToken()
+        }
+      }
+
+      return fetchPublicMozo()
     },
-    enabled: !!mozoParam && !!negocio?.id,
+    enabled: !!negocio?.id && (!!mozoParam || !!storedMozoToken),
   })
+  const isAuthenticatedMozo = !!mozoData?.token
 
   // Auto-open mesa selector when mozo enters without a mesa
   const mozoAutoSelectRef = useRef(false)
   useEffect(() => {
-    if (mozoData && !mesaNumero && !mozoSelectedMesa && !mozoAutoSelectRef.current) {
+    if (isAuthenticatedMozo && !mesaNumero && !mozoSelectedMesa && !mozoAutoSelectRef.current) {
       mozoAutoSelectRef.current = true
       // Small delay to let page render first
       const timer = setTimeout(() => setMesaSelectorOpen(true), 600)
       return () => clearTimeout(timer)
     }
-  }, [mozoData, mesaNumero, mozoSelectedMesa])
+  }, [isAuthenticatedMozo, mesaNumero, mozoSelectedMesa])
 
   // Fetch mesa info when customer enters via ?mesa=X (to get mesaId and mozoAsignado)
   const { data: customerMesaData } = useQuery<{
@@ -247,14 +296,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   } | null>({
     queryKey: ["customer-mesa", slug, mesaNumero],
     queryFn: async () => {
-      if (!mesaNumero || !slug || mozoData) return null
+      if (!mesaNumero || !slug || isAuthenticatedMozo) return null
       const res = await fetch(`/api/negocio/mesas-public?slug=${slug}`)
       if (!res.ok) return null
       const data = await res.json()
       const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { id: string; nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
       return found ?? null
     },
-    enabled: !!mesaNumero && !!slug && !mozoData,
+    enabled: !!mesaNumero && !!slug && !isAuthenticatedMozo,
   })
 
   // Determine the effective mesa number and ID for cart
@@ -615,7 +664,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
       <div className="max-w-5xl mx-auto">
       {/* ===== MOZO BANNER (with mesa selector) ===== */}
-      {mozoData && (
+      {isAuthenticatedMozo && mozoData && (
         <div
           className="mx-4 mt-3 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-300"
           style={{
@@ -646,7 +695,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           </div>
 
           {/* Mesa selection row — if mesaNumero is already set (from URL), show the mesa directly */}
-          {mesaNumero && mozoData ? (
+          {mesaNumero && isAuthenticatedMozo && mozoData ? (
             <div
               className="w-full flex items-center gap-3 px-4 py-3"
             >
@@ -722,7 +771,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       )}
 
       {/* ===== MESA BANNER (customer via QR, no mozo) ===== */}
-      {isMesaOrder && mesaNumero && !mozoData && (
+      {isMesaOrder && mesaNumero && !isAuthenticatedMozo && (
         <div
           className="mx-4 mt-3 p-3 rounded-2xl border flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300"
           style={{
@@ -979,7 +1028,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       )}
 
       {/* ===== MESA SELECTOR SHEET (for mozos) ===== */}
-      {mozoData && negocio && (
+      {isAuthenticatedMozo && mozoData?.token && negocio && (
         <MesaSelectorSheet
           open={mesaSelectorOpen}
           onOpenChange={setMesaSelectorOpen}

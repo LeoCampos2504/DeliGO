@@ -38,7 +38,6 @@ interface MozoInfo {
   nombre: string
   codigo: string
   rol: string
-  token: string | null
   hasPushSubscription: boolean
   negocio: {
     id: string
@@ -69,6 +68,10 @@ interface ScannedMesa {
   negocioNombre: string
 }
 
+function mozoTokenStorageKey(slug: string, codigo: string) {
+  return `deligo:mozo-token:${slug}:${codigo.toUpperCase()}`
+}
+
 // ============================================
 // Main Mozo Page
 // ============================================
@@ -87,7 +90,13 @@ export default function MozoPage() {
   // Validate token and fetch mesas
   const fetchMozoData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/mozo?token=${token}`)
+      const res = await fetch("/api/mozo", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      })
       if (!res.ok) {
         const data = await res.json()
         setError(data.error || "Token inválido")
@@ -99,7 +108,6 @@ export default function MozoPage() {
         nombre: data.nombre,
         codigo: data.codigo,
         rol: data.rol,
-        token: data.token,
         hasPushSubscription: data.hasPushSubscription || false,
         negocio: data.negocio,
       })
@@ -195,7 +203,7 @@ export default function MozoPage() {
 
   // Push notification subscription
   const subscribeToPush = async () => {
-    if (!mozoInfo?.token || pushLoading) return
+    if (!token || pushLoading) return
     setPushLoading(true)
     try {
       // Request permission
@@ -232,7 +240,7 @@ export default function MozoPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mozoToken: mozoInfo.token,
+          mozoToken: token,
           subscription: JSON.stringify(subscription),
         }),
       })
@@ -255,7 +263,7 @@ export default function MozoPage() {
   }
 
   const unsubscribeFromPush = async () => {
-    if (!mozoInfo?.token || pushLoading) return
+    if (!token || pushLoading) return
     setPushLoading(true)
     try {
       const registration = await navigator.serviceWorker.ready
@@ -265,7 +273,7 @@ export default function MozoPage() {
       await fetch("/api/mozo/push/unsubscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mozoToken: mozoInfo.token }),
+        body: JSON.stringify({ mozoToken: token }),
       })
 
       setIsPushSubscribed(false)
@@ -282,15 +290,27 @@ export default function MozoPage() {
   // Open the menu for a specific mesa
   const openMenuForMesa = (mesaNumero: number) => {
     if (!mozoInfo) return
+    window.sessionStorage.setItem(
+      mozoTokenStorageKey(mozoInfo.negocio.slug, mozoInfo.codigo),
+      token
+    )
     const url = `/n/${mozoInfo.negocio.slug}?mesa=${mesaNumero}&mozo=${mozoInfo.codigo}`
-    window.location.href = url
+    window.history.replaceState(null, "", "/m")
+    window.location.assign(url)
   }
 
   // Handle scanned QR: extract mesa info and redirect
   const handleScannedMesa = useCallback((slug: string, mesaNumero: number) => {
+    if (mozoInfo?.codigo) {
+      window.sessionStorage.setItem(
+        mozoTokenStorageKey(slug, mozoInfo.codigo),
+        token
+      )
+    }
     const url = `/n/${slug}?mesa=${mesaNumero}&mozo=${mozoInfo?.codigo || ""}`
-    window.location.href = url
-  }, [mozoInfo])
+    window.history.replaceState(null, "", "/m")
+    window.location.assign(url)
+  }, [mozoInfo, token])
 
   if (loading) {
     return (

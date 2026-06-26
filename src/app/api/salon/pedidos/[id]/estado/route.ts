@@ -54,6 +54,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
     }
 
+    if (pedido.metodoEntrega !== "mesa") {
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+    }
+
     // Validate state transition
     const currentEstado = pedido.estado
 

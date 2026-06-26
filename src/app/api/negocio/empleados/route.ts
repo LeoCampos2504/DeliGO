@@ -6,7 +6,22 @@ import { randomBytes } from "crypto"
 
 // Generate a unique token for mozo links
 function generateMozoToken(): string {
-  return randomBytes(8).toString("hex") // 16-char hex string
+  return randomBytes(32).toString("hex") // 64-char hex string
+}
+
+function maskToken(token?: string | null) {
+  if (!token) return null
+  if (token.length <= 8) return "********"
+  return `${token.slice(0, 4)}...${token.slice(-4)}`
+}
+
+function serializeEmpleado<T extends { token: string | null }>(empleado: T, revealToken = false) {
+  return {
+    ...empleado,
+    token: revealToken ? empleado.token : null,
+    tokenMasked: maskToken(empleado.token),
+    tokenRevealed: revealToken,
+  }
 }
 
 // GET - List empleados for negocio
@@ -53,7 +68,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json(empleados)
+    return NextResponse.json(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
     console.error("Error listing empleados:", error)
     return NextResponse.json(
@@ -126,7 +141,7 @@ export async function POST(req: NextRequest) {
     // Audit log
     await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.creado", recurso: "empleado", recursoId: empleado.id, detalle: { nombre: empleado.nombre, codigo: empleado.codigo } })
 
-    return NextResponse.json(empleado, { status: 201 })
+    return NextResponse.json(serializeEmpleado(empleado, true), { status: 201 })
   } catch (error) {
     console.error("Error creating empleado:", error)
     return NextResponse.json(

@@ -8,7 +8,7 @@ import { randomBytes } from "crypto"
 // Tokens are simple random strings — validation is done by DB lookup.
 // ============================================
 
-/** Generate a random 16-char hex token */
+/** Generate a random 64-char hex token */
 export function generateToken(): string {
-  return randomBytes(8).toString("hex")
+  return randomBytes(32).toString("hex")
 }

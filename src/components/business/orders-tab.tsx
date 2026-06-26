@@ -167,18 +167,29 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
 
   // Shared employee link state
   const [tokenEmpleados, setTokenEmpleados] = useState<string | null>(null)
+  const [tokenEmpleadosMasked, setTokenEmpleadosMasked] = useState<string | null>(null)
   const [copiedLink, setCopiedLink] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const hasEmployeeLinkMetadata = !!tokenEmpleados || !!tokenEmpleadosMasked
 
   useEffect(() => {
     fetch("/api/negocio/access-tokens")
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setTokenEmpleados(data.tokenEmpleados) })
+      .then(data => {
+        if (data) {
+          const revealed = data.tokenEmpleadosRevealed === true
+          setTokenEmpleados(revealed ? data.tokenEmpleados : null)
+          setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? (revealed ? data.tokenEmpleados : null))
+        }
+      })
       .catch(() => {})
   }, [])
 
   const copySharedLink = async () => {
-    if (!tokenEmpleados) return
+    if (!tokenEmpleados) {
+      await regenerateToken()
+      return
+    }
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/e/${tokenEmpleados}`)
       setCopiedLink(true)
@@ -196,6 +207,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
       if (res.ok) {
         const data = await res.json()
         setTokenEmpleados(data.tokenEmpleados)
+        setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? data.tokenEmpleados)
         toast.success("Link regenerado. El link anterior ya no funciona.")
       } else {
         toast.error("Error al regenerar el link")
@@ -417,10 +429,13 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
               </p>
             </div>
             <div className="p-3 space-y-2">
-              {tokenEmpleados && (
+              {hasEmployeeLinkMetadata && (
                 <div className="flex items-center gap-2">
                   <div className="flex-1 px-2.5 py-1.5 rounded-lg bg-muted/60 border border-border/50 text-[10px] font-mono text-muted-foreground truncate">
-                    {typeof window !== "undefined" ? window.location.origin : ""}/e/{tokenEmpleados}
+                    {tokenEmpleados
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/e/${tokenEmpleados}`
+                      : "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
+                    {!tokenEmpleados && tokenEmpleadosMasked ? ` (${tokenEmpleadosMasked})` : ""}
                   </div>
                   <Button
                     size="icon"
@@ -432,8 +447,18 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                         : "text-muted-foreground hover:text-foreground"
                     )}
                     onClick={copySharedLink}
+                    disabled={regenerating}
+                    title={tokenEmpleados ? "Copiar link de empleados" : "Regenerar link de empleados"}
                   >
-                    {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {regenerating && !tokenEmpleados ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : copiedLink ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : tokenEmpleados ? (
+                      <Copy className="h-3.5 w-3.5" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </div>
               )}
