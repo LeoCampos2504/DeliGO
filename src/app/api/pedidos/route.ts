@@ -1118,7 +1118,7 @@ export async function GET(request: NextRequest) {
     } else if (session.userType === "negocio") {
       where.negocioId = session.userId
     } else if (session.userType === "repartidor") {
-      // Repartidor can only see orders from their associated negocios
+      // Repartidor can only see assigned orders from their associated negocios
       const asociaciones = await db.repartidorNegocio.findMany({
         where: { repartidorId: session.userId },
         select: { negocioId: true },
@@ -1128,6 +1128,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "No autorizado" }, { status: 403 })
       }
       where.negocioId = queryNegocioId || { in: negocioIds }
+      where.repartidorId = session.userId
     } else if (session.userType === "superadmin") {
       // Superadmin can filter by any negocioId or clienteId
       if (queryNegocioId) where.negocioId = queryNegocioId

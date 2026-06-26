@@ -94,7 +94,12 @@ export async function DELETE(
     }
 
     // Delete related junction records first
-    await db.productoIngrediente.deleteMany({ where: { ingredienteId: id } })
+    await db.productoIngrediente.deleteMany({
+      where: {
+        ingredienteId: id,
+        producto: { negocioId },
+      },
+    })
 
     // Delete the ingrediente
     await db.ingrediente.delete({ where: { id } })

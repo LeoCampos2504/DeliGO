@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { readStringIdList, validateNegocioResourceOwnership } from "@/lib/access-control"
 
 // GET - List secciones for negocio
 export async function GET(req: NextRequest) {
@@ -66,6 +67,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const validProductoIds = readStringIdList(productoIds, "productoIds")
+    if (!validProductoIds.ok) {
+      return NextResponse.json({ error: validProductoIds.error }, { status: 400 })
+    }
+
+    const ownsProductos = await validateNegocioResourceOwnership(negocioId, {
+      productos: validProductoIds.ids,
+    })
+    if (!ownsProductos) {
+      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
+    }
+
     const seccion = await db.seccionCatalogo.create({
       data: {
         nombre: nombre.trim(),
@@ -77,9 +90,9 @@ export async function POST(req: NextRequest) {
     })
 
     // If productoIds is provided, create junction records
-    if (Array.isArray(productoIds) && productoIds.length > 0) {
+    if (validProductoIds.ids.length > 0) {
       await db.seccionProducto.createMany({
-        data: productoIds.map((productoId: string, index: number) => ({
+        data: validProductoIds.ids.map((productoId, index) => ({
           seccionId: seccion.id,
           productoId,
           orden: index,

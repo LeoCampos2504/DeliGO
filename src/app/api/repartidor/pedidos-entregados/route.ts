@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
         db.pedido.findMany({
           where: {
             negocioId: { in: negocioIds },
+            repartidorId: user.id,
             estado: "entregado",
             entregadoPorRepartidor: true,
           },
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest) {
         db.pedido.count({
           where: {
             negocioId: { in: negocioIds },
+            repartidorId: user.id,
             estado: "entregado",
             entregadoPorRepartidor: true,
           },
@@ -93,7 +95,9 @@ export async function GET(req: NextRequest) {
     const pedidos = await db.pedido.findMany({
       where: {
         negocioId: { in: negocioIds },
+        repartidorId: user.id,
         estado: "entregado",
+        entregadoPorRepartidor: true,
         entregadoFecha: { gte: today },
       },
       include: {

@@ -86,6 +86,9 @@ export async function POST(
     const updated = await db.pedido.updateMany({
       where: {
         id: pedidoId,
+        negocioId: pedido.negocioId,
+        estado: "en_camino",
+        metodoEntrega: "domicilio",
         repartidorId: null, // Only if nobody claimed it yet
       },
       data: {

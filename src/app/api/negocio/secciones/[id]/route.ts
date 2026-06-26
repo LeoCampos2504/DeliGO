@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { readStringIdList, validateNegocioResourceOwnership } from "@/lib/access-control"
 
 // PUT - Update seccion (including products assignment)
 export async function PUT(
@@ -40,6 +41,18 @@ export async function PUT(
       )
     }
 
+    const validProductoIds = readStringIdList(productoIds, "productoIds")
+    if (!validProductoIds.ok) {
+      return NextResponse.json({ error: validProductoIds.error }, { status: 400 })
+    }
+
+    const ownsProductos = await validateNegocioResourceOwnership(negocioId, {
+      productos: validProductoIds.ids,
+    })
+    if (!ownsProductos) {
+      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
+    }
+
     const updateData: Record<string, unknown> = {}
     if (nombre !== undefined) updateData.nombre = nombre.trim()
     if (orientacion !== undefined) updateData.orientacion = orientacion
@@ -58,9 +71,9 @@ export async function PUT(
       await db.seccionProducto.deleteMany({ where: { seccionId: id } })
 
       // Create new junction records
-      if (Array.isArray(productoIds) && productoIds.length > 0) {
+      if (validProductoIds.ids.length > 0) {
         await db.seccionProducto.createMany({
-          data: productoIds.map((productoId: string, index: number) => ({
+          data: validProductoIds.ids.map((productoId, index) => ({
             seccionId: id,
             productoId,
             orden: index,

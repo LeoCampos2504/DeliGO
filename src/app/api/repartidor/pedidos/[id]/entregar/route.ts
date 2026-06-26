@@ -99,15 +99,43 @@ export async function PUT(
       )
     }
 
-    // Mark as delivered
-    const updated = await db.pedido.update({
-      where: { id: pedidoId },
+    // Mark as delivered only if this repartidor is still assigned to the pedido.
+    const delivered = await db.pedido.updateMany({
+      where: {
+        id: pedidoId,
+        negocioId: pedido.negocioId,
+        repartidorId: user.id,
+        estado: "en_camino",
+        metodoEntrega: "domicilio",
+        clienteConfirmaRecibido: true,
+      },
       data: {
         estado: "entregado",
         entregadoPorRepartidor: true,
         entregadoFecha: new Date(),
       },
     })
+
+    if (delivered.count === 0) {
+      return NextResponse.json(
+        { error: "No estas asignado a este pedido" },
+        { status: 403 }
+      )
+    }
+
+    const updated = await db.pedido.findUnique({
+      where: { id: pedidoId },
+      select: {
+        id: true,
+        estado: true,
+        entregadoPorRepartidor: true,
+        entregadoFecha: true,
+      },
+    })
+
+    if (!updated) {
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+    }
 
     // Accumulate service fee debt (from Flask: _acumular_deuda_tarifa)
     // Only if not already accumulated (prevent double-charging)

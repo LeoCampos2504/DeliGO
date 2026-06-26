@@ -3,6 +3,11 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
+import {
+  readSharedOptionIdList,
+  readStringIdList,
+  validateNegocioResourceOwnership,
+} from "@/lib/access-control"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -166,6 +171,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validImagenesExtra.error }, { status: 400 })
     }
 
+    const validAgregadoIds = readStringIdList(agregadoIds, "agregadoIds")
+    if (!validAgregadoIds.ok) {
+      return NextResponse.json({ error: validAgregadoIds.error }, { status: 400 })
+    }
+
+    const validIngredienteIds = readStringIdList(ingredienteIds, "ingredienteIds")
+    if (!validIngredienteIds.ok) {
+      return NextResponse.json({ error: validIngredienteIds.error }, { status: 400 })
+    }
+
+    const validOpcionesCompartidasIds = readSharedOptionIdList(
+      opcionesCompartidasIds,
+      "opcionesCompartidasIds"
+    )
+    if (!validOpcionesCompartidasIds.ok) {
+      return NextResponse.json({ error: validOpcionesCompartidasIds.error }, { status: 400 })
+    }
+
+    const ownsCatalogRefs = await validateNegocioResourceOwnership(negocioId, {
+      agregados: validAgregadoIds.ids,
+      ingredientes: validIngredienteIds.ids,
+      opcionesCompartidas: validOpcionesCompartidasIds.ids,
+    })
+    if (!ownsCatalogRefs) {
+      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
+    }
+
     // Create product
     const producto = await db.producto.create({
       data: {
@@ -192,9 +224,9 @@ export async function POST(req: NextRequest) {
     })
 
     // Create junction records for agregados
-    if (agregadoIds && Array.isArray(agregadoIds) && agregadoIds.length > 0) {
+    if (validAgregadoIds.ids.length > 0) {
       await db.productoAgregado.createMany({
-        data: agregadoIds.map((agregadoId: string) => ({
+        data: validAgregadoIds.ids.map((agregadoId) => ({
           productoId: producto.id,
           agregadoId,
         })),
@@ -202,9 +234,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Create junction records for ingredientes
-    if (ingredienteIds && Array.isArray(ingredienteIds) && ingredienteIds.length > 0) {
+    if (validIngredienteIds.ids.length > 0) {
       await db.productoIngrediente.createMany({
-        data: ingredienteIds.map((ingredienteId: string) => ({
+        data: validIngredienteIds.ids.map((ingredienteId) => ({
           productoId: producto.id,
           ingredienteId,
         })),

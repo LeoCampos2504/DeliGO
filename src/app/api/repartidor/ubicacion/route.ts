@@ -111,14 +111,27 @@ export async function POST(req: NextRequest) {
 
     // 4. Update the pedido with repartidor location
     const now = new Date()
-    await db.pedido.update({
-      where: { id: pedidoId },
+    const updated = await db.pedido.updateMany({
+      where: {
+        id: pedidoId,
+        negocioId: pedido.negocioId,
+        repartidorId: user.id,
+        estado: "en_camino",
+        metodoEntrega: "domicilio",
+      },
       data: {
         repartidorLat: lat,
         repartidorLng: lng,
         repartidorLastUpdate: now,
       },
     })
+
+    if (updated.count === 0) {
+      return NextResponse.json(
+        { error: "No estas asignado a este pedido" },
+        { status: 403 }
+      )
+    }
 
     // 5. Return success
     return NextResponse.json({

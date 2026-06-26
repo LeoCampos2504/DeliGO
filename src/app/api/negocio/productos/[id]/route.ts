@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
+import {
+  readSharedOptionIdList,
+  readStringIdList,
+  validateNegocioResourceOwnership,
+} from "@/lib/access-control"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -144,6 +149,34 @@ export async function PUT(
       if (!validImagenesExtra.ok) return NextResponse.json({ error: validImagenesExtra.error }, { status: 400 })
       updateData.imagenesExtra = JSON.stringify(validImagenesExtra.value)
     }
+
+    const validAgregadoIds = readStringIdList(agregadoIds, "agregadoIds")
+    if (!validAgregadoIds.ok) {
+      return NextResponse.json({ error: validAgregadoIds.error }, { status: 400 })
+    }
+
+    const validIngredienteIds = readStringIdList(ingredienteIds, "ingredienteIds")
+    if (!validIngredienteIds.ok) {
+      return NextResponse.json({ error: validIngredienteIds.error }, { status: 400 })
+    }
+
+    const validOpcionesCompartidasIds = readSharedOptionIdList(
+      opcionesCompartidasIds,
+      "opcionesCompartidasIds"
+    )
+    if (!validOpcionesCompartidasIds.ok) {
+      return NextResponse.json({ error: validOpcionesCompartidasIds.error }, { status: 400 })
+    }
+
+    const ownsCatalogRefs = await validateNegocioResourceOwnership(negocioId, {
+      agregados: validAgregadoIds.ids,
+      ingredientes: validIngredienteIds.ids,
+      opcionesCompartidas: validOpcionesCompartidasIds.ids,
+    })
+    if (!ownsCatalogRefs) {
+      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
+    }
+
     if (stock !== undefined) updateData.stock = stock
     if (descuentoActivo !== undefined) updateData.descuentoActivo = descuentoActivo
     if (tipoDescuento !== undefined) updateData.tipoDescuento = tipoDescuento
@@ -168,9 +201,9 @@ export async function PUT(
       await db.productoAgregado.deleteMany({
         where: { productoId: id },
       })
-      if (Array.isArray(agregadoIds) && agregadoIds.length > 0) {
+      if (validAgregadoIds.ids.length > 0) {
         await db.productoAgregado.createMany({
-          data: agregadoIds.map((agregadoId: string) => ({
+          data: validAgregadoIds.ids.map((agregadoId) => ({
             productoId: id,
             agregadoId,
           })),
@@ -183,9 +216,9 @@ export async function PUT(
       await db.productoIngrediente.deleteMany({
         where: { productoId: id },
       })
-      if (Array.isArray(ingredienteIds) && ingredienteIds.length > 0) {
+      if (validIngredienteIds.ids.length > 0) {
         await db.productoIngrediente.createMany({
-          data: ingredienteIds.map((ingredienteId: string) => ({
+          data: validIngredienteIds.ids.map((ingredienteId) => ({
             productoId: id,
             ingredienteId,
           })),
