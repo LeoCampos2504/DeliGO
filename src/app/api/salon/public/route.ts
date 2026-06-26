@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
-// Helper to parse JSON fields safely
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
   if (typeof value === "string") {
@@ -10,15 +12,13 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
   return value
 }
 
-// GET /api/salon/public?token=TOKEN — Public salon data for the shared link page
 export async function GET(req: NextRequest) {
   try {
-    const token = req.nextUrl.searchParams.get("token")
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
     if (!token) {
-      return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+      return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Look up negocio by tokenSalon
     const negocio = await db.negocio.findFirst({
       where: { tokenSalon: token },
       select: {
@@ -33,10 +33,9 @@ export async function GET(req: NextRequest) {
     })
 
     if (!negocio || !negocio.salonActivo) {
-      return NextResponse.json({ error: "Token inválido o salón no activo" }, { status: 401 })
+      return NextResponse.json({ error: "Token invalido o salon no activo" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Fetch mesas
     const mesas = await db.mesa.findMany({
       where: { negocioId: negocio.id, activa: true },
       include: {
@@ -45,7 +44,6 @@ export async function GET(req: NextRequest) {
       orderBy: { numero: "asc" },
     })
 
-    // Fetch active mesa orders with full item details
     const pedidos = await db.pedido.findMany({
       where: {
         negocioId: negocio.id,
@@ -62,8 +60,7 @@ export async function GET(req: NextRequest) {
       orderBy: { fecha: "desc" },
     })
 
-    // Parse JSON fields on items
-    const pedidosParsed = pedidos.map(({ clienteTelefono, ...p }) => ({
+    const pedidosParsed = pedidos.map(({ clienteTelefono: _clienteTelefono, ...p }) => ({
       ...p,
       items: p.items.map((item) => ({
         ...item,
@@ -75,13 +72,13 @@ export async function GET(req: NextRequest) {
       })),
     }))
 
-    // Fetch empleados (mozos) that have mesas assigned — for notification identification
     const empleados = await db.empleado.findMany({
       where: {
         negocioId: negocio.id,
+        rol: "mozo",
         activo: true,
         eliminado: false,
-        mesas: { some: {} }, // only empleados with at least one assigned mesa
+        mesas: { some: {} },
       },
       select: {
         id: true,
@@ -103,15 +100,15 @@ export async function GET(req: NextRequest) {
       },
       mesas,
       pedidos: pedidosParsed,
-      empleados: empleados.map(e => ({
+      empleados: empleados.map((e) => ({
         id: e.id,
         nombre: e.nombre,
         codigo: e.codigo,
         hasPushSubscription: !!e.pushSubscription,
       })),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting salon public data:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

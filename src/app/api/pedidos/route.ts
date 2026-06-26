@@ -770,7 +770,7 @@ export async function POST(request: NextRequest) {
     let mesaNumero: number | null = pedidoInput.mesaNumero
     const isMesaOrder = pedidoInput.metodoEntrega === "mesa"
 
-    // Resolve empleado from codigo if provided (or auto from mesa)
+    // Resolve empleado from the mesa assignment, not from public URL/body data.
     let empleadoId: string | null = null
     let empleadoNombre: string | null = null
 
@@ -821,30 +821,18 @@ export async function POST(request: NextRequest) {
       mesaId = mesaRow.id
       mesaNumero = mesaRow.numero
 
-      // Auto-resolve mozo from mesa assignment (always — this is the primary source of truth)
+      // Auto-resolve mozo from mesa assignment. This is the only authority for
+      // mesa order attribution; public ?mozo=CODIGO must not grant privileges.
       const mesaEmpleadoId = mesaRow.empleadoId
       if (mesaEmpleadoId) {
         const mesaEmpleado = await db.empleado.findFirst({
-          where: { id: mesaEmpleadoId, negocioId, activo: true },
+          where: { id: mesaEmpleadoId, negocioId, rol: "mozo", activo: true, eliminado: false },
           select: { id: true, nombre: true },
         })
         if (mesaEmpleado) {
           empleadoId = mesaEmpleado.id
           empleadoNombre = mesaEmpleado.nombre
         }
-      }
-    }
-
-    // Resolve empleado from codigo if provided (overrides mesa auto-assignment)
-    // This handles the mozo link flow where the mozo explicitly opened the order
-    if (pedidoInput.empleadoCodigo && isMesaOrder) {
-      const empleado = await db.empleado.findFirst({
-        where: { codigo: pedidoInput.empleadoCodigo, negocioId, activo: true },
-        select: { id: true, nombre: true },
-      })
-      if (empleado) {
-        empleadoId = empleado.id
-        empleadoNombre = empleado.nombre
       }
     }
 

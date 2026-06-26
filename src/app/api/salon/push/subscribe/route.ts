@@ -1,69 +1,51 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
-// POST /api/salon/push/subscribe — Save a push subscription for the shared
-// salon display (/s/[token]). The subscription is stored on the Negocio model
-// in `pushSubscriptionSalon` (separate from the owner's personal
-// `pushSubscription`) so multiple devices can each receive notifications.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+
 export async function POST(req: NextRequest) {
   try {
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
     const body = await req.json()
-    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
-    // and `salonToken` (legacy field name) for backward compatibility.
-    const { token, salonToken, subscription } = body as {
-      token?: string
-      salonToken?: string
-      subscription: string
-    }
-    const resolvedToken = token || salonToken
+    const { subscription } = body as { subscription?: string }
 
-    if (!resolvedToken || !subscription) {
-      return NextResponse.json(
-        { error: "token y subscription son obligatorios" },
-        { status: 400 }
-      )
+    if (!token || !subscription) {
+      return NextResponse.json({ error: "token y subscription son obligatorios" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Rate limit
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:salon:${resolvedToken}`)
+    const rl = checkRateLimit("push", `${ip}:salon:${token}`)
     if (!rl.allowed) {
-      return rateLimitResponse(rl)
+      const response = rateLimitResponse(rl)
+      response.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"])
+      return response
     }
 
-    // Validate salon token
     const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: resolvedToken },
+      where: { tokenSalon: token },
       select: { id: true },
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Token de salón inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token de salon invalido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Validate subscription is valid JSON
     try {
       JSON.parse(subscription)
     } catch {
-      return NextResponse.json(
-        { error: "subscription debe ser un JSON válido" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "subscription debe ser un JSON valido" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Save push subscription on the Negocio model (dedicated salon field)
     await db.negocio.update({
       where: { id: negocio.id },
       data: { pushSubscriptionSalon: subscription },
     })
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error saving salon push subscription:", error)
-    return NextResponse.json(
-      { error: "Error al guardar la suscripción" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Error al guardar la suscripcion" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

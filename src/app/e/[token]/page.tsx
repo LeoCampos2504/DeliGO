@@ -143,23 +143,33 @@ export default function EmpleadoCombinedPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mainTab, setMainTab] = useState<"pedidos" | "resenas">("pedidos")
+  const handleAccessDenied = useCallback(() => {
+    setNegocio(null)
+    setError("Acceso denegado. Link invalido o fue regenerado.")
+  }, [])
 
   // Validate token & load negocio data
   useEffect(() => {
     async function init() {
       try {
-        const res = await fetch(`/api/empleado/validate?token=${token}&type=empleados`)
+        const res = await fetch("/api/empleado/validate", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+          referrerPolicy: "no-referrer",
+        })
         if (!res.ok) throw new Error("Token inválido")
         const data = await res.json()
         setNegocio(data.negocio)
       } catch {
-        setError("Acceso denegado. Link inválido o fue regenerado.")
+        handleAccessDenied()
       } finally {
         setLoading(false)
       }
     }
     init()
-  }, [token])
+  }, [token, handleAccessDenied])
 
   const color = negocio?.colorPrincipal || "#FB8C00"
 
@@ -246,9 +256,9 @@ export default function EmpleadoCombinedPage() {
 
       {/* Content */}
       {mainTab === "pedidos" ? (
-        <PedidosSection token={token} negocioId={negocio.id} color={color} />
+        <PedidosSection token={token} negocioId={negocio.id} color={color} onAccessDenied={handleAccessDenied} />
       ) : (
-        <ResenasSection token={token} negocioId={negocio.id} color={color} />
+        <ResenasSection token={token} negocioId={negocio.id} color={color} onAccessDenied={handleAccessDenied} />
       )}
     </div>
   )
@@ -296,7 +306,7 @@ function EmpleadosPushBell({ token, initialSubscribed }: { token: string; initia
 // ============================================
 // Pedidos Section
 // ============================================
-function PedidosSection({ token, negocioId, color }: { token: string; negocioId: string; color: string }) {
+function PedidosSection({ token, negocioId, color, onAccessDenied }: { token: string; negocioId: string; color: string; onAccessDenied: () => void }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [subTab, setSubTab] = useState<"activos" | "historial">("activos")
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -307,7 +317,18 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
   const fetchPedidos = useCallback(async () => {
     try {
       const estado = subTab === "activos" ? "activos" : "historial"
-      const res = await fetch(`/api/empleado/pedidos?token=${token}&type=empleados&estado=${estado}&limit=100`)
+      const res = await fetch(`/api/empleado/pedidos?estado=${estado}&limit=100`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      })
+      if (res.status === 401 || res.status === 403) {
+        setPedidos([])
+        onAccessDenied()
+        return
+      }
       if (res.ok) {
         const data = await res.json()
         setPedidos(data.pedidos)
@@ -315,7 +336,7 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
     } catch {
       // silent
     }
-  }, [token, subTab])
+  }, [token, subTab, onAccessDenied])
 
   useEffect(() => {
     fetchPedidos()
@@ -332,9 +353,19 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
     try {
       const res = await fetch(`/api/empleado/pedidos/${pedidoId}/estado`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, type: "empleados", estado, motivo }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        body: JSON.stringify({ estado, motivo }),
       })
+      if (res.status === 401 || res.status === 403) {
+        setPedidos([])
+        onAccessDenied()
+        return
+      }
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || "Error actualizando")
@@ -687,7 +718,7 @@ function PedidosSection({ token, negocioId, color }: { token: string; negocioId:
 // ============================================
 // Reseñas Section
 // ============================================
-function ResenasSection({ token, color }: { token: string; negocioId: string; color: string }) {
+function ResenasSection({ token, color, onAccessDenied }: { token: string; negocioId: string; color: string; onAccessDenied: () => void }) {
   const [resenas, setResenas] = useState<Resena[]>([])
   const [stats, setStats] = useState<ResenasStats | null>(null)
   const [filtro, setFiltro] = useState<"todas" | "sin_respuesta" | "con_respuesta">("todas")
@@ -699,7 +730,19 @@ function ResenasSection({ token, color }: { token: string; negocioId: string; co
 
   const fetchResenas = useCallback(async () => {
     try {
-      const res = await fetch(`/api/empleado/resenas?token=${token}&type=empleados&filtro=${filtro}&page=${page}&limit=20`)
+      const res = await fetch(`/api/empleado/resenas?filtro=${filtro}&page=${page}&limit=20`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      })
+      if (res.status === 401 || res.status === 403) {
+        setResenas([])
+        setStats(null)
+        onAccessDenied()
+        return
+      }
       if (res.ok) {
         const data = await res.json()
         setResenas(data.resenas)
@@ -709,7 +752,7 @@ function ResenasSection({ token, color }: { token: string; negocioId: string; co
     } catch {
       // silent
     }
-  }, [token, filtro, page])
+  }, [token, filtro, page, onAccessDenied])
 
   useEffect(() => {
     fetchResenas()
@@ -727,9 +770,20 @@ function ResenasSection({ token, color }: { token: string; negocioId: string; co
     try {
       const res = await fetch(`/api/empleado/resenas/${resenaId}/responder`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, type: "empleados", respuestaNegocio: replyText }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        body: JSON.stringify({ respuestaNegocio: replyText }),
       })
+      if (res.status === 401 || res.status === 403) {
+        setResenas([])
+        setStats(null)
+        onAccessDenied()
+        return
+      }
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || "Error respondiendo")

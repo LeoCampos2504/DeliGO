@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 
-// POST /api/mozo/push/unsubscribe — Remove push subscription for a mozo
+// POST /api/mozo/push/unsubscribe - Remove push subscription for a mozo
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -14,17 +14,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate mozo token
     const empleado = await db.empleado.findFirst({
       where: { token: mozoToken, rol: "mozo", activo: true, eliminado: false },
       select: { id: true },
     })
 
     if (!empleado) {
-      return NextResponse.json({ error: "Token de mozo inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token de mozo invalido" }, { status: 401 })
     }
 
-    // Remove push subscription
     await db.empleado.update({
       where: { id: empleado.id },
       data: { pushSubscription: null },
@@ -34,7 +32,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Error removing mozo push subscription:", error)
     return NextResponse.json(
-      { error: "Error al eliminar la suscripción" },
+      { error: "Error al eliminar la suscripcion" },
       { status: 500 }
     )
   }

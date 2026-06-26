@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -18,92 +19,73 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 }
 
 const SERVICE_FEE_FIXED = 250
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
-// Validate token — supports shared empleados token and legacy empleado tokens
-async function validateAccess(token: string, type?: string | null): Promise<{ negocioId: string } | null> {
+async function validateAccess(token: string): Promise<{ negocioId: string } | null> {
   if (!token) return null
-
-  // Shared employee token (for /e/[token] page)
-  if (type === "empleados") {
-    const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: token },
-      select: { id: true },
-    })
-    return negocio ? { negocioId: negocio.id } : null
-  }
-
-  // Legacy: empleado token (for /m/[token] mozo page)
-  const empleado = await db.empleado.findFirst({
-    where: { token, activo: true, eliminado: false },
-    select: { id: true, nombre: true, negocioId: true },
+  const negocio = await db.negocio.findFirst({
+    where: { tokenEmpleados: token },
+    select: { id: true },
   })
-  return empleado ? { negocioId: empleado.negocioId } : null
+  return negocio ? { negocioId: negocio.id } : null
 }
 
-// PATCH /api/empleado/pedidos/[id]/estado — Update order status via token
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: pedidoId } = await params
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
     const body = await req.json()
-    const { token, type, estado, motivo } = body
+    const { estado, motivo } = body
 
     if (!token) {
-      return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+      return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
     if (!estado) {
-      return NextResponse.json({ error: "estado es obligatorio" }, { status: 400 })
+      return NextResponse.json({ error: "estado es obligatorio" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Validate access
-    const access = await validateAccess(token, type)
+    const access = await validateAccess(token)
     if (!access) {
-      return NextResponse.json({ error: "Token inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token invalido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const negocioId = access.negocioId
-
-    // Get the pedido
     const pedido = await db.pedido.findUnique({ where: { id: pedidoId } })
 
     if (!pedido || pedido.negocioId !== negocioId) {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
-    // Validate state transition
     const currentEstado = pedido.estado
 
     if (currentEstado === estado) {
-      return NextResponse.json({ error: "El pedido ya está en ese estado" }, { status: 400 })
+      return NextResponse.json({ error: "El pedido ya esta en ese estado" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     if (currentEstado === "entregado" || currentEstado === "cancelado") {
-      return NextResponse.json({ error: "No se puede cambiar el estado de un pedido ya finalizado" }, { status: 400 })
+      return NextResponse.json({ error: "No se puede cambiar el estado de un pedido ya finalizado" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     const allowedTransitions = VALID_TRANSITIONS[currentEstado]
     if (!allowedTransitions || !allowedTransitions.includes(estado)) {
-      return NextResponse.json({ error: `Transición no válida: ${currentEstado} → ${estado}` }, { status: 400 })
+      return NextResponse.json({ error: `Transicion no valida: ${currentEstado} -> ${estado}` }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Validate: preparando → en_camino only for delivery
     if (currentEstado === "preparando" && estado === "en_camino" && pedido.metodoEntrega !== "domicilio") {
-      return NextResponse.json({ error: "Solo pedidos con delivery pueden pasar a 'en camino'" }, { status: 400 })
+      return NextResponse.json({ error: "Solo pedidos con delivery pueden pasar a 'en camino'" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Validate: listo_para_retirar → entregado requires client confirmation (except mesa)
     if (currentEstado === "listo_para_retirar" && estado === "entregado" && pedido.metodoEntrega !== "mesa" && !pedido.clienteConfirmaRecibido) {
-      return NextResponse.json({ error: "El cliente aún no confirmó la recepción del pedido" }, { status: 400 })
+      return NextResponse.json({ error: "El cliente aun no confirmo la recepcion del pedido" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Validate: cancelado requires motivo
     if (estado === "cancelado" && !motivo?.trim()) {
-      return NextResponse.json({ error: "Debe indicar el motivo de cancelación" }, { status: 400 })
+      return NextResponse.json({ error: "Debe indicar el motivo de cancelacion" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Build update data
     const updateData: Record<string, unknown> = { estado }
 
     if (estado === "cancelado") {
@@ -128,7 +110,6 @@ export async function PATCH(
       },
     })
 
-    // Accumulate service fee debt when status becomes "entregado"
     if (estado === "entregado" && !pedido.deudaAcumulada) {
       await db.negocio.update({
         where: { id: negocioId },
@@ -136,7 +117,6 @@ export async function PATCH(
       })
     }
 
-    // Send notification to the client
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
@@ -150,8 +130,8 @@ export async function PATCH(
           tipo: "order_update",
           titulo: payload.title,
           cuerpo: payload.body,
-          pedidoId: pedidoId,
-          negocioId: negocioId,
+          pedidoId,
+          negocioId,
           pushSubscription: cliente?.pushSubscription ?? null,
           pushPayload: payload,
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
@@ -161,7 +141,6 @@ export async function PATCH(
       }
     }
 
-    // Notify repartidores when order goes to en_camino (delivery)
     if (estado === "en_camino" && pedido.metodoEntrega === "domicilio") {
       try {
         const repartidores = await db.repartidorNegocio.findMany({
@@ -179,8 +158,8 @@ export async function PATCH(
               tipo: "new_delivery",
               titulo: payload.title,
               cuerpo: payload.body,
-              pedidoId: pedidoId,
-              negocioId: negocioId,
+              pedidoId,
+              negocioId,
               pushSubscription: rn.repartidor.pushSubscription,
               pushPayload: payload,
               cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
@@ -192,7 +171,7 @@ export async function PATCH(
       }
     }
 
-    const { clienteTelefono: _ct, ...updatedSafe } = updated
+    const { clienteTelefono: _clienteTelefono, ...updatedSafe } = updated
     return NextResponse.json({
       ...updatedSafe,
       items: updated.items.map((item) => ({
@@ -203,9 +182,9 @@ export async function PATCH(
         ingredientes: safeParseJSON(item.ingredientes, []),
         ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
       })),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error updating pedido estado (empleado):", error)
-    return NextResponse.json({ error: "Error al actualizar estado del pedido" }, { status: 500 })
+    return NextResponse.json({ error: "Error al actualizar estado del pedido" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -27,7 +27,7 @@ interface MesaPublica {
   nombre: string
   zona: string
   capacidad: number
-  mozoAsignado: { id: string; nombre: string; codigo: string } | null
+  mozoAsignado: { nombre: string; codigo: string } | null
 }
 
 interface MesaSelectorSheetProps {

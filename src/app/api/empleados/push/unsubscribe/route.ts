@@ -1,48 +1,33 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
-// POST /api/empleados/push/unsubscribe — Remove the shared empleados panel's
-// push subscription. Only requires the empleadosToken.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    // Accept both `token` (generic, sent by useSharedPushNotifications hook)
-    // and `empleadosToken` (legacy field name) for backward compatibility.
-    const { token, empleadosToken } = body as {
-      token?: string
-      empleadosToken?: string
-    }
-    const resolvedToken = token || empleadosToken
-
-    if (!resolvedToken) {
-      return NextResponse.json(
-        { error: "token es obligatorio" },
-        { status: 400 }
-      )
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
+    if (!token) {
+      return NextResponse.json({ error: "token es obligatorio" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Validate empleados token
     const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: resolvedToken },
+      where: { tokenEmpleados: token },
       select: { id: true },
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Token de empleados inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token de empleados invalido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
-    // Remove push subscription from the Negocio model
     await db.negocio.update({
       where: { id: negocio.id },
       data: { pushSubscriptionEmpleados: null },
     })
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error removing empleados push subscription:", error)
-    return NextResponse.json(
-      { error: "Error al eliminar la suscripción" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Error al eliminar la suscripcion" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -251,8 +251,13 @@ export async function PATCH(
 
         // Try the mozo who took the order first
         if (pedido.empleadoId) {
-          mozo = await db.empleado.findUnique({
-            where: { id: pedido.empleadoId },
+          mozo = await db.empleado.findFirst({
+            where: {
+              id: pedido.empleadoId,
+              rol: "mozo",
+              activo: true,
+              eliminado: false,
+            },
             select: { id: true, nombre: true, pushSubscription: true },
           })
           console.log(`[Push/Mozo] (negocio) Mozo del pedido (empleadoId=${pedido.empleadoId}):`, mozo ? `${mozo.nombre} (push=${mozo.pushSubscription ? "sí" : "no"})` : "no encontrado")
@@ -268,7 +273,18 @@ export async function PATCH(
           })
           console.log(`[Push/Mozo] (negocio) Mesa ${pedido.mesaId}:`, mesa ? `empleadoId=${mesa.empleadoId}, push=${mesa.empleado?.pushSubscription ? "sí" : "no"}` : "no encontrada")
           if (mesa?.empleado?.pushSubscription) {
-            mozo = mesa.empleado
+            const mesaMozo = await db.empleado.findFirst({
+              where: {
+                id: mesa.empleado.id,
+                rol: "mozo",
+                activo: true,
+                eliminado: false,
+              },
+              select: { id: true, nombre: true, pushSubscription: true },
+            })
+            if (mesaMozo?.pushSubscription) {
+              mozo = mesaMozo
+            }
           }
         }
 

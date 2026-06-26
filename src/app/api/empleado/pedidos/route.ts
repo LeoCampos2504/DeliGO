@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -11,37 +12,27 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
 }
 
 const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"]
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
 // Validate access token — supports shared empleados token and legacy empleado tokens
-async function validateAccess(token: string, type?: string | null): Promise<{ negocioId: string; empleadoNombre?: string } | null> {
+async function validateAccess(token: string): Promise<{ negocioId: string } | null> {
   if (!token) return null
 
-  // Shared employee token (for /e/[token] page)
-  if (type === "empleados") {
-    const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: token },
-      select: { id: true },
-    })
-    return negocio ? { negocioId: negocio.id } : null
-  }
-
-  // Legacy: empleado token (for /m/[token] mozo page)
-  const empleado = await db.empleado.findFirst({
-    where: { token, activo: true, eliminado: false },
-    select: { id: true, nombre: true, codigo: true, rol: true, negocioId: true },
+  const negocio = await db.negocio.findFirst({
+    where: { tokenEmpleados: token },
+    select: { id: true },
   })
-  return empleado ? { negocioId: empleado.negocioId, empleadoNombre: empleado.nombre } : null
+  return negocio ? { negocioId: negocio.id } : null
 }
 
 // GET /api/empleado/pedidos — List orders for the negocio
 export async function GET(req: NextRequest) {
   try {
-    const token = req.nextUrl.searchParams.get("token")
-    const type = req.nextUrl.searchParams.get("type")
-    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
+    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
 
-    const access = await validateAccess(token, type)
-    if (!access) return NextResponse.json({ error: "Token inválido" }, { status: 401 })
+    const access = await validateAccess(token)
+    if (!access) return NextResponse.json({ error: "Token invalido" }, { status: 401, headers: NO_STORE_HEADERS })
 
     const negocioId = access.negocioId
     const estado = req.nextUrl.searchParams.get("estado")
@@ -58,7 +49,7 @@ export async function GET(req: NextRequest) {
       where.metodoEntrega = { not: "mesa" }
     } else {
       // Explicitly requesting mesa orders — return empty (use salon API instead)
-      return NextResponse.json({ pedidos: [], pagination: { page, limit, total: 0, totalPages: 0 } })
+      return NextResponse.json({ pedidos: [], pagination: { page, limit, total: 0, totalPages: 0 } }, { headers: NO_STORE_HEADERS })
     }
 
     if (estado === "activos") {
@@ -105,9 +96,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       pedidos: pedidosParsed,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error listing empleado pedidos:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

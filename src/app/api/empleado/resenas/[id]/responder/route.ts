@@ -1,52 +1,41 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createNotification, reviewReplyNotification } from "@/lib/push"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
-// Validate token — supports shared empleados token and legacy empleado tokens
-async function validateAccess(token: string, type?: string | null): Promise<{ negocioId: string } | null> {
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+
+async function validateAccess(token: string): Promise<{ negocioId: string } | null> {
   if (!token) return null
-
-  // Shared employee token (for /e/[token] page)
-  if (type === "empleados") {
-    const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: token },
-      select: { id: true },
-    })
-    return negocio ? { negocioId: negocio.id } : null
-  }
-
-  // Legacy: empleado token (for /m/[token] mozo page)
-  const empleado = await db.empleado.findFirst({
-    where: { token, activo: true, eliminado: false },
-    select: { id: true, negocioId: true },
+  const negocio = await db.negocio.findFirst({
+    where: { tokenEmpleados: token },
+    select: { id: true },
   })
-  return empleado ? { negocioId: empleado.negocioId } : null
+  return negocio ? { negocioId: negocio.id } : null
 }
 
-// PATCH /api/empleado/resenas/[id]/responder — Reply to a review via token
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: resenaId } = await params
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
     const body = await req.json()
-    const { token, type, respuestaNegocio } = body
+    const { respuestaNegocio } = body
 
-    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
     if (!respuestaNegocio?.trim()) {
-      return NextResponse.json({ error: "La respuesta no puede estar vacía" }, { status: 400 })
+      return NextResponse.json({ error: "La respuesta no puede estar vacia" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    const access = await validateAccess(token, type)
-    if (!access) return NextResponse.json({ error: "Token inválido" }, { status: 401 })
+    const access = await validateAccess(token)
+    if (!access) return NextResponse.json({ error: "Token invalido" }, { status: 401, headers: NO_STORE_HEADERS })
 
     const negocioId = access.negocioId
-
-    // Verify the review belongs to this negocio
     const resena = await db.resena.findUnique({ where: { id: resenaId } })
     if (!resena || resena.negocioId !== negocioId) {
-      return NextResponse.json({ error: "Reseña no encontrada" }, { status: 404 })
+      return NextResponse.json({ error: "Resena no encontrada" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     const updated = await db.resena.update({
@@ -57,7 +46,6 @@ export async function PATCH(
       },
     })
 
-    // Notify cliente that negocio replied to their review
     try {
       const resenaWithCliente = await db.resena.findUnique({
         where: { id: resenaId },
@@ -80,7 +68,7 @@ export async function PATCH(
             tipo: "review",
             titulo: payload.title,
             cuerpo: payload.body,
-            negocioId: negocioId,
+            negocioId,
             pushSubscription: cliente?.pushSubscription,
             pushPayload: payload,
             cleanupExpired: { model: "cliente", id: resenaWithCliente.clienteId },
@@ -91,9 +79,9 @@ export async function PATCH(
       console.error("[Push] Failed to send review reply notification:", pushError)
     }
 
-    return NextResponse.json(updated)
+    return NextResponse.json(updated, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error responding to resena (empleado):", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     // Validate mozo token
     const empleado = await db.empleado.findFirst({
-      where: { token: mozoToken, activo: true, eliminado: false },
+      where: { token: mozoToken, rol: "mozo", activo: true, eliminado: false },
       select: { id: true },
     })
 

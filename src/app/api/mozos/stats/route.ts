@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     // Get all mozos using Prisma ORM (avoids PostgreSQL case-sensitivity issues)
     const mozos = await db.empleado.findMany({
-      where: { negocioId },
+      where: { negocioId, rol: "mozo", eliminado: false },
       select: { id: true, nombre: true, codigo: true },
     })
 

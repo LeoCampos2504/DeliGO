@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       orderBy: { numero: "asc" },
       include: {
         empleado: {
-          select: { id: true, nombre: true, codigo: true },
+          select: { nombre: true, codigo: true },
         },
       },
     })
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       zona: m.zona,
       capacidad: m.capacidad,
       mozoAsignado: m.empleado
-        ? { id: m.empleado.id, nombre: m.empleado.nombre, codigo: m.empleado.codigo }
+        ? { nombre: m.empleado.nombre, codigo: m.empleado.codigo }
         : null,
     }))
 

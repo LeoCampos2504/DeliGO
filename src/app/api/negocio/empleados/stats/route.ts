@@ -42,8 +42,14 @@ export async function GET(req: NextRequest) {
 
     // Get all mozos for this negocio
     const mozos = await db.empleado.findMany({
-      where: { negocioId, rol: "mozo" },
+      where: { negocioId, rol: "mozo", eliminado: false },
       orderBy: { nombre: "asc" },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        activo: true,
+      },
     })
 
     // Get orders for these mozos in the period
@@ -80,7 +86,6 @@ export async function GET(req: NextRequest) {
         id: mozo.id,
         nombre: mozo.nombre,
         codigo: mozo.codigo,
-        token: mozo.token,
         activo: mozo.activo,
         totalPedidos,
         totalMonto,

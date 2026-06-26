@@ -202,7 +202,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
 
   // Mozo mesa selection state
-  const [mozoSelectedMesa, setMozoSelectedMesa] = useState<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { id: string; nombre: string; codigo: string } | null } | null>(null)
+  const [mozoSelectedMesa, setMozoSelectedMesa] = useState<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null } | null>(null)
   const [mesaSelectorOpen, setMesaSelectorOpen] = useState(false)
 
   // Check for auto-open product from URL (e.g. from promos)
@@ -292,7 +292,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     numero: number
     nombre: string
     zona: string
-    mozoAsignado: { id: string; nombre: string; codigo: string } | null
+    mozoAsignado: { nombre: string; codigo: string } | null
   } | null>({
     queryKey: ["customer-mesa", slug, mesaNumero],
     queryFn: async () => {
@@ -300,7 +300,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       const res = await fetch(`/api/negocio/mesas-public?slug=${slug}`)
       if (!res.ok) return null
       const data = await res.json()
-      const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { id: string; nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
+      const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
       return found ?? null
     },
     enabled: !!mesaNumero && !!slug && !isAuthenticatedMozo,
@@ -1019,8 +1019,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           isOpen={isOpen}
           mesaNumero={effectiveMesaNumero}
           mesaId={effectiveMesaId}
-          mozoCodigo={mozoData?.codigo}
-          mozoNombre={mozoData?.nombre}
+          mozoCodigo={isAuthenticatedMozo ? mozoData?.codigo : undefined}
+          mozoNombre={isAuthenticatedMozo ? mozoData?.nombre : undefined}
           canOrder={canOrder}
           onRequireAuth={requireAuth}
           onRequireLocation={requireLocation}

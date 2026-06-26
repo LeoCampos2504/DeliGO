@@ -80,7 +80,10 @@ export async function POST(req: NextRequest) {
     if (type === "salon") {
       await db.negocio.update({
         where: { id: user.id },
-        data: { tokenSalon: newToken },
+        data: {
+          tokenSalon: newToken,
+          pushSubscriptionSalon: null,
+        },
       })
       return NextResponse.json({
         tokenSalon: newToken,
@@ -92,7 +95,10 @@ export async function POST(req: NextRequest) {
     // Default: regenerate empleados token
     await db.negocio.update({
       where: { id: user.id },
-      data: { tokenEmpleados: newToken },
+      data: {
+        tokenEmpleados: newToken,
+        pushSubscriptionEmpleados: null,
+      },
     })
 
     return NextResponse.json({

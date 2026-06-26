@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createNotification, orderUpdateNotification, mesaOrderReadyNotification } from "@/lib/push"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -17,69 +18,65 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 }
 
 const SERVICE_FEE_FIXED = 250
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
-// PATCH /api/salon/pedidos/[id]/estado — Update order status via salon token
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: pedidoId } = await params
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
     const body = await req.json()
-    const { token, estado } = body
+    const { estado } = body
 
     if (!token) {
-      return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+      return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
     if (!estado) {
-      return NextResponse.json({ error: "estado es obligatorio" }, { status: 400 })
+      return NextResponse.json({ error: "estado es obligatorio" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Validate salon token
     const negocio = await db.negocio.findFirst({
       where: { tokenSalon: token },
       select: { id: true },
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Token inválido" }, { status: 401 })
+      return NextResponse.json({ error: "Token invalido" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const negocioId = negocio.id
-
-    // Get the pedido
     const pedido = await db.pedido.findUnique({ where: { id: pedidoId } })
 
     if (!pedido || pedido.negocioId !== negocioId) {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     if (pedido.metodoEntrega !== "mesa") {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
-    // Validate state transition
     const currentEstado = pedido.estado
 
     if (currentEstado === estado) {
-      return NextResponse.json({ error: "El pedido ya está en ese estado" }, { status: 400 })
+      return NextResponse.json({ error: "El pedido ya esta en ese estado" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     if (currentEstado === "entregado" || currentEstado === "cancelado") {
-      return NextResponse.json({ error: "No se puede cambiar el estado de un pedido ya finalizado" }, { status: 400 })
+      return NextResponse.json({ error: "No se puede cambiar el estado de un pedido ya finalizado" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     const allowedTransitions = VALID_TRANSITIONS[currentEstado]
     if (!allowedTransitions || !allowedTransitions.includes(estado)) {
-      return NextResponse.json({ error: `Transición no válida: ${currentEstado} → ${estado}` }, { status: 400 })
+      return NextResponse.json({ error: `Transicion no valida: ${currentEstado} -> ${estado}` }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
-    // Build update data
     const updateData: Record<string, unknown> = { estado }
 
     if (estado === "cancelado") {
       updateData.canceladoPor = "vendedor"
-      updateData.canceladoMotivo = "Cancelado desde salón"
+      updateData.canceladoMotivo = "Cancelado desde salon"
       updateData.canceladoFecha = new Date()
     }
 
@@ -99,7 +96,6 @@ export async function PATCH(
       },
     })
 
-    // Accumulate service fee debt when status becomes "entregado"
     if (estado === "entregado" && !pedido.deudaAcumulada) {
       await db.negocio.update({
         where: { id: negocioId },
@@ -107,7 +103,6 @@ export async function PATCH(
       })
     }
 
-    // Send notification to the client
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
@@ -121,8 +116,8 @@ export async function PATCH(
           tipo: "order_update",
           titulo: payload.title,
           cuerpo: payload.body,
-          pedidoId: pedidoId,
-          negocioId: negocioId,
+          pedidoId,
+          negocioId,
           pushSubscription: cliente?.pushSubscription ?? null,
           pushPayload: payload,
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
@@ -132,25 +127,25 @@ export async function PATCH(
       }
     }
 
-    // Send push notification to the assigned mozo when order is ready (listo_para_retirar)
-    // Primary source: pedido.empleadoId (the mozo who took the order)
-    // Fallback: mesa.empleadoId (the mozo currently assigned to the mesa)
     if (estado === "listo_para_retirar" && pedido.mesaId) {
       try {
-        console.log(`[Push/Mozo] Pedido ${pedidoId} → listo_para_retirar. Resolviendo mozo (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
+        console.log(`[Push/Mozo] Pedido ${pedidoId} -> listo_para_retirar. Resolviendo mozo (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
 
-        // Try the mozo who took the order first (pedido.empleadoId)
         let mozo: { id: string; nombre: string; pushSubscription: string | null } | null = null
 
         if (pedido.empleadoId) {
-          mozo = await db.empleado.findUnique({
-            where: { id: pedido.empleadoId },
+          mozo = await db.empleado.findFirst({
+            where: {
+              id: pedido.empleadoId,
+              rol: "mozo",
+              activo: true,
+              eliminado: false,
+            },
             select: { id: true, nombre: true, pushSubscription: true },
           })
-          console.log(`[Push/Mozo] Mozo del pedido (empleadoId=${pedido.empleadoId}):`, mozo ? `${mozo.nombre} (push=${mozo.pushSubscription ? "sí" : "no"})` : "no encontrado")
+          console.log(`[Push/Mozo] Mozo del pedido (empleadoId=${pedido.empleadoId}):`, mozo ? `${mozo.nombre} (push=${mozo.pushSubscription ? "si" : "no"})` : "no encontrado")
         }
 
-        // Fallback: mozo currently assigned to the mesa
         if (!mozo?.pushSubscription) {
           const mesa = await db.mesa.findUnique({
             where: { id: pedido.mesaId },
@@ -158,9 +153,20 @@ export async function PATCH(
               empleado: { select: { id: true, nombre: true, pushSubscription: true } },
             },
           })
-          console.log(`[Push/Mozo] Mesa ${pedido.mesaId}:`, mesa ? `empleadoId=${mesa.empleadoId}, push=${mesa.empleado?.pushSubscription ? "sí" : "no"}` : "no encontrada")
+          console.log(`[Push/Mozo] Mesa ${pedido.mesaId}:`, mesa ? `empleadoId=${mesa.empleadoId}, push=${mesa.empleado?.pushSubscription ? "si" : "no"}` : "no encontrada")
           if (mesa?.empleado?.pushSubscription) {
-            mozo = mesa.empleado
+            const mesaMozo = await db.empleado.findFirst({
+              where: {
+                id: mesa.empleado.id,
+                rol: "mozo",
+                activo: true,
+                eliminado: false,
+              },
+              select: { id: true, nombre: true, pushSubscription: true },
+            })
+            if (mesaMozo?.pushSubscription) {
+              mozo = mesaMozo
+            }
           }
         }
 
@@ -182,25 +188,24 @@ export async function PATCH(
             tipo: "mesa_order_ready",
             titulo: mozoPayload.title,
             cuerpo: mozoPayload.body,
-            pedidoId: pedidoId,
-            negocioId: negocioId,
+            pedidoId,
+            negocioId,
             datos: { mesaNumero },
             pushSubscription: mozo.pushSubscription,
             pushPayload: mozoPayload,
             cleanupExpired: { model: "empleado", id: mozo.id },
-            // Wait for the push to actually be sent so errors surface in logs
             awaitPush: true,
           })
           console.log(`[Push/Mozo] Push enviado para pedido ${pedidoId}`)
         } else {
-          console.warn(`[Push/Mozo] No se encontró mozo con push subscription para pedido ${pedidoId} (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
+          console.warn(`[Push/Mozo] No se encontro mozo con push subscription para pedido ${pedidoId} (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
         }
       } catch (mozoPushError) {
         console.error(`[Push/Mozo] Failed to send mozo notification for pedido ${pedidoId}:`, mozoPushError)
       }
     }
 
-    const { clienteTelefono: _ct, ...updatedSafe } = updated
+    const { clienteTelefono: _clienteTelefono, ...updatedSafe } = updated
     return NextResponse.json({
       ...updatedSafe,
       items: updated.items.map((item) => ({
@@ -211,9 +216,9 @@ export async function PATCH(
         ingredientes: safeParseJSON(item.ingredientes, []),
         ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
       })),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error updating pedido estado (salon):", error)
-    return NextResponse.json({ error: "Error al actualizar estado del pedido" }, { status: 500 })
+    return NextResponse.json({ error: "Error al actualizar estado del pedido" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

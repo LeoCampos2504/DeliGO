@@ -91,7 +91,9 @@ export function useSharedPushNotifications({
       await navigator.serviceWorker.ready
 
       // Get VAPID key
-      const vapidRes = await fetch("/api/push/vapid-key")
+      const vapidRes = await fetch("/api/push/vapid-key", {
+        referrerPolicy: "no-referrer",
+      })
       if (!vapidRes.ok) {
         toast.error("Las notificaciones push no están configuradas")
         return
@@ -104,7 +106,8 @@ export function useSharedPushNotifications({
 
       // Subscribe
       const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.subscribe({
+      const existingSubscription = await registration.pushManager.getSubscription()
+      const subscription = existingSubscription ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: publicKey,
       })
@@ -112,9 +115,12 @@ export function useSharedPushNotifications({
       // Save to server with the shared token
       const res = await fetch(subscribeEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        referrerPolicy: "no-referrer",
         body: JSON.stringify({
-          token,
           subscription: JSON.stringify(subscription),
         }),
       })
@@ -146,8 +152,11 @@ export function useSharedPushNotifications({
 
       await fetch(unsubscribeEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        referrerPolicy: "no-referrer",
       })
 
       setIsSubscribed(false)

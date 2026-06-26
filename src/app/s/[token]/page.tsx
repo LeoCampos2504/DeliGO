@@ -92,21 +92,32 @@ export default function SalonSharedPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const handleAccessDenied = useCallback(() => {
+    setNegocio(null)
+    setError("Acceso denegado. Link invalido o fue regenerado.")
+  }, [])
+
   useEffect(() => {
     async function init() {
       try {
-        const res = await fetch(`/api/salon/public?token=${token}`)
+        const res = await fetch("/api/salon/public", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+          referrerPolicy: "no-referrer",
+        })
         if (!res.ok) throw new Error("Token inválido")
         const data = await res.json()
         setNegocio(data.negocio)
       } catch {
-        setError("Acceso denegado. Link inválido o fue regenerado.")
+        handleAccessDenied()
       } finally {
         setLoading(false)
       }
     }
     init()
-  }, [token])
+  }, [token, handleAccessDenied])
 
   const color = negocio?.colorPrincipal || "#FB8C00"
 
@@ -158,7 +169,7 @@ export default function SalonSharedPage() {
       </div>
 
       {/* Content */}
-      <SalonView token={token} negocio={negocio} color={color} />
+      <SalonView token={token} negocio={negocio} color={color} onAccessDenied={handleAccessDenied} />
     </div>
   )
 }
@@ -205,7 +216,17 @@ function SalonPushBell({ token, initialSubscribed }: { token: string; initialSub
 // ============================================
 // Salon View — Mesa grid with orders
 // ============================================
-function SalonView({ token, negocio, color }: { token: string; negocio: NegocioInfo; color: string }) {
+function SalonView({
+  token,
+  negocio,
+  color,
+  onAccessDenied,
+}: {
+  token: string
+  negocio: NegocioInfo
+  color: string
+  onAccessDenied: () => void
+}) {
   const [mesas, setMesas] = useState<MesaInfo[]>([])
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [loading, setLoading] = useState(true)
@@ -215,7 +236,19 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`/api/salon/public?token=${token}`)
+      const res = await fetch("/api/salon/public", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      })
+      if (res.status === 401 || res.status === 403) {
+        setMesas([])
+        setPedidos([])
+        onAccessDenied()
+        return
+      }
       if (res.ok) {
         const data = await res.json()
         setMesas(data.mesas)
@@ -227,7 +260,7 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
       setLoading(false)
       setRefreshing(false)
     }
-  }, [token])
+  }, [token, onAccessDenied])
 
   useEffect(() => {
     fetchData()
@@ -267,9 +300,20 @@ function SalonView({ token, negocio, color }: { token: string; negocio: NegocioI
     try {
       const res = await fetch(`/api/salon/pedidos/${pedidoId}/estado`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, estado }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        body: JSON.stringify({ estado }),
       })
+      if (res.status === 401 || res.status === 403) {
+        setMesas([])
+        setPedidos([])
+        onAccessDenied()
+        return
+      }
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || "Error actualizando")

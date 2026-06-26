@@ -1,36 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
-// Validate access token — supports shared empleados token and legacy empleado tokens
-async function validateAccess(token: string, type?: string | null): Promise<{ negocioId: string } | null> {
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+
+async function validateAccess(token: string): Promise<{ negocioId: string } | null> {
   if (!token) return null
-
-  // Shared employee token (for /e/[token] page)
-  if (type === "empleados") {
-    const negocio = await db.negocio.findFirst({
-      where: { tokenEmpleados: token },
-      select: { id: true },
-    })
-    return negocio ? { negocioId: negocio.id } : null
-  }
-
-  // Legacy: empleado token (for /m/[token] mozo page)
-  const empleado = await db.empleado.findFirst({
-    where: { token, activo: true, eliminado: false },
-    select: { id: true, negocioId: true },
+  const negocio = await db.negocio.findFirst({
+    where: { tokenEmpleados: token },
+    select: { id: true },
   })
-  return empleado ? { negocioId: empleado.negocioId } : null
+  return negocio ? { negocioId: negocio.id } : null
 }
 
-// GET /api/empleado/resenas — List reviews for the negocio
 export async function GET(req: NextRequest) {
   try {
-    const token = req.nextUrl.searchParams.get("token")
-    const type = req.nextUrl.searchParams.get("type")
-    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 400 })
+    const token = parseAuthorizationBearer(req.headers.get("authorization"))
+    if (!token) return NextResponse.json({ error: "Token requerido" }, { status: 401, headers: NO_STORE_HEADERS })
 
-    const access = await validateAccess(token, type)
-    if (!access) return NextResponse.json({ error: "Token inválido" }, { status: 401 })
+    const access = await validateAccess(token)
+    if (!access) return NextResponse.json({ error: "Token invalido" }, { status: 401, headers: NO_STORE_HEADERS })
 
     const negocioId = access.negocioId
     const filtro = req.nextUrl.searchParams.get("filtro") || "todas"
@@ -57,7 +46,6 @@ export async function GET(req: NextRequest) {
       db.resena.count({ where }),
     ])
 
-    // Stats
     const stats = await db.resena.aggregate({
       where: { negocioId },
       _avg: { puntuacion: true },
@@ -68,7 +56,6 @@ export async function GET(req: NextRequest) {
       where: { negocioId, respuestaNegocio: null },
     })
 
-    // Distribution
     const distribucion: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     const allResenas = await db.resena.findMany({
       where: { negocioId },
@@ -89,9 +76,9 @@ export async function GET(req: NextRequest) {
         sinRespuesta,
         distribucion,
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error listing empleado resenas:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

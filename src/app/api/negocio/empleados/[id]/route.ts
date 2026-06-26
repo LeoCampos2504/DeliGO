@@ -81,6 +81,9 @@ export async function PUT(
       }
       updateData.token = newToken
     }
+    if (regenerateToken === true || activo === false || (rol !== undefined && rol !== "mozo")) {
+      updateData.pushSubscription = null
+    }
 
     const updated = await db.empleado.update({
       where: { id },
