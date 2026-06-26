@@ -794,6 +794,15 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   const mesaOrders: PedidoMesa[] = mesaOrdersData?.pedidos ?? []
 
+  const applyMesaUpdate = useCallback((updatedMesa: Mesa) => {
+    queryClient.setQueryData<Mesa[]>(["mesas", negocio.id], (old) =>
+      old ? old.map((m) => m.id === updatedMesa.id ? { ...m, ...updatedMesa } : m) : [updatedMesa]
+    )
+    setSelectedMesa((current) =>
+      current?.id === updatedMesa.id ? { ...current, ...updatedMesa } : current
+    )
+  }, [negocio.id, queryClient])
+
   // Build a map of mesaNumero → active orders
   const mesaOrdersMap = useMemo(() => {
     const map = new Map<number, PedidoMesa[]>()
@@ -879,9 +888,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
       return res.json()
     },
     onSuccess: (updatedMesa) => {
-      queryClient.setQueryData<Mesa[]>(["mesas", negocio.id], (old) =>
-        old ? old.map((m) => m.id === updatedMesa.id ? updatedMesa : m) : []
-      )
+      applyMesaUpdate(updatedMesa)
       queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })
     },
     onError: () => {

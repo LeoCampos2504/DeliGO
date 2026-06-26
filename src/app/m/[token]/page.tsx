@@ -295,21 +295,18 @@ export default function MozoPage() {
       token
     )
     const url = `/n/${mozoInfo.negocio.slug}?mesa=${mesaNumero}&mozo=${mozoInfo.codigo}`
-    window.history.replaceState(null, "", "/m")
-    window.location.assign(url)
+    window.location.replace(url)
   }
 
   // Handle scanned QR: extract mesa info and redirect
   const handleScannedMesa = useCallback((slug: string, mesaNumero: number) => {
-    if (mozoInfo?.codigo) {
-      window.sessionStorage.setItem(
-        mozoTokenStorageKey(slug, mozoInfo.codigo),
-        token
-      )
-    }
+    if (!mozoInfo?.codigo) return
+    window.sessionStorage.setItem(
+      mozoTokenStorageKey(slug, mozoInfo.codigo),
+      token
+    )
     const url = `/n/${slug}?mesa=${mesaNumero}&mozo=${mozoInfo?.codigo || ""}`
-    window.history.replaceState(null, "", "/m")
-    window.location.assign(url)
+    window.location.replace(url)
   }, [mozoInfo, token])
 
   if (loading) {
