@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 
 // ============================================
-// GET /api/cloudinary — Return Cloudinary config for client-side uploads
+// GET /api/cloudinary — Return non-secret Cloudinary config
 // ============================================
-// Only returns the cloud name and upload preset (never the API secret)
+// Direct unsigned browser uploads are disabled; use /api/upload instead.
 
 export async function GET() {
   return NextResponse.json({
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
-    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || "",
+    uploadPreset: "",
   })
 }

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, chatMessageNotification } from "@/lib/push"
+import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 
 // Phone number filtering regex (Argentine phone patterns)
 const PHONE_PATTERN = /(?:(?:\+?54|0)?(?:11|[2-9]\d{2,4})[\s\-]?\d{4,}[\s\-]?\d{0,4})|(?:whatsapp\.com|wa\.me|\/send\?phone)/gi
@@ -22,12 +23,33 @@ function sanitizeHtml(text: string): string {
     .replace(/'/g, "&#x27;")
 }
 
+function hasBodyValue(value: unknown): boolean {
+  return value !== undefined && value !== null && !(typeof value === "string" && value.trim() === "")
+}
+
+function validateArchivoNombre(value: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (value === undefined || value === null || value === "") return { ok: true, value: "archivo" }
+  if (typeof value !== "string") return { ok: false, error: "Nombre de archivo invalido" }
+
+  const trimmed = value.trim()
+  if (!trimmed) return { ok: true, value: "archivo" }
+  if (/[/\\]/.test(trimmed) || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    return { ok: false, error: "Nombre de archivo invalido" }
+  }
+
+  return { ok: true, value: trimmed.slice(0, 120) }
+}
+
 // Verify user has access to this pedido's chat
 async function verifyChatAccess(
   userId: string,
   userType: string,
   pedidoId: string
 ): Promise<{ access: boolean; reason?: string }> {
+  if (userType !== "cliente" && userType !== "negocio") {
+    return { access: false, reason: "Sin acceso a este chat" }
+  }
+
   const pedido = await db.pedido.findUnique({
     where: { id: pedidoId },
     select: {
@@ -50,15 +72,6 @@ async function verifyChatAccess(
     return { access: pedido.clienteId === userId }
   } else if (userType === "negocio") {
     return { access: pedido.negocioId === userId }
-  } else if (userType === "repartidor") {
-    // Check if repartidor is assigned to the negocio of this order
-    const assignment = await db.repartidorNegocio.findFirst({
-      where: {
-        repartidorId: userId,
-        negocioId: pedido.negocioId,
-      },
-    })
-    return { access: !!assignment }
   }
 
   return { access: false }
@@ -130,10 +143,8 @@ export async function GET(
     // Mark messages from other parties as read
     const otherRemitentes =
       userType === "cliente"
-        ? ["vendedor", "repartidor"]
-        : userType === "negocio"
-        ? ["cliente", "repartidor"]
-        : ["cliente", "vendedor"]
+        ? ["vendedor"]
+        : ["cliente"]
 
     await db.chatMensaje.updateMany({
       where: {
@@ -220,39 +231,57 @@ export async function POST(
       return rateLimitResponse(rl, "Estás enviando mensajes muy rápido. Esperá un momento.")
     }
 
-    const body = await req.json()
-    let { texto, imagenUrl, archivoUrl, archivoNombre, archivoTipo } = body as {
+    const body = await req.json() as {
       texto?: string
-      imagenUrl?: string
-      archivoUrl?: string
-      archivoNombre?: string
-      archivoTipo?: string
+      imagenUrl?: unknown
+      archivoUrl?: unknown
+      archivoNombre?: unknown
+      archivoTipo?: unknown
+    }
+    let { texto } = body
+    let imagenUrl: string | null = null
+    let archivoUrl: string | null = null
+    let archivoNombre: string | null = null
+    let archivoTipo: string | null = null
+
+    if (texto !== undefined && typeof texto !== "string") {
+      return NextResponse.json({ error: "Texto invalido" }, { status: 400 })
     }
 
-    if (!texto && !imagenUrl && !archivoUrl) {
+    const hasImagenUrl = hasBodyValue(body.imagenUrl)
+    const hasArchivoUrl = hasBodyValue(body.archivoUrl)
+
+    if (!texto && !hasImagenUrl && !hasArchivoUrl) {
       return NextResponse.json(
         { error: "El mensaje no puede estar vacío" },
         { status: 400 }
       )
     }
 
+    if (hasImagenUrl && hasArchivoUrl) {
+      return NextResponse.json({ error: "Solo se permite un adjunto por mensaje" }, { status: 400 })
+    }
+
+    if (hasImagenUrl) {
+      const validImagenUrl = validateChatImageUrl(body.imagenUrl, pedidoId)
+      if (!validImagenUrl.ok) return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+      imagenUrl = validImagenUrl.value
+    }
+
     // Validate file attachment fields
-    if (archivoUrl) {
-      // Validate archivoTipo (only allow PDF and common image formats)
-      const ALLOWED_FILE_TYPES = [
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/jpg",
-        "image/gif",
-        "image/webp",
-      ]
-      if (archivoTipo && !ALLOWED_FILE_TYPES.includes(archivoTipo)) {
+    if (hasArchivoUrl) {
+      if (body.archivoTipo !== "application/pdf") {
         return NextResponse.json(
-          { error: "Tipo de archivo no permitido. Solo PDF e imágenes." },
+          { error: "Tipo de archivo no permitido. Solo PDF." },
           { status: 400 }
         )
       }
+
+      const validArchivoUrl = validateChatPdfUrl(body.archivoUrl, pedidoId)
+      if (!validArchivoUrl.ok) return NextResponse.json({ error: validArchivoUrl.error }, { status: 400 })
+
+      const validArchivoNombre = validateArchivoNombre(body.archivoNombre)
+      if (!validArchivoNombre.ok) return NextResponse.json({ error: validArchivoNombre.error }, { status: 400 })
 
       // Rate limit uploads
       const uploadRl = checkRateLimit("upload", `${ip}:${userId}`)
@@ -260,13 +289,9 @@ export async function POST(
         return rateLimitResponse(uploadRl, "Estás subiendo archivos muy rápido. Esperá un momento.")
       }
 
-      // Ensure archivoNombre is provided with archivoUrl
-      if (!archivoNombre) {
-        archivoNombre = "archivo"
-      }
-      if (!archivoTipo) {
-        archivoTipo = "application/octet-stream"
-      }
+      archivoUrl = validArchivoUrl.value
+      archivoNombre = validArchivoNombre.value
+      archivoTipo = "application/pdf"
     }
 
     // Sanitize and filter text
@@ -279,7 +304,7 @@ export async function POST(
     }
 
     // Determine remitente
-    const remitente = userType === "cliente" ? "cliente" : userType === "negocio" ? "vendedor" : "repartidor"
+    const remitente = userType === "cliente" ? "cliente" : "vendedor"
 
     // Create message
     const mensaje = await db.chatMensaje.create({
@@ -362,71 +387,6 @@ export async function POST(
         })
       }
 
-      // Repartidor chat notifications (both as sender and receiver)
-      if (userType === "repartidor") {
-        // Repartidor sent message → notify cliente and negocio
-        if (pedido.clienteId) {
-          const clienteData = await db.cliente.findUnique({
-            where: { id: pedido.clienteId },
-            select: { pushSubscription: true },
-          })
-          const chatPayload = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
-          await createNotification({
-            userId: pedido.clienteId,
-            userType: "cliente",
-            tipo: "chat",
-            titulo: chatPayload.title,
-            cuerpo: chatPayload.body,
-            pedidoId,
-            pushSubscription: clienteData?.pushSubscription ?? null,
-            pushPayload: chatPayload,
-            cleanupExpired: { model: "cliente", id: pedido.clienteId },
-          })
-        }
-        if (pedido.negocioId) {
-          const negocioData = await db.negocio.findUnique({
-            where: { id: pedido.negocioId },
-            select: { pushSubscription: true },
-          })
-          const chatPayload = chatMessageNotification(pedidoId, `Repartidor`, messagePreview)
-          await createNotification({
-            userId: pedido.negocioId,
-            userType: "negocio",
-            tipo: "chat",
-            titulo: chatPayload.title,
-            cuerpo: chatPayload.body,
-            pedidoId,
-            pushSubscription: negocioData?.pushSubscription ?? null,
-            pushPayload: chatPayload,
-            cleanupExpired: { model: "negocio", id: pedido.negocioId },
-          })
-        }
-      } else if (pedido.metodoEntrega === "domicilio" && pedido.negocioId) {
-        // If cliente or negocio sends a message on a delivery order → also notify repartidores
-        const repartidores = await db.repartidorNegocio.findMany({
-          where: { negocioId: pedido.negocioId },
-          include: {
-            repartidor: { select: { id: true, pushSubscription: true, activo: true } },
-          },
-        })
-        const chatSenderName = userType === "cliente" ? pedido.clienteNombre : pedido.negocioNombre
-        for (const rn of repartidores) {
-          if (rn.repartidor.activo && rn.repartidor.id !== userId) {
-            const repChatPayload = chatMessageNotification(pedidoId, chatSenderName, messagePreview)
-            await createNotification({
-              userId: rn.repartidor.id,
-              userType: "repartidor",
-              tipo: "chat",
-              titulo: repChatPayload.title,
-              cuerpo: repChatPayload.body,
-              pedidoId,
-              pushSubscription: rn.repartidor.pushSubscription,
-              pushPayload: repChatPayload,
-              cleanupExpired: { model: "repartidor", id: rn.repartidor.id },
-            })
-          }
-        }
-      }
     } catch (pushError) {
       console.error("[Push] Failed to send chat notification:", pushError)
     }

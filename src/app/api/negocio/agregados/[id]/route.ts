@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { validateOptionalImageUrl } from "@/lib/resource-url"
 
 // PUT - Update agregado
 export async function PUT(
@@ -44,7 +45,11 @@ export async function PUT(
     if (nombre !== undefined) updateData.nombre = nombre.trim()
     if (precio !== undefined) updateData.precio = precio
     if (categoria !== undefined) updateData.categoria = categoria
-    if (imagenUrl !== undefined) updateData.imagenUrl = imagenUrl || null
+    if (imagenUrl !== undefined) {
+      const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+      if (!validImagenUrl.ok) return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+      updateData.imagenUrl = validImagenUrl.value
+    }
 
     const updated = await db.agregado.update({
       where: { id },

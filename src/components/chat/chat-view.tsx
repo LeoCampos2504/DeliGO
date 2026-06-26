@@ -691,7 +691,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       <input
         ref={imageInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+        accept="image/png,image/jpeg,image/webp"
         onChange={handleImageSelect}
         className="hidden"
       />

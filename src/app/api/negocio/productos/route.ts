@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -155,13 +156,23 @@ export async function POST(req: NextRequest) {
       if (precioPromo < 0) precioPromo = 0
     }
 
+    const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+    if (!validImagenUrl.ok) {
+      return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+    }
+
+    const validImagenesExtra = validateImageUrlArray(imagenesExtra)
+    if (!validImagenesExtra.ok) {
+      return NextResponse.json({ error: validImagenesExtra.error }, { status: 400 })
+    }
+
     // Create product
     const producto = await db.producto.create({
       data: {
         nombre: nombre.trim(),
         precio,
         categoria: categoria || "Sin Categoria",
-        imagenUrl: imagenUrl || null,
+        imagenUrl: validImagenUrl.value,
         stock: stock !== undefined ? stock : true,
         descuentoActivo: descuentoActivo || false,
         tipoDescuento: tipoDescuento || "porcentaje",
@@ -173,7 +184,7 @@ export async function POST(req: NextRequest) {
         genero: genero || "",
         secciones: JSON.stringify(secciones || []),
         recomendados: JSON.stringify([]),
-        imagenesExtra: JSON.stringify(imagenesExtra || []),
+        imagenesExtra: JSON.stringify(validImagenesExtra.value),
         opcionesCompartidasIds: opcionesCompartidasIds ? JSON.stringify(opcionesCompartidasIds) : "[]",
         orden: orden || 0,
         negocioId,

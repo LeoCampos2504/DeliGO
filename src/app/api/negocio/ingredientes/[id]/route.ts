@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { validateOptionalImageUrl } from "@/lib/resource-url"
 
 // PUT - Update ingrediente
 export async function PUT(
@@ -43,7 +44,11 @@ export async function PUT(
     const updateData: Record<string, unknown> = {}
     if (nombre !== undefined) updateData.nombre = nombre.trim()
     if (categoria !== undefined) updateData.categoria = categoria
-    if (imagenUrl !== undefined) updateData.imagenUrl = imagenUrl || null
+    if (imagenUrl !== undefined) {
+      const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+      if (!validImagenUrl.ok) return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+      updateData.imagenUrl = validImagenUrl.value
+    }
 
     const updated = await db.ingrediente.update({
       where: { id },

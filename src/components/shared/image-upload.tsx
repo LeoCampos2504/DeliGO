@@ -45,7 +45,7 @@ export function ImageUpload({
   placeholder,
   showRemove = true,
   className,
-  accept = "image/png,image/jpeg,image/jpg,image/gif,image/webp",
+  accept = "image/png,image/jpeg,image/webp",
   disabled = false,
 }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false)
@@ -365,7 +365,7 @@ export function MultiImageUpload({
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+        accept="image/png,image/jpeg,image/webp"
         multiple
         onChange={(e) => {
           if (e.target.files) handleUpload(e.target.files)

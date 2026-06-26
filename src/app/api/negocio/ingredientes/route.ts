@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { validateOptionalImageUrl } from "@/lib/resource-url"
 
 // GET - List ingredientes for negocio
 export async function GET(req: NextRequest) {
@@ -65,11 +66,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+    if (!validImagenUrl.ok) {
+      return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+    }
+
     const ingrediente = await db.ingrediente.create({
       data: {
         nombre: nombre.trim(),
         categoria: categoria || "",
-        imagenUrl: imagenUrl || null,
+        imagenUrl: validImagenUrl.value,
         negocioId,
       },
     })

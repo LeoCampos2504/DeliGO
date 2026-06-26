@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { validateOptionalImageUrl } from "@/lib/resource-url"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -170,8 +171,16 @@ export async function PUT(req: NextRequest) {
     if (ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(ingredientesCategorias)
     if (instagram !== undefined) updateData.instagram = instagram
     if (facebook !== undefined) updateData.facebook = facebook
-    if (logoUrl !== undefined) updateData.logoUrl = logoUrl || null
-    if (bannerUrl !== undefined) updateData.bannerUrl = bannerUrl || null
+    if (logoUrl !== undefined) {
+      const validLogoUrl = validateOptionalImageUrl(logoUrl)
+      if (!validLogoUrl.ok) return NextResponse.json({ error: validLogoUrl.error }, { status: 400 })
+      updateData.logoUrl = validLogoUrl.value
+    }
+    if (bannerUrl !== undefined) {
+      const validBannerUrl = validateOptionalImageUrl(bannerUrl)
+      if (!validBannerUrl.ok) return NextResponse.json({ error: validBannerUrl.error }, { status: 400 })
+      updateData.bannerUrl = validBannerUrl.value
+    }
 
     const updated = await db.negocio.update({
       where: { id: negocioId },
@@ -253,8 +262,16 @@ export async function PATCH(req: NextRequest) {
     if (body.ingredientesCategorias !== undefined) updateData.ingredientesCategorias = JSON.stringify(body.ingredientesCategorias)
     if (body.instagram !== undefined) updateData.instagram = body.instagram
     if (body.facebook !== undefined) updateData.facebook = body.facebook
-    if (body.logoUrl !== undefined) updateData.logoUrl = body.logoUrl || null
-    if (body.bannerUrl !== undefined) updateData.bannerUrl = body.bannerUrl || null
+    if (body.logoUrl !== undefined) {
+      const validLogoUrl = validateOptionalImageUrl(body.logoUrl)
+      if (!validLogoUrl.ok) return NextResponse.json({ error: validLogoUrl.error }, { status: 400 })
+      updateData.logoUrl = validLogoUrl.value
+    }
+    if (body.bannerUrl !== undefined) {
+      const validBannerUrl = validateOptionalImageUrl(body.bannerUrl)
+      if (!validBannerUrl.ok) return NextResponse.json({ error: validBannerUrl.error }, { status: 400 })
+      updateData.bannerUrl = validBannerUrl.value
+    }
     if (body.repartidorCodigo !== undefined) {
       // If the code is being changed, invalidate all existing repartidor associations
       // that used the old code so they can no longer access this negocio's orders

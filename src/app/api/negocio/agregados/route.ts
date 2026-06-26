@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { validateOptionalImageUrl } from "@/lib/resource-url"
 
 // GET - List agregados for negocio
 export async function GET(req: NextRequest) {
@@ -65,12 +66,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+    if (!validImagenUrl.ok) {
+      return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+    }
+
     const agregado = await db.agregado.create({
       data: {
         nombre: nombre.trim(),
         precio: precio || 0,
         categoria: categoria || "",
-        imagenUrl: imagenUrl || null,
+        imagenUrl: validImagenUrl.value,
         negocioId,
       },
     })

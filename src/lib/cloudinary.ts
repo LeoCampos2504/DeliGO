@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from "cloudinary"
+import { randomUUID } from "crypto"
 
 // Configure Cloudinary from env vars
 cloudinary.config({
@@ -13,8 +14,8 @@ export { cloudinary }
 // ============================================
 // Allowed file extensions
 // ============================================
-const ALLOWED_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"])
-const ALLOWED_CHAT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "pdf"])
+const ALLOWED_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"])
+const ALLOWED_CHAT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "pdf"])
 
 // ============================================
 // Folder constants (match Flask source)
@@ -45,6 +46,17 @@ export interface UploadResult {
 function getFileExtension(filename: string): string {
   const parts = filename.split(".")
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : ""
+}
+
+function safePublicIdPart(filename: string): string {
+  const withoutExtension = filename.replace(/\.[^.]+$/, "")
+  const cleaned = withoutExtension
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60)
+  return cleaned || "archivo"
 }
 
 // ============================================
@@ -78,7 +90,7 @@ export async function uploadImage(
       `data:application/octet-stream;base64,${buffer.toString("base64")}`,
       {
         folder,
-        overwrite: true,
+        overwrite: false,
         transformation: [{ width: 800, crop: "limit" }],
       }
     )
@@ -127,11 +139,10 @@ export async function uploadFile(
         `data:application/pdf;base64,${buffer.toString("base64")}`,
         {
           folder,
-          overwrite: true,
+          overwrite: false,
           resource_type: "raw",
           type: "upload",
-          // Use the original filename so the downloaded file has the correct name
-          public_id: `${folder}/${originalName.replace(/\.pdf$/i, "")}_${Date.now()}`,
+          public_id: `${safePublicIdPart(originalName)}_${Date.now()}_${randomUUID().slice(0, 8)}`,
         }
       )
 
@@ -145,7 +156,7 @@ export async function uploadFile(
         `data:application/octet-stream;base64,${buffer.toString("base64")}`,
         {
           folder,
-          overwrite: true,
+          overwrite: false,
           transformation: [{ width: 800, crop: "limit" }],
         }
       )
@@ -203,18 +214,28 @@ export async function deleteImage(publicId: string): Promise<boolean> {
 // Extract public_id from a Cloudinary URL
 // ============================================
 export function extractPublicId(url: string): string | null {
-  if (!url || !url.includes("res.cloudinary.com")) return null
+  if (!url) return null
   try {
-    // URL formats:
-    // https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{public_id}.{ext}
-    // https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{folder}/{public_id}.pdf
-    const parts = url.split("/upload/")
-    if (parts.length < 2) return null
-    const pathAfterUpload = parts[1]
-    // Remove version prefix (v1234567890/)
-    const withoutVersion = pathAfterUpload.replace(/^v\d+\//, "")
-    // Remove file extension
-    const withoutExtension = withoutVersion.replace(/\.[^.]+$/, "")
+    const parsed = new URL(url)
+    if (parsed.protocol !== "https:" || parsed.hostname !== "res.cloudinary.com") return null
+    if (parsed.username || parsed.password || parsed.port) return null
+
+    const parts = parsed.pathname.split("/").filter(Boolean)
+    if (parts.length < 4) return null
+
+    const [cloudName, resourceType, action, ...resourceParts] = parts
+    if (process.env.CLOUDINARY_CLOUD_NAME && cloudName !== process.env.CLOUDINARY_CLOUD_NAME) return null
+    if ((resourceType !== "image" && resourceType !== "raw") || action !== "upload") return null
+
+    const versionIndex = resourceParts.findIndex((part) => /^v\d+$/.test(part))
+    const publicIdParts = versionIndex >= 0 ? resourceParts.slice(versionIndex + 1) : resourceParts
+    if (publicIdParts.length === 0) return null
+
+    const publicPath = publicIdParts.join("/")
+    if (publicPath.includes("..") || publicPath.includes("\\")) return null
+
+    const withoutExtension = publicPath.replace(/\.[^.]+$/, "")
+    if (!withoutExtension.startsWith("chat/")) return null
     return withoutExtension
   } catch {
     return null

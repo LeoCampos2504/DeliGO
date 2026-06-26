@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -133,8 +134,16 @@ export async function PUT(
     if (nombre !== undefined) updateData.nombre = nombre.trim()
     if (precio !== undefined) updateData.precio = precio
     if (categoria !== undefined) updateData.categoria = categoria
-    if (imagenUrl !== undefined) updateData.imagenUrl = imagenUrl || null
-    if (imagenesExtra !== undefined) updateData.imagenesExtra = JSON.stringify(imagenesExtra || [])
+    if (imagenUrl !== undefined) {
+      const validImagenUrl = validateOptionalImageUrl(imagenUrl)
+      if (!validImagenUrl.ok) return NextResponse.json({ error: validImagenUrl.error }, { status: 400 })
+      updateData.imagenUrl = validImagenUrl.value
+    }
+    if (imagenesExtra !== undefined) {
+      const validImagenesExtra = validateImageUrlArray(imagenesExtra)
+      if (!validImagenesExtra.ok) return NextResponse.json({ error: validImagenesExtra.error }, { status: 400 })
+      updateData.imagenesExtra = JSON.stringify(validImagenesExtra.value)
+    }
     if (stock !== undefined) updateData.stock = stock
     if (descuentoActivo !== undefined) updateData.descuentoActivo = descuentoActivo
     if (tipoDescuento !== undefined) updateData.tipoDescuento = tipoDescuento
