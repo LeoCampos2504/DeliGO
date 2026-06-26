@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { validateSession, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
 type AssignmentAuth =
   | { kind: "negocio" | "shared" }
@@ -26,10 +26,10 @@ export async function POST(req: NextRequest) {
 
     // 1) Check negocio session cookie
     if (sessionCookie) {
-      const session = await validateSession(sessionCookie)
-      if (session && session.userType === "negocio") {
+      const user = await getUserFromToken(sessionCookie)
+      if (user?.type === "negocio") {
         auth = { kind: "negocio" }
-        negocioId = session.userId
+        negocioId = user.id
       }
     }
 
@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
         numero: updated.numero,
         nombre: updated.nombre,
         zona: updated.zona,
+        capacidad: updated.capacidad,
         mozoAsignado: null,
       })
     }

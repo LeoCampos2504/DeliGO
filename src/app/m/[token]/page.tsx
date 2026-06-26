@@ -295,7 +295,7 @@ export default function MozoPage() {
       token
     )
     const url = `/n/${mozoInfo.negocio.slug}?mesa=${mesaNumero}&mozo=${mozoInfo.codigo}`
-    window.location.replace(url)
+    window.location.assign(url)
   }
 
   // Handle scanned QR: extract mesa info and redirect
@@ -306,7 +306,7 @@ export default function MozoPage() {
       token
     )
     const url = `/n/${slug}?mesa=${mesaNumero}&mozo=${mozoInfo?.codigo || ""}`
-    window.location.replace(url)
+    window.location.assign(url)
   }, [mozoInfo, token])
 
   if (loading) {

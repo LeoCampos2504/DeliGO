@@ -147,6 +147,7 @@ const NEGOCIO_ORIGIN_PROTECTED_PREFIXES = [
   "/api/negocio/categorias",
   "/api/negocio/config",
   "/api/negocio/ingredientes",
+  "/api/negocio/mesas-assign",
   "/api/negocio/opciones-compartidas",
   "/api/negocio/pedidos",
   "/api/negocio/productos",
@@ -204,8 +205,13 @@ function isRouteBlocked(result: RouteCheckResult): result is RouteBlocked {
   return !result.allowed
 }
 
+function hasHandlerManagedAuth(pathname: string, method: string): boolean {
+  return pathname === "/api/negocio/mesas-assign" && method === "POST"
+}
+
 function checkRouteProtection(
   pathname: string,
+  method: string,
   token: string | null
 ): RouteCheckResult {
   // 1. Public routes — always allowed
@@ -213,7 +219,12 @@ function checkRouteProtection(
     return { allowed: true }
   }
 
-  // 2. Role-specific routes
+  // 2. Exact routes whose handler performs full auth with session or scoped tokens.
+  if (hasHandlerManagedAuth(pathname, method)) {
+    return { allowed: true }
+  }
+
+  // 3. Role-specific routes
   for (const { prefix, userType } of ROLE_PROTECTED_ROUTES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {
       if (!token) {
@@ -229,7 +240,7 @@ function checkRouteProtection(
     }
   }
 
-  // 3. Any-auth routes (chat, push)
+  // 4. Any-auth routes (chat, push)
   if (matchesPrefix(pathname, AUTH_REQUIRED_PREFIXES)) {
     if (!token) {
       return {
@@ -241,7 +252,7 @@ function checkRouteProtection(
     return { allowed: true }
   }
 
-  // 4. Other API routes — allowed (no special protection at middleware level)
+  // 5. Other API routes — allowed (no special protection at middleware level)
   return { allowed: true }
 }
 
@@ -311,7 +322,7 @@ export function proxy(request: NextRequest) {
   // --- API route protection (soft auth) ---
   if (isApiRoute) {
     const token = getSessionToken(request)
-    const check = checkRouteProtection(pathname, token)
+    const check = checkRouteProtection(pathname, request.method, token)
 
     if (isRouteBlocked(check)) {
       const response = NextResponse.json(

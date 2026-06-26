@@ -113,6 +113,7 @@ export function MesaSelectorSheet({
       const res = await fetch("/api/negocio/mesas-assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           mesaId,
           empleadoCodigo: mozoCodigo,
@@ -164,6 +165,7 @@ export function MesaSelectorSheet({
       const res = await fetch("/api/negocio/mesas-assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           mesaId,
           empleadoCodigo: mozoCodigo,
