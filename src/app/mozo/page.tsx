@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 import { useCallback, useEffect, useState } from "react"
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Link2,
   Loader2,
@@ -14,7 +15,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Store,
-  UserCheck,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,7 +45,7 @@ interface VinculoMozo {
 type PanelState =
   | { status: "loading" }
   | { status: "no-session" }
-  | { status: "no-link"; cuenta: CuentaOperativa }
+  | { status: "no-link"; cuenta: CuentaOperativa; message: string }
   | { status: "operative"; cuenta: CuentaOperativa; vinculos: VinculoMozo[] }
   | { status: "denied"; message: string }
   | { status: "error"; message: string }
@@ -78,8 +78,15 @@ export default function MozoPanelPage() {
         throw new Error(data.error || "No se pudo cargar el panel")
       }
 
-      if (data.estado === "sin_vinculo") {
-        setState({ status: "no-link", cuenta: data.cuenta })
+      if (data.estado === "sin_vinculo" || data.estado === "sin_vinculo_operativo") {
+        setState({
+          status: "no-link",
+          cuenta: data.cuenta,
+          message:
+            data.estado === "sin_vinculo_operativo"
+              ? "Actualmente no tenés un vínculo activo como mozo. Podés aceptar una nueva invitación sin perder tu cuenta."
+              : "Para usar el panel necesitás vincularte a un mozo del negocio con un código de invitación.",
+        })
         return
       }
 
@@ -155,7 +162,7 @@ export default function MozoPanelPage() {
       <AuthShell
         icon={<Link2 className="h-6 w-6" />}
         title="Cuenta pendiente de vinculación"
-        description={`Hola, ${state.cuenta.nombre}. Para usar el panel necesitás vincularte a un mozo del negocio con un código de invitación.`}
+        description={`Hola, ${state.cuenta.nombre}. ${state.message}`}
       >
         <Button asChild className="w-full gap-2">
           <Link href="/mozo/unirse">
@@ -176,11 +183,11 @@ export default function MozoPanelPage() {
         description={state.message}
       >
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
-          Tu sesión operativa fue invalidada para este panel. Iniciá sesión nuevamente cuando el negocio reactive tu acceso.
+          Tu sesión operativa no está habilitada para este panel. Podés iniciar sesión nuevamente o aceptar una nueva invitación cuando el negocio reactive tu acceso.
         </p>
         <LogoutButton onLogout={handleLogout} loading={loggingOut} />
         <Button asChild variant="outline" className="w-full">
-          <Link href="/mozo/iniciar-sesion">Ir a iniciar sesión</Link>
+          <Link href="/mozo/unirse">Ir a vinculación</Link>
         </Button>
       </AuthShell>
     )
@@ -201,8 +208,6 @@ export default function MozoPanelPage() {
     )
   }
 
-  const primaryLink = state.vinculos[0]
-
   return (
     <main className="min-h-screen bg-background p-4">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4 sm:py-8">
@@ -215,10 +220,10 @@ export default function MozoPanelPage() {
               </Badge>
               <div>
                 <h1 className="text-2xl font-bold tracking-normal sm:text-3xl">
-                  Hola, {primaryLink.empleado.nombre}
+                  Hola, {state.cuenta.nombre}
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Panel operativo de {primaryLink.negocio.nombre}
+                  Elegí el negocio desde el que vas a trabajar.
                 </p>
               </div>
             </div>
@@ -226,65 +231,46 @@ export default function MozoPanelPage() {
           </div>
         </section>
 
-        <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
-          <Card className="rounded-xl border-border/60">
-            <CardContent className="p-4 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <UserCheck className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">Mozo</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {primaryLink.empleado.nombre} · {primaryLink.empleado.codigo}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <Store className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">Negocio vinculado</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {primaryLink.negocio.nombre}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border-border/60">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center gap-2 text-primary">
-                <ShieldCheck className="h-5 w-5" />
-                <p className="font-semibold">Acceso protegido</p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Las funciones de mesas y pedidos estarán disponibles próximamente en este panel autenticado.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {state.vinculos.length > 1 && (
-          <Card className="rounded-xl border-border/60">
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-semibold">Vínculos activos</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {state.vinculos.map((vinculo) => (
-                  <div key={vinculo.empleado.id} className="rounded-lg border border-border/60 p-3">
-                    <p className="font-semibold">{vinculo.negocio.nombre}</p>
-                    <p className="text-sm text-muted-foreground">
+        <div className="grid gap-4 md:grid-cols-2">
+          {state.vinculos.map((vinculo) => (
+            <Card key={`${vinculo.negocio.slug}:${vinculo.empleado.codigo}`} className="rounded-xl border-border/60">
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Store className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{vinculo.negocio.nombre}</p>
+                    <p className="truncate text-sm text-muted-foreground">
                       {vinculo.empleado.nombre} · {vinculo.empleado.codigo}
                     </p>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                  <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                    Activo
+                  </Badge>
+                </div>
+                <Button asChild className="w-full gap-2">
+                  <Link href={`/mozo/panel/${vinculo.negocio.slug}`}>
+                    Entrar al salón
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="rounded-xl border-border/60">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
+              <ShieldCheck className="h-5 w-5" />
+              <p className="font-semibold">Acceso limitado</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Tu cuenta de mozo entra a un salón operativo propio. No habilita configuración, empleados, invitaciones, menú, precios, caja ni datos de otros negocios.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </main>
   )

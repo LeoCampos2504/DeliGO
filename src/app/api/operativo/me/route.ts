@@ -56,6 +56,10 @@ export async function GET(req: NextRequest) {
                 id: true,
                 nombre: true,
                 slug: true,
+                aprobado: true,
+                suspendido: true,
+                salonActivo: true,
+                empleadosActivos: true,
               },
             },
           },
@@ -81,7 +85,15 @@ export async function GET(req: NextRequest) {
     }
 
     const operationalLinks = account.empleados
-      .filter((empleado) => empleado.activo && !empleado.eliminado && empleado.rol === "mozo")
+      .filter((empleado) =>
+        empleado.activo &&
+        !empleado.eliminado &&
+        empleado.rol === "mozo" &&
+        empleado.negocio.aprobado &&
+        !empleado.negocio.suspendido &&
+        empleado.negocio.salonActivo &&
+        empleado.negocio.empleadosActivos
+      )
       .map((empleado) => ({
         empleado: {
           id: empleado.id,
@@ -90,7 +102,11 @@ export async function GET(req: NextRequest) {
           rol: empleado.rol,
           activo: empleado.activo,
         },
-        negocio: empleado.negocio,
+        negocio: {
+          id: empleado.negocio.id,
+          nombre: empleado.negocio.nombre,
+          slug: empleado.negocio.slug,
+        },
       }))
 
     if (operationalLinks.length > 0) {
@@ -108,17 +124,15 @@ export async function GET(req: NextRequest) {
     }
 
     if (account.empleados.length > 0) {
-      await deleteOperationalSession(token)
-      const response = NextResponse.json(
-        {
-          ok: false,
-          estado: "acceso_denegado",
-          error: "Tu acceso operativo no está activo. Pedile al negocio que revise tu vinculación.",
-        },
-        { status: 403 }
+      return noStore(
+        NextResponse.json({
+          ok: true,
+          estado: "sin_vinculo_operativo",
+          cuenta,
+          mensaje: "Actualmente no tenés un vínculo activo como mozo.",
+          vinculos: [],
+        })
       )
-      response.cookies.delete(OPERATIONAL_SESSION_COOKIE_NAME)
-      return noStore(response)
     }
 
     return noStore(
