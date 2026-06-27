@@ -161,6 +161,9 @@ model Negocio {
   // Relations (salón)
   mesas     Mesa[]
   empleados Empleado[]
+  codigosIncorporacionMozo CodigoIncorporacionMozo[]
+  terminalesSalon          TerminalSalon[]
+  vinculacionesTerminalSalon VinculacionTerminalSalon[]
 
   // Plan
   planTipo            String  @default("prueba")
@@ -610,6 +613,26 @@ model Mesa {
 // ============================================
 // EMPLEADOS (Mozos / Personal)
 // ============================================
+model CuentaOperativa {
+  id            String    @id @default(cuid())
+  nombre        String
+  email         String    @unique
+  password      String?
+  googleId      String?   @unique
+  telefono      String?
+  emailVerified DateTime?
+  activo        Boolean   @default(true)
+  eliminado     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  empleados     Empleado[]
+  codigosUsados CodigoIncorporacionMozo[]
+
+  @@index([activo, eliminado])
+  @@map("cuentas_operativas")
+}
+
 model Empleado {
   id               String  @id @default(cuid())
   nombre           String
@@ -622,10 +645,97 @@ model Empleado {
   pushSubscription String? // push subscription JSON for browser notifications
   negocioId        String
   negocio          Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cuentaOperativaId String?
+  cuentaOperativa   CuentaOperativa? @relation(fields: [cuentaOperativaId], references: [id], onDelete: SetNull)
   mesas            Mesa[] // Mesas asignadas a este mozo
+  codigosIncorporacionObjetivo CodigoIncorporacionMozo[]
 
   @@unique([negocioId, codigo])
+  @@unique([negocioId, cuentaOperativaId])
+  @@index([cuentaOperativaId])
   @@map("empleados")
+}
+
+model CodigoIncorporacionMozo {
+  id                        String   @id @default(cuid())
+  negocioId                 String
+  empleadoObjetivoId        String?
+  rol                       String   @default("mozo")
+  codeHash                  String   @unique
+  codePrefix                String   @default("")
+  expiresAt                 DateTime
+  // Consumo futuro: transaccion atomica solo si usedAt es null,
+  // revokedAt es null y expiresAt sigue vigente.
+  usedAt                    DateTime?
+  usedByCuentaOperativaId   String?
+  revokedAt                 DateTime?
+  createdAt                 DateTime @default(now())
+
+  negocio                 Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  empleadoObjetivo        Empleado? @relation(fields: [empleadoObjetivoId], references: [id], onDelete: SetNull)
+  usedByCuentaOperativa   CuentaOperativa? @relation(fields: [usedByCuentaOperativaId], references: [id], onDelete: SetNull)
+
+  @@index([negocioId, expiresAt])
+  @@index([negocioId, revokedAt])
+  @@index([empleadoObjetivoId])
+  @@index([usedByCuentaOperativaId])
+  @@index([rol])
+  @@map("codigos_incorporacion_mozo")
+}
+
+model TerminalSalon {
+  id               String    @id @default(cuid())
+  negocioId        String
+  nombre           String    @default("Terminal de salón")
+  estado           String    @default("activo")
+  pushSubscription String?
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  sesiones SesionTerminalSalon[]
+
+  @@index([negocioId, estado])
+  @@index([negocioId, revokedAt])
+  @@index([lastUsedAt])
+  @@map("terminales_salon")
+}
+
+model VinculacionTerminalSalon {
+  id        String   @id @default(cuid())
+  negocioId String
+  codeHash  String   @unique
+  codePrefix String  @default("")
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId, expiresAt])
+  @@index([negocioId, revokedAt])
+  @@index([usedAt])
+  @@map("vinculaciones_terminal_salon")
+}
+
+model SesionTerminalSalon {
+  id              String   @id @default(cuid())
+  terminalSalonId String
+  tokenHash       String   @unique
+  expiresAt       DateTime
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  terminalSalon TerminalSalon @relation(fields: [terminalSalonId], references: [id], onDelete: Cascade)
+
+  @@index([terminalSalonId, revokedAt])
+  @@index([expiresAt])
+  @@index([lastUsedAt])
+  @@map("sesiones_terminal_salon")
 }
 
 // ============================================

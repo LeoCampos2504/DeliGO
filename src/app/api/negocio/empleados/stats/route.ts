@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
+
+interface MozoStatsAccum {
+  totalPedidos: number
+  totalMonto: number
+  entregados: number
+  activos: number
+  nombreHistorico: string | null
+}
+
+function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null): EstadoMozoHistorico {
+  if (!empleado) return "historico_sin_registro"
+  if (empleado.eliminado) return "desvinculado"
+  if (!empleado.activo) return "suspendido"
+  return "activo"
+}
+
 // GET /api/negocio/empleados/stats — Get mozo statistics
 export async function GET(req: NextRequest) {
   try {
@@ -40,59 +57,103 @@ export async function GET(req: NextRequest) {
         break
     }
 
-    // Get all mozos for this negocio
-    const mozos = await db.empleado.findMany({
-      where: { negocioId, rol: "mozo", eliminado: false },
-      orderBy: { nombre: "asc" },
-      select: {
-        id: true,
-        nombre: true,
-        codigo: true,
-        activo: true,
-      },
-    })
-
-    // Get orders for these mozos in the period
-    const mozoIds = mozos.map((m) => m.id)
-
-    // Get all orders with empleadoId in the period
+    // Get all attributed orders in the period first, so historical mozos are not
+    // lost if their Empleado row was soft-deleted or removed before this stage.
     const pedidos = await db.pedido.findMany({
       where: {
         negocioId,
-        empleadoId: { in: mozoIds },
+        empleadoId: { not: null },
         fecha: { gte: startDate },
         estado: { notIn: ["cancelado"] },
       },
       select: {
         id: true,
         empleadoId: true,
+        empleadoNombre: true,
         total: true,
         estado: true,
         fecha: true,
       },
     })
 
-    // Build stats per mozo
-    const stats = mozos.map((mozo) => {
-      const mozoPedidos = pedidos.filter((p) => p.empleadoId === mozo.id)
-      const totalPedidos = mozoPedidos.length
-      const totalMonto = mozoPedidos.reduce((sum, p) => sum + p.total, 0)
-      const entregados = mozoPedidos.filter((p) => p.estado === "entregado").length
-      const activos = mozoPedidos.filter((p) =>
-        ["recibido", "preparando", "listo_para_retirar"].includes(p.estado)
-      ).length
+    const pedidoEmpleadoIds = [...new Set(pedidos.map((p) => p.empleadoId).filter((id): id is string => Boolean(id)))]
+    const empleados = await db.empleado.findMany({
+      where: {
+        negocioId,
+        OR: [
+          { rol: "mozo" },
+          ...(pedidoEmpleadoIds.length > 0 ? [{ id: { in: pedidoEmpleadoIds } }] : []),
+        ],
+      },
+      orderBy: { nombre: "asc" },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        rol: true,
+        activo: true,
+        eliminado: true,
+      },
+    })
+
+    const empleadosById = new Map(empleados.map((empleado) => [empleado.id, empleado]))
+    const statsByEmpleadoId = new Map<string, MozoStatsAccum>()
+    for (const pedido of pedidos) {
+      if (!pedido.empleadoId) continue
+      const current = statsByEmpleadoId.get(pedido.empleadoId) ?? {
+        totalPedidos: 0,
+        totalMonto: 0,
+        entregados: 0,
+        activos: 0,
+        nombreHistorico: null,
+      }
+      current.totalPedidos += 1
+      current.totalMonto += pedido.total
+      if (pedido.estado === "entregado") current.entregados += 1
+      if (["recibido", "preparando", "listo_para_retirar"].includes(pedido.estado)) {
+        current.activos += 1
+      }
+      if (!current.nombreHistorico && pedido.empleadoNombre) {
+        current.nombreHistorico = pedido.empleadoNombre
+      }
+      statsByEmpleadoId.set(pedido.empleadoId, current)
+    }
+
+    const mozoEmpleadoIds = empleados.filter((empleado) => empleado.rol === "mozo").map((empleado) => empleado.id)
+    const historicoSinRegistroIds = pedidoEmpleadoIds.filter((empleadoId) => !empleadosById.has(empleadoId))
+    const statsIds = new Set<string>([
+      ...mozoEmpleadoIds,
+      ...historicoSinRegistroIds,
+    ])
+
+    const stats = [...statsIds].map((empleadoId) => {
+      const empleado = empleadosById.get(empleadoId)
+      const accum = statsByEmpleadoId.get(empleadoId) ?? {
+        totalPedidos: 0,
+        totalMonto: 0,
+        entregados: 0,
+        activos: 0,
+        nombreHistorico: null,
+      }
+      const nombreHistorico = accum.nombreHistorico
+      const estadoHistorico = getEstadoMozo(empleado)
 
       return {
-        id: mozo.id,
-        nombre: mozo.nombre,
-        codigo: mozo.codigo,
-        activo: mozo.activo,
-        totalPedidos,
-        totalMonto,
-        entregados,
-        activos,
+        id: empleadoId,
+        nombre: empleado?.nombre || nombreHistorico || "Mozo histórico",
+        codigo: empleado?.codigo || "",
+        activo: empleado?.activo ?? false,
+        eliminado: empleado?.eliminado ?? true,
+        rol: empleado?.rol ?? null,
+        estadoHistorico,
+        nombreActual: empleado?.nombre ?? null,
+        nombreHistorico,
+        totalPedidos: accum.totalPedidos,
+        totalMonto: accum.totalMonto,
+        entregados: accum.entregados,
+        activos: accum.activos,
       }
-    })
+    }).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
 
     return NextResponse.json({ stats, periodo })
   } catch (error) {

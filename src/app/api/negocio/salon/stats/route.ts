@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
+
+interface MozoSalonStatsAccum {
+  pedidosHoy: number
+  montoHoy: number
+  nombreHistorico: string | null
+}
+
+function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null): EstadoMozoHistorico {
+  if (!empleado) return "historico_sin_registro"
+  if (empleado.eliminado) return "desvinculado"
+  if (!empleado.activo) return "suspendido"
+  return "activo"
+}
+
 // GET /api/negocio/salon/stats — Get salon statistics for the business panel
 export async function GET(req: NextRequest) {
   try {
@@ -59,6 +74,7 @@ export async function GET(req: NextRequest) {
         total: true,
         metodoEntrega: true,
         empleadoId: true,
+        empleadoNombre: true,
       },
     })
 
@@ -78,15 +94,26 @@ export async function GET(req: NextRequest) {
 
     // ── 2. Per-employee (mozo) stats ──────────────────────────
 
-    // Get all mozos for this negocio
-    const mozos = await db.empleado.findMany({
-      where: { negocioId, rol: "mozo" },
+    const pedidoEmpleadoIds = [
+      ...new Set(allDeliveredOrders.map((pedido) => pedido.empleadoId).filter((id): id is string => Boolean(id))),
+    ]
+
+    const empleados = await db.empleado.findMany({
+      where: {
+        negocioId,
+        OR: [
+          { rol: "mozo" },
+          ...(pedidoEmpleadoIds.length > 0 ? [{ id: { in: pedidoEmpleadoIds } }] : []),
+        ],
+      },
       orderBy: { nombre: "asc" },
       select: {
         id: true,
         nombre: true,
         codigo: true,
+        rol: true,
         activo: true,
+        eliminado: true,
       },
     })
 
@@ -108,38 +135,54 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get delivered orders attributed to mozos in the period
-    const mozoIds = mozos.map((m) => m.id)
+    const empleadosById = new Map(empleados.map((empleado) => [empleado.id, empleado]))
+    const statsByEmpleadoId = new Map<string, MozoSalonStatsAccum>()
+    for (const pedido of allDeliveredOrders) {
+      if (!pedido.empleadoId) continue
+      const current = statsByEmpleadoId.get(pedido.empleadoId) ?? {
+        pedidosHoy: 0,
+        montoHoy: 0,
+        nombreHistorico: null,
+      }
+      current.pedidosHoy += 1
+      current.montoHoy += pedido.total
+      if (!current.nombreHistorico && pedido.empleadoNombre) {
+        current.nombreHistorico = pedido.empleadoNombre
+      }
+      statsByEmpleadoId.set(pedido.empleadoId, current)
+    }
 
-    const mozoPedidos = mozoIds.length > 0
-      ? await db.pedido.findMany({
-          where: {
-            negocioId,
-            empleadoId: { in: mozoIds },
-            fecha: dateFilter,
-            estado: "entregado",
-          },
-          select: {
-            empleadoId: true,
-            total: true,
-            metodoEntrega: true,
-          },
-        })
-      : []
+    const mozoEmpleadoIds = empleados.filter((empleado) => empleado.rol === "mozo").map((empleado) => empleado.id)
+    const historicoSinRegistroIds = pedidoEmpleadoIds.filter((empleadoId) => !empleadosById.has(empleadoId))
+    const statsIds = new Set<string>([
+      ...mozoEmpleadoIds,
+      ...historicoSinRegistroIds,
+    ])
 
-    const mozosStats = mozos.map((mozo) => {
-      const ownPedidos = mozoPedidos.filter((p) => p.empleadoId === mozo.id)
+    const mozosStats = [...statsIds].map((empleadoId) => {
+      const empleado = empleadosById.get(empleadoId)
+      const accum = statsByEmpleadoId.get(empleadoId) ?? {
+        pedidosHoy: 0,
+        montoHoy: 0,
+        nombreHistorico: null,
+      }
+      const nombreHistorico = accum.nombreHistorico
 
       return {
-        id: mozo.id,
-        nombre: mozo.nombre,
-        codigo: mozo.codigo,
-        activo: mozo.activo,
-        mesasAsignadas: mesasPerMozo.get(mozo.id) || 0,
-        pedidosHoy: ownPedidos.length,
-        montoHoy: Math.round(ownPedidos.reduce((s, p) => s + p.total, 0) * 100) / 100,
+        id: empleadoId,
+        nombre: empleado?.nombre || nombreHistorico || "Mozo histórico",
+        codigo: empleado?.codigo || "",
+        activo: empleado?.activo ?? false,
+        eliminado: empleado?.eliminado ?? true,
+        rol: empleado?.rol ?? null,
+        estadoHistorico: getEstadoMozo(empleado),
+        nombreActual: empleado?.nombre ?? null,
+        nombreHistorico,
+        mesasAsignadas: mesasPerMozo.get(empleadoId) || 0,
+        pedidosHoy: accum.pedidosHoy,
+        montoHoy: Math.round(accum.montoHoy * 100) / 100,
       }
-    })
+    }).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
 
     return NextResponse.json({ resumen, mozos: mozosStats, periodo })
   } catch (error) {

@@ -128,7 +128,21 @@ export async function DELETE(
       )
     }
 
-    await db.empleado.delete({ where: { id } })
+    await db.$transaction([
+      db.mesa.updateMany({
+        where: { negocioId, empleadoId: id },
+        data: { empleadoId: null },
+      }),
+      db.empleado.update({
+        where: { id },
+        data: {
+          activo: false,
+          eliminado: true,
+          token: null,
+          pushSubscription: null,
+        },
+      }),
+    ])
 
     return NextResponse.json({ ok: true, message: "Empleado eliminado" })
   } catch (error) {
