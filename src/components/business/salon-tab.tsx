@@ -96,6 +96,26 @@ interface Empleado {
   token: string | null
   tokenMasked?: string | null
   tokenRevealed?: boolean
+  cuentaOperativa?: {
+    id: string
+    nombre: string
+    activo: boolean
+    eliminado: boolean
+  } | null
+}
+
+interface MozoInvitation {
+  id: string
+  empleadoObjetivoId: string | null
+  empleadoNombre: string
+  codePrefix: string
+  expiresAt: string
+  createdAt: string
+  estado: "pendiente" | "vencido" | "usado" | "revocado"
+}
+
+interface GeneratedMozoInvitation extends MozoInvitation {
+  codigo: string
 }
 
 interface PedidoMesa {
@@ -2039,7 +2059,9 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [copiedMozoId, setCopiedMozoId] = useState<string | null>(null)
+  const [copiedInvitationId, setCopiedInvitationId] = useState<string | null>(null)
   const [regeneratingMozoId, setRegeneratingMozoId] = useState<string | null>(null)
+  const [generatedInvitation, setGeneratedInvitation] = useState<GeneratedMozoInvitation | null>(null)
 
   const [formNombre, setFormNombre] = useState("")
   const [formCodigo, setFormCodigo] = useState("")
@@ -2052,6 +2074,15 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     queryFn: async () => {
       const res = await fetch("/api/negocio/empleados")
       if (!res.ok) throw new Error("Error cargando mozos")
+      return res.json()
+    },
+  })
+
+  const { data: invitationsData, isLoading: invitationsLoading } = useQuery<{ invitaciones: MozoInvitation[] }>({
+    queryKey: ["mozo-invitaciones", negocio.id],
+    queryFn: async () => {
+      const res = await fetch("/api/negocio/mozos/invitaciones", { cache: "no-store" })
+      if (!res.ok) throw new Error("Error cargando invitaciones")
       return res.json()
     },
   })
@@ -2088,6 +2119,19 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     }
     return map
   }, [mesas])
+
+  const invitationByEmpleado = useMemo(() => {
+    const map = new Map<string, MozoInvitation>()
+    const invitaciones = invitationsData?.invitaciones ?? []
+    for (const invitation of invitaciones) {
+      if (!invitation.empleadoObjetivoId) continue
+      const current = map.get(invitation.empleadoObjetivoId)
+      if (!current || new Date(invitation.createdAt).getTime() > new Date(current.createdAt).getTime()) {
+        map.set(invitation.empleadoObjetivoId, invitation)
+      }
+    }
+    return map
+  }, [invitationsData])
 
   const addMutation = useMutation({
     mutationFn: async (data: { nombre: string; codigo: string; rol: string }) => {
@@ -2152,6 +2196,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
         old ? old.filter((e) => e.id !== deletedId) : []
       )
       queryClient.invalidateQueries({ queryKey: ["empleados", negocio.id] })
+      queryClient.invalidateQueries({ queryKey: ["mozo-invitaciones", negocio.id] })
       toast.success("Mozo eliminado")
       setDeleteConfirm(null)
     },
@@ -2224,6 +2269,52 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     },
   })
 
+  const generateInvitationMutation = useMutation({
+    mutationFn: async (empleadoId: string) => {
+      const res = await fetch("/api/negocio/mozos/invitaciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ empleadoId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Error generando código")
+      }
+      return data.invitacion as GeneratedMozoInvitation
+    },
+    onSuccess: (invitacion) => {
+      setGeneratedInvitation(invitacion)
+      queryClient.invalidateQueries({ queryKey: ["mozo-invitaciones", negocio.id] })
+      toast.success("Código de unión generado")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
+  const revokeInvitationMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/negocio/mozos/invitaciones/${id}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Error revocando código")
+      }
+      return id
+    },
+    onSuccess: (id) => {
+      if (generatedInvitation?.id === id) {
+        setGeneratedInvitation(null)
+      }
+      queryClient.invalidateQueries({ queryKey: ["mozo-invitaciones", negocio.id] })
+      toast.success("Código revocado")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
   const resetAddForm = () => {
     setFormNombre("")
     setFormCodigo("")
@@ -2243,6 +2334,17 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       setTimeout(() => setCopiedMozoId(null), 2000)
     } catch {
       toast.error("No se pudo copiar el link")
+    }
+  }
+
+  const copyInvitationCode = async (codigo: string, invitationId: string) => {
+    try {
+      await navigator.clipboard.writeText(codigo)
+      setCopiedInvitationId(invitationId)
+      toast.success("Código de unión copiado")
+      setTimeout(() => setCopiedInvitationId(null), 2000)
+    } catch {
+      toast.error("No se pudo copiar el código")
     }
   }
 
@@ -2371,6 +2473,18 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             const hasMozoLinkMetadata = !!mozoLink || !!empleado.tokenMasked
             const hasFullMozoToken = !!empleado.token
             const isRegeneratingMozo = regeneratingMozoId === empleado.id
+            const linkedAccount = empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado
+              ? empleado.cuentaOperativa
+              : null
+            const pendingInvitation = invitationByEmpleado.get(empleado.id) ?? null
+            const generatedForEmpleado = generatedInvitation?.empleadoObjetivoId === empleado.id
+              ? generatedInvitation
+              : null
+            const currentInvitation = generatedForEmpleado ?? pendingInvitation
+            const invitationExpired = currentInvitation
+              ? currentInvitation.estado === "vencido" || new Date(currentInvitation.expiresAt).getTime() <= Date.now()
+              : false
+            const invitationPending = !!currentInvitation && !invitationExpired && currentInvitation.estado === "pendiente"
 
             return (
               <motion.div
@@ -2532,6 +2646,129 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                           <span className="text-[10px] text-muted-foreground/40">Sin link generado</span>
                         </div>
                       )}
+                      <div className="mt-2 rounded-lg border border-border/50 bg-muted/20 p-2 space-y-1.5">
+                        {linkedAccount ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <UserCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                  Cuenta vinculada
+                                </span>
+                              </div>
+                              <Badge className={cn(
+                                "text-[9px] h-4 px-1.5 border-0",
+                                empleado.activo
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                                  : "bg-muted text-muted-foreground"
+                              )}>
+                                {empleado.activo ? "Activo" : "Inactivo"}
+                              </Badge>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {linkedAccount.nombre}
+                            </p>
+                          </>
+                        ) : currentInvitation ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {invitationPending ? (
+                                  <Clock className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                                ) : (
+                                  <AlertCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                )}
+                                <span className={cn(
+                                  "text-[11px] font-semibold",
+                                  invitationPending
+                                    ? "text-amber-700 dark:text-amber-400"
+                                    : "text-muted-foreground"
+                                )}>
+                                  {invitationPending ? "Código pendiente" : "Código vencido"}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-muted-foreground">
+                                {currentInvitation.codePrefix}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              {invitationPending
+                                ? `Vence ${formatInvitationExpiry(currentInvitation.expiresAt)} (${getInvitationTimeLeft(currentInvitation.expiresAt)})`
+                                : `Venció ${formatInvitationExpiry(currentInvitation.expiresAt)}`}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {generatedForEmpleado && invitationPending && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 rounded-lg text-[10px] gap-1 px-2"
+                                  onClick={() => copyInvitationCode(generatedForEmpleado.codigo, generatedForEmpleado.id)}
+                                >
+                                  {copiedInvitationId === generatedForEmpleado.id ? (
+                                    <Check className="h-3 w-3 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                  {copiedInvitationId === generatedForEmpleado.id ? "Copiado" : "Copiar código"}
+                                </Button>
+                              )}
+                              {invitationPending && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 rounded-lg text-[10px] gap-1 px-2"
+                                  onClick={() => revokeInvitationMutation.mutate(currentInvitation.id)}
+                                  disabled={revokeInvitationMutation.isPending}
+                                >
+                                  {revokeInvitationMutation.isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <X className="h-3 w-3" />
+                                  )}
+                                  Revocar
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 rounded-lg text-[10px] gap-1 px-2"
+                                onClick={() => generateInvitationMutation.mutate(empleado.id)}
+                                disabled={generateInvitationMutation.isPending || !empleado.activo}
+                              >
+                                {generateInvitationMutation.isPending ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-3 w-3" />
+                                )}
+                                Generar nuevo
+                              </Button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <AlertCircle className="h-3.5 w-3.5 text-muted-foreground/60" />
+                              <span className="text-[11px] font-semibold text-muted-foreground">
+                                Sin cuenta vinculada
+                              </span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 rounded-lg text-[10px] gap-1 px-2"
+                              onClick={() => generateInvitationMutation.mutate(empleado.id)}
+                              disabled={generateInvitationMutation.isPending || invitationsLoading || !empleado.activo}
+                            >
+                              {generateInvitationMutation.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <UserPlus className="h-3 w-3" />
+                              )}
+                              {empleado.activo ? "Generar código de unión" : "Mozo inactivo"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <Badge className={cn("text-[9px] h-4 px-1.5 border-0", roleColor(empleado.rol))}>
                           {roleLabel(empleado.rol)}
@@ -2588,6 +2825,50 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
           No hay mozos registrados. Agregá tu primer mozo.
         </p>
       )}
+      <Dialog open={!!generatedInvitation} onOpenChange={(open) => {
+        if (!open) setGeneratedInvitation(null)
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Código de unión generado</DialogTitle>
+            <DialogDescription>
+              Mostrá este código al mozo. No se podrá recuperar después de cerrar esta ventana.
+            </DialogDescription>
+          </DialogHeader>
+          {generatedInvitation && (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <p className="text-[11px] font-semibold text-muted-foreground mb-1">
+                  {generatedInvitation.empleadoNombre}
+                </p>
+                <p className="font-mono text-sm break-all">{generatedInvitation.codigo}</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Vence {formatInvitationExpiry(generatedInvitation.expiresAt)} ({getInvitationTimeLeft(generatedInvitation.expiresAt)}).
+              </p>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            {generatedInvitation && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => copyInvitationCode(generatedInvitation.codigo, generatedInvitation.id)}
+              >
+                {copiedInvitationId === generatedInvitation.id ? (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                {copiedInvitationId === generatedInvitation.id ? "Copiado" : "Copiar código"}
+              </Button>
+            )}
+            <Button onClick={() => setGeneratedInvitation(null)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -2605,6 +2886,27 @@ function getTimeAgo(dateStr: string): string {
   const diffHours = Math.floor(diffMins / 60)
   if (diffHours < 24) return `${diffHours}h`
   return `${Math.floor(diffHours / 24)}d`
+}
+
+function formatInvitationExpiry(dateStr: string): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(dateStr))
+}
+
+function getInvitationTimeLeft(dateStr: string): string {
+  const diffMs = new Date(dateStr).getTime() - Date.now()
+  if (diffMs <= 0) return "vencido"
+  const diffMins = Math.ceil(diffMs / 60000)
+  if (diffMins <= 1) return "vence en 1 min"
+  if (diffMins < 60) return `vence en ${diffMins} min`
+  const diffHours = Math.floor(diffMins / 60)
+  const remainingMins = diffMins % 60
+  if (remainingMins === 0) return `vence en ${diffHours}h`
+  return `vence en ${diffHours}h ${remainingMins}m`
 }
 
 // ============================================

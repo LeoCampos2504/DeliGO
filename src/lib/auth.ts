@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto"
+import type { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 
 // ============================================
@@ -85,7 +86,9 @@ export function generateSessionToken(): string {
 // ============================================
 
 export const SESSION_COOKIE_NAME = "deligo_session"
+export const OPERATIONAL_SESSION_COOKIE_NAME = "deligo_operativo_session"
 export const SESSION_DURATION_HOURS = 12
+export const OPERATIONAL_SESSION_USER_TYPE = "cuenta_operativa"
 
 // ============================================
 // Session management (DB-backed)
@@ -129,6 +132,94 @@ export async function validateSession(
 
 export async function deleteSession(token: string): Promise<void> {
   await db.sesion.delete({ where: { token } }).catch(() => {})
+}
+
+export async function createOperationalSession(
+  cuentaOperativaId: string
+): Promise<string> {
+  const token = generateSessionToken()
+  const expiresAt = new Date()
+  expiresAt.setHours(expiresAt.getHours() + SESSION_DURATION_HOURS)
+
+  await db.sesion.create({
+    data: {
+      token,
+      userId: cuentaOperativaId,
+      userType: OPERATIONAL_SESSION_USER_TYPE,
+      expiresAt,
+    },
+  })
+
+  return token
+}
+
+export async function validateOperationalSession(
+  token: string
+): Promise<{ cuentaOperativaId: string } | null> {
+  const session = await db.sesion.findUnique({
+    where: { token },
+  })
+
+  if (!session || session.userType !== OPERATIONAL_SESSION_USER_TYPE) return null
+  if (session.expiresAt < new Date()) {
+    await db.sesion.delete({ where: { token } }).catch(() => {})
+    return null
+  }
+
+  return { cuentaOperativaId: session.userId }
+}
+
+export async function deleteOperationalSession(token: string): Promise<void> {
+  await db.sesion
+    .delete({
+      where: { token },
+    })
+    .catch(() => {})
+}
+
+export async function getOperationalAccountFromRequest(
+  req: NextRequest
+): Promise<OperationalAccount | null> {
+  const token = req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
+  if (!token) return null
+
+  const session = await validateOperationalSession(token)
+  if (!session) return null
+
+  const account = await db.cuentaOperativa.findFirst({
+    where: {
+      id: session.cuentaOperativaId,
+      activo: true,
+      eliminado: false,
+    },
+    select: {
+      id: true,
+      nombre: true,
+      email: true,
+      activo: true,
+      empleados: {
+        where: {
+          eliminado: false,
+        },
+        select: {
+          id: true,
+          nombre: true,
+          codigo: true,
+          rol: true,
+          activo: true,
+          negocio: {
+            select: {
+              id: true,
+              nombre: true,
+              slug: true,
+            },
+          },
+        },
+      },
+    },
+  })
+
+  return account
 }
 
 // ============================================
@@ -240,4 +331,23 @@ export interface RepartidorSession extends UserSession {
 
 export interface SuperAdminSession extends UserSession {
   type: "superadmin"
+}
+
+export interface OperationalAccount {
+  id: string
+  nombre: string
+  email: string
+  activo: boolean
+  empleados: Array<{
+    id: string
+    nombre: string
+    codigo: string
+    rol: string
+    activo: boolean
+    negocio: {
+      id: string
+      nombre: string
+      slug: string
+    }
+  }>
 }

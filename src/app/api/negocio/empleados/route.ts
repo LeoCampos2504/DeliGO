@@ -50,6 +50,14 @@ export async function GET(req: NextRequest) {
         activo: true,
         token: true,
         negocioId: true,
+        cuentaOperativa: {
+          select: {
+            id: true,
+            nombre: true,
+            activo: true,
+            eliminado: true,
+          },
+        },
       },
     })
 

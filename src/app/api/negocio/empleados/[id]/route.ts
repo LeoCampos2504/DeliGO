@@ -88,6 +88,16 @@ export async function PUT(
     const updated = await db.empleado.update({
       where: { id },
       data: updateData,
+      include: {
+        cuentaOperativa: {
+          select: {
+            id: true,
+            nombre: true,
+            activo: true,
+            eliminado: true,
+          },
+        },
+      },
     })
 
     return NextResponse.json(serializeEmpleado(updated, regenerateToken === true))
