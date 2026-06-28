@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
+  Armchair,
   ArrowLeft,
   Check,
   Loader2,
@@ -13,6 +14,7 @@ import {
   Plus,
   Search,
   ShoppingBag,
+  Store,
   Trash2,
   X,
 } from "lucide-react"
@@ -21,6 +23,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
 
 interface MesaOperativa {
@@ -252,14 +256,7 @@ export default function MozoPedidoManualPage() {
   }
 
   if (state.status === "loading") {
-    return (
-      <main className="min-h-screen bg-background p-4">
-        <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center gap-3 text-muted-foreground">
-          <Loader2 className="h-7 w-7 animate-spin" />
-          <p className="text-sm font-medium">Cargando pedido</p>
-        </div>
-      </main>
-    )
+    return <OrderSkeleton />
   }
 
   if (state.status === "no-session") {
@@ -301,31 +298,52 @@ export default function MozoPedidoManualPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/90 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-          <Button asChild variant="outline" size="sm" className="gap-2">
-            <Link href={salonHref}>
-              <ArrowLeft className="h-4 w-4" />
-              Salon
-            </Link>
-          </Button>
-          <Badge className="border-0 bg-primary/10 text-primary">Pedido manual</Badge>
+          <div className="flex min-w-0 items-center gap-3">
+            <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
+              <Link href={salonHref} aria-label="Volver al salon">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="min-w-0">
+              <Logo size="sm" />
+              <p className="truncate text-xs text-muted-foreground">
+                {panel.negocio.nombre} - Mesa {mesa.numero}
+              </p>
+            </div>
+          </div>
+          <Badge className="rounded-full border-0 bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            Pedido manual
+          </Badge>
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl gap-4 p-4 lg:grid-cols-[1fr_360px]">
+      <div className="mx-auto grid w-full max-w-6xl gap-4 p-4 lg:grid-cols-[1fr_380px]">
         <section className="space-y-4">
-          <Card className="rounded-xl border-border/60">
-            <CardContent className="p-4">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">{panel.negocio.nombre}</p>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold">Mesa {mesa.numero}</h1>
-                  <p className="text-sm text-muted-foreground">
-                    {mesa.nombre || mesa.zona || "Salon"} - {panel.empleado.nombre} ({panel.empleado.codigo})
-                  </p>
+          <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm">
+            <CardContent className="p-0">
+              <div className="border-b border-border/60 bg-gradient-to-r from-amber-500/12 via-orange-500/8 to-transparent p-4">
+                <Badge className="mb-3 rounded-full border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                  Mesa asignada
+                </Badge>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      <Armchair className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">{panel.negocio.nombre}</p>
+                      <h1 className="text-2xl font-extrabold tracking-tight">Mesa {mesa.numero}</h1>
+                      <p className="text-sm text-muted-foreground">
+                        {mesa.nombre || mesa.zona || "Salon"} - {panel.empleado.nombre} ({panel.empleado.codigo})
+                      </p>
+                    </div>
+                  </div>
+                  <Button asChild variant="outline" className="h-10 rounded-xl">
+                    <Link href={salonHref}>Volver al salon</Link>
+                  </Button>
                 </div>
-                <Badge variant="outline" className="w-fit">Asignada a mi cuenta</Badge>
               </div>
             </CardContent>
           </Card>
@@ -336,7 +354,7 @@ export default function MozoPedidoManualPage() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar productos"
-              className="pl-9"
+              className="h-11 rounded-xl pl-9"
             />
           </div>
 
@@ -348,7 +366,10 @@ export default function MozoPedidoManualPage() {
                 size="sm"
                 variant={category === cat ? "default" : "outline"}
                 onClick={() => setCategory(cat)}
-                className="shrink-0"
+                className={cn(
+                  "h-9 shrink-0 rounded-full",
+                  category === cat && "bg-amber-500 text-white hover:bg-amber-600"
+                )}
               >
                 {cat}
               </Button>
@@ -361,23 +382,23 @@ export default function MozoPedidoManualPage() {
                 key={product.id}
                 type="button"
                 onClick={() => setSelectedProduct(product)}
-                className="rounded-xl border border-border/60 bg-card p-3 text-left transition hover:border-primary/40"
+                className="group overflow-hidden rounded-2xl border border-border/60 bg-card p-3 text-left shadow-sm transition hover:border-amber-300/70 hover:shadow-md dark:hover:border-amber-800"
               >
                 <div className="flex gap-3">
                   {product.imagenUrl ? (
                     <img
                       src={product.imagenUrl}
                       alt={product.nombre}
-                      className="h-16 w-16 rounded-lg object-cover"
+                      className="h-16 w-16 rounded-xl object-cover"
                     />
                   ) : (
-                    <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <ShoppingBag className="h-5 w-5" />
+                    <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      <Store className="h-5 w-5" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 font-semibold">{product.nombre}</p>
-                    <p className="mt-1 text-sm font-bold">{formatPrice(product.precioPromo ?? product.precio)}</p>
+                    <p className="mt-1 text-sm font-bold text-amber-700 dark:text-amber-300">{formatPrice(product.precioPromo ?? product.precio)}</p>
                     {product.descripcion && (
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.descripcion}</p>
                     )}
@@ -388,16 +409,24 @@ export default function MozoPedidoManualPage() {
           </div>
         </section>
 
-        <aside className="h-fit rounded-xl border border-border/60 bg-card">
-          <div className="border-b border-border p-4">
-            <h2 className="font-bold">Pedido</h2>
-            <p className="text-sm text-muted-foreground">Mesa {mesa.numero}</p>
+        <aside className="h-fit overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm lg:sticky lg:top-20">
+          <div className="border-b border-border/60 bg-gradient-to-r from-amber-500/10 to-transparent p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-bold">Pedido</h2>
+                <p className="text-sm text-muted-foreground">Mesa {mesa.numero}</p>
+              </div>
+              <Badge variant="outline" className="rounded-full">{cart.length} item{cart.length === 1 ? "" : "s"}</Badge>
+            </div>
           </div>
           <div className="max-h-[55vh] overflow-y-auto p-4 lg:max-h-[calc(100vh-260px)]">
             {cart.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                  <ShoppingBag className="h-5 w-5" />
+                </div>
                 Agrega productos para tomar el pedido.
-              </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {cart.map((item) => (
@@ -412,6 +441,7 @@ export default function MozoPedidoManualPage() {
                   type="button"
                   variant={metodoPago === "efectivo" ? "default" : "outline"}
                   onClick={() => setMetodoPago("efectivo")}
+                  className={cn("rounded-xl", metodoPago === "efectivo" && "bg-amber-500 text-white hover:bg-amber-600")}
                 >
                   Efectivo
                 </Button>
@@ -420,6 +450,7 @@ export default function MozoPedidoManualPage() {
                   variant={metodoPago === "transferencia" ? "default" : "outline"}
                   onClick={() => setMetodoPago("transferencia")}
                   disabled={!menu.negocio.aceptaTransferencia}
+                  className={cn("rounded-xl", metodoPago === "transferencia" && "bg-amber-500 text-white hover:bg-amber-600")}
                 >
                   Transferencia
                 </Button>
@@ -431,7 +462,7 @@ export default function MozoPedidoManualPage() {
                   id="notas-pedido"
                   value={notas}
                   onChange={(event) => setNotas(event.target.value.slice(0, 500))}
-                  className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="min-h-20 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
                   placeholder="Aclaraciones de cocina"
                 />
               </div>
@@ -444,12 +475,12 @@ export default function MozoPedidoManualPage() {
             </div>
           </div>
 
-          <div className="border-t border-border p-4">
+          <div className="border-t border-border/60 bg-background/60 p-4">
             <div className="mb-3 flex items-center justify-between font-bold">
               <span>Total estimado</span>
-              <span>{formatPrice(total)}</span>
+              <span className="text-lg text-amber-700 dark:text-amber-300">{formatPrice(total)}</span>
             </div>
-            <Button className="w-full gap-2" onClick={submitOrder} disabled={submitting || cart.length === 0}>
+            <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600" onClick={submitOrder} disabled={submitting || cart.length === 0}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               Confirmar pedido
             </Button>
@@ -587,13 +618,18 @@ function ProductConfigurator({
   return (
     <div className="fixed inset-0 z-50 bg-background">
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
-        <div className="shrink-0 border-b border-border bg-card px-4 py-3">
+        <div className="shrink-0 border-b border-border/60 bg-card px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs text-muted-foreground">{product.categoria}</p>
-              <h3 className="text-lg font-bold">{product.nombre}</h3>
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <ShoppingBag className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">{product.categoria}</p>
+                <h3 className="truncate text-lg font-bold">{product.nombre}</h3>
+              </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" className="rounded-xl" onClick={onClose}>
               <X className="h-5 w-5" />
             </Button>
           </div>
@@ -707,20 +743,20 @@ function ProductConfigurator({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border bg-card p-4">
+        <div className="shrink-0 border-t border-border/60 bg-card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <QuantityStepper
               value={quantity}
               onDecrease={() => setQuantity((current) => Math.max(1, current - 1))}
               onIncrease={() => setQuantity((current) => Math.min(99, current + 1))}
             />
-            <p className="font-bold">{formatPrice(unitTotal * quantity)}</p>
+            <p className="font-bold text-amber-700 dark:text-amber-300">{formatPrice(unitTotal * quantity)}</p>
           </div>
           <Button
-            className="w-full"
+            className="h-11 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600"
             disabled={!canAdd}
             onClick={addConfiguredProduct}
-            style={{ backgroundColor: colorPrincipal }}
+            style={{ backgroundColor: canAdd ? colorPrincipal : undefined }}
           >
             Agregar al pedido
           </Button>
@@ -738,7 +774,7 @@ function CartLine({
   onQuantityChange: (key: string, quantity: number) => void
 }) {
   return (
-    <div className="rounded-xl border border-border/60 p-3">
+    <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold">{item.nombre}</p>
@@ -755,7 +791,7 @@ function CartLine({
             ))}
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => onQuantityChange(item.key, 0)}>
+        <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => onQuantityChange(item.key, 0)}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>
@@ -782,11 +818,11 @@ function QuantityStepper({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={onDecrease}>
+      <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl" onClick={onDecrease}>
         {value <= 1 ? <Trash2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
       </Button>
       <span className="w-7 text-center text-sm font-bold">{value}</span>
-      <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={onIncrease}>
+      <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl" onClick={onIncrease}>
         <Plus className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -807,8 +843,10 @@ function ChoiceButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-9 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition",
-        active ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/30"
+        "inline-flex min-h-9 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
+        active
+          ? "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+          : "border-border bg-card hover:border-amber-300/70 dark:hover:border-amber-800"
       )}
     >
       {children}
@@ -846,10 +884,15 @@ function StatusPage({
   action: ReactNode
 }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md rounded-xl border-border/60">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-amber-400/10 blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-orange-500/10 blur-3xl" />
+      </div>
+      <Card className="relative w-full max-w-md rounded-2xl border-border/60 shadow-xl shadow-amber-950/5 dark:shadow-black/20">
         <CardContent className="space-y-4 p-5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Logo size="sm" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             <AlertTriangle className="h-6 w-6" />
           </div>
           <div>
@@ -859,6 +902,48 @@ function StatusPage({
           <div>{action}</div>
         </CardContent>
       </Card>
+    </main>
+  )
+}
+
+function OrderSkeleton() {
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border/60 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div className="space-y-1">
+              <Skeleton className="h-6 w-24 rounded-lg" />
+              <Skeleton className="h-3 w-40 rounded-lg" />
+            </div>
+          </div>
+          <Skeleton className="h-8 w-28 rounded-full" />
+        </div>
+      </header>
+      <div className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[1fr_380px]">
+        <section className="space-y-4">
+          <Card className="rounded-2xl border-border/60">
+            <CardContent className="space-y-4 p-4">
+              <Skeleton className="h-6 w-32 rounded-full" />
+              <Skeleton className="h-8 w-40 rounded-lg" />
+              <Skeleton className="h-4 w-full max-w-md rounded-lg" />
+            </CardContent>
+          </Card>
+          <Skeleton className="h-11 rounded-xl" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24 rounded-full" />
+            <Skeleton className="h-9 w-24 rounded-full" />
+            <Skeleton className="h-9 w-24 rounded-full" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-24 rounded-2xl" />
+            ))}
+          </div>
+        </section>
+        <Skeleton className="h-96 rounded-2xl" />
+      </div>
     </main>
   )
 }

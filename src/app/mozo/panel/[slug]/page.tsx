@@ -20,6 +20,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
 
 interface MesaOperativa {
@@ -283,14 +285,7 @@ export default function MozoSalonPanelPage() {
   }
 
   if (state.status === "loading") {
-    return (
-      <main className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-7 w-7 animate-spin" />
-          <p className="text-sm font-medium">Cargando salon operativo</p>
-        </div>
-      </main>
-    )
+    return <SalonSkeleton />
   }
 
   if (state.status === "no-session") {
@@ -300,7 +295,7 @@ export default function MozoSalonPanelPage() {
         title="Sesion requerida"
         description="Inicia sesion con tu cuenta de mozo para entrar al salon."
       >
-        <Button asChild className="w-full">
+        <Button asChild className="h-11 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600">
           <Link href="/mozo/iniciar-sesion">Iniciar sesion</Link>
         </Button>
       </StatusShell>
@@ -314,7 +309,7 @@ export default function MozoSalonPanelPage() {
         title="Salon no disponible"
         description="No tenes acceso operativo activo para este salon. Volve al panel y elegi un negocio disponible."
       >
-        <Button asChild className="w-full">
+        <Button asChild className="h-11 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600">
           <Link href="/mozo">Volver a mi panel</Link>
         </Button>
       </StatusShell>
@@ -328,7 +323,7 @@ export default function MozoSalonPanelPage() {
         title="No pudimos cargar el salon"
         description={state.message}
       >
-        <Button className="w-full gap-2" onClick={() => loadPanel()}>
+        <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600" onClick={() => loadPanel()}>
           <RefreshCw className="h-4 w-4" />
           Reintentar
         </Button>
@@ -339,35 +334,54 @@ export default function MozoSalonPanelPage() {
   const { data } = state
 
   return (
-    <main className="min-h-screen bg-background p-4">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 py-4 sm:py-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button asChild variant="outline" className="w-fit gap-2">
-            <Link href="/mozo">
-              <ArrowLeft className="h-4 w-4" />
-              Volver
-            </Link>
-          </Button>
-          <Button variant="outline" className="w-fit gap-2" onClick={handleLogout} disabled={loggingOut}>
-            {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-            Cerrar sesion
-          </Button>
+    <main className="min-h-screen bg-background">
+      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/90 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
+              <Link href="/mozo" aria-label="Volver al panel de mozo">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="min-w-0">
+              <Logo size="sm" />
+              <p className="truncate text-xs text-muted-foreground">
+                {data.negocio.nombre} - {data.empleado.nombre}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={() => loadPanel({ silent: true })} aria-label="Actualizar salon">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={handleLogout} disabled={loggingOut} aria-label="Cerrar sesion">
+              {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
+      </header>
 
-        <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-3">
-              <Badge className="w-fit gap-1.5 border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Salon operativo
-              </Badge>
-              <div>
-                <h1 className="text-2xl font-bold tracking-normal sm:text-3xl">
-                  {data.negocio.nombre}
-                </h1>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {data.empleado.nombre} - {data.empleado.codigo}
-                </p>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:py-6">
+        <section className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+          <div className="border-b border-border/60 bg-gradient-to-r from-amber-500/12 via-orange-500/8 to-transparent p-4 sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-3">
+                <Badge className="w-fit gap-1.5 border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Salon activo
+                </Badge>
+                <div>
+                  <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                    {data.negocio.nombre}
+                  </h1>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {data.empleado.nombre} - Codigo {data.empleado.codigo}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-background/70 p-3 text-sm">
+                <p className="font-semibold">Operacion de salon</p>
+                <p className="text-muted-foreground">Toma mesas, carga pedidos y mantenete sincronizado.</p>
               </div>
             </div>
           </div>
@@ -381,21 +395,30 @@ export default function MozoSalonPanelPage() {
 
         <div className="space-y-4">
           {actionError && (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {actionError}
             </p>
           )}
 
           {zonas.length === 0 ? (
-            <Card className="rounded-xl border-border/60">
-              <CardContent className="p-6 text-center text-sm text-muted-foreground">
-                No hay mesas activas en este salon.
+            <Card className="rounded-2xl border-dashed border-border/70 bg-card/80">
+              <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                  <Armchair className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="font-bold">No hay mesas activas</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Cuando el negocio active mesas, van a aparecer en este salon.</p>
+                </div>
               </CardContent>
             </Card>
           ) : (
             zonas.map(([zona, mesas]) => (
-              <section key={zona} className="space-y-2">
-                <p className="text-sm font-semibold text-muted-foreground">{zona}</p>
+              <section key={zona} className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-muted-foreground">{zona}</p>
+                  <Badge variant="outline" className="rounded-full">{mesas.length} mesa{mesas.length === 1 ? "" : "s"}</Badge>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {mesas.map((mesa) => {
                     const isMesaActionActive = actionMesaIds.has(mesa.id)
@@ -416,7 +439,6 @@ export default function MozoSalonPanelPage() {
           )}
         </div>
       </div>
-
     </main>
   )
 }
@@ -437,37 +459,59 @@ function MesaCard({
   return (
     <Card
       className={cn(
-        "rounded-xl border-border/60",
-        mesa.asignadaAMi && "border-emerald-300 dark:border-emerald-800",
-        mesa.asignadaAOtro && "opacity-70"
+        "overflow-hidden rounded-2xl border-border/60 bg-card shadow-sm transition hover:shadow-md",
+        mesa.asignadaAMi && "border-amber-300 ring-1 ring-amber-200/70 dark:border-amber-800 dark:ring-amber-900/50",
+        mesa.asignadaAOtro && "opacity-75"
       )}
     >
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-lg font-bold">Mesa {mesa.numero}</p>
-            {mesa.nombre && (
-              <p className="text-sm text-muted-foreground">{mesa.nombre}</p>
-            )}
+          <div className="flex min-w-0 items-start gap-3">
+            <div
+              className={cn(
+                "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
+                mesa.asignadaAMi
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              <Armchair className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-extrabold">Mesa {mesa.numero}</p>
+              {mesa.nombre && (
+                <p className="truncate text-sm text-muted-foreground">{mesa.nombre}</p>
+              )}
+            </div>
           </div>
           <MesaBadge mesa={mesa} />
         </div>
 
-        <div className="space-y-1 text-sm text-muted-foreground">
-          <p>{mesa.capacidad} lugares</p>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Capacidad</p>
+            <p className="font-bold">{mesa.capacidad} lugares</p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Activos</p>
+            <p className="font-bold">{mesa.pedidosActivosCount} pedido{mesa.pedidosActivosCount === 1 ? "" : "s"}</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-sm">
           {mesa.pedidosActivosCount > 0 ? (
-            <p>
-              {mesa.pedidosActivosCount} pedido{mesa.pedidosActivosCount === 1 ? "" : "s"} activo{mesa.pedidosActivosCount === 1 ? "" : "s"} - {formatPrice(mesa.pedidosActivosTotal)}
+            <p className="font-semibold">
+              Total activo: {formatPrice(mesa.pedidosActivosTotal)}
             </p>
           ) : (
-            <p>Sin pedidos activos</p>
+            <p className="text-muted-foreground">Sin pedidos activos</p>
           )}
         </div>
 
         {mesa.pedidosActivos.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {mesa.pedidosActivos.map((pedido, index) => (
-              <Badge key={`${mesa.id}:${index}`} variant="outline" className="text-[10px]">
+              <Badge key={`${mesa.id}:${index}`} variant="outline" className="rounded-full text-[10px]">
                 {ESTADO_LABEL[pedido.estado] ?? pedido.estado}
               </Badge>
             ))}
@@ -476,13 +520,13 @@ function MesaCard({
 
         <div className="grid gap-2">
           {mesa.asignadaAMi && (
-            <Button className="w-full gap-2" onClick={onOrder} disabled={actionDisabled}>
+            <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600" onClick={onOrder} disabled={actionDisabled}>
               <Receipt className="h-4 w-4" />
               Tomar pedido
             </Button>
           )}
           <Button
-            className="w-full"
+            className="h-10 w-full rounded-xl"
             variant={mesa.asignadaAMi ? "outline" : "default"}
             onClick={onMesaAction}
             disabled={actionDisabled || mesa.asignadaAOtro}
@@ -513,14 +557,14 @@ function SummaryCard({
   value: number
 }) {
   return (
-    <Card className="rounded-xl border-border/60">
-      <CardContent className="p-4">
+    <Card className="rounded-2xl border-border/60 bg-card/90 shadow-sm">
+      <CardContent className="p-3 sm:p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
             {icon}
           </div>
           <div>
-            <p className="text-xl font-bold">{value}</p>
+            <p className="text-xl font-extrabold">{value}</p>
             <p className="text-xs text-muted-foreground">{label}</p>
           </div>
         </div>
@@ -532,17 +576,17 @@ function SummaryCard({
 function MesaBadge({ mesa }: { mesa: MesaOperativa }) {
   if (mesa.asignadaAMi) {
     return (
-      <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+      <Badge className="rounded-full border-0 bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
         Mia
       </Badge>
     )
   }
 
   if (mesa.asignadaAOtro) {
-    return <Badge variant="outline">Ocupada</Badge>
+    return <Badge variant="outline" className="rounded-full">Ocupada</Badge>
   }
 
-  return <Badge variant="outline">Libre</Badge>
+  return <Badge variant="outline" className="rounded-full">Libre</Badge>
 }
 
 function StatusShell({
@@ -557,11 +601,16 @@ function StatusShell({
   children: ReactNode
 }) {
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md rounded-xl border-border/60">
-        <CardContent className="p-5 space-y-5">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-amber-400/10 blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-orange-500/10 blur-3xl" />
+      </div>
+      <Card className="relative w-full max-w-md rounded-2xl border-border/60 shadow-xl shadow-amber-950/5 dark:shadow-black/20">
+        <CardContent className="space-y-5 p-5">
           <div className="space-y-2">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Logo size="sm" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
               {icon}
             </div>
             <div>
@@ -572,6 +621,47 @@ function StatusShell({
           <div>{children}</div>
         </CardContent>
       </Card>
+    </main>
+  )
+}
+
+function SalonSkeleton() {
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border/60 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <div className="space-y-1">
+              <Skeleton className="h-6 w-24 rounded-lg" />
+              <Skeleton className="h-3 w-40 rounded-lg" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <Skeleton className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </header>
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-5">
+        <Card className="rounded-2xl border-border/60">
+          <CardContent className="space-y-4 p-5">
+            <Skeleton className="h-6 w-32 rounded-full" />
+            <Skeleton className="h-8 w-56 rounded-lg" />
+            <Skeleton className="h-4 w-full max-w-lg rounded-lg" />
+          </CardContent>
+        </Card>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Skeleton className="h-20 rounded-2xl" />
+          <Skeleton className="h-20 rounded-2xl" />
+          <Skeleton className="h-20 rounded-2xl" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-56 rounded-2xl" />
+          ))}
+        </div>
+      </div>
     </main>
   )
 }

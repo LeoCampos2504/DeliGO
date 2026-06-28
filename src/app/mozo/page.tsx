@@ -7,15 +7,20 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowRight,
+  BadgeCheck,
+  Building2,
   CheckCircle2,
+  KeyRound,
   Link2,
   Loader2,
   LogIn,
   LogOut,
+  Mail,
   Plus,
   RefreshCw,
   ShieldCheck,
   Store,
+  UserRound,
   X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +28,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Logo } from "@/components/shared/logo"
 
 interface CuentaOperativa {
   id: string
@@ -189,14 +196,7 @@ export default function MozoPanelPage() {
   }
 
   if (state.status === "loading") {
-    return (
-      <main className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="h-7 w-7 animate-spin" />
-          <p className="text-sm font-medium">Cargando panel de mozo</p>
-        </div>
-      </main>
-    )
+    return <MozoPageSkeleton />
   }
 
   if (state.status === "no-session") {
@@ -206,13 +206,13 @@ export default function MozoPanelPage() {
         title="Ingresa para continuar"
         description="El panel de mozo requiere una sesion operativa valida."
       >
-        <Button asChild className="w-full gap-2">
+        <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600">
           <Link href="/mozo/iniciar-sesion">
             <LogIn className="h-4 w-4" />
             Iniciar sesion
           </Link>
         </Button>
-        <Button asChild variant="outline" className="w-full">
+        <Button asChild variant="outline" className="h-11 w-full rounded-xl">
           <Link href="/mozo/registro">Crear cuenta de mozo</Link>
         </Button>
       </AuthShell>
@@ -226,7 +226,7 @@ export default function MozoPanelPage() {
         title="Acceso operativo no disponible"
         description={state.message}
       >
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           Tu sesion operativa no esta habilitada para este panel. Podes iniciar sesion nuevamente o aceptar una nueva invitacion cuando el negocio reactive tu acceso.
         </p>
         <LogoutButton onLogout={handleLogout} loading={loggingOut} />
@@ -241,7 +241,7 @@ export default function MozoPanelPage() {
         title="No pudimos cargar el panel"
         description={state.message}
       >
-        <Button className="w-full gap-2" onClick={loadPanel}>
+        <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600" onClick={loadPanel}>
           <RefreshCw className="h-4 w-4" />
           Reintentar
         </Button>
@@ -253,32 +253,50 @@ export default function MozoPanelPage() {
   const vinculos = state.status === "operative" ? state.vinculos : []
 
   return (
-    <main className="min-h-screen bg-background p-4">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4 sm:py-8">
-        <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-3">
-              <Badge className="w-fit gap-1.5 border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Cuenta activa
-              </Badge>
-              <div>
-                <h1 className="text-2xl font-bold tracking-normal sm:text-3xl">
-                  Hola, {cuenta.nombre}
-                </h1>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {state.status === "no-link"
-                    ? state.message
-                    : "Elegi el negocio desde el que vas a trabajar."}
-                </p>
+    <main className="min-h-screen bg-background">
+      <PanelHeader
+        cuenta={cuenta}
+        vinculosCount={vinculos.length}
+        loggingOut={loggingOut}
+        onRefresh={loadPanel}
+        onLogout={handleLogout}
+      />
+
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:py-6">
+        <section className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+          <div className="border-b border-border/60 bg-gradient-to-r from-amber-500/12 via-orange-500/8 to-transparent p-4 sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-3">
+                <Badge className="w-fit gap-1.5 border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Cuenta activa
+                </Badge>
+                <div>
+                  <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+                    Hola, {cuenta.nombre}
+                  </h1>
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                    {state.status === "no-link"
+                      ? state.message
+                      : "Elegi el negocio desde el que vas a trabajar."}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:min-w-64">
+                <InfoPill icon={<Mail className="h-4 w-4" />} label="Email" value={cuenta.email} />
+                <InfoPill icon={<Building2 className="h-4 w-4" />} label="Negocios" value={String(vinculos.length)} />
               </div>
             </div>
-            <LogoutButton onLogout={handleLogout} loading={loggingOut} />
+          </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
+            <MiniMetric icon={<BadgeCheck className="h-4 w-4" />} label="Estado" value={cuenta.activo ? "Activa" : "Inactiva"} />
+            <MiniMetric icon={<UserRound className="h-4 w-4" />} label="Rol" value="Mozo" />
+            <MiniMetric icon={<ShieldCheck className="h-4 w-4" />} label="Permisos" value="Salon operativo" />
           </div>
         </section>
 
         {joinSuccess && (
-          <Card className="rounded-xl border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+          <Card className="rounded-2xl border-emerald-200 bg-emerald-50 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
             <CardContent className="flex items-start gap-3 p-4 text-emerald-800 dark:text-emerald-200">
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
               <div>
@@ -289,39 +307,58 @@ export default function MozoPanelPage() {
           </Card>
         )}
 
-        {vinculos.length > 0 && (
+        {vinculos.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
             {vinculos.map((vinculo) => (
-              <Card key={`${vinculo.negocio.slug}:${vinculo.empleado.codigo}`} className="rounded-xl border-border/60">
-                <CardContent className="p-4 space-y-4">
+              <Card
+                key={`${vinculo.negocio.slug}:${vinculo.empleado.codigo}`}
+                className="group overflow-hidden rounded-2xl border-border/60 shadow-sm transition hover:border-amber-300/70 hover:shadow-md dark:hover:border-amber-700/60"
+              >
+                <CardContent className="space-y-4 p-4">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Store className="h-5 w-5" />
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      <Store className="h-6 w-6" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{vinculo.negocio.nombre}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-lg font-bold">{vinculo.negocio.nombre}</p>
+                        <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                          Activo
+                        </Badge>
+                      </div>
                       <p className="truncate text-sm text-muted-foreground">
-                        {vinculo.empleado.nombre} - {vinculo.empleado.codigo}
+                        {vinculo.empleado.nombre} - Codigo {vinculo.empleado.codigo}
                       </p>
                     </div>
-                    <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                      Activo
-                    </Badge>
                   </div>
-                  <Button asChild className="w-full gap-2">
+                  <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
                     <Link href={`/mozo/panel/${vinculo.negocio.slug}`}>
                       Entrar al salon
-                      <ArrowRight className="h-4 w-4" />
+                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                     </Link>
                   </Button>
                 </CardContent>
               </Card>
             ))}
           </div>
+        ) : (
+          <Card className="rounded-2xl border-dashed border-amber-300/70 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/10">
+            <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <Link2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="font-bold">Sin negocios vinculados</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Ingresa un codigo de invitacion para empezar a trabajar en un salon.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {vinculos.length > 0 && !showJoinForm && (
-          <Button variant="outline" className="w-full gap-2 sm:w-fit" onClick={() => setJoinOpen(true)}>
+          <Button variant="outline" className="h-11 w-full gap-2 rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900/50 dark:text-amber-300 dark:hover:bg-amber-950/20 sm:w-fit" onClick={() => setJoinOpen(true)}>
             <Plus className="h-4 w-4" />
             Unirme a otro negocio
           </Button>
@@ -344,19 +381,60 @@ export default function MozoPanelPage() {
           />
         )}
 
-        <Card className="rounded-xl border-border/60">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2 text-primary">
-              <ShieldCheck className="h-5 w-5" />
-              <p className="font-semibold">Acceso limitado</p>
+        <Card className="rounded-2xl border-border/60 bg-card/80 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold">Acceso limitado</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Tu cuenta de mozo entra a un salon operativo propio. No habilita configuracion, empleados, invitaciones, menu, precios, caja ni datos de otros negocios.
+                </p>
+              </div>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Tu cuenta de mozo entra a un salon operativo propio. No habilita configuracion, empleados, invitaciones, menu, precios, caja ni datos de otros negocios.
-            </p>
           </CardContent>
         </Card>
       </div>
     </main>
+  )
+}
+
+function PanelHeader({
+  cuenta,
+  vinculosCount,
+  loggingOut,
+  onRefresh,
+  onLogout,
+}: {
+  cuenta: CuentaOperativa
+  vinculosCount: number
+  loggingOut: boolean
+  onRefresh: () => void
+  onLogout: () => void
+}) {
+  return (
+    <header className="sticky top-0 z-30 border-b border-border/60 bg-background/90 px-4 py-3 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <div className="min-w-0">
+          <Logo size="sm" />
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <span className="truncate">{cuenta.nombre}</span>
+            <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
+            <span>{vinculosCount} negocio{vinculosCount === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={onRefresh} aria-label="Actualizar panel">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={onLogout} disabled={loggingOut} aria-label="Cerrar sesion">
+            {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+    </header>
   )
 }
 
@@ -378,22 +456,22 @@ function JoinBusinessCard({
   onClose: () => void
 }) {
   return (
-    <Card className="rounded-xl border-border/60">
-      <CardContent className="p-4 space-y-4">
+    <Card className="overflow-hidden rounded-2xl border-border/60 shadow-sm">
+      <CardContent className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
               <Link2 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-semibold">Unirme a un negocio</h2>
+              <h2 className="font-bold">Unirme a un negocio</h2>
               <p className="text-sm text-muted-foreground">
                 Ingresa el codigo temporal que te entrego el negocio.
               </p>
             </div>
           </div>
           {canClose && (
-            <Button variant="ghost" size="icon" onClick={onClose} disabled={joining}>
+            <Button variant="ghost" size="icon" className="rounded-xl" onClick={onClose} disabled={joining}>
               <X className="h-4 w-4" />
             </Button>
           )}
@@ -402,23 +480,27 @@ function JoinBusinessCard({
         <form className="flex flex-col gap-3 sm:flex-row" onSubmit={onSubmit}>
           <div className="flex-1 space-y-1.5">
             <Label htmlFor="codigo-union">Codigo de invitacion</Label>
-            <Input
-              id="codigo-union"
-              value={code}
-              onChange={(event) => onCodeChange(event.target.value.trim())}
-              required
-              autoComplete="off"
-              spellCheck={false}
-            />
+            <div className="relative">
+              <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="codigo-union"
+                value={code}
+                onChange={(event) => onCodeChange(event.target.value.trim())}
+                required
+                autoComplete="off"
+                spellCheck={false}
+                className="h-11 rounded-xl pl-9"
+              />
+            </div>
           </div>
-          <Button type="submit" className="gap-2 sm:self-end" disabled={joining || !code.trim()}>
+          <Button type="submit" className="h-11 gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 sm:self-end" disabled={joining || !code.trim()}>
             {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Vincular
           </Button>
         </form>
 
         {error && (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </p>
         )}
@@ -439,11 +521,16 @@ function AuthShell({
   children: ReactNode
 }) {
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md rounded-xl border-border/60">
-        <CardContent className="p-5 space-y-5">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-amber-400/10 blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-orange-500/10 blur-3xl" />
+      </div>
+      <Card className="relative w-full max-w-md rounded-2xl border-border/60 shadow-xl shadow-amber-950/5 dark:shadow-black/20">
+        <CardContent className="space-y-5 p-5">
           <div className="space-y-2">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Logo size="sm" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
               {icon}
             </div>
             <div>
@@ -466,9 +553,69 @@ function LogoutButton({
   loading: boolean
 }) {
   return (
-    <Button variant="outline" className="w-full gap-2 sm:w-auto" onClick={onLogout} disabled={loading}>
+    <Button variant="outline" className="h-11 w-full gap-2 rounded-xl sm:w-auto" onClick={onLogout} disabled={loading}>
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
       Cerrar sesion
     </Button>
+  )
+}
+
+function InfoPill({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        {icon}
+        <span className="text-[11px] font-semibold uppercase tracking-wide">{label}</span>
+      </div>
+      <p className="mt-1 truncate text-sm font-bold">{value}</p>
+    </div>
+  )
+}
+
+function MiniMetric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/60 p-3">
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-bold">{value}</p>
+      </div>
+    </div>
+  )
+}
+
+function MozoPageSkeleton() {
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border/60 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <Skeleton className="h-7 w-24 rounded-lg" />
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-10 rounded-xl" />
+            <Skeleton className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </header>
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-5">
+        <Card className="rounded-2xl border-border/60">
+          <CardContent className="space-y-4 p-5">
+            <Skeleton className="h-6 w-32 rounded-full" />
+            <Skeleton className="h-8 w-56 rounded-lg" />
+            <Skeleton className="h-4 w-full max-w-lg rounded-lg" />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+              <Skeleton className="h-16 rounded-xl" />
+            </div>
+          </CardContent>
+        </Card>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-36 rounded-2xl" />
+          <Skeleton className="h-36 rounded-2xl" />
+        </div>
+      </div>
+    </main>
   )
 }
