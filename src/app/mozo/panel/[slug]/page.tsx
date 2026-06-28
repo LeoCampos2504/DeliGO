@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useInstallPrompt } from "@/hooks/use-install-prompt"
 import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
+import { urlBase64ToUint8Array } from "@/lib/push-subscription-key"
 import { cn, formatPrice } from "@/lib/utils"
 
 interface MesaOperativa {
@@ -168,6 +169,7 @@ export default function MozoSalonPanelPage() {
   const [pushPanelOpen, setPushPanelOpen] = useState(false)
   const [showPushIntro, setShowPushIntro] = useState(false)
   const [installingApp, setInstallingApp] = useState(false)
+  const [testingPush, setTestingPush] = useState(false)
   const installPrompt = useInstallPrompt()
   const refreshGenerationRef = useRef(0)
   const silentRefreshRef = useRef<{ controller: AbortController; generation: number } | null>(null)
@@ -203,13 +205,46 @@ export default function MozoSalonPanelPage() {
           !notifiedReadyOrderIdsRef.current.has(order.id)
         ) {
           notifiedReadyOrderIdsRef.current.add(order.id)
-          toast("Pedido listo", {
-            description: `Mesa ${order.mesaNumero} - ${formatPrice(order.total)}`,
-            action: {
-              label: "Ver mesa",
-              onClick: () => scrollToMesa(order.mesaId),
-            },
-          })
+          toast.custom((toastId) => (
+            <div
+              className="w-[min(calc(100vw-2rem),22rem)] rounded-2xl border border-emerald-300 bg-background p-3 text-foreground shadow-xl shadow-emerald-950/10 animate-in fade-in slide-in-from-top-1 duration-200 dark:border-emerald-800 dark:bg-card dark:shadow-black/30"
+              role="status"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                  <BellRing className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-bold leading-tight">Pedido listo para entregar</p>
+                    <button
+                      type="button"
+                      className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => toast.dismiss(toastId)}
+                      aria-label="Cerrar aviso"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">Mesa {order.mesaNumero}</p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">{formatPrice(order.total)}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 rounded-xl bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700"
+                      onClick={() => {
+                        scrollToMesa(order.mesaId)
+                        toast.dismiss(toastId)
+                      }}
+                    >
+                      Ver mesa
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ), { duration: 9000 })
         }
       }
     }
@@ -446,7 +481,7 @@ export default function MozoSalonPanelPage() {
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: publicKey,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
         })
         createdSubscription = true
       }
@@ -502,6 +537,46 @@ export default function MozoSalonPanelPage() {
     } catch (error) {
       setPushError(error instanceof Error ? error.message : "No se pudo desactivar la suscripcion")
       setPushState("error")
+    }
+  }
+
+  const handleSendTestPush = async () => {
+    if (testingPush) return
+
+    setTestingPush(true)
+    try {
+      const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription/test`, {
+        method: "POST",
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (res.ok && data.ok === true && data.delivered === true) {
+        toast.success("Prueba enviada. Cerrá o dejá DeliGO en segundo plano para verificar el aviso del sistema.")
+        return
+      }
+
+      if (data.code === "NO_SUBSCRIPTION") {
+        setPushState("idle")
+        toast.error("No encontramos una suscripción activa. Volvé a activar los avisos.")
+        return
+      }
+
+      if (data.code === "DELIVERY_FAILED") {
+        toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
+        return
+      }
+
+      if (res.status === 429) {
+        toast.error(data.error || "Demasiadas pruebas. Intentá de nuevo más tarde.")
+        return
+      }
+
+      toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
+    } catch {
+      toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
+    } finally {
+      setTestingPush(false)
     }
   }
 
@@ -734,8 +809,10 @@ export default function MozoSalonPanelPage() {
                   pwaInfo={pwaInfo}
                   isInstallable={installPrompt.isInstallable}
                   installingApp={installingApp}
+                  testingPush={testingPush}
                   onEnable={handleEnablePush}
                   onDisable={handleDisablePush}
+                  onSendTest={handleSendTestPush}
                   onInstall={handleInstallApp}
                   onClose={() => setPushPanelOpen(false)}
                 />
@@ -1031,8 +1108,10 @@ function PushNoticePanel({
   pwaInfo,
   isInstallable,
   installingApp,
+  testingPush,
   onEnable,
   onDisable,
+  onSendTest,
   onInstall,
   onClose,
 }: {
@@ -1041,8 +1120,10 @@ function PushNoticePanel({
   pwaInfo: PwaCapabilities
   isInstallable: boolean
   installingApp: boolean
+  testingPush: boolean
   onEnable: () => void
   onDisable: () => void
+  onSendTest: () => void
   onInstall: () => void
   onClose: () => void
 }) {
@@ -1132,14 +1213,25 @@ function PushNoticePanel({
         )}
 
         {state === "active" ? (
-          <Button
-            className="h-10 w-full rounded-xl"
-            variant="outline"
-            onClick={onDisable}
-            disabled={isBusy}
-          >
-            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desactivar avisos"}
-          </Button>
+          <div className="grid gap-2">
+            <Button
+              className="h-10 w-full rounded-xl"
+              variant="secondary"
+              onClick={onSendTest}
+              disabled={testingPush}
+            >
+              {testingPush ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+              Enviar prueba
+            </Button>
+            <Button
+              className="h-10 w-full rounded-xl"
+              variant="outline"
+              onClick={onDisable}
+              disabled={isBusy}
+            >
+              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desactivar avisos"}
+            </Button>
+          </div>
         ) : state !== "unsupported" && state !== "blocked" && state !== "needs-install" ? (
           <Button
             className="h-10 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600"

@@ -28,6 +28,7 @@ export const RATE_LIMITS = {
   upload: { maxRequests: 20, windowMs: 60 * 1000 },              // 20 per min
   operativoInvite: { maxRequests: 10, windowMs: 15 * 60 * 1000 }, // 10 per 15 min
   operativoJoin: { maxRequests: 5, windowMs: 5 * 60 * 1000 },     // 5 per 5 min
+  mozoPushTest: { maxRequests: 3, windowMs: 10 * 60 * 1000 },      // 3 per 10 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)
 } as const
 

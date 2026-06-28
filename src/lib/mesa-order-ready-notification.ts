@@ -14,8 +14,8 @@ type ReadyMesaPedido = {
 
 type MozoDestino = {
   id: string
-  nombre: string
   pushSubscription: string | null
+  source: "pedido" | "mesa"
 }
 
 type PersistReadyNotificationParams = {
@@ -29,6 +29,18 @@ type PersistReadyNotificationParams = {
 }
 
 const SERIALIZATION_RETRY_LIMIT = 3
+
+function shortId(value: string | null | undefined) {
+  if (!value) return null
+  return value.length <= 8 ? value : `${value.slice(0, 8)}...`
+}
+
+function logMesaOrderReady(
+  event: string,
+  details: Record<string, string | number | boolean | null>
+) {
+  console.info(`[MozoPush] ${event}`, details)
+}
 
 function isSerializationConflict(error: unknown) {
   return (
@@ -51,12 +63,17 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
       },
       select: {
         id: true,
-        nombre: true,
         pushSubscription: true,
       },
     })
 
-    if (empleadoDelPedido) return empleadoDelPedido
+    if (empleadoDelPedido) {
+      return {
+        id: empleadoDelPedido.id,
+        pushSubscription: empleadoDelPedido.pushSubscription,
+        source: "pedido",
+      }
+    }
   }
 
   if (!pedido.mesaId) return null
@@ -71,7 +88,6 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
       empleado: {
         select: {
           id: true,
-          nombre: true,
           rol: true,
           activo: true,
           eliminado: true,
@@ -95,8 +111,8 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
 
   return {
     id: empleado.id,
-    nombre: empleado.nombre,
     pushSubscription: empleado.pushSubscription,
+    source: "mesa",
   }
 }
 
@@ -187,8 +203,23 @@ export async function notifyMesaOrderReadyForMozo({
   if (pedido.metodoEntrega !== "mesa") return
   if (!pedido.mesaId) return
 
+  logMesaOrderReady("mesa_order_ready_started", {
+    pedidoId: shortId(pedido.id),
+    negocioId: shortId(pedido.negocioId),
+    hasMesaId: true,
+    hasEmpleadoId: !!pedido.empleadoId,
+  })
+
   const mozo = await resolveMozoDestino(pedido)
   if (!mozo) return
+
+  logMesaOrderReady("mesa_order_ready_mozo_resolved", {
+    pedidoId: shortId(pedido.id),
+    negocioId: shortId(pedido.negocioId),
+    mozoId: shortId(mozo.id),
+    source: mozo.source,
+    hasPushSubscription: !!mozo.pushSubscription,
+  })
 
   const mesaNumero = await resolveMesaNumero(pedido)
   if (mesaNumero === null) return
@@ -205,15 +236,62 @@ export async function notifyMesaOrderReadyForMozo({
     panelUrl,
   })
 
-  if (!persisted.created || !mozo.pushSubscription) return
+  if (!persisted.created) return
+
+  if (!mozo.pushSubscription) {
+    logMesaOrderReady("mesa_order_ready_subscription_missing", {
+      pedidoId: shortId(pedido.id),
+      negocioId: shortId(pedido.negocioId),
+      mozoId: shortId(mozo.id),
+    })
+    return
+  }
 
   try {
-    await sendPushNotification(
+    let expired = false
+    const sent = await sendPushNotification(
       mozo.pushSubscription,
       payload,
-      { model: "empleado", id: mozo.id }
+      {
+        model: "empleado",
+        id: mozo.id,
+        suppressEndpointLog: true,
+        onExpired: () => {
+          expired = true
+          logMesaOrderReady("mesa_order_ready_subscription_expired", {
+            pedidoId: shortId(pedido.id),
+            negocioId: shortId(pedido.negocioId),
+            mozoId: shortId(mozo.id),
+          })
+        },
+      }
     )
+
+    if (sent) {
+      logMesaOrderReady("mesa_order_ready_push_sent", {
+        pedidoId: shortId(pedido.id),
+        negocioId: shortId(pedido.negocioId),
+        mozoId: shortId(mozo.id),
+      })
+      return
+    }
+
+    logMesaOrderReady("mesa_order_ready_push_delivery_failed", {
+      pedidoId: shortId(pedido.id),
+      negocioId: shortId(pedido.negocioId),
+      mozoId: shortId(mozo.id),
+      expired,
+    })
   } catch (error) {
-    console.error(`[Push/Mozo] Error sending ready notification for pedido ${pedido.id}:`, error)
+    logMesaOrderReady("mesa_order_ready_push_delivery_failed", {
+      pedidoId: shortId(pedido.id),
+      negocioId: shortId(pedido.negocioId),
+      mozoId: shortId(mozo.id),
+      expired: false,
+    })
+    console.error("[Push/Mozo] Error sending ready notification", {
+      pedidoId: shortId(pedido.id),
+      errorName: error instanceof Error ? error.name : "unknown",
+    })
   }
 }

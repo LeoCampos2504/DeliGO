@@ -164,9 +164,17 @@ interface CreateNotificationParams {
   pushSubscription?: string | null
   pushPayload?: PushNotificationPayload
   /** If provided, clean up expired push subscription on failure */
-  cleanupExpired?: { model: string; id: string; field?: string }
+  cleanupExpired?: PushSubscriptionCleanup
   /** If true, await the push send so errors surface in logs (default: false, fire-and-forget) */
   awaitPush?: boolean
+}
+
+export type PushSubscriptionCleanup = {
+  model: string
+  id: string
+  field?: string
+  suppressEndpointLog?: boolean
+  onExpired?: () => void
 }
 
 /**
@@ -246,7 +254,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
 export async function sendPushNotification(
   subscriptionJson: string,
   payload: PushNotificationPayload,
-  cleanupExpired?: { model: string; id: string; field?: string }
+  cleanupExpired?: PushSubscriptionCleanup
 ): Promise<boolean> {
   if (!isPushConfigured()) {
     console.warn("[Push] VAPID keys not configured, skipping notification")
@@ -260,10 +268,17 @@ export async function sendPushNotification(
     return true
   } catch (error: unknown) {
     const err = error as { statusCode?: number; message?: string; body?: string }
-    const endpoint = subscription?.endpoint || "unknown"
+    const endpoint = cleanupExpired?.suppressEndpointLog
+      ? "suppressed"
+      : subscription?.endpoint || "unknown"
     // 410 = subscription expired, 404 = subscription gone
     if (err.statusCode === 410 || err.statusCode === 404) {
       console.log(`[Push] Subscription expired (statusCode=${err.statusCode}, endpoint=${endpoint}), should be removed`)
+      try {
+        cleanupExpired?.onExpired?.()
+      } catch {
+        // Expiration callbacks are diagnostic only; cleanup should continue.
+      }
       // Auto-cleanup expired subscriptions to prevent future send attempts
       if (cleanupExpired) {
         try {
@@ -295,9 +310,13 @@ export async function sendPushNotification(
       }
       return false
     }
-    // Log the full error details so we can diagnose 400/403/etc. on Railway
-    console.error(`[Push] Error sending notification (statusCode=${err.statusCode}, endpoint=${endpoint}):`, err.message || error)
-    if (err.body) {
+    // Log the full error details for regular push flows. Sensitive routes can
+    // suppress provider details that may include subscription material.
+    console.error(
+      `[Push] Error sending notification (statusCode=${err.statusCode}, endpoint=${endpoint}):`,
+      cleanupExpired?.suppressEndpointLog ? "details suppressed" : err.message || error
+    )
+    if (err.body && !cleanupExpired?.suppressEndpointLog) {
       console.error(`[Push] Response body:`, err.body)
     }
     return false
