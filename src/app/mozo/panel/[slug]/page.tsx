@@ -11,13 +11,17 @@ import {
   Bell,
   BellRing,
   CheckCircle2,
+  Download,
   Loader2,
   LogOut,
   Receipt,
   RefreshCw,
+  Share2,
   ShieldCheck,
   ShoppingBag,
+  Smartphone,
   UserCheck,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +29,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
+import { useInstallPrompt } from "@/hooks/use-install-prompt"
+import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
 import { cn, formatPrice } from "@/lib/utils"
 
 interface MesaOperativa {
@@ -79,6 +85,7 @@ type PageState =
 type PushNoticeState =
   | "checking"
   | "unsupported"
+  | "needs-install"
   | "idle"
   | "activating"
   | "active"
@@ -99,6 +106,19 @@ const ESTADO_LABEL: Record<string, string> = {
 }
 
 const PANEL_POLL_INTERVAL_MS = 10000
+const MOZO_PUSH_INTRO_DISMISSED_KEY = "deligo:mozo:ready-alerts-intro-dismissed"
+
+const INITIAL_PWA_CAPABILITIES: PwaCapabilities = {
+  platform: "other",
+  isIos: false,
+  isIosSafari: false,
+  isStandalone: false,
+  supportsServiceWorker: false,
+  supportsPushManager: false,
+  supportsNotification: false,
+  notificationPermission: "unsupported",
+  secureContext: false,
+}
 
 function buildResumen(mesas: MesaOperativa[]): PanelData["resumen"] {
   return {
@@ -144,6 +164,11 @@ export default function MozoSalonPanelPage() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [pushState, setPushState] = useState<PushNoticeState>("checking")
   const [pushError, setPushError] = useState<string | null>(null)
+  const [pwaInfo, setPwaInfo] = useState<PwaCapabilities>(INITIAL_PWA_CAPABILITIES)
+  const [pushPanelOpen, setPushPanelOpen] = useState(false)
+  const [showPushIntro, setShowPushIntro] = useState(false)
+  const [installingApp, setInstallingApp] = useState(false)
+  const installPrompt = useInstallPrompt()
   const refreshGenerationRef = useRef(0)
   const silentRefreshRef = useRef<{ controller: AbortController; generation: number } | null>(null)
   const readyOrderIdsRef = useRef<Set<string>>(new Set())
@@ -191,6 +216,30 @@ export default function MozoSalonPanelPage() {
 
     readyOrderIdsRef.current = currentReadyIds
   }, [scrollToMesa])
+
+  const refreshPwaInfo = useCallback(() => {
+    const next = getPwaCapabilities()
+    setPwaInfo(next)
+    return next
+  }, [])
+
+  useEffect(() => {
+    const update = () => {
+      refreshPwaInfo()
+    }
+
+    update()
+    const mediaQuery = window.matchMedia("(display-mode: standalone)")
+    mediaQuery.addEventListener?.("change", update)
+    window.addEventListener("focus", update)
+    document.addEventListener("visibilitychange", update)
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", update)
+      window.removeEventListener("focus", update)
+      document.removeEventListener("visibilitychange", update)
+    }
+  }, [refreshPwaInfo])
 
   const loadPanel = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     let controller: AbortController | null = null
@@ -293,18 +342,23 @@ export default function MozoSalonPanelPage() {
 
   const checkPushSubscription = useCallback(async () => {
     setPushError(null)
+    const capabilities = refreshPwaInfo()
 
     if (
-      typeof window === "undefined" ||
-      !("serviceWorker" in navigator) ||
-      !("PushManager" in window) ||
-      !("Notification" in window)
+      !capabilities.supportsServiceWorker ||
+      !capabilities.supportsPushManager ||
+      !capabilities.supportsNotification
     ) {
       setPushState("unsupported")
       return
     }
 
-    if (Notification.permission === "denied") {
+    if (capabilities.isIos && !capabilities.isStandalone) {
+      setPushState("needs-install")
+      return
+    }
+
+    if (capabilities.notificationPermission === "denied") {
       setPushState("blocked")
       return
     }
@@ -323,7 +377,7 @@ export default function MozoSalonPanelPage() {
       const serverSubscribed = data.subscribed === true
 
       setPushState(
-        Notification.permission === "granted" && serverSubscribed
+        capabilities.notificationPermission === "granted" && serverSubscribed
           ? "active"
           : "idle"
       )
@@ -331,7 +385,7 @@ export default function MozoSalonPanelPage() {
       setPushError(error instanceof Error ? error.message : "No se pudo consultar la suscripcion")
       setPushState("error")
     }
-  }, [slug])
+  }, [refreshPwaInfo, slug])
 
   useEffect(() => {
     void checkPushSubscription()
@@ -339,9 +393,27 @@ export default function MozoSalonPanelPage() {
 
   const handleEnablePush = async () => {
     setPushError(null)
+    const capabilities = refreshPwaInfo()
 
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    if (
+      !capabilities.supportsServiceWorker ||
+      !capabilities.supportsPushManager ||
+      !capabilities.supportsNotification
+    ) {
       setPushState("unsupported")
+      setPushPanelOpen(true)
+      return
+    }
+
+    if (capabilities.isIos && !capabilities.isStandalone) {
+      setPushState("needs-install")
+      setPushPanelOpen(true)
+      return
+    }
+
+    if (capabilities.notificationPermission === "denied") {
+      setPushState("blocked")
+      setPushPanelOpen(true)
       return
     }
 
@@ -350,10 +422,12 @@ export default function MozoSalonPanelPage() {
       const permission = await Notification.requestPermission()
       if (permission === "denied") {
         setPushState("blocked")
+        refreshPwaInfo()
         return
       }
       if (permission !== "granted") {
         setPushState("idle")
+        refreshPwaInfo()
         return
       }
 
@@ -385,7 +459,7 @@ export default function MozoSalonPanelPage() {
       })
       const data = await res.json().catch(() => ({}))
 
-      if (!res.ok) {
+      if (!res.ok || data.subscribed !== true) {
         if (createdSubscription) {
           await subscription.unsubscribe().catch(() => undefined)
         }
@@ -393,6 +467,13 @@ export default function MozoSalonPanelPage() {
       }
 
       setPushState("active")
+      refreshPwaInfo()
+      setShowPushIntro(false)
+      try {
+        window.localStorage.setItem(MOZO_PUSH_INTRO_DISMISSED_KEY, "1")
+      } catch {
+        // Ignore local preference persistence failures.
+      }
       toast.success("Avisos de pedidos listos activados")
     } catch (error) {
       setPushError(error instanceof Error ? error.message : "No se pudo activar la suscripcion")
@@ -416,12 +497,66 @@ export default function MozoSalonPanelPage() {
       }
 
       setPushState("idle")
+      refreshPwaInfo()
       toast.success("Avisos de pedidos listos desactivados")
     } catch (error) {
       setPushError(error instanceof Error ? error.message : "No se pudo desactivar la suscripcion")
       setPushState("error")
     }
   }
+
+  const handleInstallApp = async () => {
+    if (!installPrompt.isInstallable) return
+
+    setInstallingApp(true)
+    try {
+      await installPrompt.promptInstall()
+      refreshPwaInfo()
+    } finally {
+      setInstallingApp(false)
+    }
+  }
+
+  const handleBellClick = () => {
+    if (
+      pushState === "active" ||
+      pushState === "blocked" ||
+      pushState === "unsupported" ||
+      pushState === "needs-install" ||
+      (installPrompt.isInstallable && !pwaInfo.isStandalone) ||
+      pwaInfo.isIos
+    ) {
+      setPushPanelOpen((current) => !current)
+      return
+    }
+
+    void handleEnablePush()
+  }
+
+  const dismissPushIntro = () => {
+    setShowPushIntro(false)
+    try {
+      window.localStorage.setItem(MOZO_PUSH_INTRO_DISMISSED_KEY, "1")
+    } catch {
+      // Ignore local preference persistence failures.
+    }
+  }
+
+  useEffect(() => {
+    if (!pwaInfo.isStandalone) return
+    if (pushState !== "idle") return
+    if (pwaInfo.notificationPermission === "denied") return
+
+    try {
+      if (window.localStorage.getItem(MOZO_PUSH_INTRO_DISMISSED_KEY) === "1") {
+        return
+      }
+    } catch {
+      return
+    }
+
+    setShowPushIntro(true)
+  }, [pwaInfo.isStandalone, pwaInfo.notificationPermission, pushState])
 
   const zonas = useMemo(() => {
     if (state.status !== "ready") return []
@@ -569,6 +704,43 @@ export default function MozoSalonPanelPage() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <div className="relative">
+              <Button
+                variant={pushState === "active" ? "default" : "outline"}
+                size="icon"
+                className={cn(
+                  "h-10 w-10 rounded-xl",
+                  pushState === "active" && "bg-emerald-600 text-white hover:bg-emerald-700"
+                )}
+                onClick={handleBellClick}
+                aria-label={pushState === "active" ? "Avisos activos" : "Gestionar avisos"}
+                title={pushState === "active" ? "Avisos activos" : "Gestionar avisos"}
+              >
+                {pushState === "checking" || pushState === "activating" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : pushState === "active" ? (
+                  <BellRing className="h-4 w-4" />
+                ) : (
+                  <Bell className="h-4 w-4" />
+                )}
+              </Button>
+              {pushState === "active" && (
+                <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-background bg-emerald-400" />
+              )}
+              {pushPanelOpen && (
+                <PushNoticePanel
+                  state={pushState}
+                  error={pushError}
+                  pwaInfo={pwaInfo}
+                  isInstallable={installPrompt.isInstallable}
+                  installingApp={installingApp}
+                  onEnable={handleEnablePush}
+                  onDisable={handleDisablePush}
+                  onInstall={handleInstallApp}
+                  onClose={() => setPushPanelOpen(false)}
+                />
+              )}
+            </div>
             <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={() => loadPanel({ silent: true })} aria-label="Actualizar salon">
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -611,12 +783,13 @@ export default function MozoSalonPanelPage() {
           <SummaryCard icon={<ShoppingBag className="h-4 w-4" />} label="Con pedidos" value={data.resumen.mesasConPedidos} />
         </div>
 
-        <PushSubscriptionCard
-          state={pushState}
-          error={pushError}
-          onEnable={handleEnablePush}
-          onDisable={handleDisablePush}
-        />
+        {showPushIntro && (
+          <PushIntroCard
+            onEnable={handleEnablePush}
+            onDismiss={dismissPushIntro}
+            loading={pushState === "activating"}
+          />
+        )}
 
         <div className="space-y-4">
           {actionError && (
@@ -811,16 +984,67 @@ function SummaryCard({
   )
 }
 
-function PushSubscriptionCard({
+function PushIntroCard({
+  onEnable,
+  onDismiss,
+  loading,
+}: {
+  onEnable: () => void
+  onDismiss: () => void
+  loading: boolean
+}) {
+  return (
+    <Card className="rounded-2xl border-amber-200 bg-amber-50/80 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white">
+            <Bell className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="font-bold">Activa avisos de pedidos listos.</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Te avisaremos aunque la app quede en segundo plano.
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            className="h-10 rounded-xl bg-amber-500 text-white hover:bg-amber-600"
+            onClick={onEnable}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+            Activar avisos
+          </Button>
+          <Button variant="outline" className="h-10 rounded-xl" onClick={onDismiss}>
+            Ahora no
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PushNoticePanel({
   state,
   error,
+  pwaInfo,
+  isInstallable,
+  installingApp,
   onEnable,
   onDisable,
+  onInstall,
+  onClose,
 }: {
   state: PushNoticeState
   error: string | null
+  pwaInfo: PwaCapabilities
+  isInstallable: boolean
+  installingApp: boolean
   onEnable: () => void
   onDisable: () => void
+  onInstall: () => void
+  onClose: () => void
 }) {
   const isBusy = state === "checking" || state === "activating"
   const isActive = state === "active"
@@ -835,18 +1059,32 @@ function PushSubscriptionCard({
   } else if (state === "blocked") {
     icon = <AlertTriangle className="h-4 w-4" />
     title = "Avisos bloqueados"
-    description = "Activalos desde los permisos del navegador para recibir avisos."
+    description = pwaInfo.isIos
+      ? "Reactivarlos requiere cambiar los permisos desde Ajustes del sistema para esta web app."
+      : "Activalos desde los permisos del navegador para recibir avisos."
   } else if (state === "unsupported") {
     title = "Avisos no disponibles"
     description = "Este navegador no soporta notificaciones push."
+  } else if (state === "needs-install") {
+    icon = <Smartphone className="h-4 w-4" />
+    title = "Instala la app en iPhone"
+    description = "Para recibir avisos en iPhone, agrega DeliGO a tu pantalla de inicio."
   } else if (state === "error") {
     icon = <AlertTriangle className="h-4 w-4" />
     title = "No se pudo activar avisos"
   }
 
   return (
-    <Card className="rounded-2xl border-border/60 bg-card/90 shadow-sm">
-      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="absolute right-0 top-12 z-50 w-[min(calc(100vw-2rem),22rem)] rounded-2xl border border-border/70 bg-card p-4 text-left shadow-2xl">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-3 top-3 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Cerrar panel de avisos"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <div className="space-y-4 pr-6">
         <div className="flex items-start gap-3">
           <div
             className={cn(
@@ -863,24 +1101,57 @@ function PushSubscriptionCard({
             <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
           </div>
         </div>
-        {state !== "unsupported" && state !== "blocked" && (
+
+        {state === "needs-install" && pwaInfo.isIos && (
+          <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/30">
+            <p className="font-semibold">Safari en iPhone/iPad</p>
+            <p className="text-muted-foreground">Abri esta pagina con Safari.</p>
+            <p className="text-muted-foreground">
+              Toca <Share2 className="inline h-3.5 w-3.5" /> Compartir y elegi Agregar a pantalla de inicio.
+            </p>
+            <p className="text-muted-foreground">
+              Luego abri DeliGO desde el icono y activa los avisos desde esta campanita.
+            </p>
+          </div>
+        )}
+
+        {isInstallable && state !== "active" && (
           <Button
-            className="h-10 shrink-0 rounded-xl"
-            variant={isActive ? "outline" : "default"}
-            onClick={isActive ? onDisable : onEnable}
-            disabled={isBusy}
+            className="h-10 w-full rounded-xl"
+            variant="outline"
+            onClick={onInstall}
+            disabled={installingApp}
           >
-            {isBusy ? (
+            {installingApp ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : isActive ? (
-              "Desactivar"
             ) : (
-              "Activar avisos"
+              <Download className="h-4 w-4" />
             )}
+            Instalar app
           </Button>
         )}
-      </CardContent>
-    </Card>
+
+        {state === "active" ? (
+          <Button
+            className="h-10 w-full rounded-xl"
+            variant="outline"
+            onClick={onDisable}
+            disabled={isBusy}
+          >
+            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desactivar avisos"}
+          </Button>
+        ) : state !== "unsupported" && state !== "blocked" && state !== "needs-install" ? (
+          <Button
+            className="h-10 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600"
+            onClick={onEnable}
+            disabled={isBusy}
+          >
+            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+            Activar avisos
+          </Button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 

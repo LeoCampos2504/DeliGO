@@ -18,12 +18,22 @@ import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
  * 4. Already installed → Nothing
  */
 export function InstallPrompt() {
+  const pathname = usePathname()
+  if (isMozoRoute(pathname)) return null
+
+  return <InstallPromptInner pathname={pathname} />
+}
+
+function isMozoRoute(pathname: string) {
+  return pathname === "/mozo" || pathname.startsWith("/mozo/")
+}
+
+function InstallPromptInner({ pathname }: { pathname: string }) {
   const { isInstallable, isInstalled, promptInstall, shouldShowManualPrompt, platform, secureContext, androidBrowser } = useInstallPrompt()
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
 
-  const pathname = usePathname()
   const role = getRoleFromPath(pathname)
   const config = getRoleConfig(role)
 

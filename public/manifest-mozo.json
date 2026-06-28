@@ -1,14 +1,14 @@
 {
-  "id": "/m/?pwa=mozo",
+  "id": "/mozo?pwa=mozo",
   "name": "DeliGO Mozos - Gestión de Mesas",
   "short_name": "DeliGO Mozos",
   "description": "Gestioná tus mesas y pedidos en tiempo real. App exclusiva para mozos.",
-  "start_url": "/m/",
+  "start_url": "/mozo/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#D97706",
   "orientation": "portrait-primary",
-  "scope": "/m/",
+  "scope": "/mozo/",
   "lang": "es",
   "categories": ["business", "lifestyle", "productivity"],
   "icons": [

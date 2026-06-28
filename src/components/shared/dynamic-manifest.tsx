@@ -14,7 +14,9 @@ import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
  */
 export function DynamicManifest() {
   const pathname = usePathname()
-  const role = getRoleFromPath(pathname)
+  const role = pathname === "/mozo" || pathname.startsWith("/mozo/")
+    ? "mozo"
+    : getRoleFromPath(pathname)
   const config = getRoleConfig(role)
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Bell, X, Shield, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,6 +10,10 @@ import { useAuthStore } from "@/store/auth-store"
 const STORAGE_KEY = "deligo-permissions-prompted"
 
 type PromptState = "idle" | "showing" | "requesting" | "done"
+
+function isMozoRoute(pathname: string) {
+  return pathname === "/mozo" || pathname.startsWith("/mozo/")
+}
 
 async function savePushSubscription(subscription: PushSubscription): Promise<void> {
   await fetch("/api/push/subscribe", {
@@ -33,6 +38,8 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
  * - Real-time GPS (repartidor): requested contextually when starting delivery tracking
  */
 export function PermissionPrompt() {
+  const pathname = usePathname()
+  const isMozo = isMozoRoute(pathname)
   const [state, setState] = useState<PromptState>("idle")
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | "default">("default")
 
@@ -50,6 +57,8 @@ export function PermissionPrompt() {
   }, [])
 
   const syncExistingPushSubscription = useCallback(async () => {
+    if (isMozo) return
+
     if (
       typeof window === "undefined" ||
       !("serviceWorker" in navigator) ||
@@ -65,9 +74,14 @@ export function PermissionPrompt() {
     if (subscription) {
       await savePushSubscription(subscription)
     }
-  }, [])
+  }, [isMozo])
 
   useEffect(() => {
+    if (isMozo) {
+      setState("idle")
+      return
+    }
+
     if (!isAuth || !uType) {
       setState("idle")
       return
@@ -95,9 +109,11 @@ export function PermissionPrompt() {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [isAuth, uType, checkPermission, syncExistingPushSubscription])
+  }, [isMozo, isAuth, uType, checkPermission, syncExistingPushSubscription])
 
   const handleAccept = async () => {
+    if (isMozo) return
+
     setState("requesting")
 
     try {
@@ -140,6 +156,8 @@ export function PermissionPrompt() {
   }
 
   const handleDismiss = () => {
+    if (isMozo) return
+
     localStorage.setItem(STORAGE_KEY, "true")
     setState("done")
   }
@@ -155,6 +173,8 @@ export function PermissionPrompt() {
         return "Recibí alertas de tus pedidos y promociones exclusivas."
     }
   }
+
+  if (isMozo) return null
 
   return (
     <AnimatePresence>
