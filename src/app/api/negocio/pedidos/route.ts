@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -167,7 +168,26 @@ export async function PUT(req: NextRequest) {
     }
 
     // Get the pedido
-    const pedido = await db.pedido.findUnique({ where: { id: pedidoId } })
+    const pedido = await db.pedido.findUnique({
+      where: { id: pedidoId },
+      select: {
+        id: true,
+        negocioId: true,
+        negocioNombre: true,
+        clienteId: true,
+        direccion: true,
+        metodoEntrega: true,
+        mesaId: true,
+        mesaNumero: true,
+        empleadoId: true,
+        estado: true,
+        deudaAcumulada: true,
+        clienteConfirmaRecibido: true,
+        negocio: {
+          select: { slug: true },
+        },
+      },
+    })
 
     if (!pedido || pedido.negocioId !== negocioId) {
       return NextResponse.json(
@@ -251,6 +271,25 @@ export async function PUT(req: NextRequest) {
         },
       },
     })
+
+    if (estado === "listo_para_retirar" && pedido.metodoEntrega === "mesa") {
+      try {
+        await notifyMesaOrderReadyForMozo({
+          pedido: {
+            id: pedido.id,
+            negocioId: pedido.negocioId,
+            negocioSlug: pedido.negocio.slug,
+            metodoEntrega: pedido.metodoEntrega,
+            mesaId: pedido.mesaId,
+            mesaNumero: pedido.mesaNumero,
+            empleadoId: pedido.empleadoId,
+          },
+          estadoAnterior: currentEstado,
+        })
+      } catch (mozoPushError) {
+        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, mozoPushError)
+      }
+    }
 
     const { clienteTelefono: _ct, ...updatedSafe } = updated
     return NextResponse.json({
