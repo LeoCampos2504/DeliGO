@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   Armchair,
   ArrowLeft,
+  Bell,
+  BellRing,
   CheckCircle2,
   Loader2,
   LogOut,
@@ -17,6 +19,7 @@ import {
   ShoppingBag,
   UserCheck,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -34,6 +37,7 @@ interface MesaOperativa {
   asignadaAMi: boolean
   asignadaAOtro: boolean
   pedidosActivos: Array<{
+    id: string
     estado: string
     total: number
   }>
@@ -72,6 +76,22 @@ type PageState =
   | { status: "unavailable" }
   | { status: "error"; message: string }
 
+type PushNoticeState =
+  | "checking"
+  | "unsupported"
+  | "idle"
+  | "activating"
+  | "active"
+  | "blocked"
+  | "error"
+
+type ReadyMesaOrder = {
+  id: string
+  mesaId: string
+  mesaNumero: number
+  total: number
+}
+
 const ESTADO_LABEL: Record<string, string> = {
   recibido: "Nuevo",
   preparando: "Preparando",
@@ -97,6 +117,23 @@ function updatePanelMesa(data: PanelData, updatedMesa: MesaOperativa): PanelData
   }
 }
 
+function collectReadyMesaOrders(data: PanelData): ReadyMesaOrder[] {
+  const readyOrders: ReadyMesaOrder[] = []
+  for (const mesa of data.mesas) {
+    for (const pedido of mesa.pedidosActivos) {
+      if (pedido.estado === "listo_para_retirar") {
+        readyOrders.push({
+          id: pedido.id,
+          mesaId: mesa.id,
+          mesaNumero: mesa.numero,
+          total: pedido.total,
+        })
+      }
+    }
+  }
+  return readyOrders
+}
+
 export default function MozoSalonPanelPage() {
   const params = useParams<{ slug: string }>()
   const router = useRouter()
@@ -105,14 +142,55 @@ export default function MozoSalonPanelPage() {
   const [actionMesaIds, setActionMesaIds] = useState<Set<string>>(() => new Set())
   const [actionError, setActionError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [pushState, setPushState] = useState<PushNoticeState>("checking")
+  const [pushError, setPushError] = useState<string | null>(null)
   const refreshGenerationRef = useRef(0)
   const silentRefreshRef = useRef<{ controller: AbortController; generation: number } | null>(null)
+  const readyOrderIdsRef = useRef<Set<string>>(new Set())
+  const notifiedReadyOrderIdsRef = useRef<Set<string>>(new Set())
+  const hasSeededReadyOrdersRef = useRef(false)
 
   const invalidateSilentRefresh = useCallback(() => {
     refreshGenerationRef.current += 1
     silentRefreshRef.current?.controller.abort()
     silentRefreshRef.current = null
   }, [])
+
+  const scrollToMesa = useCallback((mesaId: string) => {
+    const element = document.getElementById(`mesa-${mesaId}`)
+    element?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [])
+
+  const syncReadyMesaOrders = useCallback((data: PanelData, notify: boolean) => {
+    const readyOrders = collectReadyMesaOrders(data)
+    const currentReadyIds = new Set(readyOrders.map((order) => order.id))
+
+    if (!hasSeededReadyOrdersRef.current) {
+      readyOrderIdsRef.current = currentReadyIds
+      hasSeededReadyOrdersRef.current = true
+      return
+    }
+
+    if (notify) {
+      for (const order of readyOrders) {
+        if (
+          !readyOrderIdsRef.current.has(order.id) &&
+          !notifiedReadyOrderIdsRef.current.has(order.id)
+        ) {
+          notifiedReadyOrderIdsRef.current.add(order.id)
+          toast("Pedido listo", {
+            description: `Mesa ${order.mesaNumero} - ${formatPrice(order.total)}`,
+            action: {
+              label: "Ver mesa",
+              onClick: () => scrollToMesa(order.mesaId),
+            },
+          })
+        }
+      }
+    }
+
+    readyOrderIdsRef.current = currentReadyIds
+  }, [scrollToMesa])
 
   const loadPanel = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     let controller: AbortController | null = null
@@ -160,6 +238,7 @@ export default function MozoSalonPanelPage() {
         throw new Error(data.error || "No se pudo cargar el salon")
       }
 
+      syncReadyMesaOrders(data, true)
       setState({ status: "ready", data })
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
@@ -174,7 +253,13 @@ export default function MozoSalonPanelPage() {
         silentRefreshRef.current = null
       }
     }
-  }, [invalidateSilentRefresh, slug])
+  }, [invalidateSilentRefresh, slug, syncReadyMesaOrders])
+
+  useEffect(() => {
+    readyOrderIdsRef.current = new Set()
+    notifiedReadyOrderIdsRef.current = new Set()
+    hasSeededReadyOrdersRef.current = false
+  }, [slug])
 
   useEffect(() => {
     loadPanel()
@@ -205,6 +290,138 @@ export default function MozoSalonPanelPage() {
       invalidateSilentRefresh()
     }
   }, [invalidateSilentRefresh, loadPanel])
+
+  const checkPushSubscription = useCallback(async () => {
+    setPushError(null)
+
+    if (
+      typeof window === "undefined" ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window) ||
+      !("Notification" in window)
+    ) {
+      setPushState("unsupported")
+      return
+    }
+
+    if (Notification.permission === "denied") {
+      setPushState("blocked")
+      return
+    }
+
+    try {
+      setPushState("checking")
+      const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription`, {
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || "No se pudo consultar la suscripcion")
+      }
+
+      const serverSubscribed = data.subscribed === true
+
+      setPushState(
+        Notification.permission === "granted" && serverSubscribed
+          ? "active"
+          : "idle"
+      )
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : "No se pudo consultar la suscripcion")
+      setPushState("error")
+    }
+  }, [slug])
+
+  useEffect(() => {
+    void checkPushSubscription()
+  }, [checkPushSubscription])
+
+  const handleEnablePush = async () => {
+    setPushError(null)
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushState("unsupported")
+      return
+    }
+
+    try {
+      setPushState("activating")
+      const permission = await Notification.requestPermission()
+      if (permission === "denied") {
+        setPushState("blocked")
+        return
+      }
+      if (permission !== "granted") {
+        setPushState("idle")
+        return
+      }
+
+      const keyResponse = await fetch("/api/push/vapid-key", { cache: "no-store" })
+      const keyData = await keyResponse.json().catch(() => ({}))
+      const publicKey = typeof keyData.publicKey === "string" ? keyData.publicKey : ""
+      if (!keyResponse.ok || !publicKey) {
+        throw new Error("No se pudo activar la suscripcion")
+      }
+
+      await navigator.serviceWorker.register("/sw.js")
+      const registration = await navigator.serviceWorker.ready
+      let subscription = await registration.pushManager.getSubscription()
+      let createdSubscription = false
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: publicKey,
+        })
+        createdSubscription = true
+      }
+
+      const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ subscription: JSON.stringify(subscription) }),
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        if (createdSubscription) {
+          await subscription.unsubscribe().catch(() => undefined)
+        }
+        throw new Error(data.error || "No se pudo guardar la suscripcion")
+      }
+
+      setPushState("active")
+      toast.success("Avisos de pedidos listos activados")
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : "No se pudo activar la suscripcion")
+      setPushState("error")
+    }
+  }
+
+  const handleDisablePush = async () => {
+    setPushError(null)
+
+    try {
+      setPushState("activating")
+      const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription`, {
+        method: "DELETE",
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || "No se pudo desactivar la suscripcion")
+      }
+
+      setPushState("idle")
+      toast.success("Avisos de pedidos listos desactivados")
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : "No se pudo desactivar la suscripcion")
+      setPushState("error")
+    }
+  }
 
   const zonas = useMemo(() => {
     if (state.status !== "ready") return []
@@ -252,11 +469,12 @@ export default function MozoSalonPanelPage() {
       }
 
       if (data.mesa) {
-        setState((current) =>
-          current.status === "ready"
-            ? { status: "ready", data: updatePanelMesa(current.data, data.mesa) }
-            : current
-        )
+        setState((current) => {
+          if (current.status !== "ready") return current
+          const nextData = updatePanelMesa(current.data, data.mesa)
+          syncReadyMesaOrders(nextData, false)
+          return { status: "ready", data: nextData }
+        })
       }
       invalidateSilentRefresh()
       void loadPanel({ silent: true })
@@ -393,6 +611,13 @@ export default function MozoSalonPanelPage() {
           <SummaryCard icon={<ShoppingBag className="h-4 w-4" />} label="Con pedidos" value={data.resumen.mesasConPedidos} />
         </div>
 
+        <PushSubscriptionCard
+          state={pushState}
+          error={pushError}
+          onEnable={handleEnablePush}
+          onDisable={handleDisablePush}
+        />
+
         <div className="space-y-4">
           {actionError && (
             <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -456,11 +681,15 @@ function MesaCard({
   onMesaAction: () => void
   onOrder: () => void
 }) {
+  const readyOrders = mesa.pedidosActivos.filter((pedido) => pedido.estado === "listo_para_retirar")
+
   return (
     <Card
+      id={`mesa-${mesa.id}`}
       className={cn(
         "overflow-hidden rounded-2xl border-border/60 bg-card shadow-sm transition hover:shadow-md",
         mesa.asignadaAMi && "border-amber-300 ring-1 ring-amber-200/70 dark:border-amber-800 dark:ring-amber-900/50",
+        readyOrders.length > 0 && "border-emerald-300 ring-1 ring-emerald-200/80 dark:border-emerald-800 dark:ring-emerald-900/60",
         mesa.asignadaAOtro && "opacity-75"
       )}
     >
@@ -487,6 +716,15 @@ function MesaCard({
           <MesaBadge mesa={mesa} />
         </div>
 
+        {readyOrders.length > 0 && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <p className="font-bold">Pedido listo para entregar</p>
+            <p className="text-xs opacity-80">
+              {readyOrders.length} pedido{readyOrders.length === 1 ? "" : "s"} listo{readyOrders.length === 1 ? "" : "s"}
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="rounded-xl border border-border/60 bg-background/60 p-3">
             <p className="text-xs text-muted-foreground">Capacidad</p>
@@ -510,8 +748,8 @@ function MesaCard({
 
         {mesa.pedidosActivos.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {mesa.pedidosActivos.map((pedido, index) => (
-              <Badge key={`${mesa.id}:${index}`} variant="outline" className="rounded-full text-[10px]">
+            {mesa.pedidosActivos.map((pedido) => (
+              <Badge key={pedido.id} variant="outline" className="rounded-full text-[10px]">
                 {ESTADO_LABEL[pedido.estado] ?? pedido.estado}
               </Badge>
             ))}
@@ -568,6 +806,79 @@ function SummaryCard({
             <p className="text-xs text-muted-foreground">{label}</p>
           </div>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PushSubscriptionCard({
+  state,
+  error,
+  onEnable,
+  onDisable,
+}: {
+  state: PushNoticeState
+  error: string | null
+  onEnable: () => void
+  onDisable: () => void
+}) {
+  const isBusy = state === "checking" || state === "activating"
+  const isActive = state === "active"
+  let icon = <Bell className="h-4 w-4" />
+  let title = "Avisos de pedidos listos"
+  let description = error || "Activar avisos permite enterarte de pedidos listos aunque la PWA quede en segundo plano."
+
+  if (isActive) {
+    icon = <BellRing className="h-4 w-4" />
+    title = "Avisos activos"
+    description = "Este navegador recibira avisos cuando tus mesas tengan pedidos listos."
+  } else if (state === "blocked") {
+    icon = <AlertTriangle className="h-4 w-4" />
+    title = "Avisos bloqueados"
+    description = "Activalos desde los permisos del navegador para recibir avisos."
+  } else if (state === "unsupported") {
+    title = "Avisos no disponibles"
+    description = "Este navegador no soporta notificaciones push."
+  } else if (state === "error") {
+    icon = <AlertTriangle className="h-4 w-4" />
+    title = "No se pudo activar avisos"
+  }
+
+  return (
+    <Card className="rounded-2xl border-border/60 bg-card/90 shadow-sm">
+      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+              isActive
+                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+            )}
+          >
+            {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+          </div>
+          <div>
+            <p className="font-bold">{title}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+          </div>
+        </div>
+        {state !== "unsupported" && state !== "blocked" && (
+          <Button
+            className="h-10 shrink-0 rounded-xl"
+            variant={isActive ? "outline" : "default"}
+            onClick={isActive ? onDisable : onEnable}
+            disabled={isBusy}
+          >
+            {isBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isActive ? (
+              "Desactivar"
+            ) : (
+              "Activar avisos"
+            )}
+          </Button>
+        )}
       </CardContent>
     </Card>
   )

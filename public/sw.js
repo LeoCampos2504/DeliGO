@@ -274,6 +274,39 @@ self.addEventListener("notificationclick", (event) => {
     type === "empleados_new_review" ||
     type === "mesa_order_ready"
   ) {
+    const directMozoPanelUrl =
+      type === "mesa_order_ready" &&
+      typeof notificationData.url === "string" &&
+      notificationData.url.startsWith("/mozo/panel/")
+        ? notificationData.url
+        : null;
+
+    if (directMozoPanelUrl) {
+      event.waitUntil(
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+          for (const client of clients) {
+            if ("focus" in client && "navigate" in client) {
+              const clientUrl = new URL(client.url);
+              if (clientUrl.pathname.startsWith("/mozo/panel/")) {
+                client.focus();
+                client.navigate(directMozoPanelUrl);
+                return;
+              }
+            }
+          }
+          for (const client of clients) {
+            if ("focus" in client && "navigate" in client) {
+              client.focus();
+              client.navigate(directMozoPanelUrl);
+              return;
+            }
+          }
+          return self.clients.openWindow(directMozoPanelUrl);
+        })
+      );
+      return;
+    }
+
     // Determine the preferred path prefix(es) for this notification type.
     let preferredPrefixes;
     if (type === "salon_new_order") {

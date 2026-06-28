@@ -567,26 +567,24 @@ export function reviewRequestNotification(
 export function mesaOrderReadyNotification(
   pedidoId: string,
   mesaNumero: number,
-  clienteNombre: string
+  options?: { panelUrl?: string }
 ): PushNotificationPayload {
-  // For mesa orders there is often no customer session (the mozo took the
-  // order), so clienteNombre may be "Invitado". In that case we just reference
-  // the mesa number instead of showing "Invitado" to the mozo.
-  const autor = clienteNombre && clienteNombre !== "Invitado" ? clienteNombre : null
-  const body = autor
-    ? `El pedido de ${autor} en la mesa ${mesaNumero} está listo para servir`
-    : `El pedido de la mesa ${mesaNumero} está listo para servir`
+  const panelUrl = options?.panelUrl?.startsWith("/mozo/panel/")
+    ? options.panelUrl
+    : undefined
+
   return {
-    title: `Mesa ${mesaNumero} — Pedido listo 🍽️`,
-    body,
+    title: "Pedido listo",
+    body: `Mesa ${mesaNumero} lista para entregar`,
     tag: `mesa-ready-${pedidoId}`,
     data: {
       type: "mesa_order_ready",
       pedidoId,
       mesaNumero,
+      ...(panelUrl ? { url: panelUrl } : {}),
     },
     actions: [
-      { action: "view", title: "Ver pedido" },
+      { action: "view", title: "Ver salon" },
     ],
     requireInteraction: true,
   }

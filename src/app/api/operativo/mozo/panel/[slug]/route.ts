@@ -24,6 +24,7 @@ type MesaWithEmpleado = {
 }
 
 type MesaOrder = {
+  id: string
   mesaNumero: number | null
   estado: string
   total: number
@@ -57,6 +58,7 @@ function serializeMesa(
     asignadaAMi: mesa.empleadoId === empleadoId,
     asignadaAOtro: !!mesa.empleadoId && mesa.empleadoId !== empleadoId,
     pedidosActivos: orders.map((order) => ({
+      id: order.id,
       estado: order.estado,
       total: order.total,
     })),
@@ -73,6 +75,7 @@ async function getActiveMesaOrders(negocioId: string) {
       estado: { in: ACTIVE_MESA_ORDER_STATES },
     },
     select: {
+      id: true,
       mesaNumero: true,
       estado: true,
       total: true,

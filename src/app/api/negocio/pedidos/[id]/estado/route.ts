@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification, mesaOrderReadyNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
+import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -240,82 +241,22 @@ export async function PATCH(
       }
     }
 
-    // Send push notification to the mozo when a mesa order is ready (listo_para_retirar)
-    // Primary source: pedido.empleadoId (the mozo who took the order)
-    // Fallback: mesa.empleadoId (the mozo currently assigned to the mesa)
     if (estado === "listo_para_retirar" && pedido.metodoEntrega === "mesa") {
       try {
-        console.log(`[Push/Mozo] (negocio) Pedido ${pedidoId} → listo_para_retirar. Resolviendo mozo (empleadoId=${pedido.empleadoId}, mesaId=${pedido.mesaId})`)
-
-        let mozo: { id: string; nombre: string; pushSubscription: string | null } | null = null
-
-        // Try the mozo who took the order first
-        if (pedido.empleadoId) {
-          mozo = await db.empleado.findFirst({
-            where: {
-              id: pedido.empleadoId,
-              rol: "mozo",
-              activo: true,
-              eliminado: false,
-            },
-            select: { id: true, nombre: true, pushSubscription: true },
-          })
-          console.log(`[Push/Mozo] (negocio) Mozo del pedido (empleadoId=${pedido.empleadoId}):`, mozo ? `${mozo.nombre} (push=${mozo.pushSubscription ? "sí" : "no"})` : "no encontrado")
-        }
-
-        // Fallback: mozo currently assigned to the mesa
-        if (!mozo?.pushSubscription && pedido.mesaId) {
-          const mesa = await db.mesa.findUnique({
-            where: { id: pedido.mesaId },
-            include: {
-              empleado: { select: { id: true, nombre: true, pushSubscription: true } },
-            },
-          })
-          console.log(`[Push/Mozo] (negocio) Mesa ${pedido.mesaId}:`, mesa ? `empleadoId=${mesa.empleadoId}, push=${mesa.empleado?.pushSubscription ? "sí" : "no"}` : "no encontrada")
-          if (mesa?.empleado?.pushSubscription) {
-            const mesaMozo = await db.empleado.findFirst({
-              where: {
-                id: mesa.empleado.id,
-                rol: "mozo",
-                activo: true,
-                eliminado: false,
-              },
-              select: { id: true, nombre: true, pushSubscription: true },
-            })
-            if (mesaMozo?.pushSubscription) {
-              mozo = mesaMozo
-            }
-          }
-        }
-
-        if (mozo?.pushSubscription) {
-          const mesaNumero = pedido.mesaNumero ?? 0
-          const mozoPayload = mesaOrderReadyNotification(
-            pedidoId,
-            mesaNumero,
-            pedido.clienteNombre
-          )
-          console.log(`[Push/Mozo] (negocio) Enviando push a mozo ${mozo.id} (${mozo.nombre}) para mesa ${mesaNumero}`)
-          await createNotification({
-            userId: mozo.id,
-            userType: "empleado",
-            tipo: "mesa_order_ready",
-            titulo: mozoPayload.title,
-            cuerpo: mozoPayload.body,
-            pedidoId: pedidoId,
-            negocioId: negocioId,
-            datos: { mesaNumero },
-            pushSubscription: mozo.pushSubscription,
-            pushPayload: mozoPayload,
-            cleanupExpired: { model: "empleado", id: mozo.id },
-            awaitPush: true,
-          })
-          console.log(`[Push/Mozo] (negocio) Push enviado para pedido ${pedidoId}`)
-        } else {
-          console.warn(`[Push/Mozo] (negocio) No se encontró mozo con push subscription para pedido ${pedidoId} (empleadoId=${pedido.empleadoId})`)
-        }
+        await notifyMesaOrderReadyForMozo({
+          pedido: {
+            id: pedidoId,
+            negocioId,
+            negocioSlug: pedido.negocioSlug,
+            metodoEntrega: pedido.metodoEntrega,
+            mesaId: pedido.mesaId,
+            mesaNumero: pedido.mesaNumero,
+            empleadoId: pedido.empleadoId,
+          },
+          estadoAnterior: currentEstado,
+        })
       } catch (mozoPushError) {
-        console.error(`[Push/Mozo] (negocio) Failed to send mozo notification for pedido ${pedidoId}:`, mozoPushError)
+        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, mozoPushError)
       }
     }
 
