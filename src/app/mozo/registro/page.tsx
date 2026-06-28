@@ -39,7 +39,7 @@ export default function MozoRegistroPage() {
       if (!res.ok) {
         throw new Error(data.error || "No se pudo crear la cuenta")
       }
-      router.replace("/mozo/iniciar-sesion")
+      router.replace("/mozo")
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo crear la cuenta")
     } finally {

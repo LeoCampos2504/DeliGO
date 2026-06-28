@@ -32,7 +32,7 @@ export default function MozoLoginPage() {
       if (!res.ok) {
         throw new Error(data.error || "No se pudo iniciar sesión")
       }
-      router.replace("/mozo/unirse")
+      router.replace("/mozo")
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo iniciar sesión")
     } finally {

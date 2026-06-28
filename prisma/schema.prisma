@@ -372,6 +372,10 @@ model Pedido {
   empleadoId     String?
   empleadoNombre String?
 
+  // Idempotencia de operaciones
+  idempotencyKey         String?
+  idempotencyFingerprint String?
+
   // Ubicación negocio al momento del pedido
   negocioLat Float?
   negocioLng Float?
@@ -413,6 +417,7 @@ model Pedido {
   resena   Resena?
   eventos  PedidoEvento[]
 
+  @@unique([negocioId, idempotencyKey])
   @@map("pedidos")
 }
 
