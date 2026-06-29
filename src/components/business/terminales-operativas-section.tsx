@@ -151,6 +151,9 @@ export function TerminalesOperativasSection({ negocio }: SectionProps) {
     [negocio.id]
   )
 
+  // Solo mientras el diálogo de vinculación esté abierto para una terminal pendiente.
+  const terminalVinculandoId = vincularTarget?.id ?? null
+
   const { data, isLoading, isError } = useQuery<{ terminales: TerminalOperativa[] }>({
     queryKey,
     queryFn: async () => {
@@ -158,9 +161,31 @@ export function TerminalesOperativasSection({ negocio }: SectionProps) {
       if (!res.ok) throw new Error("Error cargando terminales")
       return res.json()
     },
+    // Polling temporal: cada ~2s SOLO durante la vinculación. Continúa aunque la
+    // pestaña quede en segundo plano. No invalida credenciales ni regenera QR/código.
+    refetchInterval: terminalVinculandoId ? 2000 : false,
+    refetchIntervalInBackground: !!terminalVinculandoId,
   })
 
   const terminales = data?.terminales ?? []
+
+  // Observa la terminal en vinculación y reacciona a su cambio de estado.
+  useEffect(() => {
+    if (!terminalVinculandoId) return
+    const target = data?.terminales?.find((t) => t.id === terminalVinculandoId)
+    if (!target) return
+
+    if (target.estado === "revocado" || target.revokedAt) {
+      setVincularTarget(null)
+      toast.error("La terminal fue revocada antes de completar la vinculación.")
+      return
+    }
+    if (target.estado === "activo") {
+      setVincularTarget(null)
+      toast.success("Terminal vinculada correctamente")
+    }
+    // `pendiente` → sigue esperando, sin acción.
+  }, [terminalVinculandoId, data?.terminales])
 
   const revokeMutation = useMutation({
     mutationFn: async (id: string) => {
