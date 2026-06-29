@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import {
   Loader2,
@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   ShieldAlert,
   CheckCircle2,
+  WifiOff,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +45,8 @@ const PROFILE_LABELS: Record<string, string> = {
   personalizado: "Personalizado",
 }
 
+const REFRESH_MS = 5000
+
 interface TerminalContext {
   nombre: string
   estado: string
@@ -60,28 +64,49 @@ type PageState =
   | { status: "loading" }
   | { status: "no-session" }
   | { status: "error" }
-  | { status: "ready"; terminal: TerminalContext; negocio: NegocioContext }
+  | { status: "ready"; terminal: TerminalContext; negocio: NegocioContext; stale: boolean }
 
 export default function OperacionesPage() {
   const [state, setState] = useState<PageState>({ status: "loading" })
 
-  const load = useCallback(async () => {
-    setState({ status: "loading" })
+  const stoppedRef = useRef(false)
+  const acRef = useRef<AbortController | null>(null)
+  const genRef = useRef(0)
+
+  const applyTransientError = useCallback(() => {
+    // Error temporal: conservar el último contexto válido; nunca convertir en no-vinculada.
+    setState((prev) => (prev.status === "ready" ? { ...prev, stale: true } : { status: "error" }))
+  }, [])
+
+  const refresh = useCallback(async () => {
+    if (stoppedRef.current) return
+    acRef.current?.abort()
+    const ac = new AbortController()
+    acRef.current = ac
+    const gen = ++genRef.current
+
     try {
-      const res = await fetch("/api/operaciones/terminal/contexto", { cache: "no-store" })
+      const res = await fetch("/api/operaciones/terminal/contexto", { cache: "no-store", signal: ac.signal })
+      if (gen !== genRef.current) return
+
       if (res.status === 401) {
+        // Revocada / vencida / nunca vinculada → estado único, sin más polling.
+        stoppedRef.current = true
         setState({ status: "no-session" })
         return
       }
       if (!res.ok) {
-        setState({ status: "error" })
+        applyTransientError()
         return
       }
+
       const data = await res.json().catch(() => null)
+      if (gen !== genRef.current) return
       if (!data || !data.ok || !data.terminal || !data.negocio) {
-        setState({ status: "error" })
+        applyTransientError()
         return
       }
+
       setState({
         status: "ready",
         terminal: {
@@ -95,15 +120,38 @@ export default function OperacionesPage() {
           nombre: data.negocio.nombre,
           colorPrincipal: data.negocio.colorPrincipal || "#FB8C00",
         },
+        stale: false,
       })
     } catch {
-      setState({ status: "error" })
+      if (ac.signal.aborted) return
+      if (gen !== genRef.current) return
+      applyTransientError()
     }
-  }, [])
+  }, [applyTransientError])
 
+  // Refresco controlado: inmediato + cada 5s con pestaña visible + foco/visibilidad.
   useEffect(() => {
-    void load()
-  }, [load])
+    void refresh()
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh()
+    }, REFRESH_MS)
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh()
+    }
+    const onFocus = () => void refresh()
+
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("focus", onFocus)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("focus", onFocus)
+      acRef.current?.abort()
+    }
+  }, [refresh])
 
   if (state.status === "loading") {
     return (
@@ -150,11 +198,9 @@ export default function OperacionesPage() {
           </div>
           <div className="space-y-1">
             <h1 className="text-base font-bold">No se pudo cargar la terminal</h1>
-            <p className="text-sm text-muted-foreground">
-              Revisá la conexión e intentá de nuevo.
-            </p>
+            <p className="text-sm text-muted-foreground">Revisá la conexión e intentá de nuevo.</p>
           </div>
-          <Button className="rounded-xl w-full gap-2 font-semibold" onClick={() => load()}>
+          <Button className="rounded-xl w-full gap-2 font-semibold" onClick={() => refresh()}>
             <Loader2 className="h-4 w-4" />
             Reintentar
           </Button>
@@ -164,7 +210,7 @@ export default function OperacionesPage() {
   }
 
   // ── Terminal válida ──
-  const { terminal, negocio } = state
+  const { terminal, negocio, stale } = state
   const accent = negocio.colorPrincipal
 
   // Un área está disponible solo si está en terminal.areas y tiene su scope base de lectura.
@@ -198,6 +244,12 @@ export default function OperacionesPage() {
           <Badge variant="outline" className="text-[11px]">
             {PROFILE_LABELS[terminal.perfil] ?? terminal.perfil}
           </Badge>
+          {stale && (
+            <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+              <WifiOff className="h-3 w-3" />
+              Sin actualizar
+            </span>
+          )}
         </div>
         <p className="text-sm">
           <span className="text-muted-foreground">Terminal:</span>{" "}
@@ -252,12 +304,19 @@ function Shell({ children, wide = false }: { children: React.ReactNode; wide?: b
 }
 
 // ============================================
-// AreaCard — tarjeta de área (módulo de la próxima etapa)
+// AreaCard — Salón es navegable; PyR es informativa (próxima etapa)
 // ============================================
 function AreaCard({ area, accent }: { area: string; accent: string }) {
   const Icon = area === "salon" ? UtensilsCrossed : ClipboardList
-  return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-2">
+  const navigable = area === "salon" // solo Salón está implementado y requiere salon.ver (ya validado)
+
+  const inner = (
+    <div
+      className={cn(
+        "rounded-2xl border bg-card p-4 space-y-2 h-full transition-all",
+        navigable ? "border-border/60 hover:border-primary/40 hover:shadow-md cursor-pointer" : "border-border/60"
+      )}
+    >
       <div className="flex items-center gap-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -265,14 +324,33 @@ function AreaCard({ area, accent }: { area: string; accent: string }) {
         >
           <Icon className="h-5 w-5" />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-bold leading-tight">{AREA_LABELS[area] ?? area}</p>
           <p className="text-xs text-muted-foreground truncate">{AREA_DESCRIPTIONS[area] ?? ""}</p>
         </div>
+        {navigable && <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
       </div>
-      <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-2">
-        <p className="text-[11px] text-muted-foreground">Módulo disponible en la próxima etapa.</p>
-      </div>
+      {navigable ? (
+        <div
+          className="flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
+          style={{ backgroundColor: accent }}
+        >
+          Abrir Salón
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-2">
+          <p className="text-[11px] text-muted-foreground">Módulo disponible en la próxima etapa.</p>
+        </div>
+      )}
     </div>
   )
+
+  if (navigable) {
+    return (
+      <Link href="/operaciones/salon" className="block">
+        {inner}
+      </Link>
+    )
+  }
+  return inner
 }
