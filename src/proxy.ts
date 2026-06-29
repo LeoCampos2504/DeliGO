@@ -137,6 +137,7 @@ const ORIGIN_PROTECTED_PREFIXES = [
   "/api/denuncias",
   "/api/destacado-solicitud",
   "/api/notificaciones",
+  "/api/operaciones",
   "/api/operativo",
   "/api/pedidos",
   "/api/repartidor",

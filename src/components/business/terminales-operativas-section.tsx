@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion } from "framer-motion"
 import {
@@ -12,6 +12,10 @@ import {
   Check,
   Clock,
   Calendar,
+  Link2,
+  QrCode,
+  Copy,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -140,8 +144,12 @@ export function TerminalesOperativasSection({ negocio }: SectionProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<TerminalOperativa | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<TerminalOperativa | null>(null)
+  const [vincularTarget, setVincularTarget] = useState<TerminalOperativa | null>(null)
 
-  const queryKey = ["terminales-operativas", negocio.id]
+  const queryKey = useMemo<string[]>(
+    () => ["terminales-operativas", negocio.id],
+    [negocio.id]
+  )
 
   const { data, isLoading, isError } = useQuery<{ terminales: TerminalOperativa[] }>({
     queryKey,
@@ -282,13 +290,24 @@ export function TerminalesOperativasSection({ negocio }: SectionProps) {
                         {!isRevoked && t.estado === "pendiente" && (
                           <div className="mt-2 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 p-2">
                             <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
-                              La vinculación mediante QR o código temporal se incorporará en la próxima fase.
+                              Generá el QR o código temporal para vincular el dispositivo a esta terminal.
                             </p>
                           </div>
                         )}
 
                         {/* Actions */}
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {!isRevoked && t.estado === "pendiente" && (
+                            <Button
+                              size="sm"
+                              className="rounded-lg h-7 text-xs gap-1.5 font-semibold text-white"
+                              style={{ backgroundColor: negocio.colorPrincipal }}
+                              onClick={() => setVincularTarget(t)}
+                            >
+                              <Link2 className="h-3 w-3" />
+                              Vincular
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -331,6 +350,16 @@ export function TerminalesOperativasSection({ negocio }: SectionProps) {
           editing={editing}
           queryKey={queryKey}
           onClose={() => setDialogOpen(false)}
+        />
+      )}
+
+      {/* Vincular dialog (montado solo cuando hay terminal objetivo → estado fresco) */}
+      {vincularTarget && (
+        <VincularDialog
+          negocio={negocio}
+          terminal={vincularTarget}
+          queryKey={queryKey}
+          onClose={() => setVincularTarget(null)}
         />
       )}
 
@@ -699,6 +728,232 @@ function TerminalDialog({
               <Plus className="h-4 w-4" />
             )}
             {isEdit ? "Guardar cambios" : "Crear terminal"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============================================
+// Vincular dialog (genera QR + código temporal)
+// ============================================
+interface ActivationCreds {
+  qrToken: string
+  manualCode: string
+  expiresAt: string
+}
+
+function VincularDialog({
+  negocio,
+  terminal,
+  queryKey,
+  onClose,
+}: {
+  negocio: { id: string; colorPrincipal: string }
+  terminal: TerminalOperativa
+  queryKey: string[]
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [creds, setCreds] = useState<ActivationCreds | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const [copied, setCopied] = useState<"link" | "code" | null>(null)
+
+  // Enlace de activación: el secreto viaja SOLO en el fragmento (#), nunca en query.
+  const activationUrl = creds
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/operaciones/activar#c=${encodeURIComponent(creds.qrToken)}`
+    : null
+
+  const generate = useCallback(async () => {
+    setGenerating(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/negocio/terminales-operativas/${terminal.id}/activacion`, {
+        method: "POST",
+        cache: "no-store",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "No se pudo generar la activación")
+      }
+      setCreds({ qrToken: data.qrToken, manualCode: data.manualCode, expiresAt: data.expiresAt })
+      queryClient.invalidateQueries({ queryKey })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo generar la activación")
+      setCreds(null)
+      setQrDataUrl(null)
+    } finally {
+      setGenerating(false)
+    }
+  }, [terminal.id, queryClient, queryKey])
+
+  // Generar credenciales al abrir.
+  useEffect(() => {
+    void generate()
+  }, [generate])
+
+  // Render local del QR (sin servicios externos).
+  useEffect(() => {
+    let cancelled = false
+    if (!activationUrl) {
+      setQrDataUrl(null)
+      return
+    }
+    ;(async () => {
+      try {
+        const QRCode = (await import("qrcode")).default
+        const url = await QRCode.toDataURL(activationUrl, { width: 240, margin: 2 })
+        if (!cancelled) setQrDataUrl(url)
+      } catch {
+        if (!cancelled) setQrDataUrl(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activationUrl])
+
+  // Contador regresivo.
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const remainingMs = creds ? new Date(creds.expiresAt).getTime() - nowMs : 0
+  const expired = !!creds && remainingMs <= 0
+  const mm = Math.max(0, Math.floor(remainingMs / 60000))
+  const ss = Math.max(0, Math.floor((remainingMs % 60000) / 1000))
+  const countdown = `${mm}:${String(ss).padStart(2, "0")}`
+
+  const copy = async (value: string, kind: "link" | "code") => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(kind)
+      toast.success(kind === "link" ? "Enlace copiado" : "Código copiado")
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      toast.error("No se pudo copiar")
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-md rounded-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+        <DialogHeader className="p-5 pb-3 shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Link2 className="h-5 w-5" style={{ color: negocio.colorPrincipal }} />
+            Vincular terminal
+          </DialogTitle>
+          <DialogDescription>{terminal.nombre}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
+          {generating && !creds ? (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">Generando credenciales…</p>
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 p-3 text-center">
+              <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
+            </div>
+          ) : creds ? (
+            <>
+              {/* QR */}
+              <div className="flex flex-col items-center gap-2">
+                {qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt="QR de activación"
+                    className={cn(
+                      "w-[220px] h-[220px] rounded-xl border border-border/50 bg-white p-2",
+                      expired && "opacity-40 grayscale"
+                    )}
+                  />
+                ) : (
+                  <div className="w-[220px] h-[220px] rounded-xl border border-border/50 flex items-center justify-center">
+                    <QrCode className="h-10 w-10 text-muted-foreground/40" />
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Escaneá este QR desde el dispositivo a vincular.
+                </p>
+              </div>
+
+              {/* Código manual */}
+              <div>
+                <Label className="text-[11px] font-semibold mb-1 block">Código temporal</Label>
+                <div className="flex items-center gap-2">
+                  <code className={cn(
+                    "flex-1 px-3 py-2 rounded-xl bg-muted/40 border border-border/50 text-sm font-mono font-bold tracking-wider text-center",
+                    expired && "opacity-40"
+                  )}>
+                    {creds.manualCode}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 rounded-xl shrink-0"
+                    onClick={() => copy(creds.manualCode, "code")}
+                    title="Copiar código"
+                  >
+                    {copied === "code" ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Countdown */}
+              <div className="flex items-center justify-center gap-1.5 text-xs">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                {expired ? (
+                  <span className="text-red-500 font-semibold">Credenciales vencidas</span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Vence en <span className="font-semibold text-foreground">{countdown}</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Security note */}
+              <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Este QR y código se pueden usar una sola vez y vencen en 2 minutos. No los compartas
+                  fuera del dispositivo que vas a vincular.
+                </p>
+              </div>
+
+              {/* Copiar enlace / Regenerar */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-xl gap-1.5 text-xs"
+                  onClick={() => activationUrl && copy(activationUrl, "link")}
+                  disabled={!activationUrl || expired}
+                >
+                  {copied === "link" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Link2 className="h-3.5 w-3.5" />}
+                  Copiar enlace
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl gap-1.5 text-xs"
+                  onClick={() => generate()}
+                  disabled={generating}
+                >
+                  {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Regenerar
+                </Button>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <DialogFooter className="p-5 pt-3 border-t border-border/50 shrink-0">
+          <Button variant="outline" className="rounded-xl w-full" onClick={onClose}>
+            Cerrar
           </Button>
         </DialogFooter>
       </DialogContent>
