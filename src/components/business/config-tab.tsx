@@ -43,6 +43,7 @@ import { toast } from "sonner"
 import { ImageUpload } from "@/components/shared/image-upload"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
 import { DeliveryZonesSection } from "./delivery-zones-section"
+import { TerminalesOperativasSection } from "./terminales-operativas-section"
 
 // ============================================
 // Types
@@ -950,6 +951,9 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
           loading={saving === "social"}
         />
       </ConfigSection>
+
+      {/* ===== TERMINALES OPERATIVAS ===== */}
+      <TerminalesOperativasSection negocio={{ id: negocio.id, colorPrincipal: negocio.colorPrincipal }} />
     </div>
   )
 }
