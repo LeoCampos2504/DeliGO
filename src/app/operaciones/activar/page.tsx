@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { CheckCircle2, AlertTriangle, Loader2, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,6 +32,7 @@ type PageState =
 const GENERIC_ERROR = "Código inválido, vencido o ya utilizado."
 
 export default function OperacionesActivarPage() {
+  const router = useRouter()
   const [state, setState] = useState<PageState>({ status: "idle" })
   const [manualInput, setManualInput] = useState("")
   const autoTried = useRef(false)
@@ -58,6 +60,14 @@ export default function OperacionesActivarPage() {
       setState({ status: "error", message: "No se pudo conectar. Revisá tu conexión e intentá de nuevo." })
     }
   }, [])
+
+  // Tras una activación exitosa (ya confirmada), redirigir a /operaciones reemplazando el
+  // historial para que el QR/código no pueda reaparecer con "Atrás".
+  useEffect(() => {
+    if (state.status !== "success") return
+    const t = setTimeout(() => router.replace("/operaciones"), 1500)
+    return () => clearTimeout(t)
+  }, [state.status, router])
 
   // Leer el secreto del fragmento (#c=...), limpiarlo de inmediato y activar.
   useEffect(() => {
@@ -116,6 +126,10 @@ export default function OperacionesActivarPage() {
                   )}
                 </div>
               )}
+              <p className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-700/70 dark:text-emerald-300/70 pt-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Abriendo DeliGO Operaciones…
+              </p>
             </div>
           ) : (
             <>
