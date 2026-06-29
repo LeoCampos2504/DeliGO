@@ -644,6 +644,11 @@ model Empleado {
   codigo           String // código corto para identificar al mozo
   rol              String  @default("mozo") // mozo, cajero, cocinero, admin
   permisos         String  @default("[]") // JSON array: ["gestion_pedidos", "gestion_productos", "gestion_caja", "gestion_empleados"]
+  // Área operativa para la futura PWA DeliGO Operaciones. La administra el negocio;
+  // el empleado NO puede cambiarla. No reemplaza a `rol`. Valores: sin_asignar|mozo|salon|pyr.
+  areaOperativa     String  @default("sin_asignar")
+  // Se incrementa cada vez que cambia `areaOperativa` para que la PWA detecte el nuevo contexto.
+  asignacionVersion Int     @default(1)
   activo           Boolean @default(true)
   eliminado        Boolean @default(false)
   token            String? // token para notificaciones push

@@ -91,6 +91,8 @@ interface Empleado {
   nombre: string
   codigo: string
   rol: string
+  areaOperativa?: string
+  asignacionVersion?: number
   activo: boolean
   negocioId: string
   token: string | null
@@ -188,6 +190,17 @@ const roleLabel = (rol: string) => ROLES.find((r) => r.value === rol)?.label ?? 
 const roleColor = (rol: string) => {
   return "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400"
 }
+
+// Área operativa (configuración administrativa para la futura PWA DeliGO Operaciones).
+const AREA_OPERATIVA_OPTIONS = [
+  { value: "sin_asignar", label: "Sin área asignada" },
+  { value: "mozo", label: "Mozo" },
+  { value: "salon", label: "Salón" },
+  { value: "pyr", label: "Pedidos y reseñas" },
+] as const
+
+const areaOperativaLabel = (area?: string) =>
+  AREA_OPERATIVA_OPTIONS.find((a) => a.value === area)?.label ?? "Sin área asignada"
 
 // Status config for mesa orders
 const MESA_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Clock }> = {
@@ -2065,9 +2078,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
 
   const [formNombre, setFormNombre] = useState("")
   const [formCodigo, setFormCodigo] = useState("")
+  const [formArea, setFormArea] = useState<string>("sin_asignar")
 
   const [editNombre, setEditNombre] = useState("")
   const [editCodigo, setEditCodigo] = useState("")
+  const [editArea, setEditArea] = useState<string>("sin_asignar")
 
   const { data: empleados, isLoading: empleadosLoading } = useQuery<Empleado[]>({
     queryKey: ["empleados", negocio.id],
@@ -2134,7 +2149,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   }, [invitationsData])
 
   const addMutation = useMutation({
-    mutationFn: async (data: { nombre: string; codigo: string; rol: string }) => {
+    mutationFn: async (data: { nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch("/api/negocio/empleados", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2160,11 +2175,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   })
 
   const editMutation = useMutation({
-    mutationFn: async (data: { id: string; nombre: string; codigo: string; rol: string }) => {
+    mutationFn: async (data: { id: string; nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch(`/api/negocio/empleados/${data.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: data.nombre, codigo: data.codigo, rol: data.rol }),
+        body: JSON.stringify({ nombre: data.nombre, codigo: data.codigo, rol: data.rol, areaOperativa: data.areaOperativa }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -2318,6 +2333,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const resetAddForm = () => {
     setFormNombre("")
     setFormCodigo("")
+    setFormArea("sin_asignar")
     setShowAddForm(false)
   }
 
@@ -2361,6 +2377,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       nombre: formNombre.trim(),
       codigo: formCodigo.trim(),
       rol: "mozo",
+      areaOperativa: formArea,
     })
   }
 
@@ -2368,6 +2385,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     setEditingId(empleado.id)
     setEditNombre(empleado.nombre)
     setEditCodigo(empleado.codigo)
+    setEditArea(empleado.areaOperativa ?? "sin_asignar")
   }
 
   const handleSaveEdit = (id: string) => {
@@ -2384,6 +2402,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       nombre: editNombre.trim(),
       codigo: editCodigo.trim(),
       rol: "mozo",
+      areaOperativa: editArea,
     })
   }
 
@@ -2442,6 +2461,22 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                   maxLength={10}
                 />
               </div>
+            </div>
+            <div>
+              <Label className="text-[11px] font-semibold mb-1 block">Área operativa</Label>
+              <Select value={formArea} onValueChange={setFormArea}>
+                <SelectTrigger className="rounded-xl h-8 text-sm">
+                  <SelectValue placeholder="Sin área asignada" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AREA_OPERATIVA_OPTIONS.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                Define qué área verá el empleado en DeliGO Operaciones. Solo el administrador puede modificarla.
+              </p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -2520,6 +2555,22 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                         />
                       </div>
                     </div>
+                    <div>
+                      <Label className="text-[11px] font-semibold mb-1 block">Área operativa</Label>
+                      <Select value={editArea} onValueChange={setEditArea}>
+                        <SelectTrigger className="rounded-xl h-7 text-sm">
+                          <SelectValue placeholder="Sin área asignada" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {AREA_OPERATIVA_OPTIONS.map((a) => (
+                            <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                        Define qué área verá el empleado en DeliGO Operaciones. Solo el administrador puede modificarla.
+                      </p>
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -2560,6 +2611,15 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                         <p className="text-sm font-semibold truncate">{empleado.nombre}</p>
                         <Badge variant="outline" className="text-[10px] font-mono h-4 px-1.5">
                           {empleado.codigo}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[9px] h-4 px-1.5",
+                            (!empleado.areaOperativa || empleado.areaOperativa === "sin_asignar") && "text-muted-foreground"
+                          )}
+                        >
+                          {areaOperativaLabel(empleado.areaOperativa)}
                         </Badge>
                         {assignedMesas.length > 0 && (
                           <Badge className="text-[9px] h-4 px-1.5 border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">

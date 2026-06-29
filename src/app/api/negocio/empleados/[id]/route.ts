@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { auditLog } from "@/lib/audit"
 import { randomBytes } from "crypto"
+
+// Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
+const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+
+/** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
+function normalizeAreaOperativa(value: unknown): string | null {
+  return typeof value === "string" && (AREAS_OPERATIVAS as readonly string[]).includes(value)
+    ? value
+    : null
+}
 
 function generateMozoToken(): string {
   return randomBytes(32).toString("hex")
@@ -74,6 +85,33 @@ export async function PUT(
     if (codigo !== undefined) updateData.codigo = codigo.trim().toUpperCase()
     if (rol !== undefined) updateData.rol = rol
     if (activo !== undefined) updateData.activo = Boolean(activo)
+
+    // Área operativa: la administra el negocio. Se valida contra el allowlist; nunca se
+    // acepta `asignacionVersion` del frontend; el servidor incrementa la versión SOLO
+    // cuando el área cambia realmente.
+    let areaChanged = false
+    let nuevaArea: string | null = null
+    if (body.areaOperativa !== undefined) {
+      const normalized = normalizeAreaOperativa(body.areaOperativa)
+      if (normalized === null) {
+        return NextResponse.json({ error: "Área operativa inválida" }, { status: 400 })
+      }
+      if (normalized !== existing.areaOperativa) {
+        // No asignar área a empleados eliminados ni inactivos (salvo reactivación en la misma request).
+        const quedaraActivo = activo !== undefined ? Boolean(activo) : existing.activo
+        if (existing.eliminado || !quedaraActivo) {
+          return NextResponse.json(
+            { error: "No se puede asignar área a un empleado eliminado o inactivo" },
+            { status: 409 }
+          )
+        }
+        updateData.areaOperativa = normalized
+        updateData.asignacionVersion = { increment: 1 }
+        areaChanged = true
+        nuevaArea = normalized
+      }
+    }
+
     if (regenerateToken === true) {
       let newToken = generateMozoToken()
       while (await db.empleado.findFirst({ where: { token: newToken } })) {
@@ -99,6 +137,11 @@ export async function PUT(
         },
       },
     })
+
+    // Auditar el cambio de área (sin datos sensibles).
+    if (areaChanged) {
+      await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_cambiada", recurso: "empleado", recursoId: updated.id, detalle: { areaOperativa: nuevaArea, asignacionVersion: updated.asignacionVersion } })
+    }
 
     return NextResponse.json(serializeEmpleado(updated, regenerateToken === true))
   } catch (error) {

@@ -4,6 +4,16 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { randomBytes } from "crypto"
 
+// Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
+const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+
+/** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
+function normalizeAreaOperativa(value: unknown): string | null {
+  return typeof value === "string" && (AREAS_OPERATIVAS as readonly string[]).includes(value)
+    ? value
+    : null
+}
+
 // Generate a unique token for mozo links
 function generateMozoToken(): string {
   return randomBytes(32).toString("hex") // 64-char hex string
@@ -47,6 +57,8 @@ export async function GET(req: NextRequest) {
         nombre: true,
         codigo: true,
         rol: true,
+        areaOperativa: true,
+        asignacionVersion: true,
         activo: true,
         token: true,
         negocioId: true,
@@ -103,6 +115,28 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { nombre, codigo, rol, activo } = body
 
+    // Estado final de actividad del empleado (resuelto una sola vez).
+    const empleadoActivo = activo !== undefined ? Boolean(activo) : true
+
+    // Área operativa opcional al crear. Se valida contra el allowlist; nunca se acepta
+    // `asignacionVersion` del frontend (queda en su default de schema).
+    let areaOperativa = "sin_asignar"
+    if (body.areaOperativa !== undefined) {
+      const normalized = normalizeAreaOperativa(body.areaOperativa)
+      if (normalized === null) {
+        return NextResponse.json({ error: "Área operativa inválida" }, { status: 400 })
+      }
+      areaOperativa = normalized
+    }
+
+    // No permitir crear un empleado inactivo con un área asignada.
+    if (!empleadoActivo && areaOperativa !== "sin_asignar") {
+      return NextResponse.json(
+        { error: "No se puede asignar área a un empleado inactivo" },
+        { status: 409 }
+      )
+    }
+
     if (!nombre?.trim()) {
       return NextResponse.json(
         { error: "El nombre es obligatorio" },
@@ -141,13 +175,19 @@ export async function POST(req: NextRequest) {
         codigo: codigo.trim().toUpperCase(),
         token: mozoToken,
         rol: rol || "mozo",
-        activo: activo !== undefined ? Boolean(activo) : true,
+        areaOperativa,
+        activo: empleadoActivo,
         negocioId,
       },
     })
 
     // Audit log
     await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.creado", recurso: "empleado", recursoId: empleado.id, detalle: { nombre: empleado.nombre, codigo: empleado.codigo } })
+
+    // Auditar la asignación de área cuando se crea con un área concreta (sin datos sensibles).
+    if (areaOperativa !== "sin_asignar") {
+      await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_asignada", recurso: "empleado", recursoId: empleado.id, detalle: { areaOperativa, asignacionVersion: empleado.asignacionVersion } })
+    }
 
     return NextResponse.json(serializeEmpleado(empleado, true), { status: 201 })
   } catch (error) {
