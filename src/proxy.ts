@@ -156,6 +156,7 @@ const NEGOCIO_ORIGIN_PROTECTED_PREFIXES = [
   "/api/negocio/productos",
   "/api/negocio/resenas",
   "/api/negocio/secciones",
+  "/api/negocio/terminales-operativas",
 ]
 
 function shouldValidateOrigin(pathname: string, method: string): boolean {

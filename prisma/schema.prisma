@@ -162,8 +162,8 @@ model Negocio {
   mesas     Mesa[]
   empleados Empleado[]
   codigosIncorporacionMozo CodigoIncorporacionMozo[]
-  terminalesSalon          TerminalSalon[]
-  vinculacionesTerminalSalon VinculacionTerminalSalon[]
+  terminalesOperativas       TerminalOperativa[]
+  vinculacionesTerminalOperativa VinculacionTerminalOperativa[]
 
   // Plan
   planTipo            String  @default("prueba")
@@ -688,21 +688,24 @@ model CodigoIncorporacionMozo {
   @@map("codigos_incorporacion_mozo")
 }
 
-// Terminal compartida de salón (PC caja, tablet cocina, monitor, celular salón).
+// Terminal compartida de Operaciones (PC caja, tablet cocina, tablet atención, monitor,
+// celular compartido). Tabla física conservada: "terminales_salon" (renombre solo lógico).
 // Autorización futura (NO implementada aún):
-//   - `scopes` es la fuente de verdad. Scopes previstos:
-//       salon.ver, salon.pedidos.ver, salon.pedidos.cambiar_estado,
-//       salon.pedidos.marcar_entregado, salon.mesas.liberar,
-//       salon.mesas.reasignar, salon.historial.ver, salon.estadisticas.ver
-//   - `perfil` es solo una etiqueta/preset para la UI:
-//       pantalla | cocina | salon_completo | personalizado
-//   - Una terminal NUNCA recibe permisos de administrador completo.
-model TerminalSalon {
+//   - `areas` + `scopes` son la fuente de verdad. Áreas: salon | pyr (nunca mozo).
+//   - Scopes salón: salon.ver, salon.pedidos.ver, salon.pedidos.cambiar_estado,
+//       salon.pedidos.marcar_entregado, salon.mesas.liberar, salon.mesas.reasignar,
+//       salon.historial.ver, salon.estadisticas.ver
+//   - Scopes PyR: pyr.ver, pyr.pedidos.ver, pyr.pedidos.gestionar, pyr.resenas.ver,
+//       pyr.resenas.responder, pyr.mensajes.ver, pyr.mensajes.responder
+//   - `perfil` es solo una etiqueta/preset para la UI.
+//   - Una terminal NUNCA recibe permisos de administrador ni de delivery de repartidores.
+model TerminalOperativa {
   id               String    @id @default(cuid())
   negocioId        String
-  nombre           String    @default("Terminal de salón") // nombre visible del dispositivo
-  estado           String    @default("activo") // estado/etiqueta; la revocación efectiva se hace vía revokedAt
+  nombre           String    @default("Terminal Operativa") // nombre visible del dispositivo
+  estado           String    @default("pendiente") // pendiente|activo|revocado; la revocación efectiva se hace vía revokedAt
   perfil           String    @default("pantalla") // etiqueta/preset para UI (no autoriza por sí solo)
+  areas            String    @default("[]") // JSON array — áreas permitidas (salon|pyr); fuente de verdad
   scopes           String    @default("[]") // JSON array — fuente de verdad de autorización (deny-by-default)
   pushSubscription String?
   lastUsedAt       DateTime?
@@ -710,9 +713,9 @@ model TerminalSalon {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  negocio       Negocio                    @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  sesiones      SesionTerminalSalon[]
-  vinculaciones VinculacionTerminalSalon[]
+  negocio       Negocio                        @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  sesiones      SesionTerminalOperativa[]
+  vinculaciones VinculacionTerminalOperativa[]
 
   @@index([negocioId, estado])
   @@index([negocioId, revokedAt])
@@ -720,10 +723,10 @@ model TerminalSalon {
   @@map("terminales_salon")
 }
 
-model VinculacionTerminalSalon {
+model VinculacionTerminalOperativa {
   id        String   @id @default(cuid())
   negocioId String
-  terminalSalonId String? // emparejamiento asociado a una terminal específica (nullable para compatibilidad)
+  terminalSalonId String? // columna física conservada ("terminalSalonId"); emparejamiento → terminal
   codeHash  String   @unique
   codePrefix String  @default("")
   expiresAt DateTime
@@ -731,8 +734,8 @@ model VinculacionTerminalSalon {
   revokedAt DateTime?
   createdAt DateTime @default(now())
 
-  negocio       Negocio        @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  terminalSalon TerminalSalon? @relation(fields: [terminalSalonId], references: [id], onDelete: Cascade)
+  negocio           Negocio            @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  terminalOperativa TerminalOperativa? @relation(fields: [terminalSalonId], references: [id], onDelete: Cascade)
 
   @@index([negocioId, expiresAt])
   @@index([negocioId, revokedAt])
@@ -741,16 +744,16 @@ model VinculacionTerminalSalon {
   @@map("vinculaciones_terminal_salon")
 }
 
-model SesionTerminalSalon {
+model SesionTerminalOperativa {
   id              String   @id @default(cuid())
-  terminalSalonId String
+  terminalSalonId String   // columna física conservada ("terminalSalonId")
   tokenHash       String   @unique
   expiresAt       DateTime
   lastUsedAt      DateTime?
   revokedAt       DateTime?
   createdAt       DateTime @default(now())
 
-  terminalSalon TerminalSalon @relation(fields: [terminalSalonId], references: [id], onDelete: Cascade)
+  terminalOperativa TerminalOperativa @relation(fields: [terminalSalonId], references: [id], onDelete: Cascade)
 
   @@index([terminalSalonId, revokedAt])
   @@index([expiresAt])
