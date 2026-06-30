@@ -100,6 +100,9 @@ export default function OperacionesPyRMensajesPage() {
 
   const refresh = useCallback(async () => {
     if (stoppedRef.current || !pedidoId) return
+    // Nunca disparar un request con la pestaña oculta (p.ej. refresh posterior a una
+    // mutación cuando el usuario ya cambió de pestaña). La mutación en curso no se altera.
+    if (document.visibilityState !== "visible") return
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
@@ -361,13 +364,7 @@ function MensajesView({
   onSend: (texto: string) => Promise<boolean>
 }) {
   const [refreshing, setRefreshing] = useState(false)
-  const [, forceTick] = useState(0)
   const [texto, setTexto] = useState("")
-
-  useEffect(() => {
-    const t = setInterval(() => forceTick((v) => v + 1), 10000)
-    return () => clearInterval(t)
-  }, [])
 
   const handleManualRefresh = async () => {
     setRefreshing(true)

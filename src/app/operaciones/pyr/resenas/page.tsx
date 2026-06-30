@@ -125,6 +125,9 @@ export default function OperacionesPyRResenasPage() {
 
   const refresh = useCallback(async () => {
     if (stoppedRef.current) return
+    // Nunca disparar un request con la pestaña oculta (p.ej. refresh posterior a una
+    // mutación cuando el usuario ya cambió de pestaña). La mutación en curso no se altera.
+    if (document.visibilityState !== "visible") return
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
@@ -371,15 +374,9 @@ function ResenasView({
   onResponder: (resenaId: string, respuesta: string) => void
 }) {
   const [refreshing, setRefreshing] = useState(false)
-  const [, forceTick] = useState(0)
   const [filtro, setFiltro] = useState<Filtro>("todas")
   const [replyMode, setReplyMode] = useState(false)
   const [respuesta, setRespuesta] = useState("")
-
-  useEffect(() => {
-    const t = setInterval(() => forceTick((v) => v + 1), 10000)
-    return () => clearInterval(t)
-  }, [])
 
   // Al cambiar de reseña seleccionada, salir del modo respuesta y limpiar el texto.
   useEffect(() => {
