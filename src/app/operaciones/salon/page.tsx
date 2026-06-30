@@ -19,6 +19,7 @@ import {
   UserCog,
   UserMinus,
   History,
+  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -88,6 +89,7 @@ interface Capacidades {
   puedeReasignarMesa: boolean
   puedeLiberarMesa: boolean
   puedeVerHistorial: boolean
+  puedeVerEstadisticas: boolean
 }
 
 interface PanelData {
@@ -240,6 +242,7 @@ export default function OperacionesSalonPage() {
             puedeReasignarMesa: data.capacidades?.puedeReasignarMesa === true,
             puedeLiberarMesa: data.capacidades?.puedeLiberarMesa === true,
             puedeVerHistorial: data.capacidades?.puedeVerHistorial === true,
+            puedeVerEstadisticas: data.capacidades?.puedeVerEstadisticas === true,
           },
           mesas: Array.isArray(data.mesas) ? data.mesas : [],
           pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
@@ -617,6 +620,19 @@ function SalonView({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 {lastUpdated ? `Hace ${getTimeAgo(new Date(lastUpdated).toISOString())}` : "En vivo"}
               </span>
+            )}
+            {data.capacidades.puedeVerEstadisticas && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 h-9 text-xs"
+              >
+                <Link href="/operaciones/salon/estadisticas" aria-label="Ver estadísticas de Salón">
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Estadísticas</span>
+                </Link>
+              </Button>
             )}
             {data.capacidades.puedeVerHistorial && (
               <Button
