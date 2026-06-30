@@ -18,6 +18,7 @@ import {
   X,
   Star,
   MessageSquare,
+  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -86,6 +87,8 @@ interface Capacidades {
   puedeResponderResena: boolean
   puedeVerMensajes: boolean
   puedeResponderMensajes: boolean
+  puedeVerHistorial: boolean
+  puedeVerEstadisticas: boolean
 }
 
 interface PanelData {
@@ -224,6 +227,8 @@ export default function OperacionesPyRPage() {
             puedeResponderResena: data.capacidades?.puedeResponderResena === true,
             puedeVerMensajes: data.capacidades?.puedeVerMensajes === true,
             puedeResponderMensajes: data.capacidades?.puedeResponderMensajes === true,
+            puedeVerHistorial: data.capacidades?.puedeVerHistorial === true,
+            puedeVerEstadisticas: data.capacidades?.puedeVerEstadisticas === true,
           },
           pedidos: Array.isArray(data.pedidos)
             ? data.pedidos.map((p: PedidoPyR) => ({ ...p, acciones: normalizeAcciones(p.acciones) }))
@@ -496,6 +501,32 @@ function PyRView({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 {lastUpdated ? `Hace ${getTimeAgo(new Date(lastUpdated).toISOString())}` : "En vivo"}
               </span>
+            )}
+            {data.capacidades.puedeVerEstadisticas && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 h-9 text-xs"
+              >
+                <Link href="/operaciones/pyr/estadisticas" aria-label="Ver estadísticas">
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Estadísticas</span>
+                </Link>
+              </Button>
+            )}
+            {data.capacidades.puedeVerHistorial && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 h-9 text-xs"
+              >
+                <Link href="/operaciones/pyr/historial" aria-label="Ver historial">
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Historial</span>
+                </Link>
+              </Button>
             )}
             {data.capacidades.puedeVerResenas && (
               <Button

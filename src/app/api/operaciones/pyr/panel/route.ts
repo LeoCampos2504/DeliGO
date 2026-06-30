@@ -125,6 +125,9 @@ export async function GET(req: NextRequest) {
           puedeResponderResena: hasTerminalScope(auth.context, "pyr.resenas.responder"),
           puedeVerMensajes: hasTerminalScope(auth.context, "pyr.mensajes.ver"),
           puedeResponderMensajes: hasTerminalScope(auth.context, "pyr.mensajes.responder"),
+          // Historial/Estadísticas PyR (solo lectura) usan el mismo scope base de lectura.
+          puedeVerHistorial: hasTerminalScope(auth.context, "pyr.pedidos.ver"),
+          puedeVerEstadisticas: hasTerminalScope(auth.context, "pyr.pedidos.ver"),
         },
         // Datos seguros del encabezado (sin IDs internos, scopes crudos ni tokens).
         terminal: { nombre: auth.context.terminal.nombre },
