@@ -126,6 +126,7 @@ export async function GET(req: NextRequest) {
           puedeMarcarPedidoEntregado: hasTerminalScope(auth.context, "salon.pedidos.marcar_entregado"),
           puedeReasignarMesa,
           puedeLiberarMesa,
+          puedeVerHistorial: hasTerminalScope(auth.context, "salon.historial.ver"),
         },
         // Datos seguros del encabezado (sin IDs internos, scopes crudos ni tokens).
         terminal: { nombre: auth.context.terminal.nombre },

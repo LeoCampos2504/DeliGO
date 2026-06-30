@@ -18,6 +18,7 @@ import {
   WifiOff,
   UserCog,
   UserMinus,
+  History,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -86,6 +87,7 @@ interface Capacidades {
   puedeMarcarPedidoEntregado: boolean
   puedeReasignarMesa: boolean
   puedeLiberarMesa: boolean
+  puedeVerHistorial: boolean
 }
 
 interface PanelData {
@@ -237,6 +239,7 @@ export default function OperacionesSalonPage() {
             puedeMarcarPedidoEntregado: data.capacidades?.puedeMarcarPedidoEntregado === true,
             puedeReasignarMesa: data.capacidades?.puedeReasignarMesa === true,
             puedeLiberarMesa: data.capacidades?.puedeLiberarMesa === true,
+            puedeVerHistorial: data.capacidades?.puedeVerHistorial === true,
           },
           mesas: Array.isArray(data.mesas) ? data.mesas : [],
           pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
@@ -614,6 +617,19 @@ function SalonView({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 {lastUpdated ? `Hace ${getTimeAgo(new Date(lastUpdated).toISOString())}` : "En vivo"}
               </span>
+            )}
+            {data.capacidades.puedeVerHistorial && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 h-9 text-xs"
+              >
+                <Link href="/operaciones/salon/historial" aria-label="Ver historial de Salón">
+                  <History className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Historial</span>
+                </Link>
+              </Button>
             )}
             <Button
               variant="outline"
