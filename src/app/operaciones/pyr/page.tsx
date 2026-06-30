@@ -16,6 +16,7 @@ import {
   WifiOff,
   ClipboardList,
   X,
+  Star,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -494,6 +495,19 @@ function PyRView({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 {lastUpdated ? `Hace ${getTimeAgo(new Date(lastUpdated).toISOString())}` : "En vivo"}
               </span>
+            )}
+            {data.capacidades.puedeVerResenas && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="rounded-xl gap-1.5 h-9 text-xs"
+              >
+                <Link href="/operaciones/pyr/resenas" aria-label="Ver reseñas">
+                  <Star className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Reseñas</span>
+                </Link>
+              </Button>
             )}
             <Button
               variant="outline"
