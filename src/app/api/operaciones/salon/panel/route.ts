@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
+import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -104,6 +104,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
+        // Capacidades booleanas derivadas SOLO en servidor desde el contexto seguro
+        // (nunca se devuelven los scopes crudos).
+        capacidades: {
+          puedeCambiarEstadoPedido: hasTerminalScope(auth.context, "salon.pedidos.cambiar_estado"),
+          puedeMarcarPedidoEntregado: hasTerminalScope(auth.context, "salon.pedidos.marcar_entregado"),
+        },
         // Datos seguros del encabezado (sin IDs internos, scopes crudos ni tokens).
         terminal: { nombre: auth.context.terminal.nombre },
         negocio: {

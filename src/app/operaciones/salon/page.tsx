@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/drawer"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
+import { toast } from "sonner"
 
 // ============================================
 // Tipos (espejo del panel seguro de Salón)
@@ -65,11 +66,40 @@ interface PedidoPanel {
   items: PedidoItem[]
 }
 
+interface Capacidades {
+  puedeCambiarEstadoPedido: boolean
+  puedeMarcarPedidoEntregado: boolean
+}
+
 interface PanelData {
   terminal: { nombre: string }
   negocio: { nombre: string; colorPrincipal: string }
+  capacidades: Capacidades
   mesas: MesaPanel[]
   pedidos: PedidoPanel[]
+}
+
+// Acción disponible según estado del pedido + capacidades reales de la terminal.
+function nextAction(
+  estado: string,
+  caps: Capacidades
+): { label: string; target: string } | null {
+  if (estado === "recibido" && caps.puedeCambiarEstadoPedido) {
+    return { label: "Empezar preparación", target: "preparando" }
+  }
+  if (estado === "preparando" && caps.puedeCambiarEstadoPedido) {
+    return { label: "Marcar listo", target: "listo_para_retirar" }
+  }
+  if (estado === "listo_para_retirar" && caps.puedeMarcarPedidoEntregado) {
+    return { label: "Marcar entregado", target: "entregado" }
+  }
+  return null
+}
+
+const ACTION_TOASTS: Record<string, string> = {
+  preparando: "Pedido en preparación",
+  listo_para_retirar: "Pedido listo para servir",
+  entregado: "Pedido marcado como entregado",
 }
 
 type Phase =
@@ -130,8 +160,10 @@ export default function OperacionesSalonPage() {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" })
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [selectedMesa, setSelectedMesa] = useState<number | null>(null)
+  const [actingIds, setActingIds] = useState<Set<string>>(() => new Set())
 
   const stoppedRef = useRef(false)
+  const actingIdsRef = useRef<Set<string>>(new Set())
   const acRef = useRef<AbortController | null>(null)
   const genRef = useRef(0)
 
@@ -180,6 +212,10 @@ export default function OperacionesSalonPage() {
             nombre: data.negocio.nombre,
             colorPrincipal: data.negocio.colorPrincipal || "#FB8C00",
           },
+          capacidades: {
+            puedeCambiarEstadoPedido: data.capacidades?.puedeCambiarEstadoPedido === true,
+            puedeMarcarPedidoEntregado: data.capacidades?.puedeMarcarPedidoEntregado === true,
+          },
           mesas: Array.isArray(data.mesas) ? data.mesas : [],
           pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
         },
@@ -192,6 +228,70 @@ export default function OperacionesSalonPage() {
       applyTransientError()
     }
   }, [applyTransientError])
+
+  // Acción: avanzar el estado de un pedido. La autorización real vive en el servidor.
+  const handleAction = useCallback(
+    async (pedidoId: string, estado: string) => {
+      // Un segundo click sobre el MISMO pedido mientras guarda no dispara otra request;
+      // acciones sobre otros pedidos sí pueden ejecutarse en paralelo.
+      if (actingIdsRef.current.has(pedidoId)) return
+      actingIdsRef.current.add(pedidoId)
+      setActingIds((prev) => {
+        const next = new Set(prev)
+        next.add(pedidoId)
+        return next
+      })
+      try {
+        const res = await fetch(`/api/operaciones/salon/pedidos/${encodeURIComponent(pedidoId)}/estado`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ estado }),
+        })
+
+        if (res.status === 401) {
+          // Sesión inválida / terminal no activa → detener polling y mostrar no-vinculada.
+          stoppedRef.current = true
+          setPhase({ kind: "no-session" })
+          return
+        }
+        if (res.status === 403) {
+          // Sin permiso para la acción: no expulsar de Salón; refrescar por si cambiaron permisos.
+          toast.error("Esta terminal no tiene permiso para realizar esa acción.")
+          await refresh()
+          return
+        }
+        if (res.status === 409) {
+          toast.error("El pedido cambió en otro dispositivo. Actualizando panel.")
+          await refresh()
+          return
+        }
+        if (!res.ok) {
+          toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (!data || !data.ok) {
+          toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+          return
+        }
+
+        toast.success(ACTION_TOASTS[estado] ?? "Pedido actualizado")
+        // Sin actualización optimista: el refresh trae el estado real.
+        await refresh()
+      } catch {
+        toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+      } finally {
+        actingIdsRef.current.delete(pedidoId)
+        setActingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(pedidoId)
+          return next
+        })
+      }
+    },
+    [refresh]
+  )
 
   // Refresco controlado: inmediato + cada 5s solo con la pestaña visible + foco/visibilidad.
   useEffect(() => {
@@ -291,6 +391,8 @@ export default function OperacionesSalonPage() {
       onRefresh={refresh}
       selectedMesa={selectedMesa}
       onSelectMesa={setSelectedMesa}
+      actingIds={actingIds}
+      onAction={handleAction}
     />
   )
 }
@@ -305,6 +407,8 @@ function SalonView({
   onRefresh,
   selectedMesa,
   onSelectMesa,
+  actingIds,
+  onAction,
 }: {
   data: PanelData
   stale: boolean
@@ -312,6 +416,8 @@ function SalonView({
   onRefresh: () => void
   selectedMesa: number | null
   onSelectMesa: (n: number | null) => void
+  actingIds: Set<string>
+  onAction: (pedidoId: string, estado: string) => void
 }) {
   const accent = data.negocio.colorPrincipal
   const [refreshing, setRefreshing] = useState(false)
@@ -578,7 +684,13 @@ function SalonView({
                   </Badge>
                 </div>
                 {selectedOrders.map((order) => (
-                  <PedidoCard key={order.id} order={order} />
+                  <PedidoCard
+                    key={order.id}
+                    order={order}
+                    capacidades={data.capacidades}
+                    saving={actingIds.has(order.id)}
+                    onAction={onAction}
+                  />
                 ))}
               </div>
             )}
@@ -621,9 +733,20 @@ function SummaryChip({ color, label, pulse }: { color: "amber" | "orange" | "eme
   )
 }
 
-function PedidoCard({ order }: { order: PedidoPanel }) {
+function PedidoCard({
+  order,
+  capacidades,
+  saving,
+  onAction,
+}: {
+  order: PedidoPanel
+  capacidades: Capacidades
+  saving: boolean
+  onAction: (pedidoId: string, estado: string) => void
+}) {
   const cfg = STATUS_CONFIG[order.estado]
   const StatusIcon = cfg?.icon ?? Clock
+  const action = nextAction(order.estado, capacidades)
   return (
     <div className="rounded-xl border border-border/50 bg-card p-3 space-y-2.5">
       <div className="flex items-center justify-between">
@@ -712,6 +835,18 @@ function PedidoCard({ order }: { order: PedidoPanel }) {
           )
         })}
       </div>
+
+      {action && (
+        <Button
+          size="sm"
+          className="w-full rounded-xl gap-1.5 h-9 text-sm font-semibold"
+          onClick={() => onAction(order.id, action.target)}
+          disabled={saving}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {action.label}
+        </Button>
+      )}
     </div>
   )
 }
