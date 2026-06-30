@@ -30,7 +30,11 @@ export async function GET(req: NextRequest) {
     // El negocio se deriva del contexto seguro: nunca del cliente.
     const negocioId = auth.context.negocio.id
 
-    const [mesas, pedidos] = await Promise.all([
+    // Capacidades de mesa derivadas SOLO en servidor (nunca se devuelven scopes crudos).
+    const puedeReasignarMesa = hasTerminalScope(auth.context, "salon.mesas.reasignar")
+    const puedeLiberarMesa = hasTerminalScope(auth.context, "salon.mesas.liberar")
+
+    const [mesas, pedidos, mozosAsignables] = await Promise.all([
       db.mesa.findMany({
         where: { negocioId, activa: true },
         orderBy: { numero: "asc" },
@@ -40,8 +44,9 @@ export async function GET(req: NextRequest) {
           nombre: true,
           zona: true,
           capacidad: true,
-          // Solo el nombre visible del mozo asignado (necesario para operar). Nada más.
-          empleado: { select: { nombre: true } },
+          // Nombre visible del mozo asignado (necesario para operar). El `id` solo se
+          // expone más abajo a terminales con reasignación (para preseleccionar el mozo).
+          empleado: { select: { id: true, nombre: true } },
         },
       }),
       db.pedido.findMany({
@@ -76,6 +81,16 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
+      // Mozos elegibles para atender mesas, con la MISMA regla real del Salón existente
+      // (mozo activo no eliminado del negocio). Solo se consulta/expone a terminales con
+      // `salon.mesas.reasignar`; el resto recibe lista vacía. Datos mínimos: id + nombre.
+      puedeReasignarMesa
+        ? db.empleado.findMany({
+            where: { negocioId, rol: "mozo", activo: true, eliminado: false },
+            orderBy: { nombre: "asc" },
+            select: { id: true, nombre: true },
+          })
+        : Promise.resolve([] as { id: string; nombre: string }[]),
     ])
 
     const pedidosOut = pedidos.map((p) => ({
@@ -109,6 +124,8 @@ export async function GET(req: NextRequest) {
         capacidades: {
           puedeCambiarEstadoPedido: hasTerminalScope(auth.context, "salon.pedidos.cambiar_estado"),
           puedeMarcarPedidoEntregado: hasTerminalScope(auth.context, "salon.pedidos.marcar_entregado"),
+          puedeReasignarMesa,
+          puedeLiberarMesa,
         },
         // Datos seguros del encabezado (sin IDs internos, scopes crudos ni tokens).
         terminal: { nombre: auth.context.terminal.nombre },
@@ -122,8 +139,16 @@ export async function GET(req: NextRequest) {
           nombre: m.nombre,
           zona: m.zona,
           capacidad: m.capacidad,
-          empleado: m.empleado ? { nombre: m.empleado.nombre } : null,
+          // El `id` del mozo asignado solo se expone a terminales que pueden reasignar
+          // (para preseleccionarlo en el selector). El resto solo ve el nombre.
+          empleado: m.empleado
+            ? puedeReasignarMesa
+              ? { id: m.empleado.id, nombre: m.empleado.nombre }
+              : { nombre: m.empleado.nombre }
+            : null,
         })),
+        // Solo con `salon.mesas.reasignar`; en caso contrario, lista vacía (forma consistente).
+        mozosAsignables: puedeReasignarMesa ? mozosAsignables : [],
         pedidos: pedidosOut,
       },
       { headers: NO_STORE_HEADERS }

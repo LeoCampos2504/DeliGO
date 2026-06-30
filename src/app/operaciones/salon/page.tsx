@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   ShieldAlert,
   WifiOff,
+  UserCog,
+  UserMinus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +29,13 @@ import {
   DrawerTitle,
   DrawerFooter,
 } from "@/components/ui/drawer"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
@@ -40,7 +49,13 @@ interface MesaPanel {
   nombre: string
   zona: string
   capacidad: number
-  empleado: { nombre: string } | null
+  // `id` solo viene si la terminal puede reasignar (para preseleccionar el mozo).
+  empleado: { id?: string; nombre: string } | null
+}
+
+interface MozoAsignable {
+  id: string
+  nombre: string
 }
 
 interface PedidoItem {
@@ -69,6 +84,8 @@ interface PedidoPanel {
 interface Capacidades {
   puedeCambiarEstadoPedido: boolean
   puedeMarcarPedidoEntregado: boolean
+  puedeReasignarMesa: boolean
+  puedeLiberarMesa: boolean
 }
 
 interface PanelData {
@@ -77,6 +94,7 @@ interface PanelData {
   capacidades: Capacidades
   mesas: MesaPanel[]
   pedidos: PedidoPanel[]
+  mozosAsignables: MozoAsignable[]
 }
 
 // Acción disponible según estado del pedido + capacidades reales de la terminal.
@@ -161,9 +179,11 @@ export default function OperacionesSalonPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [selectedMesa, setSelectedMesa] = useState<number | null>(null)
   const [actingIds, setActingIds] = useState<Set<string>>(() => new Set())
+  const [actingMesaIds, setActingMesaIds] = useState<Set<string>>(() => new Set())
 
   const stoppedRef = useRef(false)
   const actingIdsRef = useRef<Set<string>>(new Set())
+  const actingMesaIdsRef = useRef<Set<string>>(new Set())
   const acRef = useRef<AbortController | null>(null)
   const genRef = useRef(0)
 
@@ -215,9 +235,12 @@ export default function OperacionesSalonPage() {
           capacidades: {
             puedeCambiarEstadoPedido: data.capacidades?.puedeCambiarEstadoPedido === true,
             puedeMarcarPedidoEntregado: data.capacidades?.puedeMarcarPedidoEntregado === true,
+            puedeReasignarMesa: data.capacidades?.puedeReasignarMesa === true,
+            puedeLiberarMesa: data.capacidades?.puedeLiberarMesa === true,
           },
           mesas: Array.isArray(data.mesas) ? data.mesas : [],
           pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
+          mozosAsignables: Array.isArray(data.mozosAsignables) ? data.mozosAsignables : [],
         },
         stale: false,
       })
@@ -286,6 +309,72 @@ export default function OperacionesSalonPage() {
         setActingIds((prev) => {
           const next = new Set(prev)
           next.delete(pedidoId)
+          return next
+        })
+      }
+    },
+    [refresh]
+  )
+
+  // Acción: asignar/reasignar (empleadoId string) o liberar (empleadoId null) una mesa.
+  // El control de concurrencia es POR MESA: una mesa en curso no dispara otra request,
+  // pero otras mesas pueden operarse en paralelo. La autorización real vive en el servidor.
+  const handleMesaAssignment = useCallback(
+    async (mesaId: string, empleadoId: string | null) => {
+      if (actingMesaIdsRef.current.has(mesaId)) return
+      actingMesaIdsRef.current.add(mesaId)
+      setActingMesaIds((prev) => {
+        const next = new Set(prev)
+        next.add(mesaId)
+        return next
+      })
+      try {
+        const res = await fetch(
+          `/api/operaciones/salon/mesas/${encodeURIComponent(mesaId)}/asignacion`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({ empleadoId }),
+          }
+        )
+
+        if (res.status === 401) {
+          stoppedRef.current = true
+          setPhase({ kind: "no-session" })
+          return
+        }
+        if (res.status === 403) {
+          toast.error("Esta terminal no tiene permiso para realizar esa acción.")
+          await refresh()
+          return
+        }
+        if (res.status === 409) {
+          toast.error("La mesa cambió en otro dispositivo. Actualizando panel.")
+          await refresh()
+          return
+        }
+        if (!res.ok) {
+          // 400 / 500 / error de red: conservar datos visibles y permitir reintentar.
+          toast.error("No se pudo actualizar la mesa. Intentá de nuevo.")
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (!data || !data.ok) {
+          toast.error("No se pudo actualizar la mesa. Intentá de nuevo.")
+          return
+        }
+
+        toast.success(empleadoId === null ? "Mesa liberada" : "Mozo asignado a la mesa")
+        // Sin actualización optimista: el refresh trae el estado real.
+        await refresh()
+      } catch {
+        toast.error("No se pudo actualizar la mesa. Intentá de nuevo.")
+      } finally {
+        actingMesaIdsRef.current.delete(mesaId)
+        setActingMesaIds((prev) => {
+          const next = new Set(prev)
+          next.delete(mesaId)
           return next
         })
       }
@@ -393,6 +482,8 @@ export default function OperacionesSalonPage() {
       onSelectMesa={setSelectedMesa}
       actingIds={actingIds}
       onAction={handleAction}
+      actingMesaIds={actingMesaIds}
+      onMesaAssignment={handleMesaAssignment}
     />
   )
 }
@@ -409,6 +500,8 @@ function SalonView({
   onSelectMesa,
   actingIds,
   onAction,
+  actingMesaIds,
+  onMesaAssignment,
 }: {
   data: PanelData
   stale: boolean
@@ -418,6 +511,8 @@ function SalonView({
   onSelectMesa: (n: number | null) => void
   actingIds: Set<string>
   onAction: (pedidoId: string, estado: string) => void
+  actingMesaIds: Set<string>
+  onMesaAssignment: (mesaId: string, empleadoId: string | null) => void
 }) {
   const accent = data.negocio.colorPrincipal
   const [refreshing, setRefreshing] = useState(false)
@@ -668,6 +763,16 @@ function SalonView({
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 overscroll-contain">
+            {selectedMesaObj && (
+              <MesaAssignmentSection
+                key={selectedMesaObj.id}
+                mesa={selectedMesaObj}
+                mozosAsignables={data.mozosAsignables}
+                capacidades={data.capacidades}
+                saving={actingMesaIds.has(selectedMesaObj.id)}
+                onMesaAssignment={onMesaAssignment}
+              />
+            )}
             {selectedOrders.length === 0 ? (
               <div className="text-center py-8">
                 <div className="w-12 h-12 rounded-xl mx-auto mb-3 flex items-center justify-center bg-muted/30">
@@ -729,6 +834,108 @@ function SummaryChip({ color, label, pulse }: { color: "amber" | "orange" | "eme
     <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-xl border", styles[color])}>
       <span className={cn("w-2.5 h-2.5 rounded-full", dot[color], pulse && "animate-pulse")} />
       <span className="text-xs font-semibold">{label}</span>
+    </div>
+  )
+}
+
+// Gestión segura de asignación de mesa (solo dentro del drawer). Los controles aparecen
+// según capacidades derivadas en servidor; la autorización real vive en el backend.
+function MesaAssignmentSection({
+  mesa,
+  mozosAsignables,
+  capacidades,
+  saving,
+  onMesaAssignment,
+}: {
+  mesa: MesaPanel
+  mozosAsignables: MozoAsignable[]
+  capacidades: Capacidades
+  saving: boolean
+  onMesaAssignment: (mesaId: string, empleadoId: string | null) => void
+}) {
+  const currentId = mesa.empleado?.id ?? null
+  const [selected, setSelected] = useState<string>(currentId ?? "")
+
+  // Sincroniza la selección local SOLO cuando cambia la asignación real del servidor
+  // (refresh propio, reasignación o liberación desde otra terminal). Las deps son valores
+  // primitivos (id/currentId): si el polling devuelve la MISMA asignación, el efecto no
+  // se reejecuta y no pisa una elección manual aún sin confirmar. Si la asignación real
+  // cambia, vuelve a reflejar el estado del servidor y evita reasignar accidentalmente.
+  useEffect(() => {
+    setSelected(currentId ?? "")
+  }, [mesa.id, currentId])
+
+  // "Liberar" solo tiene sentido cuando hay un mozo asignado (semántica real existente).
+  const showLiberar = capacidades.puedeLiberarMesa && mesa.empleado != null
+  const showReasignar = capacidades.puedeReasignarMesa
+
+  if (!showReasignar && !showLiberar) return null
+
+  const canConfirmReasignar = !!selected && selected !== currentId
+
+  return (
+    <div className="mb-4 rounded-xl border border-border/50 bg-card p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <UserCog className="h-4 w-4 text-muted-foreground" />
+        <h4 className="text-sm font-bold">Gestión de mesa</h4>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <UserCheck className="h-3.5 w-3.5 text-blue-500" />
+        {mesa.empleado ? (
+          <span>
+            Mozo asignado:{" "}
+            <span className="font-medium text-blue-600 dark:text-blue-400">{mesa.empleado.nombre}</span>
+          </span>
+        ) : (
+          <span>Sin mozo asignado</span>
+        )}
+      </div>
+
+      {showReasignar && (
+        <div className="space-y-2">
+          <Select value={selected} onValueChange={setSelected} disabled={saving}>
+            <SelectTrigger className="rounded-xl h-9 text-sm">
+              <SelectValue placeholder="Elegí un mozo" />
+            </SelectTrigger>
+            <SelectContent>
+              {mozosAsignables.length === 0 ? (
+                <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                  No hay mozos disponibles
+                </div>
+              ) : (
+                mozosAsignables.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.nombre}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            className="w-full rounded-xl gap-1.5 h-9 text-sm font-semibold"
+            onClick={() => onMesaAssignment(mesa.id, selected)}
+            disabled={saving || !canConfirmReasignar}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />}
+            {currentId ? "Reasignar mozo" : "Asignar mozo"}
+          </Button>
+        </div>
+      )}
+
+      {showLiberar && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full rounded-xl gap-1.5 h-9 text-sm font-semibold"
+          onClick={() => onMesaAssignment(mesa.id, null)}
+          disabled={saving}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+          Liberar mesa
+        </Button>
+      )}
     </div>
   )
 }
