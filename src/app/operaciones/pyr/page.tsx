@@ -17,6 +17,7 @@ import {
   ClipboardList,
   X,
   Star,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -605,6 +606,23 @@ function PyRView({
                     ))}
                   </div>
                 </div>
+
+                {/* Acceso a mensajes — solo con permiso de lectura (pedido activo no-mesa) */}
+                {data.capacidades.puedeVerMensajes && (
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="mt-4 w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+                  >
+                    <Link
+                      href={`/operaciones/pyr/mensajes/${encodeURIComponent(selectedPedido.id)}`}
+                      aria-label="Ver mensajes del pedido"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Mensajes
+                    </Link>
+                  </Button>
+                )}
 
                 {/* Acciones de gestión — solo con permiso y según acciones server-side */}
                 {data.capacidades.puedeGestionarPedido && (
