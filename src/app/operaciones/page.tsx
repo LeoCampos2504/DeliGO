@@ -304,11 +304,25 @@ function Shell({ children, wide = false }: { children: React.ReactNode; wide?: b
 }
 
 // ============================================
-// AreaCard — Salón es navegable; PyR es informativa (próxima etapa)
+// AreaCard — Salón y PyR navegables (la disponibilidad ya la deriva el servidor)
 // ============================================
+// El destino y la etiqueta del CTA dependen solo del área disponible (derivada del
+// contexto seguro: `terminal.areas` + scope base). No se usan scopes crudos para
+// decidir navegación; el endpoint de cada área revalida la autorización real.
+const AREA_HREF: Record<string, string> = {
+  salon: "/operaciones/salon",
+  pyr: "/operaciones/pyr",
+}
+
+const AREA_CTA: Record<string, string> = {
+  salon: "Abrir Salón",
+  pyr: "Abrir Pedidos y reseñas",
+}
+
 function AreaCard({ area, accent }: { area: string; accent: string }) {
   const Icon = area === "salon" ? UtensilsCrossed : ClipboardList
-  const navigable = area === "salon" // solo Salón está implementado y requiere salon.ver (ya validado)
+  const href = AREA_HREF[area]
+  const navigable = !!href
 
   const inner = (
     <div
@@ -335,7 +349,7 @@ function AreaCard({ area, accent }: { area: string; accent: string }) {
           className="flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white"
           style={{ backgroundColor: accent }}
         >
-          Abrir Salón
+          {AREA_CTA[area] ?? "Abrir"}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-2">
@@ -347,7 +361,7 @@ function AreaCard({ area, accent }: { area: string; accent: string }) {
 
   if (navigable) {
     return (
-      <Link href="/operaciones/salon" className="block">
+      <Link href={href} className="block">
         {inner}
       </Link>
     )
