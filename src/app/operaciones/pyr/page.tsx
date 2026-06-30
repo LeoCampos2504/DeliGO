@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   WifiOff,
   ClipboardList,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +28,10 @@ import {
 } from "@/components/ui/drawer"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
+import { toast } from "sonner"
+
+// Tope seguro del motivo de cancelación (sin límite real en el proyecto; ver CODEX_REPORT).
+const MAX_MOTIVO_LEN = 300
 
 // ============================================
 // Tipos (espejo del panel seguro de PyR)
@@ -43,6 +48,14 @@ interface PedidoItem {
   color?: string | null
 }
 
+interface PedidoAcciones {
+  puedeIniciarPreparacion: boolean
+  puedeMarcarEnCamino: boolean
+  puedeMarcarListoParaRetirar: boolean
+  puedeMarcarEntregado: boolean
+  puedeCancelar: boolean
+}
+
 interface PedidoPyR {
   id: string
   estado: string
@@ -50,7 +63,19 @@ interface PedidoPyR {
   fecha: string
   total: number
   clienteNombre: string | null
+  acciones: PedidoAcciones
   items: PedidoItem[]
+}
+
+function normalizeAcciones(raw: unknown): PedidoAcciones {
+  const a = (raw ?? {}) as Record<string, unknown>
+  return {
+    puedeIniciarPreparacion: a.puedeIniciarPreparacion === true,
+    puedeMarcarEnCamino: a.puedeMarcarEnCamino === true,
+    puedeMarcarListoParaRetirar: a.puedeMarcarListoParaRetirar === true,
+    puedeMarcarEntregado: a.puedeMarcarEntregado === true,
+    puedeCancelar: a.puedeCancelar === true,
+  }
 }
 
 interface Capacidades {
@@ -139,10 +164,12 @@ export default function OperacionesPyRPage() {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" })
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [selectedPedidoId, setSelectedPedidoId] = useState<string | null>(null)
+  const [actingIds, setActingIds] = useState<Set<string>>(() => new Set())
 
   const stoppedRef = useRef(false)
   const acRef = useRef<AbortController | null>(null)
   const genRef = useRef(0)
+  const actingIdsRef = useRef<Set<string>>(new Set())
 
   const applyTransientError = useCallback(() => {
     setPhase((prev) => (prev.kind === "ready" ? { ...prev, stale: true } : { kind: "error" }))
@@ -196,7 +223,9 @@ export default function OperacionesPyRPage() {
             puedeVerMensajes: data.capacidades?.puedeVerMensajes === true,
             puedeResponderMensajes: data.capacidades?.puedeResponderMensajes === true,
           },
-          pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
+          pedidos: Array.isArray(data.pedidos)
+            ? data.pedidos.map((p: PedidoPyR) => ({ ...p, acciones: normalizeAcciones(p.acciones) }))
+            : [],
         },
         stale: false,
       })
@@ -207,6 +236,77 @@ export default function OperacionesPyRPage() {
       applyTransientError()
     }
   }, [applyTransientError])
+
+  // Acción de cambio de estado. La autorización real vive en el servidor (el PATCH
+  // revalida todo). Control de concurrencia POR PEDIDO: el mismo pedido no dispara dos
+  // requests; otros pedidos pueden operarse en paralelo. Sin actualización optimista.
+  const handleAction = useCallback(
+    async (pedidoId: string, estado: string, motivo?: string) => {
+      if (actingIdsRef.current.has(pedidoId)) return
+      actingIdsRef.current.add(pedidoId)
+      setActingIds((prev) => {
+        const next = new Set(prev)
+        next.add(pedidoId)
+        return next
+      })
+      try {
+        const body = estado === "cancelado" ? { estado, motivo } : { estado }
+        const res = await fetch(
+          `/api/operaciones/pyr/pedidos/${encodeURIComponent(pedidoId)}/estado`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify(body),
+          }
+        )
+
+        if (res.status === 401) {
+          stoppedRef.current = true
+          setPhase({ kind: "no-session" })
+          return
+        }
+        if (res.status === 403) {
+          toast.error("Esta terminal no tiene permiso para realizar esa acción.")
+          await refresh()
+          return
+        }
+        if (res.status === 409) {
+          toast.error("El pedido cambió en otro dispositivo. Actualizando panel.")
+          await refresh()
+          return
+        }
+        if (res.status === 400) {
+          toast.error("No se pudo realizar la acción. Revisá e intentá de nuevo.")
+          return
+        }
+        if (!res.ok) {
+          // 500 / red: conservar el panel visible y permitir reintentar.
+          toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (!data || !data.ok) {
+          toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+          return
+        }
+
+        toast.success("Pedido actualizado")
+        // Sin optimismo: el refresh trae el estado real desde servidor.
+        await refresh()
+      } catch {
+        toast.error("No se pudo actualizar el pedido. Intentá de nuevo.")
+      } finally {
+        actingIdsRef.current.delete(pedidoId)
+        setActingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(pedidoId)
+          return next
+        })
+      }
+    },
+    [refresh]
+  )
 
   // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
   // NUNCA se ejecutan requests automáticas con la pestaña oculta.
@@ -304,6 +404,8 @@ export default function OperacionesPyRPage() {
       onRefresh={refresh}
       selectedPedidoId={selectedPedidoId}
       onSelectPedido={setSelectedPedidoId}
+      actingIds={actingIds}
+      onAction={handleAction}
     />
   )
 }
@@ -318,6 +420,8 @@ function PyRView({
   onRefresh,
   selectedPedidoId,
   onSelectPedido,
+  actingIds,
+  onAction,
 }: {
   data: PanelData
   stale: boolean
@@ -325,15 +429,25 @@ function PyRView({
   onRefresh: () => void
   selectedPedidoId: string | null
   onSelectPedido: (id: string | null) => void
+  actingIds: Set<string>
+  onAction: (pedidoId: string, estado: string, motivo?: string) => void
 }) {
   const [refreshing, setRefreshing] = useState(false)
   const [, forceTick] = useState(0)
+  const [cancelMode, setCancelMode] = useState(false)
+  const [motivo, setMotivo] = useState("")
 
   // Re-render del "actualizado hace" cada 10s (sin requests).
   useEffect(() => {
     const t = setInterval(() => forceTick((v) => v + 1), 10000)
     return () => clearInterval(t)
   }, [])
+
+  // Al cambiar de pedido seleccionado, salir del modo cancelación y limpiar el motivo.
+  useEffect(() => {
+    setCancelMode(false)
+    setMotivo("")
+  }, [selectedPedidoId])
 
   const handleManualRefresh = async () => {
     setRefreshing(true)
@@ -477,6 +591,19 @@ function PyRView({
                     ))}
                   </div>
                 </div>
+
+                {/* Acciones de gestión — solo con permiso y según acciones server-side */}
+                {data.capacidades.puedeGestionarPedido && (
+                  <PedidoAcciones
+                    pedido={selectedPedido}
+                    saving={actingIds.has(selectedPedido.id)}
+                    cancelMode={cancelMode}
+                    motivo={motivo}
+                    onSetCancelMode={setCancelMode}
+                    onSetMotivo={setMotivo}
+                    onAction={onAction}
+                  />
+                )}
               </div>
 
               <DrawerFooter className="border-t pt-3">
@@ -489,6 +616,132 @@ function PyRView({
         </DrawerContent>
       </Drawer>
     </main>
+  )
+}
+
+// ============================================
+// Acciones de gestión de un pedido (solo dentro del drawer, con permiso)
+// ============================================
+function PedidoAcciones({
+  pedido,
+  saving,
+  cancelMode,
+  motivo,
+  onSetCancelMode,
+  onSetMotivo,
+  onAction,
+}: {
+  pedido: PedidoPyR
+  saving: boolean
+  cancelMode: boolean
+  motivo: string
+  onSetCancelMode: (v: boolean) => void
+  onSetMotivo: (v: string) => void
+  onAction: (pedidoId: string, estado: string, motivo?: string) => void
+}) {
+  const a = pedido.acciones
+  const Spinner = <Loader2 className="h-4 w-4 animate-spin" />
+
+  if (cancelMode) {
+    return (
+      <div className="mt-4 rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/20 p-3 space-y-2">
+        <p className="text-xs font-semibold text-red-700 dark:text-red-400">Motivo de cancelación</p>
+        <textarea
+          value={motivo}
+          onChange={(e) => onSetMotivo(e.target.value)}
+          maxLength={MAX_MOTIVO_LEN}
+          rows={2}
+          placeholder="Indicá el motivo…"
+          disabled={saving}
+          className="w-full px-3 py-2 rounded-lg text-sm border border-red-200 dark:border-red-800/50 bg-background resize-none focus:outline-none focus:ring-2 focus:ring-red-300/40"
+        />
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="flex-1 rounded-xl"
+            disabled={saving}
+            onClick={() => {
+              onSetCancelMode(false)
+              onSetMotivo("")
+            }}
+          >
+            Volver
+          </Button>
+          <Button
+            className="flex-1 rounded-xl bg-red-500 hover:bg-red-600 text-white gap-1.5"
+            disabled={saving || !motivo.trim()}
+            onClick={() => onAction(pedido.id, "cancelado", motivo.trim())}
+          >
+            {saving ? Spinner : <X className="h-4 w-4" />}
+            Confirmar cancelación
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const hasAnyAction =
+    a.puedeIniciarPreparacion ||
+    a.puedeMarcarEnCamino ||
+    a.puedeMarcarListoParaRetirar ||
+    a.puedeMarcarEntregado ||
+    a.puedeCancelar
+  if (!hasAnyAction) return null
+
+  return (
+    <div className="mt-4 space-y-2">
+      {a.puedeIniciarPreparacion && (
+        <Button
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+          disabled={saving}
+          onClick={() => onAction(pedido.id, "preparando")}
+        >
+          {saving ? Spinner : <Flame className="h-4 w-4" />}
+          Empezar preparación
+        </Button>
+      )}
+      {a.puedeMarcarEnCamino && (
+        <Button
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+          disabled={saving}
+          onClick={() => onAction(pedido.id, "en_camino")}
+        >
+          {saving ? Spinner : <Bike className="h-4 w-4" />}
+          Marcar en camino
+        </Button>
+      )}
+      {a.puedeMarcarListoParaRetirar && (
+        <Button
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+          disabled={saving}
+          onClick={() => onAction(pedido.id, "listo_para_retirar")}
+        >
+          {saving ? Spinner : <Package className="h-4 w-4" />}
+          Marcar listo para retirar
+        </Button>
+      )}
+      {a.puedeMarcarEntregado && (
+        <Button
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+          disabled={saving}
+          onClick={() => onAction(pedido.id, "entregado")}
+        >
+          {saving ? Spinner : <CheckCircle2 className="h-4 w-4" />}
+          Marcar entregado
+        </Button>
+      )}
+      {a.puedeCancelar && (
+        <Button
+          variant="outline"
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold text-red-600 border-red-200 dark:border-red-800/50 hover:bg-red-50 dark:hover:bg-red-950/30"
+          disabled={saving}
+          onClick={() => onSetCancelMode(true)}
+        >
+          <X className="h-4 w-4" />
+          Cancelar pedido
+        </Button>
+      )}
+    </div>
   )
 }
 

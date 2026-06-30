@@ -36,6 +36,9 @@ export async function GET(req: NextRequest) {
     // El negocio se deriva del contexto seguro: nunca del cliente.
     const negocioId = auth.context.negocio.id
 
+    // Capacidad de gestión derivada en servidor (habilita acciones por pedido más abajo).
+    const puedeGestionarPedido = hasTerminalScope(auth.context, "pyr.pedidos.gestionar")
+
     // Solo pedidos del negocio, NO-mesa y en estados activos. Orden FIFO operativo
     // (más antiguos primero) con `id` como desempate determinista. Límite fijo.
     const pedidos = await db.pedido.findMany({
@@ -54,6 +57,8 @@ export async function GET(req: NextRequest) {
         total: true,
         // Solo el nombre visible del cliente (nunca teléfono, id, dirección, geo, notas, pago).
         clienteNombre: true,
+        // Se lee SOLO para derivar la acción de entrega de retiro; nunca se devuelve crudo.
+        clienteConfirmaRecibido: true,
         items: {
           select: {
             id: true,
@@ -79,6 +84,21 @@ export async function GET(req: NextRequest) {
       fecha: p.fecha,
       total: p.total,
       clienteNombre: p.clienteNombre,
+      // Acciones derivadas SOLO en servidor (UX). El PATCH revalida todo igualmente.
+      // No se expone `clienteConfirmaRecibido` crudo ni datos financieros.
+      acciones: {
+        puedeIniciarPreparacion: puedeGestionarPedido && p.estado === "recibido",
+        puedeMarcarEnCamino:
+          puedeGestionarPedido && p.metodoEntrega === "domicilio" && p.estado === "preparando",
+        puedeMarcarListoParaRetirar:
+          puedeGestionarPedido && p.metodoEntrega === "retiro" && p.estado === "preparando",
+        puedeMarcarEntregado:
+          puedeGestionarPedido &&
+          p.metodoEntrega === "retiro" &&
+          p.estado === "listo_para_retirar" &&
+          p.clienteConfirmaRecibido === true,
+        puedeCancelar: puedeGestionarPedido,
+      },
       items: p.items.map((item) => ({
         id: item.id,
         nombre: item.nombre,
