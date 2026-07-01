@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { FormEvent, ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import {
   AlertTriangle,
   ArrowRight,
@@ -63,6 +64,7 @@ type PanelState =
 
 export default function MozoPanelPage() {
   const router = useRouter()
+  const nav = useOperativoNav()
   const [state, setState] = useState<PanelState>({ status: "loading" })
   const [loggingOut, setLoggingOut] = useState(false)
   const [joinOpen, setJoinOpen] = useState(false)
@@ -129,6 +131,14 @@ export default function MozoPanelPage() {
     loadPanel()
   }, [loadPanel])
 
+  // En el árbol /operaciones/mi-panel, sin sesión personal se redirige a login
+  // (en /mozo se muestran los accesos). Nunca usa identidad de terminal.
+  useEffect(() => {
+    if (nav.noSessionMode === "redirect" && state.status === "no-session") {
+      router.replace(nav.loginHref)
+    }
+  }, [nav, state.status, router])
+
   useEffect(() => {
     setQueryWantsJoin(new URLSearchParams(window.location.search).get("accion") === "unirse")
   }, [])
@@ -155,7 +165,7 @@ export default function MozoPanelPage() {
       if (res.status === 401 || res.status === 403) {
         setJoinCode("")
         setState({ status: "no-session" })
-        router.replace("/mozo/iniciar-sesion")
+        router.replace(nav.loginHref)
         return
       }
 
@@ -172,7 +182,7 @@ export default function MozoPanelPage() {
           ? `Cuenta vinculada a ${negocioNombre}.`
           : "Cuenta vinculada correctamente."
       )
-      router.replace("/mozo", { scroll: false })
+      router.replace(nav.homeHref, { scroll: false })
       await loadPanel()
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : "No se pudo vincular la cuenta")
@@ -191,7 +201,7 @@ export default function MozoPanelPage() {
     } finally {
       setState({ status: "no-session" })
       setLoggingOut(false)
-      router.replace("/mozo/iniciar-sesion")
+      router.replace(nav.loginHref)
     }
   }
 
@@ -200,6 +210,11 @@ export default function MozoPanelPage() {
   }
 
   if (state.status === "no-session") {
+    // En /operaciones/mi-panel se redirige a login (el efecto ya lo dispara);
+    // se muestra un placeholder mínimo para no exponer accesos de otro árbol.
+    if (nav.noSessionMode === "redirect") {
+      return <MozoPageSkeleton />
+    }
     return (
       <AuthShell
         icon={<LogIn className="h-6 w-6" />}
@@ -207,14 +222,16 @@ export default function MozoPanelPage() {
         description="El panel de mozo requiere una sesion operativa valida."
       >
         <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600">
-          <Link href="/mozo/iniciar-sesion">
+          <Link href={nav.loginHref}>
             <LogIn className="h-4 w-4" />
             Iniciar sesion
           </Link>
         </Button>
-        <Button asChild variant="outline" className="h-11 w-full rounded-xl">
-          <Link href="/mozo/registro">Crear cuenta de mozo</Link>
-        </Button>
+        {nav.registroHref && (
+          <Button asChild variant="outline" className="h-11 w-full rounded-xl">
+            <Link href={nav.registroHref}>Crear cuenta de mozo</Link>
+          </Button>
+        )}
       </AuthShell>
     )
   }
@@ -332,7 +349,7 @@ export default function MozoPanelPage() {
                     </div>
                   </div>
                   <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
-                    <Link href={`/mozo/panel/${vinculo.negocio.slug}`}>
+                    <Link href={nav.panelHref(vinculo.negocio.slug)}>
                       Entrar al salon
                       <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                     </Link>
@@ -376,7 +393,7 @@ export default function MozoPanelPage() {
               setJoinOpen(false)
               setQueryWantsJoin(false)
               setJoinError("")
-              router.replace("/mozo", { scroll: false })
+              router.replace(nav.homeHref, { scroll: false })
             }}
           />
         )}

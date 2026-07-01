@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import {
   AlertTriangle,
   Armchair,
@@ -107,6 +108,7 @@ type PageState =
 export default function MozoPedidoManualPage() {
   const params = useParams<{ slug: string; mesaId: string }>()
   const router = useRouter()
+  const nav = useOperativoNav()
   const slug = params.slug
   const mesaId = params.mesaId
   const [state, setState] = useState<PageState>({ status: "loading" })
@@ -120,7 +122,7 @@ export default function MozoPedidoManualPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState("")
 
-  const salonHref = `/mozo/panel/${encodeURIComponent(slug)}`
+  const salonHref = nav.panelHref(slug)
 
   const loadPage = useCallback(async () => {
     setState({ status: "loading" })
@@ -172,6 +174,14 @@ export default function MozoPedidoManualPage() {
   useEffect(() => {
     loadPage()
   }, [loadPage])
+
+  // En /operaciones/mi-panel, sin sesión personal se redirige a login (en /mozo se
+  // muestra el acceso). Nunca usa identidad de terminal.
+  useEffect(() => {
+    if (nav.noSessionMode === "redirect" && state.status === "no-session") {
+      router.replace(nav.loginHref)
+    }
+  }, [nav, state.status, router])
 
   const categories = useMemo(() => {
     if (state.status !== "ready") return ["Todas"]
@@ -260,11 +270,16 @@ export default function MozoPedidoManualPage() {
   }
 
   if (state.status === "no-session") {
+    // Bajo /operaciones/mi-panel se redirige a login (efecto arriba): mostrar solo
+    // un placeholder breve, nunca la pantalla de login del árbol /mozo.
+    if (nav.noSessionMode === "redirect") {
+      return <OrderSkeleton />
+    }
     return (
       <StatusPage
         title="Sesion requerida"
         description="Inicia sesion con tu cuenta de mozo para tomar pedidos."
-        action={<Button asChild><Link href="/mozo/iniciar-sesion">Iniciar sesion</Link></Button>}
+        action={<Button asChild><Link href={nav.loginHref}>Iniciar sesion</Link></Button>}
       />
     )
   }

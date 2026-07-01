@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import {
   AlertTriangle,
   Armchair,
@@ -158,6 +159,7 @@ function collectReadyMesaOrders(data: PanelData): ReadyMesaOrder[] {
 export default function MozoSalonPanelPage() {
   const params = useParams<{ slug: string }>()
   const router = useRouter()
+  const nav = useOperativoNav()
   const slug = params.slug
   const [state, setState] = useState<PageState>({ status: "loading" })
   const [actionMesaIds, setActionMesaIds] = useState<Set<string>>(() => new Set())
@@ -348,6 +350,14 @@ export default function MozoSalonPanelPage() {
   useEffect(() => {
     loadPanel()
   }, [loadPanel])
+
+  // En /operaciones/mi-panel, sin sesión personal se redirige a login (en /mozo se
+  // muestra el acceso). Nunca usa identidad de terminal.
+  useEffect(() => {
+    if (nav.noSessionMode === "redirect" && state.status === "no-session") {
+      router.replace(nav.loginHref)
+    }
+  }, [nav, state.status, router])
 
   useEffect(() => {
     const refreshSilently = () => {
@@ -708,7 +718,7 @@ export default function MozoSalonPanelPage() {
       })
     } finally {
       setLoggingOut(false)
-      router.replace("/mozo/iniciar-sesion")
+      router.replace(nav.loginHref)
     }
   }
 
@@ -717,6 +727,11 @@ export default function MozoSalonPanelPage() {
   }
 
   if (state.status === "no-session") {
+    // Bajo /operaciones/mi-panel se redirige a login (efecto arriba): mostrar solo
+    // un placeholder breve, nunca la pantalla de login del árbol /mozo.
+    if (nav.noSessionMode === "redirect") {
+      return <SalonSkeleton />
+    }
     return (
       <StatusShell
         icon={<AlertTriangle className="h-6 w-6" />}
@@ -724,7 +739,7 @@ export default function MozoSalonPanelPage() {
         description="Inicia sesion con tu cuenta de mozo para entrar al salon."
       >
         <Button asChild className="h-11 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600">
-          <Link href="/mozo/iniciar-sesion">Iniciar sesion</Link>
+          <Link href={nav.loginHref}>Iniciar sesion</Link>
         </Button>
       </StatusShell>
     )
@@ -738,7 +753,7 @@ export default function MozoSalonPanelPage() {
         description="No tenes acceso operativo activo para este salon. Volve al panel y elegi un negocio disponible."
       >
         <Button asChild className="h-11 w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600">
-          <Link href="/mozo">Volver a mi panel</Link>
+          <Link href={nav.homeHref}>Volver a mi panel</Link>
         </Button>
       </StatusShell>
     )
@@ -767,7 +782,7 @@ export default function MozoSalonPanelPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
-              <Link href="/mozo" aria-label="Volver al panel de mozo">
+              <Link href={nav.homeHref} aria-label="Volver al panel de mozo">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
@@ -904,7 +919,7 @@ export default function MozoSalonPanelPage() {
                         loading={isMesaActionActive}
                         actionDisabled={isMesaActionActive}
                         onMesaAction={() => handleMesaAction(mesa)}
-                        onOrder={() => router.push(`/mozo/panel/${encodeURIComponent(slug)}/pedido/${encodeURIComponent(mesa.id)}`)}
+                        onOrder={() => router.push(nav.pedidoHref(slug, mesa.id))}
                       />
                     )
                   })}

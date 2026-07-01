@@ -28,8 +28,8 @@ import { Logo } from "@/components/shared/logo"
 //     POST /api/operativo/login (cookie deligo_operativo_session).
 //   - NO consulta el contexto de terminal ni la cookie deligo_operaciones_terminal.
 //   - No persiste email/contraseña/token/sesión en localStorage ni sessionStorage.
-// Compatibilidad temporal (hasta Operaciones-1E): tras un login válido se continúa
-// al flujo personal actual bajo /mozo (no se migra el panel en esta etapa).
+// Tras un login válido se continúa al panel personal bajo DeliGO Operaciones
+// (/operaciones/mi-panel), que reutiliza el flujo personal moderno de Mozo.
 
 const GENERIC_LOGIN_ERROR = "Email o contraseña incorrectos."
 const NETWORK_ERROR = "No se pudo conectar. Revisá tu conexión e intentá de nuevo."
@@ -80,8 +80,8 @@ export default function OperacionesIngresarPage() {
         setError(GENERIC_LOGIN_ERROR)
         return
       }
-      // Continuación temporal hacia el flujo personal actual (Operaciones-1E migrará el panel).
-      router.replace("/mozo")
+      // Continuar al panel personal bajo DeliGO Operaciones.
+      router.replace("/operaciones/mi-panel")
     } catch {
       setError(NETWORK_ERROR)
     } finally {
@@ -129,7 +129,7 @@ export default function OperacionesIngresarPage() {
               </div>
               <Button
                 className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600"
-                onClick={() => router.replace("/mozo")}
+                onClick={() => router.replace("/operaciones/mi-panel")}
               >
                 Continuar a mi panel
                 <ArrowRight className="h-4 w-4" />
