@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, AlertTriangle, Loader2, Monitor } from "lucide-react"
+import { CheckCircle2, AlertTriangle, Loader2, Monitor, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -171,6 +172,23 @@ export default function OperacionesActivarPage() {
                 )}
                 Activar terminal
               </Button>
+
+              {/* Regreso al selector. Solo cuando la activación NO está en progreso
+                  (idle o error); nunca durante loading, éxito ni el redirect automático.
+                  Navegación directa a /operaciones: no usa history.back() para no
+                  reabrir un QR/código del historial. */}
+              {state.status !== "loading" && (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="w-full rounded-xl gap-2 font-semibold"
+                >
+                  <Link href="/operaciones">
+                    <ArrowLeft className="h-4 w-4" />
+                    Volver a DeliGO Operaciones
+                  </Link>
+                </Button>
+              )}
             </>
           )}
         </CardContent>

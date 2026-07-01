@@ -307,7 +307,7 @@ export function SalonTab({ negocio }: SalonTabProps) {
         old ? { ...old, empleadosActivos: data.empleadosActivos } : data
       )
       queryClient.invalidateQueries({ queryKey: ["negocio-config", negocio.id] })
-      toast.success(data.empleadosActivos ? "Mozos activados" : "Mozos desactivados")
+      toast.success(data.empleadosActivos ? "Empleados activados" : "Empleados desactivados")
     },
     onError: () => {
       toast.error("Error al actualizar la configuración")
@@ -344,7 +344,7 @@ export function SalonTab({ negocio }: SalonTabProps) {
           )}
         >
           <Users className="h-3.5 w-3.5" />
-          Mozos
+          Empleados
         </button>
         <button
           onClick={() => setSubTab("estadisticas")}
@@ -516,9 +516,9 @@ export function SalonTab({ negocio }: SalonTabProps) {
                   <Users className="h-4 w-4" style={{ color: negocio.colorPrincipal }} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold">Registrar mozos</p>
+                  <p className="text-sm font-semibold">Registrar empleados</p>
                   <p className="text-xs text-muted-foreground">
-                    Gestioná los mozos del salón
+                    Gestioná los empleados del salón
                   </p>
                 </div>
               </div>
@@ -553,7 +553,7 @@ export function SalonTab({ negocio }: SalonTabProps) {
                     <Users className="h-7 w-7" style={{ color: negocio.colorPrincipal }} />
                   </div>
                   <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                    Activá esta función para registrar mozos. Cada mozo tiene un link propio para tomar pedidos.
+                    Activá esta función para registrar a los empleados del salón.
                   </p>
                 </motion.div>
               )}
@@ -710,7 +710,7 @@ function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
-            <p className="text-xs font-semibold text-muted-foreground">Estadísticas por mozo</p>
+            <p className="text-xs font-semibold text-muted-foreground">Estadísticas por empleado</p>
           </div>
           <div className="space-y-2">
             {mozos.map((mozo) => (
@@ -2071,9 +2071,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [copiedMozoId, setCopiedMozoId] = useState<string | null>(null)
   const [copiedInvitationId, setCopiedInvitationId] = useState<string | null>(null)
-  const [regeneratingMozoId, setRegeneratingMozoId] = useState<string | null>(null)
   const [generatedInvitation, setGeneratedInvitation] = useState<GeneratedMozoInvitation | null>(null)
 
   const [formNombre, setFormNombre] = useState("")
@@ -2088,7 +2086,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     queryKey: ["empleados", negocio.id],
     queryFn: async () => {
       const res = await fetch("/api/negocio/empleados")
-      if (!res.ok) throw new Error("Error cargando mozos")
+      if (!res.ok) throw new Error("Error cargando empleados")
       return res.json()
     },
   })
@@ -2157,7 +2155,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       })
       if (!res.ok) {
         const err = await res.json()
-        throw new Error(err.error || "Error creando mozo")
+        throw new Error(err.error || "Error creando empleado")
       }
       return res.json()
     },
@@ -2166,7 +2164,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
         old ? [...old, newEmpleado] : [newEmpleado]
       )
       queryClient.invalidateQueries({ queryKey: ["empleados", negocio.id] })
-      toast.success("Mozo creado correctamente")
+      toast.success("Empleado creado correctamente")
       resetAddForm()
     },
     onError: (error: Error) => {
@@ -2192,7 +2190,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
         old ? old.map((e) => e.id === updatedEmpleado.id ? updatedEmpleado : e) : []
       )
       queryClient.invalidateQueries({ queryKey: ["empleados", negocio.id] })
-      toast.success("Mozo actualizado")
+      toast.success("Empleado actualizado")
       setEditingId(null)
     },
     onError: (error: Error) => {
@@ -2203,7 +2201,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/negocio/empleados/${id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error("Error eliminando mozo")
+      if (!res.ok) throw new Error("Error eliminando empleado")
       return res.json()
     },
     onSuccess: (_, deletedId) => {
@@ -2212,11 +2210,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       )
       queryClient.invalidateQueries({ queryKey: ["empleados", negocio.id] })
       queryClient.invalidateQueries({ queryKey: ["mozo-invitaciones", negocio.id] })
-      toast.success("Mozo eliminado")
+      toast.success("Empleado eliminado")
       setDeleteConfirm(null)
     },
     onError: () => {
-      toast.error("Error al eliminar el mozo")
+      toast.error("Error al eliminar el empleado")
     },
   })
 
@@ -2227,7 +2225,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ activo }),
       })
-      if (!res.ok) throw new Error("Error actualizando mozo")
+      if (!res.ok) throw new Error("Error actualizando empleado")
       return res.json()
     },
     onSuccess: (updatedEmpleado) => {
@@ -2237,50 +2235,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       queryClient.invalidateQueries({ queryKey: ["empleados", negocio.id] })
     },
     onError: () => {
-      toast.error("Error al actualizar el mozo")
-    },
-  })
-
-  const regenerateMozoTokenMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/negocio/empleados/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regenerateToken: true }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Error regenerando link")
-      }
-      return res.json() as Promise<Empleado>
-    },
-    onMutate: (id) => {
-      setRegeneratingMozoId(id)
-    },
-    onSuccess: async (updatedEmpleado) => {
-      queryClient.setQueryData<Empleado[]>(["empleados", negocio.id], (old) =>
-        old ? old.map((e) => e.id === updatedEmpleado.id ? updatedEmpleado : e) : []
-      )
-
-      if (!updatedEmpleado.token) {
-        toast.success("Link del mozo regenerado")
-        return
-      }
-
-      try {
-        await navigator.clipboard.writeText(`${window.location.origin}/m/${updatedEmpleado.token}`)
-        setCopiedMozoId(updatedEmpleado.id)
-        toast.success("Link del mozo regenerado y copiado")
-        setTimeout(() => setCopiedMozoId(null), 2000)
-      } catch {
-        toast.success("Link del mozo regenerado")
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-    onSettled: () => {
-      setRegeneratingMozoId(null)
+      toast.error("Error al actualizar el empleado")
     },
   })
 
@@ -2337,22 +2292,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
     setShowAddForm(false)
   }
 
-  const copyMozoLink = async (empleadoToken: string | null, mozoId: string) => {
-    if (!empleadoToken) {
-      toast.error("Este mozo no tiene un link generado. Intentá crearlo de nuevo.")
-      return
-    }
-    const url = `${window.location.origin}/m/${empleadoToken}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedMozoId(mozoId)
-      toast.success("Link del mozo copiado")
-      setTimeout(() => setCopiedMozoId(null), 2000)
-    } catch {
-      toast.error("No se pudo copiar el link")
-    }
-  }
-
   const copyInvitationCode = async (codigo: string, invitationId: string) => {
     try {
       await navigator.clipboard.writeText(codigo)
@@ -2366,11 +2305,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
 
   const handleAddEmpleado = () => {
     if (!formNombre.trim()) {
-      toast.error("Ingresá el nombre del mozo")
+      toast.error("Ingresá el nombre del empleado")
       return
     }
     if (!formCodigo.trim()) {
-      toast.error("Ingresá el código del mozo")
+      toast.error("Ingresá el código del empleado")
       return
     }
     addMutation.mutate({
@@ -2428,7 +2367,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
               onClick={() => setShowAddForm(true)}
             >
               <Plus className="h-4 w-4" />
-              Agregar mozo
+              Agregar empleado
             </Button>
           </motion.div>
         ) : (
@@ -2439,7 +2378,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             exit={{ opacity: 0, y: -8 }}
             className="p-3 rounded-xl border border-border/50 bg-muted/20 space-y-3"
           >
-            <p className="text-xs font-semibold">Nuevo mozo</p>
+            <p className="text-xs font-semibold">Nuevo empleado</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <Label className="text-[11px] font-semibold mb-1 block">Nombre *</Label>
@@ -2487,7 +2426,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                 disabled={addMutation.isPending}
               >
                 {addMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                Crear mozo
+                Crear empleado
               </Button>
               <Button size="sm" variant="outline" className="rounded-xl h-7 text-xs" onClick={resetAddForm} disabled={addMutation.isPending}>
                 Cancelar
@@ -2504,10 +2443,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             const stats = mozoStatsData?.stats?.find((s) => s.id === empleado.id)
             const totalPedidos = stats?.totalPedidos ?? 0
             const pedidosHoy = stats?.pedidosHoy ?? 0
-            const mozoLink = empleado.token ? `/m/${empleado.token}` : null
-            const hasMozoLinkMetadata = !!mozoLink || !!empleado.tokenMasked
-            const hasFullMozoToken = !!empleado.token
-            const isRegeneratingMozo = regeneratingMozoId === empleado.id
             const linkedAccount = empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado
               ? empleado.cuentaOperativa
               : null
@@ -2602,7 +2537,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                         border: empleado.activo ? "none" : "1px solid hsl(var(--border))",
                       }}
                       onClick={() => startEditing(empleado)}
-                      title="Editar mozo"
+                      title="Editar empleado"
                     >
                       {empleado.codigo.substring(0, 2)}
                     </div>
@@ -2659,53 +2594,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                           </span>
                         </div>
                       </div>
-                      {/* Mozo link with copy button */}
-                      {hasMozoLinkMetadata ? (
-                        <div className="space-y-1 mt-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <Link2 className="h-3 w-3 text-muted-foreground/50" />
-                            <span className="text-[10px] text-muted-foreground/70 truncate max-w-[140px]">
-                              {mozoLink ?? "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
-                              {!mozoLink && empleado.tokenMasked ? ` (${empleado.tokenMasked})` : ""}
-                            </span>
-                            <button
-                              onClick={() => {
-                                if (hasFullMozoToken) {
-                                  copyMozoLink(empleado.token, empleado.id)
-                                  return
-                                }
-                                regenerateMozoTokenMutation.mutate(empleado.id)
-                              }}
-                              className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors shrink-0"
-                              title={hasFullMozoToken ? "Copiar link del mozo" : "Regenerar link del mozo"}
-                              disabled={isRegeneratingMozo}
-                            >
-                              {isRegeneratingMozo ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : copiedMozoId === empleado.id ? (
-                                <Check className="h-3 w-3 text-emerald-500" />
-                              ) : hasFullMozoToken ? (
-                                <Copy className="h-3 w-3" />
-                              ) : (
-                                <RefreshCw className="h-3 w-3" />
-                              )}
-                              {isRegeneratingMozo
-                                ? "Regenerando"
-                                : copiedMozoId === empleado.id
-                                  ? "Copiado"
-                                  : hasFullMozoToken
-                                    ? "Copiar"
-                                    : "Regenerar"}
-                            </button>
-                          </div>
-
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                          <Link2 className="h-3 w-3 text-muted-foreground/30" />
-                          <span className="text-[10px] text-muted-foreground/40">Sin link generado</span>
-                        </div>
-                      )}
                       <div className="mt-2 rounded-lg border border-border/50 bg-muted/20 p-2 space-y-1.5">
                         {linkedAccount ? (
                           <>
@@ -2824,7 +2712,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                               ) : (
                                 <UserPlus className="h-3 w-3" />
                               )}
-                              {empleado.activo ? "Generar código de unión" : "Mozo inactivo"}
+                              {empleado.activo ? "Generar código de unión" : "Empleado inactivo"}
                             </Button>
                           </div>
                         )}
@@ -2868,7 +2756,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                           size="icon" variant="ghost"
                           className="h-8 w-8 rounded-lg text-muted-foreground hover:text-red-500"
                           onClick={() => setDeleteConfirm(empleado.id)}
-                          title="Eliminar mozo"
+                          title="Eliminar empleado"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -2882,7 +2770,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
         </div>
       ) : (
         <p className="text-xs text-muted-foreground text-center py-4">
-          No hay mozos registrados. Agregá tu primer mozo.
+          No hay empleados registrados. Agregá tu primer empleado.
         </p>
       )}
       <Dialog open={!!generatedInvitation} onOpenChange={(open) => {
@@ -2892,7 +2780,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
           <DialogHeader>
             <DialogTitle>Código de unión generado</DialogTitle>
             <DialogDescription>
-              Mostrá este código al mozo. No se podrá recuperar después de cerrar esta ventana.
+              Mostrá este código al empleado. No se podrá recuperar después de cerrar esta ventana.
             </DialogDescription>
           </DialogHeader>
           {generatedInvitation && (
