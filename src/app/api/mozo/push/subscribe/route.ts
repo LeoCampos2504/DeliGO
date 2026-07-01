@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // POST /api/mozo/push/subscribe — Save push subscription for a mozo via their personal token
@@ -27,11 +28,12 @@ export async function POST(req: NextRequest) {
 
     // Validate mozo token
     const empleado = await db.empleado.findFirst({
-      where: { token: mozoToken, rol: "mozo", activo: true, eliminado: false },
-      select: { id: true },
+      where: { token: mozoToken, activo: true, eliminado: false },
+      select: { id: true, rol: true, areaOperativa: true },
     })
 
-    if (!empleado) {
+    // Guard de transición (Operaciones-1F): solo área efectiva Mozo.
+    if (!empleado || !esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
       return NextResponse.json({ error: "Token de mozo inválido" }, { status: 401 })
     }
 

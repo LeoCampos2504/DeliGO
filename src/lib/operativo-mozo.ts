@@ -5,6 +5,10 @@ import {
   validateOperationalSession,
 } from "@/lib/auth"
 import { db } from "@/lib/db"
+import {
+  resolveAreaOperativaEfectiva,
+  type AreaOperativa,
+} from "@/lib/area-operativa"
 
 export type OperativoMozoAuth =
   | {
@@ -21,6 +25,10 @@ export type OperativoMozoAuth =
         activo: boolean
         negocioId: string
       }
+      // Área operativa administrada por el negocio y área efectiva derivada
+      // (fuente de verdad del acceso personal). Aditivo: no reemplaza campos previos.
+      areaOperativa: string
+      areaOperativaEfectiva: AreaOperativa
       negocio: {
         id: string
         nombre: string
@@ -34,7 +42,7 @@ export type OperativoMozoAuth =
   | {
       ok: false
       status: 401 | 403
-      state: "sin_sesion" | "acceso_no_disponible"
+      state: "sin_sesion" | "acceso_no_disponible" | "area_no_habilitada"
       clearSession?: boolean
     }
 
@@ -97,13 +105,14 @@ export async function resolveOperativoMozoForSlug(
     return { ok: false, status: 403, state: "acceso_no_disponible" }
   }
 
+  // El acceso personal ya NO se filtra por rol:"mozo" en la consulta. Se resuelve el
+  // empleado vinculado y luego se deriva el área efectiva (fuente de verdad).
   const empleado = await db.empleado.findFirst({
     where: {
       cuentaOperativaId: account.id,
       negocioId: negocio.id,
       activo: true,
       eliminado: false,
-      rol: "mozo",
     },
     select: {
       id: true,
@@ -112,6 +121,7 @@ export async function resolveOperativoMozoForSlug(
       rol: true,
       activo: true,
       negocioId: true,
+      areaOperativa: true,
     },
   })
 
@@ -119,10 +129,26 @@ export async function resolveOperativoMozoForSlug(
     return { ok: false, status: 403, state: "acceso_no_disponible" }
   }
 
+  const areaOperativaEfectiva = resolveAreaOperativaEfectiva({
+    areaOperativa: empleado.areaOperativa,
+    rol: empleado.rol,
+  })
+
+  // Este resolver habilita ÚNICAMENTE el panel de Mozo. Otras áreas efectivas
+  // (salon/pyr/sin_asignar) no acceden aquí: respuesta segura, sin cerrar sesión
+  // ni revelar información de otras áreas.
+  if (areaOperativaEfectiva !== "mozo") {
+    return { ok: false, status: 403, state: "area_no_habilitada" }
+  }
+
+  const { areaOperativa: _areaOperativa, ...empleadoBase } = empleado
+
   return {
     ok: true,
     cuenta: account,
-    empleado,
+    empleado: empleadoBase,
+    areaOperativa: empleado.areaOperativa,
+    areaOperativaEfectiva,
     negocio,
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { randomBytes } from "crypto"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
@@ -73,21 +74,10 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Generate tokens for any empleados that don't have one (legacy migration)
-    for (const emp of empleados) {
-      if (!emp.token) {
-        let newToken = generateMozoToken()
-        while (await db.empleado.findFirst({ where: { token: newToken } })) {
-          newToken = generateMozoToken()
-        }
-        await db.empleado.update({
-          where: { id: emp.id },
-          data: { token: newToken },
-        })
-        emp.token = newToken
-      }
-    }
-
+    // GET es estrictamente de lectura (Operaciones-1F.1): no crea, modifica,
+    // regenera ni revoca tokens legacy. Un token nuevo solo puede existir por
+    // creación de un Mozo activo (POST) o regeneración explícita válida
+    // (PUT /[id] con regenerateToken:true).
     return NextResponse.json(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
     console.error("Error listing empleados:", error)
@@ -162,11 +152,20 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Generate unique token for mozo link
-    let mozoToken = generateMozoToken()
-    // Ensure uniqueness (use findFirst since token doesn't have @unique constraint)
-    while (await db.empleado.findFirst({ where: { token: mozoToken } })) {
+    // El token legacy solo se emite si el área efectiva del empleado creado es Mozo.
+    // Salón/PyR/sin_asignar (sin compatibilidad) no reciben Empleado.token.
+    const rolFinal = rol || "mozo"
+    const debeTenerToken =
+      empleadoActivo &&
+      esAreaMozoEfectiva({ areaOperativa, rol: rolFinal })
+
+    let mozoToken: string | null = null
+    if (debeTenerToken) {
       mozoToken = generateMozoToken()
+      // Ensure uniqueness (use findFirst since token doesn't have @unique constraint)
+      while (await db.empleado.findFirst({ where: { token: mozoToken } })) {
+        mozoToken = generateMozoToken()
+      }
     }
 
     const empleado = await db.empleado.create({
@@ -174,7 +173,7 @@ export async function POST(req: NextRequest) {
         nombre: nombre.trim(),
         codigo: codigo.trim().toUpperCase(),
         token: mozoToken,
-        rol: rol || "mozo",
+        rol: rolFinal,
         areaOperativa,
         activo: empleadoActivo,
         negocioId,
@@ -189,7 +188,7 @@ export async function POST(req: NextRequest) {
       await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_asignada", recurso: "empleado", recursoId: empleado.id, detalle: { areaOperativa, asignacionVersion: empleado.asignacionVersion } })
     }
 
-    return NextResponse.json(serializeEmpleado(empleado, true), { status: 201 })
+    return NextResponse.json(serializeEmpleado(empleado, debeTenerToken), { status: 201 })
   } catch (error) {
     console.error("Error creating empleado:", error)
     return NextResponse.json(

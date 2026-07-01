@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 
 type AssignmentAuth =
   | { kind: "negocio" | "shared" }
@@ -50,23 +51,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone
+    // 3) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone.
+    // Guard de transición (Operaciones-1F): el token legacy solo autoriza si el área
+    // efectiva actual del empleado sigue siendo Mozo.
     if (!auth && typeof body.mozoToken === "string") {
       const empleado = await db.empleado.findFirst({
         where: {
           token: body.mozoToken,
           activo: true,
           eliminado: false,
-          rol: "mozo",
         },
         select: {
           id: true,
           codigo: true,
           nombre: true,
           negocioId: true,
+          rol: true,
+          areaOperativa: true,
         },
       })
-      if (empleado) {
+      if (empleado && esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
         auth = { kind: "mozo", empleado }
         negocioId = empleado.negocioId
       }

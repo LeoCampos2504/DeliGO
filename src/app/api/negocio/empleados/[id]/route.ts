@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { randomBytes } from "crypto"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
@@ -112,18 +113,21 @@ export async function PUT(
       }
     }
 
-    // ── Endurecimiento del ciclo de vida del token legacy (Seguridad-6C.2A) ──
-    // El token legacy solo tiene sentido para un mozo activo y no eliminado.
-    // Se calcula el estado FINAL que dejará esta actualización.
+    // ── Endurecimiento del ciclo de vida del token legacy (Seguridad-6C.2A + Operaciones-1F) ──
+    // El token legacy solo tiene sentido para un empleado activo, no eliminado y con
+    // ÁREA EFECTIVA Mozo. Se calcula el estado FINAL que dejará esta actualización.
     const finalActivo = activo !== undefined ? Boolean(activo) : existing.activo
     const finalRol = rol !== undefined ? rol : existing.rol
-    const quedaMozoActivo = finalActivo && finalRol === "mozo" && !existing.eliminado
+    const finalArea =
+      updateData.areaOperativa !== undefined ? updateData.areaOperativa : existing.areaOperativa
+    const areaEfectivaFinal = resolveAreaOperativaEfectiva({ areaOperativa: finalArea, rol: finalRol })
+    const quedaMozoActivo = finalActivo && !existing.eliminado && areaEfectivaFinal === "mozo"
 
-    // Revocación en la MISMA escritura: si el estado final deja al empleado
-    // inactivo, eliminado o con rol distinto de mozo, se anula el token y su
-    // pushSubscription junto con el cambio de estado (sin ventana entre dos
-    // consultas). Reactivar o devolver el rol mozo NO regenera nada: el token
-    // queda en null y solo una regeneración explícita válida puede emitir uno.
+    // Revocación en la MISMA escritura: si el estado final deja al empleado inactivo,
+    // eliminado o con área efectiva distinta de Mozo (salon/pyr/sin_asignar sin
+    // compatibilidad), se anula el token y su pushSubscription junto con el cambio de
+    // estado (sin ventana entre dos consultas). Reactivar o devolver Mozo NO regenera
+    // nada: el token queda en null y solo una regeneración explícita válida lo emite.
     if (!quedaMozoActivo) {
       updateData.token = null
       updateData.pushSubscription = null
@@ -170,6 +174,7 @@ export async function PUT(
           eliminado: existing.eliminado,
           activo: existing.activo,
           rol: existing.rol,
+          areaOperativa: existing.areaOperativa,
           token: existing.token,
         },
         data: updateData,

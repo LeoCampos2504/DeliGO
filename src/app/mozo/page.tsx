@@ -46,12 +46,40 @@ interface VinculoMozo {
     codigo: string
     rol: string
     activo: boolean
+    areaOperativa?: string
+    areaOperativaEfectiva?: string
   }
   negocio: {
     id: string
     nombre: string
     slug: string
   }
+}
+
+// Etiquetas de presentación del área efectiva (la fuente de verdad es el servidor).
+const AREA_LABELS: Record<string, string> = {
+  mozo: "Mozo",
+  salon: "Salón",
+  pyr: "Pedidos y reseñas",
+  sin_asignar: "Sin área asignada",
+}
+
+// Mensaje informativo (no técnico) para áreas cuyo panel personal aún no existe.
+const AREA_PENDIENTE_MSG: Record<string, string> = {
+  salon: "Tu área actual es Salón. Este panel personal estará disponible próximamente desde DeliGO Operaciones.",
+  pyr: "Tu área actual es Pedidos y reseñas. Este panel personal estará disponible próximamente desde DeliGO Operaciones.",
+  sin_asignar: "Pedile al administrador del negocio que asigne tu área operativa.",
+}
+
+function areaLabel(area?: string) {
+  return AREA_LABELS[area ?? "sin_asignar"] ?? AREA_LABELS.sin_asignar
+}
+
+function areaEfectivaDeVinculo(vinculo: VinculoMozo): string {
+  // Confiar únicamente en el área efectiva resuelta por el servidor. Sin fallback por
+  // rol (Operaciones-1F.2): ante respuesta incompleta/desconocida → "sin_asignar",
+  // nunca inferir "mozo" desde rol.
+  return vinculo.empleado.areaOperativaEfectiva ?? "sin_asignar"
 }
 
 type PanelState =
@@ -307,8 +335,14 @@ export default function MozoPanelPage() {
           </div>
           <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
             <MiniMetric icon={<BadgeCheck className="h-4 w-4" />} label="Estado" value={cuenta.activo ? "Activa" : "Inactiva"} />
-            <MiniMetric icon={<UserRound className="h-4 w-4" />} label="Rol" value="Mozo" />
-            <MiniMetric icon={<ShieldCheck className="h-4 w-4" />} label="Permisos" value="Salon operativo" />
+            <MiniMetric icon={<UserRound className="h-4 w-4" />} label="Vinculos activos" value={String(vinculos.length)} />
+            <MiniMetric
+              icon={<ShieldCheck className="h-4 w-4" />}
+              label="Areas operativas"
+              value={
+                Array.from(new Set(vinculos.map((v) => areaLabel(areaEfectivaDeVinculo(v))))).join(", ") || "Sin area"
+              }
+            />
           </div>
         </section>
 
@@ -326,37 +360,52 @@ export default function MozoPanelPage() {
 
         {vinculos.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
-            {vinculos.map((vinculo) => (
-              <Card
-                key={`${vinculo.negocio.slug}:${vinculo.empleado.codigo}`}
-                className="group overflow-hidden rounded-2xl border-border/60 shadow-sm transition hover:border-amber-300/70 hover:shadow-md dark:hover:border-amber-700/60"
-              >
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                      <Store className="h-6 w-6" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-lg font-bold">{vinculo.negocio.nombre}</p>
-                        <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                          Activo
-                        </Badge>
+            {vinculos.map((vinculo) => {
+              const areaEfectiva = areaEfectivaDeVinculo(vinculo)
+              const esMozo = areaEfectiva === "mozo"
+              return (
+                <Card
+                  key={`${vinculo.negocio.slug}:${vinculo.empleado.codigo}`}
+                  className="group overflow-hidden rounded-2xl border-border/60 shadow-sm transition hover:border-amber-300/70 hover:shadow-md dark:hover:border-amber-700/60"
+                >
+                  <CardContent className="space-y-4 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        <Store className="h-6 w-6" />
                       </div>
-                      <p className="truncate text-sm text-muted-foreground">
-                        {vinculo.empleado.nombre} - Codigo {vinculo.empleado.codigo}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-lg font-bold">{vinculo.negocio.nombre}</p>
+                          <Badge className="border-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            {areaLabel(areaEfectiva)}
+                          </Badge>
+                        </div>
+                        <p className="truncate text-sm text-muted-foreground">
+                          {vinculo.empleado.nombre} - Codigo {vinculo.empleado.codigo}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
-                    <Link href={nav.panelHref(vinculo.negocio.slug)}>
-                      Entrar al salon
-                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+                    {esMozo ? (
+                      <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
+                        <Link href={nav.panelHref(vinculo.negocio.slug)}>
+                          Entrar al salon
+                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                        </Link>
+                      </Button>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                          {AREA_PENDIENTE_MSG[areaEfectiva] ?? AREA_PENDIENTE_MSG.sin_asignar}
+                        </p>
+                        <Button asChild variant="outline" className="h-10 w-full gap-2 rounded-xl">
+                          <Link href="/operaciones">Ir a DeliGO Operaciones</Link>
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
         ) : (
           <Card className="rounded-2xl border-dashed border-amber-300/70 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/10">

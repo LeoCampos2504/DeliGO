@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 
 function readBearerToken(req: NextRequest): string | null {
   const authorization = req.headers.get("authorization")
@@ -22,12 +23,13 @@ export async function GET(req: NextRequest) {
     }
 
     const empleado = await db.empleado.findFirst({
-      where: { token, rol: "mozo", activo: true, eliminado: false },
+      where: { token, activo: true, eliminado: false },
       select: {
         id: true,
         nombre: true,
         codigo: true,
         rol: true,
+        areaOperativa: true,
         negocioId: true,
         pushSubscription: true,
         negocio: {
@@ -55,6 +57,13 @@ export async function GET(req: NextRequest) {
     })
 
     if (!empleado) {
+      return noStore(NextResponse.json({ error: "Token inválido" }, { status: 404 }))
+    }
+
+    // Guard de transición (Operaciones-1F): un token legacy solo autoriza si el área
+    // efectiva actual del empleado sigue siendo Mozo. Respuesta genérica (misma que
+    // token inválido): no revela el área ni el empleado.
+    if (!esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
       return noStore(NextResponse.json({ error: "Token inválido" }, { status: 404 }))
     }
 

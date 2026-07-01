@@ -5,6 +5,7 @@ import {
   validateOperationalSession,
 } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
             rol: true,
             activo: true,
             eliminado: true,
+            areaOperativa: true,
             negocio: {
               select: {
                 id: true,
@@ -84,11 +86,13 @@ export async function GET(req: NextRequest) {
       activo: account.activo,
     }
 
+    // Todos los vínculos operativos válidos de la cuenta (cualquier área). El área
+    // efectiva la deriva el servidor; el cliente nunca la envía. Aditivo: se agregan
+    // areaOperativa + areaOperativaEfectiva por vínculo sin quitar campos previos.
     const operationalLinks = account.empleados
       .filter((empleado) =>
         empleado.activo &&
         !empleado.eliminado &&
-        empleado.rol === "mozo" &&
         empleado.negocio.aprobado &&
         !empleado.negocio.suspendido &&
         empleado.negocio.salonActivo &&
@@ -101,6 +105,11 @@ export async function GET(req: NextRequest) {
           codigo: empleado.codigo,
           rol: empleado.rol,
           activo: empleado.activo,
+          areaOperativa: empleado.areaOperativa,
+          areaOperativaEfectiva: resolveAreaOperativaEfectiva({
+            areaOperativa: empleado.areaOperativa,
+            rol: empleado.rol,
+          }),
         },
         negocio: {
           id: empleado.negocio.id,
@@ -110,7 +119,11 @@ export async function GET(req: NextRequest) {
       }))
 
     if (operationalLinks.length > 0) {
-      const primaryLink = operationalLinks[0]
+      // Vínculo primario para compatibilidad de contrato: preferir uno con área
+      // efectiva Mozo (comportamiento previo); si no hay, el primero disponible.
+      const primaryLink =
+        operationalLinks.find((link) => link.empleado.areaOperativaEfectiva === "mozo") ??
+        operationalLinks[0]
       return noStore(
         NextResponse.json({
           ok: true,
@@ -129,7 +142,7 @@ export async function GET(req: NextRequest) {
           ok: true,
           estado: "sin_vinculo_operativo",
           cuenta,
-          mensaje: "Actualmente no tenés un vínculo activo como mozo.",
+          mensaje: "Actualmente no tenés un vínculo operativo disponible.",
           vinculos: [],
         })
       )
