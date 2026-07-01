@@ -112,31 +112,89 @@ export async function PUT(
       }
     }
 
+    // ── Endurecimiento del ciclo de vida del token legacy (Seguridad-6C.2A) ──
+    // El token legacy solo tiene sentido para un mozo activo y no eliminado.
+    // Se calcula el estado FINAL que dejará esta actualización.
+    const finalActivo = activo !== undefined ? Boolean(activo) : existing.activo
+    const finalRol = rol !== undefined ? rol : existing.rol
+    const quedaMozoActivo = finalActivo && finalRol === "mozo" && !existing.eliminado
+
+    // Revocación en la MISMA escritura: si el estado final deja al empleado
+    // inactivo, eliminado o con rol distinto de mozo, se anula el token y su
+    // pushSubscription junto con el cambio de estado (sin ventana entre dos
+    // consultas). Reactivar o devolver el rol mozo NO regenera nada: el token
+    // queda en null y solo una regeneración explícita válida puede emitir uno.
+    if (!quedaMozoActivo) {
+      updateData.token = null
+      updateData.pushSubscription = null
+    }
+
+    const includeCuenta = {
+      cuentaOperativa: {
+        select: { id: true, nombre: true, activo: true, eliminado: true },
+      },
+    } as const
+
+    let updated
+
     if (regenerateToken === true) {
+      // Nunca emitir ni revelar un token si el estado final no es un mozo activo.
+      // Respuesta genérica: no describe el estado interno del empleado.
+      if (!quedaMozoActivo) {
+        return NextResponse.json(
+          { error: "No se pudo regenerar el token" },
+          { status: 409 }
+        )
+      }
+
       let newToken = generateMozoToken()
       while (await db.empleado.findFirst({ where: { token: newToken } })) {
         newToken = generateMozoToken()
       }
       updateData.token = newToken
-    }
-    if (regenerateToken === true || activo === false || (rol !== undefined && rol !== "mozo")) {
       updateData.pushSubscription = null
-    }
 
-    const updated = await db.empleado.update({
-      where: { id },
-      data: updateData,
-      include: {
-        cuentaOperativa: {
-          select: {
-            id: true,
-            nombre: true,
-            activo: true,
-            eliminado: true,
-          },
+      // Escritura condicional (CAS) con bloqueo optimista contra el snapshot leído
+      // en `existing`: la regeneración solo se persiste si `activo`, `rol`,
+      // `eliminado` y `token` NO cambiaron desde esa lectura. Se comparan los
+      // valores realmente leídos —no según qué vino en el body ni valores fijos—
+      // para que: (a) una request con `activo:true` o `rol:"mozo"` no pueda
+      // revertir una desactivación / cambio de rol / eliminación concurrente que
+      // confirmó antes; y (b) de dos regeneraciones simultáneas solo una coincida
+      // (la primera cambia `token`, dejando `existing.token` de la otra obsoleto).
+      // Si la carrera ocurrió, la condición no coincide y el token no se persiste.
+      const casResult = await db.empleado.updateMany({
+        where: {
+          id,
+          negocioId,
+          eliminado: existing.eliminado,
+          activo: existing.activo,
+          rol: existing.rol,
+          token: existing.token,
         },
-      },
-    })
+        data: updateData,
+      })
+
+      if (casResult.count === 0) {
+        return NextResponse.json(
+          { error: "No se pudo regenerar el token" },
+          { status: 409 }
+        )
+      }
+
+      updated = await db.empleado.findUnique({ where: { id }, include: includeCuenta })
+      if (!updated) {
+        return NextResponse.json({ error: "Empleado no encontrado" }, { status: 404 })
+      }
+    } else {
+      // Ruta normal: una sola escritura atómica por id. Si correspondía revocar,
+      // token/push ya quedaron en null dentro de este mismo update.
+      updated = await db.empleado.update({
+        where: { id },
+        data: updateData,
+        include: includeCuenta,
+      })
+    }
 
     // Auditar el cambio de área (sin datos sensibles).
     if (areaChanged) {
