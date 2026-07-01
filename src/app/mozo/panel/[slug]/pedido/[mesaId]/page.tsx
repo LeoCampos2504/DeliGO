@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import type { ReactNode } from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import {
   AlertTriangle,
@@ -105,6 +105,9 @@ type PageState =
   | { status: "unavailable"; message: string }
   | { status: "error"; message: string }
 
+// Frecuencia del chequeo de acceso mientras el builder está abierto (Operaciones-1G).
+const ACCESS_CHECK_INTERVAL_MS = 15000
+
 export default function MozoPedidoManualPage() {
   const params = useParams<{ slug: string; mesaId: string }>()
   const router = useRouter()
@@ -123,6 +126,39 @@ export default function MozoPedidoManualPage() {
   const [submitError, setSubmitError] = useState("")
 
   const salonHref = nav.panelHref(slug)
+  // Chequeo ligero de acceso mientras el builder está abierto (Operaciones-1G):
+  // solo valida el acceso actual, sin recargar menú ni reinicializar el pedido.
+  const accessCheckAcRef = useRef<AbortController | null>(null)
+
+  // Limpieza del borrador local al perder acceso (Operaciones-1G.1). No persiste ni
+  // mueve el contenido a localStorage/sessionStorage/query string/cookies.
+  const clearDraftAfterAccessLoss = useCallback(() => {
+    setCart([])
+    setSelectedProduct(null)
+    setNotas("")
+    setSubmitError("")
+    setSubmitting(false)
+  }, [])
+
+  // Salida atómica por cambio de área: aborta el chequeo pendiente, limpia el
+  // borrador y muestra solo el skeleton mientras navega al inicio personal.
+  const redirectToPersonalHomeAfterAreaLoss = useCallback(() => {
+    accessCheckAcRef.current?.abort()
+    accessCheckAcRef.current = null
+    clearDraftAfterAccessLoss()
+    setState({ status: "loading" })
+    router.replace(nav.homeHref)
+  }, [clearDraftAfterAccessLoss, router, nav.homeHref])
+
+  // Salida por sesión perdida (401): aborta el chequeo, limpia el borrador y navega
+  // al login según el árbol (nunca a homeHref ante 401).
+  const redirectToLoginAfterSessionLoss = useCallback(() => {
+    accessCheckAcRef.current?.abort()
+    accessCheckAcRef.current = null
+    clearDraftAfterAccessLoss()
+    setState({ status: "loading" })
+    router.replace(nav.loginHref)
+  }, [clearDraftAfterAccessLoss, router, nav.loginHref])
 
   const loadPage = useCallback(async () => {
     setState({ status: "loading" })
@@ -136,8 +172,22 @@ export default function MozoPedidoManualPage() {
       const panelData = await panelRes.json().catch(() => ({}))
       const menuData = await menuRes.json().catch(() => ({}))
 
-      if (panelRes.status === 401 || panelData.estado === "sin_sesion") {
-        setState({ status: "no-session" })
+      // Cambio de área: salida atómica al inicio personal (no "Mesa no disponible").
+      if (
+        panelData.estado === "area_no_habilitada" ||
+        menuData.estado === "area_no_habilitada"
+      ) {
+        redirectToPersonalHomeAfterAreaLoss()
+        return
+      }
+
+      if (
+        panelRes.status === 401 ||
+        panelData.estado === "sin_sesion" ||
+        menuRes.status === 401 ||
+        menuData.estado === "sin_sesion"
+      ) {
+        redirectToLoginAfterSessionLoss()
         return
       }
 
@@ -169,7 +219,7 @@ export default function MozoPedidoManualPage() {
         message: error instanceof Error ? error.message : "No se pudo cargar el pedido",
       })
     }
-  }, [mesaId, slug])
+  }, [mesaId, slug, redirectToPersonalHomeAfterAreaLoss, redirectToLoginAfterSessionLoss])
 
   useEffect(() => {
     loadPage()
@@ -182,6 +232,69 @@ export default function MozoPedidoManualPage() {
       router.replace(nav.loginHref)
     }
   }, [nav, state.status, router])
+
+  // Chequeo periódico de acceso (Operaciones-1G): detecta en caliente un cambio de
+  // área o pérdida de sesión mientras el pedido está abierto, sin recargar el menú.
+  // Máximo cada 15 s con la pestaña visible + focus/visibilitychange. Usa el endpoint
+  // protegido existente `GET /api/operativo/mozo/panel/[slug]` (solo /api/operativo).
+  useEffect(() => {
+    let stopped = false
+
+    const runCheck = async () => {
+      if (document.visibilityState !== "visible") return
+      // Sin solapamiento: si ya hay una comprobación activa, no iniciar otra.
+      if (accessCheckAcRef.current) return
+      const ac = new AbortController()
+      accessCheckAcRef.current = ac
+      try {
+        const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}`, {
+          cache: "no-store",
+          signal: ac.signal,
+        })
+        const data = await res.json().catch(() => ({}))
+        if (stopped || ac.signal.aborted) return
+
+        // Cambio de área: salida atómica al inicio personal (limpia el borrador).
+        if (data.estado === "area_no_habilitada") {
+          redirectToPersonalHomeAfterAreaLoss()
+          return
+        }
+
+        // Sesión perdida: limpiar y enviar al login según el árbol.
+        if (res.status === 401 || data.estado === "sin_sesion") {
+          redirectToLoginAfterSessionLoss()
+          return
+        }
+
+        // Otros casos (acceso_no_disponible, negocio/slug/mesa, red, 500): no redirigir
+        // como cambio de área; conservar el manejo seguro actual.
+      } catch {
+        // Abort/red/timeout: ignorar; no redirigir ni mostrar alertas repetidas.
+      } finally {
+        // Liberar el ref solo si sigue apuntando a ESTA comprobación (no pisar una nueva).
+        if (accessCheckAcRef.current === ac) accessCheckAcRef.current = null
+      }
+    }
+
+    const interval = window.setInterval(() => {
+      void runCheck()
+    }, ACCESS_CHECK_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void runCheck()
+    }
+    const onFocus = () => void runCheck()
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("focus", onFocus)
+
+    return () => {
+      stopped = true
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("focus", onFocus)
+      accessCheckAcRef.current?.abort()
+      accessCheckAcRef.current = null
+    }
+  }, [slug, redirectToPersonalHomeAfterAreaLoss, redirectToLoginAfterSessionLoss])
 
   const categories = useMemo(() => {
     if (state.status !== "ready") return ["Todas"]
@@ -254,6 +367,18 @@ export default function MozoPedidoManualPage() {
         }),
       })
       const data = await res.json().catch(() => ({}))
+
+      // Carrera con un cambio de área concurrente: el servidor niega de inmediato.
+      // Salida atómica al inicio personal; no reintentar ni mostrar error genérico.
+      if (data.estado === "area_no_habilitada") {
+        redirectToPersonalHomeAfterAreaLoss()
+        return
+      }
+      if (res.status === 401 || data.estado === "sin_sesion") {
+        redirectToLoginAfterSessionLoss()
+        return
+      }
+
       if (!res.ok) {
         throw new Error(data.error || "No se pudo crear el pedido")
       }

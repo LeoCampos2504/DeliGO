@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { FormEvent, ReactNode } from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import {
   AlertTriangle,
@@ -90,10 +90,19 @@ type PanelState =
   | { status: "denied"; message: string }
   | { status: "error"; message: string }
 
+// Refresco automático del contexto personal: como máximo cada 15 s y solo con la
+// pestaña visible (más focus/visibilitychange). Es UX + defensa adicional; la
+// autorización real la aplica el servidor en cada request protegida.
+const PERSONAL_REFRESH_INTERVAL_MS = 15000
+
 export default function MozoPanelPage() {
   const router = useRouter()
   const nav = useOperativoNav()
   const [state, setState] = useState<PanelState>({ status: "loading" })
+  // Una sola solicitud de refresco activa (abort de la anterior) + guardia de
+  // generación para nunca aplicar una respuesta vieja sobre una nueva.
+  const refreshAcRef = useRef<AbortController | null>(null)
+  const refreshGenRef = useRef(0)
   const [loggingOut, setLoggingOut] = useState(false)
   const [joinOpen, setJoinOpen] = useState(false)
   const [queryWantsJoin, setQueryWantsJoin] = useState(false)
@@ -102,11 +111,27 @@ export default function MozoPanelPage() {
   const [joinSuccess, setJoinSuccess] = useState<string | null>(null)
   const [joining, setJoining] = useState(false)
 
-  const loadPanel = useCallback(async () => {
-    setState({ status: "loading" })
+  const loadPanel = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true
+
+    // Sin solapamiento (Operaciones-1G.1): un refresco silencioso NO se inicia si ya
+    // hay una solicitud activa (no aborta, no incrementa generación, retorna en
+    // silencio). Una carga inicial/manual SÍ puede abortar una silenciosa previa para
+    // priorizar la acción explícita. Siempre queda una única solicitud activa.
+    if (silent && refreshAcRef.current) return
+    refreshAcRef.current?.abort()
+    const ac = new AbortController()
+    refreshAcRef.current = ac
+    const generation = ++refreshGenRef.current
+
+    // Carga inicial/manual muestra el skeleton; el refresco silencioso conserva la
+    // pantalla actual (sin flicker).
+    if (!silent) setState({ status: "loading" })
+
     try {
-      const res = await fetch("/api/operativo/me", { cache: "no-store" })
+      const res = await fetch("/api/operativo/me", { cache: "no-store", signal: ac.signal })
       const data = await res.json().catch(() => ({}))
+      if (generation !== refreshGenRef.current) return
 
       if (res.status === 401 || data.estado === "sin_sesion") {
         setState({ status: "no-session" })
@@ -122,17 +147,24 @@ export default function MozoPanelPage() {
       }
 
       if (!res.ok) {
-        throw new Error(data.error || "No se pudo cargar el panel")
+        // Fallo transitorio: en refresco silencioso conservar el estado visible.
+        if (!silent) {
+          setState({ status: "error", message: "No se pudo resolver tu acceso operativo." })
+        }
+        return
       }
 
       if (data.estado === "sin_vinculo" || data.estado === "sin_vinculo_operativo") {
         setState({
           status: "no-link",
           cuenta: data.cuenta,
+          // Usar el mensaje real del servidor cuando esté disponible (una cuenta puede
+          // estar vinculada como Salón/PyR/Sin área, no solo como mozo).
           message:
-            data.estado === "sin_vinculo_operativo"
-              ? "Actualmente no tenes un vinculo activo como mozo. Podes unirte a otro negocio con un codigo de invitacion."
-              : "Todavia no tenes negocios vinculados. Ingresa un codigo de invitacion para empezar.",
+            data.mensaje ||
+            (data.estado === "sin_vinculo_operativo"
+              ? "Actualmente no tenes un vinculo operativo disponible. Podes unirte a un negocio con un codigo de invitacion."
+              : "Todavia no tenes negocios vinculados. Ingresa un codigo de invitacion para empezar."),
         })
         return
       }
@@ -146,17 +178,49 @@ export default function MozoPanelPage() {
         return
       }
 
-      setState({ status: "error", message: "No se pudo resolver tu acceso operativo." })
+      if (!silent) {
+        setState({ status: "error", message: "No se pudo resolver tu acceso operativo." })
+      }
     } catch {
-      setState({
-        status: "error",
-        message: "No se pudo conectar. Revisa tu conexion e intenta de nuevo.",
-      })
+      // Abort o respuesta superada: no tocar el estado. Error de red en silencioso:
+      // conservar la pantalla; en carga inicial/manual mostrar el error.
+      if (ac.signal.aborted || generation !== refreshGenRef.current) return
+      if (!silent) {
+        setState({
+          status: "error",
+          message: "No se pudo conectar. Revisa tu conexion e intenta de nuevo.",
+        })
+      }
+    } finally {
+      // Liberar el ref solo si sigue apuntando a ESTA solicitud: evita que el finally
+      // de una request vieja limpie el ref de una nueva.
+      if (refreshAcRef.current === ac) refreshAcRef.current = null
     }
   }, [])
 
   useEffect(() => {
     loadPanel()
+  }, [loadPanel])
+
+  // Refresco automático silencioso: intervalo (solo pestaña visible) + focus +
+  // visibilitychange. No hace polling oculto y limpia interval/listeners/abort.
+  useEffect(() => {
+    const silentRefresh = () => {
+      if (document.visibilityState === "visible") void loadPanel({ silent: true })
+    }
+    const interval = window.setInterval(silentRefresh, PERSONAL_REFRESH_INTERVAL_MS)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") silentRefresh()
+    }
+    const onFocus = () => silentRefresh()
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("focus", onFocus)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("focus", onFocus)
+      refreshAcRef.current?.abort()
+    }
   }, [loadPanel])
 
   // En el árbol /operaciones/mi-panel, sin sesión personal se redirige a login

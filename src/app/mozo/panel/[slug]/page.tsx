@@ -185,6 +185,18 @@ export default function MozoSalonPanelPage() {
     silentRefreshRef.current = null
   }, [])
 
+  // Salida atómica cuando la cuenta pierde el área Mozo (Operaciones-1G.1). Limpia el
+  // estado sensible ANTES de navegar para que no queden mesas/pedidos/botones/datos
+  // visibles, y muestra solo el skeleton (status "loading") durante la transición.
+  const redirectToPersonalHomeAfterAreaLoss = useCallback(() => {
+    invalidateSilentRefresh()
+    setPushPanelOpen(false)
+    setActionError(null)
+    setActionMesaIds(new Set())
+    setState({ status: "loading" })
+    router.replace(nav.homeHref)
+  }, [invalidateSilentRefresh, router, nav.homeHref])
+
   const scrollToMesa = useCallback((mesaId: string) => {
     const element = document.getElementById(`mesa-${mesaId}`)
     element?.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -315,6 +327,14 @@ export default function MozoSalonPanelPage() {
         return
       }
 
+      // Cambio de área en caliente (Operaciones-1G/1G.1): la cuenta sigue válida pero
+      // ya no tiene área Mozo. Salida atómica: limpia el estado sensible y navega al
+      // inicio personal mostrando solo el skeleton. No es login ni error de panel.
+      if (data.estado === "area_no_habilitada") {
+        redirectToPersonalHomeAfterAreaLoss()
+        return
+      }
+
       if (res.status === 403 || data.estado === "acceso_no_disponible") {
         setState({ status: "unavailable" })
         return
@@ -339,7 +359,7 @@ export default function MozoSalonPanelPage() {
         silentRefreshRef.current = null
       }
     }
-  }, [invalidateSilentRefresh, slug, syncReadyMesaOrders])
+  }, [invalidateSilentRefresh, slug, syncReadyMesaOrders, redirectToPersonalHomeAfterAreaLoss])
 
   useEffect(() => {
     readyOrderIdsRef.current = new Set()
@@ -676,6 +696,13 @@ export default function MozoSalonPanelPage() {
 
       if (res.status === 401) {
         setState({ status: "no-session" })
+        return
+      }
+
+      // Cambio de área durante la acción: el servidor ya la negó. Salida atómica al
+      // inicio personal; NO cae en el 403 genérico de "no disponible" ni reintenta.
+      if (data.estado === "area_no_habilitada") {
+        redirectToPersonalHomeAfterAreaLoss()
         return
       }
 
