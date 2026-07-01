@@ -61,11 +61,13 @@ export default function OperacionesActivarPage() {
     }
   }, [])
 
-  // Tras una activación exitosa (ya confirmada), redirigir a /operaciones reemplazando el
-  // historial para que el QR/código no pueda reaparecer con "Atrás".
+  // Tras una activación exitosa (ya confirmada), redirigir al home de terminal
+  // reemplazando el historial para que el QR/código no pueda reaparecer con "Atrás".
+  // (Operaciones-1B: /operaciones pasó a ser el selector neutral; el home de terminal
+  // vive ahora en /operaciones/terminal.)
   useEffect(() => {
     if (state.status !== "success") return
-    const t = setTimeout(() => router.replace("/operaciones"), 1500)
+    const t = setTimeout(() => router.replace("/operaciones/terminal"), 1500)
     return () => clearTimeout(t)
   }, [state.status, router])
 
