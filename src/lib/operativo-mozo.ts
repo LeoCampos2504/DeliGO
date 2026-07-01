@@ -51,9 +51,14 @@ export function noStore<T extends Response | NextResponse>(response: T): T {
   return response
 }
 
-export async function resolveOperativoMozoForSlug(
+// Resolver personal general por ÁREA (Operaciones-1I). El área esperada es una
+// constante fijada por cada endpoint (nunca viene del cliente/body/query/header).
+// Valida por request: sesión → CuentaOperativa → negocio (slug) → Empleado vinculado
+// → área efectiva === área esperada. Devuelve el mismo contrato que Mozo.
+export async function resolveOperativoAreaForSlug(
   req: NextRequest,
-  slug: string
+  slug: string,
+  areaEsperada: "mozo" | "salon"
 ): Promise<OperativoMozoAuth> {
   const token = req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
   if (!token) {
@@ -134,10 +139,10 @@ export async function resolveOperativoMozoForSlug(
     rol: empleado.rol,
   })
 
-  // Este resolver habilita ÚNICAMENTE el panel de Mozo. Otras áreas efectivas
-  // (salon/pyr/sin_asignar) no acceden aquí: respuesta segura, sin cerrar sesión
-  // ni revelar información de otras áreas.
-  if (areaOperativaEfectiva !== "mozo") {
+  // Solo se habilita el área ESPERADA por el endpoint. Cualquier otra área efectiva
+  // (incluida sin_asignar) → respuesta segura, sin cerrar sesión ni revelar el área
+  // actual, otras áreas, scopes ni datos de terminal.
+  if (areaOperativaEfectiva !== areaEsperada) {
     return { ok: false, status: 403, state: "area_no_habilitada" }
   }
 
@@ -151,4 +156,13 @@ export async function resolveOperativoMozoForSlug(
     areaOperativaEfectiva,
     negocio,
   }
+}
+
+// Wrapper de compatibilidad: mantiene la firma pública usada por /api/operativo/mozo/**
+// y el árbol personal de Mozo. Equivale a exigir área efectiva "mozo".
+export async function resolveOperativoMozoForSlug(
+  req: NextRequest,
+  slug: string
+): Promise<OperativoMozoAuth> {
+  return resolveOperativoAreaForSlug(req, slug, "mozo")
 }

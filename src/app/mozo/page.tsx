@@ -456,6 +456,15 @@ export default function MozoPanelPage() {
                           <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                         </Link>
                       </Button>
+                    ) : areaEfectiva === "salon" ? (
+                      // Área Salón: enlace a la ruta oficial del panel personal de Salón
+                      // (siempre bajo /operaciones/mi-panel, incluso desde el home /mozo).
+                      <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
+                        <Link href={`/operaciones/mi-panel/${encodeURIComponent(vinculo.negocio.slug)}/salon`}>
+                          Abrir panel de Salón
+                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                        </Link>
+                      </Button>
                     ) : (
                       <div className="space-y-3">
                         <p className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
@@ -520,7 +529,7 @@ export default function MozoPanelPage() {
               <div>
                 <p className="font-semibold">Acceso limitado</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Tu cuenta de mozo entra a un salon operativo propio. No habilita configuracion, empleados, invitaciones, menu, precios, caja ni datos de otros negocios.
+                  Tu cuenta operativa permite acceder únicamente a las áreas que el negocio te asignó. No habilita configuración, empleados, invitaciones, menú, precios, caja ni datos de otros negocios.
                 </p>
               </div>
             </div>
