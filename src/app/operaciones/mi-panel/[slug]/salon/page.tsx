@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Armchair,
+  CheckCircle2,
   ClipboardList,
   Loader2,
   Play,
@@ -23,14 +24,15 @@ import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 
 // ============================================
-// DeliGO Operaciones — Panel personal de Salón (Operaciones-1I + 1J)
+// DeliGO Operaciones — Panel personal de Salón (Operaciones-1I + 1J + 1K)
 // ============================================
-// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/salon/panel/[slug]
-// y POST /api/operativo/salon/pedidos/[id]/preparar. No llama /api/operaciones/** ni
-// /api/negocio/** ni /api/operativo/mozo/**. Existe UNA sola acción de mutación, fija:
-// recibido → preparando (por pedido de mesa). Refresco automático estándar (1G.1): 15 s
-// con pestaña visible + focus + visibilitychange, sin solapamiento, salida atómica ante
-// pérdida de área/sesión, guardia de generación contra respuestas fuera de orden.
+// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/salon/panel/[slug],
+// POST /api/operativo/salon/pedidos/[id]/preparar y POST .../[id]/listo. No llama
+// /api/operaciones/** ni /api/negocio/** ni /api/operativo/mozo/**. Existen DOS acciones
+// de mutación fijas: recibido → preparando y preparando → listo_para_retirar (por pedido
+// de mesa). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
+// visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia
+// de generación contra respuestas fuera de orden.
 
 const SALON_REFRESH_INTERVAL_MS = 15000
 
@@ -80,6 +82,36 @@ function estadoLabel(estado: string) {
   return ESTADO_LABELS[estado] ?? estado
 }
 
+// Únicas dos acciones personales de Salón (Operaciones-1J + 1K). El endpoint, el estado
+// resultante local y los textos se seleccionan SOLO desde este mapa literal y tipado — no
+// se construye una API genérica de estados ni se acepta "action"/"estado" desde el cliente
+// (URL, input, query, localStorage o props externas). El servidor sigue siendo la fuente
+// final de autorización y transición (CAS por estado esperado en cada endpoint).
+type PedidoAction = "preparar" | "marcar_listo"
+
+const ACTION_CONFIG: Record<
+  PedidoAction,
+  {
+    endpointSegment: "preparar" | "listo"
+    estadoResultante: string
+    errorGenerico: string
+    labelEnCurso: string
+  }
+> = {
+  preparar: {
+    endpointSegment: "preparar",
+    estadoResultante: "preparando",
+    errorGenerico: "No se pudo iniciar la preparación.",
+    labelEnCurso: "Iniciando…",
+  },
+  marcar_listo: {
+    endpointSegment: "listo",
+    estadoResultante: "listo_para_retirar",
+    errorGenerico: "No se pudo marcar como listo.",
+    labelEnCurso: "Marcando listo…",
+  },
+}
+
 function formatMoney(value: number) {
   return `$${value.toLocaleString("es-AR")}`
 }
@@ -91,14 +123,18 @@ export default function SalonPersonalPage() {
   const slug = params.slug
 
   const [state, setState] = useState<PageState>({ status: "loading" })
-  // Pedidos con "Iniciar preparación" en curso. `preparando` (estado React) SOLO renderiza
-  // (spinner + disabled). `preparandoRef` cumple dos roles: (1) guardia SÍNCRONA por pedido
-  // contra doble click (dos clicks en el mismo tick llegan antes del re-render, por lo que
-  // el estado React no alcanza); (2) barrera GLOBAL de refresh — mientras su tamaño sea > 0
-  // existe al menos una mutación de Salón en curso y ningún refresh (silencioso ni manual)
-  // puede iniciar ni aplicar datos. Solo la última mutación en terminar dispara el refresh.
-  const [preparando, setPreparando] = useState<Set<string>>(() => new Set())
-  const preparandoRef = useRef<Set<string>>(new Set())
+  // Pedidos con una acción personal ("preparar" o "marcar_listo") en curso. `accionesEnCurso`
+  // (estado React) SOLO renderiza (qué spinner/etiqueta mostrar y qué botón deshabilitar).
+  // `accionesEnCursoRef` cumple dos roles: (1) guardia SÍNCRONA por pedido — bloquea doble
+  // click y también evita que coexistan una acción "preparar" y una "marcar_listo" para el
+  // MISMO pedido (dos clicks en el mismo tick llegan antes del re-render, por lo que el
+  // estado React no alcanza); (2) barrera GLOBAL de refresh — mientras su tamaño sea > 0
+  // existe al menos una mutación de Salón en curso (de cualquier tipo, sobre cualquier
+  // pedido) y ningún refresh (silencioso ni manual) puede iniciar ni aplicar datos. Pedidos
+  // DISTINTOS pueden mutar en paralelo sin bloquearse entre sí. Solo la última mutación
+  // pendiente en terminar dispara el refresh final.
+  const accionesEnCursoRef = useRef<Map<string, PedidoAction>>(new Map())
+  const [accionesEnCurso, setAccionesEnCurso] = useState<Record<string, PedidoAction>>({})
   const [actionError, setActionError] = useState<string | null>(null)
 
   // Una sola solicitud activa (abort de la anterior) + guardia de generación.
@@ -123,14 +159,15 @@ export default function SalonPersonalPage() {
     refreshAcRef.current = null
   }, [])
 
-  // Invalida el contexto de mutaciones: toda respuesta POST /preparar cuya generación
-  // capturada ya no coincida con la actual se descarta por completo (ver handlePreparar).
-  // No navega, no cambia PageState, no inicia fetch, no aborta el POST en vuelo (no hay
-  // forma de cancelar fetch sin signal aquí) y no toca refreshAcRef/refreshGenRef — eso
-  // sigue siendo responsabilidad exclusiva de invalidatePanelRefresh.
+  // Invalida el contexto de mutaciones: toda respuesta POST (preparar/listo) cuya
+  // generación capturada ya no coincida con la actual se descarta por completo (ver
+  // handlePedidoAction). No navega, no cambia PageState, no inicia fetch, no aborta el
+  // POST en vuelo (no hay forma de cancelar fetch sin signal aquí) y no toca
+  // refreshAcRef/refreshGenRef — eso sigue siendo responsabilidad exclusiva de
+  // invalidatePanelRefresh.
   const invalidateMutationContext = useCallback(() => {
     mutationContextGenRef.current += 1
-    preparandoRef.current.clear()
+    accionesEnCursoRef.current.clear()
   }, [])
 
   // Salida atómica: invalidar refresh y limpiar/ocultar datos ANTES de navegar; solo
@@ -138,7 +175,7 @@ export default function SalonPersonalPage() {
   const redirectToPersonalHomeAfterAreaLoss = useCallback(() => {
     invalidatePanelRefresh()
     invalidateMutationContext()
-    setPreparando(new Set())
+    setAccionesEnCurso({})
     setActionError(null)
     setState({ status: "loading" })
     router.replace(nav.homeHref)
@@ -147,7 +184,7 @@ export default function SalonPersonalPage() {
   const redirectToLoginAfterSessionLoss = useCallback(() => {
     invalidatePanelRefresh()
     invalidateMutationContext()
-    setPreparando(new Set())
+    setAccionesEnCurso({})
     setActionError(null)
     setState({ status: "loading" })
     router.replace(nav.loginHref)
@@ -158,10 +195,11 @@ export default function SalonPersonalPage() {
       const silent = opts?.silent === true
 
       // Barrera global: mientras haya al menos una mutación de Salón en curso (pedido A y
-      // B en paralelo, por ejemplo), ningún refresh puede comenzar ni aplicar datos — ni
-      // interval, ni focus/visibilitychange, ni botón manual. Sin abortar nada, sin subir
-      // generación, sin cambiar PageState, sin AbortController, sin fetch: solo se retorna.
-      if (preparandoRef.current.size > 0) return
+      // B en paralelo, cualquier combinación de "preparar"/"marcar_listo"), ningún refresh
+      // puede comenzar ni aplicar datos — ni interval, ni focus/visibilitychange, ni botón
+      // manual. Sin abortar nada, sin subir generación, sin cambiar PageState, sin
+      // AbortController, sin fetch: solo se retorna.
+      if (accionesEnCursoRef.current.size > 0) return
       // Sin solapamiento: un refresco silencioso no se inicia si ya hay una activa.
       if (silent && refreshAcRef.current) return
       refreshAcRef.current?.abort()
@@ -255,14 +293,18 @@ export default function SalonPersonalPage() {
     }
   }, [loadPanel, invalidatePanelRefresh, invalidateMutationContext])
 
-  // Acción única (Operaciones-1J): recibido → preparando. Solo /api/operativo/**.
-  const handlePreparar = async (pedidoId: string) => {
-    // Guardia SÍNCRONA por pedido: la ref se consulta y marca antes de cualquier await,
-    // por lo que un segundo click sobre el mismo pedido (aun antes de un re-render) no
-    // genera otro POST. Otros pedidos no quedan bloqueados.
-    if (preparandoRef.current.has(pedidoId)) return
-    preparandoRef.current.add(pedidoId)
-    setPreparando((prev) => new Set(prev).add(pedidoId))
+  // Handler interno único y tipado (Operaciones-1J + 1K). Las únicas acciones permitidas
+  // en el cliente son "preparar" y "marcar_listo" (PedidoAction); el endpoint y los estados
+  // esperado/resultante se leen SOLO de ACTION_CONFIG, nunca se envían action/estado en el
+  // body ni se aceptan desde URL/input/query. Solo /api/operativo/**.
+  const handlePedidoAction = async (pedidoId: string, action: PedidoAction) => {
+    // Guardia SÍNCRONA por pedido: la ref se consulta y marca antes de cualquier await, por
+    // lo que un segundo click (mismo pedido, misma o distinta acción) aun antes de un
+    // re-render no genera otro POST. No pueden coexistir "preparar" y "marcar_listo" para
+    // el mismo pedido. Otros pedidos no quedan bloqueados.
+    if (accionesEnCursoRef.current.has(pedidoId)) return
+    accionesEnCursoRef.current.set(pedidoId, action)
+    setAccionesEnCurso((prev) => ({ ...prev, [pedidoId]: action }))
     setActionError(null)
 
     // Invalidar el polling: cualquier respuesta iniciada antes de la mutación queda
@@ -274,6 +316,7 @@ export default function SalonPersonalPage() {
     // sigue en vuelo (por ejemplo, disparada por otro pedido en paralelo), la respuesta
     // tardía de ESTA acción se descarta por completo más abajo, sin escribir nada en la UI.
     const mutationGeneration = mutationContextGenRef.current
+    const config = ACTION_CONFIG[action]
 
     // Solo se confirma con el servidor tras éxito, 404, 409 o error de red/dominio no
     // crítico. Permanece en false ante area_no_habilitada, sin_sesion/401 o
@@ -282,7 +325,7 @@ export default function SalonPersonalPage() {
 
     try {
       const res = await fetch(
-        `/api/operativo/salon/pedidos/${encodeURIComponent(pedidoId)}/preparar?slug=${encodeURIComponent(slug)}`,
+        `/api/operativo/salon/pedidos/${encodeURIComponent(pedidoId)}/${config.endpointSegment}?slug=${encodeURIComponent(slug)}`,
         { method: "POST", cache: "no-store" }
       )
       const data = await res.json().catch(() => ({}))
@@ -307,20 +350,21 @@ export default function SalonPersonalPage() {
       if (res.status === 403 || data.estado === "acceso_no_disponible") {
         invalidatePanelRefresh()
         invalidateMutationContext()
-        setPreparando(new Set())
+        setAccionesEnCurso({})
         setActionError(null)
         setState({ status: "unavailable" })
         return
       }
 
       if (res.ok && data.ok) {
-        // Actualización local optimista: solo ese pedido "recibido" → "preparando".
+        // Actualización local optimista: solo ese pedido, al estado resultante fijo de
+        // esta acción.
         setState((current) => {
           if (current.status !== "ready") return current
           const mesas = current.data.mesas.map((mesa) => ({
             ...mesa,
             pedidosActivos: mesa.pedidosActivos.map((pedido) =>
-              pedido.id === pedidoId ? { ...pedido, estado: "preparando" } : pedido
+              pedido.id === pedidoId ? { ...pedido, estado: config.estadoResultante } : pedido
             ),
           }))
           return { status: "ready", data: { ...current.data, mesas } }
@@ -329,9 +373,7 @@ export default function SalonPersonalPage() {
       } else {
         // 404 / 409 / error de dominio: mensaje local, no técnico, sin redirigir.
         setActionError(
-          res.status === 404
-            ? "Ese pedido ya no está disponible."
-            : data.error || "No se pudo iniciar la preparación."
+          res.status === 404 ? "Ese pedido ya no está disponible." : data.error || config.errorGenerico
         )
         debeConfirmarEstadoReal = true
       }
@@ -339,28 +381,29 @@ export default function SalonPersonalPage() {
       // Misma comprobación de generación para el error de red: una mutación ya invalidada
       // por una salida global no debe mostrar mensaje de error.
       if (mutationGeneration !== mutationContextGenRef.current) return
-      setActionError("No se pudo iniciar la preparación. Revisá la conexión.")
+      setActionError("No se pudo completar la acción. Revisá la conexión.")
       debeConfirmarEstadoReal = true
     } finally {
       // Si el contexto de mutaciones ya no coincide, esta acción quedó invalidada por una
-      // salida global (que ya limpió preparandoRef/preparando por su cuenta): no volver a
-      // tocar el Set React, no restaurar pedidoId en la ref y no disparar refresh.
+      // salida global (que ya limpió accionesEnCursoRef/accionesEnCurso por su cuenta): no
+      // volver a tocar el estado React, no restaurar pedidoId en la ref y no disparar
+      // refresh.
       const sigueVigente = mutationGeneration === mutationContextGenRef.current
       if (sigueVigente) {
         // Liberar SIEMPRE la guardia síncrona y el loading visual de este pedido
         // (éxito, 404, 409, error de red).
-        preparandoRef.current.delete(pedidoId)
-        setPreparando((prev) => {
-          const next = new Set(prev)
-          next.delete(pedidoId)
+        accionesEnCursoRef.current.delete(pedidoId)
+        setAccionesEnCurso((prev) => {
+          const next = { ...prev }
+          delete next[pedidoId]
           return next
         })
 
         // Solo la última mutación pendiente en terminar dispara la confirmación: si otro
         // pedido (p. ej. B) sigue mutando, ese pedido será el responsable del refresh
-        // final. Sin esto, el refresh de A podría traer una foto donde B aún figura
-        // "recibido".
-        if (debeConfirmarEstadoReal && preparandoRef.current.size === 0) {
+        // final. Sin esto, el refresh de A podría traer una foto donde B aún figura en un
+        // estado anterior.
+        if (debeConfirmarEstadoReal && accionesEnCursoRef.current.size === 0) {
           void loadPanel({ silent: true })
         }
       }
@@ -557,18 +600,39 @@ export default function SalonPersonalPage() {
                                   size="sm"
                                   className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
                                   style={{ backgroundColor: accent }}
-                                  onClick={() => handlePreparar(pedido.id)}
-                                  disabled={preparando.has(pedido.id)}
+                                  onClick={() => handlePedidoAction(pedido.id, "preparar")}
+                                  disabled={accionesEnCurso[pedido.id] !== undefined}
                                 >
-                                  {preparando.has(pedido.id) ? (
+                                  {accionesEnCurso[pedido.id] === "preparar" ? (
                                     <>
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                      Iniciando…
+                                      {ACTION_CONFIG.preparar.labelEnCurso}
                                     </>
                                   ) : (
                                     <>
                                       <Play className="h-3.5 w-3.5" />
                                       Iniciar preparación
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {pedido.estado === "preparando" && (
+                                <Button
+                                  size="sm"
+                                  className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
+                                  style={{ backgroundColor: accent }}
+                                  onClick={() => handlePedidoAction(pedido.id, "marcar_listo")}
+                                  disabled={accionesEnCurso[pedido.id] !== undefined}
+                                >
+                                  {accionesEnCurso[pedido.id] === "marcar_listo" ? (
+                                    <>
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      {ACTION_CONFIG.marcar_listo.labelEnCurso}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="h-3.5 w-3.5" />
+                                      Marcar como listo
                                     </>
                                   )}
                                 </Button>
