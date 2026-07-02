@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ClipboardList,
   Loader2,
   MessageSquare,
   RefreshCw,
@@ -525,6 +526,18 @@ export default function PyRPersonalPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Navegación a pedidos activos (solo lectura, Operaciones-1O) */}
+      <Link
+        href={`/operaciones/mi-panel/${encodeURIComponent(slug)}/pyr/pedidos`}
+        className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card px-3 py-2.5 text-sm font-semibold hover:bg-muted/40 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4" style={{ color: accent }} />
+          Ver pedidos activos
+        </span>
+        <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground" />
+      </Link>
 
       {/* Resumen */}
       <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
