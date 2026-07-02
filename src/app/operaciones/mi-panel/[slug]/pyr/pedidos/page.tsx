@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Info,
   Loader2,
+  PackageCheck,
   Play,
   RefreshCw,
   Truck,
@@ -22,24 +23,25 @@ import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 
 // ============================================
-// DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1 + 1Q + 1R)
+// DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1 + 1Q + 1R + 1S)
 // ============================================
 // Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos/[slug],
 // POST /api/operativo/pyr/pedidos/[id]/preparar, POST
-// /api/operativo/pyr/pedidos/[id]/listo-para-retiro y POST
-// /api/operativo/pyr/pedidos/[id]/en-camino. No usa APIs de terminal ni APIs
+// /api/operativo/pyr/pedidos/[id]/listo-para-retiro, POST
+// /api/operativo/pyr/pedidos/[id]/en-camino y POST
+// /api/operativo/pyr/pedidos/[id]/entregar. No usa APIs de terminal ni APIs
 // administrativas, no consulta módulos de Mozo o Salón, y no llama al endpoint personal de
-// reseñas de PyR. Existen TRES acciones de mutación fijas: recibido → preparando (cualquier
-// no-mesa); exclusivamente para retiro, preparando → listo_para_retirar; exclusivamente para
-// domicilio, preparando → en_camino (por pedido). Refresco automático estándar (1G.1): 15 s
-// con pestaña visible + focus + visibilitychange, sin solapamiento, salida atómica ante
-// pérdida de área/sesión, guardia de generación contra respuestas fuera de orden. Mismas
-// protecciones de concurrencia validadas en los paneles personales de Salón y Mozo: guardia
-// síncrona compartida por pedido (las tres acciones usan la MISMA barrera — un pedido no
-// puede tener dos acciones en vuelo a la vez), barrera global de refresh,
-// mutationContextGenRef para descartar respuestas tardías tras una salida global. Sin
-// actualización optimista: el estado final siempre se vuelve a consultar desde el servidor
-// tras la mutación.
+// reseñas de PyR. Existen CUATRO acciones de mutación fijas: recibido → preparando
+// (cualquier no-mesa); exclusivamente para retiro, preparando → listo_para_retirar y
+// listo_para_retirar → entregado; exclusivamente para domicilio, preparando → en_camino
+// (por pedido). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
+// visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia de
+// generación contra respuestas fuera de orden. Mismas protecciones de concurrencia
+// validadas en los paneles personales de Salón y Mozo: guardia síncrona compartida por
+// pedido (las cuatro acciones usan la MISMA barrera — un pedido no puede tener dos acciones
+// en vuelo a la vez), barrera global de refresh, mutationContextGenRef para descartar
+// respuestas tardías tras una salida global. Sin actualización optimista: el estado final
+// siempre se vuelve a consultar desde el servidor tras la mutación.
 
 const PEDIDOS_REFRESH_INTERVAL_MS = 15000
 
@@ -50,6 +52,7 @@ interface PedidoActivo {
   fecha: string
   clienteNombre: string | null
   total: number
+  puedeConfirmarEntrega: boolean
 }
 
 interface PedidosData {
@@ -89,17 +92,17 @@ const METODO_LABELS: Record<string, string> = {
   retiro: "Retiro",
 }
 
-// Únicas tres acciones personales de PyR (Operaciones-1P.1 + 1Q + 1R). El endpoint y el
-// mensaje de error genérico se seleccionan SOLO desde este mapa literal y tipado — no se
+// Únicas cuatro acciones personales de PyR (Operaciones-1P.1 + 1Q + 1R + 1S). El endpoint y
+// el mensaje de error genérico se seleccionan SOLO desde este mapa literal y tipado — no se
 // construye una API genérica de estados ni se acepta "action"/"estado" desde el cliente
 // (URL, input, query, localStorage o props externas). El servidor sigue siendo la fuente
 // final de autorización y transición (CAS por estado esperado en cada endpoint).
-type PedidoAction = "preparar" | "listo_para_retiro" | "en_camino"
+type PedidoAction = "preparar" | "listo_para_retiro" | "en_camino" | "entregar"
 
 const ACTION_CONFIG: Record<
   PedidoAction,
   {
-    endpointSegment: "preparar" | "listo-para-retiro" | "en-camino"
+    endpointSegment: "preparar" | "listo-para-retiro" | "en-camino" | "entregar"
     errorGenerico: string
     labelEnCurso: string
   }
@@ -119,6 +122,11 @@ const ACTION_CONFIG: Record<
     errorGenerico: "No se pudo marcar el pedido en camino.",
     labelEnCurso: "Marcando en camino…",
   },
+  entregar: {
+    endpointSegment: "entregar",
+    errorGenerico: "No se pudo confirmar la entrega.",
+    labelEnCurso: "Confirmando entrega…",
+  },
 }
 
 export default function PyRPedidosActivosPage() {
@@ -129,8 +137,9 @@ export default function PyRPedidosActivosPage() {
 
   const [state, setState] = useState<PageState>({ status: "loading" })
 
-  // Pedidos con una acción personal ("preparar", "listo_para_retiro" o "en_camino") en
-  // curso. `mutatingPedidoIds` (estado React) SOLO renderiza (spinner + disabled).
+  // Pedidos con una acción personal ("preparar", "listo_para_retiro", "en_camino" o
+  // "entregar") en curso. `mutatingPedidoIds` (estado React) SOLO renderiza (spinner +
+  // disabled).
   // `mutatingPedidoIdsRef` es la fuente SÍNCRONA de verdad, COMPARTIDA por ambas acciones:
   // (1) guardia por pedido contra doble click y contra que coexistan dos acciones distintas
   // para el MISMO pedido (dos clicks en el mismo tick llegan antes del re-render); (2)
@@ -148,8 +157,8 @@ export default function PyRPedidosActivosPage() {
   const refreshAcRef = useRef<AbortController | null>(null)
   const refreshGenRef = useRef(0)
 
-  // Generación del contexto de MUTACIONES (POST /preparar, /listo-para-retiro o
-  // /en-camino), independiente de refreshGenRef. Se incrementa EXCLUSIVAMENTE cuando una
+  // Generación del contexto de MUTACIONES (POST /preparar, /listo-para-retiro, /en-camino o
+  // /entregar), independiente de refreshGenRef. Se incrementa EXCLUSIVAMENTE cuando una
   // salida global (pérdida de área, sesión o disponibilidad) invalida todas las mutaciones
   // que sigan en vuelo — nunca al iniciar una acción individual, por lo que pedidos
   // distintos comparten generación sin bloquearse.
@@ -161,9 +170,9 @@ export default function PyRPedidosActivosPage() {
     refreshAcRef.current = null
   }, [])
 
-  // Invalida el contexto de mutaciones: toda respuesta POST (preparar, listo-para-retiro o
-  // en-camino) cuya generación capturada ya no coincida se descarta por completo (ver
-  // handlePedidoAction). No navega, no cambia PageState, no inicia fetch y no toca
+  // Invalida el contexto de mutaciones: toda respuesta POST (preparar, listo-para-retiro,
+  // en-camino o entregar) cuya generación capturada ya no coincida se descarta por completo
+  // (ver handlePedidoAction). No navega, no cambia PageState, no inicia fetch y no toca
   // refreshAcRef/refreshGenRef.
   const invalidateMutationContext = useCallback(() => {
     mutationContextGenRef.current += 1
@@ -195,10 +204,11 @@ export default function PyRPedidosActivosPage() {
       const silent = opts?.silent === true
 
       // Barrera global: mientras haya al menos una mutación de PyR en curso (pedido A y B en
-      // paralelo, cualquier combinación de "preparar"/"listo_para_retiro"/"en_camino"),
-      // ningún refresh puede comenzar ni aplicar datos — ni interval, ni
-      // focus/visibilitychange, ni botón manual. Sin abortar nada, sin subir generación, sin
-      // cambiar PageState, sin AbortController, sin fetch: solo se retorna.
+      // paralelo, cualquier combinación de
+      // "preparar"/"listo_para_retiro"/"en_camino"/"entregar"), ningún refresh puede
+      // comenzar ni aplicar datos — ni interval, ni focus/visibilitychange, ni botón manual.
+      // Sin abortar nada, sin subir generación, sin cambiar PageState, sin AbortController,
+      // sin fetch: solo se retorna.
       if (mutatingPedidoIdsRef.current.size > 0) return
       // Sin solapamiento: un refresco silencioso no se inicia si ya hay una activa.
       if (silent && refreshAcRef.current) return
@@ -257,7 +267,14 @@ export default function PyRPedidosActivosPage() {
               totalActivos:
                 typeof data.resumen?.totalActivos === "number" ? data.resumen.totalActivos : 0,
             },
-            pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
+            // puedeConfirmarEntrega siempre normalizado a booleano estricto; nunca se toma
+            // de localStorage/sessionStorage/query/inputs, solo de esta respuesta del GET.
+            pedidos: Array.isArray(data.pedidos)
+              ? data.pedidos.map((p: PedidoActivo) => ({
+                  ...p,
+                  puedeConfirmarEntrega: p.puedeConfirmarEntrega === true,
+                }))
+              : [],
           },
         })
       } catch {
@@ -306,8 +323,8 @@ export default function PyRPedidosActivosPage() {
     }
   }, [loadPedidos, invalidatePanelRefresh, invalidateMutationContext])
 
-  // Handler interno único y tipado (Operaciones-1P.1 + 1Q + 1R). Las únicas acciones
-  // permitidas en el cliente son "preparar", "listo_para_retiro" y "en_camino"
+  // Handler interno único y tipado (Operaciones-1P.1 + 1Q + 1R + 1S). Las únicas acciones
+  // permitidas en el cliente son "preparar", "listo_para_retiro", "en_camino" y "entregar"
   // (PedidoAction); el endpoint y los mensajes se leen SOLO de ACTION_CONFIG, nunca se
   // envían action/estado en el body ni se aceptan desde URL/input/query. Solo
   // /api/operativo/**.
@@ -426,6 +443,7 @@ export default function PyRPedidosActivosPage() {
   const handleMarcarListoParaRetiro = (pedidoId: string) =>
     handlePedidoAction(pedidoId, "listo_para_retiro")
   const handleMarcarEnCamino = (pedidoId: string) => handlePedidoAction(pedidoId, "en_camino")
+  const handleConfirmarEntrega = (pedidoId: string) => handlePedidoAction(pedidoId, "entregar")
 
   if (state.status === "loading") {
     return (
@@ -528,8 +546,9 @@ export default function PyRPedidosActivosPage() {
         <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
           Podés iniciar la preparación de pedidos recibidos, marcar listos para retirar los
-          pedidos de retiro en preparación y marcar en camino los pedidos de domicilio en
-          preparación. Las demás acciones todavía no están disponibles desde acá.
+          pedidos de retiro en preparación, marcar en camino los pedidos de domicilio en
+          preparación y confirmar la entrega de pedidos de retiro listos para retirar. Las
+          demás acciones todavía no están disponibles desde acá.
         </p>
       </div>
 
@@ -648,6 +667,37 @@ export default function PyRPedidosActivosPage() {
                     )}
                   </Button>
                 )}
+
+                {pedido.puedeConfirmarEntrega === true && (
+                  <Button
+                    size="sm"
+                    className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
+                    style={{ backgroundColor: accent }}
+                    onClick={() => handleConfirmarEntrega(pedido.id)}
+                    disabled={mutatingPedidoIds.has(pedido.id)}
+                  >
+                    {mutatingPedidoIds.has(pedido.id) ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {ACTION_CONFIG.entregar.labelEnCurso}
+                      </>
+                    ) : (
+                      <>
+                        <PackageCheck className="h-3.5 w-3.5" />
+                        Confirmar entrega
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {pedido.metodoEntrega === "retiro" &&
+                  pedido.estado === "listo_para_retirar" &&
+                  pedido.puedeConfirmarEntrega === false && (
+                    <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                      <Info className="h-3.5 w-3.5 shrink-0" />
+                      Esperando confirmación de recepción del cliente.
+                    </div>
+                  )}
               </CardContent>
             </Card>
           ))}

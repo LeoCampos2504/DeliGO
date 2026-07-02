@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 
 // ============================================
-// DeliGO Operaciones — PyR personal: pedidos activos (SOLO LECTURA · Operaciones-1O)
+// DeliGO Operaciones — PyR personal: pedidos activos (SOLO LECTURA · Operaciones-1O + 1S.1)
 // ============================================
 // Identidad: EXCLUSIVAMENTE cuenta personal (deligo_operativo_session) vía
 // resolveOperativoAreaForSlug(..., "pyr"). No usa cookie/APIs/scopes de terminal. Solo GET,
@@ -17,6 +17,13 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 // terminal, no personal): estados recibido/preparando/en_camino/listo_para_retirar,
 // metodoEntrega != "mesa", orden fecha asc + id asc (FIFO operativo), límite fijo 100. Ver
 // detalle en CODEX_REPORT.md.
+//
+// Operaciones-1S.1: se selecciona internamente clienteConfirmaRecibido (nunca devuelto en
+// crudo) solo para derivar el booleano seguro puedeConfirmarEntrega — refleja exactamente la
+// misma condición que ya exige el CAS de POST /api/operativo/pyr/pedidos/[id]/entregar
+// (metodoEntrega:"retiro" + estado:"listo_para_retirar" + clienteConfirmaRecibido:true), sin
+// debilitar ni duplicar esa autoridad: el POST sigue siendo la única fuente final de verdad
+// frente a carreras o datos obsoletos entre la lectura y la mutación.
 const ESTADOS_ACTIVOS_NO_MESA = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 const PEDIDOS_LIMIT = 100
 
@@ -70,6 +77,9 @@ export async function GET(
           // datos personales); mismo campo ya expuesto por el flujo terminal de PyR.
           clienteNombre: true,
           total: true,
+          // Seleccionado SOLO para derivar puedeConfirmarEntrega más abajo; nunca se
+          // devuelve en crudo en la respuesta (ver mapeo).
+          clienteConfirmaRecibido: true,
         },
       }),
     ])
@@ -92,6 +102,12 @@ export async function GET(
           fecha: p.fecha,
           clienteNombre: p.clienteNombre,
           total: p.total,
+          // Indicador derivado y seguro: refleja exactamente la condición que ya exige el
+          // CAS de POST .../entregar. Nunca se expone clienteConfirmaRecibido en crudo.
+          puedeConfirmarEntrega:
+            p.metodoEntrega === "retiro" &&
+            p.estado === "listo_para_retirar" &&
+            p.clienteConfirmaRecibido === true,
         })),
       })
     )
