@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { AlertTriangle, ArrowLeft, ClipboardList, Info, RefreshCw } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ClipboardList, Info, Loader2, Play, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,17 +12,19 @@ import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 
 // ============================================
-// DeliGO Operaciones — Panel personal de PyR: pedidos activos (SOLO LECTURA · Operaciones-1O)
+// DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1)
 // ============================================
-// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos/[slug].
-// No usa APIs de terminal ni APIs administrativas, no consulta módulos de Mozo o Salón, y
-// no llama al endpoint personal de reseñas de PyR. No existe ninguna mutación en esta
-// página (sin POST/PATCH/PUT/DELETE, sin formularios de acción). Refresco automático
-// estándar (1G.1): 15 s con pestaña visible + focus +
+// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos/[slug]
+// y POST /api/operativo/pyr/pedidos/[id]/preparar. No usa APIs de terminal ni APIs
+// administrativas, no consulta módulos de Mozo o Salón, y no llama al endpoint personal de
+// reseñas de PyR. Existe UNA sola acción de mutación, fija: recibido → preparando (por
+// pedido). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
 // visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia de
-// generación contra respuestas fuera de orden. Al no haber mutaciones no existe barrera
-// global de refresh ni mutationContextGenRef: cada refresh silencioso puede aplicarse en
-// cuanto llegue en orden.
+// generación contra respuestas fuera de orden. Mismas protecciones de concurrencia
+// validadas en los paneles personales de Salón y Mozo: guardia síncrona por pedido, barrera
+// global de refresh, mutationContextGenRef para descartar respuestas tardías tras una
+// salida global. Sin actualización optimista: el estado final siempre se vuelve a consultar
+// desde el servidor tras la mutación.
 
 const PEDIDOS_REFRESH_INTERVAL_MS = 15000
 
@@ -80,10 +82,28 @@ export default function PyRPedidosActivosPage() {
 
   const [state, setState] = useState<PageState>({ status: "loading" })
 
+  // Pedidos con "Comenzar preparación" en curso. `preparando` (estado React) SOLO renderiza
+  // (spinner + disabled). `preparandoRef` es la fuente SÍNCRONA de verdad: (1) guardia por
+  // pedido contra doble click (dos clicks en el mismo tick llegan antes del re-render); (2)
+  // barrera GLOBAL de refresh — mientras su tamaño sea > 0 existe al menos una mutación en
+  // curso y ningún refresh puede iniciar ni aplicar datos. Pedidos distintos pueden mutar en
+  // paralelo sin bloquearse entre sí.
+  const preparandoRef = useRef<Set<string>>(new Set())
+  const [preparando, setPreparando] = useState<Set<string>>(() => new Set())
+  // Mensaje de error por pedido (no técnico, liberado junto con su propia mutación).
+  const [pedidoErrors, setPedidoErrors] = useState<Record<string, string>>({})
+
   // Una sola solicitud activa (abort de la anterior) + guardia de generación contra
-  // respuestas fuera de orden.
+  // respuestas fuera de orden. refreshGenRef invalida respuestas de GET/polling; no
+  // protege respuestas de POST /preparar en vuelo (ver mutationContextGenRef, más abajo).
   const refreshAcRef = useRef<AbortController | null>(null)
   const refreshGenRef = useRef(0)
+
+  // Generación del contexto de MUTACIONES (POST /preparar), independiente de refreshGenRef.
+  // Se incrementa EXCLUSIVAMENTE cuando una salida global (pérdida de área, sesión o
+  // disponibilidad) invalida todas las mutaciones que sigan en vuelo — nunca al iniciar una
+  // acción individual, por lo que pedidos distintos comparten generación sin bloquearse.
+  const mutationContextGenRef = useRef(0)
 
   const invalidatePanelRefresh = useCallback(() => {
     refreshGenRef.current += 1
@@ -91,24 +111,43 @@ export default function PyRPedidosActivosPage() {
     refreshAcRef.current = null
   }, [])
 
-  // Salida atómica: invalidar refresh y limpiar/ocultar datos ANTES de navegar; solo
-  // skeleton en tránsito.
+  // Invalida el contexto de mutaciones: toda respuesta POST /preparar cuya generación
+  // capturada ya no coincida se descarta por completo (ver handleComenzarPreparacion). No
+  // navega, no cambia PageState, no inicia fetch y no toca refreshAcRef/refreshGenRef.
+  const invalidateMutationContext = useCallback(() => {
+    mutationContextGenRef.current += 1
+    preparandoRef.current.clear()
+  }, [])
+
+  // Salida atómica: invalidar refresh y contexto de mutaciones, limpiar/ocultar datos ANTES
+  // de navegar; solo skeleton en tránsito, sin botones ni estados de acción visibles.
   const redirectToPersonalHomeAfterAreaLoss = useCallback(() => {
     invalidatePanelRefresh()
+    invalidateMutationContext()
+    setPreparando(new Set())
+    setPedidoErrors({})
     setState({ status: "loading" })
     router.replace(nav.homeHref)
-  }, [invalidatePanelRefresh, router, nav.homeHref])
+  }, [invalidatePanelRefresh, invalidateMutationContext, router, nav.homeHref])
 
   const redirectToLoginAfterSessionLoss = useCallback(() => {
     invalidatePanelRefresh()
+    invalidateMutationContext()
+    setPreparando(new Set())
+    setPedidoErrors({})
     setState({ status: "loading" })
     router.replace(nav.loginHref)
-  }, [invalidatePanelRefresh, router, nav.loginHref])
+  }, [invalidatePanelRefresh, invalidateMutationContext, router, nav.loginHref])
 
   const loadPedidos = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true
 
+      // Barrera global: mientras haya al menos una preparación en curso (pedido A y B en
+      // paralelo, por ejemplo), ningún refresh puede comenzar ni aplicar datos — ni
+      // interval, ni focus/visibilitychange, ni botón manual. Sin abortar nada, sin subir
+      // generación, sin cambiar PageState, sin AbortController, sin fetch: solo se retorna.
+      if (preparandoRef.current.size > 0) return
       // Sin solapamiento: un refresco silencioso no se inicia si ya hay una activa.
       if (silent && refreshAcRef.current) return
       refreshAcRef.current?.abort()
@@ -136,11 +175,14 @@ export default function PyRPedidosActivosPage() {
           redirectToLoginAfterSessionLoss()
           return
         }
-        // Negocio/vínculo no disponible: estado seguro (sin redirigir como cambio de área),
-        // sin redirección automática. Invalidar refresh: descarta la request actual y
-        // cualquier respuesta vieja en vuelo antes de ocultar los datos.
+        // Negocio/vínculo no disponible: estado seguro (sin redirigir como cambio de área).
+        // Salida atómica: invalidar refresh/mutaciones y limpiar spinners/errores ANTES de
+        // mostrar el estado seguro (mismo patrón ya usado dentro del POST).
         if (res.status === 403 || data.estado === "acceso_no_disponible") {
           invalidatePanelRefresh()
+          invalidateMutationContext()
+          setPreparando(new Set())
+          setPedidoErrors({})
           setState({ status: "unavailable" })
           return
         }
@@ -180,6 +222,7 @@ export default function PyRPedidosActivosPage() {
       redirectToPersonalHomeAfterAreaLoss,
       redirectToLoginAfterSessionLoss,
       invalidatePanelRefresh,
+      invalidateMutationContext,
     ]
   )
 
@@ -203,11 +246,123 @@ export default function PyRPedidosActivosPage() {
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onFocus)
-      // No setState aquí (desmontaje): solo invalidar refresh para que una respuesta tardía
-      // no escriba en un componente desmontado.
+      // No setState aquí (desmontaje): solo invalidar refresh y mutaciones en vuelo para
+      // que un POST que responda después de salir de la página no escriba en un componente
+      // desmontado.
       invalidatePanelRefresh()
+      invalidateMutationContext()
     }
-  }, [loadPedidos, invalidatePanelRefresh])
+  }, [loadPedidos, invalidatePanelRefresh, invalidateMutationContext])
+
+  // Acción única (Operaciones-1P.1): recibido → preparando. Solo /api/operativo/**.
+  const handleComenzarPreparacion = async (pedidoId: string) => {
+    // Guardia SÍNCRONA por pedido: la ref se consulta y marca antes de cualquier await, por
+    // lo que un segundo click sobre el mismo pedido (aun antes de un re-render) no genera
+    // otro POST. Otros pedidos no quedan bloqueados.
+    if (preparandoRef.current.has(pedidoId)) return
+
+    preparandoRef.current.add(pedidoId)
+    setPreparando((prev) => new Set(prev).add(pedidoId))
+    setPedidoErrors((prev) => {
+      if (!(pedidoId in prev)) return prev
+      const next = { ...prev }
+      delete next[pedidoId]
+      return next
+    })
+
+    // Invalidar el polling: cualquier respuesta iniciada antes de la mutación queda
+    // obsoleta por generación y no puede pisar el resultado local aunque llegue tarde.
+    invalidatePanelRefresh()
+
+    // Generación del contexto de mutaciones capturada ANTES de cualquier await. Si una
+    // salida global (área/sesión/disponibilidad) invalida el contexto mientras este POST
+    // sigue en vuelo, la respuesta tardía de ESTA acción se descarta por completo más abajo,
+    // sin escribir nada en la UI.
+    const mutationGeneration = mutationContextGenRef.current
+
+    // Solo se confirma con el servidor tras éxito, 409, 429 o error de red/dominio no
+    // crítico. Permanece en false ante area_no_habilitada, sin_sesion/401 o
+    // acceso_no_disponible/403 (esos casos no deben disparar refresh posterior).
+    let debeConfirmarEstadoReal = false
+
+    try {
+      const res = await fetch(
+        `/api/operativo/pyr/pedidos/${encodeURIComponent(pedidoId)}/preparar?slug=${encodeURIComponent(slug)}`,
+        { method: "POST", cache: "no-store" }
+      )
+      const data = await res.json().catch(() => ({}))
+
+      // Respuesta tardía: una salida global (de esta acción o de otra mutación paralela) ya
+      // invalidó el contexto de mutaciones mientras este POST estaba en vuelo. No debe
+      // actualizar pedidos, mostrar errores, alterar loading, navegar ni disparar refresh.
+      if (mutationGeneration !== mutationContextGenRef.current) return
+
+      // Cambio de área / sesión durante la acción: salida atómica (sin mostrar error, sin
+      // refresh posterior).
+      if (data.estado === "area_no_habilitada") {
+        redirectToPersonalHomeAfterAreaLoss()
+        return
+      }
+      if (res.status === 401 || data.estado === "sin_sesion") {
+        redirectToLoginAfterSessionLoss()
+        return
+      }
+      // Negocio/vínculo no disponible durante la acción: estado seguro INMEDIATO, sin
+      // redirigir al home y sin refresh posterior.
+      if (res.status === 403 || data.estado === "acceso_no_disponible") {
+        invalidatePanelRefresh()
+        invalidateMutationContext()
+        setPreparando(new Set())
+        setPedidoErrors({})
+        setState({ status: "unavailable" })
+        return
+      }
+
+      if (res.ok && data.ok) {
+        // Sin actualización optimista: no se inventa estado ni fecha. El pedido pasa a
+        // "preparando" recién cuando el refresh final lo confirme desde el servidor.
+        debeConfirmarEstadoReal = true
+      } else {
+        // 409 / 429 / error de dominio: mensaje local, no técnico, sin redirigir.
+        const mensaje =
+          res.status === 429
+            ? "Demasiados intentos. Esperá un momento."
+            : data.error || "No se pudo iniciar la preparación."
+        setPedidoErrors((prev) => ({ ...prev, [pedidoId]: mensaje }))
+        debeConfirmarEstadoReal = true
+      }
+    } catch {
+      // Misma comprobación de generación para el error de red: una mutación ya invalidada
+      // por una salida global no debe mostrar mensaje de error.
+      if (mutationGeneration !== mutationContextGenRef.current) return
+      setPedidoErrors((prev) => ({
+        ...prev,
+        [pedidoId]: "No se pudo iniciar la preparación. Revisá la conexión.",
+      }))
+      debeConfirmarEstadoReal = true
+    } finally {
+      // Si el contexto de mutaciones ya no coincide, esta acción quedó invalidada por una
+      // salida global (que ya limpió preparandoRef/preparando por su cuenta): no volver a
+      // tocar el estado React, no restaurar pedidoId en la ref y no disparar refresh.
+      const sigueVigente = mutationGeneration === mutationContextGenRef.current
+      if (sigueVigente) {
+        // Liberar SIEMPRE la guardia síncrona y el loading visual de este pedido (éxito,
+        // 409, 429, error de red).
+        preparandoRef.current.delete(pedidoId)
+        setPreparando((prev) => {
+          const next = new Set(prev)
+          next.delete(pedidoId)
+          return next
+        })
+
+        // Solo la última mutación pendiente en terminar dispara la confirmación: si otro
+        // pedido sigue preparándose, ese pedido será el responsable del refresh final.
+        if (debeConfirmarEstadoReal && preparandoRef.current.size === 0) {
+          void loadPedidos({ silent: true })
+        }
+      }
+    }
+  }
 
   if (state.status === "loading") {
     return (
@@ -309,7 +464,7 @@ export default function PyRPedidosActivosPage() {
       <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 flex items-start gap-2">
         <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
-          Esta vista es solo informativa. Todavía no podés modificar pedidos desde acá.
+          Podés iniciar la preparación de pedidos recibidos. Las demás acciones todavía no están disponibles desde acá.
         </p>
       </div>
 
@@ -356,6 +511,34 @@ export default function PyRPedidosActivosPage() {
                   <p className="text-sm font-semibold truncate">{pedido.clienteNombre}</p>
                 )}
                 <p className="text-sm font-semibold">{formatMoney(pedido.total)}</p>
+
+                {pedidoErrors[pedido.id] && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                    {pedidoErrors[pedido.id]}
+                  </div>
+                )}
+
+                {pedido.estado === "recibido" && (
+                  <Button
+                    size="sm"
+                    className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
+                    style={{ backgroundColor: accent }}
+                    onClick={() => handleComenzarPreparacion(pedido.id)}
+                    disabled={preparando.has(pedido.id)}
+                  >
+                    {preparando.has(pedido.id) ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Iniciando…
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5" />
+                        Comenzar preparación
+                      </>
+                    )}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ))}
