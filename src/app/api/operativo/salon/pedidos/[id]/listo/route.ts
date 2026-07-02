@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
+import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 
 // ============================================
-// DeliGO Operaciones — Salón personal: marcar como listo (Operaciones-1K)
+// DeliGO Operaciones — Salón personal: marcar como listo (Operaciones-1K + 1K.1)
 // ============================================
 // Acción FIJA (no un endpoint genérico de estados): transición única
 //   preparando → listo_para_retirar  para un pedido de mesa del negocio del empleado.
@@ -17,6 +18,11 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 // autorizar; no autoriza por sí solo: el resolver valida sesión → cuenta → negocio(slug)
 // → empleado vinculado → área efectiva "salon". Nunca se aceptan negocioId/estado/
 // mesaNumero/empleadoId/pedidoId desde body/query/headers.
+//
+// Operaciones-1K.1: paridad con la terminal — reutiliza EXACTAMENTE el mismo helper de
+// notificación al mozo (notifyMesaOrderReadyForMozo) que usa
+// /api/operaciones/salon/pedidos/[id]/estado, con la misma firma y el mismo patrón
+// best-effort. Se invoca únicamente después de confirmar el CAS (nunca ante 404/409).
 
 export async function POST(
   req: NextRequest,
@@ -87,6 +93,35 @@ export async function POST(
       })
     } catch {
       console.error("[OperativoSalon] Falló la auditoría de marcado como listo")
+    }
+
+    // 5) Notificación al mozo asignado, SOLO tras el CAS exitoso. Reutiliza exactamente el
+    //    mismo helper que la terminal (mismos datos mínimos, mismo patrón best-effort): un
+    //    fallo no revierte la transición ya confirmada ni cambia la respuesta HTTP. mesaId/
+    //    mesaNumero/empleadoId no forman parte del contexto de autorización — se leen acá,
+    //    acotados al pedido ya confirmado (id + negocioId + metodoEntrega:"mesa"), solo para
+    //    completar los datos mínimos que exige la firma del helper.
+    try {
+      const pedidoParaNotificar = await db.pedido.findFirst({
+        where: { id, negocioId, metodoEntrega: "mesa" },
+        select: { mesaId: true, mesaNumero: true, empleadoId: true },
+      })
+      if (pedidoParaNotificar) {
+        await notifyMesaOrderReadyForMozo({
+          pedido: {
+            id,
+            negocioId,
+            negocioSlug: auth.negocio.slug,
+            metodoEntrega: "mesa",
+            mesaId: pedidoParaNotificar.mesaId,
+            mesaNumero: pedidoParaNotificar.mesaNumero,
+            empleadoId: pedidoParaNotificar.empleadoId,
+          },
+          estadoAnterior: "preparando",
+        })
+      }
+    } catch {
+      console.error("[OperativoSalon] Falló la notificación al mozo")
     }
 
     return noStore(
