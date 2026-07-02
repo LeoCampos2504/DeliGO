@@ -450,9 +450,12 @@ export default function MozoPanelPage() {
                       </div>
                     </div>
                     {esMozo ? (
+                      // Área Mozo: enlace a la ruta oficial de pedidos listos (1L.1), solo
+                      // lectura y aislada del panel legacy de mesas (siempre bajo
+                      // /operaciones/mi-panel, incluso desde el home /mozo, igual que Salón).
                       <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
-                        <Link href={nav.panelHref(vinculo.negocio.slug)}>
-                          Entrar al salon
+                        <Link href={`/operaciones/mi-panel/${encodeURIComponent(vinculo.negocio.slug)}/mozo`}>
+                          Abrir panel de Mozo
                           <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                         </Link>
                       </Button>
