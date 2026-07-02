@@ -51,6 +51,12 @@ export function noStore<T extends Response | NextResponse>(response: T): T {
   return response
 }
 
+// Áreas personales formalmente autorizables por un endpoint (Operaciones-1N.1).
+// "sin_asignar" queda excluida a propósito: es únicamente el resultado posible de un
+// empleado sin área asignada (ver resolveAreaOperativaEfectiva), nunca un valor que un
+// endpoint pueda declarar como "área que necesito".
+type AreaOperativaPersonal = Exclude<AreaOperativa, "sin_asignar">
+
 // Resolver personal general por ÁREA (Operaciones-1I). El área esperada es una
 // constante fijada por cada endpoint (nunca viene del cliente/body/query/header).
 // Valida por request: sesión → CuentaOperativa → negocio (slug) → Empleado vinculado
@@ -58,7 +64,7 @@ export function noStore<T extends Response | NextResponse>(response: T): T {
 export async function resolveOperativoAreaForSlug(
   req: NextRequest,
   slug: string,
-  areaEsperada: "mozo" | "salon"
+  areaEsperada: AreaOperativaPersonal
 ): Promise<OperativoMozoAuth> {
   const token = req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
   if (!token) {
