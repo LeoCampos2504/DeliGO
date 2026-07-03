@@ -48,6 +48,28 @@ interface AuthModalProps {
   initialMode?: "login" | "register"
 }
 
+interface AuthModalUser {
+  id: string
+  type: UserType
+  nombre: string
+  email?: string
+  telefono?: string
+  slug?: string
+  rubro?: string
+  aprobado?: boolean
+  suspendido?: boolean
+  activo?: boolean
+}
+
+interface AuthSuccessData {
+  ok: boolean
+  user?: AuthModalUser
+  needsApproval?: boolean
+  needsVerification?: boolean
+  email?: string
+  userType?: string
+}
+
 // ============================================
 // Helper: Mask email
 // ============================================
@@ -105,6 +127,67 @@ export const roles = [
     emoji: "🔐",
   },
 ]
+
+function applyUserToAuthStore(user: AuthModalUser) {
+  switch (user.type) {
+    case "cliente":
+      useAuthStore.getState().loginCliente({
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email!,
+      })
+      break
+    case "negocio":
+      useAuthStore.getState().loginNegocio({
+        id: user.id,
+        nombre: user.nombre,
+        slug: user.slug!,
+        rubro: user.rubro!,
+        aprobado: user.aprobado!,
+        suspendido: user.suspendido,
+      })
+      break
+    case "repartidor":
+      useAuthStore.getState().loginRepartidor({
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email!,
+        activo: user.activo!,
+      })
+      break
+    case "superadmin":
+      useAuthStore.getState().loginSuperAdmin({
+        id: user.id,
+      })
+      break
+  }
+}
+
+async function hydrateAuthStoreFromSession(expectedType: UserType): Promise<AuthModalUser | null> {
+  try {
+    const res = await fetch("/api/auth/me", {
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+
+    if (!res.ok) {
+      useAuthStore.getState().logout()
+      return null
+    }
+
+    const data = (await res.json()) as { ok?: boolean; user?: AuthModalUser }
+    if (!data.ok || !data.user || data.user.type !== expectedType) {
+      useAuthStore.getState().logout()
+      return null
+    }
+
+    applyUserToAuthStore(data.user)
+    return data.user
+  } catch {
+    useAuthStore.getState().logout()
+    return null
+  }
+}
 
 // ============================================
 // Main Auth Modal Component
@@ -191,24 +274,7 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
     setStep("verify-email")
   }
 
-  const handleLoginSuccess = (data: {
-    ok: boolean
-    user?: {
-      id: string
-      type: UserType
-      nombre: string
-      email?: string
-      telefono?: string
-      slug?: string
-      rubro?: string
-      aprobado?: boolean
-      activo?: boolean
-    }
-    needsApproval?: boolean
-    needsVerification?: boolean
-    email?: string
-    userType?: string
-  }) => {
+  const handleLoginSuccess = async (data: AuthSuccessData) => {
     // Handle email verification needed (from register or login)
     if (data.needsVerification && data.email && data.userType) {
       handleNeedsVerification(data.email, data.userType)
@@ -224,40 +290,14 @@ export function AuthModal({ isOpen, onClose, initialRole, initialMode }: AuthMod
 
     const { user } = data
 
-    switch (user.type) {
-      case "cliente":
-        useAuthStore.getState().loginCliente({
-          id: user.id,
-          nombre: user.nombre,
-          email: user.email!,
-        })
-        break
-      case "negocio":
-        useAuthStore.getState().loginNegocio({
-          id: user.id,
-          nombre: user.nombre,
-          slug: user.slug!,
-          rubro: user.rubro!,
-          aprobado: user.aprobado!,
-        })
-        break
-      case "repartidor":
-        useAuthStore.getState().loginRepartidor({
-          id: user.id,
-          nombre: user.nombre,
-          email: user.email!,
-          activo: user.activo!,
-        })
-        break
-      case "superadmin":
-        useAuthStore.getState().loginSuperAdmin({
-          id: user.id,
-        })
-        break
+    const confirmedUser = await hydrateAuthStoreFromSession(user.type)
+    if (!confirmedUser) {
+      toast.error("No pudimos confirmar la sesion. Intenta iniciar sesion nuevamente.")
+      return
     }
 
-    const roleEmoji = roles.find((r) => r.type === user.type)?.emoji ?? ""
-    toast.success(`${roleEmoji} ¡Bienvenido, ${user.nombre}!`)
+    const roleEmoji = roles.find((r) => r.type === confirmedUser.type)?.emoji ?? ""
+    toast.success(`${roleEmoji} ¡Bienvenido, ${confirmedUser.nombre}!`)
     handleClose()
   }
 
@@ -454,7 +494,7 @@ function RoleSelectStep({ onSelect }: { onSelect: (type: UserType) => void }) {
 interface LoginStepProps {
   role: UserType
   roleData: (typeof roles)[0]
-  onSuccess: (data: any) => void
+  onSuccess: (data: AuthSuccessData) => void | Promise<void>
   onSwitchToRegister: () => void
   onClose: () => void
 }
@@ -493,14 +533,16 @@ function LoginStep({
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "same-origin",
         body: JSON.stringify(body),
       })
 
-      const data = await res.json()
+      const data = (await res.json()) as AuthSuccessData & { error?: string }
 
       // Handle needsVerification (status 403)
       if (data.needsVerification) {
-        onSuccess(data)
+        await onSuccess(data)
         return
       }
 
@@ -509,7 +551,7 @@ function LoginStep({
         return
       }
 
-      onSuccess(data)
+      await onSuccess(data)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
     } finally {
@@ -699,7 +741,7 @@ function LoginStep({
 interface RegisterStepProps {
   role: UserType
   roleData: (typeof roles)[0]
-  onSuccess: (data: any) => void
+  onSuccess: (data: AuthSuccessData) => void | Promise<void>
   onSwitchToLogin: () => void
   showSwitchToLogin?: boolean
 }
@@ -801,17 +843,19 @@ export function RegisterStep({
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "same-origin",
         body: JSON.stringify(body),
       })
 
-      const data = await res.json()
+      const data = (await res.json()) as AuthSuccessData & { error?: string }
 
       if (!res.ok) {
         toast.error(data.error || "Error al registrarse")
         return
       }
 
-      onSuccess(data)
+      await onSuccess(data)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
     } finally {

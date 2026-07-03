@@ -61,7 +61,10 @@ export function useAuth() {
 
   const syncSession = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth/me")
+      const res = await fetch("/api/auth/me", {
+        cache: "no-store",
+        credentials: "same-origin",
+      })
 
       // Session is still valid — update store with latest server data
       if (res.ok) {

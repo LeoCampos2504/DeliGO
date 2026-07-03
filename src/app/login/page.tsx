@@ -54,6 +54,63 @@ function maskEmail(email: string): string {
   return `${local[0]}***${local[local.length - 1]}@${domain}`
 }
 
+// ============================================
+// Helper: only allow internal DeliGO paths as redirect targets
+// ============================================
+function getSafeInternalRedirect(value: string | null): string {
+  const fallback = "/cliente/"
+
+  if (!value) return fallback
+
+  try {
+    const decoded = decodeURIComponent(value)
+
+    if (
+      !decoded.startsWith("/") ||
+      decoded.startsWith("//") ||
+      decoded.startsWith("/\\") ||
+      decoded.includes("\\")
+    ) {
+      return fallback
+    }
+
+    const url = new URL(decoded, "https://deligo.local")
+
+    if (url.origin !== "https://deligo.local") {
+      return fallback
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return fallback
+  }
+}
+
+// ============================================
+// Helper: confirm the session server-side before trusting it
+// ============================================
+async function confirmClienteSession(): Promise<{ id: string; nombre: string; email: string } | null> {
+  try {
+    const res = await fetch("/api/auth/me", {
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+    if (!data.ok || !data.user || data.user.type !== "cliente") return null
+
+    return {
+      id: data.user.id,
+      nombre: data.user.nombre,
+      email: data.user.email,
+    }
+  } catch {
+    return null
+  }
+}
+
 function ClienteLoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -61,6 +118,7 @@ function ClienteLoginPageContent() {
   useAuth()
   const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
+  const safeRedirect = getSafeInternalRedirect(searchParams.get("redirect"))
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -77,9 +135,9 @@ function ClienteLoginPageContent() {
   useEffect(() => {
     if (!hydrated) return
     if (isAuth && uType === "cliente") {
-      router.replace("/cliente/")
+      router.replace(safeRedirect)
     }
-  }, [hydrated, isAuth, uType, router])
+  }, [hydrated, isAuth, uType, safeRedirect, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -89,6 +147,8 @@ function ClienteLoginPageContent() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "same-origin",
         body: JSON.stringify({ tipo: "cliente", email, password }),
       })
 
@@ -106,18 +166,22 @@ function ClienteLoginPageContent() {
         return
       }
 
-      // Update auth store
-      useAuthStore.getState().loginCliente({
-        id: data.user.id,
-        nombre: data.user.nombre,
-        email: data.user.email,
-      })
+      // Confirm the session against the server before trusting it and
+      // writing to the store — the login response alone doesn't guarantee
+      // the session cookie was actually set/accepted.
+      const confirmedUser = await confirmClienteSession()
+      if (!confirmedUser) {
+        useAuthStore.getState().logout()
+        toast.error("No pudimos confirmar la sesion. Intenta iniciar sesion nuevamente.")
+        return
+      }
 
-      toast.success(`🍔 ¡Bienvenido, ${data.user.nombre}!`)
+      useAuthStore.getState().loginCliente(confirmedUser)
 
-      // Redirect to intended page or home
-      const redirectTo = searchParams.get("redirect") || "/cliente/"
-      router.replace(redirectTo)
+      toast.success(`🍔 ¡Bienvenido, ${confirmedUser.nombre}!`)
+
+      // Redirect to intended page or home (only internal DeliGO paths allowed)
+      router.replace(safeRedirect)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
     } finally {
@@ -160,7 +224,7 @@ function ClienteLoginPageContent() {
   }
 
   // Already authenticated
-  if (isAuthenticated() && userType() === "cliente") {
+  if (isAuth && uType === "cliente") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-sm text-muted-foreground">Redirigiendo...</p>
