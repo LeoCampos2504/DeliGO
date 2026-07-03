@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils"
 // ============================================
 // DeliGO Operaciones — Panel personal de PyR: reseñas (Operaciones-1N)
 // ============================================
-// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/resenas/[slug]
+// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/resenas?slug=...
 // y POST /api/operativo/pyr/resenas/[id]/responder. No llama /api/operaciones/** ni
 // /api/negocio/** ni /api/empleado/** ni /api/chat/** ni /api/operativo/mozo/** ni
 // /api/operativo/salon/**. Existe UNA sola acción de mutación, fija: responder una reseña
@@ -200,7 +200,8 @@ export default function PyRPersonalPage() {
       if (!silent) setState({ status: "loading" })
 
       try {
-        const res = await fetch(`/api/operativo/pyr/resenas/${encodeURIComponent(slug)}`, {
+        const query = new URLSearchParams({ slug })
+        const res = await fetch(`/api/operativo/pyr/resenas?${query.toString()}`, {
           cache: "no-store",
           signal: ac.signal,
         })

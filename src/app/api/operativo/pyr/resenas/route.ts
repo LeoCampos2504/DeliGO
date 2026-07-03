@@ -4,21 +4,24 @@ import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 
 // ============================================
-// DeliGO Operaciones — PyR personal: reseñas y métricas (SOLO LECTURA · Operaciones-1N)
+// DeliGO Operaciones - PyR personal: resenas y metricas (SOLO LECTURA - Operaciones-1N)
 // ============================================
-// Identidad: EXCLUSIVAMENTE cuenta personal (deligo_operativo_session) vía
+// Identidad: EXCLUSIVAMENTE cuenta personal (deligo_operativo_session) via
 // resolveOperativoAreaForSlug(..., "pyr"). No usa cookie/APIs/scopes de terminal
-// (requireOperacionesScope/requireOperacionesArea/hasTerminalScope quedan fuera). Solo
-// GET, sin query params: no hay filtros, paginación ni orden provenientes del cliente.
-// El negocio se deriva SIEMPRE del contexto seguro (auth.negocio.id); el slug/cliente
-// nunca autorizan por sí solos.
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+// (requireOperacionesScope/requireOperacionesArea/hasTerminalScope quedan fuera). Solo GET,
+// con slug como query param tecnico para evitar colisiones de rutas dinamicas en Next.js.
+// No hay filtros, paginacion ni orden provenientes del cliente. El negocio se deriva
+// SIEMPRE del contexto seguro (auth.negocio.id); el slug/cliente nunca autorizan por si solos.
+export async function GET(req: NextRequest) {
   try {
-    const { slug } = await params
-    // 401 sin sesión · 403 area_no_habilitada (área efectiva ≠ pyr) · 403 acceso_no_disponible.
+    const slug = req.nextUrl.searchParams.get("slug")?.trim()
+    if (!slug) {
+      return noStore(
+        NextResponse.json({ ok: false, error: "Slug requerido" }, { status: 400 })
+      )
+    }
+
+    // 401 sin sesion - 403 area_no_habilitada (area efectiva != pyr) - 403 acceso_no_disponible.
     const auth = await resolveOperativoAreaForSlug(req, slug, "pyr")
 
     if (!auth.ok) {
@@ -36,16 +39,16 @@ export async function GET(
       return noStore(response)
     }
 
-    // El negocio SIEMPRE del contexto seguro; nunca del cliente. Sin query params.
+    // El negocio SIEMPRE del contexto seguro; nunca del cliente. Sin query params de filtro.
     const negocioId = auth.negocio.id
 
-    // Límite fijo y seguro del lado servidor (mismo valor confirmado en el flujo terminal
-    // de PyR: src/app/api/operaciones/pyr/resenas/route.ts). Sin paginación de cliente.
+    // Limite fijo y seguro del lado servidor (mismo valor confirmado en el flujo terminal
+    // de PyR: src/app/api/operaciones/pyr/resenas/route.ts). Sin paginacion de cliente.
     const RESENAS_LIMIT = 100
 
     // Orden fijo: fecha descendente, id descendente (desempate estable). Total,
-    // sinResponder, promedio y distribución calculados en DB (agregaciones), nunca
-    // cargando todas las reseñas en memoria solo para métricas.
+    // sinResponder, promedio y distribucion calculados en DB (agregaciones), nunca
+    // cargando todas las resenas en memoria solo para metricas.
     const [total, sinResponder, avg, distRows, resenas] = await Promise.all([
       db.resena.count({ where: { negocioId } }),
       db.resena.count({ where: { negocioId, respuestaNegocio: null } }),
@@ -57,7 +60,7 @@ export async function GET(
         take: RESENAS_LIMIT,
         select: {
           id: true,
-          // Solo el nombre visible del cliente (nunca id, teléfono ni otros datos personales).
+          // Solo el nombre visible del cliente (nunca id, telefono ni otros datos personales).
           clienteNombre: true,
           puntuacion: true,
           comentario: true,
@@ -91,9 +94,9 @@ export async function GET(
           promedio,
           distribucion,
         },
-        // Booleano de presentación derivado en servidor: cualquier cuenta que autoriza
-        // esta ruta (área efectiva "pyr") puede responder reseñas — no hay un sub-permiso
-        // más granular en esta etapa. Nunca se exponen roles, scopes ni permisos crudos.
+        // Booleano de presentacion derivado en servidor: cualquier cuenta que autoriza
+        // esta ruta (area efectiva "pyr") puede responder resenas - no hay un sub-permiso
+        // mas granular en esta etapa. Nunca se exponen roles, scopes ni permisos crudos.
         puedeResponderResena: true,
         resenas: resenas.map((r) => ({
           id: r.id,
@@ -109,7 +112,7 @@ export async function GET(
   } catch (error) {
     console.error("[OperativoPyR] Error loading resenas:", error)
     return noStore(
-      NextResponse.json({ ok: false, error: "No se pudieron cargar las reseñas" }, { status: 500 })
+      NextResponse.json({ ok: false, error: "No se pudieron cargar las resenas" }, { status: 500 })
     )
   }
 }

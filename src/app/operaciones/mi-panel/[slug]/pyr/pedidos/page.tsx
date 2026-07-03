@@ -25,7 +25,7 @@ import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 // ============================================
 // DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1 + 1Q + 1R + 1S)
 // ============================================
-// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos/[slug],
+// Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos?slug=...,
 // POST /api/operativo/pyr/pedidos/[id]/preparar, POST
 // /api/operativo/pyr/pedidos/[id]/listo-para-retiro, POST
 // /api/operativo/pyr/pedidos/[id]/en-camino y POST
@@ -220,7 +220,8 @@ export default function PyRPedidosActivosPage() {
       if (!silent) setState({ status: "loading" })
 
       try {
-        const res = await fetch(`/api/operativo/pyr/pedidos/${encodeURIComponent(slug)}`, {
+        const query = new URLSearchParams({ slug })
+        const res = await fetch(`/api/operativo/pyr/pedidos?${query.toString()}`, {
           cache: "no-store",
           signal: ac.signal,
         })
