@@ -8,11 +8,13 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
+  Eye,
   Info,
   Loader2,
   PackageCheck,
   Play,
   RefreshCw,
+  Star,
   Truck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,27 +23,39 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
+import {
+  PedidoDetalleDrawer,
+  type PedidoDetalleState,
+} from "@/components/operativo/pedido-detalle"
 
 // ============================================
-// DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1 + 1Q + 1R + 1S)
+// DeliGO Operaciones — Panel personal de PyR: pedidos activos (Operaciones-1O + 1P.1 + 1Q + 1R + 1S + UX-1)
 // ============================================
 // Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos?slug=...,
+// GET /api/operativo/pyr/pedidos/[id]/detalle?slug=... (detalle de un pedido, bajo demanda),
 // POST /api/operativo/pyr/pedidos/[id]/preparar, POST
 // /api/operativo/pyr/pedidos/[id]/listo-para-retiro, POST
 // /api/operativo/pyr/pedidos/[id]/en-camino y POST
 // /api/operativo/pyr/pedidos/[id]/entregar. No usa APIs de terminal ni APIs
-// administrativas, no consulta módulos de Mozo o Salón, y no llama al endpoint personal de
-// reseñas de PyR. Existen CUATRO acciones de mutación fijas: recibido → preparando
-// (cualquier no-mesa); exclusivamente para retiro, preparando → listo_para_retirar y
-// listo_para_retirar → entregado; exclusivamente para domicilio, preparando → en_camino
-// (por pedido). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
-// visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia de
-// generación contra respuestas fuera de orden. Mismas protecciones de concurrencia
-// validadas en los paneles personales de Salón y Mozo: guardia síncrona compartida por
-// pedido (las cuatro acciones usan la MISMA barrera — un pedido no puede tener dos acciones
-// en vuelo a la vez), barrera global de refresh, mutationContextGenRef para descartar
-// respuestas tardías tras una salida global. Sin actualización optimista: el estado final
-// siempre se vuelve a consultar desde el servidor tras la mutación.
+// administrativas, no consulta módulos de Mozo o Salón. Existen CUATRO acciones de
+// mutación fijas: recibido → preparando (cualquier no-mesa); exclusivamente para retiro,
+// preparando → listo_para_retirar y listo_para_retirar → entregado; exclusivamente para
+// domicilio, preparando → en_camino (por pedido). Refresco automático estándar (1G.1):
+// 15 s con pestaña visible + focus + visibilitychange, sin solapamiento, salida atómica
+// ante pérdida de área/sesión, guardia de generación contra respuestas fuera de orden.
+// Mismas protecciones de concurrencia validadas en los paneles personales de Salón y
+// Mozo: guardia síncrona compartida por pedido (las cuatro acciones usan la MISMA
+// barrera — un pedido no puede tener dos acciones en vuelo a la vez), barrera global de
+// refresh, mutationContextGenRef para descartar respuestas tardías tras una salida
+// global. Sin actualización optimista: el estado final siempre se vuelve a consultar
+// desde el servidor tras la mutación.
+//
+// UX-1: esta pantalla es ahora la raíz de PyR (/pyr redirige acá). Reseñas vive en
+// /pyr/resenas, accesible desde la tarjeta "Ver reseñas" de abajo. El detalle de un
+// pedido (productos, agregados, ingredientes quitados, secciones/opciones) se consulta
+// bajo demanda al abrir el drawer — es una lectura independiente del refresco de la
+// lista (no lo bloquea, no participa de la barrera de mutaciones) con su propio
+// AbortController y guardia de generación contra respuestas fuera de orden.
 
 const PEDIDOS_REFRESH_INTERVAL_MS = 15000
 
@@ -199,6 +213,98 @@ export default function PyRPedidosActivosPage() {
     router.replace(nav.loginHref)
   }, [invalidatePanelRefresh, invalidateMutationContext, router, nav.loginHref])
 
+  // Detalle de un pedido (drawer, bajo demanda — Operaciones UX-1). Independiente del
+  // refresco de la lista: no participa de mutatingPedidoIdsRef ni de invalidatePanelRefresh,
+  // por lo que abrir el detalle de un pedido nunca bloquea el refresco ni las acciones sobre
+  // otros pedidos. Una sola solicitud de detalle activa a la vez (abort de la anterior) +
+  // guardia de generación propia contra respuestas fuera de orden (abrir A y luego B rápido
+  // no debe mostrar la respuesta tardía de A sobre el drawer ya abierto para B).
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null)
+  const [detalleState, setDetalleState] = useState<PedidoDetalleState | null>(null)
+  const detalleAcRef = useRef<AbortController | null>(null)
+  const detalleGenRef = useRef(0)
+
+  const cerrarDetalle = useCallback(() => {
+    detalleAcRef.current?.abort()
+    detalleAcRef.current = null
+    detalleGenRef.current += 1
+    setDetalleAbierto(null)
+    setDetalleState(null)
+  }, [])
+
+  const cargarDetalle = useCallback(
+    async (pedidoId: string) => {
+      detalleAcRef.current?.abort()
+      const ac = new AbortController()
+      detalleAcRef.current = ac
+      const generation = ++detalleGenRef.current
+      setDetalleState({ status: "loading" })
+
+      try {
+        const query = new URLSearchParams({ slug })
+        const res = await fetch(
+          `/api/operativo/pyr/pedidos/${encodeURIComponent(pedidoId)}/detalle?${query.toString()}`,
+          { cache: "no-store", signal: ac.signal }
+        )
+        const data = await res.json().catch(() => ({}))
+        if (generation !== detalleGenRef.current) return
+
+        // Pérdida de área/sesión mientras el detalle estaba abierto: misma salida atómica
+        // que el resto del panel — cierra el drawer, no deja datos del pedido visibles.
+        if (data.estado === "area_no_habilitada") {
+          cerrarDetalle()
+          redirectToPersonalHomeAfterAreaLoss()
+          return
+        }
+        if (res.status === 401 || data.estado === "sin_sesion") {
+          cerrarDetalle()
+          redirectToLoginAfterSessionLoss()
+          return
+        }
+        // Negocio/vínculo no disponible (problema de cuenta, no de este pedido puntual):
+        // misma salida atómica que el resto del panel.
+        if (res.status === 403 || data.estado === "acceso_no_disponible") {
+          cerrarDetalle()
+          invalidatePanelRefresh()
+          invalidateMutationContext()
+          setMutatingPedidoIds(new Set())
+          setPedidoErrors({})
+          setState({ status: "unavailable" })
+          return
+        }
+        // 404 (pedido fuera de alcance) u otro error: error local del drawer, con
+        // reintento — no afecta al resto del panel ni a otros pedidos.
+        if (!res.ok || !data.ok || !data.pedido) {
+          setDetalleState({ status: "error" })
+          return
+        }
+
+        setDetalleState({ status: "ready", data: data.pedido })
+      } catch {
+        if (ac.signal.aborted || generation !== detalleGenRef.current) return
+        setDetalleState({ status: "error" })
+      } finally {
+        if (detalleAcRef.current === ac) detalleAcRef.current = null
+      }
+    },
+    [
+      slug,
+      cerrarDetalle,
+      redirectToPersonalHomeAfterAreaLoss,
+      redirectToLoginAfterSessionLoss,
+      invalidatePanelRefresh,
+      invalidateMutationContext,
+    ]
+  )
+
+  const abrirDetalle = useCallback(
+    (pedidoId: string) => {
+      setDetalleAbierto(pedidoId)
+      void cargarDetalle(pedidoId)
+    },
+    [cargarDetalle]
+  )
+
   const loadPedidos = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true
@@ -318,9 +424,12 @@ export default function PyRPedidosActivosPage() {
       window.removeEventListener("focus", onFocus)
       // No setState aquí (desmontaje): solo invalidar refresh y mutaciones en vuelo para
       // que un POST que responda después de salir de la página no escriba en un componente
-      // desmontado.
+      // desmontado. También se aborta cualquier fetch de detalle en vuelo.
       invalidatePanelRefresh()
       invalidateMutationContext()
+      detalleAcRef.current?.abort()
+      detalleAcRef.current = null
+      detalleGenRef.current += 1
     }
   }, [loadPedidos, invalidatePanelRefresh, invalidateMutationContext])
 
@@ -511,7 +620,7 @@ export default function PyRPedidosActivosPage() {
 
   const { negocio, resumen, pedidos } = state.data
   const accent = negocio.colorPrincipal
-  const pyrHref = `${nav.homeHref}/${encodeURIComponent(slug)}/pyr`
+  const resenasHref = `/operaciones/mi-panel/${encodeURIComponent(slug)}/pyr/resenas`
 
   return (
     <Shell wide>
@@ -536,11 +645,23 @@ export default function PyRPedidosActivosPage() {
           </Badge>
         </div>
         <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
-          <Link href={pyrHref} aria-label="Volver al panel de reseñas">
+          <Link href={nav.homeHref} aria-label="Volver a mi panel">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
       </div>
+
+      {/* Navegación a reseñas (Operaciones UX-1) */}
+      <Link
+        href={resenasHref}
+        className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card px-3 py-2.5 text-sm font-semibold hover:bg-muted/40 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Star className="h-4 w-4" style={{ color: accent }} />
+          Ver reseñas
+        </span>
+        <ArrowLeft className="h-4 w-4 rotate-180 text-muted-foreground" />
+      </Link>
 
       {/* Aviso de vista informativa */}
       <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 flex items-start gap-2">
@@ -596,6 +717,16 @@ export default function PyRPedidosActivosPage() {
                   <p className="text-sm font-semibold truncate">{pedido.clienteNombre}</p>
                 )}
                 <p className="text-sm font-semibold">{formatMoney(pedido.total)}</p>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold"
+                  onClick={() => abrirDetalle(pedido.id)}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Ver detalle
+                </Button>
 
                 {pedidoErrors[pedido.id] && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
@@ -704,6 +835,29 @@ export default function PyRPedidosActivosPage() {
           ))}
         </div>
       )}
+
+      {/* Detalle de pedido (drawer, bajo demanda — Operaciones UX-1) */}
+      <PedidoDetalleDrawer
+        open={detalleAbierto != null}
+        onOpenChange={(open) => {
+          if (!open) cerrarDetalle()
+        }}
+        state={detalleState}
+        onRetry={() => {
+          if (detalleAbierto) void cargarDetalle(detalleAbierto)
+        }}
+        title={
+          detalleState?.status === "ready"
+            ? METODO_LABELS[detalleState.data.metodoEntrega] ?? detalleState.data.metodoEntrega
+            : "Detalle del pedido"
+        }
+        estadoLabel={
+          detalleState?.status === "ready"
+            ? ESTADO_LABELS[detalleState.data.estado] ?? detalleState.data.estado
+            : ""
+        }
+        nombreMostrado={detalleState?.status === "ready" ? detalleState.data.clienteNombre : null}
+      />
     </Shell>
   )
 }

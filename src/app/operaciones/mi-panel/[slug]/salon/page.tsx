@@ -9,6 +9,7 @@ import {
   Armchair,
   CheckCircle2,
   ClipboardList,
+  Eye,
   Loader2,
   Play,
   RefreshCw,
@@ -22,17 +23,28 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
+import {
+  PedidoDetalleDrawer,
+  type PedidoDetalleState,
+} from "@/components/operativo/pedido-detalle"
 
 // ============================================
-// DeliGO Operaciones — Panel personal de Salón (Operaciones-1I + 1J + 1K)
+// DeliGO Operaciones — Panel personal de Salón (Operaciones-1I + 1J + 1K + UX-1)
 // ============================================
 // Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/salon/panel/[slug],
-// POST /api/operativo/salon/pedidos/[id]/preparar y POST .../[id]/listo. No llama
-// /api/operaciones/** ni /api/negocio/** ni /api/operativo/mozo/**. Existen DOS acciones
-// de mutación fijas: recibido → preparando y preparando → listo_para_retirar (por pedido
-// de mesa). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
-// visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia
-// de generación contra respuestas fuera de orden.
+// GET /api/operativo/salon/pedidos/[id]/detalle?slug=... (detalle de un pedido, bajo
+// demanda), POST /api/operativo/salon/pedidos/[id]/preparar y POST .../[id]/listo. No
+// llama /api/operaciones/** ni /api/negocio/** ni /api/operativo/mozo/**. Existen DOS
+// acciones de mutación fijas: recibido → preparando y preparando → listo_para_retirar
+// (por pedido de mesa). Refresco automático estándar (1G.1): 15 s con pestaña visible +
+// focus + visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión,
+// guardia de generación contra respuestas fuera de orden.
+//
+// UX-1: el detalle de un pedido (productos, agregados, ingredientes quitados,
+// secciones/opciones) se consulta bajo demanda al abrir el drawer, dentro del drawer de
+// mesa ya existente — es una lectura independiente del refresco del panel (no lo
+// bloquea, no participa de la barrera de mutaciones) con su propio AbortController y
+// guardia de generación contra respuestas fuera de orden.
 
 const SALON_REFRESH_INTERVAL_MS = 15000
 
@@ -190,6 +202,98 @@ export default function SalonPersonalPage() {
     router.replace(nav.loginHref)
   }, [invalidatePanelRefresh, invalidateMutationContext, router, nav.loginHref])
 
+  // Detalle de un pedido de mesa (drawer, bajo demanda — Operaciones UX-1). Independiente
+  // del refresco del panel: no participa de accionesEnCursoRef ni de
+  // invalidatePanelRefresh, por lo que abrir el detalle de un pedido nunca bloquea el
+  // refresco ni las acciones sobre otros pedidos. Una sola solicitud de detalle activa a
+  // la vez (abort de la anterior) + guardia de generación propia contra respuestas fuera
+  // de orden.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null)
+  const [detalleState, setDetalleState] = useState<PedidoDetalleState | null>(null)
+  const detalleAcRef = useRef<AbortController | null>(null)
+  const detalleGenRef = useRef(0)
+
+  const cerrarDetalle = useCallback(() => {
+    detalleAcRef.current?.abort()
+    detalleAcRef.current = null
+    detalleGenRef.current += 1
+    setDetalleAbierto(null)
+    setDetalleState(null)
+  }, [])
+
+  const cargarDetalle = useCallback(
+    async (pedidoId: string) => {
+      detalleAcRef.current?.abort()
+      const ac = new AbortController()
+      detalleAcRef.current = ac
+      const generation = ++detalleGenRef.current
+      setDetalleState({ status: "loading" })
+
+      try {
+        const query = new URLSearchParams({ slug })
+        const res = await fetch(
+          `/api/operativo/salon/pedidos/${encodeURIComponent(pedidoId)}/detalle?${query.toString()}`,
+          { cache: "no-store", signal: ac.signal }
+        )
+        const data = await res.json().catch(() => ({}))
+        if (generation !== detalleGenRef.current) return
+
+        // Pérdida de área/sesión mientras el detalle estaba abierto: misma salida atómica
+        // que el resto del panel — cierra el drawer, no deja datos del pedido visibles.
+        if (data.estado === "area_no_habilitada") {
+          cerrarDetalle()
+          redirectToPersonalHomeAfterAreaLoss()
+          return
+        }
+        if (res.status === 401 || data.estado === "sin_sesion") {
+          cerrarDetalle()
+          redirectToLoginAfterSessionLoss()
+          return
+        }
+        // Negocio/salón no disponible (problema de cuenta, no de este pedido puntual):
+        // misma salida atómica que ya usan las acciones de mutación de este panel.
+        if (res.status === 403 || data.estado === "acceso_no_disponible") {
+          cerrarDetalle()
+          invalidatePanelRefresh()
+          invalidateMutationContext()
+          setAccionesEnCurso({})
+          setActionError(null)
+          setState({ status: "unavailable" })
+          return
+        }
+        // 404 (pedido fuera de alcance) u otro error: error local del drawer, con
+        // reintento — no afecta al resto del panel ni a otros pedidos.
+        if (!res.ok || !data.ok || !data.pedido) {
+          setDetalleState({ status: "error" })
+          return
+        }
+
+        setDetalleState({ status: "ready", data: data.pedido })
+      } catch {
+        if (ac.signal.aborted || generation !== detalleGenRef.current) return
+        setDetalleState({ status: "error" })
+      } finally {
+        if (detalleAcRef.current === ac) detalleAcRef.current = null
+      }
+    },
+    [
+      slug,
+      cerrarDetalle,
+      redirectToPersonalHomeAfterAreaLoss,
+      redirectToLoginAfterSessionLoss,
+      invalidatePanelRefresh,
+      invalidateMutationContext,
+    ]
+  )
+
+  const abrirDetalle = useCallback(
+    (pedidoId: string) => {
+      setDetalleAbierto(pedidoId)
+      void cargarDetalle(pedidoId)
+    },
+    [cargarDetalle]
+  )
+
   const loadPanel = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true
@@ -287,9 +391,12 @@ export default function SalonPersonalPage() {
       window.removeEventListener("focus", onFocus)
       // No setState aquí (desmontaje): solo invalidar refresh y mutaciones en vuelo para
       // que un POST que responda después de salir de la página no escriba en un componente
-      // desmontado.
+      // desmontado. También se aborta cualquier fetch de detalle en vuelo.
       invalidatePanelRefresh()
       invalidateMutationContext()
+      detalleAcRef.current?.abort()
+      detalleAcRef.current = null
+      detalleGenRef.current += 1
     }
   }, [loadPanel, invalidatePanelRefresh, invalidateMutationContext])
 
@@ -595,6 +702,15 @@ export default function SalonPersonalPage() {
                                 </span>
                                 <span className="text-xs font-semibold">{formatMoney(pedido.total)}</span>
                               </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold"
+                                onClick={() => abrirDetalle(pedido.id)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Ver detalle
+                              </Button>
                               {pedido.estado === "recibido" && (
                                 <Button
                                   size="sm"
@@ -655,6 +771,25 @@ export default function SalonPersonalPage() {
           ))}
         </div>
       )}
+
+      {/* Detalle de pedido de mesa (drawer, bajo demanda — Operaciones UX-1) */}
+      <PedidoDetalleDrawer
+        open={detalleAbierto != null}
+        onOpenChange={(open) => {
+          if (!open) cerrarDetalle()
+        }}
+        state={detalleState}
+        onRetry={() => {
+          if (detalleAbierto) void cargarDetalle(detalleAbierto)
+        }}
+        title={
+          detalleState?.status === "ready" && detalleState.data.mesaNumero != null
+            ? `Mesa ${detalleState.data.mesaNumero}`
+            : "Detalle del pedido"
+        }
+        estadoLabel={detalleState?.status === "ready" ? estadoLabel(detalleState.data.estado) : ""}
+        nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
+      />
     </Shell>
   )
 }
