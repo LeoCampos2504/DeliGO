@@ -1,15 +1,120 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 
+const productPublicSelect = {
+  id: true,
+  nombre: true,
+  precio: true,
+  categoria: true,
+  imagenUrl: true,
+  imagenesExtra: true,
+  stock: true,
+  descuentoActivo: true,
+  tipoDescuento: true,
+  valorDescuento: true,
+  descripcion: true,
+  secciones: true,
+  recomendados: true,
+  opcionesCompartidasIds: true,
+  talles: true,
+  colores: true,
+  material: true,
+  genero: true,
+  agregados: {
+    select: {
+      agregado: {
+        select: {
+          id: true,
+          nombre: true,
+          precio: true,
+          categoria: true,
+          imagenUrl: true,
+        },
+      },
+    },
+  },
+  ingredientes: {
+    select: {
+      ingrediente: {
+        select: {
+          id: true,
+          nombre: true,
+          categoria: true,
+          imagenUrl: true,
+        },
+      },
+    },
+  },
+} as const
+
+type ProductRecord = {
+  id: string
+  nombre: string
+  precio: number
+  categoria: string
+  imagenUrl: string | null
+  imagenesExtra: unknown
+  stock: boolean
+  descuentoActivo: boolean
+  tipoDescuento: string
+  valorDescuento: number
+  descripcion: string | null
+  secciones: unknown
+  recomendados: unknown
+  opcionesCompartidasIds: unknown
+  talles: unknown
+  colores: unknown
+  material: string
+  genero: string
+  agregados: Array<{
+    agregado: {
+      id: string
+      nombre: string
+      precio: number
+      categoria: string
+      imagenUrl: string | null
+    }
+  }>
+  ingredientes: Array<{
+    ingrediente: {
+      id: string
+      nombre: string
+      categoria: string
+      imagenUrl: string | null
+    }
+  }>
+}
+
+type ProductSection = {
+  nombre: string
+  opciones: string[]
+  obligatorio: boolean
+  maximo: number
+}
+
+type SharedOption = {
+  nombre: string
+  precio: number
+}
+
 // Helper to normalize opcionesCompartidasIds (old: string[], new: {id, obligatorio, maximo}[])
 function normalizeOpcionesCompartidasIds(raw: unknown): Array<{ id: string; obligatorio: boolean; maximo: number }> {
   const parsed = safeParseJSON(raw, [])
   if (!Array.isArray(parsed)) return []
-  return parsed.map((item: unknown) => {
-    if (typeof item === "string") return { id: item, obligatorio: false, maximo: 0 }
-    const obj = item as { id?: string; obligatorio?: boolean; maximo?: number }
-    return { id: obj.id ?? "", obligatorio: obj.obligatorio ?? false, maximo: obj.maximo ?? 0 }
-  }).filter((c) => c.id)
+  return parsed
+    .map((item: unknown) => {
+      if (typeof item === "string") return { id: item, obligatorio: false, maximo: 0 }
+      if (typeof item !== "object" || item === null) return null
+      const obj = item as Record<string, unknown>
+      const id = typeof obj.id === "string" ? obj.id : ""
+      if (!id) return null
+      return {
+        id,
+        obligatorio: typeof obj.obligatorio === "boolean" ? obj.obligatorio : false,
+        maximo: typeof obj.maximo === "number" ? obj.maximo : 0,
+      }
+    })
+    .filter((item): item is { id: string; obligatorio: boolean; maximo: number } => item !== null)
 }
 
 // Helper to parse JSON fields safely
@@ -18,7 +123,6 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value)
-      // Accept both arrays and objects (e.g., horarios is an object)
       if (Array.isArray(parsed) || (typeof parsed === "object" && parsed !== null)) {
         return parsed
       }
@@ -27,11 +131,105 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
       return fallback
     }
   }
-  // Already parsed — accept arrays and objects
   if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
     return value
   }
   return fallback
+}
+
+function normalizeStringArray(raw: unknown): string[] {
+  const parsed = safeParseJSON(raw, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter((item): item is string => typeof item === "string")
+}
+
+function normalizeProductSections(raw: unknown): ProductSection[] {
+  const parsed = safeParseJSON(raw, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .map((item: unknown) => {
+      if (typeof item !== "object" || item === null) return null
+      const section = item as Record<string, unknown>
+      return {
+        nombre: typeof section.nombre === "string" ? section.nombre : "",
+        opciones: Array.isArray(section.opciones)
+          ? section.opciones.filter((option): option is string => typeof option === "string")
+          : [],
+        obligatorio: typeof section.obligatorio === "boolean" ? section.obligatorio : false,
+        maximo: typeof section.maximo === "number" ? section.maximo : 0,
+      }
+    })
+    .filter((section): section is ProductSection => section !== null)
+}
+
+function normalizeSharedOptions(raw: unknown): SharedOption[] {
+  const parsed = safeParseJSON(raw, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .map((item: unknown) => {
+      if (typeof item === "string") return { nombre: item, precio: 0 }
+      if (typeof item !== "object" || item === null) return null
+      const option = item as Record<string, unknown>
+      const nombre = typeof option.nombre === "string" ? option.nombre : ""
+      if (!nombre) return null
+      return {
+        nombre,
+        precio: typeof option.precio === "number" ? option.precio : 0,
+      }
+    })
+    .filter((option): option is SharedOption => option !== null)
+}
+
+function buildPublicProduct(product: ProductRecord) {
+  const precioPromo =
+    product.descuentoActivo && product.valorDescuento > 0
+      ? product.tipoDescuento === "porcentaje"
+        ? Math.round(product.precio * (1 - product.valorDescuento / 100) * 100) / 100
+        : Math.round((product.precio - product.valorDescuento) * 100) / 100
+      : null
+
+  const descuentoLabel =
+    product.descuentoActivo && product.valorDescuento > 0
+      ? product.tipoDescuento === "porcentaje"
+        ? `${product.valorDescuento}% OFF`
+        : `$${product.valorDescuento} OFF`
+      : null
+
+  return {
+    id: product.id,
+    nombre: product.nombre,
+    precio: product.precio,
+    categoria: product.categoria,
+    imagenUrl: product.imagenUrl,
+    imagenesExtra: normalizeStringArray(product.imagenesExtra),
+    stock: product.stock,
+    descuentoActivo: product.descuentoActivo,
+    tipoDescuento: product.tipoDescuento,
+    valorDescuento: product.valorDescuento,
+    descripcion: product.descripcion,
+    secciones: normalizeProductSections(product.secciones),
+    recomendados: normalizeStringArray(product.recomendados),
+    talles: normalizeStringArray(product.talles),
+    colores: normalizeStringArray(product.colores),
+    material: product.material,
+    genero: product.genero,
+    opcionesCompartidasIds: normalizeOpcionesCompartidasIds(product.opcionesCompartidasIds),
+    agregados: product.agregados.map((item) => ({
+      id: item.agregado.id,
+      nombre: item.agregado.nombre,
+      precio: item.agregado.precio,
+      categoria: item.agregado.categoria,
+      imagenUrl: item.agregado.imagenUrl,
+    })),
+    ingredientes: product.ingredientes.map((item) => ({
+      id: item.ingrediente.id,
+      nombre: item.ingrediente.nombre,
+      categoria: item.ingrediente.categoria,
+      imagenUrl: item.ingrediente.imagenUrl,
+    })),
+    precioPromo,
+    descuentoLabel,
+  }
 }
 
 export async function GET(
@@ -43,58 +241,83 @@ export async function GET(
 
     const negocio = await db.negocio.findUnique({
       where: { slug },
-      include: {
+      select: {
+        id: true,
+        slug: true,
+        nombre: true,
+        rubro: true,
+        aprobado: true,
+        suspendido: true,
+        colorPrincipal: true,
+        mensajeBienvenida: true,
+        categorias: true,
+        horarios: true,
+        horarioMode: true,
+        abiertoManual: true,
+        whatsapp: true,
+        instagram: true,
+        facebook: true,
+        logoUrl: true,
+        bannerUrl: true,
+        ofreceDelivery: true,
+        precioDelivery: true,
+        deliveryMode: true,
+        tiempoEntrega: true,
+        lat: true,
+        lng: true,
+        mostrarVentas: true,
+        aceptaTransferencia: true,
+        aliasBancario: true,
+        puntuacionPromedio: true,
+        totalResenas: true,
         productos: {
           where: { eliminado: false },
           orderBy: { orden: "asc" },
-          include: {
-            agregados: {
-              include: {
-                agregado: true,
-              },
-            },
-            ingredientes: {
-              include: {
-                ingrediente: true,
-              },
-            },
+          select: productPublicSelect,
+        },
+        opcionesCompartidas: {
+          select: {
+            id: true,
+            nombre: true,
+            opciones: true,
+            obligatorio: true,
+            maximo: true,
           },
         },
-        agregados: {
-          orderBy: { categoria: "asc" },
-        },
-        ingredientes: {
-          orderBy: { categoria: "asc" },
-        },
-        opcionesCompartidas: true,
         secciones: {
-          include: {
+          orderBy: { orden: "asc" },
+          select: {
+            id: true,
+            nombre: true,
+            orientacion: true,
+            orden: true,
+            color: true,
             productos: {
               where: { producto: { eliminado: false } },
-              include: {
+              orderBy: { orden: "asc" },
+              select: {
                 producto: {
-                  include: {
-                    agregados: {
-                      include: {
-                        agregado: true,
-                      },
-                    },
-                    ingredientes: {
-                      include: {
-                        ingrediente: true,
-                      },
-                    },
-                  },
+                  select: productPublicSelect,
                 },
               },
-              orderBy: { orden: "asc" },
             },
           },
-          orderBy: { orden: "asc" },
         },
         resenas: {
           orderBy: { fecha: "desc" },
           take: 20,
+          select: {
+            id: true,
+            clienteNombre: true,
+            puntuacion: true,
+            rapidez: true,
+            calidad: true,
+            precio: true,
+            comentario: true,
+            respuestaNegocio: true,
+            fechaRespuesta: true,
+            fecha: true,
+          },
         },
         _count: {
           select: {
@@ -120,127 +343,76 @@ export async function GET(
       )
     }
 
-    // Transform the data for frontend consumption
-    const productosTransformados = negocio.productos.map((p) => ({
-      ...p,
-      imagenesExtra: safeParseJSON(p.imagenesExtra, []),
-      secciones: (safeParseJSON(p.secciones, []) as Array<Record<string, unknown>>).map((s) => ({
-        ...s,
-        opciones: Array.isArray(s.opciones) ? s.opciones : [],
-      })),
-      recomendados: safeParseJSON(p.recomendados, []),
-      talles: safeParseJSON(p.talles, []),
-      colores: safeParseJSON(p.colores, []),
-      opcionesCompartidasIds: normalizeOpcionesCompartidasIds(p.opcionesCompartidasIds),
-      agregados: p.agregados.map((pa) => ({
-        id: pa.agregado.id,
-        nombre: pa.agregado.nombre,
-        precio: pa.agregado.precio,
-        categoria: pa.agregado.categoria,
-        imagenUrl: pa.agregado.imagenUrl,
-      })),
-      ingredientes: p.ingredientes.map((pi) => ({
-        id: pi.ingrediente.id,
-        nombre: pi.ingrediente.nombre,
-        categoria: pi.ingrediente.categoria,
-        imagenUrl: pi.ingrediente.imagenUrl,
-      })),
-      // Compute promo price
-      precioPromo:
-        p.descuentoActivo && p.valorDescuento > 0
-          ? p.tipoDescuento === "porcentaje"
-            ? Math.round(p.precio * (1 - p.valorDescuento / 100) * 100) / 100
-            : Math.round((p.precio - p.valorDescuento) * 100) / 100
-          : null,
-      descuentoLabel:
-        p.descuentoActivo && p.valorDescuento > 0
-          ? p.tipoDescuento === "porcentaje"
-            ? `${p.valorDescuento}% OFF`
-            : `$${p.valorDescuento} OFF`
-          : null,
+    const productos = negocio.productos.map(buildPublicProduct)
+
+    const secciones = negocio.secciones.map((section) => ({
+      id: section.id,
+      nombre: section.nombre,
+      orientacion: section.orientacion,
+      orden: section.orden,
+      color: section.color,
+      productos: section.productos.map((item) => buildPublicProduct(item.producto)),
     }))
 
-    const seccionesTransformadas = negocio.secciones.map((s) => ({
-      id: s.id,
-      nombre: s.nombre,
-      orientacion: s.orientacion,
-      orden: s.orden,
-      color: s.color,
-      productos: s.productos.map((sp) => {
-        const p = sp.producto
-        return {
-          ...p,
-          imagenesExtra: safeParseJSON(p.imagenesExtra, []),
-          secciones: (safeParseJSON(p.secciones, []) as Array<Record<string, unknown>>).map((s) => ({
-            ...s,
-            opciones: Array.isArray(s.opciones) ? s.opciones : [],
-          })),
-          recomendados: safeParseJSON(p.recomendados, []),
-          talles: safeParseJSON(p.talles, []),
-          colores: safeParseJSON(p.colores, []),
-          opcionesCompartidasIds: normalizeOpcionesCompartidasIds(p.opcionesCompartidasIds),
-          agregados: p.agregados.map((pa) => ({
-            id: pa.agregado.id,
-            nombre: pa.agregado.nombre,
-            precio: pa.agregado.precio,
-            categoria: pa.agregado.categoria,
-            imagenUrl: pa.agregado.imagenUrl,
-          })),
-          ingredientes: p.ingredientes.map((pi) => ({
-            id: pi.ingrediente.id,
-            nombre: pi.ingrediente.nombre,
-            categoria: pi.ingrediente.categoria,
-            imagenUrl: pi.ingrediente.imagenUrl,
-          })),
-          precioPromo:
-            p.descuentoActivo && p.valorDescuento > 0
-              ? p.tipoDescuento === "porcentaje"
-                ? Math.round(p.precio * (1 - p.valorDescuento / 100) * 100) / 100
-                : Math.round((p.precio - p.valorDescuento) * 100) / 100
-              : null,
-          descuentoLabel:
-            p.descuentoActivo && p.valorDescuento > 0
-              ? p.tipoDescuento === "porcentaje"
-                ? `${p.valorDescuento}% OFF`
-                : `$${p.valorDescuento} OFF`
-              : null,
-        }
-      }),
-    }))
-
-    // Get IDs of products already in sections to exclude from the main grid
     const productosEnSecciones = new Set(
-      negocio.secciones.flatMap((s) => s.productos.map((sp) => sp.productoId))
+      negocio.secciones.flatMap((section) => section.productos.map((item) => item.producto.id))
     )
 
-    // Products not in any section go to the main grid
-    const productosSinSeccion = productosTransformados.filter(
-      (p) => !productosEnSecciones.has(p.id)
+    const productosSinSeccion = productos.filter(
+      (product) => !productosEnSecciones.has(product.id)
     )
 
-    // Strip sensitive fields before sending
-    const { password, pushSubscription, ...safeNegocio } = negocio
+    const resenas = negocio.resenas.map((review) => ({
+      id: review.id,
+      clienteNombre: review.clienteNombre,
+      puntuacion: review.puntuacion,
+      rapidez: review.rapidez,
+      calidad: review.calidad,
+      precio: review.precio,
+      comentario: review.comentario,
+      respuestaNegocio: review.respuestaNegocio,
+      fechaRespuesta: review.fechaRespuesta ? review.fechaRespuesta.toISOString() : null,
+      fecha: review.fecha.toISOString(),
+    }))
 
     return NextResponse.json({
-      ...safeNegocio,
-      categorias: safeParseJSON(negocio.categorias, []),
-      agregadosCategorias: safeParseJSON(negocio.agregadosCategorias, []),
-      ingredientesCategorias: safeParseJSON(negocio.ingredientesCategorias, []),
+      id: negocio.id,
+      slug: negocio.slug,
+      nombre: negocio.nombre,
+      rubro: negocio.rubro,
+      colorPrincipal: negocio.colorPrincipal,
+      mensajeBienvenida: negocio.mensajeBienvenida,
+      logoUrl: negocio.logoUrl,
+      bannerUrl: negocio.bannerUrl,
+      categorias: normalizeStringArray(negocio.categorias),
       horarios: safeParseJSON(negocio.horarios, {}),
-      zonasDelivery: safeParseJSON(negocio.zonasDelivery, []),
-      opcionesCompartidas: (negocio.opcionesCompartidas || []).map((oc) => {
-        const parsed = safeParseJSON(oc.opciones, [])
-        return {
-          id: oc.id,
-          nombre: oc.nombre,
-          opciones: Array.isArray(parsed) ? parsed : [],
-          obligatorio: oc.obligatorio,
-          maximo: oc.maximo,
-        }
-      }),
-      productos: productosTransformados,
+      horarioMode: negocio.horarioMode,
+      abiertoManual: negocio.abiertoManual,
+      whatsapp: negocio.whatsapp,
+      instagram: negocio.instagram,
+      facebook: negocio.facebook,
+      ofreceDelivery: negocio.ofreceDelivery,
+      precioDelivery: negocio.precioDelivery,
+      deliveryMode: negocio.deliveryMode,
+      tiempoEntrega: negocio.tiempoEntrega,
+      lat: negocio.lat,
+      lng: negocio.lng,
+      mostrarVentas: negocio.mostrarVentas,
+      aceptaTransferencia: negocio.aceptaTransferencia,
+      aliasBancario: negocio.aliasBancario,
+      puntuacionPromedio: negocio.puntuacionPromedio,
+      totalResenas: negocio.totalResenas,
+      opcionesCompartidas: negocio.opcionesCompartidas.map((option) => ({
+        id: option.id,
+        nombre: option.nombre,
+        opciones: normalizeSharedOptions(option.opciones),
+        obligatorio: option.obligatorio,
+        maximo: option.maximo,
+      })),
+      productos,
       productosSinSeccion,
-      secciones: seccionesTransformadas,
+      secciones,
+      resenas,
       totalVentas: negocio._count.pedidos,
     })
   } catch (error) {
