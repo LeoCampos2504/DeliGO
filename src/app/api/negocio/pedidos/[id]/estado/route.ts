@@ -27,8 +27,6 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   listo_para_retirar: ["entregado", "cancelado"], // entregado only if clienteConfirmaRecibido
 }
 
-const SERVICE_FEE_FIXED = 250 // $250 fixed service fee
-
 // PATCH - Update order status
 export async function PATCH(
   req: NextRequest,
@@ -174,16 +172,9 @@ export async function PATCH(
       userType: "negocio",
     })
 
-    // Accumulate service fee debt when status becomes "entregado"
-    if (estado === "entregado" && !pedido.deudaAcumulada) {
-      const fee = SERVICE_FEE_FIXED
-      await db.negocio.update({
-        where: { id: negocioId },
-        data: {
-          deudaTarifa: { increment: fee },
-        },
-      })
-    }
+    // Nota (Seguridad-2B): la tarifa de servicio ya no se cobra al entregar. La única
+    // operación financiera del ciclo de vida del pedido es la confirmación de recepción
+    // del cliente (PUT /api/cliente/pedidos/[id] action=confirmar).
 
     // Send notification to the client about order status update
     if (pedido.clienteId) {

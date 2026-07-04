@@ -18,7 +18,6 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   listo_para_retirar: ["entregado", "cancelado"],
 }
 
-const SERVICE_FEE_FIXED = 250
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
 async function validateAccess(token: string): Promise<{ negocioId: string } | null> {
@@ -110,12 +109,9 @@ export async function PATCH(
       },
     })
 
-    if (estado === "entregado" && !pedido.deudaAcumulada) {
-      await db.negocio.update({
-        where: { id: negocioId },
-        data: { deudaTarifa: { increment: SERVICE_FEE_FIXED } },
-      })
-    }
+    // Nota (Seguridad-2B): la tarifa de servicio ya no se cobra al entregar. La única
+    // operación financiera del ciclo de vida del pedido es la confirmación de recepción
+    // del cliente (PUT /api/cliente/pedidos/[id] action=confirmar).
 
     if (pedido.clienteId) {
       try {

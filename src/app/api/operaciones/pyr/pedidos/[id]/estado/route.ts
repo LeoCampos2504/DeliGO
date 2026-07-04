@@ -9,9 +9,6 @@ const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 // Mensaje genérico de conflicto: no revela negocio, IDs, estado anterior ni concurrencia.
 const CONFLICT_MESSAGE = "El pedido cambió en otro dispositivo. Actualizá el panel."
 
-// Tarifa de servicio vigente del proyecto (mismo valor fijo que negocio/empleado/salón).
-const SERVICE_FEE_FIXED = 250
-
 // Sin límite real en el proyecto para `canceladoMotivo`; se aplica un tope seguro y se documenta.
 const MAX_MOTIVO_LEN = 300
 
@@ -106,7 +103,6 @@ export async function PATCH(
         clienteId: true,
         negocioNombre: true,
         direccion: true,
-        deudaAcumulada: true,
       },
     })
     if (!pedido) return conflict()
@@ -128,7 +124,9 @@ export async function PATCH(
 
     // 5) CAS + transacción: condición por id + negocio + no-mesa + estado anterior real.
     //    La entrega de retiro exige además la confirmación REAL del cliente (servidor),
-    //    nunca un booleano de la UI. El incremento de tarifa lo hace solo el ganador del CAS.
+    //    nunca un booleano de la UI. Nota (Seguridad-2B): entregar ya no cobra tarifa —
+    //    la única operación financiera del ciclo de vida es la confirmación de recepción
+    //    del cliente (PUT /api/cliente/pedidos/[id] action=confirmar).
     const casWhere: Record<string, unknown> = {
       id,
       negocioId,
@@ -150,15 +148,7 @@ export async function PATCH(
 
     const won = await db.$transaction(async (tx) => {
       const result = await tx.pedido.updateMany({ where: casWhere, data })
-      if (result.count !== 1) return false
-      // Efecto financiero idéntico al actual, atado al ganador del CAS (sin doble incremento).
-      if (estado === "entregado" && !pedido.deudaAcumulada) {
-        await tx.negocio.update({
-          where: { id: negocioId },
-          data: { deudaTarifa: { increment: SERVICE_FEE_FIXED } },
-        })
-      }
-      return true
+      return result.count === 1
     })
 
     if (!won) return conflict()

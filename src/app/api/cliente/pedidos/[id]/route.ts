@@ -3,6 +3,12 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
 
+// Confirmar recepción es la única operación que procesa tarifa/deuda del pedido
+// (Seguridad-2B). Este error de dominio dispara el rollback completo de la
+// transacción (confirmación + deuda) cuando el negocio no tiene cupo; nunca
+// revela saldo, límite ni importe al cliente.
+class DebtLimitExceededError extends Error {}
+
 // PUT /api/cliente/pedidos/[id] - Order actions (cancel, confirm receipt, repeat)
 export async function PUT(
   req: NextRequest,
@@ -101,20 +107,143 @@ export async function PUT(
     if (action === "confirmar") {
       // Can only confirm if ready for pickup or in delivery
       const confirmableStatuses = ["listo_para_retirar", "en_camino"]
-      if (!confirmableStatuses.includes(pedido.estado)) {
+
+      type ConfirmOutcome =
+        | { kind: "not_found" }
+        | { kind: "invalid_state" }
+        | { kind: "already_confirmed"; clienteConfirmaFecha: Date | null }
+        | { kind: "confirmed"; clienteConfirmaFecha: Date }
+
+      let outcome: ConfirmOutcome
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          // Lectura fresca dentro de la transacción: la decisión financiera nunca
+          // se basa en el `pedido` leído antes de entrar a la acción.
+          const current = await tx.pedido.findFirst({
+            where: { id, clienteId: cliente.id },
+            select: {
+              negocioId: true,
+              estado: true,
+              tarifaServicio: true,
+              clienteConfirmaRecibido: true,
+              clienteConfirmaFecha: true,
+              deudaAcumulada: true,
+            },
+          })
+          if (!current) return { kind: "not_found" as const }
+
+          if (current.clienteConfirmaRecibido) {
+            return { kind: "already_confirmed" as const, clienteConfirmaFecha: current.clienteConfirmaFecha }
+          }
+
+          if (!confirmableStatuses.includes(current.estado)) {
+            return { kind: "invalid_state" as const }
+          }
+
+          const now = new Date()
+
+          // CAS: solo gana quien encuentre el pedido todavía sin confirmar. Evita que
+          // dos requests concurrentes (doble click, dos pestañas, reintento) confirmen
+          // y cobren dos veces.
+          const cas = await tx.pedido.updateMany({
+            where: {
+              id,
+              clienteId: cliente.id,
+              clienteConfirmaRecibido: false,
+              estado: { in: confirmableStatuses },
+            },
+            data: {
+              clienteConfirmaRecibido: true,
+              clienteConfirmaFecha: now,
+              deudaAcumulada: true,
+            },
+          })
+
+          if (cas.count !== 1) {
+            // Perdió la carrera: otra request ya confirmó, o el estado cambió entre la
+            // lectura y el CAS (p. ej. cancelado por el vendedor mientras tanto).
+            const after = await tx.pedido.findFirst({
+              where: { id, clienteId: cliente.id },
+              select: { clienteConfirmaRecibido: true, clienteConfirmaFecha: true },
+            })
+            if (after?.clienteConfirmaRecibido) {
+              return { kind: "already_confirmed" as const, clienteConfirmaFecha: after.clienteConfirmaFecha }
+            }
+            return { kind: "invalid_state" as const }
+          }
+
+          // Única operación financiera del ciclo de vida del pedido: se procesa acá,
+          // una única vez, atada al ganador del CAS. `pedido.tarifaServicio` es el
+          // único monto usado (nunca un literal fijo ni un valor del cliente). Los
+          // pedidos de mesa con tarifaServicio=0 nunca generan deuda.
+          if (current.tarifaServicio > 0 && !current.deudaAcumulada) {
+            const negocio = await tx.negocio.findUnique({
+              where: { id: current.negocioId },
+              select: { deudaTarifa: true, limiteDeuda: true },
+            })
+            if (!negocio) {
+              throw new DebtLimitExceededError()
+            }
+
+            const limiteDeuda = negocio.limiteDeuda ?? 10000
+            const negocioUpdate = await tx.negocio.updateMany({
+              where: {
+                id: current.negocioId,
+                deudaTarifa: { lte: limiteDeuda - current.tarifaServicio },
+              },
+              data: {
+                deudaTarifa: { increment: current.tarifaServicio },
+              },
+            })
+
+            if (negocioUpdate.count !== 1) {
+              // Sin cupo de deuda: revertir también la confirmación (throw hace
+              // rollback de toda la transacción, incluido el CAS de arriba).
+              throw new DebtLimitExceededError()
+            }
+          }
+
+          return { kind: "confirmed" as const, clienteConfirmaFecha: now }
+        })
+      } catch (error) {
+        if (error instanceof DebtLimitExceededError) {
+          return NextResponse.json(
+            { error: "No se pudo confirmar la recepción de este pedido en este momento." },
+            { status: 400 }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "not_found") {
+        return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      }
+
+      if (outcome.kind === "invalid_state") {
         return NextResponse.json(
           { error: "Este pedido no se puede confirmar todavía" },
           { status: 400 }
         )
       }
 
-      const updated = await db.pedido.update({
-        where: { id },
-        data: {
+      // Respuesta segura: nunca expone tarifaServicio, deudaAcumulada, deudaTarifa,
+      // limiteDeuda ni negocioId. El frontend actual solo revisa `res.ok` e invalida
+      // queries — no lee campos de `pedido` en la respuesta de esta acción.
+      const responseBody = {
+        ok: true,
+        pedido: {
+          id,
+          estado: pedido.estado,
           clienteConfirmaRecibido: true,
-          clienteConfirmaFecha: new Date(),
+          clienteConfirmaFecha: outcome.clienteConfirmaFecha,
         },
-      })
+      }
+
+      if (outcome.kind === "already_confirmed") {
+        // Repetición idempotente: mismo éxito, sin un segundo efecto financiero ni
+        // una segunda ronda de notificaciones.
+        return NextResponse.json(responseBody)
+      }
 
       // Notify negocio and repartidor that client confirmed receipt
       try {
@@ -198,7 +327,7 @@ export async function PUT(
         }, 2 * 60 * 1000) // 2 minutes
       }
 
-      return NextResponse.json({ ok: true, pedido: updated })
+      return NextResponse.json(responseBody)
     }
 
     return NextResponse.json({ error: "Acción no válida" }, { status: 400 })

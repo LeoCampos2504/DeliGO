@@ -24,24 +24,18 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 // personal reutiliza EXACTAMENTE, para el caso fijo listo_para_retirar→entregado de retiro:
 // (1) la misma precondición del CAS — SOLO retiro Y con clienteConfirmaRecibido:true (el
 // cliente ya confirmó la recepción por su propio flujo; el empleado nunca puede forzarla);
-// (2) el mismo campo adicional entregadoFecha; (3) el mismo efecto financiero, atado al
-// ganador del CAS dentro de la MISMA transacción, que incrementa negocio.deudaTarifa en el
-// mismo SERVICE_FEE_FIXED=250 solo si !pedido.deudaAcumulada (evita doble cobro); (4) la
-// misma auditoría (logPedidoEstadoChange, best-effort, actor personal); (5) la misma
-// notificación al cliente (orderUpdateNotification + createNotification, best-effort, tipo
-// "order_update"). La notificación a repartidores del flujo terminal (bloque separado,
-// condicionado a estado==="en_camino") NO aplica a esta transición y por eso no se
-// reutiliza aquí. Sin crear ningún helper, tipo, payload, canal ni constante de negocio
-// nueva — SERVICE_FEE_FIXED se reproduce con el mismo valor literal ya usado, sin exportar,
-// en múltiples endpoints de este proyecto (empleado/negocio/salón/pyr terminal).
+// (2) el mismo campo adicional entregadoFecha; (3) la misma auditoría (logPedidoEstadoChange,
+// best-effort, actor personal); (4) la misma notificación al cliente
+// (orderUpdateNotification + createNotification, best-effort, tipo "order_update"). La
+// notificación a repartidores del flujo terminal (bloque separado, condicionado a
+// estado==="en_camino") NO aplica a esta transición y por eso no se reutiliza aquí.
+//
+// Nota (Seguridad-2B): entregar ya no cobra tarifa de servicio. La única operación
+// financiera del ciclo de vida del pedido es la confirmación de recepción del cliente
+// (PUT /api/cliente/pedidos/[id] action=confirmar), precondición ya exigida por el CAS
+// de abajo (clienteConfirmaRecibido:true).
 
 const CONFLICT_MESSAGE = "El pedido ya no está disponible para confirmar la entrega."
-
-// Mismo valor fijo ya usado (sin exportar) por los endpoints terminales equivalentes
-// (src/app/api/operaciones/pyr/pedidos/[id]/estado/route.ts y análogos de
-// empleado/negocio/salón). No es una constante de negocio nueva: es el mismo literal
-// reproducido, como ya hace cada uno de esos archivos.
-const SERVICE_FEE_FIXED = 250
 
 function conflict() {
   return NextResponse.json({ ok: false, error: CONFLICT_MESSAGE }, { status: 409 })
@@ -76,20 +70,19 @@ export async function POST(
     const negocioId = auth.negocio.id
 
     // 3) Lectura mínima acotada al negocio y a RETIRO: solo para los efectos posteriores
-    //    (auditoría/notificación/efecto financiero) si el CAS gana. No decide la mutación y
-    //    nunca se expone al cliente. Inexistente / ajeno / mesa / domicilio → mismo
-    //    conflicto genérico que el CAS.
+    //    (auditoría/notificación) si el CAS gana. No decide la mutación y nunca se expone
+    //    al cliente. Inexistente / ajeno / mesa / domicilio → mismo conflicto genérico que
+    //    el CAS.
     const pedido = await db.pedido.findFirst({
       where: { id, negocioId, metodoEntrega: "retiro" },
-      select: { clienteId: true, negocioNombre: true, deudaAcumulada: true },
+      select: { clienteId: true, negocioNombre: true },
     })
     if (!pedido) return noStore(conflict())
 
-    // 4) CAS atómico + efecto financiero en la MISMA transacción (idéntico al flujo
-    //    terminal): solo si sigue en "listo_para_retirar", es de retiro Y el cliente ya
-    //    confirmó la recepción por su propio flujo (clienteConfirmaRecibido:true — nunca
-    //    forzado por el empleado ni por la UI). La decisión final es SIEMPRE el resultado
-    //    de updateMany (nunca una lectura previa + update libre).
+    // 4) CAS atómico en transacción: solo si sigue en "listo_para_retirar", es de retiro Y
+    //    el cliente ya confirmó la recepción por su propio flujo (clienteConfirmaRecibido:
+    //    true — nunca forzado por el empleado ni por la UI). La decisión final es SIEMPRE
+    //    el resultado de updateMany (nunca una lectura previa + update libre).
     const won = await db.$transaction(async (tx) => {
       const result = await tx.pedido.updateMany({
         where: {
@@ -101,16 +94,7 @@ export async function POST(
         },
         data: { estado: "entregado", entregadoFecha: new Date() },
       })
-      if (result.count !== 1) return false
-      // Efecto financiero idéntico al flujo terminal, atado al ganador del CAS (sin doble
-      // incremento si el pedido ya tenía deuda acumulada previa).
-      if (!pedido.deudaAcumulada) {
-        await tx.negocio.update({
-          where: { id: negocioId },
-          data: { deudaTarifa: { increment: SERVICE_FEE_FIXED } },
-        })
-      }
-      return true
+      return result.count === 1
     })
 
     if (!won) {

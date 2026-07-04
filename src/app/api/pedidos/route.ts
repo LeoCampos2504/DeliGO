@@ -84,12 +84,6 @@ type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string }
 
-class DebtLimitExceededError extends Error {
-  constructor() {
-    super("DEBT_LIMIT_EXCEEDED")
-  }
-}
-
 function ok<T>(value: T): ValidationResult<T> {
   return { ok: true, value }
 }
@@ -893,34 +887,6 @@ export async function POST(request: NextRequest) {
     const finalTotal = roundMoney(serverTotalProductos + finalPrecioDelivery + serverTarifaServicio)
 
     const pedido = await db.$transaction(async (tx) => {
-      const negocioDebt = await tx.negocio.findUnique({
-        where: { id: negocioId },
-        select: { deudaTarifa: true, limiteDeuda: true },
-      })
-      if (!negocioDebt) {
-        throw new DebtLimitExceededError()
-      }
-
-      const limiteDeuda = negocioDebt.limiteDeuda ?? 10000
-      if (negocioDebt.deudaTarifa + serverTarifaServicio > limiteDeuda) {
-        throw new DebtLimitExceededError()
-      }
-
-      if (serverTarifaServicio > 0) {
-        const debtUpdate = await tx.negocio.updateMany({
-          where: {
-            id: negocioId,
-            deudaTarifa: { lte: limiteDeuda - serverTarifaServicio },
-          },
-          data: {
-            deudaTarifa: { increment: serverTarifaServicio },
-          },
-        })
-        if (debtUpdate.count !== 1) {
-          throw new DebtLimitExceededError()
-        }
-      }
-
       if (clienteId && clienteUpdateData) {
         await tx.cliente.update({
           where: { id: clienteId },
@@ -1065,12 +1031,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(pedido, { status: 201 })
   } catch (error) {
-    if (error instanceof DebtLimitExceededError) {
-      return NextResponse.json(
-        { error: "Este negocio no estÃ¡ recibiendo pedidos temporalmente" },
-        { status: 400 }
-      )
-    }
     console.error("Error creating pedido:", error)
     return NextResponse.json(
       { error: "Error interno del servidor" },

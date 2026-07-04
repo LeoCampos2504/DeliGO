@@ -167,9 +167,12 @@ export async function PUT(req: NextRequest) {
       )
     }
 
-    // Get the pedido
-    const pedido = await db.pedido.findUnique({
-      where: { id: pedidoId },
+    // Get the pedido. Esta ruta es exclusiva de Salón/mesa (Seguridad-2B): el `where`
+    // exige metodoEntrega:"mesa" en servidor, nunca solo en la UI, para que no pueda
+    // usarse para operar pedidos de retiro/domicilio (que tienen su propio endpoint con
+    // sus propias reglas financieras y de confirmación).
+    const pedido = await db.pedido.findFirst({
+      where: { id: pedidoId, negocioId, metodoEntrega: "mesa" },
       select: {
         id: true,
         negocioId: true,
@@ -181,7 +184,6 @@ export async function PUT(req: NextRequest) {
         mesaNumero: true,
         empleadoId: true,
         estado: true,
-        deudaAcumulada: true,
         clienteConfirmaRecibido: true,
         negocio: {
           select: { slug: true },
@@ -189,7 +191,7 @@ export async function PUT(req: NextRequest) {
       },
     })
 
-    if (!pedido || pedido.negocioId !== negocioId) {
+    if (!pedido) {
       return NextResponse.json(
         { error: "Pedido no encontrado" },
         { status: 404 }

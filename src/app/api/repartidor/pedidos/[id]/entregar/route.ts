@@ -35,16 +35,6 @@ export async function PUT(
     // Get the pedido
     const pedido = await db.pedido.findUnique({
       where: { id: pedidoId },
-      include: {
-        negocio: {
-          select: {
-            id: true,
-            nombre: true,
-            deudaTarifa: true,
-            limiteDeuda: true,
-          },
-        },
-      },
     })
 
     if (!pedido) {
@@ -137,26 +127,10 @@ export async function PUT(
       return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
     }
 
-    // Accumulate service fee debt (from Flask: _acumular_deuda_tarifa)
-    // Only if not already accumulated (prevent double-charging)
-    if (!pedido.deudaAcumulada && pedido.tarifaServicio > 0) {
-      try {
-        await db.pedido.update({
-          where: { id: pedidoId },
-          data: { deudaAcumulada: true },
-        })
-
-        await db.negocio.update({
-          where: { id: pedido.negocioId },
-          data: {
-            deudaTarifa: { increment: pedido.tarifaServicio },
-          },
-        })
-      } catch (debtError) {
-        console.error("Error acumulating debt:", debtError)
-        // Don't fail the delivery if debt accumulation fails
-      }
-    }
+    // Nota (Seguridad-2B): la tarifa de servicio ya no se cobra al entregar. La única
+    // operación financiera del ciclo de vida del pedido es la confirmación de recepción
+    // del cliente (PUT /api/cliente/pedidos/[id] action=confirmar), que ya ocurrió antes
+    // de esta entrega (precondición clienteConfirmaRecibido=true del CAS de arriba).
 
     // Send push notifications
     try {
