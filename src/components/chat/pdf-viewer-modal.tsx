@@ -20,6 +20,7 @@ interface PdfViewerModalProps {
   onClose: () => void
   url: string
   fileName?: string
+  allowOpenExternal?: boolean
 }
 
 // ============================================
@@ -45,6 +46,7 @@ export function PdfViewerModal({
   onClose,
   url,
   fileName,
+  allowOpenExternal = true,
 }: PdfViewerModalProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
@@ -120,16 +122,20 @@ export function PdfViewerModal({
 
         {/* Right: actions + close */}
         <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-zinc-400 hover:text-white hover:bg-zinc-700"
-            onClick={handleOpenExternal}
-            title="Abrir en nueva pestaña"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-4 bg-zinc-700 mx-1" />
+          {allowOpenExternal !== false && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                onClick={handleOpenExternal}
+                title="Abrir en nueva pestaña"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+              <div className="w-px h-4 bg-zinc-700 mx-1" />
+            </>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -166,15 +172,17 @@ export function PdfViewerModal({
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                 Reintentar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-zinc-300 border-zinc-600 hover:bg-zinc-800"
-                onClick={handleOpenExternal}
-              >
-                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                Abrir externo
-              </Button>
+              {allowOpenExternal !== false && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-zinc-300 border-zinc-600 hover:bg-zinc-800"
+                  onClick={handleOpenExternal}
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                  Abrir externo
+                </Button>
+              )}
             </div>
           </div>
         )}

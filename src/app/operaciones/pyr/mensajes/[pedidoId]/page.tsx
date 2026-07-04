@@ -9,7 +9,7 @@ import {
   Loader2,
   Bike,
   Package,
-  Paperclip,
+  FileText,
   Send,
   ShieldAlert,
   WifiOff,
@@ -20,6 +20,11 @@ import { Badge } from "@/components/ui/badge"
 import { Logo } from "@/components/shared/logo"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import {
+  AttachmentPreviewModal,
+  AttachmentUnavailableNotice,
+  type AttachmentPreview,
+} from "@/components/chat/attachment-preview-modal"
 
 // Mismo tope que la API (texto plano).
 const MAX_TEXTO_LEN = 2000
@@ -27,12 +32,22 @@ const MAX_TEXTO_LEN = 2000
 // ============================================
 // Tipos (espejo del endpoint seguro de mensajes)
 // ============================================
+interface AdjuntoInfo {
+  disponible: true
+  tipo: "imagen" | "pdf" | "archivo"
+  nombre: string
+}
+
 interface Mensaje {
   id: string
   remitente: "cliente" | "vendedor"
   texto: string | null
   fecha: string
-  tieneAdjunto: boolean
+  adjunto: AdjuntoInfo | null
+}
+
+function adjuntoHref(pedidoId: string, mensajeId: string): string {
+  return `/api/operaciones/pyr/mensajes/${encodeURIComponent(pedidoId)}/${encodeURIComponent(mensajeId)}/adjunto`
 }
 
 interface PedidoInfo {
@@ -335,6 +350,7 @@ export default function OperacionesPyRMensajesPage() {
 
   return (
     <MensajesView
+      pedidoId={pedidoId}
       data={phase.data}
       stale={phase.stale}
       lastUpdated={lastUpdated}
@@ -349,6 +365,7 @@ export default function OperacionesPyRMensajesPage() {
 // Vista principal de mensajes
 // ============================================
 function MensajesView({
+  pedidoId,
   data,
   stale,
   lastUpdated,
@@ -356,6 +373,7 @@ function MensajesView({
   onRefresh,
   onSend,
 }: {
+  pedidoId: string
   data: PanelData
   stale: boolean
   lastUpdated: number | null
@@ -365,6 +383,7 @@ function MensajesView({
 }) {
   const [refreshing, setRefreshing] = useState(false)
   const [texto, setTexto] = useState("")
+  const [preview, setPreview] = useState<AttachmentPreview>(null)
 
   const handleManualRefresh = async () => {
     setRefreshing(true)
@@ -454,7 +473,9 @@ function MensajesView({
             <p className="text-xs text-muted-foreground mt-0.5">Todavía no hay mensajes en este pedido.</p>
           </div>
         ) : (
-          data.mensajes.map((m) => <Burbuja key={m.id} mensaje={m} />)
+          data.mensajes.map((m) => (
+            <Burbuja key={m.id} mensaje={m} pedidoId={pedidoId} onPreview={setPreview} />
+          ))
         )}
       </div>
 
@@ -489,6 +510,9 @@ function MensajesView({
           </div>
         </div>
       )}
+
+      {/* Visor interno de adjuntos: imagen en Dialog, PDF via PdfViewerModal reutilizado */}
+      <AttachmentPreviewModal preview={preview} onClose={() => setPreview(null)} />
     </main>
   )
 }
@@ -504,7 +528,15 @@ function CenteredShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Burbuja({ mensaje }: { mensaje: Mensaje }) {
+function Burbuja({
+  mensaje,
+  pedidoId,
+  onPreview,
+}: {
+  mensaje: Mensaje
+  pedidoId: string
+  onPreview: (preview: AttachmentPreview) => void
+}) {
   const esNegocio = mensaje.remitente === "vendedor"
   return (
     <div className={cn("flex", esNegocio ? "justify-end" : "justify-start")}>
@@ -517,16 +549,45 @@ function Burbuja({ mensaje }: { mensaje: Mensaje }) {
         )}
       >
         {mensaje.texto && <p className="whitespace-pre-wrap break-words">{mensaje.texto}</p>}
-        {mensaje.tieneAdjunto && (
-          <p
-            className={cn(
-              "text-[11px] italic flex items-center gap-1 mt-0.5",
-              esNegocio ? "text-primary-foreground/80" : "text-muted-foreground"
+        {mensaje.adjunto && (
+          <div className="mt-1">
+            {mensaje.adjunto.tipo === "imagen" && (
+              <img
+                src={adjuntoHref(pedidoId, mensaje.id)}
+                alt="Comprobante"
+                className="max-w-full max-h-56 rounded-lg cursor-pointer border border-border/30"
+                onClick={() =>
+                  onPreview({
+                    tipo: "imagen",
+                    src: adjuntoHref(pedidoId, mensaje.id),
+                    nombre: mensaje.adjunto!.nombre,
+                  })
+                }
+              />
             )}
-          >
-            <Paperclip className="h-3 w-3" />
-            Mensaje con adjunto no disponible en esta terminal
-          </p>
+            {mensaje.adjunto.tipo === "pdf" && (
+              <button
+                type="button"
+                onClick={() =>
+                  onPreview({
+                    tipo: "pdf",
+                    src: adjuntoHref(pedidoId, mensaje.id),
+                    nombre: mensaje.adjunto!.nombre,
+                  })
+                }
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold",
+                  esNegocio
+                    ? "bg-primary-foreground/10 text-primary-foreground"
+                    : "bg-background text-foreground"
+                )}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                Abrir comprobante
+              </button>
+            )}
+            {mensaje.adjunto.tipo === "archivo" && <AttachmentUnavailableNotice />}
+          </div>
         )}
         <p
           className={cn(

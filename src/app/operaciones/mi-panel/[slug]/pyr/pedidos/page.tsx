@@ -11,6 +11,7 @@ import {
   Eye,
   Info,
   Loader2,
+  MessageSquare,
   PackageCheck,
   Play,
   RefreshCw,
@@ -718,15 +719,30 @@ export default function PyRPedidosActivosPage() {
                 )}
                 <p className="text-sm font-semibold">{formatMoney(pedido.total)}</p>
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold"
-                  onClick={() => abrirDetalle(pedido.id)}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Ver detalle
-                </Button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold"
+                    onClick={() => abrirDetalle(pedido.id)}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Ver detalle
+                  </Button>
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold"
+                  >
+                    <Link
+                      href={`/operaciones/mi-panel/${encodeURIComponent(slug)}/pyr/pedidos/${encodeURIComponent(pedido.id)}/mensajes`}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Mensajes
+                    </Link>
+                  </Button>
+                </div>
 
                 {pedidoErrors[pedido.id] && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">

@@ -65,6 +65,30 @@ function normalizeRemitente(value: string): "cliente" | "vendedor" {
   return value === "cliente" ? "cliente" : "vendedor"
 }
 
+// Deriva el tipo de adjunto SOLO desde los campos ya almacenados (nunca desde el
+// cliente). "nombre" es un texto de presentacion, nunca una ruta ni una URL. Mismo DTO
+// exacto que ya usa el panel personal PyR (Operaciones UX-2) para esta misma
+// conversacion, para que la UI de Terminal y la personal compartan formato.
+function toAdjuntoDTO(m: {
+  imagenUrl: string | null
+  archivoUrl: string | null
+  archivoNombre: string | null
+  archivoTipo: string | null
+}): { disponible: true; tipo: "imagen" | "pdf" | "archivo"; nombre: string } | null {
+  if (m.imagenUrl) {
+    return { disponible: true, tipo: "imagen", nombre: "Imagen" }
+  }
+  if (m.archivoUrl) {
+    const esPdf = m.archivoTipo === "application/pdf"
+    return {
+      disponible: true,
+      tipo: esPdf ? "pdf" : "archivo",
+      nombre: m.archivoNombre || "Comprobante",
+    }
+  }
+  return null
+}
+
 // GET — Lee la conversación de un pedido PyR activo no-mesa. Marca como leídos los mensajes
 // del cliente (best-effort). Negocio SIEMPRE desde el contexto seguro.
 export async function GET(
@@ -93,7 +117,16 @@ export async function GET(
       where: { pedidoId, remitente: { in: ["cliente", "vendedor"] } },
       orderBy: [{ fecha: "desc" }, { id: "desc" }],
       take: MENSAJES_LIMIT,
-      select: { id: true, remitente: true, texto: true, imagenUrl: true, archivoUrl: true, fecha: true },
+      select: {
+        id: true,
+        remitente: true,
+        texto: true,
+        imagenUrl: true,
+        archivoUrl: true,
+        archivoNombre: true,
+        archivoTipo: true,
+        fecha: true,
+      },
     })
     const mensajes = rows
       .reverse()
@@ -102,8 +135,9 @@ export async function GET(
         remitente: normalizeRemitente(m.remitente),
         texto: m.texto ? m.texto : null,
         fecha: m.fecha,
-        // Solo un booleano: nunca URL ni metadatos de adjunto.
-        tieneAdjunto: !!m.imagenUrl || !!m.archivoUrl,
+        // Solo metadata minima: nunca imagenUrl/archivoUrl/archivoNombre como path ni
+        // archivoTipo crudo, publicId ni clienteId.
+        adjunto: toAdjuntoDTO(m),
       }))
 
     // Marcar como leídos SOLO los mensajes de cliente realmente devueltos (por `id`), para no
