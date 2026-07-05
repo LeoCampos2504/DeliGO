@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -260,19 +261,75 @@ export async function PUT(req: NextRequest) {
       updateData.entregadoFecha = new Date()
     }
 
-    const updated = await db.pedido.update({
-      where: { id: pedidoId },
-      data: updateData,
-      include: {
-        items: {
-          include: {
-            producto: {
-              select: { id: true, nombre: true, imagenUrl: true },
+    // La transición a "cancelado" usa CAS + transacción con reversión de deuda
+    // condicional (Seguridad-2C). Esta ruta es exclusiva de mesa (tarifaServicio=0 al
+    // crearse), por lo que en la práctica nunca revierte nada, pero aplica la misma
+    // regla uniforme (deudaAcumulada=true && tarifaServicio>0) que el resto de rutas.
+    let updated
+    if (estado === "cancelado") {
+      let outcome: { kind: "conflict" } | { kind: "cancelled" }
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          const cas = await tx.pedido.updateMany({
+            where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: currentEstado },
+            data: updateData,
+          })
+          if (cas.count !== 1) return { kind: "conflict" as const }
+
+          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
+          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
+          // leído antes de la transacción.
+          await revertirTarifaSiCorresponde(tx, {
+            id: pedidoId,
+            negocioId,
+          })
+
+          return { kind: "cancelled" as const }
+        })
+      } catch (error) {
+        if (error instanceof DeudaReversionError) {
+          return NextResponse.json(
+            { error: "No se pudo cancelar este pedido en este momento." },
+            { status: 400 }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "conflict") {
+        return NextResponse.json(
+          { error: "No se puede cambiar el estado de un pedido ya finalizado" },
+          { status: 400 }
+        )
+      }
+
+      updated = await db.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
+        include: {
+          items: {
+            include: {
+              producto: {
+                select: { id: true, nombre: true, imagenUrl: true },
+              },
             },
           },
         },
-      },
-    })
+      })
+    } else {
+      updated = await db.pedido.update({
+        where: { id: pedidoId },
+        data: updateData,
+        include: {
+          items: {
+            include: {
+              producto: {
+                select: { id: true, nombre: true, imagenUrl: true },
+              },
+            },
+          },
+        },
+      })
+    }
 
     if (estado === "listo_para_retirar" && pedido.metodoEntrega === "mesa") {
       try {

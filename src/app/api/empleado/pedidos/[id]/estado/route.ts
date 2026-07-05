@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
 import { parseAuthorizationBearer } from "@/lib/access-tokens"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -97,17 +98,70 @@ export async function PATCH(
       updateData.entregadoFecha = new Date()
     }
 
-    const updated = await db.pedido.update({
-      where: { id: pedidoId },
-      data: updateData,
-      include: {
-        items: {
-          include: {
-            producto: { select: { id: true, nombre: true, imagenUrl: true } },
+    // La transición a "cancelado" usa CAS + transacción con reversión de deuda
+    // condicional (Seguridad-2C); el resto de transiciones conserva el mismo `update`
+    // de siempre (no llevan efecto financiero).
+    let updated
+    if (estado === "cancelado") {
+      let outcome: { kind: "conflict" } | { kind: "cancelled" }
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          const cas = await tx.pedido.updateMany({
+            where: { id: pedidoId, negocioId, estado: currentEstado },
+            data: updateData,
+          })
+          if (cas.count !== 1) return { kind: "conflict" as const }
+
+          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
+          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
+          // leído antes de la transacción.
+          await revertirTarifaSiCorresponde(tx, {
+            id: pedidoId,
+            negocioId,
+          })
+
+          return { kind: "cancelled" as const }
+        })
+      } catch (error) {
+        if (error instanceof DeudaReversionError) {
+          return NextResponse.json(
+            { error: "No se pudo cancelar este pedido en este momento." },
+            { status: 400, headers: NO_STORE_HEADERS }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "conflict") {
+        return NextResponse.json(
+          { error: "No se puede cambiar el estado de un pedido ya finalizado" },
+          { status: 400, headers: NO_STORE_HEADERS }
+        )
+      }
+
+      updated = await db.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
+        include: {
+          items: {
+            include: {
+              producto: { select: { id: true, nombre: true, imagenUrl: true } },
+            },
           },
         },
-      },
-    })
+      })
+    } else {
+      updated = await db.pedido.update({
+        where: { id: pedidoId },
+        data: updateData,
+        include: {
+          items: {
+            include: {
+              producto: { select: { id: true, nombre: true, imagenUrl: true } },
+            },
+          },
+        },
+      })
+    }
 
     // Nota (Seguridad-2B): la tarifa de servicio ya no se cobra al entregar. La única
     // operación financiera del ciclo de vida del pedido es la confirmación de recepción

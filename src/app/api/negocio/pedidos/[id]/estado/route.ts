@@ -5,6 +5,7 @@ import { createNotification, orderUpdateNotification, newDeliveryNotification, r
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -148,20 +149,74 @@ export async function PATCH(
       updateData.entregadoFecha = new Date()
     }
 
-    // Update the order
-    const updated = await db.pedido.update({
-      where: { id: pedidoId },
-      data: updateData,
-      include: {
-        items: {
-          include: {
-            producto: {
-              select: { id: true, nombre: true, imagenUrl: true },
+    // Update the order. La transición a "cancelado" usa CAS + transacción con reversión
+    // de deuda condicional (Seguridad-2C); el resto de transiciones conserva el mismo
+    // `update` de siempre (no llevan efecto financiero).
+    let updated
+    if (estado === "cancelado") {
+      let outcome: { kind: "conflict" } | { kind: "cancelled" }
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          const cas = await tx.pedido.updateMany({
+            where: { id: pedidoId, negocioId, estado: currentEstado },
+            data: updateData,
+          })
+          if (cas.count !== 1) return { kind: "conflict" as const }
+
+          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
+          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
+          // leído antes de la transacción.
+          await revertirTarifaSiCorresponde(tx, {
+            id: pedidoId,
+            negocioId,
+          })
+
+          return { kind: "cancelled" as const }
+        })
+      } catch (error) {
+        if (error instanceof DeudaReversionError) {
+          return NextResponse.json(
+            { error: "No se pudo cancelar este pedido en este momento." },
+            { status: 400 }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "conflict") {
+        return NextResponse.json(
+          { error: "No se puede cambiar el estado de un pedido ya finalizado" },
+          { status: 400 }
+        )
+      }
+
+      updated = await db.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
+        include: {
+          items: {
+            include: {
+              producto: {
+                select: { id: true, nombre: true, imagenUrl: true },
+              },
             },
           },
         },
-      },
-    })
+      })
+    } else {
+      updated = await db.pedido.update({
+        where: { id: pedidoId },
+        data: updateData,
+        include: {
+          items: {
+            include: {
+              producto: {
+                select: { id: true, nombre: true, imagenUrl: true },
+              },
+            },
+          },
+        },
+      })
+    }
 
     // Audit log
     await logPedidoEstadoChange({

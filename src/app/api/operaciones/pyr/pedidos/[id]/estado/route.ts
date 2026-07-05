@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -146,10 +147,29 @@ export async function PATCH(
       data.entregadoFecha = new Date()
     }
 
-    const won = await db.$transaction(async (tx) => {
-      const result = await tx.pedido.updateMany({ where: casWhere, data })
-      return result.count === 1
-    })
+    let won: boolean
+    try {
+      won = await db.$transaction(async (tx) => {
+        const result = await tx.pedido.updateMany({ where: casWhere, data })
+        if (result.count !== 1) return false
+
+        // Reversión única de deuda al cancelar, atada al ganador del CAS, dentro de la
+        // misma transacción. El helper relee tarifaServicio/deudaAcumulada frescos
+        // DESPUÉS de este CAS (Seguridad-2C.1) — nunca usa el `pedido` leído antes de
+        // la transacción.
+        if (estado === "cancelado") {
+          await revertirTarifaSiCorresponde(tx, {
+            id,
+            negocioId,
+          })
+        }
+
+        return true
+      })
+    } catch (error) {
+      if (error instanceof DeudaReversionError) return conflict()
+      throw error
+    }
 
     if (!won) return conflict()
 

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { parseAuthorizationBearer } from "@/lib/access-tokens"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -84,22 +85,71 @@ export async function PATCH(
       updateData.entregadoFecha = new Date()
     }
 
-    const updated = await db.pedido.update({
-      where: { id: pedidoId },
-      data: updateData,
-      include: {
-        items: {
-          include: {
-            producto: { select: { id: true, nombre: true, imagenUrl: true } },
+    // La transición a "cancelado" usa CAS + transacción con reversión de deuda
+    // condicional (Seguridad-2C). Los pedidos de mesa tienen tarifaServicio=0, por lo
+    // que en la práctica esto nunca revierte nada — pero se aplica la misma regla
+    // uniforme (deudaAcumulada=true && tarifaServicio>0) que el resto de las rutas.
+    let updated
+    if (estado === "cancelado") {
+      let outcome: { kind: "conflict" } | { kind: "cancelled" }
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          const cas = await tx.pedido.updateMany({
+            where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: currentEstado },
+            data: updateData,
+          })
+          if (cas.count !== 1) return { kind: "conflict" as const }
+
+          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
+          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
+          // leído antes de la transacción.
+          await revertirTarifaSiCorresponde(tx, {
+            id: pedidoId,
+            negocioId,
+          })
+
+          return { kind: "cancelled" as const }
+        })
+      } catch (error) {
+        if (error instanceof DeudaReversionError) {
+          return NextResponse.json(
+            { error: "No se pudo cancelar este pedido en este momento." },
+            { status: 400, headers: NO_STORE_HEADERS }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "conflict") {
+        return NextResponse.json(
+          { error: "No se puede cambiar el estado de un pedido ya finalizado" },
+          { status: 400, headers: NO_STORE_HEADERS }
+        )
+      }
+
+      updated = await db.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
+        include: {
+          items: {
+            include: {
+              producto: { select: { id: true, nombre: true, imagenUrl: true } },
+            },
           },
         },
-      },
-    })
-
-    // Nota (Seguridad-2B): la tarifa de servicio ya no se cobra al entregar. Los pedidos
-    // de mesa además nunca deben generar deuda (tarifaServicio=0 al crearse). La única
-    // operación financiera del ciclo de vida del pedido es la confirmación de recepción
-    // del cliente (PUT /api/cliente/pedidos/[id] action=confirmar).
+      })
+    } else {
+      updated = await db.pedido.update({
+        where: { id: pedidoId },
+        data: updateData,
+        include: {
+          items: {
+            include: {
+              producto: { select: { id: true, nombre: true, imagenUrl: true } },
+            },
+          },
+        },
+      })
+    }
 
     if (pedido.clienteId) {
       try {

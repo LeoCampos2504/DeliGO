@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
+import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 
 // Confirmar recepción es la única operación que procesa tarifa/deuda del pedido
 // (Seguridad-2B). Este error de dominio dispara el rollback completo de la
@@ -36,14 +37,9 @@ export async function PUT(
     if (action === "cancelar") {
       // Can only cancel if still in early stages
       const cancellableStatuses = ["recibido", "confirmado"]
-      if (!cancellableStatuses.includes(pedido.estado)) {
-        return NextResponse.json(
-          { error: "Este pedido ya no se puede cancelar" },
-          { status: 400 }
-        )
-      }
 
-      // Check cancellation tolerance time
+      // Check cancellation tolerance time (regla de negocio, no financiera — se evalúa
+      // con los datos ya leídos antes de esta acción; no cambia por concurrencia).
       const tolerancia = pedido.negocio.toleranciaCancelacion ?? 5
       if (tolerancia > 0) {
         const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()
@@ -62,21 +58,75 @@ export async function PUT(
         )
       }
 
-      const updated = await db.pedido.update({
-        where: { id },
-        data: {
-          estado: "cancelado",
-          canceladoPor: "cliente",
-          canceladoFecha: new Date(),
-        },
-      })
+      type CancelOutcome =
+        | { kind: "conflict" }
+        | { kind: "cancelled"; canceladoFecha: Date }
 
-      // Reverse debt from negocio
-      if (pedido.tarifaServicio > 0) {
-        await db.negocio.update({
-          where: { id: pedido.negocioId },
-          data: { deudaTarifa: { decrement: pedido.tarifaServicio } },
+      let outcome: CancelOutcome
+      try {
+        outcome = await db.$transaction(async (tx) => {
+          // Lectura fresca dentro de la transacción: la decisión de cancelar y de
+          // revertir deuda nunca se basa en el `pedido` leído antes de esta acción.
+          const current = await tx.pedido.findFirst({
+            where: { id, clienteId: cliente.id },
+            select: {
+              negocioId: true,
+              estado: true,
+            },
+          })
+          if (!current || !cancellableStatuses.includes(current.estado)) {
+            return { kind: "conflict" as const }
+          }
+
+          const now = new Date()
+
+          // CAS: solo gana quien encuentre el pedido todavía en un estado cancelable.
+          // Evita que dos requests concurrentes (doble click, dos pestañas, reintento,
+          // o una cancelación desde otro rol) cancelen y reviertan deuda dos veces.
+          const cas = await tx.pedido.updateMany({
+            where: {
+              id,
+              clienteId: cliente.id,
+              estado: { in: cancellableStatuses },
+            },
+            data: {
+              estado: "cancelado",
+              canceladoPor: "cliente",
+              canceladoFecha: now,
+            },
+          })
+
+          if (cas.count !== 1) {
+            return { kind: "conflict" as const }
+          }
+
+          // Reversión única de deuda: el helper relee tarifaServicio/deudaAcumulada
+          // frescos DESPUÉS de este CAS, dentro de la misma transacción (Seguridad-2C.1)
+          // — nunca usa el snapshot de `current` leído antes de cancelar. Si no hay
+          // cupo para revertir, lanza DeudaReversionError y hace rollback de todo
+          // (incluido el CAS de arriba).
+          await revertirTarifaSiCorresponde(tx, {
+            id,
+            negocioId: current.negocioId,
+          })
+
+          return { kind: "cancelled" as const, canceladoFecha: now }
         })
+      } catch (error) {
+        if (error instanceof DeudaReversionError) {
+          return NextResponse.json(
+            { error: "No se pudo cancelar este pedido en este momento." },
+            { status: 400 }
+          )
+        }
+        throw error
+      }
+
+      if (outcome.kind === "conflict") {
+        return NextResponse.json(
+          { error: "Este pedido ya no se puede cancelar" },
+          { status: 400 }
+        )
       }
 
       // Notify negocio that the order was cancelled by the client
@@ -101,7 +151,15 @@ export async function PUT(
         console.error("[Push] Failed to send cancellation notification:", pushError)
       }
 
-      return NextResponse.json({ ok: true, pedido: updated })
+      return NextResponse.json({
+        ok: true,
+        pedido: {
+          id,
+          estado: "cancelado",
+          canceladoPor: "cliente",
+          canceladoFecha: outcome.canceladoFecha,
+        },
+      })
     }
 
     if (action === "confirmar") {
