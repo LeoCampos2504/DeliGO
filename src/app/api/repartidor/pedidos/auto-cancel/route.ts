@@ -3,6 +3,60 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera"
 
+const DEFAULT_AUTO_CANCEL_MINUTES = 30
+const MIN_AUTO_CANCEL_MINUTES = 5
+const MAX_AUTO_CANCEL_MINUTES = 180
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+type MaxMinutesResult =
+  | { ok: true; value: number }
+  | { ok: false }
+
+// Valida el body crudo sin ninguna coerción (nada de `||`, `Number(...)`,
+// `parseInt`/`parseFloat`, ni strings numéricos aceptados). Solo un `number` real de
+// JSON, finito, entero, dentro de [MIN, MAX], y ninguna clave extra. Se ejecuta antes
+// de tocar la base de datos (asociaciones, pedidos o cualquier mutación).
+function parseMaxMinutes(rawBody: string): MaxMinutesResult {
+  let body: unknown = {}
+  const trimmed = rawBody.trim()
+  if (trimmed) {
+    try {
+      body = JSON.parse(trimmed)
+    } catch {
+      return { ok: false }
+    }
+  }
+
+  if (!isPlainObject(body)) {
+    return { ok: false }
+  }
+
+  const allowedKeys = new Set(["maxMinutes"])
+  if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
+    return { ok: false }
+  }
+
+  if (body.maxMinutes === undefined) {
+    return { ok: true, value: DEFAULT_AUTO_CANCEL_MINUTES }
+  }
+
+  const raw = body.maxMinutes
+  if (
+    typeof raw !== "number" ||
+    !Number.isFinite(raw) ||
+    !Number.isInteger(raw) ||
+    raw < MIN_AUTO_CANCEL_MINUTES ||
+    raw > MAX_AUTO_CANCEL_MINUTES
+  ) {
+    return { ok: false }
+  }
+
+  return { ok: true, value: raw }
+}
+
 // POST - Auto-cancel old unclaimed delivery orders
 // Called by the repartidor app periodically or manually
 // Cancels orders that are "en_camino" + delivery + no repartidor assigned + older than threshold
@@ -18,8 +72,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }
 
-    const body = await req.json().catch(() => ({}))
-    const maxMinutes = body.maxMinutes || 30 // default: 30 minutes
+    const rawBody = await req.text()
+    const parsedMaxMinutes = parseMaxMinutes(rawBody)
+    if (!parsedMaxMinutes.ok) {
+      return NextResponse.json(
+        { error: `maxMinutes debe ser un entero entre ${MIN_AUTO_CANCEL_MINUTES} y ${MAX_AUTO_CANCEL_MINUTES}` },
+        { status: 400 }
+      )
+    }
+    const maxMinutes = parsedMaxMinutes.value
 
     // Only cancel orders from negocios the repartidor is associated with
     const asociaciones = await db.repartidorNegocio.findMany({
