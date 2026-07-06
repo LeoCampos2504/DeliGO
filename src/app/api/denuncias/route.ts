@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma, type Denuncia } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { getClientIp } from "@/lib/rate-limit"
 
 // Preset denuncia reasons
 const MOTIVOS_PRESET: Record<string, string> = {
@@ -14,6 +14,51 @@ const MOTIVOS_PRESET: Record<string, string> = {
 export { MOTIVOS_PRESET }
 
 const MAX_DENUNCIAS_BEFORE_BLOCK = 3
+const MAX_MOTIVO_LENGTH = 500
+const MAX_MOTIVO_TIPO_LENGTH = 50
+const MAX_SERIALIZATION_RETRIES = 3
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// Postgres soporta aislamiento Serializable y Prisma lo expone para este provider
+// (confirmado en prisma/schema.prisma: datasource "postgresql"). Un conflicto de
+// serialización entre dos transacciones concurrentes (p. ej. crear una denuncia
+// mientras se borra otra del mismo cliente) se manifiesta como
+// PrismaClientKnownRequestError con code "P2034" — "Transaction failed due to a
+// write conflict or a deadlock". Solo ese código se reintenta; cualquier otro error
+// se propaga tal cual.
+function isSerializationConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  )
+}
+
+// Ejecuta `fn` dentro de una transacción Serializable, reintentando hasta
+// MAX_SERIALIZATION_RETRIES veces solo ante conflictos de serialización detectados de
+// forma segura. Si el conflicto persiste tras los reintentos, la excepción se propaga
+// para que el handler responda un conflicto seguro (409) en vez de éxito o un 500
+// genérico. Nunca se usa un lock en memoria como defensa.
+async function runSerializableTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= MAX_SERIALIZATION_RETRIES; attempt++) {
+    try {
+      return await db.$transaction(fn, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    } catch (error) {
+      lastError = error
+      if (!isSerializationConflict(error) || attempt === MAX_SERIALIZATION_RETRIES) {
+        throw error
+      }
+    }
+  }
+  throw lastError
+}
 
 // POST - Create a denuncia (business reports a customer)
 export async function POST(req: NextRequest) {
@@ -28,104 +73,195 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Solo los negocios pueden denunciar clientes" }, { status: 403 })
     }
 
-    const body = await req.json()
-    const { clienteId, pedidoId, motivoTipo, motivo } = body
+    const rawBody = await req.json().catch(() => null)
+    if (!isPlainObject(rawBody)) {
+      return NextResponse.json({ error: "Solicitud inválida" }, { status: 400 })
+    }
 
-    if (!clienteId) {
+    // Allowlist estricta: cualquier clave extra (negocioId, negocioNombre,
+    // clienteNombre, estado de moderación, etc.) rechaza el body con 400.
+    const ALLOWED_KEYS = new Set(["clienteId", "pedidoId", "motivoTipo", "motivo"])
+    if (Object.keys(rawBody).some((key) => !ALLOWED_KEYS.has(key))) {
+      return NextResponse.json({ error: "Solicitud inválida" }, { status: 400 })
+    }
+
+    const { clienteId, pedidoId, motivoTipo, motivo } = rawBody
+
+    if (typeof clienteId !== "string" || !clienteId.trim()) {
       return NextResponse.json({ error: "clienteId es obligatorio" }, { status: 400 })
     }
 
-    if (!motivoTipo || !motivo) {
+    // El vínculo real entre un negocio y un cliente en este producto es un pedido
+    // concreto entre ambos. Exigir pedidoId (y validarlo más abajo) impide que un
+    // negocio denuncie a un cliente arbitrario con el que nunca tuvo un pedido real.
+    if (typeof pedidoId !== "string" || !pedidoId.trim()) {
+      return NextResponse.json({ error: "pedidoId es obligatorio" }, { status: 400 })
+    }
+
+    if (
+      typeof motivoTipo !== "string" ||
+      !motivoTipo.trim() ||
+      motivoTipo.length > MAX_MOTIVO_TIPO_LENGTH ||
+      typeof motivo !== "string" ||
+      !motivo.trim() ||
+      motivo.length > MAX_MOTIVO_LENGTH
+    ) {
       return NextResponse.json({ error: "El motivo es obligatorio" }, { status: 400 })
     }
 
-    // Verify the cliente exists
-    const cliente = await db.cliente.findUnique({
-      where: { id: clienteId },
-      select: { id: true, nombre: true, bloqueado: true, ultimoIp: true, dispositivoFingerprint: true },
-    })
+    type PostOutcome =
+      | { kind: "cliente_no_encontrado" }
+      | { kind: "pedido_no_encontrado" }
+      | { kind: "duplicado" }
+      | {
+          kind: "creada"
+          denuncia: Denuncia
+          totalDenuncias: number
+          bloqueado: boolean
+        }
 
-    if (!cliente) {
+    let outcome: PostOutcome
+    try {
+      outcome = await runSerializableTransaction(async (tx) => {
+        // Releer cliente dentro de la transacción: la decisión de bloqueo nunca se
+        // basa en una lectura hecha fuera de esta transacción.
+        const cliente = await tx.cliente.findUnique({
+          where: { id: clienteId },
+          select: { id: true, nombre: true, bloqueado: true, ultimoIp: true, dispositivoFingerprint: true },
+        })
+        if (!cliente) {
+          return { kind: "cliente_no_encontrado" as const }
+        }
+
+        // Vínculo real: el pedido citado debe pertenecer al negocio autenticado
+        // (sesión, nunca body) Y a este mismo cliente.
+        const pedido = await tx.pedido.findFirst({
+          where: { id: pedidoId, negocioId: user.id, clienteId },
+          select: { id: true },
+        })
+        if (!pedido) {
+          return { kind: "pedido_no_encontrado" as const }
+        }
+
+        // Check if already denounced by this negocio for this pedido (prevent duplicates)
+        const existing = await tx.denuncia.findFirst({
+          where: { clienteId, negocioId: user.id, pedidoId },
+          select: { id: true },
+        })
+        if (existing) {
+          return { kind: "duplicado" as const }
+        }
+
+        // Create the denuncia
+        const denuncia = await tx.denuncia.create({
+          data: {
+            clienteId,
+            negocioId: user.id,
+            pedidoId,
+            negocioNombre: user.nombre,
+            clienteNombre: cliente.nombre,
+            motivoTipo,
+            motivo,
+          },
+        })
+
+        // Count total denuncias for this client
+        const totalDenuncias = await tx.denuncia.count({
+          where: { clienteId },
+        })
+
+        // Normalizar el estado final del cliente según el conteo real — todo dentro de
+        // la misma transacción: si cualquier paso de acá falla (incluido un conflicto
+        // de serialización), la denuncia recién creada también se revierte. No se usa
+        // `!cliente.bloqueado` como única puerta: se repara cualquier inconsistencia
+        // histórica (flag y filas ClienteBloqueado desalineados del conteo real).
+        let bloqueado: boolean
+
+        if (totalDenuncias >= MAX_DENUNCIAS_BEFORE_BLOCK) {
+          // 1) Flag: updateMany condicional. count===0 solo significa que ya estaba
+          // bloqueado (válido, no es un error).
+          await tx.cliente.updateMany({
+            where: { id: clienteId, bloqueado: false },
+            data: { bloqueado: true, bloqueadoFecha: new Date() },
+          })
+
+          // 2) Entradas ClienteBloqueado: se aseguran siempre que el total final sea
+          // >= 3, incluso si el cliente ya estaba bloqueado antes de esta denuncia
+          // (repara filas faltantes de un bloqueo histórico incompleto).
+          if (cliente.ultimoIp && cliente.ultimoIp !== "unknown") {
+            const existingIpBlock = await tx.clienteBloqueado.findFirst({
+              where: { ip: cliente.ultimoIp, clienteId },
+            })
+            if (!existingIpBlock) {
+              await tx.clienteBloqueado.create({
+                data: {
+                  ip: cliente.ultimoIp,
+                  fingerprint: cliente.dispositivoFingerprint || "",
+                  clienteId,
+                  clienteNombre: cliente.nombre,
+                },
+              })
+            }
+          }
+
+          if (cliente.dispositivoFingerprint) {
+            const existingFpBlock = await tx.clienteBloqueado.findFirst({
+              where: { fingerprint: cliente.dispositivoFingerprint, clienteId },
+            })
+            if (!existingFpBlock) {
+              await tx.clienteBloqueado.create({
+                data: {
+                  ip: cliente.ultimoIp || "",
+                  fingerprint: cliente.dispositivoFingerprint,
+                  clienteId,
+                  clienteNombre: cliente.nombre,
+                },
+              })
+            }
+          }
+
+          bloqueado = true
+        } else {
+          // Menos de 3 denuncias: normalizar igual, aunque el flag ya fuera false, para
+          // reparar datos históricos (cliente desbloqueado con filas ClienteBloqueado
+          // viejas todavía presentes).
+          await tx.cliente.updateMany({
+            where: { id: clienteId, bloqueado: true },
+            data: { bloqueado: false, bloqueadoFecha: null },
+          })
+
+          // Limpieza acotada exclusivamente a este cliente — nunca por IP/fingerprint
+          // solos, para no afectar el bloqueo de otro cliente que comparta esos valores.
+          await tx.clienteBloqueado.deleteMany({
+            where: { clienteId },
+          })
+
+          bloqueado = false
+        }
+
+        return { kind: "creada" as const, denuncia, totalDenuncias, bloqueado }
+      })
+    } catch (error) {
+      if (isSerializationConflict(error)) {
+        return NextResponse.json(
+          { error: "No se pudo procesar la denuncia por un conflicto de concurrencia. Reintentá." },
+          { status: 409 }
+        )
+      }
+      throw error
+    }
+
+    if (outcome.kind === "cliente_no_encontrado") {
       return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
-
-    // Check if already denounced by this negocio for this pedido (prevent duplicates)
-    if (pedidoId) {
-      const existing = await db.denuncia.findFirst({
-        where: { clienteId, negocioId: user.id, pedidoId },
-      })
-      if (existing) {
-        return NextResponse.json({ error: "Ya denunciaste a este cliente por este pedido" }, { status: 409 })
-      }
+    if (outcome.kind === "pedido_no_encontrado") {
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+    }
+    if (outcome.kind === "duplicado") {
+      return NextResponse.json({ error: "Ya denunciaste a este cliente por este pedido" }, { status: 409 })
     }
 
-    // Create the denuncia
-    const denuncia = await db.denuncia.create({
-      data: {
-        clienteId,
-        negocioId: user.id,
-        pedidoId: pedidoId || null,
-        negocioNombre: user.nombre,
-        clienteNombre: cliente.nombre,
-        motivoTipo: motivoTipo || "otro",
-        motivo,
-      },
-    })
-
-    // Count total denuncias for this client
-    const totalDenuncias = await db.denuncia.count({
-      where: { clienteId },
-    })
-
-    // Auto-block if reached the limit
-    let bloqueado = cliente.bloqueado
-    if (totalDenuncias >= MAX_DENUNCIAS_BEFORE_BLOCK && !cliente.bloqueado) {
-      await db.cliente.update({
-        where: { id: clienteId },
-        data: {
-          bloqueado: true,
-          bloqueadoFecha: new Date(),
-        },
-      })
-
-      // Register IP block entry
-      if (cliente.ultimoIp && cliente.ultimoIp !== "unknown") {
-        // Check if this IP already has a block entry
-        const existingIpBlock = await db.clienteBloqueado.findFirst({
-          where: { ip: cliente.ultimoIp, clienteId },
-        })
-        if (!existingIpBlock) {
-          await db.clienteBloqueado.create({
-            data: {
-              ip: cliente.ultimoIp,
-              fingerprint: cliente.dispositivoFingerprint || "",
-              clienteId,
-              clienteNombre: cliente.nombre,
-            },
-          })
-        }
-      }
-
-      // Register fingerprint block entry (if available)
-      if (cliente.dispositivoFingerprint) {
-        const existingFpBlock = await db.clienteBloqueado.findFirst({
-          where: { fingerprint: cliente.dispositivoFingerprint, clienteId },
-        })
-        if (!existingFpBlock) {
-          await db.clienteBloqueado.create({
-            data: {
-              ip: cliente.ultimoIp || "",
-              fingerprint: cliente.dispositivoFingerprint,
-              clienteId,
-              clienteNombre: cliente.nombre,
-            },
-          })
-        }
-      }
-
-      bloqueado = true
-    }
-
+    const { denuncia, totalDenuncias, bloqueado } = outcome
     return NextResponse.json({
       ok: true,
       denuncia,
@@ -173,11 +309,19 @@ export async function GET(req: NextRequest) {
       take: 100,
     })
 
-    // If querying by clienteId, also include the cliente's block status
+    // El estado de bloqueo del cliente solo se agrega si el actor está autorizado a
+    // verlo: superadmin (rol administrativo real), o un negocio que efectivamente
+    // encontró al menos una denuncia propia contra ese cliente (es decir, ya tiene un
+    // vínculo real registrado) — nunca por el solo hecho de conocer/adivinar un
+    // clienteId. Sin esto, cualquier negocio autenticado podía consultar el email y el
+    // estado de bloqueo de un cliente arbitrario aunque nunca lo hubiera denunciado.
+    const puedeVerClienteInfo =
+      clienteId && (user.type === "superadmin" || (user.type === "negocio" && denuncias.length > 0))
+
     let clienteInfo = null
-    if (clienteId) {
+    if (puedeVerClienteInfo) {
       const cliente = await db.cliente.findUnique({
-        where: { id: clienteId },
+        where: { id: clienteId as string },
         select: { id: true, nombre: true, bloqueado: true, bloqueadoFecha: true, email: true },
       })
       if (cliente) {
