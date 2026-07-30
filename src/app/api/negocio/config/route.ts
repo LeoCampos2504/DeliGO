@@ -70,8 +70,10 @@ export async function GET(req: NextRequest) {
       })),
     }
 
-    // Remove sensitive fields
-    const { password: _, pushSubscription: __, ...safeData } = parsed
+    // Remove sensitive fields — este endpoint no tiene ningún motivo para
+    // devolver los tokens compartidos legacy (Seguridad-5F): ningún consumidor
+    // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
+    const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
     return NextResponse.json(safeData)
   } catch (error) {
@@ -199,8 +201,10 @@ export async function PUT(req: NextRequest) {
       zonasSalon: safeParseJSON(updated.zonasSalon, []),
     }
 
-    // Remove sensitive fields
-    const { password: _, pushSubscription: __, ...safeData } = parsed
+    // Remove sensitive fields — este endpoint no tiene ningún motivo para
+    // devolver los tokens compartidos legacy (Seguridad-5F): ningún consumidor
+    // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
+    const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
     return NextResponse.json(safeData)
   } catch (error) {
@@ -339,8 +343,10 @@ export async function PATCH(req: NextRequest) {
       zonasSalon: safeParseJSON(updated.zonasSalon, []),
     }
 
-    // Remove sensitive fields
-    const { password: _, pushSubscription: __, ...safeData } = parsed
+    // Remove sensitive fields — este endpoint no tiene ningún motivo para
+    // devolver los tokens compartidos legacy (Seguridad-5F): ningún consumidor
+    // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
+    const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
     return NextResponse.json(safeData)
   } catch (error) {
