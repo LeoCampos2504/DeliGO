@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma, type Denuncia } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Preset denuncia reasons
 const MOTIVOS_PRESET: Record<string, string> = {
@@ -77,6 +78,16 @@ export async function POST(req: NextRequest) {
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
       return NextResponse.json({ error: "Solo los negocios pueden denunciar clientes" }, { status: 403 })
+    }
+
+    // Rate limit por IP + negocio autenticado, mismo tipo y patrón ya usado para
+    // reseñas (contenido generado por un usuario que afecta la reputación de otra
+    // parte) — se aplica apenas se conoce la identidad real de la sesión, antes de
+    // leer el body y antes de cualquier lectura/escritura pesada.
+    const ip = getClientIp(req)
+    const rl = checkRateLimit("review", `${ip}:${user.id}`)
+    if (!rl.allowed) {
+      return rateLimitResponse(rl, "Estás enviando muchas denuncias. Esperá un momento.")
     }
 
     const rawBody = await req.json().catch(() => null)
