@@ -36,6 +36,12 @@ function isSerializationConflict(error: unknown): boolean {
   )
 }
 
+// Error de dominio para el conflicto de unicidad persistente (índice único parcial de
+// Seguridad-3B sobre denuncias.clienteId+negocioId+pedidoId, aplicable cuando
+// pedidoId no es null). Se distingue explícitamente de un conflicto de serialización
+// (P2034): P2002 nunca se reintenta, se traduce directo a un 409 de dominio.
+class DuplicateDenunciaError extends Error {}
+
 // Ejecuta `fn` dentro de una transacción Serializable, reintentando hasta
 // MAX_SERIALIZATION_RETRIES veces solo ante conflictos de serialización detectados de
 // forma segura. Si el conflicto persiste tras los reintentos, la excepción se propaga
@@ -152,18 +158,31 @@ export async function POST(req: NextRequest) {
           return { kind: "duplicado" as const }
         }
 
-        // Create the denuncia
-        const denuncia = await tx.denuncia.create({
-          data: {
-            clienteId,
-            negocioId: user.id,
-            pedidoId,
-            negocioNombre: user.nombre,
-            clienteNombre: cliente.nombre,
-            motivoTipo,
-            motivo,
-          },
-        })
+        // Create the denuncia. El findFirst de arriba cubre el caso normal; este
+        // try/catch es la defensa persistente (índice único parcial en la base de
+        // datos, Seguridad-3B) para la carrera que el findFirst no alcanza a detectar
+        // — se rodea EXCLUSIVAMENTE esta llamada, nunca todo el bloque, para no
+        // confundir un P2002 de otra tabla (p. ej. ClienteBloqueado) con un duplicado
+        // de denuncia.
+        let denuncia: Denuncia
+        try {
+          denuncia = await tx.denuncia.create({
+            data: {
+              clienteId,
+              negocioId: user.id,
+              pedidoId,
+              negocioNombre: user.nombre,
+              clienteNombre: cliente.nombre,
+              motivoTipo,
+              motivo,
+            },
+          })
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            throw new DuplicateDenunciaError()
+          }
+          throw error
+        }
 
         // Count total denuncias for this client
         const totalDenuncias = await tx.denuncia.count({
@@ -242,6 +261,12 @@ export async function POST(req: NextRequest) {
         return { kind: "creada" as const, denuncia, totalDenuncias, bloqueado }
       })
     } catch (error) {
+      if (error instanceof DuplicateDenunciaError) {
+        return NextResponse.json(
+          { error: "Ya denunciaste a este cliente por este pedido" },
+          { status: 409 }
+        )
+      }
       if (isSerializationConflict(error)) {
         return NextResponse.json(
           { error: "No se pudo procesar la denuncia por un conflicto de concurrencia. Reintentá." },
