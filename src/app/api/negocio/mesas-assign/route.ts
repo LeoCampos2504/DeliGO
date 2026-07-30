@@ -4,7 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 
 type AssignmentAuth =
-  | { kind: "negocio" | "shared" }
+  | { kind: "negocio" }
   | { kind: "mozo"; empleado: { id: string; codigo: string; nombre: string; negocioId: string } }
 
 // POST — Assign a mozo to a mesa (or unassign)
@@ -34,24 +34,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Check tokenSalon or tokenEmpleados
-    if (!auth && typeof body.token === "string") {
-      const negocioByToken = await db.negocio.findFirst({
-        where: {
-          OR: [
-            { tokenSalon: body.token },
-            { tokenEmpleados: body.token },
-          ],
-        },
-        select: { id: true },
-      })
-      if (negocioByToken) {
-        auth = { kind: "shared" }
-        negocioId = negocioByToken.id
-      }
-    }
+    // Seguridad-5E: se retiró la rama que aceptaba tokenSalon/tokenEmpleados
+    // (el token compartido de todo el negocio) como autenticación para esta
+    // acción — confirmado por búsqueda en todo el código que ningún llamador
+    // real la usaba (el único flujo por link legacy, src/app/m/[token]/page.tsx,
+    // ya usa la rama de abajo, el token individual del mozo). Aceptar el
+    // secreto compartido de todo el negocio para asignar/desasignar mesas era
+    // una superficie de autenticación extra, no documentada y sin uso real.
 
-    // 3) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone.
+    // 2) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone.
     // Guard de transición (Operaciones-1F): el token legacy solo autoriza si el área
     // efectiva actual del empleado sigue siendo Mozo.
     if (!auth && typeof body.mozoToken === "string") {
