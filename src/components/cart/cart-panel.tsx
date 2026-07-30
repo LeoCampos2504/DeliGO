@@ -159,6 +159,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   const [showSuccess, setShowSuccess] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
 
+  // Idempotency-Key del intento de checkout en curso (Seguridad-5C.2). Se genera
+  // una sola vez por intento y se reutiliza en reintentos del mismo submit — nunca
+  // se regenera en cada render ni justo antes de un retry. Vive solo en memoria
+  // (ref), nunca en localStorage/sessionStorage, y nunca se loguea.
+  const idempotencyKeyRef = useRef<string | null>(null)
+
   // Sync empleadoCodigo when mozoCodigo prop arrives asynchronously
   useEffect(() => {
     if (mozoCodigo) {
@@ -169,6 +175,14 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
   const storePrecioDelivery = useCartStore((s) => s.precioDelivery)
   const setActiveNegocio = useCartStore((s) => s.setActiveNegocio)
+
+  // Si el usuario cambia algo que define el contenido del pedido después de un
+  // intento fallido, la key vieja queda invalidada — el próximo submit debe ser
+  // un intento nuevo, no un reintento del anterior (evita un 409 evitable contra
+  // el fingerprint del backend).
+  useEffect(() => {
+    idempotencyKeyRef.current = null
+  }, [items, metodoEntrega, metodoPago, notas, deliveryAddress, empleadoCodigo])
 
   // Delivery zone check state
   const [deliveryZoneInfo, setDeliveryZoneInfo] = useState<{
@@ -271,11 +285,18 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
     if (!canOrder && onRequireLocation) {
       if (!onRequireLocation()) return
     }
+    // Se genera una sola vez por intento — si ya existe (reintento del mismo
+    // submit tras un error de red/timeout), se reutiliza tal cual.
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = crypto.randomUUID()
+    }
+    const idempotencyKey = idempotencyKeyRef.current
+
     setIsSubmitting(true)
     try {
       const res = await fetch("/api/pedidos", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
         body: JSON.stringify({
           negocioId: negocio.id,
           items: items.map((item) => ({
@@ -306,9 +327,20 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
         }),
       })
       if (!res.ok) {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
+        if (res.status === 409 || res.status === 400) {
+          // Conflicto de idempotencia o key inválida: reintentar con la misma
+          // key no serviría de nada — se libera para que el próximo intento
+          // del usuario arranque limpio, sin dejarlo bloqueado.
+          idempotencyKeyRef.current = null
+        }
+        // Para el resto de los errores (429, 500, red/timeout) se conserva la
+        // misma key: un reintento del mismo submit debe ser tratado como el
+        // mismo intento, nunca crear un segundo pedido.
         throw new Error(data.error || "Error al crear pedido")
       }
+      // 200 (replay idempotente) y 201 (pedido creado) son ambos éxito.
+      idempotencyKeyRef.current = null // listo para el próximo pedido
       setShowSuccess(true)
       setTimeout(() => {
         clearCart()
