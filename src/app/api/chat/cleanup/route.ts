@@ -11,6 +11,9 @@ import { cloudinary, extractPublicId } from "@/lib/cloudinary"
 // Auth options:
 //   Header: x-cleanup-secret <value>
 //   Query:  ?secret=<value>
+//
+// Fails closed outside development: if CLEANUP_SECRET isn't configured,
+// the endpoint is unavailable rather than silently open.
 // ============================================
 
 const CLEANUP_DAYS = 10
@@ -23,8 +26,15 @@ async function runCleanup(req: NextRequest) {
   const querySecret = req.nextUrl.searchParams.get("secret")
   const providedSecret = headerSecret || querySecret
 
-  if (process.env.CLEANUP_SECRET && providedSecret !== process.env.CLEANUP_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const isDev = process.env.NODE_ENV === "development"
+  const cleanupSecret = process.env.CLEANUP_SECRET
+
+  if (!isDev && !cleanupSecret) {
+    return NextResponse.json({ error: "No disponible" }, { status: 404 })
+  }
+
+  if (!isDev && providedSecret !== cleanupSecret) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 403 })
   }
 
   try {

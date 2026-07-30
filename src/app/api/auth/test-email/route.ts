@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { checkRateLimit, getClientIp, createRateLimitKey, rateLimitResponse } from "@/lib/rate-limit"
 
 /**
  * GET /api/auth/test-email
  *
  * Diagnostic endpoint to check SMTP configuration and test email sending.
- * Only available in development mode.
+ * Only available in development mode, or in other environments when
+ * ADMIN_SECRET is explicitly configured and provided.
  *
  * Usage:
  *   /api/auth/test-email              → Check SMTP config status
@@ -12,10 +14,22 @@ import { NextRequest, NextResponse } from "next/server"
  *   /api/auth/test-email?send=1&to=test@gmail.com
  */
 export async function GET(req: NextRequest) {
-  // Security: only allow in development or with secret
+  const ip = getClientIp(req)
+  const rl = checkRateLimit("general", createRateLimitKey(ip))
+  if (!rl.allowed) {
+    return rateLimitResponse(rl)
+  }
+
+  // Security: only allow in development, or with a real ADMIN_SECRET configured.
+  // No hardcoded fallback — if ADMIN_SECRET isn't set outside development, the
+  // endpoint must fail closed (404) instead of silently accepting a known default.
   const isDev = process.env.NODE_ENV === "development"
   const secret = req.nextUrl.searchParams.get("secret")
-  const adminSecret = process.env.ADMIN_SECRET || "deligo-test-2024"
+  const adminSecret = process.env.ADMIN_SECRET
+
+  if (!isDev && !adminSecret) {
+    return NextResponse.json({ error: "No disponible" }, { status: 404 })
+  }
 
   if (!isDev && secret !== adminSecret) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 })
@@ -31,15 +45,21 @@ export async function GET(req: NextRequest) {
   const APP_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000"
 
   const configured = !!(SMTP_HOST && SMTP_USER && SMTP_PASS)
+  const maskedSmtpUser = SMTP_USER ? `${SMTP_USER.slice(0, 3)}***` : "(empty)"
+  // Diagnóstico únicamente: nunca debe filtrar el SMTP_USER completo cuando no
+  // hay SMTP_FROM_EMAIL configurado — se usa la versión ya enmascarada como
+  // último recurso en vez del valor crudo. El `from` real de sendMail (más
+  // abajo) sí necesita el email real para poder enviar correctamente.
+  const safeSmtpFromEmail = SMTP_FROM_EMAIL || (SMTP_USER ? maskedSmtpUser : "noreply@deligo.app")
 
   const config = {
     EMAIL_ENABLED: configured,
     SMTP_HOST: SMTP_HOST || "(empty)",
     SMTP_PORT,
     SMTP_SECURE: SMTP_SECURE || "(not set)",
-    SMTP_USER: SMTP_USER ? `${SMTP_USER.slice(0, 3)}***` : "(empty)",
+    SMTP_USER: maskedSmtpUser,
     SMTP_PASS: SMTP_PASS ? "***hidden***" : "(empty)",
-    SMTP_FROM: `"${SMTP_FROM_NAME}" <${SMTP_FROM_EMAIL || SMTP_USER || "noreply@deligo.app"}>`,
+    SMTP_FROM: `"${SMTP_FROM_NAME}" <${safeSmtpFromEmail}>`,
     APP_URL,
     VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY ? "✅ set" : "❌ not set",
     VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ? "✅ set" : "❌ not set",
