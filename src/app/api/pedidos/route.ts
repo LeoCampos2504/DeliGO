@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { SESSION_COOKIE_NAME } from "@/lib/auth"
+import { SESSION_COOKIE_NAME, findSesionByToken } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newOrderNotification, salonNewOrderNotification, empleadosNewOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
@@ -863,9 +863,7 @@ export async function POST(request: NextRequest) {
     let clienteUpdateData: { ultimoIp: string; dispositivoFingerprint?: string } | null = null
 
     if (token) {
-      const session = await db.sesion.findUnique({
-        where: { token },
-      })
+      const session = await findSesionByToken(token)
       if (session && session.userType === "cliente") {
         const cliente = await db.cliente.findUnique({
           where: { id: session.userId },
@@ -1291,7 +1289,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
-    const session = await db.sesion.findUnique({ where: { token } })
+    const session = await findSesionByToken(token)
     if (!session || session.expiresAt < new Date()) {
       return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
     }

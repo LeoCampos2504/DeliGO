@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { findSesionByToken } from "@/lib/auth"
 import { mkdir, readdir, stat, unlink, writeFile } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
-    const session = await db.sesion.findUnique({ where: { token } })
+    const session = await findSesionByToken(token)
     if (!session || session.userType !== "superadmin") {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
-    const session = await db.sesion.findUnique({ where: { token } })
+    const session = await findSesionByToken(token)
     if (!session || session.userType !== "superadmin") {
       return NextResponse.json({ error: "No autorizado" }, { status: 403 })
     }

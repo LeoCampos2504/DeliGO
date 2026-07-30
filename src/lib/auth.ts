@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto"
+import { randomUUID, createHash } from "crypto"
 import type { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 
@@ -82,6 +82,42 @@ export function generateSessionToken(): string {
 }
 
 // ============================================
+// Session token hashing (Seguridad-5D)
+// ============================================
+// El token real (el que recibe el cliente) solo vive en la cookie httpOnly.
+// En base de datos, Sesion.token guarda únicamente su hash SHA-256 — así, un
+// acceso de lectura a la base (backup filtrado, dump expuesto, etc.) nunca
+// alcanza para usar una sesión ajena directamente, a diferencia de guardar el
+// token en texto plano.
+
+export function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+// Busca la fila de Sesion para el token real de una cookie: primero por su
+// hash (formato actual), y si no aparece, por el token en texto plano
+// (compatibilidad con sesiones creadas antes de Seguridad-5D). Si encuentra
+// una fila legacy, la migra oportunísticamente a hash antes de devolverla.
+// Nunca lanza: ante una carrera concurrente migrando la misma fila (P2025) o
+// una colisión de unique (P2002, extremadamente improbable con SHA-256), se
+// prefiere reintentar la búsqueda por hash (la sesión ya migrada por la otra
+// request en curso) antes de tratar la legacy como inválida — nunca un 500.
+export async function findSesionByToken(token: string) {
+  const hashed = hashSessionToken(token)
+  const byHash = await db.sesion.findUnique({ where: { token: hashed } })
+  if (byHash) return byHash
+
+  const legacy = await db.sesion.findUnique({ where: { token } })
+  if (!legacy) return null
+
+  try {
+    return await db.sesion.update({ where: { token }, data: { token: hashed } })
+  } catch {
+    return db.sesion.findUnique({ where: { token: hashed } }).catch(() => null)
+  }
+}
+
+// ============================================
 // Cookie configuration
 // ============================================
 
@@ -104,26 +140,25 @@ export async function createSession(
 
   await db.sesion.create({
     data: {
-      token,
+      token: hashSessionToken(token),
       userId,
       userType,
       expiresAt,
     },
   })
 
+  // La cookie recibe el token real — nunca el hash.
   return token
 }
 
 export async function validateSession(
   token: string
 ): Promise<{ userId: string; userType: UserType } | null> {
-  const session = await db.sesion.findUnique({
-    where: { token },
-  })
+  const session = await findSesionByToken(token)
 
   if (!session) return null
   if (session.expiresAt < new Date()) {
-    await db.sesion.delete({ where: { token } }).catch(() => {})
+    await db.sesion.delete({ where: { token: session.token } }).catch(() => {})
     return null
   }
 
@@ -131,7 +166,10 @@ export async function validateSession(
 }
 
 export async function deleteSession(token: string): Promise<void> {
-  await db.sesion.delete({ where: { token } }).catch(() => {})
+  // Cubre ambas representaciones posibles en una sola operación: el hash
+  // (formato actual) y el token plano legacy, si todavía existiera.
+  const hashed = hashSessionToken(token)
+  await db.sesion.deleteMany({ where: { token: { in: [hashed, token] } } }).catch(() => {})
 }
 
 export async function createOperationalSession(
@@ -143,26 +181,25 @@ export async function createOperationalSession(
 
   await db.sesion.create({
     data: {
-      token,
+      token: hashSessionToken(token),
       userId: cuentaOperativaId,
       userType: OPERATIONAL_SESSION_USER_TYPE,
       expiresAt,
     },
   })
 
+  // La cookie recibe el token real — nunca el hash.
   return token
 }
 
 export async function validateOperationalSession(
   token: string
 ): Promise<{ cuentaOperativaId: string } | null> {
-  const session = await db.sesion.findUnique({
-    where: { token },
-  })
+  const session = await findSesionByToken(token)
 
   if (!session || session.userType !== OPERATIONAL_SESSION_USER_TYPE) return null
   if (session.expiresAt < new Date()) {
-    await db.sesion.delete({ where: { token } }).catch(() => {})
+    await db.sesion.delete({ where: { token: session.token } }).catch(() => {})
     return null
   }
 
@@ -170,11 +207,10 @@ export async function validateOperationalSession(
 }
 
 export async function deleteOperationalSession(token: string): Promise<void> {
-  await db.sesion
-    .delete({
-      where: { token },
-    })
-    .catch(() => {})
+  // Cubre ambas representaciones posibles en una sola operación: el hash
+  // (formato actual) y el token plano legacy, si todavía existiera.
+  const hashed = hashSessionToken(token)
+  await db.sesion.deleteMany({ where: { token: { in: [hashed, token] } } }).catch(() => {})
 }
 
 export async function getOperationalAccountFromRequest(
