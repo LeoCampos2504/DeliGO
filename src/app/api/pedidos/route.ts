@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
@@ -15,6 +17,12 @@ const MAX_AGREGADOS_PER_ITEM = 40
 const MAX_SECCIONES_PER_ITEM = 30
 const MAX_OPTION_QUANTITY = 99
 const MAX_TEXT_LENGTH = 500
+const MAX_IDEMPOTENCY_KEY_LENGTH = 100
+// Mismo patrón ya usado y probado en manual mozo orders (Pedido.idempotencyKey /
+// idempotencyFingerprint, migración 20260627000000_manual_order_idempotency) —
+// formato de UUID v4, generado por el cliente una sola vez por intento de checkout.
+const IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 type MetodoEntrega = "retiro" | "domicilio" | "mesa"
 type MetodoPago = "efectivo" | "transferencia"
@@ -486,6 +494,129 @@ function pointInPolygon(lat: number, lng: number, polygon: { lat: number; lng: n
   return inside
 }
 
+// ============================================
+// IDEMPOTENCIA PERSISTENTE (Seguridad-5C)
+// ============================================
+// Reutiliza exactamente las columnas Pedido.idempotencyKey / idempotencyFingerprint
+// y el índice único @@unique([negocioId, idempotencyKey]) ya existentes en el schema
+// desde la migración 20260627000000_manual_order_idempotency (pedidos manuales de
+// mozo) — no hace falta ninguna migración nueva para extender esta protección al
+// flujo público. Postgres nunca considera dos NULL iguales, así que los pedidos que
+// no envían clave (modo legacy) siguen sin restricción alguna entre sí, exactamente
+// como hoy.
+
+function canonicalizeForFingerprint(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeForFingerprint)
+  if (!isPlainObject(value)) return value
+  const result: Record<string, unknown> = {}
+  for (const key of Object.keys(value).sort()) {
+    result[key] = canonicalizeForFingerprint(value[key])
+  }
+  return result
+}
+
+function stableStringifyForFingerprint(value: unknown): string {
+  return JSON.stringify(canonicalizeForFingerprint(value))
+}
+
+function normalizeSectionSelectionForFingerprint(selection: SectionSelection): SectionSelection {
+  if (typeof selection === "string") return selection
+  return Object.fromEntries(Object.entries(selection).sort(([a], [b]) => a.localeCompare(b)))
+}
+
+// Hashea únicamente el contenido que define "qué pedido es este" (nunca datos de
+// sesión/cookies/tokens) — permite distinguir un reintento legítimo (mismo body,
+// misma key) de una key reutilizada por error con un pedido genuinamente distinto.
+function createPedidoIdempotencyFingerprint(params: {
+  negocioId: string
+  clienteId: string | null
+  clienteTelefono: string
+  metodoEntrega: MetodoEntrega
+  metodoPago: MetodoPago
+  notas: string | null
+  direccion: string | null
+  referencia: string | null
+  lat: number | null
+  lng: number | null
+  mesaId: string | null
+  mesaNumero: number | null
+  items: ValidatedPedidoItem[]
+}): string {
+  const items = params.items
+    .map((item) => ({
+      productoId: item.productoId,
+      cantidad: item.cantidad,
+      agregados: item.agregados.map((agregado) => agregado.id).sort(),
+      secciones: Object.fromEntries(
+        Object.entries(item.secciones)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([section, selection]) => [section, normalizeSectionSelectionForFingerprint(selection)])
+      ),
+      ingredientesQuitados: [...item.ingredientesQuitados].sort(),
+      talle: item.talle,
+      color: item.color,
+    }))
+    .sort((a, b) => a.productoId.localeCompare(b.productoId))
+
+  const payload = {
+    negocioId: params.negocioId,
+    clienteId: params.clienteId,
+    clienteTelefono: params.clienteTelefono,
+    metodoEntrega: params.metodoEntrega,
+    metodoPago: params.metodoPago,
+    notas: params.notas,
+    direccion: params.direccion,
+    referencia: params.referencia,
+    lat: params.lat,
+    lng: params.lng,
+    mesaId: params.mesaId,
+    mesaNumero: params.mesaNumero,
+    items,
+  }
+
+  return createHash("sha256").update(stableStringifyForFingerprint(payload)).digest("hex")
+}
+
+// Lee y valida el header Idempotency-Key. `null` significa "no vino" (modo legacy:
+// se preserva el comportamiento actual sin ninguna garantía persistente — deuda de
+// frontend pendiente, documentada en CLAUDE_REPORT.md). Si el header vino pero no
+// matchea el formato esperado, se rechaza explícitamente en vez de tratarlo en
+// silencio como "sin key", para que un bug de frontend no pase desapercibido.
+function readIdempotencyKeyHeader(request: NextRequest): ValidationResult<string | null> {
+  const raw = request.headers.get("idempotency-key")
+  if (raw === null) return ok(null)
+
+  const trimmed = raw.trim()
+  if (!trimmed) return fail("Idempotency-Key no puede estar vacío")
+  if (trimmed.length > MAX_IDEMPOTENCY_KEY_LENGTH) return fail("Idempotency-Key es demasiado largo")
+  if (!IDEMPOTENCY_KEY_PATTERN.test(trimmed)) return fail("Idempotency-Key tiene un formato inválido")
+
+  return ok(trimmed.toLowerCase())
+}
+
+function isPedidoUniqueConstraintConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+}
+
+// Error de dominio: la key ya existe pero para un pedido distinto (otro cliente,
+// u otro contenido bajo el mismo cliente/negocio) — nunca se traduce en éxito ni en
+// 500, siempre en 409 sin filtrar datos del pedido ajeno.
+class PedidoIdempotencyConflictError extends Error {}
+
+function isSafeIdempotentPedido(params: {
+  pedido: { negocioId: string; clienteId: string | null; idempotencyFingerprint: string | null } | null
+  negocioId: string
+  clienteId: string | null
+  fingerprint: string
+}): boolean {
+  return Boolean(
+    params.pedido &&
+      params.pedido.negocioId === params.negocioId &&
+      params.pedido.clienteId === params.clienteId &&
+      params.pedido.idempotencyFingerprint === params.fingerprint
+  )
+}
+
 export async function POST(request: NextRequest) {
   // Concurrency protection: compute lock key before try block so it's accessible in finally
   const ip = getClientIp(request)
@@ -506,6 +637,14 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       )
     }
+
+    // Idempotency-Key: validación barata de formato antes de cualquier trabajo
+    // pesado. `null` = no vino (modo legacy, sin cambios de comportamiento).
+    const idempotencyKeyResult = readIdempotencyKeyHeader(request)
+    if (!idempotencyKeyResult.ok) {
+      return NextResponse.json({ error: idempotencyKeyResult.error }, { status: 400 })
+    }
+    const idempotencyKey = idempotencyKeyResult.value
 
     const rawPayload = await request.json().catch(() => null)
     const payloadResult = validatePedidoPayload(rawPayload)
@@ -886,26 +1025,13 @@ export async function POST(request: NextRequest) {
     const serverTarifaServicio = isMesaOrder && !MESA_SERVICE_FEE_ENABLED ? 0 : SERVICE_FEE_FIXED
     const finalTotal = roundMoney(serverTotalProductos + finalPrecioDelivery + serverTarifaServicio)
 
-    const pedido = await db.$transaction(async (tx) => {
-      if (clienteId && clienteUpdateData) {
-        await tx.cliente.update({
-          where: { id: clienteId },
-          data: clienteUpdateData,
-        })
-      }
-
-      const created = await tx.pedido.create({
-        data: {
+    // Solo se calcula si vino una key válida — en modo legacy (sin key) se guarda
+    // `null` en ambas columnas, exactamente el mismo comportamiento que hoy.
+    const idempotencyFingerprint = idempotencyKey
+      ? createPedidoIdempotencyFingerprint({
           negocioId,
-          negocioSlug: negocio.slug,
-          negocioNombre: negocio.nombre,
           clienteId,
-          clienteNombre,
           clienteTelefono,
-          total: finalTotal,
-          totalProductos: serverTotalProductos,
-          tarifaServicio: serverTarifaServicio,
-          precioDelivery: finalPrecioDelivery,
           metodoEntrega: pedidoInput.metodoEntrega,
           metodoPago: pedidoInput.metodoPago,
           notas: pedidoInput.notas,
@@ -913,37 +1039,139 @@ export async function POST(request: NextRequest) {
           referencia: finalReferencia,
           lat: finalLat,
           lng: finalLng,
-          negocioLat: negocio.lat,
-          negocioLng: negocio.lng,
           mesaId: isMesaOrder ? mesaId : null,
           mesaNumero: isMesaOrder ? mesaNumero : null,
-          empleadoId,
-          empleadoNombre,
-          estado: "recibido",
-          items: {
-            create: validatedItems.map((item) => ({
-              productoId: item.productoId,
-              nombre: item.nombre,
-              precio: item.precio,
-              cantidad: item.cantidad,
-              agregados: JSON.stringify(item.agregados),
-              secciones: JSON.stringify(item.secciones),
-              ingredientes: JSON.stringify([]),
-              ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
-              seccionesPrecios: JSON.stringify({}),
-              talle: item.talle,
-              color: item.color,
-            })),
-          },
-        },
-        include: {
-          items: true,
-        },
+          items: validatedItems,
+        })
+      : null
+
+    const pedidoCreateData = {
+      negocioId,
+      negocioSlug: negocio.slug,
+      negocioNombre: negocio.nombre,
+      clienteId,
+      clienteNombre,
+      clienteTelefono,
+      total: finalTotal,
+      totalProductos: serverTotalProductos,
+      tarifaServicio: serverTarifaServicio,
+      precioDelivery: finalPrecioDelivery,
+      metodoEntrega: pedidoInput.metodoEntrega,
+      metodoPago: pedidoInput.metodoPago,
+      notas: pedidoInput.notas,
+      direccion: finalDireccion,
+      referencia: finalReferencia,
+      lat: finalLat,
+      lng: finalLng,
+      negocioLat: negocio.lat,
+      negocioLng: negocio.lng,
+      mesaId: isMesaOrder ? mesaId : null,
+      mesaNumero: isMesaOrder ? mesaNumero : null,
+      empleadoId,
+      empleadoNombre,
+      estado: "recibido",
+      idempotencyKey,
+      idempotencyFingerprint,
+      items: {
+        create: validatedItems.map((item) => ({
+          productoId: item.productoId,
+          nombre: item.nombre,
+          precio: item.precio,
+          cantidad: item.cantidad,
+          agregados: JSON.stringify(item.agregados),
+          secciones: JSON.stringify(item.secciones),
+          ingredientes: JSON.stringify([]),
+          ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
+          seccionesPrecios: JSON.stringify({}),
+          talle: item.talle,
+          color: item.color,
+        })),
+      },
+    }
+
+    const result = await db
+      .$transaction(async (tx) => {
+        // Idempotencia persistente: si ya vino una key, resolver PRIMERO si ya
+        // existe un pedido con esa (negocioId, idempotencyKey) — antes de
+        // cualquier efecto secundario (tx.cliente.update). Un replay idempotente
+        // válido no debe tocar Cliente.ultimoIp/dispositivoFingerprint de nuevo,
+        // y un conflicto de key tampoco debe dejar ese side effect aplicado antes
+        // de fallar. Verificado dentro de la misma transacción para que la
+        // comprobación y la creación sean atómicas entre sí — nunca se crea un
+        // segundo pedido para la misma key.
+        if (idempotencyKey && idempotencyFingerprint) {
+          const existingPedido = await tx.pedido.findFirst({
+            where: { negocioId, idempotencyKey },
+            include: { items: true },
+          })
+          if (existingPedido) {
+            if (
+              !isSafeIdempotentPedido({
+                pedido: existingPedido,
+                negocioId,
+                clienteId,
+                fingerprint: idempotencyFingerprint,
+              })
+            ) {
+              // Misma key, pero pedido de otro cliente o con contenido distinto —
+              // nunca se devuelven sus datos, ni se crea un pedido nuevo, ni se
+              // actualiza el cliente.
+              throw new PedidoIdempotencyConflictError()
+            }
+            return { status: "idempotent" as const, pedido: existingPedido }
+          }
+        }
+
+        // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
+        // previo) — recién ahí es seguro aplicar el side effect y crear.
+        if (clienteId && clienteUpdateData) {
+          await tx.cliente.update({
+            where: { id: clienteId },
+            data: clienteUpdateData,
+          })
+        }
+
+        const created = await tx.pedido.create({
+          data: pedidoCreateData,
+          include: { items: true },
+        })
+
+        return { status: "created" as const, pedido: created }
+      })
+      .catch(async (error) => {
+        if (error instanceof PedidoIdempotencyConflictError) throw error
+
+        // Carrera: dos requests con la misma key pasaron el chequeo previo casi
+        // al mismo tiempo — el índice único (negocioId, idempotencyKey) rechaza
+        // la segunda inserción con P2002. Se busca el pedido ganador y, si es un
+        // match seguro, se devuelve como si hubiera sido la respuesta idempotente
+        // desde el principio — nunca un 500 para el perdedor de la carrera.
+        if (idempotencyKey && idempotencyFingerprint && isPedidoUniqueConstraintConflict(error)) {
+          const existingPedido = await db.pedido.findFirst({
+            where: { negocioId, idempotencyKey },
+            include: { items: true },
+          })
+          if (
+            isSafeIdempotentPedido({
+              pedido: existingPedido,
+              negocioId,
+              clienteId,
+              fingerprint: idempotencyFingerprint,
+            })
+          ) {
+            return { status: "idempotent" as const, pedido: existingPedido! }
+          }
+          throw new PedidoIdempotencyConflictError()
+        }
+
+        throw error
       })
 
-      return created
-    })
+    const pedido = result.pedido
 
+    // Las notificaciones push solo tienen sentido para un pedido genuinamente
+    // nuevo — un replay idempotente no debe volver a notificar al negocio/salón.
+    if (result.status === "created") {
     // Send push notification to the business about the new order
     try {
       const negocioWithPush = await db.negocio.findUnique({
@@ -1028,9 +1256,23 @@ export async function POST(request: NextRequest) {
     } catch (sharedPushError) {
       console.error("[Push] Failed to send shared-display notification:", sharedPushError)
     }
+    }
 
-    return NextResponse.json(pedido, { status: 201 })
+    // Mismo cuerpo de respuesta (el objeto pedido, sin envolver) tanto para una
+    // creación nueva (201) como para un replay idempotente (200) — los clientes
+    // que todavía no envían Idempotency-Key nunca ven el status 200 acá, siguen
+    // recibiendo exactamente 201 como hoy.
+    return NextResponse.json(pedido, { status: result.status === "created" ? 201 : 200 })
   } catch (error) {
+    if (error instanceof PedidoIdempotencyConflictError) {
+      return NextResponse.json(
+        {
+          error:
+            "Ya existe un pedido distinto con esta clave de idempotencia. Generá una clave nueva e intentá de nuevo.",
+        },
+        { status: 409 }
+      )
+    }
     console.error("Error creating pedido:", error)
     return NextResponse.json(
       { error: "Error interno del servidor" },
