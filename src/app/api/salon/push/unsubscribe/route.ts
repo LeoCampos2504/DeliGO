@@ -1,33 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+const LEGACY_GONE_MESSAGE =
+  "El acceso por link legacy fue reemplazado. Iniciá sesión en DeliGO Operaciones."
 
-export async function POST(req: NextRequest) {
-  try {
-    const token = parseAuthorizationBearer(req.headers.get("authorization"))
-    if (!token) {
-      return NextResponse.json({ error: "token es obligatorio" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: token },
-      select: { id: true },
-    })
-
-    if (!negocio) {
-      return NextResponse.json({ error: "Token de salon invalido" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    await db.negocio.update({
-      where: { id: negocio.id },
-      data: { pushSubscriptionSalon: null },
-    })
-
-    return NextResponse.json({ ok: true }, { headers: NO_STORE_HEADERS })
-  } catch (error) {
-    console.error("Error removing salon push subscription:", error)
-    return NextResponse.json({ error: "Error al eliminar la suscripcion" }, { status: 500, headers: NO_STORE_HEADERS })
-  }
+// Seguridad-5G: acceso operativo por tokenSalon (secreto compartido de todo el
+// negocio) retirado por completo — ver CLAUDE_REPORT.md.
+export async function POST(_req: NextRequest) {
+  return NextResponse.json({ error: LEGACY_GONE_MESSAGE }, { status: 410, headers: NO_STORE_HEADERS })
 }

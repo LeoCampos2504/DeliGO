@@ -417,82 +417,21 @@ export function SalonTab({ negocio }: SalonTabProps) {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Salon shared link */}
-                <div className="p-4 rounded-xl border border-border/50 bg-muted/20 space-y-3">
+                {/* Seguridad-5G: el link /s/[token] fue retirado (los endpoints
+                    que lo sustentaban ahora fallan cerrados) — se reemplaza la
+                    tarjeta de copiar/regenerar por un mensaje de migración. */}
+                <div className="p-4 rounded-xl border border-border/50 bg-muted/20 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${negocio.colorPrincipal}15` }}>
                       <Link2 className="h-4 w-4" style={{ color: negocio.colorPrincipal }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold">Link del salón</p>
-                      <p className="text-[11px] text-muted-foreground">Vista de mesas y pedidos para el salón</p>
+                      <p className="text-sm font-semibold">Vista de salón</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        El acceso por link fue reemplazado. Iniciá sesión en DeliGO Operaciones.
+                      </p>
                     </div>
                   </div>
-                  {hasSalonLinkMetadata && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 px-3 py-2 rounded-lg bg-background border border-border/50 text-xs font-mono text-muted-foreground truncate">
-                        {tokenSalon
-                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${tokenSalon}`
-                          : "Link oculto por seguridad. Regeneralo para obtener uno nuevo."}
-                        {!tokenSalon && tokenSalonMasked ? ` (${tokenSalonMasked})` : ""}
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className={cn(
-                          "h-9 w-9 rounded-lg shrink-0 transition-all",
-                          copiedSalon
-                            ? "border-emerald-300 text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                            : ""
-                        )}
-                        onClick={async () => {
-                          if (!tokenSalon) {
-                            await regenerateSalonToken()
-                            return
-                          }
-                          const url = `${window.location.origin}/s/${tokenSalon}`
-                          try {
-                            await navigator.clipboard.writeText(url)
-                            setCopiedSalon(true)
-                            toast.success("Link del salón copiado")
-                            setTimeout(() => setCopiedSalon(false), 2000)
-                          } catch {
-                            toast.error("No se pudo copiar")
-                          }
-                        }}
-                        title={tokenSalon ? "Copiar link del salón" : "Regenerar link del salón"}
-                        disabled={regeneratingSalon}
-                      >
-                        {regeneratingSalon && !tokenSalon ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : copiedSalon ? (
-                          <Check className="h-4 w-4" />
-                        ) : tokenSalon ? (
-                          <Copy className="h-4 w-4" />
-                        ) : (
-                          <RefreshCw className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full rounded-xl gap-2 font-semibold border-dashed"
-                    style={{ borderColor: `${negocio.colorPrincipal}40`, color: negocio.colorPrincipal }}
-                    onClick={regenerateSalonToken}
-                    disabled={regeneratingSalon}
-                  >
-                    {regeneratingSalon ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
-                    Regenerar link
-                  </Button>
-                  <p className="text-[10px] text-muted-foreground text-center">
-                    Al regenerar, el link anterior deja de funcionar inmediatamente
-                  </p>
                 </div>
 
                 <SalonFloorPlan negocio={negocio} />

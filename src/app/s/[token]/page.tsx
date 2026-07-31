@@ -94,7 +94,7 @@ export default function SalonSharedPage() {
 
   const handleAccessDenied = useCallback(() => {
     setNegocio(null)
-    setError("Acceso denegado. Link invalido o fue regenerado.")
+    setError("El acceso por link legacy fue reemplazado. Iniciá sesión en DeliGO Operaciones.")
   }, [])
 
   useEffect(() => {
@@ -141,7 +141,7 @@ export default function SalonSharedPage() {
           </div>
           <p className="text-lg font-bold mb-1">Acceso denegado</p>
           <p className="text-sm text-muted-foreground">{error || "Link inválido"}</p>
-          <p className="text-xs text-muted-foreground mt-2">Pedile el link actualizado al jefe</p>
+          <p className="text-xs text-muted-foreground mt-2">Pedile a tu negocio que te dé acceso desde DeliGO Operaciones</p>
         </div>
       </div>
     )

@@ -1,51 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { parseAuthorizationBearer } from "@/lib/access-tokens"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
+const LEGACY_GONE_MESSAGE =
+  "El acceso por link legacy fue reemplazado. Iniciá sesión en DeliGO Operaciones."
 
-export async function POST(req: NextRequest) {
-  try {
-    const token = parseAuthorizationBearer(req.headers.get("authorization"))
-    const body = await req.json()
-    const { subscription } = body as { subscription?: string }
-
-    if (!token || !subscription) {
-      return NextResponse.json({ error: "token y subscription son obligatorios" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:salon:${token}`)
-    if (!rl.allowed) {
-      const response = rateLimitResponse(rl)
-      response.headers.set("Cache-Control", NO_STORE_HEADERS["Cache-Control"])
-      return response
-    }
-
-    const negocio = await db.negocio.findFirst({
-      where: { tokenSalon: token },
-      select: { id: true },
-    })
-
-    if (!negocio) {
-      return NextResponse.json({ error: "Token de salon invalido" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    try {
-      JSON.parse(subscription)
-    } catch {
-      return NextResponse.json({ error: "subscription debe ser un JSON valido" }, { status: 400, headers: NO_STORE_HEADERS })
-    }
-
-    await db.negocio.update({
-      where: { id: negocio.id },
-      data: { pushSubscriptionSalon: subscription },
-    })
-
-    return NextResponse.json({ ok: true }, { headers: NO_STORE_HEADERS })
-  } catch (error) {
-    console.error("Error saving salon push subscription:", error)
-    return NextResponse.json({ error: "Error al guardar la suscripcion" }, { status: 500, headers: NO_STORE_HEADERS })
-  }
+// Seguridad-5G: acceso operativo por tokenSalon (secreto compartido de todo el
+// negocio) retirado por completo — ver CLAUDE_REPORT.md.
+export async function POST(_req: NextRequest) {
+  return NextResponse.json({ error: LEGACY_GONE_MESSAGE }, { status: 410, headers: NO_STORE_HEADERS })
 }
