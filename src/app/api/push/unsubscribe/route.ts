@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // POST /api/push/unsubscribe — Remove push subscription for the current user
 export async function POST(req: NextRequest) {
@@ -13,6 +14,14 @@ export async function POST(req: NextRequest) {
     const user = await getUserFromToken(token)
     if (!user) {
       return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+    }
+
+    // Seguridad-6A: mismo tipo/clave que /api/push/subscribe (ya lo tenía),
+    // para que ninguno de los dos quede sin límite de intentos.
+    const ip = getClientIp(req)
+    const rl = checkRateLimit("push", `${ip}:${user.id}`)
+    if (!rl.allowed) {
+      return rateLimitResponse(rl)
     }
 
     let subscription: string | null = null

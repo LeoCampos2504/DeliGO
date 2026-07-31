@@ -1,43 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 
-// POST /api/mozo/push/unsubscribe — Remove push subscription for a mozo
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-    const { mozoToken } = body as { mozoToken: string }
-
-    if (!mozoToken) {
-      return NextResponse.json(
-        { error: "mozoToken es obligatorio" },
-        { status: 400 }
-      )
-    }
-
-    // Validate mozo token
-    const empleado = await db.empleado.findFirst({
-      where: { token: mozoToken, activo: true, eliminado: false },
-      select: { id: true, rol: true, areaOperativa: true },
-    })
-
-    // Guard de transición (Operaciones-1F): solo área efectiva Mozo.
-    if (!empleado || !esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
-      return NextResponse.json({ error: "Token de mozo inválido" }, { status: 401 })
-    }
-
-    // Remove push subscription
-    await db.empleado.update({
-      where: { id: empleado.id },
-      data: { pushSubscription: null },
-    })
-
-    return NextResponse.json({ ok: true })
-  } catch (error) {
-    console.error("Error removing mozo push subscription:", error)
-    return NextResponse.json(
-      { error: "Error al eliminar la suscripción" },
-      { status: 500 }
-    )
-  }
+// Seguridad-6A: ruta duplicada por un error de tipeo en el nombre de carpeta
+// ("unsusbscribe" en vez de "unsubscribe"). Se confirmó (grep exhaustivo en
+// src/) que ningún consumidor real del proyecto llama a esta URL — la ruta
+// correcta, ya usada por el frontend, es /api/mozo/push/unsubscribe. Se
+// retira en vez de mantenerla duplicada para no repetir el mismo mozoToken de
+// autenticación y la misma lógica en dos lugares.
+export async function POST(_req: NextRequest) {
+  return NextResponse.json(
+    { error: "Este endpoint fue retirado. Usá /api/mozo/push/unsubscribe." },
+    { status: 410 }
+  )
 }

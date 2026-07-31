@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // POST /api/mozo/push/unsubscribe - Remove push subscription for a mozo
 export async function POST(req: NextRequest) {
@@ -13,6 +14,15 @@ export async function POST(req: NextRequest) {
         { error: "mozoToken es obligatorio" },
         { status: 400 }
       )
+    }
+
+    // Seguridad-6A: mismo tipo/clave que /api/mozo/push/subscribe (ya lo
+    // tenía) — evita fuerza bruta de mozoToken vía este endpoint, que antes
+    // quedaba sin ningún límite de intentos.
+    const ip = getClientIp(req)
+    const rl = checkRateLimit("push", `${ip}:${mozoToken}`)
+    if (!rl.allowed) {
+      return rateLimitResponse(rl)
     }
 
     const empleado = await db.empleado.findFirst({
