@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B: dashboard de superadmin expone deuda y datos de todos los
+// negocios de la plataforma — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // Constants matching Flask
 const LIMITE_SEMANAL_DEUDA = 10000
 const LIMITE_MINIMO_DEUDA = 5000
@@ -39,12 +43,12 @@ export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     // Get all negocios with computed data
@@ -192,12 +196,12 @@ export async function GET(req: NextRequest) {
         limiteMinimoDeuda: LIMITE_MINIMO_DEUDA,
         porcentajeAlertaDeuda: PORCENTAJE_ALERTA_DEUDA,
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting superadmin dashboard:", error)
     return NextResponse.json(
       { error: "Error al obtener dashboard" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     )
   }
 }

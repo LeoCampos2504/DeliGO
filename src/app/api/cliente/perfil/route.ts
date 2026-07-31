@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 
+// Seguridad-6B: perfil del cliente (email, teléfono, direcciones, favoritos) —
+// datos personales, nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // GET /api/cliente/perfil - Get full profile data with stats
 export async function GET(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     // Get total orders count
@@ -47,10 +51,10 @@ export async function GET(req: NextRequest) {
         totalResenas: cliente._count.resenas,
         pedidosRecientes,
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Profile GET error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
 
@@ -59,7 +63,7 @@ export async function PUT(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const body = await req.json()
@@ -69,7 +73,7 @@ export async function PUT(req: NextRequest) {
     if (nombre !== undefined && (!nombre || nombre.trim().length < 2)) {
       return NextResponse.json(
         { error: "El nombre debe tener al menos 2 caracteres" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -83,9 +87,9 @@ export async function PUT(req: NextRequest) {
       select: { id: true, nombre: true, email: true, telefono: true },
     })
 
-    return NextResponse.json({ ok: true, perfil: updated })
+    return NextResponse.json({ ok: true, perfil: updated }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Profile PUT error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

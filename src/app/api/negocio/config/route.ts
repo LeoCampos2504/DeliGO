@@ -4,6 +4,15 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
 
+// Seguridad-6B: respuesta de config de negocio nunca debe quedar en caché
+// (propia del navegador o de un proxy intermedio) — contiene datos privados
+// del local (alias bancario, horarios, deuda vía otros campos, etc).
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
@@ -22,12 +31,12 @@ export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -52,7 +61,7 @@ export async function GET(req: NextRequest) {
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+      return noStoreJson({ error: "Negocio no encontrado" }, { status: 404 })
     }
 
     // Parse JSON fields
@@ -75,10 +84,10 @@ export async function GET(req: NextRequest) {
     // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
     const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
-    return NextResponse.json(safeData)
+    return noStoreJson(safeData)
   } catch (error) {
     console.error("Error getting config:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al obtener configuración" },
       { status: 500 }
     )
@@ -90,12 +99,12 @@ export async function PUT(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -125,7 +134,7 @@ export async function PUT(req: NextRequest) {
 
     // Validate whatsapp format (digits, spaces, dashes, plus, optional)
     if (whatsapp !== undefined && whatsapp && !/^[\d\s\-+()]+$/.test(whatsapp)) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Formato de WhatsApp inválido" },
         { status: 400 }
       )
@@ -133,7 +142,7 @@ export async function PUT(req: NextRequest) {
 
     // Validate color hex format
     if (colorPrincipal !== undefined && colorPrincipal && !/^#[0-9a-fA-F]{6}$/.test(colorPrincipal)) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Formato de color inválido (debe ser #RRGGBB)" },
         { status: 400 }
       )
@@ -146,7 +155,7 @@ export async function PUT(req: NextRequest) {
       const trimmed = nombre.trim()
       const existing = await db.negocio.findUnique({ where: { nombre: trimmed } })
       if (existing && existing.id !== negocioId) {
-        return NextResponse.json(
+        return noStoreJson(
           { error: "Ya existe un local con ese nombre" },
           { status: 409 }
         )
@@ -175,12 +184,12 @@ export async function PUT(req: NextRequest) {
     if (facebook !== undefined) updateData.facebook = facebook
     if (logoUrl !== undefined) {
       const validLogoUrl = validateOptionalImageUrl(logoUrl)
-      if (!validLogoUrl.ok) return NextResponse.json({ error: validLogoUrl.error }, { status: 400 })
+      if (!validLogoUrl.ok) return noStoreJson({ error: validLogoUrl.error }, { status: 400 })
       updateData.logoUrl = validLogoUrl.value
     }
     if (bannerUrl !== undefined) {
       const validBannerUrl = validateOptionalImageUrl(bannerUrl)
-      if (!validBannerUrl.ok) return NextResponse.json({ error: validBannerUrl.error }, { status: 400 })
+      if (!validBannerUrl.ok) return noStoreJson({ error: validBannerUrl.error }, { status: 400 })
       updateData.bannerUrl = validBannerUrl.value
     }
 
@@ -206,10 +215,10 @@ export async function PUT(req: NextRequest) {
     // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
     const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
-    return NextResponse.json(safeData)
+    return noStoreJson(safeData)
   } catch (error) {
     console.error("Error updating config:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al actualizar configuración" },
       { status: 500 }
     )
@@ -221,12 +230,12 @@ export async function PATCH(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -239,7 +248,7 @@ export async function PATCH(req: NextRequest) {
       const trimmed = body.nombre.trim()
       const existing = await db.negocio.findUnique({ where: { nombre: trimmed } })
       if (existing && existing.id !== negocioId) {
-        return NextResponse.json(
+        return noStoreJson(
           { error: "Ya existe un local con ese nombre" },
           { status: 409 }
         )
@@ -268,12 +277,12 @@ export async function PATCH(req: NextRequest) {
     if (body.facebook !== undefined) updateData.facebook = body.facebook
     if (body.logoUrl !== undefined) {
       const validLogoUrl = validateOptionalImageUrl(body.logoUrl)
-      if (!validLogoUrl.ok) return NextResponse.json({ error: validLogoUrl.error }, { status: 400 })
+      if (!validLogoUrl.ok) return noStoreJson({ error: validLogoUrl.error }, { status: 400 })
       updateData.logoUrl = validLogoUrl.value
     }
     if (body.bannerUrl !== undefined) {
       const validBannerUrl = validateOptionalImageUrl(body.bannerUrl)
-      if (!validBannerUrl.ok) return NextResponse.json({ error: validBannerUrl.error }, { status: 400 })
+      if (!validBannerUrl.ok) return noStoreJson({ error: validBannerUrl.error }, { status: 400 })
       updateData.bannerUrl = validBannerUrl.value
     }
     if (body.repartidorCodigo !== undefined) {
@@ -348,10 +357,10 @@ export async function PATCH(req: NextRequest) {
     // real los lee de esta respuesta (usan /api/negocio/access-tokens para eso).
     const { password: _, pushSubscription: __, tokenEmpleados: ___, tokenSalon: ____, ...safeData } = parsed
 
-    return NextResponse.json(safeData)
+    return noStoreJson(safeData)
   } catch (error) {
     console.error("Error patching config:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al actualizar configuración" },
       { status: 500 }
     )

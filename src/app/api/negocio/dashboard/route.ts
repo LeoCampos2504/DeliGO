@@ -2,16 +2,20 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B: panel de negocio (ventas, deuda, pedidos recientes) — datos
+// financieros privados, nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const negocioId = user.id
@@ -36,7 +40,7 @@ export async function GET(req: NextRequest) {
     })
 
     if (!negocio) {
-      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     // Today's date range
@@ -133,12 +137,12 @@ export async function GET(req: NextRequest) {
         bannerUrl: negocio.bannerUrl,
         panelMode: negocio.panelMode,
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Dashboard error:", error)
     return NextResponse.json(
       { error: "Error al obtener datos del dashboard" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     )
   }
 }

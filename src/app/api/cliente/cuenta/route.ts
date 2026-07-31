@@ -3,12 +3,16 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B: eliminación y exportación de cuenta manejan datos personales
+// completos — nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // DELETE /api/cliente/cuenta - Delete account permanently
 export async function DELETE(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const body = await req.json()
@@ -17,7 +21,7 @@ export async function DELETE(req: NextRequest) {
     if (confirmacion !== "ELIMINAR") {
       return NextResponse.json(
         { error: "Debés escribir ELIMINAR para confirmar" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -62,13 +66,13 @@ export async function DELETE(req: NextRequest) {
     const response = NextResponse.json({
       ok: true,
       message: "Cuenta eliminada permanentemente",
-    })
+    }, { headers: NO_STORE_HEADERS })
     response.cookies.delete(SESSION_COOKIE_NAME)
 
     return response
   } catch (error) {
     console.error("Cuenta DELETE error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
 
@@ -77,7 +81,7 @@ export async function GET(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     // Gather all user data
@@ -127,10 +131,11 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": `attachment; filename="deligo-datos-${cliente.nombre.replace(/\s+/g, "-").toLowerCase()}.json"`,
+        ...NO_STORE_HEADERS,
       },
     })
   } catch (error) {
     console.error("Export GET error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

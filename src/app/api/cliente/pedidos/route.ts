@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 
+// Seguridad-6B: historial de pedidos del cliente — datos privados, nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // GET /api/cliente/pedidos - Get all orders for the authenticated client
 export async function GET(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const { searchParams } = new URL(req.url)
@@ -62,9 +65,9 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ ok: true, pedidos: pedidosFlat })
+    return NextResponse.json({ ok: true, pedidos: pedidosFlat }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Cliente pedidos GET error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

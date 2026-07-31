@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B: historial de pagos de deuda de la plataforma — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
   if (!token) return null
@@ -14,7 +17,7 @@ async function verifySuperAdmin(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const user = await verifySuperAdmin(req)
-    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { searchParams } = new URL(req.url)
     const page = parseInt(searchParams.get("page") || "1", 10)
@@ -44,9 +47,9 @@ export async function GET(req: NextRequest) {
         total,
         totalPages: Math.ceil(total / limit),
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting debt history:", error)
-    return NextResponse.json({ error: "Error al obtener historial" }, { status: 500 })
+    return NextResponse.json({ error: "Error al obtener historial" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

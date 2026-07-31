@@ -10,6 +10,14 @@ import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-c
 // revela saldo, límite ni importe al cliente.
 class DebtLimitExceededError extends Error {}
 
+// Seguridad-6B: acciones sobre un pedido puntual de un cliente — nunca deben
+// quedar cacheadas (navegador o proxy intermedio).
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // PUT /api/cliente/pedidos/[id] - Order actions (cancel, confirm receipt, repeat)
 export async function PUT(
   req: NextRequest,
@@ -19,7 +27,7 @@ export async function PUT(
     const { id } = await params
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const body = await req.json()
@@ -31,7 +39,7 @@ export async function PUT(
     })
 
     if (!pedido || pedido.clienteId !== cliente.id) {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return noStoreJson({ error: "Pedido no encontrado" }, { status: 404 })
     }
 
     if (action === "cancelar") {
@@ -45,14 +53,14 @@ export async function PUT(
         const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()
         const toleranciaMs = tolerancia * 60 * 1000
         if (tiempoTranscurrido > toleranciaMs) {
-          return NextResponse.json(
+          return noStoreJson(
             { error: `El tiempo de cancelación de ${tolerancia} min ya pasó` },
             { status: 400 }
           )
         }
       } else {
         // tolerancia = 0 means no cancellation allowed
-        return NextResponse.json(
+        return noStoreJson(
           { error: "Este negocio no permite cancelaciones" },
           { status: 400 }
         )
@@ -114,7 +122,7 @@ export async function PUT(
         })
       } catch (error) {
         if (error instanceof DeudaReversionError) {
-          return NextResponse.json(
+          return noStoreJson(
             { error: "No se pudo cancelar este pedido en este momento." },
             { status: 400 }
           )
@@ -123,7 +131,7 @@ export async function PUT(
       }
 
       if (outcome.kind === "conflict") {
-        return NextResponse.json(
+        return noStoreJson(
           { error: "Este pedido ya no se puede cancelar" },
           { status: 400 }
         )
@@ -151,7 +159,7 @@ export async function PUT(
         console.error("[Push] Failed to send cancellation notification:", pushError)
       }
 
-      return NextResponse.json({
+      return noStoreJson({
         ok: true,
         pedido: {
           id,
@@ -265,7 +273,7 @@ export async function PUT(
         })
       } catch (error) {
         if (error instanceof DebtLimitExceededError) {
-          return NextResponse.json(
+          return noStoreJson(
             { error: "No se pudo confirmar la recepción de este pedido en este momento." },
             { status: 400 }
           )
@@ -274,11 +282,11 @@ export async function PUT(
       }
 
       if (outcome.kind === "not_found") {
-        return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+        return noStoreJson({ error: "Pedido no encontrado" }, { status: 404 })
       }
 
       if (outcome.kind === "invalid_state") {
-        return NextResponse.json(
+        return noStoreJson(
           { error: "Este pedido no se puede confirmar todavía" },
           { status: 400 }
         )
@@ -300,7 +308,7 @@ export async function PUT(
       if (outcome.kind === "already_confirmed") {
         // Repetición idempotente: mismo éxito, sin un segundo efecto financiero ni
         // una segunda ronda de notificaciones.
-        return NextResponse.json(responseBody)
+        return noStoreJson(responseBody)
       }
 
       // Notify negocio and repartidor that client confirmed receipt
@@ -385,12 +393,12 @@ export async function PUT(
         }, 2 * 60 * 1000) // 2 minutes
       }
 
-      return NextResponse.json(responseBody)
+      return noStoreJson(responseBody)
     }
 
-    return NextResponse.json({ error: "Acción no válida" }, { status: 400 })
+    return noStoreJson({ error: "Acción no válida" }, { status: 400 })
   } catch (error) {
     console.error("Cliente pedido PUT error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
