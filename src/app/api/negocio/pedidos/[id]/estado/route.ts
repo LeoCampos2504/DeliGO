@@ -20,6 +20,14 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
   return value
 }
 
+// Seguridad-6B.2: cambios de estado de pedido — datos privados del negocio,
+// nunca cacheables.
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // Valid state transitions
 const VALID_TRANSITIONS: Record<string, string[]> = {
   recibido: ["preparando", "cancelado"],
@@ -39,7 +47,7 @@ export async function PATCH(
 
   // Concurrency protection: prevent double status updates on the same order
   if (!acquireLock(estadoLockKey)) {
-    return NextResponse.json(
+    return noStoreJson(
       { error: "El estado de este pedido se está actualizando. Intentá de nuevo." },
       { status: 409 }
     )
@@ -48,12 +56,12 @@ export async function PATCH(
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -61,7 +69,7 @@ export async function PATCH(
     const { estado, motivo } = body
 
     if (!estado) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "estado es obligatorio" },
         { status: 400 }
       )
@@ -71,7 +79,7 @@ export async function PATCH(
     const pedido = await db.pedido.findUnique({ where: { id: pedidoId } })
 
     if (!pedido || pedido.negocioId !== negocioId) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Pedido no encontrado" },
         { status: 404 }
       )
@@ -81,7 +89,7 @@ export async function PATCH(
     const currentEstado = pedido.estado
 
     if (currentEstado === estado) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "El pedido ya está en ese estado" },
         { status: 400 }
       )
@@ -89,7 +97,7 @@ export async function PATCH(
 
     // Already in terminal state
     if (currentEstado === "entregado" || currentEstado === "cancelado") {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "No se puede cambiar el estado de un pedido ya finalizado" },
         { status: 400 }
       )
@@ -97,7 +105,7 @@ export async function PATCH(
 
     const allowedTransitions = VALID_TRANSITIONS[currentEstado]
     if (!allowedTransitions || !allowedTransitions.includes(estado)) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: `Transición no válida: ${currentEstado} → ${estado}` },
         { status: 400 }
       )
@@ -109,7 +117,7 @@ export async function PATCH(
       estado === "en_camino" &&
       pedido.metodoEntrega !== "domicilio"
     ) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Solo pedidos con delivery pueden pasar a 'en camino'" },
         { status: 400 }
       )
@@ -122,7 +130,7 @@ export async function PATCH(
       pedido.metodoEntrega !== "mesa" &&
       !pedido.clienteConfirmaRecibido
     ) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "El cliente aún no confirmó la recepción del pedido" },
         { status: 400 }
       )
@@ -130,7 +138,7 @@ export async function PATCH(
 
     // Validate: cancelado requires motivo
     if (estado === "cancelado" && !motivo?.trim()) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Debe indicar el motivo de cancelación" },
         { status: 400 }
       )
@@ -175,7 +183,7 @@ export async function PATCH(
         })
       } catch (error) {
         if (error instanceof DeudaReversionError) {
-          return NextResponse.json(
+          return noStoreJson(
             { error: "No se pudo cancelar este pedido en este momento." },
             { status: 400 }
           )
@@ -184,7 +192,7 @@ export async function PATCH(
       }
 
       if (outcome.kind === "conflict") {
-        return NextResponse.json(
+        return noStoreJson(
           { error: "No se puede cambiar el estado de un pedido ya finalizado" },
           { status: 400 }
         )
@@ -341,7 +349,7 @@ export async function PATCH(
     }
 
     const { clienteTelefono: _ct, ...updatedSafe } = updated
-    return NextResponse.json({
+    return noStoreJson({
       ...updatedSafe,
       items: updated.items.map((item) => ({
         ...item,
@@ -354,7 +362,7 @@ export async function PATCH(
     })
   } catch (error) {
     console.error("Error updating pedido estado:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al actualizar estado del pedido" },
       { status: 500 }
     )

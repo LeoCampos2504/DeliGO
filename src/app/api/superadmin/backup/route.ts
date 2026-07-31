@@ -9,17 +9,20 @@ import { promisify } from "util"
 
 const execAsync = promisify(exec)
 
+// Seguridad-6B.2: creación/listado de backups de plataforma — nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 export async function POST(request: NextRequest) {
   try {
     // Verify superadmin
     const token = request.cookies.get("deligo_session")?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const session = await findSesionByToken(token)
     if (!session || session.userType !== "superadmin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+      return NextResponse.json({ error: "No autorizado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")
@@ -113,10 +116,10 @@ export async function POST(request: NextRequest) {
       backup: backupFilename,
       size: `${sizeMB} MB`,
       totalBackups: Math.min(backups.length, 30),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("[Backup] Error:", error)
-    return NextResponse.json({ error: "Error al crear backup" }, { status: 500 })
+    return NextResponse.json({ error: "Error al crear backup" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
 
@@ -125,18 +128,18 @@ export async function GET(request: NextRequest) {
     // Verify superadmin
     const token = request.cookies.get("deligo_session")?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const session = await findSesionByToken(token)
     if (!session || session.userType !== "superadmin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403 })
+      return NextResponse.json({ error: "No autorizado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")
 
     if (!existsSync(BACKUP_DIR)) {
-      return NextResponse.json({ backups: [] })
+      return NextResponse.json({ backups: [] }, { headers: NO_STORE_HEADERS })
     }
 
     const files = await readdir(BACKUP_DIR)
@@ -156,9 +159,9 @@ export async function GET(request: NextRequest) {
       })
     )
 
-    return NextResponse.json({ backups: backupInfo })
+    return NextResponse.json({ backups: backupInfo }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("[Backup] Error listing:", error)
-    return NextResponse.json({ error: "Error al listar backups" }, { status: 500 })
+    return NextResponse.json({ error: "Error al listar backups" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

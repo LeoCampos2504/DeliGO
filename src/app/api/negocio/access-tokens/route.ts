@@ -3,6 +3,9 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { generateToken } from "@/lib/access-tokens"
 
+// Seguridad-6B.2: tokens de acceso compartidos del negocio — nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 function maskToken(token?: string | null) {
   if (!token) return null
   if (token.length <= 8) return "********"
@@ -14,12 +17,12 @@ export async function GET(req: NextRequest) {
   try {
     const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!sessionToken) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(sessionToken)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const negocio = await db.negocio.findUnique({
@@ -54,10 +57,10 @@ export async function GET(req: NextRequest) {
       tokenSalon: null,
       tokenSalonMasked: maskToken(tokenSalon),
       tokenSalonRevealed: false,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting access tokens:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
 
@@ -66,12 +69,12 @@ export async function POST(req: NextRequest) {
   try {
     const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!sessionToken) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(sessionToken)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const type = req.nextUrl.searchParams.get("type") || "empleados"
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
         tokenSalon: newToken,
         tokenSalonMasked: maskToken(newToken),
         tokenSalonRevealed: true,
-      })
+      }, { headers: NO_STORE_HEADERS })
     }
 
     // Default: regenerate empleados token
@@ -105,9 +108,9 @@ export async function POST(req: NextRequest) {
       tokenEmpleados: newToken,
       tokenEmpleadosMasked: maskToken(newToken),
       tokenEmpleadosRevealed: true,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error regenerating access token:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

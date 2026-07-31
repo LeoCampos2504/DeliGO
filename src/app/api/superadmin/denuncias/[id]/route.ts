@@ -6,6 +6,9 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 const MAX_DENUNCIAS_BEFORE_BLOCK = 3
 const MAX_SERIALIZATION_RETRIES = 3
 
+// Seguridad-6B.2: eliminación de denuncia y datos del cliente asociado — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // Postgres soporta aislamiento Serializable y Prisma lo expone para este provider
 // (confirmado en prisma/schema.prisma: datasource "postgresql"). Un conflicto de
 // serialización entre esta transacción y una creación de denuncia concurrente sobre
@@ -51,12 +54,12 @@ export async function DELETE(
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const { id } = await params
@@ -175,14 +178,14 @@ export async function DELETE(
       if (isSerializationConflict(error)) {
         return NextResponse.json(
           { error: "No se pudo eliminar la denuncia por un conflicto de concurrencia. Reintentá." },
-          { status: 409 }
+          { status: 409, headers: NO_STORE_HEADERS }
         )
       }
       throw error
     }
 
     if (outcome.kind === "not_found") {
-      return NextResponse.json({ error: "Denuncia no encontrada" }, { status: 404 })
+      return NextResponse.json({ error: "Denuncia no encontrada" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     const { clienteNombre, desbloqueado, denunciasRestantes } = outcome
@@ -193,9 +196,9 @@ export async function DELETE(
         : `Denuncia eliminada. Quedan ${denunciasRestantes} denuncia${denunciasRestantes !== 1 ? "s" : ""}.`,
       desbloqueado,
       denunciasRestantes,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error deleting denuncia:", error)
-    return NextResponse.json({ error: "Error al eliminar la denuncia" }, { status: 500 })
+    return NextResponse.json({ error: "Error al eliminar la denuncia" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B.2: abono de deuda de un negocio — dato financiero, nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
   if (!token) return null
@@ -23,7 +26,7 @@ export async function POST(
 ) {
   try {
     const user = await verifySuperAdmin(req)
-    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { id } = await params
 
@@ -75,17 +78,17 @@ export async function POST(
     })
 
     if (outcome.kind === "not_found") {
-      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     if (outcome.kind === "sin_deuda") {
-      return NextResponse.json({ error: "No hay deuda para abonar" }, { status: 400 })
+      return NextResponse.json({ error: "No hay deuda para abonar" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     if (outcome.kind === "conflict") {
       return NextResponse.json(
         { error: "La deuda cambió antes de completarse el abono. Actualizá y reintentá." },
-        { status: 409 }
+        { status: 409, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -93,9 +96,9 @@ export async function POST(
       ok: true,
       mensaje: `Deuda de ${outcome.montoAbonado.toLocaleString("es-AR", { style: "currency", currency: "ARS" })} saldada para ${outcome.negocioNombre}`,
       montoAbonado: outcome.montoAbonado,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error clearing debt:", error)
-    return NextResponse.json({ error: "Error al abonar deuda" }, { status: 500 })
+    return NextResponse.json({ error: "Error al abonar deuda" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
