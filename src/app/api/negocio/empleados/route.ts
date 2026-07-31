@@ -35,17 +35,25 @@ function serializeEmpleado<T extends { token: string | null }>(empleado: T, reve
   }
 }
 
+// Seguridad-6B.3: listado/creación de empleados — el POST revela un token en
+// texto plano una única vez al crear un mozo; nunca cacheable.
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // GET - List empleados for negocio
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -78,10 +86,10 @@ export async function GET(req: NextRequest) {
     // regenera ni revoca tokens legacy. Un token nuevo solo puede existir por
     // creación de un Mozo activo (POST) o regeneración explícita válida
     // (PUT /[id] con regenerateToken:true).
-    return NextResponse.json(empleados.map((empleado) => serializeEmpleado(empleado)))
+    return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
     console.error("Error listing empleados:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al obtener empleados" },
       { status: 500 }
     )
@@ -93,12 +101,12 @@ export async function POST(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -114,28 +122,28 @@ export async function POST(req: NextRequest) {
     if (body.areaOperativa !== undefined) {
       const normalized = normalizeAreaOperativa(body.areaOperativa)
       if (normalized === null) {
-        return NextResponse.json({ error: "Área operativa inválida" }, { status: 400 })
+        return noStoreJson({ error: "Área operativa inválida" }, { status: 400 })
       }
       areaOperativa = normalized
     }
 
     // No permitir crear un empleado inactivo con un área asignada.
     if (!empleadoActivo && areaOperativa !== "sin_asignar") {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "No se puede asignar área a un empleado inactivo" },
         { status: 409 }
       )
     }
 
     if (!nombre?.trim()) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "El nombre es obligatorio" },
         { status: 400 }
       )
     }
 
     if (!codigo?.trim()) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "El código es obligatorio" },
         { status: 400 }
       )
@@ -146,7 +154,7 @@ export async function POST(req: NextRequest) {
       where: { negocioId_codigo: { negocioId, codigo: codigo.trim().toUpperCase() } },
     })
     if (existing) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: `Ya existe un empleado con el código "${codigo.trim().toUpperCase()}"` },
         { status: 409 }
       )
@@ -188,10 +196,10 @@ export async function POST(req: NextRequest) {
       await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_asignada", recurso: "empleado", recursoId: empleado.id, detalle: { areaOperativa, asignacionVersion: empleado.asignacionVersion } })
     }
 
-    return NextResponse.json(serializeEmpleado(empleado, debeTenerToken), { status: 201 })
+    return noStoreJson(serializeEmpleado(empleado, debeTenerToken), { status: 201 })
   } catch (error) {
     console.error("Error creating empleado:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al crear empleado" },
       { status: 500 }
     )

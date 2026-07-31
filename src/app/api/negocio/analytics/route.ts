@@ -2,16 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B.3: analytics privados del negocio (ingresos, productos, métodos de pago) — nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const negocioId = user.id
@@ -275,12 +278,12 @@ export async function GET(req: NextRequest) {
           prevOrders,
         },
       },
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Analytics error:", error)
     return NextResponse.json(
       { error: "Error al obtener analytics" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     )
   }
 }

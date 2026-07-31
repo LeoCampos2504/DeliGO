@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 
+// Seguridad-6B.3: repetición de pedido — datos de precios/stock ligados a la sesión del cliente, nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // PUT /api/cliente/pedidos/[id]/repetir - Validate and prepare order repetition
 // Returns order data with product availability info so the frontend can show what's available/unavailable
 export async function PUT(
@@ -12,7 +15,7 @@ export async function PUT(
     const { id } = await params
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     // Fetch the original order with items
@@ -22,7 +25,7 @@ export async function PUT(
     })
 
     if (!pedido || pedido.clienteId !== cliente.id) {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     // Validate the business still exists and is not suspended
@@ -30,21 +33,21 @@ export async function PUT(
     if (!negocio) {
       return NextResponse.json(
         { error: "El negocio asociado ya no existe", negocioNoExiste: true },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
     if (negocio.suspendido) {
       return NextResponse.json(
         { error: `${negocio.nombre} está suspendido y no acepta pedidos`, negocioSuspendido: true },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
     if (!negocio.aprobado) {
       return NextResponse.json(
         { error: `${negocio.nombre} no está aprobado y no acepta pedidos`, negocioNoAprobado: true },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -175,9 +178,9 @@ export async function PUT(
       disponiblesCount,
       noDisponiblesCount,
       totalOriginal: pedido.totalProductos,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Repetir pedido PUT error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -17,17 +17,20 @@ function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null
   return "activo"
 }
 
+// Seguridad-6B.3: estadísticas de salón (ingresos totales y por mozo) — nunca cacheables.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // GET /api/negocio/salon/stats — Get salon statistics for the business panel
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const negocioId = user.id
@@ -184,9 +187,9 @@ export async function GET(req: NextRequest) {
       }
     }).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
 
-    return NextResponse.json({ resumen, mozos: mozosStats, periodo })
+    return NextResponse.json({ resumen, mozos: mozosStats, periodo }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting salon stats:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

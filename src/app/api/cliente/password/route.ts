@@ -4,12 +4,15 @@ import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { comparePassword, hashPassword } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
+// Seguridad-6B.3: cambio de contraseña — operación sensible, nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // PUT /api/cliente/password - Change password
 export async function PUT(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     // Rate limit password changes
@@ -23,7 +26,7 @@ export async function PUT(req: NextRequest) {
     if (!cliente.password) {
       return NextResponse.json(
         { error: "Tu cuenta usa Google. No tenés contraseña configurada." },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -33,14 +36,14 @@ export async function PUT(req: NextRequest) {
     if (!passwordActual || !passwordNueva) {
       return NextResponse.json(
         { error: "Debés ingresar la contraseña actual y la nueva" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
     if (passwordNueva.length < 6) {
       return NextResponse.json(
         { error: "La nueva contraseña debe tener al menos 6 caracteres" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -49,7 +52,7 @@ export async function PUT(req: NextRequest) {
     if (!isValid) {
       return NextResponse.json(
         { error: "La contraseña actual es incorrecta" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -60,9 +63,9 @@ export async function PUT(req: NextRequest) {
       data: { password: hashedPassword },
     })
 
-    return NextResponse.json({ ok: true, message: "Contraseña actualizada correctamente" })
+    return NextResponse.json({ ok: true, message: "Contraseña actualizada correctamente" }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Password PUT error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

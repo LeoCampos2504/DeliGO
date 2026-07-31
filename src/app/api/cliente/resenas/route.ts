@@ -4,17 +4,24 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newReviewNotification, empleadosNewReviewNotification } from "@/lib/push"
 
+// Seguridad-6B.3: creación de reseña depende de la sesión del cliente — nunca cacheable.
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // POST /api/cliente/resenas — Create a review for a delivered order
 export async function POST(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "cliente") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     // Rate limit reviews
@@ -29,24 +36,24 @@ export async function POST(req: NextRequest) {
 
     // Validate required fields
     if (!pedidoId) {
-      return NextResponse.json({ error: "pedidoId es obligatorio" }, { status: 400 })
+      return noStoreJson({ error: "pedidoId es obligatorio" }, { status: 400 })
     }
 
     // All 3 sub-ratings are required
     if (!rapidez || rapidez < 1 || rapidez > 5) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "La puntuación de rapidez es obligatoria (1-5)" },
         { status: 400 }
       )
     }
     if (!calidad || calidad < 1 || calidad > 5) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "La puntuación de calidad es obligatoria (1-5)" },
         { status: 400 }
       )
     }
     if (!precio || precio < 1 || precio > 5) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "La puntuación de precio es obligatoria (1-5)" },
         { status: 400 }
       )
@@ -62,16 +69,16 @@ export async function POST(req: NextRequest) {
     })
 
     if (!pedido) {
-      return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      return noStoreJson({ error: "Pedido no encontrado" }, { status: 404 })
     }
 
     if (pedido.clienteId !== user.id) {
-      return NextResponse.json({ error: "Este pedido no te pertenece" }, { status: 403 })
+      return noStoreJson({ error: "Este pedido no te pertenece" }, { status: 403 })
     }
 
     // Only allow reviews for delivered orders
     if (pedido.estado !== "entregado") {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Solo podés reseñar pedidos entregados" },
         { status: 400 }
       )
@@ -79,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // Check if already reviewed
     if (pedido.resena) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Ya dejaste una reseña para este pedido" },
         { status: 400 }
       )
@@ -168,10 +175,10 @@ export async function POST(req: NextRequest) {
       console.error("[Push] Failed to send review notification:", pushError)
     }
 
-    return NextResponse.json(resena, { status: 201 })
+    return noStoreJson(resena, { status: 201 })
   } catch (error) {
     console.error("Error creating resena:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al crear la reseña" },
       { status: 500 }
     )
