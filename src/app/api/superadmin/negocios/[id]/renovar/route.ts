@@ -3,6 +3,10 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { createNotification, subscriptionRenewedNotification } from "@/lib/push"
 
+// Seguridad-6B.4: renovación de suscripción de un negocio por superadmin — expone la
+// nueva fecha de vencimiento; nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
   if (!token) return null
@@ -18,14 +22,14 @@ export async function POST(
 ) {
   try {
     const user = await verifySuperAdmin(req)
-    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { id } = await params
     const body = await req.json()
     const { periodo, planTipo, fechaVencimientoCustom } = body
 
     const negocio = await db.negocio.findUnique({ where: { id } })
-    if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+    if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
 
     // Calculate new expiration date
     let nuevoVencimiento: Date
@@ -80,9 +84,9 @@ export async function POST(
       ok: true,
       mensaje: `Suscripción renovada hasta ${nuevoVencimiento.toLocaleDateString("es-AR")}`,
       nuevoVencimiento: nuevoVencimiento.toISOString(),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error renewing subscription:", error)
-    return NextResponse.json({ error: "Error al renovar" }, { status: 500 })
+    return NextResponse.json({ error: "Error al renovar" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

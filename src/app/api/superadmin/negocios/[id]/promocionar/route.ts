@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B.4: promoción/destacado de un negocio por superadmin — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
   if (!token) return null
@@ -18,7 +21,7 @@ export async function PUT(
   try {
     const user = await verifySuperAdmin(req)
     if (!user) {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const { id } = await params
@@ -31,7 +34,7 @@ export async function PUT(
     if (!negocio) {
       return NextResponse.json(
         { error: "Negocio no encontrado" },
-        { status: 404 }
+        { status: 404, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -41,7 +44,7 @@ export async function PUT(
     if (typeof promocionado !== "boolean") {
       return NextResponse.json(
         { error: "promocionado debe ser un valor booleano" },
-        { status: 400 }
+        { status: 400, headers: NO_STORE_HEADERS }
       )
     }
 
@@ -57,7 +60,7 @@ export async function PUT(
       if (typeof ordenPromocion !== "number" || ordenPromocion < 0) {
         return NextResponse.json(
           { error: "ordenPromocion debe ser un número positivo" },
-          { status: 400 }
+          { status: 400, headers: NO_STORE_HEADERS }
         )
       }
       updateData.ordenPromocion = ordenPromocion
@@ -105,12 +108,12 @@ export async function PUT(
       },
     })
 
-    return NextResponse.json(updated)
+    return NextResponse.json(updated, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error updating promocionado:", error)
     return NextResponse.json(
       { error: "Error al actualizar promoción" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     )
   }
 }

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B.4: acción superadmin sobre un cliente bloqueado — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // POST - Unblock a cliente (superadmin only)
 export async function POST(
   req: NextRequest,
@@ -10,12 +13,12 @@ export async function POST(
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const { id } = await params
@@ -35,11 +38,11 @@ export async function POST(
     })
 
     if (!cliente) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     if (!cliente.bloqueado) {
-      return NextResponse.json({ error: "El cliente no está bloqueado" }, { status: 400 })
+      return NextResponse.json({ error: "El cliente no está bloqueado" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     // Unblock the cliente
@@ -78,9 +81,9 @@ export async function POST(
         ? `${cliente.nombre} desbloqueado. Se eliminaron ${denunciasEliminadas} denuncia${denunciasEliminadas !== 1 ? "s" : ""}.`
         : `${cliente.nombre} desbloqueado. Las denuncias se mantuvieron.`,
       denunciasEliminadas: eliminarDenuncias ? denunciasEliminadas : undefined,
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error unblocking cliente:", error)
-    return NextResponse.json({ error: "Error al desbloquear el cliente" }, { status: 500 })
+    return NextResponse.json({ error: "Error al desbloquear el cliente" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

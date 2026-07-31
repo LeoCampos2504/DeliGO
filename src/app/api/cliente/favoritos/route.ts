@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 
+// Seguridad-6B.4: favoritos del cliente — preferencia privada ligada a la sesión, nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // GET /api/cliente/favoritos - Get client's favorite businesses
 export async function GET(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const favoritos = await db.favorito.findMany({
@@ -53,10 +56,10 @@ export async function GET(req: NextRequest) {
         favoritoId: f.id,
         totalVentas: f.negocio._count.pedidos,
       })),
-    })
+    }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Cliente favoritos GET error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
 
@@ -65,20 +68,20 @@ export async function POST(req: NextRequest) {
   try {
     const cliente = await getAuthenticatedCliente(req)
     if (!cliente) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
     const body = await req.json()
     const { negocioId } = body
 
     if (!negocioId) {
-      return NextResponse.json({ error: "negocioId es requerido" }, { status: 400 })
+      return NextResponse.json({ error: "negocioId es requerido" }, { status: 400, headers: NO_STORE_HEADERS })
     }
 
     // Check if negocio exists
     const negocio = await db.negocio.findUnique({ where: { id: negocioId } })
     if (!negocio) {
-      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
     }
 
     // Check if already favorited
@@ -91,16 +94,16 @@ export async function POST(req: NextRequest) {
     if (existing) {
       // Remove favorite
       await db.favorito.delete({ where: { id: existing.id } })
-      return NextResponse.json({ ok: true, action: "removed" })
+      return NextResponse.json({ ok: true, action: "removed" }, { headers: NO_STORE_HEADERS })
     } else {
       // Add favorite
       await db.favorito.create({
         data: { clienteId: cliente.id, negocioId },
       })
-      return NextResponse.json({ ok: true, action: "added" })
+      return NextResponse.json({ ok: true, action: "added" }, { headers: NO_STORE_HEADERS })
     }
   } catch (error) {
     console.error("Cliente favoritos POST error:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

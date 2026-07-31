@@ -18,13 +18,19 @@ function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null
   return "activo"
 }
 
+// Seguridad-6B.4: ingresos y pedidos por mozo — dato de rendimiento por empleado, nunca cacheable.
+// Nota: este archivo es la implementación real detrás de /api/mozos/stats Y de
+// /api/negocio/mozos/stats (que solo hace `export { GET } from "@/app/api/mozos/stats/route"`),
+// así que este único cambio corrige ambas rutas.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 // GET — Mozo order statistics for the authenticated negocio
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    if (!token) return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     const user = await getUserFromToken(token)
-    if (!user || user.type !== "negocio") return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    if (!user || user.type !== "negocio") return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const negocioId = user.id
 
@@ -115,9 +121,9 @@ export async function GET(req: NextRequest) {
       }
     }).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
 
-    return NextResponse.json({ stats })
+    return NextResponse.json({ stats }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error getting mozo stats:", error)
-    return NextResponse.json({ error: "Error al obtener estadísticas" }, { status: 500 })
+    return NextResponse.json({ error: "Error al obtener estadísticas" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -2,17 +2,24 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 
+// Seguridad-6B.4: reseñas del negocio (comentarios y datos del cliente que las escribió) — nunca cacheables.
+function noStoreJson<T>(data: T, init?: ResponseInit) {
+  const response = NextResponse.json(data, init)
+  response.headers.set("Cache-Control", "private, no-store")
+  return response
+}
+
 // GET - List reviews for the negocio with pagination
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -73,7 +80,7 @@ export async function GET(req: NextRequest) {
       db.resena.count({ where: { negocioId, respuestaNegocio: null } }),
     ])
 
-    return NextResponse.json({
+    return noStoreJson({
       resenas,
       stats: {
         promedio: stats._avg.puntuacion ?? 0,
@@ -99,7 +106,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (error) {
     console.error("Error listing resenas:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al obtener reseñas" },
       { status: 500 }
     )
@@ -111,12 +118,12 @@ export async function PATCH(req: NextRequest) {
   try {
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return noStoreJson({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const negocioId = user.id
@@ -124,14 +131,14 @@ export async function PATCH(req: NextRequest) {
     const { resenaId, respuesta } = body
 
     if (!resenaId) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "resenaId es obligatorio" },
         { status: 400 }
       )
     }
 
     if (!respuesta?.trim()) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "respuesta es obligatoria" },
         { status: 400 }
       )
@@ -143,7 +150,7 @@ export async function PATCH(req: NextRequest) {
     })
 
     if (!resena || resena.negocioId !== negocioId) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Reseña no encontrada" },
         { status: 404 }
       )
@@ -151,7 +158,7 @@ export async function PATCH(req: NextRequest) {
 
     // Check if already replied
     if (resena.respuestaNegocio) {
-      return NextResponse.json(
+      return noStoreJson(
         { error: "Esta reseña ya tiene una respuesta" },
         { status: 400 }
       )
@@ -174,10 +181,10 @@ export async function PATCH(req: NextRequest) {
       },
     })
 
-    return NextResponse.json(updated)
+    return noStoreJson(updated)
   } catch (error) {
     console.error("Error replying to resena:", error)
-    return NextResponse.json(
+    return noStoreJson(
       { error: "Error al responder reseña" },
       { status: 500 }
     )
