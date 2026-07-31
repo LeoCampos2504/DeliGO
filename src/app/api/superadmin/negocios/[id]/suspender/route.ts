@@ -4,6 +4,9 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { createNotification, negocioSuspendedNotification } from "@/lib/push"
 import { auditLog } from "@/lib/audit"
 
+// Seguridad-6B.5: suspensión de negocio por superadmin — nunca cacheable.
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
+
 async function verifySuperAdmin(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
   if (!token) return null
@@ -19,11 +22,11 @@ export async function POST(
 ) {
   try {
     const user = await verifySuperAdmin(req)
-    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+    if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { id } = await params
     const negocio = await db.negocio.findUnique({ where: { id } })
-    if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
+    if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
 
     await db.negocio.update({
       where: { id },
@@ -51,9 +54,9 @@ export async function POST(
       console.error("[Push] Failed to send suspension notification:", pushError)
     }
 
-    return NextResponse.json({ ok: true, mensaje: `${negocio.nombre} suspendido` })
+    return NextResponse.json({ ok: true, mensaje: `${negocio.nombre} suspendido` }, { headers: NO_STORE_HEADERS })
   } catch (error) {
     console.error("Error suspending negocio:", error)
-    return NextResponse.json({ error: "Error al suspender" }, { status: 500 })
+    return NextResponse.json({ error: "Error al suspender" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
