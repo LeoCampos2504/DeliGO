@@ -25,10 +25,20 @@ export async function PUT(
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { id } = await params
-    const body = await req.json()
-    const { nuevoLimite } = body
 
-    if (!nuevoLimite || nuevoLimite < LIMITE_MINIMO_DEUDA) {
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400, headers: NO_STORE_HEADERS })
+    }
+    const nuevoLimite = (body as { nuevoLimite?: unknown } | null)?.nuevoLimite
+
+    if (
+      typeof nuevoLimite !== "number" ||
+      !Number.isFinite(nuevoLimite) ||
+      nuevoLimite < LIMITE_MINIMO_DEUDA
+    ) {
       return NextResponse.json(
         { error: `El límite mínimo es $${LIMITE_MINIMO_DEUDA.toLocaleString("es-AR")}` },
         { status: 400, headers: NO_STORE_HEADERS }

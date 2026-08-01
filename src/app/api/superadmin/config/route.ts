@@ -51,8 +51,13 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
-    const body = await req.json()
-    const { promocionadosActivos } = body
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400, headers: NO_STORE_HEADERS })
+    }
+    const { promocionadosActivos } = (body as { promocionadosActivos?: unknown } | null) ?? {}
 
     if (typeof promocionadosActivos !== "boolean") {
       return NextResponse.json(

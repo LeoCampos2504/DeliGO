@@ -20,8 +20,27 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
     const { searchParams } = new URL(req.url)
-    const page = parseInt(searchParams.get("page") || "1", 10)
-    const limit = parseInt(searchParams.get("limit") || "20", 10)
+
+    const rawPage = searchParams.get("page")
+    const page = rawPage === null ? 1 : parseInt(rawPage, 10)
+    if (!Number.isFinite(page) || !Number.isInteger(page) || page < 1) {
+      return NextResponse.json(
+        { error: "page debe ser un entero mayor o igual a 1" },
+        { status: 400, headers: NO_STORE_HEADERS }
+      )
+    }
+
+    const MAX_LIMIT = 100
+    const rawLimit = searchParams.get("limit")
+    const parsedLimit = rawLimit === null ? 20 : parseInt(rawLimit, 10)
+    if (!Number.isFinite(parsedLimit) || !Number.isInteger(parsedLimit) || parsedLimit < 1) {
+      return NextResponse.json(
+        { error: "limit debe ser un entero mayor o igual a 1" },
+        { status: 400, headers: NO_STORE_HEADERS }
+      )
+    }
+    const limit = Math.min(parsedLimit, MAX_LIMIT)
+
     const negocioId = searchParams.get("negocioId")
 
     const where: Record<string, unknown> = {}
