@@ -22,6 +22,22 @@
     "client_mode": "navigate-existing"
   },
   "prefer_related_applications": false,
+  "share_target": {
+    "action": "/cliente/share-target/receive",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "file",
+          "accept": ["application/pdf", "image/jpeg", "image/png", "image/webp"]
+        }
+      ]
+    }
+  },
   "shortcuts": [
     {
       "name": "Mi Carrito",

@@ -79,9 +79,149 @@ async function cacheResponse(request, response) {
   }
 }
 
+// ============================================
+// Bugfix-4C: Web Share Target (recibir comprobantes desde apps externas)
+// ============================================
+// Solo intercepta el POST exacto que cada manifest declara como
+// `share_target.action`. El archivo NUNCA se sube a ningún servidor acá: se
+// guarda temporalmente en IndexedDB del propio navegador (nunca en DB,
+// nunca en public/, nunca base64) hasta que el usuario elige un chat y
+// confirma el envío desde la página /<rol>/share-target. Si algo falla acá
+// (SW no soporta IndexedDB, formData vacío, etc.), se cae al fallback de
+// red (src/app/<rol>/share-target/receive/route.ts), que tampoco guarda
+// nada — solo redirige con `unsupported=1`.
+const SHARE_TARGET_PATHS = {
+  "/cliente/share-target/receive": "cliente",
+  "/negocio/share-target/receive": "negocio",
+  "/operaciones/share-target/receive": "operaciones",
+};
+const SHARE_TARGET_DB_NAME = "deligo-share-target";
+const SHARE_TARGET_STORE_NAME = "pending-shares";
+const SHARE_TARGET_TTL_MS = 15 * 60 * 1000; // 15 minutos
+const SHARE_TARGET_MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB, igual que /api/upload
+const SHARE_TARGET_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB, igual que /api/upload
+const SHARE_TARGET_ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+function shareTargetToken() {
+  if (self.crypto && typeof self.crypto.randomUUID === "function") {
+    return self.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (self.crypto && typeof self.crypto.getRandomValues === "function") {
+    self.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function openShareTargetDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SHARE_TARGET_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SHARE_TARGET_STORE_NAME)) {
+        db.createObjectStore(SHARE_TARGET_STORE_NAME, { keyPath: "token" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Limpieza best-effort de comparticiones vencidas — no bloquea el guardado
+// de la nueva si falla.
+function cleanupExpiredShares(db) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SHARE_TARGET_STORE_NAME, "readwrite");
+      const store = tx.objectStore(SHARE_TARGET_STORE_NAME);
+      const now = Date.now();
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        if (cursor.value && cursor.value.expiresAt < now) cursor.delete();
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function putPendingShare(record) {
+  return openShareTargetDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        cleanupExpiredShares(db).then(() => {
+          const tx = db.transaction(SHARE_TARGET_STORE_NAME, "readwrite");
+          tx.objectStore(SHARE_TARGET_STORE_NAME).put(record);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      })
+  );
+}
+
+async function handleShareTargetPost(event, role) {
+  try {
+    const formData = await event.request.formData();
+    const file = formData.get("file");
+    const title = typeof formData.get("title") === "string" ? formData.get("title") : "";
+    const text = typeof formData.get("text") === "string" ? formData.get("text") : "";
+    // Nunca se navega a esto ni se trata como URL real — es solo texto
+    // informativo que algunas apps mandan junto al archivo.
+    const sharedUrl = typeof formData.get("url") === "string" ? formData.get("url") : "";
+
+    const isFile = file && typeof file === "object" && typeof file.arrayBuffer === "function";
+    if (!isFile || !file.type || !SHARE_TARGET_ALLOWED_TYPES.includes(file.type)) {
+      return Response.redirect(`/${role}/share-target?rejected=1`, 303);
+    }
+    const isPdf = file.type === "application/pdf";
+    const maxSize = isPdf ? SHARE_TARGET_MAX_FILE_SIZE : SHARE_TARGET_MAX_IMAGE_SIZE;
+    if (!file.size || file.size <= 0 || file.size > maxSize) {
+      return Response.redirect(`/${role}/share-target?rejected=1`, 303);
+    }
+
+    const token = shareTargetToken();
+    const now = Date.now();
+    await putPendingShare({
+      token,
+      blob: file,
+      name: (file.name || "comprobante").toString().slice(0, 120),
+      type: file.type,
+      size: file.size,
+      role,
+      createdAt: now,
+      expiresAt: now + SHARE_TARGET_TTL_MS,
+      title: title.slice(0, 200),
+      text: text.slice(0, 500),
+      sharedUrl: sharedUrl.slice(0, 500),
+    });
+
+    return Response.redirect(`/${role}/share-target?share=${token}`, 303);
+  } catch {
+    return Response.redirect(`/${role}/share-target?unsupported=1`, 303);
+  }
+}
+
 // Fetch event — network-first strategy with safe fallbacks
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+
+  // Bugfix-4C: interceptar SOLO el POST exacto de share_target de cada rol,
+  // antes de cualquier otra regla (incluida la que ignora todo lo no-GET).
+  if (request.method === "POST") {
+    const pathname = new URL(request.url).pathname;
+    const role = SHARE_TARGET_PATHS[pathname];
+    if (role) {
+      event.respondWith(handleShareTargetPost(event, role));
+      return;
+    }
+  }
 
   // Skip non-GET requests
   if (request.method !== "GET") return;
