@@ -382,8 +382,8 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // Build target URL: prefer an explicit, validated internal `data.url`;
-  // otherwise build one from role + tab (+ pedidoId, + chat marker for chat
-  // notifications, so the page can open that exact conversation).
+  // otherwise build one from role + tab (+ pedidoId, + chat/review markers so
+  // the page can open the exact conversation/review, per Bugfix-4B).
   let targetPath;
   if (isSafeInternalUrl(notificationData.url)) {
     targetPath = notificationData.url;
@@ -392,6 +392,13 @@ self.addEventListener("notificationclick", (event) => {
     if (targetTab) params.set("tab", targetTab);
     if (pedidoId) params.set("pedidoId", String(pedidoId));
     if (type === "chat" && pedidoId) params.set("chat", String(pedidoId));
+    // Bugfix-4B [17A]: "review_request" es específicamente "pedile al cliente
+    // que califique este pedido" — marca la reseña para que el panel de
+    // pedidos abra el modal automáticamente. `type === "review"` (nueva
+    // reseña recibida / respuesta a una reseña) es un caso distinto: va a la
+    // pestaña "resenas", no al modal de "dejar reseña", así que no lleva esta
+    // marca.
+    if (type === "review_request" && pedidoId) params.set("review", "1");
     targetPath = `${basePath}?${params.toString()}`;
   }
 

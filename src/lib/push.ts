@@ -375,7 +375,9 @@ export function orderUpdateNotification(
     data: {
       type: "order_update",
       pedidoId,
-      url: "/?tab=pedidos",
+      // Bugfix-4B [17B]: se quita el `url` fijo ("/?tab=pedidos", sin rol y
+      // sin pedidoId) para que el service worker arme el destino real
+      // (rol correcto + pedidoId) en vez de usar este valor incompleto.
     },
     actions: newStatus === "listo_para_retirar"
       ? [{ action: "view", title: "Ver pedido" }]
@@ -471,7 +473,7 @@ export function orderDeliveredNotification(
     data: {
       type: "order_update",
       pedidoId,
-      url: "/?tab=pedidos",
+      // Bugfix-4B [17B]: mismo motivo que en orderUpdateNotification.
     },
   }
 }
@@ -585,7 +587,7 @@ export function orderDeliveredByRepartidorNotification(
     data: {
       type: "order_update",
       pedidoId,
-      url: "/?tab=pedidos",
+      // Bugfix-4B [17B]: mismo motivo que en orderUpdateNotification.
     },
   }
 }
@@ -601,7 +603,9 @@ export function reviewRequestNotification(
     data: {
       type: "review_request",
       pedidoId,
-      url: "/?tab=pedidos",
+      // Bugfix-4B [17A]: se quita el `url` fijo — el service worker arma
+      // "<rol>/?tab=pedidos&pedidoId=<id>&review=1" para abrir el modal de
+      // reseña exacto en vez de solo la pestaña genérica de pedidos.
     },
     actions: [
       { action: "review", title: "Calificar" },

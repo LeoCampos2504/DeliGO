@@ -225,8 +225,14 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       const target = tabMap[tabParam]
       if (target) {
         setActiveTab(target)
-        // Clean URL without reload
-        window.history.replaceState({}, "", window.location.pathname)
+        // Bugfix-4B [17B]: antes esto limpiaba TODA la query string, incluido
+        // un eventual `pedidoId` — que OrdersTab necesita leer recién en el
+        // siguiente render, cuando se monta por primera vez al cambiar de tab.
+        // Ahora solo se quita `tab`; el resto (pedidoId, etc.) lo consume y
+        // limpia el propio tab de destino cuando termina de usarlo.
+        params.delete("tab")
+        const newSearch = params.toString()
+        window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
       }
     }
   }, [])

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
@@ -169,6 +169,38 @@ export function ClientOrdersPanel() {
   const [trackingPedido, setTrackingPedido] = useState<Pedido | null>(null)
   const [trackingOpen, setTrackingOpen] = useState(false)
 
+  // Bugfix-4B [17A]/[17B]: deep link desde una notificación de reseña o de
+  // pedido/estado (?pedidoId=<id>[&review=1]). Se captura la intención una
+  // sola vez, con el inicializador perezoso de useState (se ejecuta una única
+  // vez al crear el componente, sin necesidad de un efecto ni de un setState
+  // dentro de uno) — el pedido puede tardar en llegar (todavía cargando), así
+  // que la intención se guarda en estado local en vez de depender de que el
+  // query param siga en la URL.
+  const [focusPedidoId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("pedidoId")
+  )
+  const [focusReview] = useState<boolean>(() =>
+    typeof window === "undefined" ? false : new URLSearchParams(window.location.search).get("review") === "1"
+  )
+  const [focusResolved, setFocusResolved] = useState(false)
+
+  // Limpiar la URL es un efecto secundario real (API del navegador), no un
+  // cómputo de estado — por eso sí va en un efecto, pero sin llamar a
+  // setState dentro.
+  useEffect(() => {
+    if (!focusPedidoId) return
+    const params = new URLSearchParams(window.location.search)
+    params.delete("pedidoId")
+    params.delete("review")
+    params.delete("focusPedido")
+    const newSearch = params.toString()
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
+    )
+  }, [focusPedidoId])
+
   const { data: pedidosActivos = [], isLoading: loadingActivos } = useQuery<Pedido[]>({
     queryKey: ["cliente-pedidos", "activos"],
     queryFn: async () => {
@@ -191,6 +223,24 @@ export function ClientOrdersPanel() {
   })
 
   const isLoading = loadingActivos && loadingHistorial
+
+  // Bugfix-4B [17A]/[17B]: una vez que ambas listas terminaron de cargar,
+  // resolver el deep link: cambiar a la sub-pestaña donde esté el pedido y
+  // marcarlo como resuelto (una sola vez) para disparar el resaltado/expansión
+  // /apertura de reseña en la tarjeta correspondiente. Si el pedido no está en
+  // ninguna lista (no existe o no es del usuario — la API ya filtra eso),
+  // simplemente no se resalta nada: fallback seguro, sin romper la pantalla.
+  // Se ajusta durante el render (patrón de React para "adjusting state" sin
+  // efecto) en vez de en un useEffect, guardado por `focusResolved` para que
+  // solo corra una vez.
+  if (focusPedidoId && !focusResolved && !loadingActivos && !loadingHistorial) {
+    if (pedidosActivos.some((p) => p.id === focusPedidoId)) {
+      setActiveTab("activos")
+    } else if (pedidosHistorial.some((p) => p.id === focusPedidoId)) {
+      setActiveTab("historial")
+    }
+    setFocusResolved(true)
+  }
 
   const openRepeatDialog = useCallback((pedidoId: string) => {
     setRepeatPedidoId(pedidoId)
@@ -282,7 +332,12 @@ export function ClientOrdersPanel() {
               ) : (
                 <div className="space-y-3">
                   {pedidosActivos.map((pedido) => (
-                    <ActiveOrderCard key={pedido.id} pedido={pedido} onTrackDelivery={(p) => { setTrackingPedido(p); setTrackingOpen(true) }} />
+                    <ActiveOrderCard
+                      key={pedido.id}
+                      pedido={pedido}
+                      onTrackDelivery={(p) => { setTrackingPedido(p); setTrackingOpen(true) }}
+                      highlighted={focusResolved && pedido.id === focusPedidoId}
+                    />
                   ))}
                 </div>
               )}
@@ -308,6 +363,8 @@ export function ClientOrdersPanel() {
                       key={pedido.id}
                       pedido={pedido}
                       onRepeat={openRepeatDialog}
+                      highlighted={focusResolved && pedido.id === focusPedidoId}
+                      autoOpenReview={focusResolved && focusReview && pedido.id === focusPedidoId}
                     />
                   ))}
                 </div>
@@ -857,9 +914,39 @@ function OrdersHeader() {
 // ============================================
 // Active Order Card
 // ============================================
-function ActiveOrderCard({ pedido, onTrackDelivery }: { pedido: Pedido; onTrackDelivery: (pedido: Pedido) => void }) {
+function ActiveOrderCard({
+  pedido,
+  onTrackDelivery,
+  highlighted,
+}: {
+  pedido: Pedido
+  onTrackDelivery: (pedido: Pedido) => void
+  /** Bugfix-4B [17B]: pedido exacto de un deep link de notificación de pedido/estado. */
+  highlighted?: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
+  const [showHighlight, setShowHighlight] = useState(false)
+  const [handledHighlight, setHandledHighlight] = useState(false)
   const queryClient = useQueryClient()
+
+  // Bugfix-4B [17B]: al llegar resaltado, expandir el detalle y prender el
+  // resaltado visual — ajustado durante el render (sin setState dentro de un
+  // efecto), guardado por `handledHighlight` para que corra una sola vez.
+  if (highlighted && !handledHighlight) {
+    setHandledHighlight(true)
+    setExpanded(true)
+    setShowHighlight(true)
+  }
+
+  // El scroll y el apagado del resaltado a los pocos segundos sí son efectos
+  // reales (API del DOM / temporizador), no cómputo de estado.
+  useEffect(() => {
+    if (!showHighlight) return
+    const el = document.getElementById(`pedido-${pedido.id}`)
+    el?.scrollIntoView({ behavior: "smooth", block: "center" })
+    const timer = setTimeout(() => setShowHighlight(false), 3000)
+    return () => clearTimeout(timer)
+  }, [showHighlight, pedido.id])
 
   const canCancel = (() => {
     if (pedido.estado !== "recibido" && pedido.estado !== "confirmado") return false
@@ -907,6 +994,8 @@ function ActiveOrderCard({ pedido, onTrackDelivery }: { pedido: Pedido; onTrackD
 
   return (
     <SectionCard
+      id={`pedido-${pedido.id}`}
+      highlighted={showHighlight}
       icon={Package}
       title={pedido.negocioNombre}
       badge={`${statusEmoji(pedido.estado)} ${statusLabel(pedido.estado)}`}
@@ -1136,20 +1225,55 @@ function ActiveOrderCard({ pedido, onTrackDelivery }: { pedido: Pedido; onTrackD
 function HistoryOrderCard({
   pedido,
   onRepeat,
+  highlighted,
+  autoOpenReview,
 }: {
   pedido: Pedido
   onRepeat: (pedidoId: string) => void
+  /** Bugfix-4B [17B]: pedido exacto de un deep link de notificación de pedido/estado. */
+  highlighted?: boolean
+  /** Bugfix-4B [17A]: deep link de notificación de reseña pendiente. */
+  autoOpenReview?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [showHighlight, setShowHighlight] = useState(false)
+  const [handledHighlight, setHandledHighlight] = useState(false)
   const queryClient = useQueryClient()
 
   const isCancelled = pedido.estado === "cancelado"
   const isDelivered = pedido.estado === "entregado"
   const isDelivery = pedido.metodoEntrega === "domicilio"
+  const canReview = isDelivered && !pedido.resena
+
+  // Bugfix-4B [17A]/[17B]: al llegar resaltado y/o con pedido de reseña
+  // pendiente, prender el resaltado y — si el pedido realmente admite reseña —
+  // abrir el modal automáticamente. Si no admite reseña (ya tiene una, está
+  // cancelado, etc.) simplemente no se abre nada: fallback seguro, sin romper
+  // la pantalla. Ajustado durante el render (sin setState dentro de un
+  // efecto), guardado por `handledHighlight` para que corra una sola vez.
+  if ((highlighted || autoOpenReview) && !handledHighlight) {
+    setHandledHighlight(true)
+    setShowHighlight(true)
+    if (autoOpenReview && canReview) {
+      setReviewOpen(true)
+    }
+  }
+
+  // El scroll y el apagado del resaltado a los pocos segundos sí son efectos
+  // reales (API del DOM / temporizador), no cómputo de estado.
+  useEffect(() => {
+    if (!showHighlight) return
+    const el = document.getElementById(`pedido-${pedido.id}`)
+    el?.scrollIntoView({ behavior: "smooth", block: "center" })
+    const timer = setTimeout(() => setShowHighlight(false), 3000)
+    return () => clearTimeout(timer)
+  }, [showHighlight, pedido.id])
 
   return (
     <SectionCard
+      id={`pedido-${pedido.id}`}
+      highlighted={showHighlight}
       icon={isCancelled ? XCircle : CheckCircle2}
       title={pedido.negocioNombre}
       badge={`${statusEmoji(pedido.estado)} ${statusLabel(pedido.estado)}`}
@@ -1250,7 +1374,7 @@ function HistoryOrderCard({
           <Separator className="opacity-50 my-2" />
           <div className="flex gap-2">
             {/* Leave Review button */}
-            {isDelivered && !pedido.resena && (
+            {canReview && (
               <Button
                 size="sm"
                 className="h-8 gap-1.5 text-xs flex-1"
@@ -1398,14 +1522,25 @@ function SectionCard({
   title,
   badge,
   children,
+  id,
+  highlighted,
 }: {
   icon: React.ElementType
   title: string
   badge?: string
   children: React.ReactNode
+  id?: string
+  /** Bugfix-4B [17B]: resalta brevemente la tarjeta (deep link de notificación). */
+  highlighted?: boolean
 }) {
   return (
-    <Card className="border-border/50 shadow-sm overflow-hidden">
+    <Card
+      id={id}
+      className={cn(
+        "border-border/50 shadow-sm overflow-hidden transition-shadow",
+        highlighted && "ring-2 ring-primary shadow-lg shadow-primary/20"
+      )}
+    >
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">

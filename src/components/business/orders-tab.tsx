@@ -154,6 +154,25 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
   const isRestaurante = !isRopa && !isNegocio
   const [subTab, setSubTab] = useState<SubTab>("activos")
   const [selectedOrder, setSelectedOrder] = useState<Pedido | null>(null)
+
+  // Bugfix-4B [17B]: deep link desde una notificación de pedido/estado
+  // (?pedidoId=<id>, agregado por business-panel.tsx al cambiar a la pestaña
+  // "pedidos"). Se captura una sola vez al montar y se limpia la URL de
+  // inmediato — el pedido puede tardar en llegar (todavía cargando), así que
+  // la intención queda en estado local hasta que la query de pedidos resuelva.
+  const [focusPedidoId, setFocusPedidoId] = useState<string | null>(null)
+  const [focusResolved, setFocusResolved] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const pid = params.get("pedidoId")
+    if (!pid) return
+    setFocusPedidoId(pid)
+    params.delete("pedidoId")
+    params.delete("focusPedido")
+    const newSearch = params.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+  }, [])
   const [rejectDialog, setRejectDialog] = useState<Pedido | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [customReason, setCustomReason] = useState("")
@@ -291,6 +310,22 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
   const filteredHistory = filterStatus === "todos"
     ? historyOrders
     : historyOrders.filter((p) => p.estado === filterStatus)
+
+  // Bugfix-4B [17B]: deep link desde una notificación de pedido/estado
+  // (?pedidoId=<id>). Se abre directamente el detalle del pedido exacto
+  // (mismo Sheet que ya se abre con "Ver detalle") en vez de solo resaltar la
+  // tarjeta en la lista. Si el pedido no aparece (no existe, es de mesa —esta
+  // pestaña no muestra pedidos de mesa—, o no es de este negocio, cosa que ya
+  // filtra la API), no se abre nada: fallback seguro, sin romper la pantalla.
+  useEffect(() => {
+    if (!focusPedidoId || focusResolved || isLoading) return
+    const target = nonMesaOrders.find((p) => p.id === focusPedidoId)
+    if (target) {
+      setSubTab(activeStatuses.includes(target.estado) ? "activos" : "historial")
+      setSelectedOrder(target)
+    }
+    setFocusResolved(true)
+  }, [focusPedidoId, focusResolved, isLoading, nonMesaOrders])
 
   // Handle status transitions
   const getNextAction = (order: Pedido) => {
