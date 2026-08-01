@@ -200,6 +200,18 @@ export default function OperacionesIngresarPage() {
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
                 Iniciar sesión
               </Button>
+
+              {/* Bugfix-5B: el registro de CuentaOperativa ya existía
+                  (POST /api/operativo/register, página /mozo/registro), pero
+                  no había ningún enlace hacia él desde el ingreso de
+                  Operaciones — el empleado quedaba sin forma visible de crear
+                  su cuenta desde acá. */}
+              <p className="text-center text-sm text-muted-foreground">
+                ¿Todavía no tenés cuenta?{" "}
+                <Link href="/operaciones/registro" className="font-semibold text-primary hover:underline">
+                  Crear cuenta
+                </Link>
+              </p>
             </form>
           )}
 
