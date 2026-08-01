@@ -10,7 +10,32 @@ const EMAIL_FROM =
   process.env.EMAIL_FROM ||
   process.env.RESEND_FROM ||
   "DeliGO <no-reply@deligo.ar>"
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+
+// Bugfix-5E.2: misma prioridad que ya usan las rutas de Google
+// (src/app/api/auth/google/route.ts, src/app/api/operativo/auth/google/route.ts)
+// para el origen público — evita que un enlace de email apunte a localhost en
+// producción si Railway solo tiene APP_URL/NEXTAUTH_URL configurada y no
+// NEXT_PUBLIC_APP_URL. El fallback a localhost queda únicamente para
+// desarrollo local, cuando ninguna de las tres está configurada.
+function resolvePublicOrigin(): string {
+  const candidates = [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.APP_URL,
+    process.env.NEXTAUTH_URL,
+  ]
+
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim()
+    if (trimmed) {
+      // Elimina uno o más slashes finales para no producir "//reset-password".
+      return trimmed.replace(/\/+$/, "")
+    }
+  }
+
+  return "http://localhost:3000"
+}
+
+const APP_URL = resolvePublicOrigin()
 
 // Whether email sending is enabled (requires Resend API key)
 const EMAIL_ENABLED = !!RESEND_API_KEY
