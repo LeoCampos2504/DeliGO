@@ -150,27 +150,10 @@ export async function POST(
       }
     }
 
-    // Notify the negocio that a repartidor accepted
-    const negocio = await db.negocio.findUnique({
-      where: { id: pedido.negocioId },
-      select: { id: true, pushSubscription: true },
-    })
-
-    if (negocio) {
-      const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, "en_camino")
-      await createNotification({
-        userId: negocio.id,
-        userType: "negocio",
-        tipo: "order_update",
-        titulo: "Repartidor aceptó el delivery 🛵",
-        cuerpo: `${repartidor?.nombre || "Repartidor"} aceptó el pedido de delivery`,
-        pedidoId,
-        negocioId: negocio.id,
-        pushSubscription: negocio.pushSubscription,
-        pushPayload: payload,
-        cleanupExpired: { model: "negocio", id: negocio.id },
-      })
-    }
+    // Bugfix-1 [11]: no notificar al negocio en este evento — "repartidor en
+    // camino" debe avisar únicamente al cliente (ya notificado arriba). El
+    // negocio sigue recibiendo el resto de notificaciones propias del pedido
+    // (nuevo pedido, cancelación, reseña, etc.) sin cambios.
 
     // Return the updated pedido
     const pedidoActualizado = await db.pedido.findUnique({

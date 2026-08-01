@@ -100,7 +100,10 @@ export async function GET(req: NextRequest) {
       orderBy: { fecha: "desc" },
     })
 
-    const pedidosParsed = pedidos.map(({ clienteTelefono, ...p }) => ({
+    // Bugfix-1 [12]: `notas` es la nota del cliente dirigida al negocio —
+    // el repartidor no debe recibirla (solo necesita dirección/referencia
+    // para encontrar el domicilio, que se mantienen en la respuesta).
+    const pedidosParsed = pedidos.map(({ clienteTelefono, notas, ...p }) => ({
       ...p,
       items: p.items.map((item) => ({
         ...item,

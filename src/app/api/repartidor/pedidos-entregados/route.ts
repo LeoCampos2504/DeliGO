@@ -51,6 +51,23 @@ export async function GET(req: NextRequest) {
       colorPrincipal: true,
     }
 
+    // Bugfix-1 [12]: select explícito de campos del pedido — el repartidor no
+    // debe recibir `notas` (nota del cliente para el negocio) ni
+    // `clienteTelefono`. Se listan solo los campos que el historial de
+    // entregas realmente usa.
+    const pedidoSelect = {
+      id: true,
+      negocioNombre: true,
+      clienteNombre: true,
+      total: true,
+      metodoPago: true,
+      direccion: true,
+      fecha: true,
+      entregadoFecha: true,
+      items: { select: itemSelect },
+      negocio: { select: negocioSelect },
+    }
+
     if (history) {
       // Full history with pagination
       const skip = (page - 1) * limit
@@ -62,10 +79,7 @@ export async function GET(req: NextRequest) {
             estado: "entregado",
             entregadoPorRepartidor: true,
           },
-          include: {
-            items: { select: itemSelect },
-            negocio: { select: negocioSelect },
-          },
+          select: pedidoSelect,
           orderBy: { entregadoFecha: "desc" },
           skip,
           take: limit,
@@ -100,10 +114,7 @@ export async function GET(req: NextRequest) {
         entregadoPorRepartidor: true,
         entregadoFecha: { gte: today },
       },
-      include: {
-        items: { select: itemSelect },
-        negocio: { select: negocioSelect },
-      },
+      select: pedidoSelect,
       orderBy: { entregadoFecha: "desc" },
     })
 

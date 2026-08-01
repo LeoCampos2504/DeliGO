@@ -50,6 +50,16 @@ function buildLastMessagePreview(lastMsg: {
   return null
 }
 
+// Bugfix-1 [14]: ordena por la actividad más reciente (último mensaje si
+// existe, si no la fecha del pedido) en vez de solo la fecha de creación del
+// pedido — así una conversación con mensajes nuevos no queda enterrada
+// debajo de un pedido más nuevo sin actividad de chat.
+function byMostRecentActivity(a: ConversationItem, b: ConversationItem): number {
+  const aTime = (a.lastMessageDate ?? a.fecha).getTime()
+  const bTime = (b.lastMessageDate ?? b.fecha).getTime()
+  return bTime - aTime
+}
+
 // Map a pedido + unreadCount into a ConversationItem
 function toConversation(
   pedido: {
@@ -253,6 +263,9 @@ export async function GET(req: NextRequest) {
     } else if (userType === "repartidor") {
       return NextResponse.json({ conversations: [], archived: [] })
     }
+
+    conversations.sort(byMostRecentActivity)
+    archived.sort(byMostRecentActivity)
 
     return NextResponse.json({ conversations, archived })
   } catch (error) {
