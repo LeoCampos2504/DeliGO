@@ -274,6 +274,11 @@ function NegocioLoginForm() {
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
+                      <div className="text-right">
+                        <a href="/forgot-password?type=negocio" className="text-xs font-medium text-emerald-600 hover:underline">
+                          ¿Olvidaste tu contraseña?
+                        </a>
+                      </div>
                     </div>
 
                     <Button

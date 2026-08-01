@@ -574,6 +574,32 @@ model Sesion {
 }
 
 // ============================================
+// RECUPERACIÓN DE CONTRASEÑA (Bugfix-5D)
+// ============================================
+// Modelo genérico y pequeño — resuelve la cuenta vía userType + userId, sin
+// una FK polimórfica hacia cuatro tablas distintas (mismo patrón que ya usa
+// Sesion.userType). Nunca guarda el token real: solo su hash SHA-256
+// (tokenHash), igual que Sesion.token y que CodigoIncorporacionMozo.codeHash.
+// Valores permitidos de userType: cliente | negocio | repartidor |
+// cuenta_operativa — nunca superadmin (sin email) ni terminal (no es una
+// cuenta personal). El allowlist se valida en la aplicación
+// (src/lib/password-reset.ts), no en el schema.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  userType  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userType, userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// ============================================
 // PROMOCIONES (cached view of discounted products)
 // ============================================
 model Promocion {

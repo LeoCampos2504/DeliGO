@@ -355,6 +355,11 @@ function ClienteLoginPageContent() {
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
+                      <div className="text-right">
+                        <a href="/forgot-password?type=cliente" className="text-xs font-medium text-primary hover:underline">
+                          ¿Olvidaste tu contraseña?
+                        </a>
+                      </div>
                     </div>
 
                     <Button

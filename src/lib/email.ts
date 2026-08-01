@@ -159,8 +159,17 @@ Si no creaste esta cuenta, ignorá este email.
 }
 
 // ============================================
-// Send password reset email (future use)
+// Send password reset email (Bugfix-5D)
 // ============================================
+// Seguridad obligatoria (a diferencia de sendVerificationEmail, que sí loguea
+// su link en modo desarrollo — precedente ya aceptado para verificación de
+// email, un token de bajo riesgo): esta función NUNCA imprime el token real
+// ni la URL completa de reset, en ningún modo, ni en éxito ni en error. Y a
+// diferencia de sendVerificationEmail, devuelve `false` real cuando el email
+// no se pudo enviar de verdad (incluyendo "Resend no configurado") — el
+// llamador (forgot-password) depende de esto para revocar el token recién
+// creado si el envío falla, en vez de dejar un token válido que nunca pudo
+// llegarle a nadie.
 
 export async function sendPasswordResetEmail(
   email: string,
@@ -173,15 +182,15 @@ export async function sendPasswordResetEmail(
   const htmlBody = `
     <p>Hola ${safeNombre},</p>
     <p>Hacé click <a href="${resetUrl}">acá</a> para restablecer tu contraseña.</p>
-    <p>Este enlace expira en 1 hora.</p>
+    <p>Este enlace expira en 1 hora. Si no pediste esto, ignorá este email.</p>
   `
 
-  const textBody = `Hola ${nombre},\n\nRestablecé tu contraseña con este enlace: ${resetUrl}\n\nEste enlace expira en 1 hora.`
+  const textBody = `Hola ${nombre},\n\nRestablecé tu contraseña con este enlace: ${resetUrl}\n\nEste enlace expira en 1 hora. Si no pediste esto, ignorá este email.`
 
   if (!EMAIL_ENABLED || !resend) {
-    console.log(`\n📧 [EMAIL DEV MODE] Password reset email for ${email}`)
-    console.log(`   Reset URL: ${resetUrl}\n`)
-    return true
+    // Nunca se imprime el token ni la URL — solo que no se pudo enviar.
+    console.log("[Email] Password reset NOT sent — Resend no está configurado (RESEND_API_KEY ausente)")
+    return false
   }
 
   try {
@@ -194,14 +203,14 @@ export async function sendPasswordResetEmail(
     })
 
     if (error) {
-      console.error(`[Email] Resend API error sending password reset to ${email}:`, error)
+      console.error("[Email] Resend API error sending password reset:", error)
       return false
     }
 
-    console.log(`[Email] Password reset sent to ${email}: ${data?.id}`)
+    console.log(`[Email] Password reset sent: ${data?.id}`)
     return true
   } catch (error) {
-    console.error(`[Email] Failed to send password reset to ${email}:`, error)
+    console.error("[Email] Failed to send password reset:", error)
     return false
   }
 }

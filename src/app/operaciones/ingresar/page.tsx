@@ -220,6 +220,11 @@ function OperacionesIngresarContent() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
+                <div className="text-right">
+                  <Link href="/forgot-password?type=cuenta_operativa" className="text-xs font-medium text-amber-600 hover:underline dark:text-amber-400">
+                    ¿Olvidaste tu contraseña?
+                  </Link>
+                </div>
               </div>
 
               {error && (

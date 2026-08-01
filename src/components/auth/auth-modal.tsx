@@ -700,6 +700,16 @@ function LoginStep({
               )}
             </button>
           </div>
+          {role !== "superadmin" && (
+            <div className="text-right">
+              <a
+                href={`/forgot-password?type=${role}`}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                ¿Olvidaste tu contraseña?
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Submit */}

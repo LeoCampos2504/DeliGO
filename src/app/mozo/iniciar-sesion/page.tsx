@@ -117,6 +117,11 @@ export default function MozoLoginPage() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
+                <div className="text-right">
+                  <Link href="/forgot-password?type=cuenta_operativa" className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-300">
+                    Olvidaste tu contrasena?
+                  </Link>
+                </div>
               </div>
 
               {error && (
