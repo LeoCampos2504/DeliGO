@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
         nombre: true,
         email: true,
         activo: true,
+        googleId: true,
         empleados: {
           select: {
             id: true,
@@ -79,11 +80,14 @@ export async function GET(req: NextRequest) {
       return noStore(response)
     }
 
+    // Bugfix-5C: solo se expone si Google está vinculado (booleano) — nunca
+    // el googleId real.
     const cuenta = {
       id: account.id,
       nombre: account.nombre,
       email: account.email,
       activo: account.activo,
+      googleLinked: !!account.googleId,
     }
 
     // Todos los vínculos operativos válidos de la cuenta (cualquier área). El área

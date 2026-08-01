@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect, type FormEvent } from "react"
+import { useState, useEffect, type FormEvent, Suspense } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   ArrowRight,
+  Chrome,
   Eye,
   EyeOff,
   Loader2,
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Logo } from "@/components/shared/logo"
+import { toast } from "sonner"
 
 // ============================================
 // DeliGO Operaciones — Modo cuenta personal (Operaciones-1B)
@@ -34,10 +36,23 @@ import { Logo } from "@/components/shared/logo"
 const GENERIC_LOGIN_ERROR = "Email o contraseña incorrectos."
 const NETWORK_ERROR = "No se pudo conectar. Revisá tu conexión e intentá de nuevo."
 
+// Bugfix-5C: mensajes del retorno de /api/operativo/auth/google (mode=login).
+// El caso exitoso redirige directo a /operaciones/mi-panel sin pasar por
+// acá (mismo comportamiento silencioso que ya tiene el login por
+// contraseña) — esta página solo necesita mostrar los casos de error.
+// Nunca revelan si existe otro googleId, IDs internos ni datos de otra cuenta.
+const GOOGLE_LOGIN_MESSAGES: Record<string, string> = {
+  "existing-password-account":
+    "Ya existe una cuenta con este correo. Iniciá sesión con tu contraseña y después vinculá Google desde tu cuenta.",
+  "account-disabled": "Esta cuenta está desactivada. Contactá al administrador.",
+  error: "No se pudo continuar con Google. Intentá de nuevo.",
+}
+
 type PageState = "checking" | "form" | "has-session"
 
-export default function OperacionesIngresarPage() {
+function OperacionesIngresarContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [state, setState] = useState<PageState>("checking")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -62,6 +77,27 @@ export default function OperacionesIngresarPage() {
     return () => {
       active = false
     }
+  }, [])
+
+  // Bugfix-5C: mensaje de retorno de /api/operativo/auth/google. Solo se
+  // limpia el parámetro `google`, nunca toda la query string.
+  useEffect(() => {
+    const reason = searchParams.get("google")
+    if (!reason) return
+    const message = GOOGLE_LOGIN_MESSAGES[reason]
+    if (message) {
+      toast.error(message)
+    }
+    const params = new URLSearchParams(window.location.search)
+    params.delete("google")
+    const newSearch = params.toString()
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`
+    )
+    // Se ejecuta una sola vez al montar: es el único momento en que interesa
+    // consumir el resultado del redirect de Google.
   }, [])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -201,6 +237,22 @@ export default function OperacionesIngresarPage() {
                 Iniciar sesión
               </Button>
 
+              {/* Bugfix-5C: alternativa de Google, exclusiva de la cuenta
+                  personal de Operaciones — apunta a /api/operativo/auth/google
+                  (ruta dedicada), nunca a /api/auth/google (Cliente/Repartidor). */}
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">o continuá con</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              <Button asChild variant="outline" className="h-11 w-full gap-2 rounded-xl">
+                <a href="/api/operativo/auth/google">
+                  <Chrome className="h-4 w-4" />
+                  Continuar con Google
+                </a>
+              </Button>
+
               {/* Bugfix-5B: el registro de CuentaOperativa ya existía
                   (POST /api/operativo/register, página /mozo/registro), pero
                   no había ningún enlace hacia él desde el ingreso de
@@ -225,5 +277,13 @@ export default function OperacionesIngresarPage() {
         </CardContent>
       </Card>
     </main>
+  )
+}
+
+export default function OperacionesIngresarPage() {
+  return (
+    <Suspense fallback={null}>
+      <OperacionesIngresarContent />
+    </Suspense>
   )
 }

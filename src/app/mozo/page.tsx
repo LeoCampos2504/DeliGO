@@ -369,6 +369,9 @@ export default function MozoPanelPage() {
         loggingOut={loggingOut}
         onRefresh={loadPanel}
         onLogout={handleLogout}
+        // Bugfix-5C: "Mi cuenta" (Vincular Google, etc.) solo tiene sentido
+        // dentro del árbol de Operaciones — /mozo (legacy) no lo muestra.
+        cuentaHref={nav.homeHref === "/operaciones/mi-panel" ? "/operaciones/cuenta" : null}
       />
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:py-6">
@@ -558,12 +561,15 @@ function PanelHeader({
   loggingOut,
   onRefresh,
   onLogout,
+  cuentaHref,
 }: {
   cuenta: CuentaOperativa
   vinculosCount: number
   loggingOut: boolean
   onRefresh: () => void
   onLogout: () => void
+  /** Bugfix-5C: href de "Mi cuenta" (Vincular Google) — null = no mostrar. */
+  cuentaHref?: string | null
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-background/90 px-4 py-3 backdrop-blur">
@@ -577,6 +583,13 @@ function PanelHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {cuentaHref && (
+            <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" asChild aria-label="Mi cuenta">
+              <Link href={cuentaHref}>
+                <UserRound className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
           <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl" onClick={onRefresh} aria-label="Actualizar panel">
             <RefreshCw className="h-4 w-4" />
           </Button>

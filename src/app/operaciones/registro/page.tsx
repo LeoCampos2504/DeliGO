@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRight, CheckCircle2, UserPlus } from "lucide-react"
+import { ArrowLeft, ArrowRight, CheckCircle2, Chrome, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Logo } from "@/components/shared/logo"
@@ -76,6 +76,23 @@ export default function OperacionesRegistroPage() {
                 onSuccess={() => setSuccess(true)}
                 loginHref="/operaciones/ingresar"
               />
+
+              {/* Bugfix-5C: mismo botón/ruta que /operaciones/ingresar
+                  (/api/operativo/auth/google) — mode=login también crea la
+                  cuenta si todavía no existe, así que no hace falta un
+                  endpoint de "registro con Google" separado. */}
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">o continuá con</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              <Button asChild variant="outline" className="h-11 w-full gap-2 rounded-xl">
+                <a href="/api/operativo/auth/google">
+                  <Chrome className="h-4 w-4" />
+                  Continuar con Google
+                </a>
+              </Button>
             </>
           )}
 
