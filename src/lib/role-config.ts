@@ -9,6 +9,7 @@ export type DeliGORole =
   | "mozo"
   | "salon"
   | "empleado"
+  | "operaciones"
 
 export interface RoleConfig {
   id: DeliGORole
@@ -159,6 +160,29 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     tokenBased: true,
     pathPrefix: "/e/",
   },
+  // Bugfix-2 [6]: PWA propia para DeliGO Operaciones — hasta ahora /operaciones
+  // no tenía entrada en ROLE_CONFIGS ni en getRoleFromPath, así que caía en el
+  // fallback "cliente" (manifest, theme-color, ícono y título de la PWA de
+  // cliente). Reusa los íconos de "negocio" (no se generaron imágenes nuevas,
+  // por ser el activo existente más afín a un panel operativo de negocio).
+  operaciones: {
+    id: "operaciones",
+    name: "DeliGO Operaciones",
+    shortName: "Operaciones",
+    description: "Panel operativo para tu equipo",
+    emoji: "🧭",
+    color: "indigo",
+    themeColor: "#4F46E5",
+    manifestFile: "/manifest-operaciones.json",
+    startUrl: "/operaciones",
+    loginUrl: "/operaciones/ingresar",
+    icon192: "/icon-negocio-192x192.png",
+    icon512: "/icon-negocio-512x512.png",
+    gradientFrom: "from-indigo-500",
+    gradientTo: "to-blue-600",
+    shadowColor: "shadow-indigo-500/20",
+    pathPrefix: "/operaciones/",
+  },
 }
 
 /**
@@ -175,6 +199,8 @@ export function getRoleConfig(userType: string): RoleConfig {
  *   /mozo/{slug} → mozo (scanner page)
  *   /s/{token}   → salon
  *   /e/{token}   → empleado
+ * And app sections with their own PWA identity:
+ *   /operaciones → operaciones
  */
 export function getRoleFromPath(pathname: string): DeliGORole {
   // Cliente PWA lives at /cliente/ (scope: "/cliente/")
@@ -182,6 +208,9 @@ export function getRoleFromPath(pathname: string): DeliGORole {
   if (pathname.startsWith("/negocio")) return "negocio"
   if (pathname.startsWith("/repartidor")) return "repartidor"
   if (pathname.startsWith("/admin")) return "admin"
+  // Bugfix-2 [6]: DeliGO Operaciones (cuenta personal o terminal) — antes caía
+  // en el fallback "cliente" al no tener ninguna rama propia acá.
+  if (pathname.startsWith("/operaciones")) return "operaciones"
   // Token-based magic-link routes
   if (pathname.startsWith("/m/") || pathname === "/m") return "mozo"
   if (pathname.startsWith("/mozo/")) return "mozo"

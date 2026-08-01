@@ -1,0 +1,25 @@
+{
+  "id": "/operaciones/?pwa=operaciones",
+  "name": "DeliGO Operaciones - Panel de Equipo",
+  "short_name": "Operaciones",
+  "description": "Panel operativo para mozos, salón y pedidos y reseñas de tu negocio en DeliGO.",
+  "start_url": "/operaciones/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait-primary",
+  "scope": "/operaciones/",
+  "lang": "es",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-negocio-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-negocio-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-negocio-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-negocio-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "capture_links": "existing-client-navigate",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "prefer_related_applications": false
+}

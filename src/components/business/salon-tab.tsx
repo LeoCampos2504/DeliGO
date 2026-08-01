@@ -68,6 +68,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn, formatPrice } from "@/lib/utils"
+import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
 
@@ -181,16 +182,6 @@ interface SalonStats {
 
 type SubTab = "mesas" | "mozos" | "estadisticas" | "historial"
 
-const ROLES = [
-  { value: "mozo", label: "Mozo" },
-] as const
-
-const roleLabel = (rol: string) => ROLES.find((r) => r.value === rol)?.label ?? rol
-
-const roleColor = (rol: string) => {
-  return "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400"
-}
-
 // Área operativa (configuración administrativa para la futura PWA DeliGO Operaciones).
 const AREA_OPERATIVA_OPTIONS = [
   { value: "sin_asignar", label: "Sin área asignada" },
@@ -217,45 +208,6 @@ const MESA_STATUS_CONFIG: Record<string, { label: string; color: string; bg: str
 export function SalonTab({ negocio }: SalonTabProps) {
   const queryClient = useQueryClient()
   const [subTab, setSubTab] = useState<SubTab>("mesas")
-
-  // Salon shared link token
-  const [tokenSalon, setTokenSalon] = useState<string | null>(null)
-  const [tokenSalonMasked, setTokenSalonMasked] = useState<string | null>(null)
-  const [regeneratingSalon, setRegeneratingSalon] = useState(false)
-  const [copiedSalon, setCopiedSalon] = useState(false)
-  const hasSalonLinkMetadata = !!tokenSalon || !!tokenSalonMasked
-
-  useEffect(() => {
-    fetch("/api/negocio/access-tokens")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data) {
-          const revealed = data.tokenSalonRevealed === true
-          setTokenSalon(revealed ? data.tokenSalon : null)
-          setTokenSalonMasked(data.tokenSalonMasked ?? (revealed ? data.tokenSalon : null))
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  const regenerateSalonToken = async () => {
-    setRegeneratingSalon(true)
-    try {
-      const res = await fetch("/api/negocio/access-tokens?type=salon", { method: "POST" })
-      if (res.ok) {
-        const data = await res.json()
-        setTokenSalon(data.tokenSalon)
-        setTokenSalonMasked(data.tokenSalonMasked ?? data.tokenSalon)
-        toast.success("Link del salón regenerado. El link anterior ya no funciona.")
-      } else {
-        toast.error("Error al regenerar el link")
-      }
-    } catch {
-      toast.error("Error al regenerar el link")
-    } finally {
-      setRegeneratingSalon(false)
-    }
-  }
 
   const { data: config, isLoading: configLoading } = useQuery<NegocioSalonConfig>({
     queryKey: ["negocio-config", negocio.id],
@@ -416,26 +368,10 @@ export function SalonTab({ negocio }: SalonTabProps) {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {/* Seguridad-5G: el link /s/[token] fue retirado (los endpoints
-                    que lo sustentaban ahora fallan cerrados) — se reemplaza la
-                    tarjeta de copiar/regenerar por un mensaje de migración. */}
-                <div className="p-4 rounded-xl border border-border/50 bg-muted/20 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${negocio.colorPrincipal}15` }}>
-                      <Link2 className="h-4 w-4" style={{ color: negocio.colorPrincipal }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold">Vista de salón</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        El acceso por link fue reemplazado. Iniciá sesión en DeliGO Operaciones.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <SalonFloorPlan negocio={negocio} />
-              </div>
+              // Bugfix-2 [4]: se quitó la tarjeta "Vista de salón" (mensaje de
+              // migración del link /s/[token] retirado en Seguridad-5G) — ya no
+              // tenía ninguna función real, solo texto estático sin datos vivos.
+              <SalonFloorPlan negocio={negocio} />
             )}
           </motion.div>
         )}
@@ -868,6 +804,60 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
     },
   })
 
+  // Bugfix-2 [10]: lista de empleados para poblar el selector de mozo — misma
+  // query key que EmpleadosSection, así React Query comparte caché en vez de
+  // duplicar el fetch si esa sub-tab ya se visitó.
+  const { data: empleados = [] } = useQuery<Empleado[]>({
+    queryKey: ["empleados", negocio.id],
+    queryFn: async () => {
+      const res = await fetch("/api/negocio/empleados")
+      if (!res.ok) throw new Error("Error cargando empleados")
+      return res.json()
+    },
+  })
+
+  // Solo empleados cuya área operativa efectiva es Mozo (misma regla que el
+  // resto de la plataforma, vía esAreaMozoEfectiva) y que sigan activos.
+  const mozosDisponibles = useMemo(
+    () => empleados.filter((e) => e.activo && esAreaMozoEfectiva({ areaOperativa: e.areaOperativa, rol: e.rol })),
+    [empleados]
+  )
+
+  // Bugfix-2 [10]: asignar, reasignar o quitar el mozo de una mesa desde el
+  // panel del negocio. Reusa POST /api/negocio/mesas-assign (ya usado por el
+  // propio mozo desde su selector personal) con sesión de negocio.
+  const assignMozoMutation = useMutation({
+    mutationFn: async (vars: { empleadoCodigo: string } | { unassign: true }) => {
+      if (!selectedMesa) throw new Error("Ninguna mesa seleccionada")
+      const res = await fetch("/api/negocio/mesas-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mesaId: selectedMesa.id, ...vars }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Error al asignar mozo")
+      return data as { id: string; numero: number; nombre: string; zona: string; capacidad: number; mozoAsignado: { id: string; nombre: string; codigo: string } | null }
+    },
+    onSuccess: (data) => {
+      applyMesaUpdate({
+        id: data.id,
+        numero: data.numero,
+        nombre: data.nombre,
+        zona: data.zona,
+        capacidad: data.capacidad,
+        activa: selectedMesa?.activa ?? true,
+        negocioId: selectedMesa?.negocioId ?? negocio.id,
+        empleadoId: data.mozoAsignado?.id ?? null,
+        empleado: data.mozoAsignado,
+      })
+      queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })
+      toast.success(data.mozoAsignado ? `Mesa asignada a ${data.mozoAsignado.nombre}` : "Mozo quitado de la mesa")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+
   // Generate QR code
   const generateQR = useCallback(async (mesa: Mesa) => {
     setQrLoading(true)
@@ -1271,6 +1261,10 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
               copiedId={copiedId}
               isToggling={toggleMesaMutation.isPending}
               isDeleting={deleteMutation.isPending}
+              mozos={mozosDisponibles}
+              onAssignMozo={(empleadoCodigo) => assignMozoMutation.mutate({ empleadoCodigo })}
+              onUnassignMozo={() => assignMozoMutation.mutate({ unassign: true })}
+              isAssigningMozo={assignMozoMutation.isPending}
             />
           )}
         </DrawerContent>
@@ -1355,6 +1349,10 @@ function MesaDetailDrawer({
   copiedId,
   isToggling,
   isDeleting,
+  mozos,
+  onAssignMozo,
+  onUnassignMozo,
+  isAssigningMozo,
 }: {
   mesa: Mesa
   negocio: SalonTabProps["negocio"]
@@ -1368,6 +1366,10 @@ function MesaDetailDrawer({
   copiedId: string | null
   isToggling: boolean
   isDeleting: boolean
+  mozos: Empleado[]
+  onAssignMozo: (empleadoCodigo: string) => void
+  onUnassignMozo: () => void
+  isAssigningMozo: boolean
 }) {
   const queryClient = useQueryClient()
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -1661,6 +1663,37 @@ function MesaDetailDrawer({
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-xl border border-border/50 bg-muted/20">
+          <UserCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-muted-foreground mb-1">Mozo asignado</p>
+            <Select
+              value={mesa.empleadoId ?? "__none__"}
+              onValueChange={(v) => {
+                if (v === "__none__") {
+                  onUnassignMozo()
+                } else {
+                  const mozo = mozos.find((m) => m.id === v)
+                  if (mozo) onAssignMozo(mozo.codigo)
+                }
+              }}
+              disabled={isAssigningMozo}
+            >
+              <SelectTrigger className="rounded-xl h-8 text-sm">
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin asignar</SelectItem>
+                {mozos.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.nombre} ({m.codigo})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {isAssigningMozo && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
         </div>
 
         {/* Active orders */}
@@ -2655,11 +2688,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                             </Button>
                           </div>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <Badge className={cn("text-[9px] h-4 px-1.5 border-0", roleColor(empleado.rol))}>
-                          {roleLabel(empleado.rol)}
-                        </Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">

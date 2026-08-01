@@ -162,14 +162,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
+    // Bugfix-2 [10]: la restricción OR (solo asignar si está libre o ya es del
+    // mismo mozo) sigue aplicando al self-service del mozo (evita que un mozo le
+    // quite la mesa a otro desde su propio selector), pero el negocio —dueño de
+    // sus propias mesas— puede reasignar directamente a otro mozo.
     const assignResult = await db.mesa.updateMany({
       where: {
         id: mesaId,
         negocioId,
-        OR: [
-          { empleadoId: null },
-          { empleadoId: mozo.id },
-        ],
+        ...(auth.kind === "mozo"
+          ? { OR: [{ empleadoId: null }, { empleadoId: mozo.id }] }
+          : {}),
       },
       data: { empleadoId: mozo.id },
     })
