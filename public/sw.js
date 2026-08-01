@@ -2,7 +2,14 @@
 // DeliGO - Service Worker
 // ============================================
 
-const CACHE_NAME = "deligo-v13";
+// Bugfix-4D: se sube la versión porque este deploy cambia lógica real de
+// push/notificationclick (no solo el cache de assets) — subir el número
+// fuerza que `activate` borre cualquier caché vieja apenas el SW nuevo tome
+// control, en vez de esperar a que expire por su cuenta. `install` ya llama
+// a `skipWaiting()` y `activate` ya llama a `clients.claim()`, así que el SW
+// nuevo se activa e instala solo con el próximo deploy — no requiere que el
+// usuario borre datos ni reinstale la PWA.
+const CACHE_NAME = "deligo-v14";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/cliente/"];
@@ -335,14 +342,28 @@ self.addEventListener("push", (event) => {
       icon = "/icon-negocio-192x192.png";
     }
 
+    // Bugfix-4D: causa raíz confirmada del deep link roto. Este objeto es la
+    // ÚNICA fuente real de `notification.data` que llega a `notificationclick`
+    // — lo que no se copie acá se pierde para siempre, sin importar qué tan
+    // bien esté armado el payload en push.ts. Dos bugs reales:
+    //   1) `role` (agregado en push.ts::createNotification) nunca se copiaba
+    //      acá, así que `notificationclick` SIEMPRE caía al rol por defecto
+    //      ("cliente"), aunque la notificación fuera de negocio.
+    //   2) `url` caía a "/" con `|| "/"` cuando el payload no traía una URL
+    //      explícita — "/" es una ruta interna "segura", así que
+    //      `notificationclick` la tomaba como la URL válida y NUNCA llegaba a
+    //      construir la URL real con rol+pestaña+pedidoId. Ahora `url` queda
+    //      `null` cuando no hay una URL real, y `notificationclick` recién
+    //      ahí arma la URL correcta.
     const options = {
       body: data.body || "",
       icon: data.icon || icon,
       badge: data.badge || icon,
       vibrate: [100, 50, 100],
       data: {
-        url: data.data?.url || "/",
+        url: typeof data.data?.url === "string" ? data.data.url : null,
         type: notifType,
+        role: data.data?.role || null,
         pedidoId: data.data?.pedidoId || null,
         mesaNumero: data.data?.mesaNumero || null,
       },
@@ -388,6 +409,65 @@ function focusAnyClient(clients) {
     }
   }
   return false;
+}
+
+// ============================================
+// Bugfix-4D: deep link de notificaciones "personales" (con sesión)
+// ============================================
+const ROLE_BASE_PATH = { cliente: "/cliente/", negocio: "/negocio", repartidor: "/repartidor" };
+
+function isSafeInternalUrl(value) {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
+}
+
+// Función pura — sin `self`/DOM/clients — para poder probarla con un script
+// de Node sin un Service Worker real (ver sección 13 del reporte). Devuelve
+// SIEMPRE una ruta interna (nunca una URL externa: `url` solo se usa si
+// `isSafeInternalUrl` la aprueba).
+function buildPersonalNotificationTarget({ type, role, pedidoId, action, url }) {
+  const effectiveRole = ROLE_BASE_PATH[role] ? role : "cliente";
+  const basePath = ROLE_BASE_PATH[effectiveRole];
+
+  if (isSafeInternalUrl(url)) return url;
+
+  const id = pedidoId ? String(pedidoId) : null;
+
+  // Chat: el ChatProvider global abre la conversación exacta con `?chat=<id>`
+  // sin depender de ninguna pestaña — por eso no lleva `tab` ni `pedidoId`.
+  if (type === "chat") {
+    return id ? `${basePath}?chat=${encodeURIComponent(id)}` : basePath;
+  }
+
+  // Reseña pendiente: pestaña Pedidos + pedido exacto + marca para abrir el
+  // modal de reseña automáticamente (consumido por ClientOrdersPanel).
+  if (type === "review_request" || (action === "review" && id)) {
+    if (!id) return `${basePath}?tab=pedidos`;
+    return `${basePath}?${new URLSearchParams({ tab: "pedidos", pedidoId: id, review: "1" }).toString()}`;
+  }
+
+  // Pedido nuevo / actualización de estado: pestaña Pedidos + pedido exacto +
+  // marca para resaltar/enfocar esa tarjeta (ClientOrdersPanel / OrdersTab).
+  if (type === "new_order" || type === "order_update") {
+    if (!id) return `${basePath}?tab=pedidos`;
+    return `${basePath}?${new URLSearchParams({ tab: "pedidos", pedidoId: id, focusPedido: "1" }).toString()}`;
+  }
+
+  if (type === "new_delivery" || (action === "navigate" && id)) {
+    const params = new URLSearchParams({ tab: "entregas" });
+    if (id) params.set("pedidoId", id);
+    return `${basePath}?${params.toString()}`;
+  }
+
+  if (type === "review") {
+    return `${basePath}?tab=resenas`;
+  }
+
+  if (type === "account_update") {
+    return `${basePath}?tab=config`;
+  }
+
+  // Tipo desconocido / sin pedidoId relevante: fallback seguro del rol.
+  return basePath;
 }
 
 // Notification click event — deep linking based on notification type
@@ -482,89 +562,70 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // ── Personal (session-based) notifications ──
-  // Bugfix-4 [17]: antes esta rama siempre construía/abría "/cliente/...",
-  // sin importar el rol real del destinatario (negocio, repartidor), y nunca
-  // navegaba al pedido/chat exacto — solo a la pestaña genérica. Ahora:
-  //   1) Se resuelve la app correcta a partir de `data.role` (agregado en
-  //      push.ts::createNotification), en vez de asumir "cliente" siempre.
-  //   2) Se agrega el pedidoId (cuando existe) a la URL para que la página
-  //      pueda abrir el recurso exacto (hoy: el chat del pedido).
-  //   3) Si el payload trae `data.url`, se usa SOLO si es una ruta interna
-  //      segura (empieza con "/", nunca "//" ni un esquema tipo "javascript:"),
-  //      para evitar un open-redirect si algún payload llegara manipulado.
-  const ROLE_BASE_PATH = { cliente: "/cliente/", negocio: "/negocio", repartidor: "/repartidor" };
+  // Bugfix-4D: `targetPath` se calcula con una función pura para poder
+  // probarla con Node sin un navegador real (ver sección 13 del reporte).
+  const targetPath = buildPersonalNotificationTarget({
+    type,
+    role,
+    pedidoId,
+    action,
+    url: notificationData.url,
+  });
   const effectiveRole = ROLE_BASE_PATH[role] ? role : "cliente";
   const basePath = ROLE_BASE_PATH[effectiveRole];
 
-  // First, determine which tab to navigate to based on notification type
-  let targetTab = "";
-  if (type === "new_order" || type === "order_update" || type === "review_request") {
-    targetTab = "pedidos";
-  } else if (type === "new_delivery") {
-    targetTab = "entregas";
-  } else if (type === "chat") {
-    targetTab = "pedidos";
-  } else if (type === "review") {
-    targetTab = "resenas";
-  } else if (type === "account_update") {
-    targetTab = "config";
-  }
-
-  // Override tab based on action
-  if (action === "review" && pedidoId) {
-    targetTab = "pedidos";
-  } else if (action === "navigate" && pedidoId) {
-    targetTab = "entregas";
-  }
-
-  function isSafeInternalUrl(value) {
-    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
-  }
-
-  // Build target URL: prefer an explicit, validated internal `data.url`;
-  // otherwise build one from role + tab (+ pedidoId, + chat/review markers so
-  // the page can open the exact conversation/review, per Bugfix-4B).
-  let targetPath;
-  if (isSafeInternalUrl(notificationData.url)) {
-    targetPath = notificationData.url;
-  } else {
-    const params = new URLSearchParams();
-    if (targetTab) params.set("tab", targetTab);
-    if (pedidoId) params.set("pedidoId", String(pedidoId));
-    if (type === "chat" && pedidoId) params.set("chat", String(pedidoId));
-    // Bugfix-4B [17A]: "review_request" es específicamente "pedile al cliente
-    // que califique este pedido" — marca la reseña para que el panel de
-    // pedidos abra el modal automáticamente. `type === "review"` (nueva
-    // reseña recibida / respuesta a una reseña) es un caso distinto: va a la
-    // pestaña "resenas", no al modal de "dejar reseña", así que no lleva esta
-    // marca.
-    if (type === "review_request" && pedidoId) params.set("review", "1");
-    targetPath = `${basePath}?${params.toString()}`;
-  }
+  // Bugfix-4D: instrumentación temporal para verificar en dispositivo real
+  // (ver sección 12 del reporte). Nunca imprime el pedidoId real ni la URL
+  // completa (podría contenerlo) — solo el rol/tipo y qué parámetros se
+  // terminaron poniendo en la URL, sin sus valores.
+  console.info("[SW notificationclick]", {
+    type: type || null,
+    role: role || null,
+    hasPedidoId: Boolean(pedidoId),
+    basePath,
+    targetParams: targetPath.includes("?") ? [...new URLSearchParams(targetPath.split("?")[1]).keys()] : [],
+  });
 
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      // Try to find an existing window already on the correct role's app
-      for (const client of clients) {
-        if ("focus" in client && "navigate" in client) {
-          const clientUrl = new URL(client.url);
-          if (clientUrl.pathname.startsWith(basePath.replace(/\/$/, "") || basePath)) {
-            client.focus();
-            client.navigate(targetPath);
-            return;
-          }
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+      const absoluteTarget = self.location.origin + targetPath;
+      const rolePrefix = basePath.replace(/\/$/, "") || basePath;
+
+      // Bugfix-4D: NUNCA reutilizar una ventana de otro rol (antes, si no
+      // había ninguna ventana del rol correcto pero SÍ alguna de otro rol
+      // abierta, se la navegaba igual — ej. una ventana de Negocio abierta
+      // recibía una notificación de Cliente y terminaba mostrando Cliente
+      // dentro de la ventana de Negocio). Solo se navega una ventana cuyo
+      // pathname ya empiece con el prefijo del rol correcto.
+      const matchingClient = clients.find(
+        (client) =>
+          "focus" in client &&
+          "navigate" in client &&
+          new URL(client.url).pathname.startsWith(rolePrefix)
+      );
+
+      if (matchingClient) {
+        try {
+          // Bugfix-4D: navegar primero y ESPERAR, recién después enfocar —
+          // antes se hacía focus() y luego navigate() sin esperar nada, lo
+          // que en la práctica podía dejar la ventana enfocada pero todavía
+          // en la URL vieja (o en medio de la navegación) cuando el usuario
+          // la ve. `navigate()` puede devolver un WindowClient distinto (o
+          // null en algunos navegadores) — se usa ese si existe, si no el
+          // original.
+          const navigatedClient = await matchingClient.navigate(absoluteTarget);
+          return (navigatedClient || matchingClient).focus();
+        } catch {
+          // navigate() falló: no quedarse en la ventana equivocada, abrir
+          // una ventana nueva con la URL correcta.
+          return self.clients.openWindow(absoluteTarget);
         }
       }
-      // No window on the right app: focus any open window and navigate it there
-      for (const client of clients) {
-        if ("focus" in client && "navigate" in client) {
-          client.focus();
-          client.navigate(targetPath);
-          return;
-        }
-      }
-      // Otherwise open a new window for the correct role's app
-      return self.clients.openWindow(targetPath);
+
+      // Ninguna ventana del rol correcto abierta (o ninguna ventana en
+      // absoluto): abrir una nueva. Nunca "/cliente/", "/negocio" ni
+      // start_url genérico — siempre la URL real ya armada arriba.
+      return self.clients.openWindow(absoluteTarget);
     })
   );
 });

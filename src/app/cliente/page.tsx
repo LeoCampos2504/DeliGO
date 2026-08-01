@@ -233,6 +233,51 @@ function HomePageContent() {
     }
   }, [router, searchParams, syncSession])
 
+  // Bugfix-4D: causa raíz de "las notificaciones nunca abren Pedidos" — esta
+  // página nunca leía `?tab=` (a diferencia de business-panel.tsx, que sí lo
+  // hacía). `activeTab` además persiste en localStorage (useNavStore), así
+  // que sin esto un `?tab=pedidos` quedaba siempre pisado por la última
+  // pestaña guardada. Solo se acepta un valor conocido; nunca se borra
+  // `pedidoId`/`chat`/`review`/`focusPedido` — esos los consume
+  // ClientOrdersPanel/ChatProvider por su cuenta.
+  //
+  // Se relee en cada foco/visibilidad (no solo al montar) porque el service
+  // worker puede navegar una PWA ya abierta — `client.navigate()` no
+  // garantiza un remount de React, así que un efecto que solo corre una vez
+  // al montar no vería el nuevo `tab` de esa segunda navegación.
+  const knownTabs = ["inicio", "pedidos", "favoritos", "promos", "perfil"] as const
+  useEffect(() => {
+    function consumeTabParam() {
+      const params = new URLSearchParams(window.location.search)
+      const tabParam = params.get("tab")
+      if (!tabParam) return
+      const target = (knownTabs as readonly string[]).includes(tabParam)
+        ? (tabParam as (typeof knownTabs)[number])
+        : null
+      if (target) setActiveTab(target)
+
+      params.delete("tab")
+      const newSearch = params.toString()
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
+      )
+    }
+
+    consumeTabParam()
+
+    function onVisible() {
+      if (document.visibilityState === "visible") consumeTabParam()
+    }
+    window.addEventListener("focus", consumeTabParam)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", consumeTabParam)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [setActiveTab])
+
   // Invalidate delivery-precios when switching to home tab so prices are always fresh
   useEffect(() => {
     if (activeTab === "inicio") {

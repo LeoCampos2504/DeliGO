@@ -157,21 +157,42 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
 
   // Bugfix-4B [17B]: deep link desde una notificación de pedido/estado
   // (?pedidoId=<id>, agregado por business-panel.tsx al cambiar a la pestaña
-  // "pedidos"). Se captura una sola vez al montar y se limpia la URL de
-  // inmediato — el pedido puede tardar en llegar (todavía cargando), así que
-  // la intención queda en estado local hasta que la query de pedidos resuelva.
+  // "pedidos"). Se captura al montar y se limpia la URL de inmediato — el
+  // pedido puede tardar en llegar (todavía cargando), así que la intención
+  // queda en estado local hasta que la query de pedidos resuelva.
+  //
+  // Bugfix-4D: además de la lectura al montar, hay que releer en
+  // foco/visibilidad — el service worker puede navegar (`client.navigate()`)
+  // una ventana de Negocio ya abierta sin garantizar que este componente se
+  // desmonte/remonte, así que una lectura de un solo disparo no vería el
+  // `pedidoId` de una segunda notificación.
   const [focusPedidoId, setFocusPedidoId] = useState<string | null>(null)
   const [focusResolved, setFocusResolved] = useState(false)
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const pid = params.get("pedidoId")
-    if (!pid) return
-    setFocusPedidoId(pid)
-    params.delete("pedidoId")
-    params.delete("focusPedido")
-    const newSearch = params.toString()
-    window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+    function consumeDeepLinkParams() {
+      const params = new URLSearchParams(window.location.search)
+      const pid = params.get("pedidoId")
+      if (!pid) return
+      setFocusPedidoId(pid)
+      setFocusResolved(false)
+      params.delete("pedidoId")
+      params.delete("focusPedido")
+      const newSearch = params.toString()
+      window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+    }
+
+    consumeDeepLinkParams()
+
+    function onVisible() {
+      if (document.visibilityState === "visible") consumeDeepLinkParams()
+    }
+    window.addEventListener("focus", consumeDeepLinkParams)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", consumeDeepLinkParams)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [])
   const [rejectDialog, setRejectDialog] = useState<Pedido | null>(null)
   const [rejectReason, setRejectReason] = useState("")

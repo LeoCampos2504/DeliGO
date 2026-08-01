@@ -23,25 +23,44 @@ const ChatSheet = dynamic(
 // `useSearchParams()` para no forzar un límite de Suspense en el layout raíz,
 // que envuelve TODA la app. Se limpia el parámetro de la URL después de
 // abrir el chat para no reabrirlo en un refresh o al volver atrás.
+//
+// Bugfix-4D: antes esto solo corría una vez al montar (`useEffect(..., [])`).
+// Si la PWA ya estaba abierta y el service worker navega esa ventana
+// (`client.navigate()`) a una nueva notificación de chat, no hay garantía de
+// que ChatProvider se desmonte/remonte — así que hace falta releer la URL al
+// recuperar el foco/visibilidad, no solo al montar.
 function useChatDeepLink() {
   const { openConversation, setSheetOpen } = useChatStore()
   const { isAuthenticated, userType } = useAuthStore()
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const chatPedidoId = params.get("chat")
-    if (!chatPedidoId) return
-    if (!isAuthenticated() || userType() === "superadmin") return
+    function consumeChatParam() {
+      const params = new URLSearchParams(window.location.search)
+      const chatPedidoId = params.get("chat")
+      if (!chatPedidoId) return
+      if (!isAuthenticated() || userType() === "superadmin") return
 
-    openConversation(chatPedidoId)
-    setSheetOpen(true)
+      openConversation(chatPedidoId)
+      setSheetOpen(true)
 
-    params.delete("chat")
-    const newSearch = params.toString()
-    const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
-    window.history.replaceState(null, "", newUrl)
-    // Se ejecuta una sola vez al montar: solo interesa el deep link inicial.
-  }, [])
+      params.delete("chat")
+      const newSearch = params.toString()
+      const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
+      window.history.replaceState(null, "", newUrl)
+    }
+
+    consumeChatParam()
+
+    function onVisible() {
+      if (document.visibilityState === "visible") consumeChatParam()
+    }
+    window.addEventListener("focus", consumeChatParam)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", consumeChatParam)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [openConversation, setSheetOpen, isAuthenticated, userType])
 }
 
 export function ChatProvider() {

@@ -209,31 +209,51 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   }, [])
 
   // Handle URL tab parameter (from push notification click)
+  //
+  // Bugfix-4D: antes esto solo corría una vez al montar. El service worker
+  // puede navegar (`client.navigate()`) una PWA de Negocio que ya estaba
+  // abierta — eso no garantiza que este componente se desmonte/remonte, así
+  // que un efecto de un solo disparo no vería un `?tab=` de esa segunda
+  // notificación. Ahora también se relee al recuperar el foco/visibilidad.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const tabParam = params.get("tab")
-    if (tabParam) {
-      const tabMap: Record<string, PanelTab> = {
-        dashboard: "dashboard",
-        ventas: "ventas",
-        productos: "productos",
-        pedidos: "pedidos",
-        resenas: "resenas",
-        salon: "salon",
-        config: "config",
+    function consumeTabParam() {
+      const params = new URLSearchParams(window.location.search)
+      const tabParam = params.get("tab")
+      if (tabParam) {
+        const tabMap: Record<string, PanelTab> = {
+          dashboard: "dashboard",
+          ventas: "ventas",
+          productos: "productos",
+          pedidos: "pedidos",
+          resenas: "resenas",
+          salon: "salon",
+          config: "config",
+        }
+        const target = tabMap[tabParam]
+        if (target) {
+          setActiveTab(target)
+          // Bugfix-4B [17B]: antes esto limpiaba TODA la query string, incluido
+          // un eventual `pedidoId` — que OrdersTab necesita leer recién en el
+          // siguiente render, cuando se monta por primera vez al cambiar de tab.
+          // Ahora solo se quita `tab`; el resto (pedidoId, etc.) lo consume y
+          // limpia el propio tab de destino cuando termina de usarlo.
+          params.delete("tab")
+          const newSearch = params.toString()
+          window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+        }
       }
-      const target = tabMap[tabParam]
-      if (target) {
-        setActiveTab(target)
-        // Bugfix-4B [17B]: antes esto limpiaba TODA la query string, incluido
-        // un eventual `pedidoId` — que OrdersTab necesita leer recién en el
-        // siguiente render, cuando se monta por primera vez al cambiar de tab.
-        // Ahora solo se quita `tab`; el resto (pedidoId, etc.) lo consume y
-        // limpia el propio tab de destino cuando termina de usarlo.
-        params.delete("tab")
-        const newSearch = params.toString()
-        window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
-      }
+    }
+
+    consumeTabParam()
+
+    function onVisible() {
+      if (document.visibilityState === "visible") consumeTabParam()
+    }
+    window.addEventListener("focus", consumeTabParam)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", consumeTabParam)
+      document.removeEventListener("visibilitychange", onVisible)
     }
   }, [])
 

@@ -170,16 +170,16 @@ export function ClientOrdersPanel() {
   const [trackingOpen, setTrackingOpen] = useState(false)
 
   // Bugfix-4B [17A]/[17B]: deep link desde una notificación de reseña o de
-  // pedido/estado (?pedidoId=<id>[&review=1]). Se captura la intención una
-  // sola vez, con el inicializador perezoso de useState (se ejecuta una única
-  // vez al crear el componente, sin necesidad de un efecto ni de un setState
-  // dentro de uno) — el pedido puede tardar en llegar (todavía cargando), así
-  // que la intención se guarda en estado local en vez de depender de que el
-  // query param siga en la URL.
-  const [focusPedidoId] = useState<string | null>(() =>
+  // pedido/estado (?pedidoId=<id>[&review=1]). La lectura inicial se captura
+  // con el inicializador perezoso de useState (se ejecuta una única vez al
+  // crear el componente, sin necesidad de un efecto ni de un setState dentro
+  // de uno) — el pedido puede tardar en llegar (todavía cargando), así que la
+  // intención se guarda en estado local en vez de depender de que el query
+  // param siga en la URL.
+  const [focusPedidoId, setFocusPedidoId] = useState<string | null>(() =>
     typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("pedidoId")
   )
-  const [focusReview] = useState<boolean>(() =>
+  const [focusReview, setFocusReview] = useState<boolean>(() =>
     typeof window === "undefined" ? false : new URLSearchParams(window.location.search).get("review") === "1"
   )
   const [focusResolved, setFocusResolved] = useState(false)
@@ -200,6 +200,44 @@ export function ClientOrdersPanel() {
       `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
     )
   }, [focusPedidoId])
+
+  // Bugfix-4D: el inicializador perezoso de arriba solo captura la URL que
+  // existía al CREAR el componente. Si la PWA ya estaba abierta y en la
+  // pestaña Pedidos, y el service worker navega la ventana a una nueva
+  // notificación (`client.navigate()`), no hay garantía de que este
+  // componente se desmonte/remonte — así que hace falta releer la URL cuando
+  // la ventana recupera el foco/visibilidad, no solo una vez al crearse.
+  useEffect(() => {
+    function consumeDeepLinkParams() {
+      const params = new URLSearchParams(window.location.search)
+      const pid = params.get("pedidoId")
+      if (!pid) return
+
+      setFocusPedidoId(pid)
+      setFocusReview(params.get("review") === "1")
+      setFocusResolved(false)
+
+      params.delete("pedidoId")
+      params.delete("review")
+      params.delete("focusPedido")
+      const newSearch = params.toString()
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`
+      )
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") consumeDeepLinkParams()
+    }
+    window.addEventListener("focus", consumeDeepLinkParams)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.removeEventListener("focus", consumeDeepLinkParams)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [])
 
   const { data: pedidosActivos = [], isLoading: loadingActivos } = useQuery<Pedido[]>({
     queryKey: ["cliente-pedidos", "activos"],
