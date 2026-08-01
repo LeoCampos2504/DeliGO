@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   WifiOff,
   MessageSquare,
+  Paperclip,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -103,6 +104,7 @@ export default function OperacionesPyRMensajesPage() {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" })
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [sending, setSending] = useState(false)
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
 
   const stoppedRef = useRef(false)
   const acRef = useRef<AbortController | null>(null)
@@ -244,6 +246,83 @@ export default function OperacionesPyRMensajesPage() {
     [pedidoId, refresh]
   )
 
+  // Bugfix-4 [16]: adjuntar PDF/imagen al chat desde Operaciones. Mismas
+  // validaciones de tamaño/tipo que ya usa el chat cliente↔negocio, solo
+  // para dar feedback inmediato — el servidor vuelve a validar todo.
+  const handleSendAttachment = useCallback(
+    async (file: File): Promise<void> => {
+      const isPdf = file.type === "application/pdf"
+      const isImage = file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp"
+      if (!isPdf && !isImage) {
+        toast.error("Solo se permiten imágenes (PNG, JPG, WEBP) o PDF.")
+        return
+      }
+      const maxSize = isPdf ? 5 * 1024 * 1024 : 10 * 1024 * 1024
+      if (file.size > maxSize) {
+        toast.error(`El archivo es muy grande. Máximo ${isPdf ? "5MB para PDF" : "10MB para imágenes"}.`)
+        return
+      }
+
+      setUploadingAttachment(true)
+      try {
+        const formData = new FormData()
+        formData.append("file", file)
+
+        const res = await fetch(`/api/operaciones/pyr/mensajes/${encodeURIComponent(pedidoId)}/adjunto`, {
+          method: "POST",
+          cache: "no-store",
+          body: formData,
+        })
+
+        if (res.status === 401) {
+          stoppedRef.current = true
+          setPhase({ kind: "no-session" })
+          return
+        }
+        if (res.status === 403) {
+          toast.error("Esta terminal no tiene permiso para realizar esa acción.")
+          await refresh()
+          return
+        }
+        if (res.status === 409) {
+          toast.error("Este pedido ya no está disponible para mensajes.")
+          stoppedRef.current = true
+          setPhase({ kind: "unavailable" })
+          return
+        }
+        if (res.status === 429) {
+          toast.error("Demasiados intentos. Esperá un momento.")
+          return
+        }
+        if (res.status === 413) {
+          toast.error("El archivo es muy grande.")
+          return
+        }
+        if (res.status === 400) {
+          toast.error("Archivo no válido. Revisá el tipo y probá de nuevo.")
+          return
+        }
+        if (!res.ok) {
+          toast.error("No se pudo enviar el archivo. Intentá de nuevo.")
+          return
+        }
+        const data = await res.json().catch(() => null)
+        if (!data || !data.ok) {
+          toast.error("No se pudo enviar el archivo. Intentá de nuevo.")
+          return
+        }
+
+        toast.success("Comprobante enviado")
+        await refresh()
+      } catch {
+        toast.error("No se pudo enviar el archivo. Intentá de nuevo.")
+      } finally {
+        setUploadingAttachment(false)
+      }
+    },
+    [pedidoId, refresh]
+  )
+
   // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
   useEffect(() => {
     if (document.visibilityState === "visible") void refresh()
@@ -355,8 +434,10 @@ export default function OperacionesPyRMensajesPage() {
       stale={phase.stale}
       lastUpdated={lastUpdated}
       sending={sending}
+      uploadingAttachment={uploadingAttachment}
       onRefresh={refresh}
       onSend={handleSend}
+      onSendAttachment={handleSendAttachment}
     />
   )
 }
@@ -370,18 +451,23 @@ function MensajesView({
   stale,
   lastUpdated,
   sending,
+  uploadingAttachment,
   onRefresh,
   onSend,
+  onSendAttachment,
 }: {
   pedidoId: string
   data: PanelData
   stale: boolean
   lastUpdated: number | null
   sending: boolean
+  uploadingAttachment: boolean
   onRefresh: () => void
   onSend: (texto: string) => Promise<boolean>
+  onSendAttachment: (file: File) => Promise<void>
 }) {
   const [refreshing, setRefreshing] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [texto, setTexto] = useState("")
   const [preview, setPreview] = useState<AttachmentPreview>(null)
 
@@ -484,6 +570,28 @@ function MensajesView({
         <div className="sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-border/50">
           <div className="max-w-3xl mx-auto px-4 py-3 space-y-1.5">
             <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ""
+                  if (file) void onSendAttachment(file)
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="rounded-xl h-10 w-10 shrink-0"
+                disabled={sending || uploadingAttachment}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Adjuntar comprobante"
+              >
+                {uploadingAttachment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </Button>
               <textarea
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}

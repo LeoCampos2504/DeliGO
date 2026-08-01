@@ -255,7 +255,7 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
   const notificationData = event.notification.data || {};
-  const { type, pedidoId } = notificationData;
+  const { type, pedidoId, role } = notificationData;
 
   // Handle action button clicks
   const action = event.action;
@@ -342,11 +342,22 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // ── Personal (session-based) notifications ──
-  // Build deep link URL based on notification type and action
-  let targetPath = "/cliente/";
-  let targetTab = "";
+  // Bugfix-4 [17]: antes esta rama siempre construía/abría "/cliente/...",
+  // sin importar el rol real del destinatario (negocio, repartidor), y nunca
+  // navegaba al pedido/chat exacto — solo a la pestaña genérica. Ahora:
+  //   1) Se resuelve la app correcta a partir de `data.role` (agregado en
+  //      push.ts::createNotification), en vez de asumir "cliente" siempre.
+  //   2) Se agrega el pedidoId (cuando existe) a la URL para que la página
+  //      pueda abrir el recurso exacto (hoy: el chat del pedido).
+  //   3) Si el payload trae `data.url`, se usa SOLO si es una ruta interna
+  //      segura (empieza con "/", nunca "//" ni un esquema tipo "javascript:"),
+  //      para evitar un open-redirect si algún payload llegara manipulado.
+  const ROLE_BASE_PATH = { cliente: "/cliente/", negocio: "/negocio", repartidor: "/repartidor" };
+  const effectiveRole = ROLE_BASE_PATH[role] ? role : "cliente";
+  const basePath = ROLE_BASE_PATH[effectiveRole];
 
   // First, determine which tab to navigate to based on notification type
+  let targetTab = "";
   if (type === "new_order" || type === "order_update" || type === "review_request") {
     targetTab = "pedidos";
   } else if (type === "new_delivery") {
@@ -366,40 +377,46 @@ self.addEventListener("notificationclick", (event) => {
     targetTab = "entregas";
   }
 
-  // Build target URL with tab parameter
-  targetPath = `/cliente/?tab=${targetTab}`;
+  function isSafeInternalUrl(value) {
+    return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
+  }
+
+  // Build target URL: prefer an explicit, validated internal `data.url`;
+  // otherwise build one from role + tab (+ pedidoId, + chat marker for chat
+  // notifications, so the page can open that exact conversation).
+  let targetPath;
+  if (isSafeInternalUrl(notificationData.url)) {
+    targetPath = notificationData.url;
+  } else {
+    const params = new URLSearchParams();
+    if (targetTab) params.set("tab", targetTab);
+    if (pedidoId) params.set("pedidoId", String(pedidoId));
+    if (type === "chat" && pedidoId) params.set("chat", String(pedidoId));
+    targetPath = `${basePath}?${params.toString()}`;
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      // Try to find an existing window to focus
+      // Try to find an existing window already on the correct role's app
       for (const client of clients) {
         if ("focus" in client && "navigate" in client) {
           const clientUrl = new URL(client.url);
-
-          // If the client is already on a role page, navigate with tab param on that page
-          if (clientUrl.pathname.startsWith("/cliente") && (type === "order_update" || type === "review_request" || type === "chat" || type === "review")) {
+          if (clientUrl.pathname.startsWith(basePath.replace(/\/$/, "") || basePath)) {
             client.focus();
-            client.navigate(`/cliente/?tab=${targetTab}`);
+            client.navigate(targetPath);
             return;
           }
-          if (clientUrl.pathname === "/negocio" && (type === "new_order" || type === "order_update" || type === "review" || type === "chat" || type === "account_update")) {
-            client.focus();
-            client.navigate(`/negocio?tab=${targetTab}`);
-            return;
-          }
-          if (clientUrl.pathname === "/repartidor" && (type === "new_delivery" || type === "order_update" || type === "chat")) {
-            client.focus();
-            client.navigate(`/repartidor?tab=${targetTab}`);
-            return;
-          }
-
-          // Fallback: just focus and navigate to root with tab param
+        }
+      }
+      // No window on the right app: focus any open window and navigate it there
+      for (const client of clients) {
+        if ("focus" in client && "navigate" in client) {
           client.focus();
           client.navigate(targetPath);
           return;
         }
       }
-      // Otherwise open new window
+      // Otherwise open a new window for the correct role's app
       return self.clients.openWindow(targetPath);
     })
   );

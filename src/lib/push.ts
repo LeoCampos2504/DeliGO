@@ -177,6 +177,17 @@ export type PushSubscriptionCleanup = {
   onExpired?: () => void
 }
 
+// Bugfix-4 [17]: rol de PWA "personal" (con sesión) a la que pertenece la
+// notificación. El service worker lo usa para saber qué app abrir/enfocar
+// cuando no hay ninguna ventana abierta (antes siempre abría /cliente/,
+// aunque la notificación fuera para negocio o repartidor). Roles sin PWA
+// personal (empleado, salon, superadmin) devuelven undefined: el SW conserva
+// su comportamiento previo (rama de "shared-display" o fallback a cliente).
+function personalRoleFor(userType: string): "cliente" | "negocio" | "repartidor" | undefined {
+  if (userType === "cliente" || userType === "negocio" || userType === "repartidor") return userType
+  return undefined
+}
+
 /**
  * Creates a notification in the database and optionally sends a push notification.
  * This is the main entry point for all notification creation.
@@ -205,6 +216,22 @@ export async function createNotification(params: CreateNotificationParams): Prom
     navigateTo: navTarget,
   }
 
+  // Bugfix-4 [17]: enriquecer el payload de push con el rol real del destinatario
+  // y el pedidoId, en un único lugar (en vez de tocar cada fábrica de payload).
+  // El service worker usa esto para abrir la PWA correcta y navegar al pedido
+  // exacto en vez de siempre caer en /cliente/.
+  const enrichedPushPayload: PushNotificationPayload | undefined = pushPayload
+    ? {
+        ...pushPayload,
+        data: {
+          ...pushPayload.data,
+          type: pushPayload.data?.type ?? tipo,
+          role: personalRoleFor(userType),
+          pedidoId: pushPayload.data?.pedidoId ?? pedidoId ?? undefined,
+        },
+      }
+    : undefined
+
   // 1. Persist notification in DB
   try {
     const { db } = await import("@/lib/db")
@@ -226,8 +253,8 @@ export async function createNotification(params: CreateNotificationParams): Prom
   }
 
   // 2. Send push notification if subscription exists
-  if (pushSubscription && pushPayload) {
-    const pushPromise = sendPushNotification(pushSubscription, pushPayload, cleanupExpired)
+  if (pushSubscription && enrichedPushPayload) {
+    const pushPromise = sendPushNotification(pushSubscription, enrichedPushPayload, cleanupExpired)
     if (awaitPush) {
       // Await the push so errors surface in the caller's logs
       try {
