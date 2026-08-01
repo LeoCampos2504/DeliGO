@@ -128,6 +128,9 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
   const [saving, setSaving] = useState<string | null>(null)
   const [regeneratingCode, setRegeneratingCode] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+  // Bugfix-3 [3]: solo afecta cómo se muestran/editan los horarios acá (los
+  // valores siguen guardándose como string "HH:mm" 24h, igual que siempre).
+  const [horaFormato, setHoraFormato] = useState<"24h" | "ampm">("24h")
 
   // Days map for horarios
   const dayLabels: Record<string, string> = {
@@ -840,6 +843,39 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
           {/* Expert mode: show schedule config */}
           {effectiveHorarioMode !== "simple" && (
           <>
+          {/* Bugfix-3 [3]: elegir cómo se muestran/editan los horarios — el
+              formato guardado sigue siendo "HH:mm" 24h en ambos casos. */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[11px] text-muted-foreground">Formato de hora</span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all",
+                  horaFormato === "24h"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                )}
+                style={horaFormato === "24h" ? { borderColor: negocio.colorPrincipal, backgroundColor: `${negocio.colorPrincipal}15`, color: negocio.colorPrincipal } : undefined}
+                onClick={() => setHoraFormato("24h")}
+              >
+                24h (00:00–23:59)
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all",
+                  horaFormato === "ampm"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                )}
+                style={horaFormato === "ampm" ? { borderColor: negocio.colorPrincipal, backgroundColor: `${negocio.colorPrincipal}15`, color: negocio.colorPrincipal } : undefined}
+                onClick={() => setHoraFormato("ampm")}
+              >
+                AM/PM
+              </button>
+            </div>
+          </div>
           {Object.entries(dayLabels).map(([dayNum, dayName]) => {
             const dia = mergedHorarios[dayNum] ?? { abierto: true, apertura: "09:00", cierre: "22:00", turno2: false, apertura2: "", cierre2: "" }
             return (
@@ -853,21 +889,23 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
                 </div>
                 {dia.abierto && (
                   <>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground w-14 shrink-0">Apertura</Label>
-                      <Input
-                        type="time"
-                        value={dia.apertura}
-                        onChange={(e) => updateDia(dayNum, { apertura: e.target.value })}
-                        className="rounded-xl h-8 text-sm"
-                      />
-                      <Label className="text-xs text-muted-foreground w-14 shrink-0">Cierre</Label>
-                      <Input
-                        type="time"
-                        value={dia.cierre}
-                        onChange={(e) => updateDia(dayNum, { cierre: e.target.value })}
-                        className="rounded-xl h-8 text-sm"
-                      />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Label className="text-xs text-muted-foreground w-14 shrink-0">Apertura</Label>
+                        <TimeField
+                          value={dia.apertura}
+                          onChange={(v) => updateDia(dayNum, { apertura: v })}
+                          format={horaFormato}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Label className="text-xs text-muted-foreground w-14 shrink-0">Cierre</Label>
+                        <TimeField
+                          value={dia.cierre}
+                          onChange={(v) => updateDia(dayNum, { cierre: v })}
+                          format={horaFormato}
+                        />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground w-14 shrink-0">2do turno</Label>
@@ -877,21 +915,23 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
                       />
                     </div>
                     {dia.turno2 && (
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground w-14 shrink-0">Apertura</Label>
-                        <Input
-                          type="time"
-                          value={dia.apertura2}
-                          onChange={(e) => updateDia(dayNum, { apertura2: e.target.value })}
-                          className="rounded-xl h-8 text-sm"
-                        />
-                        <Label className="text-xs text-muted-foreground w-14 shrink-0">Cierre</Label>
-                        <Input
-                          type="time"
-                          value={dia.cierre2}
-                          onChange={(e) => updateDia(dayNum, { cierre2: e.target.value })}
-                          className="rounded-xl h-8 text-sm"
-                        />
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <Label className="text-xs text-muted-foreground w-14 shrink-0">Apertura</Label>
+                          <TimeField
+                            value={dia.apertura2}
+                            onChange={(v) => updateDia(dayNum, { apertura2: v })}
+                            format={horaFormato}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <Label className="text-xs text-muted-foreground w-14 shrink-0">Cierre</Label>
+                          <TimeField
+                            value={dia.cierre2}
+                            onChange={(v) => updateDia(dayNum, { cierre2: v })}
+                            format={horaFormato}
+                          />
+                        </div>
                       </div>
                     )}
                   </>
@@ -1032,16 +1072,79 @@ function SectionSaveButton({
 }
 
 // ============================================
+// Time Field (Bugfix-3 [3]: 24h vs AM/PM)
+// ============================================
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"))
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"))
+
+// Siempre recibe/entrega el valor como string "HH:mm" (mismo formato que ya
+// se guarda en la base). En modo "ampm" se mantiene el <input type="time">
+// nativo tal cual estaba antes; en modo "24h" se reemplaza por selects de
+// hora/minuto para que no dependa del locale del navegador/SO.
+function TimeField({
+  value,
+  onChange,
+  format,
+}: {
+  value: string
+  onChange: (value: string) => void
+  format: "24h" | "ampm"
+}) {
+  if (format === "ampm") {
+    return (
+      <Input
+        type="time"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-xl h-9 text-sm flex-1 min-w-0"
+      />
+    )
+  }
+
+  const [hh, mm] = value ? value.split(":") : ["00", "00"]
+
+  return (
+    <div className="flex items-center gap-1 flex-1 min-w-0">
+      <select
+        value={hh}
+        onChange={(e) => onChange(`${e.target.value}:${mm}`)}
+        className="rounded-xl h-9 text-sm border border-input bg-background px-2 flex-1 min-w-0"
+        aria-label="Hora"
+      >
+        {HOURS_24.map((h) => (
+          <option key={h} value={h}>{h}</option>
+        ))}
+      </select>
+      <span className="text-sm text-muted-foreground">:</span>
+      <select
+        value={mm}
+        onChange={(e) => onChange(`${hh}:${e.target.value}`)}
+        className="rounded-xl h-9 text-sm border border-input bg-background px-2 flex-1 min-w-0"
+        aria-label="Minuto"
+      >
+        {MINUTES_60.map((m) => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+// ============================================
 // Push Notifications Config
 // ============================================
 function PushNotificationsConfig({ color }: { color: string }) {
   const push = usePushNotifications()
   const [enabled, setEnabled] = useState(push.isSubscribed)
-
-  // Sync enabled state with the async isSubscribed value from the hook
-  useEffect(() => {
+  // Sync enabled state with the async isSubscribed value from the hook.
+  // Ajustada durante el render (patrón de React para "adjusting state when a
+  // prop changes") en vez de en un useEffect, para evitar el setState
+  // síncrono dentro de un efecto.
+  const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
+  if (push.isSubscribed !== prevIsSubscribed) {
+    setPrevIsSubscribed(push.isSubscribed)
     setEnabled(push.isSubscribed)
-  }, [push.isSubscribed])
+  }
 
   const handleToggle = async (val: boolean) => {
     setEnabled(val)

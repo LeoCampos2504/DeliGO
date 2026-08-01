@@ -11,6 +11,7 @@ import {
   X,
   Loader2,
   Info,
+  Crosshair,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -49,7 +50,9 @@ const ZONE_COLORS = [
   "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16",
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Bugfix-3 [1]: zoom usado al centrar el mapa en la ubicación actual del navegador.
+const GPS_ZOOM = 16
+
 type LeafletRef = any
 
 // ============================================
@@ -431,6 +434,7 @@ function ZoneMapDialog({
 }) {
   const [activeZonaId, setActiveZonaId] = useState<string | null>(zonas.length > 0 ? zonas[zonas.length - 1].id : null)
   const [mapReady, setMapReady] = useState(false)
+  const [locating, setLocating] = useState(false)
   const [closedZonaIds, setClosedZonaIds] = useState<Set<string>>(() => {
     // Zones that already have 3+ points are considered closed on init
     const closed = new Set<string>()
@@ -616,6 +620,35 @@ function ZoneMapDialog({
     drawZona(map, L, zona, true)
   }
 
+  // Bugfix-3 [1]: centra el mapa en la ubicación actual del navegador — solo
+  // mueve la vista, nunca agrega un punto ni guarda nada por sí solo (el
+  // usuario sigue teniendo que hacer clic en el mapa y luego "Guardar zonas
+  // de delivery"). Las coordenadas nunca se loguean ni se envían al backend acá.
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Tu navegador no permite obtener tu ubicación")
+      return
+    }
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false)
+        const map = mapInstanceRef.current
+        if (!map) return
+        map.setView([position.coords.latitude, position.coords.longitude], GPS_ZOOM, { animate: true })
+      },
+      (error) => {
+        setLocating(false)
+        if (error.code === error.PERMISSION_DENIED) {
+          toast.error("No pudimos acceder a tu ubicación. Revisá los permisos del navegador.")
+        } else {
+          toast.error("No se pudo obtener tu ubicación. Intentá de nuevo.")
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    )
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -631,15 +664,31 @@ function ZoneMapDialog({
             Hacé clic en el mapa para agregar puntos a la zona seleccionada
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="rounded-xl gap-1.5"
-          onClick={onClose}
-        >
-          <Check className="h-3.5 w-3.5" />
-          Listo
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl gap-1.5"
+            onClick={handleUseMyLocation}
+            disabled={locating || !mapReady}
+          >
+            {locating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Crosshair className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">Mi ubicación</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl gap-1.5"
+            onClick={onClose}
+          >
+            <Check className="h-3.5 w-3.5" />
+            Listo
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row h-[calc(100vh-56px)]">
