@@ -3,7 +3,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   noStore,
-  resolveOperativoMozoForSlug,
+  resolveOperativoAreaForSlug,
 } from "@/lib/operativo-mozo"
 
 type PushSubscriptionInput = {
@@ -101,7 +101,7 @@ async function updateEmpleadoSubscription({
       id: empleadoId,
       negocioId,
       cuentaOperativaId,
-      areaOperativa: "mozo",
+      areaOperativa: "salon",
       activo: true,
       eliminado: false,
     },
@@ -115,7 +115,7 @@ export async function GET(
 ) {
   try {
     const { slug } = await params
-    const auth = await resolveOperativoMozoForSlug(req, slug)
+    const auth = await resolveOperativoAreaForSlug(req, slug, "salon")
     if (!auth.ok) return authErrorResponse(auth)
 
     const empleado = await db.empleado.findFirst({
@@ -123,7 +123,7 @@ export async function GET(
         id: auth.empleado.id,
         negocioId: auth.negocio.id,
         cuentaOperativaId: auth.cuenta.id,
-        areaOperativa: "mozo",
+        areaOperativa: "salon",
         activo: true,
         eliminado: false,
       },
@@ -146,7 +146,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPush] Error loading subscription state:", error)
+    console.error("[OperativoSalonPush] Error loading subscription state:", error)
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo consultar la suscripcion" },
@@ -162,7 +162,7 @@ export async function POST(
 ) {
   try {
     const { slug } = await params
-    const auth = await resolveOperativoMozoForSlug(req, slug)
+    const auth = await resolveOperativoAreaForSlug(req, slug, "salon")
     if (!auth.ok) return authErrorResponse(auth)
 
     const body = await req.json().catch(() => ({}))
@@ -199,7 +199,7 @@ export async function POST(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPush] Error saving subscription:", error)
+    console.error("[OperativoSalonPush] Error saving subscription:", error)
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo guardar la suscripcion" },
@@ -215,7 +215,7 @@ export async function DELETE(
 ) {
   try {
     const { slug } = await params
-    const auth = await resolveOperativoMozoForSlug(req, slug)
+    const auth = await resolveOperativoAreaForSlug(req, slug, "salon")
     if (!auth.ok) return authErrorResponse(auth)
 
     const result = await updateEmpleadoSubscription({
@@ -241,7 +241,7 @@ export async function DELETE(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPush] Error clearing subscription:", error)
+    console.error("[OperativoSalonPush] Error clearing subscription:", error)
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo borrar la suscripcion" },

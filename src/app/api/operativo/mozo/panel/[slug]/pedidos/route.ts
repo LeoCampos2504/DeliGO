@@ -5,6 +5,10 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoMozoForSlug } from "@/lib/operativo-mozo"
 import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
+import {
+  notifySalonNewOrderForOperations,
+  parseSubscriptionEndpoint,
+} from "@/lib/salon-new-order-notification"
 import { getClientIp } from "@/lib/rate-limit"
 import { isNegocioOpen } from "@/lib/utils"
 
@@ -573,6 +577,7 @@ async function findExistingIdempotentPedido(params: {
 async function sendManualOrderNotifications(params: {
   pedido: ManualOrderPedido
   negocioId: string
+  negocioSlug: string
 }) {
   const clienteNombre = `Mesa ${params.pedido.mesaNumero ?? ""}`.trim()
   const total = params.pedido.total
@@ -599,6 +604,26 @@ async function sendManualOrderNotifications(params: {
     console.error("[OperativoPedidoManual] Failed business notification:", pushError)
   }
 
+  // Envío moderno a Salón (Legacy-Cleanup-1C.2B): se intenta primero para
+  // poder deduplicar por endpoint contra el canal legacy que sigue abajo.
+  let modernSalonEndpoints: string[] = []
+  if (params.pedido.mesaNumero) {
+    try {
+      const modernResult = await notifySalonNewOrderForOperations({
+        pedidoId: params.pedido.id,
+        negocioId: params.negocioId,
+        slug: params.negocioSlug,
+        mesaNumero: params.pedido.mesaNumero,
+        clienteNombre,
+        total,
+        mozoNombre: params.pedido.empleadoNombre,
+      })
+      modernSalonEndpoints = modernResult.attemptedEndpoints
+    } catch (modernSalonError) {
+      console.error("[OperativoPedidoManual] Failed modern salon notification:", modernSalonError)
+    }
+  }
+
   try {
     const sharedPush = await db.negocio.findUnique({
       where: { id: params.negocioId },
@@ -606,30 +631,36 @@ async function sendManualOrderNotifications(params: {
     })
 
     if (sharedPush?.pushSubscriptionSalon && params.pedido.mesaNumero) {
-      const salonPayload = salonNewOrderNotification(
-        params.pedido.id,
-        params.pedido.mesaNumero,
-        clienteNombre,
-        total,
-        params.pedido.empleadoNombre
-      )
-      await createNotification({
-        userId: params.negocioId,
-        userType: "negocio",
-        tipo: "salon_new_order",
-        titulo: salonPayload.title,
-        cuerpo: salonPayload.body,
-        pedidoId: params.pedido.id,
-        negocioId: params.negocioId,
-        datos: { mesaNumero: params.pedido.mesaNumero },
-        pushSubscription: sharedPush.pushSubscriptionSalon,
-        pushPayload: salonPayload,
-        cleanupExpired: {
-          model: "negocio",
-          id: params.negocioId,
-          field: "pushSubscriptionSalon",
-        },
-      })
+      const legacyEndpoint = parseSubscriptionEndpoint(sharedPush.pushSubscriptionSalon)
+      const alreadyNotified =
+        legacyEndpoint !== null && modernSalonEndpoints.includes(legacyEndpoint)
+
+      if (!alreadyNotified) {
+        const salonPayload = salonNewOrderNotification(
+          params.pedido.id,
+          params.pedido.mesaNumero,
+          clienteNombre,
+          total,
+          params.pedido.empleadoNombre
+        )
+        await createNotification({
+          userId: params.negocioId,
+          userType: "negocio",
+          tipo: "salon_new_order",
+          titulo: salonPayload.title,
+          cuerpo: salonPayload.body,
+          pedidoId: params.pedido.id,
+          negocioId: params.negocioId,
+          datos: { mesaNumero: params.pedido.mesaNumero },
+          pushSubscription: sharedPush.pushSubscriptionSalon,
+          pushPayload: salonPayload,
+          cleanupExpired: {
+            model: "negocio",
+            id: params.negocioId,
+            field: "pushSubscriptionSalon",
+          },
+        })
+      }
     }
   } catch (sharedPushError) {
     console.error("[OperativoPedidoManual] Failed salon notification:", sharedPushError)
@@ -864,7 +895,7 @@ export async function POST(
               id: auth.empleado.id,
               negocioId: auth.negocio.id,
               cuentaOperativaId: auth.cuenta.id,
-              rol: "mozo",
+              areaOperativa: "mozo",
               activo: true,
               eliminado: false,
             },
@@ -1206,6 +1237,7 @@ export async function POST(
       await sendManualOrderNotifications({
         pedido: pedidoResult.pedido,
         negocioId: auth.negocio.id,
+        negocioSlug: auth.negocio.slug,
       })
     }
 

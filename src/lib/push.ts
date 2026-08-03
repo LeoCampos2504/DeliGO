@@ -40,6 +40,7 @@ export type NotificationType =
   | "account_update"
   | "mesa_order_ready"
   | "salon_new_order"
+  | "operaciones_salon_new_order"
 
 export interface PushNotificationPayload {
   title: string
@@ -656,6 +657,40 @@ export function salonNewOrderNotification(
       pedidoId,
       mesaNumero,
       autor,
+    },
+    actions: [
+      { action: "view", title: "Ver pedido" },
+    ],
+    requireInteraction: true,
+  }
+}
+
+// ============================================
+// Operaciones — Salón (cuenta personal, /operaciones/mi-panel/[slug]/salon)
+// ============================================
+
+export function operacionesSalonNewOrderNotification(
+  pedidoId: string,
+  mesaNumero: number,
+  clienteNombre: string,
+  total: number,
+  panelUrl: string,
+  mozoNombre?: string | null
+): PushNotificationPayload {
+  const autor = mozoNombre || clienteNombre
+  const body = mozoNombre
+    ? `${mozoNombre} tomó un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`
+    : `${clienteNombre} hizo un pedido por $${total.toFixed(0)} en la mesa ${mesaNumero}`
+  return {
+    title: `Mesa ${mesaNumero} — Nuevo pedido 📩`,
+    body,
+    tag: `operaciones-salon-new-order-${pedidoId}`,
+    data: {
+      type: "operaciones_salon_new_order",
+      pedidoId,
+      mesaNumero,
+      autor,
+      url: panelUrl,
     },
     actions: [
       { action: "view", title: "Ver pedido" },

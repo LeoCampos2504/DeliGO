@@ -5,6 +5,10 @@ import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME, findSesionByToken } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
+import {
+  notifySalonNewOrderForOperations,
+  parseSubscriptionEndpoint,
+} from "@/lib/salon-new-order-notification"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -1193,6 +1197,27 @@ export async function POST(request: NextRequest) {
       console.error("[Push] Failed to send new order notification:", pushError)
     }
 
+    // Envío moderno a Salón: todas las cuentas operativas personales con
+    // areaOperativa="salon" del negocio (Legacy-Cleanup-1C.2B). Se intenta
+    // primero para poder deduplicar por endpoint contra el canal legacy.
+    let modernSalonEndpoints: string[] = []
+    if (isMesaOrder && mesaNumero) {
+      try {
+        const modernResult = await notifySalonNewOrderForOperations({
+          pedidoId: pedido.id,
+          negocioId,
+          slug: negocio.slug,
+          mesaNumero,
+          clienteNombre,
+          total: finalTotal,
+          mozoNombre: empleadoNombre,
+        })
+        modernSalonEndpoints = modernResult.attemptedEndpoints
+      } catch (modernSalonError) {
+        console.error("[Push] Failed to send modern operaciones salon notification:", modernSalonError)
+      }
+    }
+
     // Send push notification to the salon shared-display PWA for mesa orders.
     // Legacy-Cleanup-1C.1: el envío a la PWA de empleados (retiro/domicilio,
     // vía Negocio.pushSubscriptionEmpleados) se retiró — sin consumidor
@@ -1202,6 +1227,8 @@ export async function POST(request: NextRequest) {
     // esta misma notificación — no está en el alcance de archivos permitidos
     // de esta etapa, así que retirarla acá crearía una inconsistencia real
     // entre pedidos de cliente y pedidos manuales de mozo.
+    // Legacy-Cleanup-1C.2B: se omite este envío legacy si su mismo endpoint ya
+    // recibió el aviso moderno arriba (dedup cross-canal por endpoint).
     if (isMesaOrder && mesaNumero) {
       try {
         const sharedPush = await db.negocio.findUnique({
@@ -1210,26 +1237,32 @@ export async function POST(request: NextRequest) {
         })
 
         if (sharedPush?.pushSubscriptionSalon) {
-          const salonPayload = salonNewOrderNotification(
-            pedido.id,
-            mesaNumero,
-            clienteNombre,
-            finalTotal,
-            empleadoNombre
-          )
-          await createNotification({
-            userId: negocioId,
-            userType: "negocio", // stored on Negocio row; salon PWA reads via token
-            tipo: "salon_new_order",
-            titulo: salonPayload.title,
-            cuerpo: salonPayload.body,
-            pedidoId: pedido.id,
-            negocioId: negocioId,
-            datos: { mesaNumero },
-            pushSubscription: sharedPush.pushSubscriptionSalon,
-            pushPayload: salonPayload,
-            cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
-          })
+          const legacyEndpoint = parseSubscriptionEndpoint(sharedPush.pushSubscriptionSalon)
+          const alreadyNotified =
+            legacyEndpoint !== null && modernSalonEndpoints.includes(legacyEndpoint)
+
+          if (!alreadyNotified) {
+            const salonPayload = salonNewOrderNotification(
+              pedido.id,
+              mesaNumero,
+              clienteNombre,
+              finalTotal,
+              empleadoNombre
+            )
+            await createNotification({
+              userId: negocioId,
+              userType: "negocio", // stored on Negocio row; salon PWA reads via token
+              tipo: "salon_new_order",
+              titulo: salonPayload.title,
+              cuerpo: salonPayload.body,
+              pedidoId: pedido.id,
+              negocioId: negocioId,
+              datos: { mesaNumero },
+              pushSubscription: sharedPush.pushSubscriptionSalon,
+              pushPayload: salonPayload,
+              cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
+            })
+          }
         }
       } catch (sharedPushError) {
         console.error("[Push] Failed to send shared-display notification:", sharedPushError)

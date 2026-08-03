@@ -7,6 +7,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   Armchair,
+  Bell,
+  BellOff,
+  BellRing,
   CheckCircle2,
   ClipboardList,
   Eye,
@@ -23,10 +26,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
+import { useOperativoSalonPush } from "@/hooks/use-operativo-salon-push"
 import {
   PedidoDetalleDrawer,
   type PedidoDetalleState,
 } from "@/components/operativo/pedido-detalle"
+import { cn } from "@/lib/utils"
 
 // ============================================
 // DeliGO Operaciones — Panel personal de Salón (Operaciones-1I + 1J + 1K + UX-1)
@@ -133,6 +138,7 @@ export default function SalonPersonalPage() {
   const router = useRouter()
   const nav = useOperativoNav()
   const slug = params.slug
+  const salonPush = useOperativoSalonPush(slug)
 
   const [state, setState] = useState<PageState>({ status: "loading" })
   // Pedidos con una acción personal ("preparar" o "marcar_listo") en curso. `accionesEnCurso`
@@ -594,6 +600,32 @@ export default function SalonPersonalPage() {
   const { negocio, resumen } = state.data
   const accent = negocio.colorPrincipal
 
+  const handleTogglePush = () => {
+    if (salonPush.state === "active") {
+      void salonPush.unsubscribe()
+    } else if (salonPush.state === "idle" || salonPush.state === "error") {
+      void salonPush.subscribe()
+    }
+  }
+
+  const pushDisabled =
+    salonPush.state === "checking" ||
+    salonPush.state === "activating" ||
+    salonPush.state === "unsupported" ||
+    salonPush.state === "needs-install" ||
+    salonPush.state === "blocked"
+
+  const pushTitle =
+    salonPush.state === "active"
+      ? "Avisos de nuevos pedidos activados — tocá para desactivar"
+      : salonPush.state === "blocked"
+      ? "Notificaciones bloqueadas en el navegador"
+      : salonPush.state === "needs-install"
+      ? "Instalá la app para activar avisos"
+      : salonPush.state === "unsupported"
+      ? "Este navegador no soporta avisos push"
+      : "Activar avisos de nuevos pedidos"
+
   return (
     <Shell wide>
       {/* Encabezado */}
@@ -616,11 +648,37 @@ export default function SalonPersonalPage() {
             Salón
           </Badge>
         </div>
-        <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
-          <Link href={nav.homeHref} aria-label="Volver a mi panel">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {salonPush.state !== "unsupported" && (
+            <Button
+              variant={salonPush.state === "active" ? "default" : "outline"}
+              size="icon"
+              className={cn(
+                "h-10 w-10 rounded-xl",
+                salonPush.state === "active" && "bg-emerald-600 text-white hover:bg-emerald-700"
+              )}
+              onClick={handleTogglePush}
+              disabled={pushDisabled}
+              aria-label={pushTitle}
+              title={pushTitle}
+            >
+              {salonPush.state === "checking" || salonPush.state === "activating" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : salonPush.state === "active" ? (
+                <BellRing className="h-4 w-4" />
+              ) : salonPush.state === "blocked" ? (
+                <BellOff className="h-4 w-4" />
+              ) : (
+                <Bell className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
+            <Link href={nav.homeHref} aria-label="Volver a mi panel">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Resumen */}

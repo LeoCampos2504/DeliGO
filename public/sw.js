@@ -332,7 +332,7 @@ self.addEventListener("push", (event) => {
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
     let icon = "/icon-cliente-192x192.png";
-    if (notifType === "salon_new_order") {
+    if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
       icon = "/icon-salon-192x192.png";
     } else if (notifType === "mesa_order_ready") {
       icon = "/icon-mozo-192x192.png";
@@ -477,6 +477,47 @@ self.addEventListener("notificationclick", (event) => {
 
   // Handle action button clicks
   const action = event.action;
+
+  // ── Operaciones — Salón (cuenta personal, Legacy-Cleanup-1C.2B) ──
+  // Tipo moderno, independiente del canal legacy de abajo (salon_new_order /
+  // /s/). Solo navega a una URL relativa, del mismo origen, que empiece con
+  // /operaciones/mi-panel/ y contenga el segmento /salon — cualquier otro
+  // valor (ausente, externo, con otro protocolo) cae al fallback fijo
+  // /operaciones/ingresar. Rama aislada con `return` propio: nunca continúa
+  // hacia la lógica legacy de salon_new_order/mesa_order_ready ni hacia las
+  // notificaciones personales de más abajo.
+  if (type === "operaciones_salon_new_order") {
+    const rawUrl = notificationData.url;
+    const isSafeSalonUrl =
+      isSafeInternalUrl(rawUrl) &&
+      rawUrl.startsWith("/operaciones/mi-panel/") &&
+      rawUrl.includes("/salon");
+    const targetUrl = isSafeSalonUrl ? rawUrl : "/operaciones/ingresar";
+
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client && "navigate" in client) {
+            const clientUrl = new URL(client.url);
+            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
+              client.focus();
+              client.navigate(targetUrl);
+              return;
+            }
+          }
+        }
+        for (const client of clients) {
+          if ("focus" in client && "navigate" in client) {
+            client.focus();
+            client.navigate(targetUrl);
+            return;
+          }
+        }
+        return self.clients.openWindow(targetUrl);
+      })
+    );
+    return;
+  }
 
   // ── Shared-display PWA notifications ──
   // These PWAs are token-based (no session cookie), so we focus the already-
