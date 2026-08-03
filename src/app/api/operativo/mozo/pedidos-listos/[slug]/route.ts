@@ -20,10 +20,11 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 // Solo GET, solo pedidos de mesa en "listo_para_retirar" cuyo destinatario efectivo (misma
 // semántica exacta que notifyMesaOrderReadyForMozo en src/lib/mesa-order-ready-notification.ts)
 // sea el empleado autenticado: (1) asignación directa del pedido (pedido.empleadoId) tiene
-// prioridad absoluta si ese empleado es un mozo válido (mismo negocio, rol==="mozo", activo,
-// no eliminado); (2) solo si no hay asignación directa válida, se usa como fallback el mozo
-// asignado a la mesa del pedido (mesa activa, mismo negocio, empleado con rol==="mozo",
-// activo, no eliminado). Sin mutaciones de ningún tipo.
+// prioridad absoluta si ese empleado es un mozo válido (mismo negocio, areaOperativa==="mozo",
+// activo, no eliminado); (2) solo si no hay asignación directa válida, se usa como fallback el
+// mozo asignado a la mesa del pedido (mesa activa, mismo negocio, empleado con
+// areaOperativa==="mozo", activo, no eliminado). Sin mutaciones de ningún tipo.
+// Bugfix-Mozo-1A: la resolución de destinatario ya no usa el campo histórico `rol`.
 
 export async function GET(
   req: NextRequest,
@@ -66,17 +67,14 @@ export async function GET(
         })
       )
 
-    // notifyMesaOrderReadyForMozo exige, tanto para la asignación directa como para el
-    // fallback de mesa, que el empleado destinatario tenga rol==="mozo" (literal, distinto
-    // de areaOperativaEfectiva). Si el empleado autenticado no cumple esa condición, nunca
-    // puede ser destinatario efectivo de ningún pedido — la lista es correctamente vacía.
-    if (auth.empleado.rol !== "mozo") {
-      return respuestaVacia()
-    }
+    // Bugfix-Mozo-1A: notifyMesaOrderReadyForMozo (y este endpoint, con la misma
+    // semántica) ahora resuelven el destinatario efectivo por areaOperativa==="mozo",
+    // no por el campo histórico rol. auth.empleado ya viene garantizado con área
+    // efectiva "mozo" por resolveOperativoAreaForSlug — no hace falta revalidarlo acá.
 
     // Mesas activas de este negocio asignadas al mozo autenticado: fallback válido de
-    // antemano (mesa + empleado ya verificados: activa, mismo negocio, rol mozo vía
-    // auth.empleado.rol comprobado arriba).
+    // antemano (mesa + empleado ya verificados: activa, mismo negocio, área mozo vía
+    // resolveOperativoAreaForSlug comprobado arriba).
     const misMesas = await db.mesa.findMany({
       where: { negocioId, activa: true, empleadoId },
       select: { id: true },
@@ -124,7 +122,7 @@ export async function GET(
           where: {
             id: { in: otrosEmpleadoIds },
             negocioId,
-            rol: "mozo",
+            areaOperativa: "mozo",
             activo: true,
             eliminado: false,
           },
@@ -134,7 +132,8 @@ export async function GET(
     const otrosMozosValidosIds = new Set(otrosMozosValidos.map((empleado) => empleado.id))
 
     // Regla exacta de destinatario efectivo (misma semántica que resolveMozoDestino):
-    // 1) asignación directa a mí → válida (mi rol/activo/eliminado ya verificados arriba);
+    // 1) asignación directa a mí → válida (mi área/activo/eliminado ya verificados por
+    //    resolveOperativoAreaForSlug antes de llegar acá);
     // 2) asignación directa a otro mozo VÁLIDO → excluir siempre (prioridad ajena, sin
     //    fallback de mesa aunque la mesa sea mía);
     // 3) sin asignación directa válida (null, o a un empleado que no resuelve como mozo

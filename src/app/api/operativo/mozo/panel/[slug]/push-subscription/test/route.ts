@@ -140,7 +140,7 @@ export async function POST(
         id: auth.empleado.id,
         negocioId: auth.negocio.id,
         cuentaOperativaId: auth.cuenta.id,
-        rol: "mozo",
+        areaOperativa: "mozo",
         activo: true,
         eliminado: false,
       },

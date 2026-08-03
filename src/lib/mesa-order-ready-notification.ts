@@ -57,7 +57,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
       where: {
         id: pedido.empleadoId,
         negocioId: pedido.negocioId,
-        rol: "mozo",
+        areaOperativa: "mozo",
         activo: true,
         eliminado: false,
       },
@@ -88,7 +88,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
       empleado: {
         select: {
           id: true,
-          rol: true,
+          areaOperativa: true,
           activo: true,
           eliminado: true,
           negocioId: true,
@@ -102,7 +102,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
   if (
     !empleado ||
     empleado.negocioId !== pedido.negocioId ||
-    empleado.rol !== "mozo" ||
+    empleado.areaOperativa !== "mozo" ||
     !empleado.activo ||
     empleado.eliminado
   ) {

@@ -139,6 +139,26 @@ function updatePanelMesa(data: PanelData, updatedMesa: MesaOperativa): PanelData
   }
 }
 
+// Bugfix-Mozo-1A: quita localmente un pedido entregado de su mesa (sin esperar el
+// próximo refresh) y recalcula los contadores derivados de esa mesa y del panel.
+function removePedidoFromMesa(data: PanelData, mesaId: string, pedidoId: string): PanelData {
+  const mesas = data.mesas.map((mesa) => {
+    if (mesa.id !== mesaId) return mesa
+    const pedidosActivos = mesa.pedidosActivos.filter((pedido) => pedido.id !== pedidoId)
+    return {
+      ...mesa,
+      pedidosActivos,
+      pedidosActivosCount: pedidosActivos.length,
+      pedidosActivosTotal: pedidosActivos.reduce((sum, pedido) => sum + pedido.total, 0),
+    }
+  })
+  return {
+    ...data,
+    resumen: buildResumen(mesas),
+    mesas,
+  }
+}
+
 function collectReadyMesaOrders(data: PanelData): ReadyMesaOrder[] {
   const readyOrders: ReadyMesaOrder[] = []
   for (const mesa of data.mesas) {
@@ -163,6 +183,7 @@ export default function MozoSalonPanelPage() {
   const slug = params.slug
   const [state, setState] = useState<PageState>({ status: "loading" })
   const [actionMesaIds, setActionMesaIds] = useState<Set<string>>(() => new Set())
+  const [entregandoIds, setEntregandoIds] = useState<Set<string>>(() => new Set())
   const [actionError, setActionError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const [pushState, setPushState] = useState<PushNoticeState>("checking")
@@ -736,6 +757,63 @@ export default function MozoSalonPanelPage() {
     }
   }
 
+  // Bugfix-Mozo-1A: entregar un pedido listo directamente desde el panel (antes solo
+  // era posible desde la vista aislada /operaciones/mi-panel/[slug]/mozo, que ya no es
+  // el destino principal). Mismo endpoint fijo existente, sin tocar su contrato.
+  const handleEntregarPedido = async (mesaId: string, pedidoId: string) => {
+    if (entregandoIds.has(pedidoId)) return
+    setEntregandoIds((current) => new Set(current).add(pedidoId))
+    setActionError(null)
+    invalidateSilentRefresh()
+
+    try {
+      const res = await fetch(
+        `/api/operativo/mozo/pedidos/${encodeURIComponent(pedidoId)}/entregar?slug=${encodeURIComponent(slug)}`,
+        { method: "POST", cache: "no-store" }
+      )
+      const data = await res.json().catch(() => ({}))
+
+      if (res.status === 401) {
+        setState({ status: "no-session" })
+        return
+      }
+
+      if (data.estado === "area_no_habilitada") {
+        redirectToPersonalHomeAfterAreaLoss()
+        return
+      }
+
+      if (res.status === 403 || data.estado === "acceso_no_disponible") {
+        setState({ status: "unavailable" })
+        return
+      }
+
+      if (res.ok && data.ok) {
+        setState((current) => {
+          if (current.status !== "ready") return current
+          return { status: "ready", data: removePedidoFromMesa(current.data, mesaId, pedidoId) }
+        })
+      } else {
+        setActionError(
+          res.status === 404
+            ? "Ese pedido ya no está disponible."
+            : res.status === 409
+              ? "El pedido ya fue entregado o cambió de estado."
+              : data.error || "No se pudo marcar como entregado."
+        )
+      }
+      void loadPanel({ silent: true })
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo marcar como entregado")
+    } finally {
+      setEntregandoIds((current) => {
+        const next = new Set(current)
+        next.delete(pedidoId)
+        return next
+      })
+    }
+  }
+
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
@@ -945,8 +1023,10 @@ export default function MozoSalonPanelPage() {
                         mesa={mesa}
                         loading={isMesaActionActive}
                         actionDisabled={isMesaActionActive}
+                        entregandoIds={entregandoIds}
                         onMesaAction={() => handleMesaAction(mesa)}
                         onOrder={() => router.push(nav.pedidoHref(slug, mesa.id))}
+                        onEntregar={(pedidoId) => handleEntregarPedido(mesa.id, pedidoId)}
                       />
                     )
                   })}
@@ -964,14 +1044,18 @@ function MesaCard({
   mesa,
   loading,
   actionDisabled,
+  entregandoIds,
   onMesaAction,
   onOrder,
+  onEntregar,
 }: {
   mesa: MesaOperativa
   loading: boolean
   actionDisabled: boolean
+  entregandoIds: Set<string>
   onMesaAction: () => void
   onOrder: () => void
+  onEntregar: (pedidoId: string) => void
 }) {
   const readyOrders = mesa.pedidosActivos.filter((pedido) => pedido.estado === "listo_para_retirar")
 
@@ -1009,11 +1093,34 @@ function MesaCard({
         </div>
 
         {readyOrders.length > 0 && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
-            <p className="font-bold">Pedido listo para entregar</p>
-            <p className="text-xs opacity-80">
-              {readyOrders.length} pedido{readyOrders.length === 1 ? "" : "s"} listo{readyOrders.length === 1 ? "" : "s"}
-            </p>
+          <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <div>
+              <p className="font-bold">Pedido listo para entregar</p>
+              <p className="text-xs opacity-80">
+                {readyOrders.length} pedido{readyOrders.length === 1 ? "" : "s"} listo{readyOrders.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            <div className="grid gap-1.5">
+              {readyOrders.map((pedido) => {
+                const entregando = entregandoIds.has(pedido.id)
+                return (
+                  <Button
+                    key={pedido.id}
+                    size="sm"
+                    className="h-8 w-full gap-1.5 rounded-lg bg-emerald-600 text-xs text-white hover:bg-emerald-700"
+                    onClick={() => onEntregar(pedido.id)}
+                    disabled={entregando}
+                  >
+                    {entregando ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    Marcar entregado - {formatPrice(pedido.total)}
+                  </Button>
+                )
+              })}
+            </div>
           </div>
         )}
 

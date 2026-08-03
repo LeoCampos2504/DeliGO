@@ -21,11 +21,12 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 // Regla de destinatario efectivo IDÉNTICA a resolveMozoDestino (usada por
 // notifyMesaOrderReadyForMozo en src/lib/mesa-order-ready-notification.ts): asignación
 // directa del pedido (pedido.empleadoId) tiene prioridad absoluta si ese empleado es un
-// mozo válido (mismo negocio, rol==="mozo", activo, no eliminado); solo si no hay
+// mozo válido (mismo negocio, areaOperativa==="mozo", activo, no eliminado); solo si no hay
 // asignación directa válida se usa como fallback el mozo asignado a la mesa (mesa activa,
-// mismo negocio, empleado con rol==="mozo", activo, no eliminado). Solo el mozo autenticado
-// puede entregar cuando ES ese destinatario efectivo — nunca por pertenecer al mismo
-// negocio, por conocer el id, ni por empleadoId enviado por el cliente.
+// mismo negocio, empleado con areaOperativa==="mozo", activo, no eliminado). Solo el mozo
+// autenticado puede entregar cuando ES ese destinatario efectivo — nunca por pertenecer al
+// mismo negocio, por conocer el id, ni por empleadoId enviado por el cliente.
+// Bugfix-Mozo-1A: la resolución de destinatario ya no usa el campo histórico `rol`.
 //
 // Operaciones-1M.1: la revalidación del mozo autenticado, la resolución del destinatario
 // efectivo y el CAS ahora ocurren TODOS dentro de una única transacción serializable
@@ -77,13 +78,13 @@ export async function POST(
       resultado = await db.$transaction(
         async (tx) => {
           // 3.1) Revalidar al empleado autenticado con los mismos cuatro criterios que
-          // usa resolveMozoDestino — no confiar únicamente en auth.empleado.rol resuelto
-          // antes de la transacción (podría haber cambiado entre la autorización y acá).
+          // usa resolveMozoDestino — no confiar únicamente en el área resuelta antes de
+          // la transacción (podría haber cambiado entre la autorización y acá).
           const mozoAutenticado = await tx.empleado.findFirst({
             where: {
               id: empleadoId,
               negocioId,
-              rol: "mozo",
+              areaOperativa: "mozo",
               activo: true,
               eliminado: false,
             },
@@ -102,7 +103,7 @@ export async function POST(
           //    a) asignación directa a un mozo válido → único destinatario, sin fallback
           //       de mesa (aunque la mesa esté asignada al mozo autenticado);
           //    b) sin asignación directa válida → fallback: mozo de la mesa (activa,
-          //       mismo negocio, rol mozo, activo, no eliminado).
+          //       mismo negocio, areaOperativa mozo, activo, no eliminado).
           let soyDestinatario = false
 
           if (pedido.empleadoId) {
@@ -114,7 +115,7 @@ export async function POST(
                 where: {
                   id: pedido.empleadoId,
                   negocioId,
-                  rol: "mozo",
+                  areaOperativa: "mozo",
                   activo: true,
                   eliminado: false,
                 },

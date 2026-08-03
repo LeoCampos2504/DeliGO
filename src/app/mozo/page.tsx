@@ -453,11 +453,13 @@ export default function MozoPanelPage() {
                       </div>
                     </div>
                     {esMozo ? (
-                      // Área Mozo: enlace a la ruta oficial de pedidos listos (1L.1), solo
-                      // lectura y aislada del panel legacy de mesas (siempre bajo
-                      // /operaciones/mi-panel, incluso desde el home /mozo, igual que Salón).
+                      // Área Mozo: panel completo (mesas asignadas, pedidos en curso, alta
+                      // manual, pedidos listos y avisos push) — mismo componente que
+                      // /mozo/panel/[slug], servido bajo el árbol correcto según `nav`
+                      // (Bugfix-Mozo-1A: antes enlazaba a la vista aislada de solo lectura
+                      // de pedidos listos, que no ofrece mesas ni alta manual).
                       <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
-                        <Link href={`/operaciones/mi-panel/${encodeURIComponent(vinculo.negocio.slug)}/mozo`}>
+                        <Link href={nav.panelHref(vinculo.negocio.slug)}>
                           Abrir panel de Mozo
                           <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                         </Link>
