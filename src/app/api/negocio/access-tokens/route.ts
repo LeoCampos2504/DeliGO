@@ -1,116 +1,34 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { generateToken } from "@/lib/access-tokens"
 
-// Seguridad-6B.2: tokens de acceso compartidos del negocio — nunca cacheables.
+// Legacy-Cleanup-1A: este endpoint administraba Negocio.tokenEmpleados y
+// Negocio.tokenSalon (los secretos compartidos detrás de /e/[token] y
+// /s/[token]) — creándolos automáticamente en el GET y regenerándolos en el
+// POST. Legacy-Audit-1 confirmó que las APIs que esos tokens autenticaban ya
+// devuelven 410 Gone (Seguridad-5G) y que el único consumidor visible era el
+// bloque "Compartir" de src/components/business/orders-tab.tsx, ya retirado
+// en este mismo stage. No queda ningún consumidor moderno real.
+//
+// Por eso ninguno de los dos métodos toca la base: ni lee ni crea ni
+// regenera tokenEmpleados/tokenSalon. Nunca se devuelve un token existente ni
+// se ponen los campos existentes en null — esa limpieza queda para una etapa
+// posterior (Legacy-Cleanup-1D), no para acá.
+
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 
-function maskToken(token?: string | null) {
-  if (!token) return null
-  if (token.length <= 8) return "********"
-  return `${token.slice(0, 4)}...${token.slice(-4)}`
+function legacyRetiredResponse() {
+  return NextResponse.json(
+    {
+      error: "Los enlaces de acceso legacy fueron reemplazados por DeliGO Operaciones.",
+      code: "LEGACY_ACCESS_RETIRED",
+    },
+    { status: 410, headers: NO_STORE_HEADERS }
+  )
 }
 
-// GET /api/negocio/access-tokens — Get or create the shared access tokens
-export async function GET(req: NextRequest) {
-  try {
-    const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!sessionToken) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const user = await getUserFromToken(sessionToken)
-    if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
-    }
-
-    const negocio = await db.negocio.findUnique({
-      where: { id: user.id },
-      select: { tokenEmpleados: true, tokenSalon: true },
-    })
-
-    let tokenEmpleados = negocio?.tokenEmpleados
-    let tokenSalon = negocio?.tokenSalon
-
-    // Create tokens if they don't exist
-    if (!tokenEmpleados) {
-      tokenEmpleados = generateToken()
-      await db.negocio.update({
-        where: { id: user.id },
-        data: { tokenEmpleados },
-      })
-    }
-
-    if (!tokenSalon) {
-      tokenSalon = generateToken()
-      await db.negocio.update({
-        where: { id: user.id },
-        data: { tokenSalon },
-      })
-    }
-
-    return NextResponse.json({
-      tokenEmpleados: null,
-      tokenEmpleadosMasked: maskToken(tokenEmpleados),
-      tokenEmpleadosRevealed: false,
-      tokenSalon: null,
-      tokenSalonMasked: maskToken(tokenSalon),
-      tokenSalonRevealed: false,
-    }, { headers: NO_STORE_HEADERS })
-  } catch (error) {
-    console.error("Error getting access tokens:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
-  }
+export async function GET(_req: NextRequest) {
+  return legacyRetiredResponse()
 }
 
-// POST /api/negocio/access-tokens?type=empleados|salon — Regenerate a specific token
-export async function POST(req: NextRequest) {
-  try {
-    const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!sessionToken) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const user = await getUserFromToken(sessionToken)
-    if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
-    }
-
-    const type = req.nextUrl.searchParams.get("type") || "empleados"
-    const newToken = generateToken()
-
-    if (type === "salon") {
-      await db.negocio.update({
-        where: { id: user.id },
-        data: {
-          tokenSalon: newToken,
-          pushSubscriptionSalon: null,
-        },
-      })
-      return NextResponse.json({
-        tokenSalon: newToken,
-        tokenSalonMasked: maskToken(newToken),
-        tokenSalonRevealed: true,
-      }, { headers: NO_STORE_HEADERS })
-    }
-
-    // Default: regenerate empleados token
-    await db.negocio.update({
-      where: { id: user.id },
-      data: {
-        tokenEmpleados: newToken,
-        pushSubscriptionEmpleados: null,
-      },
-    })
-
-    return NextResponse.json({
-      tokenEmpleados: newToken,
-      tokenEmpleadosMasked: maskToken(newToken),
-      tokenEmpleadosRevealed: true,
-    }, { headers: NO_STORE_HEADERS })
-  } catch (error) {
-    console.error("Error regenerating access token:", error)
-    return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
-  }
+export async function POST(_req: NextRequest) {
+  return legacyRetiredResponse()
 }

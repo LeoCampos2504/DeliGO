@@ -18,10 +18,6 @@ import {
   CheckCircle2,
   Armchair,
   User,
-  Link2,
-  Copy,
-  Check,
-  RefreshCw,
   Loader2,
   AlertTriangle,
   ShieldAlert,
@@ -55,7 +51,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { StatusBadge } from "@/components/shared/status-badge"
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
@@ -204,60 +199,6 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
   const [denunciaMotivoTipo, setDenunciaMotivoTipo] = useState("")
   const [denunciaMotivoCustom, setDenunciaMotivoCustom] = useState("")
   const [denunciando, setDenunciando] = useState(false)
-
-  // Shared employee link state
-  const [tokenEmpleados, setTokenEmpleados] = useState<string | null>(null)
-  const [tokenEmpleadosMasked, setTokenEmpleadosMasked] = useState<string | null>(null)
-  const [copiedLink, setCopiedLink] = useState(false)
-  const [regenerating, setRegenerating] = useState(false)
-  const hasEmployeeLinkMetadata = !!tokenEmpleados || !!tokenEmpleadosMasked
-
-  useEffect(() => {
-    fetch("/api/negocio/access-tokens")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data) {
-          const revealed = data.tokenEmpleadosRevealed === true
-          setTokenEmpleados(revealed ? data.tokenEmpleados : null)
-          setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? (revealed ? data.tokenEmpleados : null))
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  const copySharedLink = async () => {
-    if (!tokenEmpleados) {
-      await regenerateToken()
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}/e/${tokenEmpleados}`)
-      setCopiedLink(true)
-      toast.success("Link de empleados copiado")
-      setTimeout(() => setCopiedLink(false), 2000)
-    } catch {
-      toast.error("No se pudo copiar")
-    }
-  }
-
-  const regenerateToken = async () => {
-    setRegenerating(true)
-    try {
-      const res = await fetch("/api/negocio/access-tokens", { method: "POST" })
-      if (res.ok) {
-        const data = await res.json()
-        setTokenEmpleados(data.tokenEmpleados)
-        setTokenEmpleadosMasked(data.tokenEmpleadosMasked ?? data.tokenEmpleados)
-        toast.success("Link regenerado. El link anterior ya no funciona.")
-      } else {
-        toast.error("Error al regenerar el link")
-      }
-    } catch {
-      toast.error("Error al regenerar el link")
-    } finally {
-      setRegenerating(false)
-    }
-  }
 
   // Fetch orders
   const { data: pedidos = [], isLoading } = useQuery<Pedido[]>({
@@ -470,50 +411,6 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
             Historial
           </button>
         </div>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="rounded-xl gap-1.5 h-9 text-xs">
-              <Link2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Compartir</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72 p-0 rounded-xl" align="end">
-            <div className="p-3 border-b border-border/50">
-              <p className="text-sm font-bold">Link de empleados</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Pedidos + Reseñas en un solo link. Compartilo con tus empleados.
-              </p>
-            </div>
-            <div className="p-3 space-y-2">
-              {hasEmployeeLinkMetadata && (
-                // Seguridad-5G: el link /e/[token] fue retirado (los endpoints
-                // que lo sustentaban ahora fallan cerrados) — ya no tiene
-                // sentido ofrecer copiarlo o regenerarlo.
-                <div className="px-2.5 py-1.5 rounded-lg bg-muted/60 border border-border/50 text-[10px] text-muted-foreground">
-                  El acceso por link fue reemplazado. Iniciá sesión en DeliGO Operaciones.
-                </div>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full rounded-xl gap-1.5 text-xs font-semibold border-dashed"
-                style={{ borderColor: `${negocio.colorPrincipal}40`, color: negocio.colorPrincipal }}
-                onClick={regenerateToken}
-                disabled={regenerating}
-              >
-                {regenerating ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3 w-3" />
-                )}
-                Regenerar link
-              </Button>
-              <p className="text-[9px] text-muted-foreground text-center">
-                Al regenerar, el link anterior deja de funcionar
-              </p>
-            </div>
-          </PopoverContent>
-        </Popover>
       </div>
 
       {/* ===== CONTENT ===== */}

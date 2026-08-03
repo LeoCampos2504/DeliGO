@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
-import { esAreaMozoEfectiva } from "@/lib/area-operativa"
-import { randomBytes } from "crypto"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -15,28 +13,28 @@ function normalizeAreaOperativa(value: unknown): string | null {
     : null
 }
 
-// Generate a unique token for mozo links
-function generateMozoToken(): string {
-  return randomBytes(32).toString("hex") // 64-char hex string
-}
-
 function maskToken(token?: string | null) {
   if (!token) return null
   if (token.length <= 8) return "********"
   return `${token.slice(0, 4)}...${token.slice(-4)}`
 }
 
-function serializeEmpleado<T extends { token: string | null }>(empleado: T, revealToken = false) {
+// Legacy-Cleanup-1A: ya no se emite ningún Empleado.token nuevo (ver POST más
+// abajo), así que este serializer ya nunca tiene un token real para revelar —
+// se mantiene la misma forma de respuesta (token/tokenMasked/tokenRevealed)
+// para no romper consumidores existentes, pero `token` queda siempre `null` y
+// `tokenRevealed` siempre `false`. Un token YA EXISTENTE de antes de esta
+// etapa (empleado mozo creado previamente) sigue viajando enmascarado en
+// `tokenMasked`, nunca en texto plano.
+function serializeEmpleado<T extends { token: string | null }>(empleado: T) {
   return {
     ...empleado,
-    token: revealToken ? empleado.token : null,
+    token: null,
     tokenMasked: maskToken(empleado.token),
-    tokenRevealed: revealToken,
+    tokenRevealed: false,
   }
 }
 
-// Seguridad-6B.3: listado/creación de empleados — el POST revela un token en
-// texto plano una única vez al crear un mozo; nunca cacheable.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
   const response = NextResponse.json(data, init)
   response.headers.set("Cache-Control", "private, no-store")
@@ -83,9 +81,10 @@ export async function GET(req: NextRequest) {
     })
 
     // GET es estrictamente de lectura (Operaciones-1F.1): no crea, modifica,
-    // regenera ni revoca tokens legacy. Un token nuevo solo puede existir por
-    // creación de un Mozo activo (POST) o regeneración explícita válida
-    // (PUT /[id] con regenerateToken:true).
+    // regenera ni revoca tokens legacy. Legacy-Cleanup-1A: ya no se emite
+    // ningún Empleado.token nuevo en ningún flujo — un token no-nulo en un
+    // empleado existente es, a partir de esta etapa, siempre uno emitido
+    // antes de este cambio, nunca uno nuevo.
     return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
     console.error("Error listing empleados:", error)
@@ -160,27 +159,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // El token legacy solo se emite si el área efectiva del empleado creado es Mozo.
-    // Salón/PyR/sin_asignar (sin compatibilidad) no reciben Empleado.token.
+    // Legacy-Cleanup-1A: decisión arquitectónica confirmada — ya no se emite
+    // ningún Empleado.token nuevo, sin importar el área operativa (incluida
+    // Mozo). El reemplazo es exclusivamente CuentaOperativa + código de
+    // incorporación. Antes de esta etapa, un empleado creado con área
+    // efectiva Mozo recibía acá un token legacy nuevo (`generateMozoToken()`).
     const rolFinal = rol || "mozo"
-    const debeTenerToken =
-      empleadoActivo &&
-      esAreaMozoEfectiva({ areaOperativa, rol: rolFinal })
-
-    let mozoToken: string | null = null
-    if (debeTenerToken) {
-      mozoToken = generateMozoToken()
-      // Ensure uniqueness (use findFirst since token doesn't have @unique constraint)
-      while (await db.empleado.findFirst({ where: { token: mozoToken } })) {
-        mozoToken = generateMozoToken()
-      }
-    }
 
     const empleado = await db.empleado.create({
       data: {
         nombre: nombre.trim(),
         codigo: codigo.trim().toUpperCase(),
-        token: mozoToken,
+        token: null,
         rol: rolFinal,
         areaOperativa,
         activo: empleadoActivo,
@@ -196,7 +186,7 @@ export async function POST(req: NextRequest) {
       await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_asignada", recurso: "empleado", recursoId: empleado.id, detalle: { areaOperativa, asignacionVersion: empleado.asignacionVersion } })
     }
 
-    return noStoreJson(serializeEmpleado(empleado, debeTenerToken), { status: 201 })
+    return noStoreJson(serializeEmpleado(empleado), { status: 201 })
   } catch (error) {
     console.error("Error creating empleado:", error)
     return noStoreJson(

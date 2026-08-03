@@ -3,7 +3,6 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
-import { randomBytes } from "crypto"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -15,22 +14,23 @@ function normalizeAreaOperativa(value: unknown): string | null {
     : null
 }
 
-function generateMozoToken(): string {
-  return randomBytes(32).toString("hex")
-}
-
 function maskToken(token?: string | null) {
   if (!token) return null
   if (token.length <= 8) return "********"
   return `${token.slice(0, 4)}...${token.slice(-4)}`
 }
 
-function serializeEmpleado<T extends { token: string | null }>(empleado: T, revealToken = false) {
+// Legacy-Cleanup-1A: ya no se emite ni se regenera ningún Empleado.token —
+// ver PUT más abajo, donde se retiró la rama `regenerateToken:true` que
+// creaba uno nuevo. `token` queda siempre `null` en la respuesta;
+// `tokenMasked` sigue reflejando, enmascarado, un token YA EXISTENTE de antes
+// de esta etapa (nunca en texto plano).
+function serializeEmpleado<T extends { token: string | null }>(empleado: T) {
   return {
     ...empleado,
-    token: revealToken ? empleado.token : null,
+    token: null,
     tokenMasked: maskToken(empleado.token),
-    tokenRevealed: revealToken,
+    tokenRevealed: false,
   }
 }
 
@@ -63,7 +63,7 @@ export async function PUT(
     }
 
     const body = await req.json()
-    const { nombre, codigo, rol, activo, regenerateToken } = body
+    const { nombre, codigo, rol, activo } = body
 
     // If codigo is changing, check for duplicates
     if (codigo !== undefined) {
@@ -127,7 +127,15 @@ export async function PUT(
     // eliminado o con área efectiva distinta de Mozo (salon/pyr/sin_asignar sin
     // compatibilidad), se anula el token y su pushSubscription junto con el cambio de
     // estado (sin ventana entre dos consultas). Reactivar o devolver Mozo NO regenera
-    // nada: el token queda en null y solo una regeneración explícita válida lo emite.
+    // nada: el token queda en null.
+    //
+    // Legacy-Cleanup-1A: se retiró por completo la rama que regeneraba
+    // Empleado.token a pedido explícito (`regenerateToken: true` en el body).
+    // Ningún consumidor real la invocaba (confirmado antes de este cambio) y
+    // la decisión vigente es no volver a emitir ninguna credencial legacy,
+    // ni siquiera bajo un pedido explícito. Un token ya existente de antes de
+    // esta etapa se preserva tal cual mientras el empleado siga activo con
+    // área efectiva Mozo — nunca se reemplaza por uno nuevo.
     if (!quedaMozoActivo) {
       updateData.token = null
       updateData.pushSubscription = null
@@ -139,74 +147,21 @@ export async function PUT(
       },
     } as const
 
-    let updated
-
-    if (regenerateToken === true) {
-      // Nunca emitir ni revelar un token si el estado final no es un mozo activo.
-      // Respuesta genérica: no describe el estado interno del empleado.
-      if (!quedaMozoActivo) {
-        return NextResponse.json(
-          { error: "No se pudo regenerar el token" },
-          { status: 409 }
-        )
-      }
-
-      let newToken = generateMozoToken()
-      while (await db.empleado.findFirst({ where: { token: newToken } })) {
-        newToken = generateMozoToken()
-      }
-      updateData.token = newToken
-      updateData.pushSubscription = null
-
-      // Escritura condicional (CAS) con bloqueo optimista contra el snapshot leído
-      // en `existing`: la regeneración solo se persiste si `activo`, `rol`,
-      // `eliminado` y `token` NO cambiaron desde esa lectura. Se comparan los
-      // valores realmente leídos —no según qué vino en el body ni valores fijos—
-      // para que: (a) una request con `activo:true` o `rol:"mozo"` no pueda
-      // revertir una desactivación / cambio de rol / eliminación concurrente que
-      // confirmó antes; y (b) de dos regeneraciones simultáneas solo una coincida
-      // (la primera cambia `token`, dejando `existing.token` de la otra obsoleto).
-      // Si la carrera ocurrió, la condición no coincide y el token no se persiste.
-      const casResult = await db.empleado.updateMany({
-        where: {
-          id,
-          negocioId,
-          eliminado: existing.eliminado,
-          activo: existing.activo,
-          rol: existing.rol,
-          areaOperativa: existing.areaOperativa,
-          token: existing.token,
-        },
-        data: updateData,
-      })
-
-      if (casResult.count === 0) {
-        return NextResponse.json(
-          { error: "No se pudo regenerar el token" },
-          { status: 409 }
-        )
-      }
-
-      updated = await db.empleado.findUnique({ where: { id }, include: includeCuenta })
-      if (!updated) {
-        return NextResponse.json({ error: "Empleado no encontrado" }, { status: 404 })
-      }
-    } else {
-      // Ruta normal: una sola escritura atómica por id. Si correspondía revocar,
-      // token/push ya quedaron en null dentro de este mismo update.
-      updated = await db.empleado.update({
-        where: { id },
-        data: updateData,
-        include: includeCuenta,
-      })
-    }
+    // Única escritura atómica por id. Si correspondía revocar, token/push ya
+    // quedaron en null dentro de este mismo update; si el empleado sigue
+    // siendo mozo activo, su token existente (si tenía uno) no se toca.
+    const updated = await db.empleado.update({
+      where: { id },
+      data: updateData,
+      include: includeCuenta,
+    })
 
     // Auditar el cambio de área (sin datos sensibles).
     if (areaChanged) {
       await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.area_cambiada", recurso: "empleado", recursoId: updated.id, detalle: { areaOperativa: nuevaArea, asignacionVersion: updated.asignacionVersion } })
     }
 
-    return NextResponse.json(serializeEmpleado(updated, regenerateToken === true))
+    return NextResponse.json(serializeEmpleado(updated))
   } catch (error) {
     console.error("Error updating empleado:", error)
     return NextResponse.json(
