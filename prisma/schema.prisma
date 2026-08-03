@@ -127,6 +127,11 @@ model Negocio {
   // Ubicación del negocio
   lat Float?
   lng Float?
+  // P0-B: marca que `lat`/`lng` fueron confirmados explícitamente por el
+  // Negocio (acción "Confirmar ubicación del local"), no solo que existen —
+  // las coordenadas pueden venir de otro flujo (p. ej. delivery) sin haber
+  // sido calibradas para validar pedidos de mesa. `null` = sin calibrar.
+  ubicacionCalibradaEn DateTime?
 
   // Configuración visual/panel
   mostrarVentas             Boolean   @default(false)

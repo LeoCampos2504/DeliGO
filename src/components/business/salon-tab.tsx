@@ -147,6 +147,12 @@ interface PedidoMesa {
 interface NegocioSalonConfig {
   salonActivo: boolean
   empleadosActivos: boolean
+  // P0-B: gate de generación de QR — viene de la misma API protegida de
+  // Negocio ya usada arriba (GET /api/negocio/config), nunca de una API
+  // pública. `ubicacionCalibradaEn` null = todavía sin confirmar.
+  lat: number | null
+  lng: number | null
+  ubicacionCalibradaEn: string | null
 }
 
 interface SalonTabProps {
@@ -860,6 +866,15 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   // Generate QR code
   const generateQR = useCallback(async (mesa: Mesa) => {
+    // P0-B: no generar (ni descargar) códigos QR nuevos hasta que el Negocio
+    // confirme explícitamente la ubicación de su local — QR ya generados o
+    // descargados antes de este cambio, y las mesas/pedidos existentes, no se
+    // ven afectados: el gate solo aplica a esta acción puntual.
+    if (config?.lat == null || config?.lng == null || !config?.ubicacionCalibradaEn) {
+      toast.error("Confirmá la ubicación de tu local antes de generar códigos QR para las mesas.")
+      return
+    }
+
     setQrLoading(true)
     setQrModalMesa(mesa)
     try {
@@ -877,7 +892,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
     } finally {
       setQrLoading(false)
     }
-  }, [negocio.slug])
+  }, [negocio.slug, config?.lat, config?.lng, config?.ubicacionCalibradaEn])
 
   const downloadQR = useCallback(() => {
     if (!qrDataUrl || !qrModalMesa) return

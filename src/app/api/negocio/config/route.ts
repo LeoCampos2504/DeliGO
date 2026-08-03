@@ -241,6 +241,64 @@ export async function PATCH(req: NextRequest) {
     const negocioId = user.id
     const body = await req.json()
 
+    // P0-B: calibración explícita de la ubicación del negocio — rama aislada,
+    // separada por completo del guardado genérico de campos de abajo. Es la
+    // ÚNICA vía de este endpoint que escribe "lat"/"lng"/"ubicacionCalibradaEn";
+    // el guardado genérico de PATCH no tiene (y esta etapa no le agrega) un
+    // caso para lat/lng, así que nunca puede pisar una calibración como
+    // efecto secundario de guardar otra sección. Nunca acepta radio,
+    // precisión ni ninguna otra configuración de geocerca desde el cliente —
+    // esos conceptos no existen todavía (quedan para una etapa posterior).
+    if (body.calibrarUbicacion === true) {
+      const latValue = Number(body.lat)
+      const lngValue = Number(body.lng)
+
+      if (!Number.isFinite(latValue) || latValue < -90 || latValue > 90) {
+        return noStoreJson({ error: "Latitud inválida" }, { status: 400 })
+      }
+      if (!Number.isFinite(lngValue) || lngValue < -180 || lngValue > 180) {
+        return noStoreJson({ error: "Longitud inválida" }, { status: 400 })
+      }
+
+      const previo = await db.negocio.findUnique({
+        where: { id: negocioId },
+        select: { ubicacionCalibradaEn: true },
+      })
+
+      const calibrado = await db.negocio.update({
+        where: { id: negocioId },
+        data: { lat: latValue, lng: lngValue, ubicacionCalibradaEn: new Date() },
+      })
+
+      // Auditoría best-effort (mismo patrón que el resto de este archivo):
+      // nunca se registran coordenadas, solo si había una calibración previa.
+      await auditLog({
+        userId: negocioId,
+        userType: "negocio",
+        accion: previo?.ubicacionCalibradaEn
+          ? "negocio.ubicacion_recalibrada"
+          : "negocio.ubicacion_calibrada",
+        recurso: "negocio",
+        recursoId: negocioId,
+        detalle: { teniaCalibracionPrevia: !!previo?.ubicacionCalibradaEn },
+      })
+
+      const parsedCalibrado = {
+        ...calibrado,
+        categorias: safeParseJSON(calibrado.categorias, []),
+        agregadosCategorias: safeParseJSON(calibrado.agregadosCategorias, []),
+        ingredientesCategorias: safeParseJSON(calibrado.ingredientesCategorias, []),
+        seccionesCatalogo: safeParseJSON(calibrado.seccionesCatalogo, []),
+        horarios: safeParseJSON(calibrado.horarios, {}),
+        zonasDelivery: safeParseJSON(calibrado.zonasDelivery, []),
+        zonasSalon: safeParseJSON(calibrado.zonasSalon, []),
+      }
+      const { password: _cp, pushSubscription: _cpu, tokenEmpleados: _cte, tokenSalon: _cts, ...safeCalibrado } =
+        parsedCalibrado
+
+      return noStoreJson(safeCalibrado)
+    }
+
     const updateData: Record<string, unknown> = {}
 
     // Support all updatable fields in PATCH

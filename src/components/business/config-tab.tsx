@@ -92,6 +92,11 @@ interface NegocioConfig {
   repartidorCodigo: string | null
   lat: number | null
   lng: number | null
+  // P0-B: fecha de la última confirmación explícita de ubicación (ISO string
+  // vía JSON), null = todavía sin calibrar. Nunca se edita vía el estado
+  // local `info` (no es un campo de formulario) — solo cambia como reflejo
+  // directo de la respuesta del servidor (ver calibrarUbicacion).
+  ubicacionCalibradaEn: string | null
   horarioMode?: string
   abiertoManual?: boolean
 }
@@ -239,6 +244,55 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
       toast.error(msg)
     } finally {
       setSaving(null)
+    }
+  }
+
+  // P0-B/P0-B.1: confirmación explícita de la ubicación del local — única
+  // acción que persiste lat/lng/ubicacionCalibradaEn (nunca reutiliza
+  // saveSection, que no debe poder tocar la calibración como efecto
+  // colateral de guardar otra cosa). El picker permanece abierto y las
+  // coordenadas elegidas no se pierden si la request falla — solo se cierra
+  // y solo se muestra éxito tras una respuesta HTTP exitosa.
+  const [calibrating, setCalibrating] = useState(false)
+  const calibrarUbicacion = async (lat: number, lng: number) => {
+    if (calibrating) return
+    setCalibrating(true)
+    try {
+      const res = await fetch(`/api/negocio/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calibrarUbicacion: true, lat, lng, negocioId: negocio.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || "No se pudo confirmar la ubicación")
+      }
+
+      queryClient.setQueryData(["negocio-config", negocio.id], (old: NegocioConfig | undefined) =>
+        old
+          ? {
+              ...old,
+              lat: data.lat ?? lat,
+              lng: data.lng ?? lng,
+              ubicacionCalibradaEn: data.ubicacionCalibradaEn ?? null,
+            }
+          : old
+      )
+      queryClient.invalidateQueries({ queryKey: ["negocio-config", negocio.id] })
+
+      // Cerrar el picker solo tras una confirmación real del servidor.
+      setInfo((p) => {
+        const { _showLocationPicker, ...rest } = p as Record<string, unknown>
+        return rest as Partial<NegocioConfig>
+      })
+      toast.success("Ubicación del local confirmada")
+    } catch (err) {
+      // No cerrar el picker ni descartar la posición elegida: el admin puede
+      // reintentar sin volver a buscar/arrastrar el marcador.
+      const msg = err instanceof Error ? err.message : "No se pudo confirmar la ubicación"
+      toast.error(msg)
+    } finally {
+      setCalibrating(false)
     }
   }
 
@@ -399,70 +453,85 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               placeholder="¡Bienvenido a nuestro catálogo!"
             />
           </div>
-          {/* Ubicación del local */}
-          <div>
-            <Label className="text-sm font-semibold mb-1.5 flex items-center gap-1.5">
+          {/* Ubicación del local (P0-B.1: sección única — la única acción
+              disponible es la calibración explícita; no existe ningún
+              guardado genérico de lat/lng en esta interfaz). */}
+          <div className="rounded-xl border border-border/50 p-3 space-y-2.5">
+            <Label className="text-sm font-semibold flex items-center gap-1.5">
               <MapPin className="h-3.5 w-3.5" />
               Ubicación del local
             </Label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Seteá la ubicación para que los clientes vean desde dónde sale su pedido en el rastreo en vivo
+            <p className="text-xs text-muted-foreground">
+              La ubicación se utiliza para el rastreo y para validar los pedidos realizados desde las mesas.
             </p>
-            {mergedInfo.lat != null && mergedInfo.lng != null ? (
-              <div className="space-y-2">
+            {config?.ubicacionCalibradaEn ? (
+              <>
                 <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800">
-                  <MapPin className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                    Ubicación guardada ({mergedInfo.lat.toFixed(4)}, {mergedInfo.lng.toFixed(4)})
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                      Ubicación calibrada
+                    </p>
+                    <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                      {new Date(config.ubicacionCalibradaEn).toLocaleString("es-AR", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl text-xs gap-1.5"
+                  disabled={calibrating}
+                  onClick={() => {
+                    setInfo((p) => ({ ...p, _showLocationPicker: true as unknown as number }))
+                  }}
+                >
+                  {calibrating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <MapPin className="h-3.5 w-3.5" />
+                  )}
+                  Recalibrar ubicación
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                    Todavía no confirmaste la ubicación de tu local.
                   </span>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl text-xs gap-1.5"
-                    onClick={() => {
-                      setInfo((p) => ({ ...p, _showLocationPicker: true as unknown as number }))
-                    }}
-                  >
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl text-xs gap-1.5 w-full"
+                  disabled={calibrating}
+                  onClick={() => {
+                    setInfo((p) => ({ ...p, _showLocationPicker: true as unknown as number }))
+                  }}
+                >
+                  {calibrating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
                     <MapPin className="h-3.5 w-3.5" />
-                    Cambiar ubicación
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="rounded-xl text-xs text-destructive hover:text-destructive"
-                    onClick={() => {
-                      setInfo((p) => {
-                        const { lat, lng, ...rest } = p
-                        return rest
-                      })
-                      saveSection("location", { lat: null as unknown as number, lng: null as unknown as number })
-                    }}
-                  >
-                    Eliminar
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="rounded-xl gap-1.5 w-full"
-                onClick={() => {
-                  setInfo((p) => ({ ...p, _showLocationPicker: true as unknown as number }))
-                }}
-              >
-                <MapPin className="h-3.5 w-3.5" />
-                Setear ubicación del local
-              </Button>
+                  )}
+                  Confirmar ubicación del local
+                </Button>
+              </>
             )}
           </div>
 
-          {/* Location Picker Modal */}
+          {/* Location Picker Modal — única instancia. Abrir el selector,
+              obtener el GPS, hacer click en el mapa o arrastrar el marcador
+              NUNCA persiste nada por sí solo: solo "Confirmar ubicación"
+              (el botón propio de LocationPickerInline) dispara
+              calibrarUbicacion, y el selector permanece abierto si la
+              request falla, para no perder la posición ya elegida. */}
           {(info as Record<string, unknown>)._showLocationPicker && (
             <LocationPickerInline
               initialLat={mergedInfo.lat ?? undefined}
@@ -470,11 +539,7 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               colorPrincipal={negocio.colorPrincipal}
               logoUrl={mergedImages.logoUrl ?? undefined}
               onConfirm={(lat, lng) => {
-                setInfo((p) => {
-                  const { _showLocationPicker, ...rest } = p as Record<string, unknown>
-                  return { ...rest, lat, lng } as Partial<NegocioConfig>
-                })
-                saveSection("location", { lat, lng })
+                void calibrarUbicacion(lat, lng)
               }}
               onCancel={() => {
                 setInfo((p) => {
