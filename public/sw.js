@@ -334,8 +334,6 @@ self.addEventListener("push", (event) => {
     let icon = "/icon-cliente-192x192.png";
     if (notifType === "salon_new_order") {
       icon = "/icon-salon-192x192.png";
-    } else if (notifType === "empleados_new_order" || notifType === "empleados_new_review") {
-      icon = "/icon-empleado-192x192.png";
     } else if (notifType === "mesa_order_ready") {
       icon = "/icon-mozo-192x192.png";
     } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
@@ -485,13 +483,13 @@ self.addEventListener("notificationclick", (event) => {
   // open page rather than navigating to a /cliente, /negocio, etc. URL.
   //
   //   salon_new_order            → /s/[token]  (salon shared display)
-  //   empleados_new_order        → /e/[token]  (empleados shared panel, pedidos tab)
-  //   empleados_new_review       → /e/[token]  (empleados shared panel, reseñas tab)
-  //   mesa_order_ready           → /m/[token]  (mozo PWA), fallback /s/[token]
+  //   mesa_order_ready           → /mozo/panel/[slug] (moderno) o /m/[token] (legacy)
+  //
+  // Legacy-Cleanup-1C.1: se retiraron acá empleados_new_order/empleados_new_review
+  // (sin consumidor moderno) y el fallback a /s/ de mesa_order_ready (ese tipo
+  // ya no cae a Salón — solo a /mozo/panel/... o a /m/, todavía sin modificar).
   if (
     type === "salon_new_order" ||
-    type === "empleados_new_order" ||
-    type === "empleados_new_review" ||
     type === "mesa_order_ready"
   ) {
     const directMozoPanelUrl =
@@ -531,11 +529,10 @@ self.addEventListener("notificationclick", (event) => {
     let preferredPrefixes;
     if (type === "salon_new_order") {
       preferredPrefixes = ["/s/"];
-    } else if (type === "empleados_new_order" || type === "empleados_new_review") {
-      preferredPrefixes = ["/e/"];
     } else {
-      // mesa_order_ready: mozo first, then salon as fallback
-      preferredPrefixes = ["/m/", "/s/"];
+      // mesa_order_ready: /m/ (legacy, todavía sin modificar). Ya no cae a
+      // /s/ — ese fallback se retiró en Legacy-Cleanup-1C.1.
+      preferredPrefixes = ["/m/"];
     }
 
     event.waitUntil(

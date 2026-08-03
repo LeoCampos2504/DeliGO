@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME, findSesionByToken } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { createNotification, newOrderNotification, salonNewOrderNotification, empleadosNewOrderNotification } from "@/lib/push"
+import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -1193,19 +1193,22 @@ export async function POST(request: NextRequest) {
       console.error("[Push] Failed to send new order notification:", pushError)
     }
 
-    // Send push notification to the shared-display PWA that handles this order.
-    //  - Mesa orders      → salon PWA     (/s/[token])   via Negocio.pushSubscriptionSalon
-    //  - Retiro/domicilio → empleados PWA (/e/[token])   via Negocio.pushSubscriptionEmpleados
-    // Both subscriptions live on the Negocio model (separate fields) so multiple
-    // shared devices can each be notified without wiping the owner's subscription.
-    try {
-      const sharedPush = await db.negocio.findUnique({
-        where: { id: negocioId },
-        select: { pushSubscriptionSalon: true, pushSubscriptionEmpleados: true },
-      })
+    // Send push notification to the salon shared-display PWA for mesa orders.
+    // Legacy-Cleanup-1C.1: el envío a la PWA de empleados (retiro/domicilio,
+    // vía Negocio.pushSubscriptionEmpleados) se retiró — sin consumidor
+    // moderno. El envío a Salón (Negocio.pushSubscriptionSalon) se conserva
+    // intacto: src/app/api/operativo/mozo/panel/[slug]/pedidos/route.ts (el
+    // alta manual de pedidos del panel moderno de Mozo) también depende de
+    // esta misma notificación — no está en el alcance de archivos permitidos
+    // de esta etapa, así que retirarla acá crearía una inconsistencia real
+    // entre pedidos de cliente y pedidos manuales de mozo.
+    if (isMesaOrder && mesaNumero) {
+      try {
+        const sharedPush = await db.negocio.findUnique({
+          where: { id: negocioId },
+          select: { pushSubscriptionSalon: true },
+        })
 
-      if (isMesaOrder && mesaNumero) {
-        // ── Salon PWA: mesa order ──
         if (sharedPush?.pushSubscriptionSalon) {
           const salonPayload = salonNewOrderNotification(
             pedido.id,
@@ -1228,31 +1231,9 @@ export async function POST(request: NextRequest) {
             cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
           })
         }
-      } else {
-        // ── Empleados PWA: retiro / domicilio order ──
-        if (sharedPush?.pushSubscriptionEmpleados) {
-          const empleadosPayload = empleadosNewOrderNotification(
-            pedido.id,
-            clienteNombre,
-            finalTotal,
-            pedidoInput.metodoEntrega
-          )
-          await createNotification({
-            userId: negocioId,
-            userType: "negocio", // stored on Negocio row; empleados PWA reads via token
-            tipo: "empleados_new_order",
-            titulo: empleadosPayload.title,
-            cuerpo: empleadosPayload.body,
-            pedidoId: pedido.id,
-            negocioId: negocioId,
-            pushSubscription: sharedPush.pushSubscriptionEmpleados,
-            pushPayload: empleadosPayload,
-            cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionEmpleados" },
-          })
-        }
+      } catch (sharedPushError) {
+        console.error("[Push] Failed to send shared-display notification:", sharedPushError)
       }
-    } catch (sharedPushError) {
-      console.error("[Push] Failed to send shared-display notification:", sharedPushError)
     }
     }
 

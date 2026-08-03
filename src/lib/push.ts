@@ -40,8 +40,6 @@ export type NotificationType =
   | "account_update"
   | "mesa_order_ready"
   | "salon_new_order"
-  | "empleados_new_order"
-  | "empleados_new_review"
 
 export interface PushNotificationPayload {
   title: string
@@ -130,16 +128,6 @@ function getNavigationTarget(
       // New mesa order arrived at the salon shared display
       return {
         salon: "salon",
-      }
-    case "empleados_new_order":
-      // New general (non-mesa) order arrived at the empleados panel
-      return {
-        empleados: "pedidos",
-      }
-    case "empleados_new_review":
-      // New review arrived at the empleados panel
-      return {
-        empleados: "resenas",
       }
     default:
       return {}
@@ -673,54 +661,6 @@ export function salonNewOrderNotification(
       { action: "view", title: "Ver pedido" },
     ],
     requireInteraction: true,
-  }
-}
-
-// ============================================
-// Empleados PWA notifications (/e/[token])
-// ============================================
-
-export function empleadosNewOrderNotification(
-  pedidoId: string,
-  clienteNombre: string,
-  total: number,
-  metodoEntrega: string
-): PushNotificationPayload {
-  const entregaLabel =
-    metodoEntrega === "domicilio" ? "Delivery" : metodoEntrega === "retiro" ? "Retiro en local" : "Pedido"
-  return {
-    title: `¡Nuevo pedido! 📩 (${entregaLabel})`,
-    body: `${clienteNombre} hizo un pedido de $${total.toFixed(0)}`,
-    tag: `empleados-new-order-${pedidoId}`,
-    data: {
-      type: "empleados_new_order",
-      pedidoId,
-    },
-    actions: [
-      { action: "view", title: "Ver pedido" },
-    ],
-    requireInteraction: true,
-  }
-}
-
-export function empleadosNewReviewNotification(
-  pedidoId: string,
-  negocioNombre: string,
-  puntuacion: number,
-  clienteNombre: string
-): PushNotificationPayload {
-  const stars = "⭐".repeat(puntuacion)
-  return {
-    title: "Nueva reseña ⭐",
-    body: `${clienteNombre} dejó ${stars} en ${negocioNombre}`,
-    tag: `empleados-new-review-${pedidoId}`,
-    data: {
-      type: "empleados_new_review",
-      pedidoId,
-    },
-    actions: [
-      { action: "view", title: "Ver reseña" },
-    ],
   }
 }
 
