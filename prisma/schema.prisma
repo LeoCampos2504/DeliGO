@@ -600,6 +600,36 @@ model PasswordResetToken {
 }
 
 // ============================================
+// LÍMITE DE REGISTRO DE CUENTA OPERATIVA (Bugfix-5F)
+// ============================================
+// Un evento por cada CuentaOperativa creada exitosamente vía
+// POST /api/operativo/register (nunca por email duplicado, validación
+// fallida, request inválido, error del servidor, ni límite alcanzado — ver
+// src/app/api/operativo/register/route.ts). Nunca guarda la IP ni la cookie
+// de dispositivo en texto plano: solo su HMAC-SHA256 con un secreto de
+// servidor dedicado (src/lib/operativo-registration-limit.ts). Sin FK hacia
+// CuentaOperativa a propósito — es un contador de abuso, no una relación de
+// dominio.
+//
+// ipHash es nullable a propósito (corrección posterior a la versión inicial
+// de Bugfix-5F): cuando no puede determinarse una IP fiable, NUNCA se hashea
+// el valor "unknown" — eso produciría el mismo hash compartido por todos los
+// usuarios sin IP detectable, bloqueando globalmente a cualquiera cuya IP no
+// pudiera determinarse después de solo 3 registros ajenos. Con ipHash = null,
+// el conteo por IP se omite (nunca se cuenta "cuántos eventos tienen
+// ipHash = null") y solo se aplica el límite por dispositivo.
+model CuentaOperativaRegistro {
+  id         String   @id @default(cuid())
+  ipHash     String?
+  deviceHash String
+  createdAt  DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+  @@index([deviceHash, createdAt])
+  @@map("cuenta_operativa_registros")
+}
+
+// ============================================
 // PROMOCIONES (cached view of discounted products)
 // ============================================
 model Promocion {
