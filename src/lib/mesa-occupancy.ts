@@ -409,6 +409,114 @@ export async function openOrReuseMesaOccupancy(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Validación y heartbeat al crear un pedido (P0-D.2)
+// ---------------------------------------------------------------------------
+
+export type MesaOccupancyOrderValidation =
+  | { status: "valid"; ocupacionId: string; credencialId: string }
+  | { status: "missing" }
+  | { status: "invalid" }
+
+/**
+ * Resuelve y valida, dentro del `tx` de creación del pedido, si el token de
+ * la cookie de ocupación autoriza a este dispositivo a pedir en esta mesa
+ * ahora mismo. Nunca acepta como autoridad ningún id enviado por el cliente
+ * — `negocioId`/`mesaId` deben venir siempre de una resolución server-side
+ * previa (la misma que ya resuelve el pedido). Debe coincidir toda la
+ * cadena: credencial no revocada -> ocupación activa de ESE negocio/mesa ->
+ * mesa cuyo puntero "actual" siga siendo exactamente esa ocupación. Nunca
+ * alcanza con que el hash exista, ni con que la ocupación esté "activa" en
+ * abstracto.
+ */
+export async function resolveMesaOccupancyForOrder(
+  tx: Prisma.TransactionClient,
+  params: { negocioId: string; mesaId: string; token: string | null }
+): Promise<MesaOccupancyOrderValidation> {
+  const { negocioId, mesaId, token } = params
+  if (!token || !token.trim()) {
+    return { status: "missing" }
+  }
+
+  const tokenHash = hashMesaOccupancyToken(token)
+  const credencial = await tx.credencialOcupacionMesa.findUnique({ where: { tokenHash } })
+  if (!credencial || credencial.revocadaEn != null) {
+    return { status: "invalid" }
+  }
+
+  const ocupacion = await tx.sesionOcupacionMesa.findUnique({ where: { id: credencial.ocupacionId } })
+  if (
+    !ocupacion ||
+    ocupacion.estado !== "activa" ||
+    ocupacion.negocioId !== negocioId ||
+    ocupacion.mesaId !== mesaId
+  ) {
+    return { status: "invalid" }
+  }
+
+  // La ocupación puede existir, estar activa, y pertenecer a la mesa/negocio
+  // correctos, pero ya no ser la que la Mesa considera "actual" (p. ej. si
+  // P0-D.3 la cerrara y abriera una nueva entre la apertura de esta
+  // credencial y este pedido) — sin este chequeo, una credencial de un ciclo
+  // de ocupación ya superado seguiría aceptándose.
+  const mesa = await tx.mesa.findUnique({
+    where: { id: mesaId },
+    select: { negocioId: true, ocupacionActualId: true },
+  })
+  if (!mesa || mesa.negocioId !== negocioId || mesa.ocupacionActualId !== ocupacion.id) {
+    return { status: "invalid" }
+  }
+
+  return { status: "valid", ocupacionId: ocupacion.id, credencialId: credencial.id }
+}
+
+/**
+ * Heartbeat de actividad al crear un pedido nuevo — SOLO se llama después de
+ * que resolveMesaOccupancyForOrder ya devolvió "valid", y vuelve a
+ * comprobar todas las condiciones en el mismo momento de escribir (nunca
+ * confía en la lectura anterior): protege contra que la ocupación/mesa/
+ * credencial cambien entre la validación y la creación real del pedido
+ * (TOCTOU), sin necesitar aislamiento Serializable en toda la transacción
+ * de pedidos (que también sirve a delivery/retiro). Si cualquier
+ * `updateMany` afecta 0 filas, la credencial ya no es válida en este
+ * instante — el llamador debe abortar toda la transacción y no crear el
+ * pedido. Nunca actualiza `iniciadaEn`, `emitidaEn`, `cerradaEn`,
+ * `revocadaEn`, `estado` ni el puntero actual — solo `ultimaActividadEn` en
+ * ambas filas, con el mismo `now`.
+ *
+ * Orden de escritura (documentado para que P0-D.3 lo respete al cerrar, y
+ * así evitar deadlocks): 1) Mesa (lectura), 2) SesionOcupacionMesa, 3)
+ * CredencialOcupacionMesa.
+ */
+export async function heartbeatMesaOccupancyForOrder(
+  tx: Prisma.TransactionClient,
+  params: { ocupacionId: string; credencialId: string; negocioId: string; mesaId: string; now: Date }
+): Promise<boolean> {
+  const { ocupacionId, credencialId, negocioId, mesaId, now } = params
+
+  const mesa = await tx.mesa.findUnique({
+    where: { id: mesaId },
+    select: { negocioId: true, ocupacionActualId: true },
+  })
+  if (!mesa || mesa.negocioId !== negocioId || mesa.ocupacionActualId !== ocupacionId) {
+    return false
+  }
+
+  const ocupacionUpdate = await tx.sesionOcupacionMesa.updateMany({
+    where: { id: ocupacionId, negocioId, mesaId, estado: "activa" },
+    data: { ultimaActividadEn: now },
+  })
+  if (ocupacionUpdate.count !== 1) return false
+
+  const credencialUpdate = await tx.credencialOcupacionMesa.updateMany({
+    where: { id: credencialId, ocupacionId, revocadaEn: null },
+    data: { ultimaActividadEn: now },
+  })
+  if (credencialUpdate.count !== 1) return false
+
+  return true
+}
+
+// ---------------------------------------------------------------------------
 // Logs sanitizados
 // ---------------------------------------------------------------------------
 
@@ -437,6 +545,32 @@ export function logMesaOccupancyEvent(details: {
     outcome: details.outcome,
     occupancyCreated: details.occupancyCreated,
     credentialCreated: details.credentialCreated,
+    timestamp: new Date().toISOString(),
+  })
+}
+
+/**
+ * Evento resumen de la comprobación de ocupación al CREAR un pedido (P0-D.2)
+ * — distinto de logMesaOccupancyEvent (que cubre la apertura/reutilización
+ * al abrir el QR). Un solo evento por request. `outcome` nunca revela cuál
+ * causa concreta hizo inválida una credencial (revocada/cerrada/expirada/
+ * otra mesa/otro negocio/puntero distinto quedan todas colapsadas en
+ * "invalid", igual que en la respuesta pública) — reducido a propósito
+ * respecto de la lista conceptual completa, para no exponer más detalle del
+ * necesario ni siquiera en logs. Nunca incluye token, tokenHash, cookie,
+ * ids completos, IP, user agent, coordenadas, body ni headers.
+ */
+export function logMesaOccupancyOrderEvent(details: {
+  negocioId: string
+  mesaNumero: number
+  outcome: "valid" | "missing" | "invalid" | "bypassed_staff" | "business_unconfigured" | "error"
+  linked: boolean
+}) {
+  console.info("[MesaOccupancy] mesa_occupancy_order_check", {
+    negocioId: shortId(details.negocioId),
+    mesaNumero: details.mesaNumero,
+    outcome: details.outcome,
+    linked: details.linked,
     timestamp: new Date().toISOString(),
   })
 }

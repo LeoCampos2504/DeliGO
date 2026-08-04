@@ -16,6 +16,12 @@ import {
   MESA_GEOFENCE_MODE,
   type MesaGeofenceStatus,
 } from "@/lib/mesa-geofence"
+import {
+  MESA_OCCUPANCY_COOKIE_NAME,
+  resolveMesaOccupancyForOrder,
+  heartbeatMesaOccupancyForOrder,
+  logMesaOccupancyOrderEvent,
+} from "@/lib/mesa-occupancy"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -678,6 +684,18 @@ function isPedidoUniqueConstraintConflict(error: unknown): boolean {
 // 500, siempre en 409 sin filtrar datos del pedido ajeno.
 class PedidoIdempotencyConflictError extends Error {}
 
+// P0-D.2: se lanza dentro de la transacción de creación cuando el pedido
+// público de mesa requiere una ocupación válida y no la tiene (cookie
+// ausente o cualquier otra causa inválida — nunca se distingue cuál al
+// cliente). Nunca se crea desde datos del body. Aborta toda la transacción
+// (nada se crea, nada se actualiza) y se traduce a un 403 sanitizado más
+// abajo, sin exponer detalle ni stack.
+class MesaOccupancyBlockedError extends Error {
+  constructor(public readonly reason: "missing" | "invalid") {
+    super(reason === "missing" ? "Ocupación de mesa requerida" : "Ocupación de mesa inválida")
+  }
+}
+
 function isSafeIdempotentPedido(params: {
   pedido: { negocioId: string; clienteId: string | null; idempotencyFingerprint: string | null } | null
   negocioId: string
@@ -989,6 +1007,14 @@ export async function POST(request: NextRequest) {
     let empleadoId: string | null = null
     let empleadoNombre: string | null = null
 
+    // P0-D.2: calculados dentro del bloque de geocerca de abajo (una sola
+    // vez), pero necesarios más adelante para decidir si se exige/vincula la
+    // ocupación de mesa — declarados acá para que sobrevivan fuera del
+    // bloque `if (isMesaOrder)`.
+    let negocioCalibrado = false
+    let isStaffOrder = false
+    let requiresMesaOccupancy = false
+
     if (isMesaOrder) {
       // mesaNumero or mesaId is required for mesa orders
       if (!mesaNumero && !mesaId) {
@@ -1062,7 +1088,7 @@ export async function POST(request: NextRequest) {
       // logMesaGeofenceObservation).
       let geofenceBlockResponse: NextResponse | null = null
       try {
-        const negocioCalibrado =
+        negocioCalibrado =
           negocio.lat != null && negocio.lng != null && negocio.ubicacionCalibradaEn != null
 
         const geofenceResult = evaluateMesaGeofence(
@@ -1071,14 +1097,28 @@ export async function POST(request: NextRequest) {
         )
 
         let blocked = false
-        if (MESA_GEOFENCE_MODE === "enforce" && negocioCalibrado && geofenceResult.status !== "inside") {
-          const isStaffOrder = await isAuthenticatedStaffForNegocio(
+        // P0-D.2: la misma resolución de personal autenticado sirve tanto
+        // para el bypass de geocerca (ya existente) como para el bypass de
+        // ocupación (nuevo) — se calcula una sola vez por request acá,
+        // nunca se repite la consulta más abajo.
+        if (MESA_GEOFENCE_MODE === "enforce" && negocioCalibrado) {
+          isStaffOrder = await isAuthenticatedStaffForNegocio(
             request,
             negocioId,
             sessionUserType,
             sessionUserId
           )
-          blocked = !isStaffOrder
+
+          if (geofenceResult.status !== "inside") {
+            blocked = !isStaffOrder
+          } else {
+            // Política P0-D.2: la ocupación solo se exige para un pedido
+            // público de mesa de un negocio calibrado que ya resolvió
+            // "inside" — nunca para personal autenticado (Negocio, Cuenta
+            // Operativa, Terminal Operativa; Mozo real nunca llega a este
+            // endpoint, usa su propia ruta operativa).
+            requiresMesaOccupancy = !isStaffOrder
+          }
         }
 
         logMesaGeofenceObservation("mesa_geofence_check_order", {
@@ -1101,6 +1141,16 @@ export async function POST(request: NextRequest) {
               { status: 403 }
             )
           }
+        } else if (!requiresMesaOccupancy) {
+          // Negocio sin calibrar (rollout de P0-C.2 preservado) o personal
+          // autenticado — ninguno de los dos exige ocupación. No hay nada
+          // más que resolver acá; se registra el motivo sanitizado.
+          logMesaOccupancyOrderEvent({
+            negocioId,
+            mesaNumero,
+            outcome: !negocioCalibrado ? "business_unconfigured" : "bypassed_staff",
+            linked: false,
+          })
         }
       } catch (geofenceError) {
         console.error("[MesaGeofence] Error evaluando geocerca en pedido:", geofenceError)
@@ -1110,6 +1160,16 @@ export async function POST(request: NextRequest) {
         return geofenceBlockResponse
       }
     }
+
+    // P0-D.2: se lee acá (fuera de la transacción, junto al resto de datos
+    // ya resueltos), pero la validación real y definitiva ocurre recién
+    // dentro del camino transaccional seguro, más abajo — nunca se confía
+    // en la sola presencia de la cookie. Solo se lee cuando efectivamente
+    // hace falta (pedido público de mesa calibrado, geocerca "inside").
+    // Nunca se toma del body, de un header propio, ni de query params.
+    const mesaOccupancyToken = requiresMesaOccupancy
+      ? request.cookies.get(MESA_OCCUPANCY_COOKIE_NAME)?.value ?? null
+      : null
 
     // Determine delivery-specific fields
     let finalPrecioDelivery = 0
@@ -1186,6 +1246,14 @@ export async function POST(request: NextRequest) {
           items: validatedItems,
         })
       : null
+
+    // P0-D.2: mesaId/mesaNumero ya resueltos server-side (mesaRow.id/numero)
+    // cuando isMesaOrder es true — capturados en constantes propias para que
+    // el chequeo de nulidad de abajo los angoste correctamente dentro del
+    // closure de la transacción (una variable `let` capturada por un closure
+    // no conserva el angostamiento de TypeScript; una `const` sí).
+    const resolvedMesaIdForOccupancy: string | null = isMesaOrder ? mesaId : null
+    const resolvedMesaNumeroForOccupancy: number | null = isMesaOrder ? mesaNumero : null
 
     const pedidoCreateData = {
       negocioId,
@@ -1264,6 +1332,64 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // P0-D.2: la ocupación solo se exige/vincula en la rama de creación
+        // nueva — nunca para un replay idempotente (ese pedido ya existe y
+        // ya tuvo su propio heartbeat cuando se creó por primera vez).
+        // Validación definitiva y heartbeat dentro del mismo camino
+        // transaccional que el `pedido.create`, nunca en una transacción
+        // separada — si cualquiera de los dos falla, toda la transacción se
+        // revierte (Prisma hace rollback automático al propagarse el error)
+        // y no se crea pedido, no se descuenta stock, no se envían
+        // notificaciones, no se consume la idempotency key para un pedido
+        // nuevo.
+        let validatedOcupacionId: string | null = null
+        if (requiresMesaOccupancy && resolvedMesaIdForOccupancy && resolvedMesaNumeroForOccupancy != null) {
+          const occupancyResult = await resolveMesaOccupancyForOrder(tx, {
+            negocioId,
+            mesaId: resolvedMesaIdForOccupancy,
+            token: mesaOccupancyToken,
+          })
+
+          if (occupancyResult.status !== "valid") {
+            logMesaOccupancyOrderEvent({
+              negocioId,
+              mesaNumero: resolvedMesaNumeroForOccupancy,
+              outcome: occupancyResult.status,
+              linked: false,
+            })
+            throw new MesaOccupancyBlockedError(occupancyResult.status)
+          }
+
+          const heartbeatOk = await heartbeatMesaOccupancyForOrder(tx, {
+            ocupacionId: occupancyResult.ocupacionId,
+            credencialId: occupancyResult.credencialId,
+            negocioId,
+            mesaId: resolvedMesaIdForOccupancy,
+            now: new Date(),
+          })
+
+          if (!heartbeatOk) {
+            // La credencial era válida al leerla, pero algo cambió justo
+            // antes de escribir (TOCTOU) — se trata igual que inválida, sin
+            // distinguir el motivo al cliente.
+            logMesaOccupancyOrderEvent({
+              negocioId,
+              mesaNumero: resolvedMesaNumeroForOccupancy,
+              outcome: "invalid",
+              linked: false,
+            })
+            throw new MesaOccupancyBlockedError("invalid")
+          }
+
+          validatedOcupacionId = occupancyResult.ocupacionId
+          logMesaOccupancyOrderEvent({
+            negocioId,
+            mesaNumero: resolvedMesaNumeroForOccupancy,
+            outcome: "valid",
+            linked: true,
+          })
+        }
+
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
         // previo) — recién ahí es seguro aplicar el side effect y crear.
         if (clienteId && clienteUpdateData) {
@@ -1274,7 +1400,7 @@ export async function POST(request: NextRequest) {
         }
 
         const created = await tx.pedido.create({
-          data: pedidoCreateData,
+          data: { ...pedidoCreateData, ocupacionMesaId: validatedOcupacionId },
           include: { items: true },
         })
 
@@ -1282,6 +1408,7 @@ export async function POST(request: NextRequest) {
       })
       .catch(async (error) => {
         if (error instanceof PedidoIdempotencyConflictError) throw error
+        if (error instanceof MesaOccupancyBlockedError) throw error
 
         // Carrera: dos requests con la misma key pasaron el chequeo previo casi
         // al mismo tiempo — el índice único (negocioId, idempotencyKey) rechaza
@@ -1423,6 +1550,22 @@ export async function POST(request: NextRequest) {
             "Ya existe un pedido distinto con esta clave de idempotencia. Generá una clave nueva e intentá de nuevo.",
         },
         { status: 409 }
+      )
+    }
+    // P0-D.2: cookie ausente o credencial inválida — el código público nunca
+    // distingue cuál de las causas ocurrió (revocada, cerrada, expirada, otra
+    // mesa/negocio, puntero cambiado quedan todas colapsadas en "invalid").
+    if (error instanceof MesaOccupancyBlockedError) {
+      const info =
+        error.reason === "missing"
+          ? { error: "Necesitamos volver a validar tu acceso a esta mesa.", code: "MESA_OCCUPANCY_REQUIRED" }
+          : {
+              error: "Tu acceso a esta mesa ya no es válido. Volvé a comprobar la ubicación.",
+              code: "MESA_OCCUPANCY_INVALID",
+            }
+      return NextResponse.json(
+        { ...info, canRetry: true, requiresLocationCheck: true },
+        { status: 403 }
       )
     }
     console.error("Error creating pedido:", error)

@@ -76,6 +76,11 @@ type CartStep = "items" | "checkout"
 // listo para mostrar) de cualquier otro error de red/servidor.
 class MesaGeofenceBlockedError extends Error {}
 
+// P0-D.2: bloqueo server-side de ocupación de mesa (MESA_OCCUPANCY_REQUIRED /
+// MESA_OCCUPANCY_INVALID) — mismo tratamiento que MesaGeofenceBlockedError:
+// nunca limpia el carrito, siempre permite reintentar.
+class MesaOccupancyBlockedError extends Error {}
+
 // ============================================
 // Custom hook: drag-to-dismiss from handle only
 // Uses document-level move/end listeners so the
@@ -386,6 +391,19 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
         if (res.status === 403 && typeof data.code === "string" && data.code.startsWith("MESA_GEOFENCE_")) {
           throw new MesaGeofenceBlockedError(data.error || "No pudimos confirmar tu ubicación.")
         }
+        // P0-D.2: bloqueo de ocupación de mesa (403) — misma razón que arriba
+        // para conservar la key: solo cambia si el acceso a la mesa vuelve a
+        // ser válido, nunca el contenido del pedido.
+        if (res.status === 403 && data.code === "MESA_OCCUPANCY_REQUIRED") {
+          throw new MesaOccupancyBlockedError(
+            "Necesitamos volver a validar tu acceso a esta mesa. Comprobá la ubicación nuevamente antes de enviar el pedido."
+          )
+        }
+        if (res.status === 403 && data.code === "MESA_OCCUPANCY_INVALID") {
+          throw new MesaOccupancyBlockedError(
+            "Tu acceso a esta mesa ya no es válido. Volvé a comprobar la ubicación desde el aviso superior."
+          )
+        }
         // Para el resto de los errores (429, 500, red/timeout) se conserva la
         // misma key: un reintento del mismo submit debe ser tratado como el
         // mismo intento, nunca crear un segundo pedido.
@@ -406,6 +424,13 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
       if (err instanceof MesaGeofenceBlockedError) {
         // Carrito, productos y notas quedan intactos — el usuario solo
         // necesita corregir su ubicación (o pedirle al Mozo) y reintentar.
+        toast.error(err.message, {
+          description: "También podés pedirle al Mozo que cargue tu pedido.",
+        })
+      } else if (err instanceof MesaOccupancyBlockedError) {
+        // Mismo tratamiento no destructivo: carrito, productos, cantidades y
+        // notas intactos — el usuario vuelve a comprobar ubicación (lo que
+        // reemplaza la cookie de ocupación) y reintenta.
         toast.error(err.message, {
           description: "También podés pedirle al Mozo que cargue tu pedido.",
         })
