@@ -29,6 +29,11 @@ import {
   ShoppingBag,
   UserCheck,
   Store,
+  MapPin,
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -45,6 +50,7 @@ import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horario
 import { MesaSelectorSheet } from "@/components/business/mesa-selector-sheet"
 import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
+import { getFreshClientLocation } from "@/lib/client-geolocation"
 import dynamic from "next/dynamic"
 import { toast } from "sonner"
 
@@ -135,6 +141,9 @@ interface NegocioAPI {
   opcionesCompartidas: Array<{ id: string; nombre: string; opciones: Array<{ nombre: string; precio: number }>; obligatorio: boolean; maximo: number }>
   lat?: number | null
   lng?: number | null
+  // P0-C.1: booleano sanitizado — nunca trae coordenadas del negocio ni
+  // fecha de calibración, solo si la geocerca de mesa está lista para pedir.
+  mesaGeofenceReady?: boolean
   productos: ProductoAPI[]
   productosSinSeccion: ProductoAPI[]
   secciones: SeccionAPI[]
@@ -310,6 +319,102 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const effectiveMesaNumero = mesaNumero ?? mozoSelectedMesa?.numero ?? null
   const effectiveMesaId = mozoSelectedMesa?.id ?? customerMesaData?.id ?? null
   const isEffectiveMesaOrder = !!effectiveMesaNumero
+
+  // ============================================
+  // P0-C.1: geocerca de mesa en modo observación
+  // ============================================
+  // Solo para el cliente que escanea el QR (nunca para Mozo, delivery,
+  // retiro ni navegación normal del menú), y solo cuando el negocio ya
+  // calibró su ubicación (mesaGeofenceReady). No bloquea nada — únicamente
+  // informa un estado no bloqueante mientras se prueba el comportamiento
+  // real (permiso denegado, precisión, timeouts) antes de activar el
+  // bloqueo real en una etapa posterior (P0-C.2).
+  type MesaGeofenceUiState =
+    | "idle"
+    | "checking"
+    | "confirmed"
+    | "outside"
+    | "inaccurate"
+    | "denied"
+    | "timeout"
+    | "unsupported"
+    | "error"
+
+  const [mesaGeofenceState, setMesaGeofenceState] = useState<MesaGeofenceUiState>("idle")
+  // Guarda la clave (slug+mesa) de la última comprobación disparada — nunca
+  // se escribe durante el render (solo dentro del efecto de más abajo), para
+  // no violar la regla de que los refs no deben mutarse en render.
+  const lastCheckedMesaGeofenceKeyRef = useRef<string | null>(null)
+
+  // Reiniciar el estado visible cuando cambia la mesa/negocio — patrón de
+  // "ajustar estado durante el render" (sin useEffect) ya usado en este
+  // proyecto (ver PushNotificationsConfig en config-tab.tsx).
+  const mesaGeofenceKey = `${slug}:${mesaNumero ?? ""}`
+  const [prevMesaGeofenceKey, setPrevMesaGeofenceKey] = useState(mesaGeofenceKey)
+  if (mesaGeofenceKey !== prevMesaGeofenceKey) {
+    setPrevMesaGeofenceKey(mesaGeofenceKey)
+    setMesaGeofenceState("idle")
+  }
+
+  const shouldCheckMesaGeofence = isMesaOrder && !isAuthenticatedMozo && !!negocio?.mesaGeofenceReady
+
+  const runMesaGeofenceCheck = React.useCallback(async () => {
+    if (!mesaNumero) return
+    setMesaGeofenceState("checking")
+
+    const location = await getFreshClientLocation()
+
+    if (!location.ok) {
+      setMesaGeofenceState(
+        location.reason === "unsupported"
+          ? "unsupported"
+          : location.reason === "denied"
+          ? "denied"
+          : location.reason === "timeout"
+          ? "timeout"
+          : "error"
+      )
+      // Se informa igual al servidor (sin bloque de ubicación => "missing")
+      // para poder observar cuántos accesos reales no logran leer el GPS.
+      void fetch("/api/public/mesa-geofence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, mesaNumero }),
+      }).catch(() => undefined)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/public/mesa-geofence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          mesaNumero,
+          mesaGeolocation: { lat: location.lat, lng: location.lng, accuracy: location.accuracy },
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const status = typeof data.status === "string" ? data.status : null
+
+      if (status === "inside") setMesaGeofenceState("confirmed")
+      else if (status === "outside") setMesaGeofenceState("outside")
+      else if (status === "inaccurate") setMesaGeofenceState("inaccurate")
+      // "invalid"/"business_unconfigured"/respuesta inesperada: no hay nada
+      // útil que mostrar — se vuelve a un estado neutro, sin error visible.
+      else setMesaGeofenceState("idle")
+    } catch {
+      setMesaGeofenceState("idle")
+    }
+  }, [slug, mesaNumero])
+
+  useEffect(() => {
+    if (!shouldCheckMesaGeofence) return
+    if (lastCheckedMesaGeofenceKeyRef.current === mesaGeofenceKey) return
+    lastCheckedMesaGeofenceKeyRef.current = mesaGeofenceKey
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: dispara la comprobación pública de geocerca de mesa (P0-C.1), que recién marca "checking" tras leer el GPS
+    void runMesaGeofenceCheck()
+  }, [shouldCheckMesaGeofence, runMesaGeofenceCheck, mesaGeofenceKey])
 
 
 
@@ -804,6 +909,55 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         </div>
       )}
 
+      {/* ===== GEOCERCA DE MESA — modo observación, no bloqueante (P0-C.1) ===== */}
+      {shouldCheckMesaGeofence && mesaGeofenceState !== "idle" && (
+        <div className="mx-4 mt-3 p-3 rounded-2xl border border-border/60 bg-muted/30 flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-background">
+            {mesaGeofenceState === "checking" ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : mesaGeofenceState === "confirmed" ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-muted-foreground">
+              {mesaGeofenceState === "checking" &&
+                "Necesitamos tu ubicación para confirmar que estás en el local."}
+              {mesaGeofenceState === "confirmed" && "Ubicación confirmada."}
+              {mesaGeofenceState === "outside" &&
+                "No pudimos confirmar que estés en el establecimiento."}
+              {mesaGeofenceState === "inaccurate" &&
+                "No pudimos obtener una ubicación suficientemente precisa. Activá la ubicación precisa e intentá nuevamente."}
+              {mesaGeofenceState === "denied" &&
+                "No pudimos verificar tu ubicación. También podés pedirle al Mozo que cargue tu pedido."}
+              {mesaGeofenceState === "timeout" &&
+                "La ubicación tardó demasiado en responder. Podés intentarlo nuevamente."}
+              {mesaGeofenceState === "unsupported" &&
+                "Este dispositivo no permite verificar la ubicación desde el navegador."}
+              {mesaGeofenceState === "error" &&
+                "No pudimos verificar tu ubicación. Podés intentarlo nuevamente."}
+            </p>
+          </div>
+          {(mesaGeofenceState === "outside" ||
+            mesaGeofenceState === "inaccurate" ||
+            mesaGeofenceState === "denied" ||
+            mesaGeofenceState === "timeout" ||
+            mesaGeofenceState === "error") && (
+            <button
+              type="button"
+              onClick={() => void runMesaGeofenceCheck()}
+              className="shrink-0 p-1.5 rounded-full hover:bg-background transition-colors"
+              aria-label="Reintentar"
+              title="Reintentar"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ===== CLOSED BANNER ===== */}
       {!isOpen && !isPreview && (
         <div className="mx-4 mt-3 p-3 rounded-2xl bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 flex items-center gap-3">
@@ -1019,6 +1173,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           isOpen={isOpen}
           mesaNumero={effectiveMesaNumero}
           mesaId={effectiveMesaId}
+          mesaGeofenceReady={!isAuthenticatedMozo && !!negocio?.mesaGeofenceReady}
           mozoCodigo={isAuthenticatedMozo ? mozoData?.codigo : undefined}
           mozoNombre={isAuthenticatedMozo ? mozoData?.nombre : undefined}
           canOrder={canOrder}

@@ -9,6 +9,7 @@ import {
   notifySalonNewOrderForOperations,
   parseSubscriptionEndpoint,
 } from "@/lib/salon-new-order-notification"
+import { evaluateMesaGeofence, logMesaGeofenceObservation } from "@/lib/mesa-geofence"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 
@@ -60,6 +61,10 @@ interface PedidoPayload {
   mesaNumero: number | null
   empleadoCodigo: string | null
   fingerprint: string | null
+  // P0-C.1: sin validar acá a propósito — una ubicación malformada nunca debe
+  // rechazar el pedido completo (modo observación). Se evalúa de forma
+  // tolerante más abajo, solo para pedidos de mesa, con evaluateMesaGeofence.
+  mesaGeolocation: unknown
 }
 
 interface ValidatedPedidoItem {
@@ -337,6 +342,7 @@ function validatePedidoPayload(payload: unknown): ValidationResult<PedidoPayload
     mesaNumero: mesaNumero.value,
     empleadoCodigo: readOptionalText(payload.empleadoCodigo),
     fingerprint: readOptionalText(payload.fingerprint),
+    mesaGeolocation: payload.mesaGeolocation,
   })
 }
 
@@ -968,6 +974,25 @@ export async function POST(request: NextRequest) {
           empleadoId = mesaEmpleado.id
           empleadoNombre = mesaEmpleado.nombre
         }
+      }
+
+      // P0-C.1: geocerca de mesa en modo observación. Nunca provoca 400,
+      // nunca cancela ni revierte la creación del pedido, nunca altera
+      // idempotencia/precios/stock/promociones/notificaciones/asignación de
+      // mozo, y nunca guarda las coordenadas del cliente en ningún lado —
+      // solo se registra un resultado sanitizado (ver logMesaGeofenceObservation).
+      try {
+        const geofenceResult = evaluateMesaGeofence(
+          { lat: negocio.lat, lng: negocio.lng, ubicacionCalibradaEn: negocio.ubicacionCalibradaEn },
+          pedidoInput.mesaGeolocation
+        )
+        logMesaGeofenceObservation("mesa_geofence_check_order", {
+          negocioId,
+          mesaNumero,
+          result: geofenceResult,
+        })
+      } catch (geofenceError) {
+        console.error("[MesaGeofence] Error evaluando geocerca en pedido:", geofenceError)
       }
     }
 

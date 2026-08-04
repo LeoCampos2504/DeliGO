@@ -29,6 +29,10 @@ export const RATE_LIMITS = {
   operativoInvite: { maxRequests: 10, windowMs: 15 * 60 * 1000 }, // 10 per 15 min
   operativoJoin: { maxRequests: 5, windowMs: 5 * 60 * 1000 },     // 5 per 5 min
   mozoPushTest: { maxRequests: 3, windowMs: 10 * 60 * 1000 },      // 3 per 10 min
+  // P0-C.1: comprobación pública de geocerca de mesa. Generoso a propósito —
+  // varias personas de una misma mesa pueden comprobar casi al mismo tiempo,
+  // y un reintento tras "inaccurate"/"timeout" no debe agotarse enseguida.
+  mesaGeofence: { maxRequests: 20, windowMs: 5 * 60 * 1000 },      // 20 per 5 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)
 } as const
 

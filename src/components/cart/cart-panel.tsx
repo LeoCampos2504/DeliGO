@@ -31,6 +31,7 @@ import { Separator } from "@/components/ui/separator"
 import { cn, formatPrice } from "@/lib/utils"
 import { useCartStore, type CartItem, type DeliveryAddress } from "@/store/cart-store"
 import { toast } from "sonner"
+import { getFreshClientLocation } from "@/lib/client-geolocation"
 
 // ============================================
 // Types
@@ -57,6 +58,11 @@ interface CartPanelProps {
   negocio: NegocioAPI
   isOpen?: boolean
   mesaNumero?: number | null  // If set, cart is in salon mode
+  mesaId?: string | null
+  // P0-C.1: viene de negocio.mesaGeofenceReady (nunca coordenadas) — solo
+  // decide si vale la pena pedir una lectura fresca de ubicación al
+  // confirmar el pedido. Nunca solicita ubicación para Mozo/delivery/retiro.
+  mesaGeofenceReady?: boolean
   mozoCodigo?: string
   mozoNombre?: string
   canOrder?: boolean
@@ -131,7 +137,7 @@ function useDragToDismiss(onDismiss: () => void) {
 // ============================================
 // Main Cart Panel Component
 // ============================================
-export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozoNombre, canOrder = true, onRequireAuth, onRequireLocation }: CartPanelProps) {
+export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceReady, mozoCodigo, mozoNombre, canOrder = true, onRequireAuth, onRequireLocation }: CartPanelProps) {
   const items = useCartStore((s) => s.items)
   const removeItem = useCartStore((s) => s.removeItem)
   const updateQuantity = useCartStore((s) => s.updateQuantity)
@@ -292,7 +298,26 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
     }
     const idempotencyKey = idempotencyKeyRef.current
 
+    // P0-C.1A: marcar "enviando" ANTES de esperar la ubicación — la lectura
+    // de GPS puede tardar hasta el timeout configurado en
+    // getFreshClientLocation (varios segundos). Si se marcara después, el
+    // botón de confirmar quedaría habilitado y sin feedback visual durante
+    // toda esa espera para pedidos de mesa (regresión real introducida por
+    // P0-C.1, corregida acá sin cambiar ninguna lógica de datos/idempotencia).
     setIsSubmitting(true)
+
+    // P0-C.1: lectura fresca de ubicación justo antes de confirmar un pedido
+    // de mesa — nunca se reutiliza la lectura inicial (la de abrir el QR).
+    // Modo observación: si falla por cualquier motivo, el bloque simplemente
+    // se omite y el pedido se envía igual — nunca se inventa 0,0 ni se
+    // reutilizan las coordenadas de delivery.
+    let mesaGeolocation: { lat: number; lng: number; accuracy: number } | undefined
+    if (isMesaOrder && mesaGeofenceReady) {
+      const location = await getFreshClientLocation()
+      if (location.ok) {
+        mesaGeolocation = { lat: location.lat, lng: location.lng, accuracy: location.accuracy }
+      }
+    }
     try {
       const res = await fetch("/api/pedidos", {
         method: "POST",
@@ -324,6 +349,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mozoCodigo, mozo
           lng: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.lng : null,
           mesaNumero: isMesaOrder ? mesaNumero : undefined,
           empleadoCodigo: isMesaOrder && empleadoCodigo.trim() ? empleadoCodigo.trim() : undefined,
+          mesaGeolocation,
         }),
       })
       if (!res.ok) {

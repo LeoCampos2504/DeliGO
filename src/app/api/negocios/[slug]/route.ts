@@ -265,6 +265,10 @@ export async function GET(
         tiempoEntrega: true,
         lat: true,
         lng: true,
+        // P0-C.1: server-only — nunca se devuelven directamente al cliente.
+        // Solo se usan para calcular el booleano sanitizado mesaGeofenceReady.
+        salonActivo: true,
+        ubicacionCalibradaEn: true,
         mostrarVentas: true,
         aceptaTransferencia: true,
         aliasBancario: true,
@@ -397,6 +401,9 @@ export async function GET(
       tiempoEntrega: negocio.tiempoEntrega,
       lat: negocio.lat,
       lng: negocio.lng,
+      // P0-C.1: booleano sanitizado — nunca se exponen salonActivo ni
+      // ubicacionCalibradaEn (fecha de calibración) en esta respuesta pública.
+      mesaGeofenceReady: !!(negocio.salonActivo && negocio.lat != null && negocio.lng != null && negocio.ubicacionCalibradaEn != null),
       mostrarVentas: negocio.mostrarVentas,
       aceptaTransferencia: negocio.aceptaTransferencia,
       aliasBancario: negocio.aliasBancario,
