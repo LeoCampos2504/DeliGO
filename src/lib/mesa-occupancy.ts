@@ -1,7 +1,10 @@
 import { randomBytes, createHash } from "crypto"
-import type { NextResponse } from "next/server"
+import type { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import { SESSION_COOKIE_NAME, findSesionByToken, OPERATIONAL_SESSION_COOKIE_NAME, validateOperationalSession } from "@/lib/auth"
+import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
+import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 
 // ============================================
 // DeliGO — Ocupación rotativa de mesa
@@ -517,6 +520,261 @@ export async function heartbeatMesaOccupancyForOrder(
 }
 
 // ---------------------------------------------------------------------------
+// Cierre técnico de ocupación (P0-D.3A)
+// ---------------------------------------------------------------------------
+// Cierra únicamente el ciclo TÉCNICO de seguridad de la mesa: revoca las
+// credenciales de dispositivo y libera el puntero de Mesa para que el
+// próximo escaneo válido pueda abrir una ocupación nueva. Nunca toca
+// pedidos, totales, pagos, tickets ni el cierre COMERCIAL de la cuenta — los
+// pedidos conservan su `ocupacionMesaId` histórico para siempre, aunque la
+// ocupación quede cerrada (necesario para que una etapa futura pueda reunir
+// los consumos de esa ocupación).
+
+export type MesaOccupancyCloseActor =
+  | { type: "negocio"; negocioId: string; actorId: string; canCloseAnyMesa: true }
+  | { type: "salon"; negocioId: string; actorId: string; canCloseAnyMesa: true }
+  | { type: "mozo"; negocioId: string; actorId: string; canCloseAnyMesa: false; assignedMesaIds: string[] }
+
+/**
+ * Resuelve quién está pidiendo cerrar una ocupación, exclusivamente desde
+ * sesiones server-side reales — nunca desde el body. `negocioId` debe venir
+ * ya resuelto por el llamador (el negocio real de la mesa, nunca uno
+ * enviado por el cliente). Reutiliza los helpers de autorización ya
+ * existentes del proyecto (sin modificarlos): `resolveAreaOperativaEfectiva`
+ * (única fuente de verdad del área personal — nunca "rol") y
+ * `requireOperacionesArea` (autorización real de Terminal Operativa, misma
+ * regla que ya usa Salón vía terminal). Devuelve `null` si ninguna de las
+ * tres identidades (Negocio dueño / Cuenta Operativa de área Salón o Mozo /
+ * Terminal Operativa de área Salón) es válida para ESE negocio — cliente,
+ * invitado, PyR, sesión expirada, u otro negocio nunca devuelven un actor.
+ */
+export async function resolveMesaOccupancyCloseActor(
+  request: NextRequest,
+  negocioId: string
+): Promise<MesaOccupancyCloseActor | null> {
+  // 1) Negocio dueño — sesión `deligo_session`, tipo "negocio", cuyo userId
+  // sea exactamente el negocio real ya resuelto.
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  if (sessionToken) {
+    const session = await findSesionByToken(sessionToken)
+    if (session && session.userType === "negocio" && session.userId === negocioId) {
+      return { type: "negocio", negocioId, actorId: session.userId, canCloseAnyMesa: true }
+    }
+  }
+
+  // 2) Cuenta Operativa personal (Salón o Mozo, según ÁREA EFECTIVA real —
+  // nunca el body, nunca "rol" solo) — empleado activo del mismo negocio.
+  const operativoToken = request.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
+  if (operativoToken) {
+    const operativoSession = await validateOperationalSession(operativoToken)
+    if (operativoSession) {
+      const empleado = await db.empleado.findFirst({
+        where: { cuentaOperativaId: operativoSession.cuentaOperativaId, negocioId, activo: true, eliminado: false },
+        select: { id: true, areaOperativa: true, rol: true, mesas: { select: { id: true } } },
+      })
+      if (empleado) {
+        const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
+        if (area === "salon") {
+          return { type: "salon", negocioId, actorId: empleado.id, canCloseAnyMesa: true }
+        }
+        if (area === "mozo") {
+          return {
+            type: "mozo",
+            negocioId,
+            actorId: empleado.id,
+            canCloseAnyMesa: false,
+            // Server-side real: Mesa.empleadoId → Empleado (asignación actual,
+            // nunca "mesaAsignada"/"mesaId" del body). Ver Mesa.mesas en el schema.
+            assignedMesaIds: empleado.mesas.map((mesa) => mesa.id),
+          }
+        }
+        // "pyr" / "sin_asignar": no autorizado para cerrar mesas.
+      }
+    }
+  }
+
+  // 3) Terminal Operativa — misma regla que ya usa Salón vía terminal (área
+  // "salon" + su scope base de lectura). `requireOperacionesArea` nunca se
+  // modificó; solo se reutiliza.
+  const terminalAuth = await requireOperacionesArea(request, "salon")
+  if (terminalAuth.ok && terminalAuth.context.negocio.id === negocioId) {
+    return { type: "salon", negocioId, actorId: terminalAuth.context.terminal.id, canCloseAnyMesa: true }
+  }
+
+  return null
+}
+
+export type MesaOccupancyStatusResult =
+  | { status: "active"; occupancy: { id: string; startedAt: Date; lastActivityAt: Date } }
+  | { status: "none" }
+  | { status: "inconsistent" }
+
+/**
+ * Consulta de solo lectura del estado técnico actual de la ocupación de una
+ * mesa — para paneles de personal ya autorizado (la autorización la resuelve
+ * el llamador, esta función no la repite). Si el puntero de Mesa referencia
+ * una sesión inexistente, de otra mesa, de otro negocio, o no activa, NUNCA
+ * se repara ni se devuelve como válida acá — se informa como
+ * `"inconsistent"`, sanitizado, con un warning en log.
+ */
+export async function getMesaOccupancyStatus(params: {
+  negocioId: string
+  mesaId: string
+}): Promise<MesaOccupancyStatusResult> {
+  const { negocioId, mesaId } = params
+
+  const mesa = await db.mesa.findUnique({
+    where: { id: mesaId },
+    select: { negocioId: true, ocupacionActualId: true },
+  })
+  if (!mesa || mesa.negocioId !== negocioId) {
+    return { status: "inconsistent" }
+  }
+  if (!mesa.ocupacionActualId) {
+    return { status: "none" }
+  }
+
+  const ocupacion = await db.sesionOcupacionMesa.findUnique({ where: { id: mesa.ocupacionActualId } })
+  if (!ocupacion || ocupacion.negocioId !== negocioId || ocupacion.mesaId !== mesaId || ocupacion.estado !== "activa") {
+    console.warn("[MesaOccupancy] Puntero de ocupación inconsistente detectado en consulta de estado", {
+      negocioId: shortId(negocioId),
+      mesaId: shortId(mesaId),
+    })
+    return { status: "inconsistent" }
+  }
+
+  return {
+    status: "active",
+    occupancy: { id: ocupacion.id, startedAt: ocupacion.iniciadaEn, lastActivityAt: ocupacion.ultimaActividadEn },
+  }
+}
+
+export type MesaOccupancyCloseResult =
+  | { status: "closed"; revokedCredentials: number }
+  | { status: "no_active" }
+  | { status: "occupancy_changed" }
+  | { status: "inconsistent" }
+
+// Motivo estable y sanitizado para cierre manual por personal — nunca texto
+// libre del usuario en esta etapa.
+const MANUAL_STAFF_CLOSE_REASON = "manual_staff_close"
+
+// Error de dominio interno: cualquier estado que la aplicación no debería
+// producir si el propio helper siempre cierra+limpia atómicamente (puntero
+// apuntando a una fila que no coincide con negocio/mesa, o que ya no está
+// activa, o un `updateMany` que no afecta la fila esperada). Nunca se
+// repara silenciosamente — se traduce a un resultado "inconsistent" sin
+// exponer la causa exacta.
+class MesaOccupancyCloseInconsistentError extends Error {}
+
+/**
+ * Cierra la ocupación ESPERADA de una mesa (comparación estricta con
+ * `expectedOcupacionId` — nunca "la ocupación actual" sin comparar), dentro
+ * de una única transacción Serializable con el mismo patrón de reintento de
+ * P2034 que `openOrReuseMesaOccupancy` (reutilizado, no duplicado). Orden de
+ * escrituras (documentado para que un futuro cierre por expiración lo
+ * respete y evite deadlocks): 1) SesionOcupacionMesa, 2)
+ * CredencialOcupacionMesa, 3) Mesa — la primera escritura es siempre sobre
+ * la ocupación, nunca sobre el puntero ni las credenciales primero.
+ *
+ * Nunca acepta como autoridad `negocioId`/`mesaId` sin resolución previa del
+ * llamador, ni `actorType`/`actorId`/`estado`/`cerradaPorId`/`cerradaPorTipo`/
+ * `revocadaEn` del body — todos son parámetros ya resueltos server-side.
+ */
+export async function closeMesaOccupancy(params: {
+  negocioId: string
+  mesaId: string
+  expectedOcupacionId: string
+  actorType: "negocio" | "salon" | "mozo"
+  actorId: string
+  now?: Date
+}): Promise<MesaOccupancyCloseResult> {
+  const { negocioId, mesaId, expectedOcupacionId, actorType, actorId } = params
+  const now = params.now ?? new Date()
+
+  try {
+    return await runSerializableTransaction(async (tx) => {
+      // 1) Leer Mesa y confirmar negocio real.
+      const mesa = await tx.mesa.findUnique({
+        where: { id: mesaId },
+        select: { negocioId: true, ocupacionActualId: true },
+      })
+      if (!mesa || mesa.negocioId !== negocioId) {
+        throw new MesaOccupancyCloseInconsistentError("Mesa no coincide con el negocio resuelto server-side")
+      }
+
+      // 2) Idempotente: si la mesa ya no tiene ninguna ocupación activa
+      // (primer cierre ya ejecutado, o nunca hubo una), no es un error.
+      if (!mesa.ocupacionActualId) {
+        return { status: "no_active" as const }
+      }
+
+      // 3) Comparación estricta contra el puntero actual — un request viejo
+      // (de una ocupación ya cerrada) nunca debe poder cerrar la ocupación
+      // nueva de la misma mesa.
+      if (mesa.ocupacionActualId !== expectedOcupacionId) {
+        return { status: "occupancy_changed" as const }
+      }
+
+      // 4) Leer y validar la ocupación esperada — debe coincidir toda la
+      // cadena (negocio/mesa reales), y estar activa (si el puntero le
+      // apuntara pero ya no estuviera activa, sería un estado que este
+      // mismo helper nunca debería producir — ver comentario de
+      // MesaOccupancyCloseInconsistentError).
+      const ocupacion = await tx.sesionOcupacionMesa.findUnique({ where: { id: expectedOcupacionId } })
+      if (!ocupacion || ocupacion.negocioId !== negocioId || ocupacion.mesaId !== mesaId) {
+        throw new MesaOccupancyCloseInconsistentError("Ocupación esperada no coincide con negocio/mesa reales")
+      }
+      if (ocupacion.estado !== "activa") {
+        throw new MesaOccupancyCloseInconsistentError("El puntero apunta a una ocupación que ya no está activa")
+      }
+
+      // 5) Primera escritura: la ocupación activa → cerrada.
+      const ocupacionUpdate = await tx.sesionOcupacionMesa.updateMany({
+        where: { id: expectedOcupacionId, negocioId, mesaId, estado: "activa" },
+        data: {
+          estado: "cerrada",
+          cerradaEn: now,
+          cerradaPorTipo: actorType,
+          cerradaPorId: actorId,
+          motivoCierre: MANUAL_STAFF_CLOSE_REASON,
+        },
+      })
+      if (ocupacionUpdate.count !== 1) {
+        throw new MesaOccupancyCloseInconsistentError("No se pudo actualizar la ocupación esperada")
+      }
+
+      // 6) Segunda escritura: revocar todas las credenciales activas de esa
+      // ocupación. Puede ser cero, una, o varias — nunca se exige un count
+      // exacto (a diferencia de la ocupación y la mesa, que sí lo exigen).
+      const credencialesUpdate = await tx.credencialOcupacionMesa.updateMany({
+        where: { ocupacionId: expectedOcupacionId, revocadaEn: null },
+        data: { revocadaEn: now },
+      })
+
+      // 7) Tercera escritura: limpiar el puntero de Mesa. Si esto fallara
+      // (count !== 1), NO se acepta el cierre como correcto — se revierte
+      // toda la transacción para nunca dejar una ocupación cerrada con el
+      // puntero de Mesa sin resolver.
+      const mesaUpdate = await tx.mesa.updateMany({
+        where: { id: mesaId, negocioId, ocupacionActualId: expectedOcupacionId },
+        data: { ocupacionActualId: null },
+      })
+      if (mesaUpdate.count !== 1) {
+        throw new MesaOccupancyCloseInconsistentError("No se pudo limpiar el puntero de Mesa")
+      }
+
+      return { status: "closed" as const, revokedCredentials: credencialesUpdate.count }
+    })
+  } catch (error) {
+    if (error instanceof MesaOccupancyCloseInconsistentError) {
+      return { status: "inconsistent" }
+    }
+    throw error
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Logs sanitizados
 // ---------------------------------------------------------------------------
 
@@ -571,6 +829,33 @@ export function logMesaOccupancyOrderEvent(details: {
     mesaNumero: details.mesaNumero,
     outcome: details.outcome,
     linked: details.linked,
+    timestamp: new Date().toISOString(),
+  })
+}
+
+/**
+ * Evento resumen del cierre técnico de una ocupación (P0-D.3A). Un solo
+ * evento por request, `timestamp` definido una sola vez (a diferencia de
+ * otros loggers ajenos a este alcance que lo duplicaban — deuda heredada,
+ * no corregida acá por estar fuera de los archivos permitidos). Nunca
+ * incluye `expectedOcupacionId`/`ocupacionId` completos, `credencialId`,
+ * token, tokenHash, cookie, `actorId` completo, email, nombre, teléfono, IP,
+ * user agent, body, headers, coordenadas, stack completo ni el objeto
+ * Prisma completo.
+ */
+export function logMesaOccupancyCloseEvent(details: {
+  negocioId: string
+  mesaNumero: number
+  actorType: "negocio" | "salon" | "mozo"
+  outcome: "closed" | "no_active" | "occupancy_changed" | "forbidden" | "inconsistent" | "error"
+  revokedCredentials: number
+}) {
+  console.info("[MesaOccupancy] mesa_occupancy_close", {
+    negocioId: shortId(details.negocioId),
+    mesaNumero: details.mesaNumero,
+    actorType: details.actorType,
+    outcome: details.outcome,
+    revokedCredentials: details.revokedCredentials,
     timestamp: new Date().toISOString(),
   })
 }
