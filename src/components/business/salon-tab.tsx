@@ -71,6 +71,7 @@ import { cn, formatPrice } from "@/lib/utils"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
+import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 
 // ============================================
 // Types
@@ -1696,6 +1697,16 @@ function MesaDetailDrawer({
               </Button>
             </div>
           )}
+        </div>
+
+        {/* P0-D.3B: estado técnico de ocupación de mesa y cierre seguro */}
+        <div className="mb-4 p-3 rounded-xl border border-border/50 bg-muted/20">
+          <MesaOccupancyControl
+            mesaId={mesa.id}
+            mesaNumero={mesa.numero}
+            onClosed={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
+            onAccessDenied={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
+          />
         </div>
 
         {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}

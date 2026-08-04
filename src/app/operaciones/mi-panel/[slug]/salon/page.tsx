@@ -31,6 +31,7 @@ import {
   PedidoDetalleDrawer,
   type PedidoDetalleState,
 } from "@/components/operativo/pedido-detalle"
+import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { cn } from "@/lib/utils"
 
 // ============================================
@@ -821,6 +822,14 @@ export default function SalonPersonalPage() {
                       ) : (
                         <p className="text-[11px] text-muted-foreground px-1">Sin pedidos activos</p>
                       )}
+                      <div className="pt-1 border-t border-border/50">
+                        <MesaOccupancyControl
+                          mesaId={mesa.id}
+                          mesaNumero={mesa.numero}
+                          onClosed={() => void loadPanel({ silent: true })}
+                          onAccessDenied={() => void loadPanel({ silent: true })}
+                        />
+                      </div>
                     </CardContent>
                   </Card>
                 ))}

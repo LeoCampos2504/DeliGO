@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
+import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import {
   AlertTriangle,
   Armchair,
@@ -1027,6 +1028,7 @@ export default function MozoSalonPanelPage() {
                         onMesaAction={() => handleMesaAction(mesa)}
                         onOrder={() => router.push(nav.pedidoHref(slug, mesa.id))}
                         onEntregar={(pedidoId) => handleEntregarPedido(mesa.id, pedidoId)}
+                        onOccupancyClosed={() => void loadPanel({ silent: true })}
                       />
                     )
                   })}
@@ -1048,6 +1050,7 @@ function MesaCard({
   onMesaAction,
   onOrder,
   onEntregar,
+  onOccupancyClosed,
 }: {
   mesa: MesaOperativa
   loading: boolean
@@ -1056,6 +1059,7 @@ function MesaCard({
   onMesaAction: () => void
   onOrder: () => void
   onEntregar: (pedidoId: string) => void
+  onOccupancyClosed: () => void
 }) {
   const readyOrders = mesa.pedidosActivos.filter((pedido) => pedido.estado === "listo_para_retirar")
 
@@ -1179,6 +1183,17 @@ function MesaCard({
             )}
           </Button>
         </div>
+
+        {mesa.asignadaAMi && (
+          <div className="pt-1 border-t border-border/60">
+            <MesaOccupancyControl
+              mesaId={mesa.id}
+              mesaNumero={mesa.numero}
+              onClosed={onOccupancyClosed}
+              onAccessDenied={onOccupancyClosed}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

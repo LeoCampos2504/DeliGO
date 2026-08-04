@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Logo } from "@/components/shared/logo"
+import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -804,6 +805,18 @@ function SalonView({
                 saving={actingMesaIds.has(selectedMesaObj.id)}
                 onMesaAssignment={onMesaAssignment}
               />
+            )}
+
+            {selectedMesaObj && (
+              <div className="mb-4 rounded-xl border border-border/50 bg-card p-3">
+                <MesaOccupancyControl
+                  key={selectedMesaObj.id}
+                  mesaId={selectedMesaObj.id}
+                  mesaNumero={selectedMesaObj.numero}
+                  onClosed={onRefresh}
+                  onAccessDenied={onRefresh}
+                />
+              </div>
             )}
             {selectedOrders.length === 0 ? (
               <div className="text-center py-8">
