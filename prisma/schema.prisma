@@ -213,6 +213,7 @@ model Negocio {
   promociones          Promocion[]
   denuncias            Denuncia[]
   solicitudesDestacado DestacadoSolicitud[]
+  ocupacionesMesa      SesionOcupacionMesa[]
 
   @@map("negocios")
 }
@@ -372,10 +373,16 @@ model Pedido {
   lng           Float?
 
   // Mesa / Salón
-  mesaId         String?
-  mesaNumero     Int?
-  empleadoId     String?
-  empleadoNombre String?
+  mesaId          String?
+  mesaNumero      Int?
+  empleadoId      String?
+  empleadoNombre  String?
+  // P0-D.1: preparado, todavía sin usar — P0-D.2 recién empezará a escribirlo
+  // y a exigir la credencial en POST /api/pedidos. Todos los pedidos
+  // existentes y los nuevos de esta etapa quedan en NULL. SetNull: si la
+  // ocupación se borra, el pedido nunca debe borrarse con ella (mismo patrón
+  // que Pedido.cliente).
+  ocupacionMesaId String?
 
   // Idempotencia de operaciones
   idempotencyKey         String?
@@ -415,14 +422,16 @@ model Pedido {
   updatedAt DateTime @updatedAt
 
   // Relations
-  negocio  Negocio        @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  cliente  Cliente?       @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  items    PedidoItem[]
-  mensajes ChatMensaje[]
-  resena   Resena?
-  eventos  PedidoEvento[]
+  negocio       Negocio              @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente       Cliente?             @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  items         PedidoItem[]
+  mensajes      ChatMensaje[]
+  resena        Resena?
+  eventos       PedidoEvento[]
+  ocupacionMesa SesionOcupacionMesa? @relation(fields: [ocupacionMesaId], references: [id], onDelete: SetNull)
 
   @@unique([negocioId, idempotencyKey])
+  @@index([ocupacionMesaId])
   @@map("pedidos")
 }
 
@@ -672,8 +681,119 @@ model Mesa {
   empleadoId String? // Mozo asignado a esta mesa
   empleado   Empleado? @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
 
+  // P0-D.1: puntero a la ocupación rotativa activa (nullable — la mayoría del
+  // tiempo una mesa no tiene ninguna). @unique impide que la misma ocupación
+  // sea "la actual" de más de una mesa a la vez. SetNull porque si la
+  // ocupación apuntada se borra, la mesa simplemente vuelve a no tener
+  // ocupación actual — nunca debe arrastrar el borrado de la Mesa.
+  ocupacionActualId String?               @unique
+  ocupacionActual   SesionOcupacionMesa?  @relation("MesaOcupacionActual", fields: [ocupacionActualId], references: [id], onDelete: SetNull)
+  // Historial completo de ocupaciones de esta mesa (activas, cerradas y
+  // futuras) — relación nombrada distinta de la anterior para que Prisma no
+  // las confunda (dos relaciones entre los mismos dos modelos).
+  ocupaciones       SesionOcupacionMesa[] @relation("MesaOcupacionHistorial")
+
   @@unique([negocioId, numero])
   @@map("mesas")
+}
+
+// ============================================
+// OCUPACIÓN DE MESA (P0-D.1 — fundación)
+// ============================================
+// Sesión rotativa compartida por todos los clientes de una mesa física,
+// entre el momento en que alguien escanea el QR estando "inside" de la
+// geocerca (P0-C.2, src/lib/mesa-geofence.ts) y el cierre futuro de la mesa
+// (P0-D.3, todavía no implementado). El QR físico y su URL
+// (/n/{slug}?mesa={numero}) nunca cambian — lo que rota es esta ocupación.
+// Cada dispositivo recibe su propia CredencialOcupacionMesa (token opaco,
+// hasheado, nunca guardado en claro — mismo patrón que Sesion.token /
+// PasswordResetToken.tokenHash / SesionTerminalOperativa.tokenHash), pero
+// todos los dispositivos de la mesa comparten la misma SesionOcupacionMesa
+// mientras esté activa.
+//
+// P0-D.1 SOLO abre o reutiliza la ocupación desde la comprobación pública de
+// geocerca. Todavía NO exige ni vincula ningún pedido a ella (eso es
+// P0-D.2), y todavía NO implementa cierre manual ni expiración automática
+// (eso es P0-D.3) — por eso los campos de cierre son nullable y el estado
+// inicial siempre es "activa".
+model SesionOcupacionMesa {
+  id        String @id @default(cuid())
+  negocioId String
+  mesaId    String
+
+  // activa | cerrada | expirada — string controlado, mismo patrón sin enum
+  // Prisma que ya usa el resto del schema (Pedido.estado,
+  // TerminalOperativa.estado, Empleado.areaOperativa, etc.).
+  estado String @default("activa")
+
+  iniciadaEn        DateTime @default(now())
+  ultimaActividadEn DateTime @default(now())
+
+  // Nullable a propósito: P0-D.1 nunca los escribe — quedan preparados para
+  // el cierre real de P0-D.3 (cierre por Mozo/Salón/Negocio o expiración).
+  cerradaEn      DateTime?
+  cerradaPorTipo String?
+  motivoCierre   String?
+  cerradaPorId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  negocio      Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  // Relación de historial (muchas ocupaciones por mesa a lo largo del
+  // tiempo) — nombrada explícitamente distinta de "MesaOcupacionActual"
+  // (el puntero 1:1 en Mesa.ocupacionActualId) para que Prisma no confunda
+  // las dos relaciones entre los mismos dos modelos. Cascade: una ocupación
+  // no tiene identidad propia sin su mesa.
+  mesa         Mesa    @relation("MesaOcupacionHistorial", fields: [mesaId], references: [id], onDelete: Cascade)
+  // Lado inverso del puntero "actual" de Mesa — sin fields/references acá,
+  // vive en Mesa.ocupacionActualId.
+  mesaActualDe Mesa?   @relation("MesaOcupacionActual")
+
+  credenciales CredencialOcupacionMesa[]
+  pedidos      Pedido[]
+
+  // P0-D.1A: además de estos índices, la migración versionada
+  // (prisma/migrations/20260804000000_add_table_occupancy_sessions) agrega el
+  // índice único PARCIAL "sesiones_ocupacion_mesa_mesaId_activa_key" sobre
+  // ("mesaId") WHERE estado = 'activa' — la garantía real de "máximo una
+  // ocupación activa por mesa" vive ahí, no en Mesa.ocupacionActualId
+  // @unique (que solo impide que la misma ocupación sea "la actual" de más
+  // de una mesa). Prisma no soporta índices únicos parciales en su DSL
+  // (ninguna versión actual, incluida 6.19.2), así que este índice no puede
+  // declararse acá — solo existe en el SQL. Deuda: un futuro "db pull" o una
+  // migración autogenerada deben preservarlo manualmente.
+  @@index([negocioId, estado])
+  @@index([mesaId, estado])
+  @@index([ultimaActividadEn])
+  @@map("sesiones_ocupacion_mesa")
+}
+
+// Autorización opaca de UN dispositivo/navegador para UNA ocupación
+// concreta. Nunca representa una cuenta de usuario — no tiene nombre, email
+// ni teléfono. Una ocupación puede tener varias credenciales (una por
+// dispositivo); una credencial pertenece a una sola ocupación.
+model CredencialOcupacionMesa {
+  id          String @id @default(cuid())
+  ocupacionId String
+
+  // Solo se guarda el hash SHA-256 del token real — el token en claro vive
+  // únicamente en la cookie HttpOnly del dispositivo, nunca en la base.
+  tokenHash String @unique
+
+  emitidaEn         DateTime  @default(now())
+  ultimaActividadEn DateTime  @default(now())
+  revocadaEn        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cascade: una credencial no tiene ningún significado fuera de su
+  // ocupación (mismo patrón que SesionTerminalOperativa → TerminalOperativa).
+  ocupacion SesionOcupacionMesa @relation(fields: [ocupacionId], references: [id], onDelete: Cascade)
+
+  @@index([ocupacionId])
+  @@map("credenciales_ocupacion_mesa")
 }
 
 // ============================================
