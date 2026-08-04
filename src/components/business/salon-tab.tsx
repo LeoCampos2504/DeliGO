@@ -685,6 +685,20 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   const [newZoneInput, setNewZoneInput] = useState("")
   const [formCapacidad, setFormCapacidad] = useState("4")
 
+  // P0-B/Hotfix-Salón-1: SalonFloorPlan es un componente hermano de SalonTab,
+  // no un hijo — no hereda el `config` declarado allí. El gate de calibración
+  // de QR necesita su propia lectura de la misma config (misma queryKey que
+  // SalonTab, así React Query reutiliza el cache en vez de duplicar el fetch).
+  const { data: negocioConfig, isLoading: negocioConfigLoading } = useQuery<NegocioSalonConfig>({
+    queryKey: ["negocio-config", negocio.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/negocio/config?negocioId=${negocio.id}`)
+      if (!res.ok) throw new Error("Error cargando configuración")
+      const json = await res.json()
+      return json.data ?? json
+    },
+  })
+
   // Fetch mesas
   const { data: mesas = [], isLoading: mesasLoading } = useQuery<Mesa[]>({
     queryKey: ["mesas", negocio.id],
@@ -870,7 +884,11 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
     // confirme explícitamente la ubicación de su local — QR ya generados o
     // descargados antes de este cambio, y las mesas/pedidos existentes, no se
     // ven afectados: el gate solo aplica a esta acción puntual.
-    if (config?.lat == null || config?.lng == null || !config?.ubicacionCalibradaEn) {
+    if (negocioConfigLoading) {
+      toast.error("Cargando configuración del local, probá de nuevo en un momento.")
+      return
+    }
+    if (negocioConfig?.lat == null || negocioConfig?.lng == null || !negocioConfig?.ubicacionCalibradaEn) {
       toast.error("Confirmá la ubicación de tu local antes de generar códigos QR para las mesas.")
       return
     }
@@ -892,7 +910,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
     } finally {
       setQrLoading(false)
     }
-  }, [negocio.slug, config?.lat, config?.lng, config?.ubicacionCalibradaEn])
+  }, [negocio.slug, negocioConfigLoading, negocioConfig?.lat, negocioConfig?.lng, negocioConfig?.ubicacionCalibradaEn])
 
   const downloadQR = useCallback(() => {
     if (!qrDataUrl || !qrModalMesa) return
