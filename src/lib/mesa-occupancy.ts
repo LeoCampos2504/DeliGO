@@ -35,7 +35,14 @@ import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 
 export const MESA_OCCUPANCY_COOKIE_NAME = "deligo_mesa_occupancy"
 
-const OCCUPANCY_COOKIE_MAX_AGE_SECONDS = 6 * 60 * 60 // 6 horas — prepara la futura expiración por inactividad (P0-D.3)
+const OCCUPANCY_COOKIE_MAX_AGE_SECONDS = 6 * 60 * 60 // 6 horas — misma duración máxima que MESA_OCCUPANCY_MAX_DURATION_MS
+
+// P0-D.3C: única fuente de verdad de la duración máxima absoluta de una
+// ocupación (contada desde `iniciadaEn`, nunca extendida por actividad) —
+// derivada de la misma constante de arriba para no tener dos números
+// mágicos independientes que puedan desincronizarse. La usa
+// src/lib/mesa-occupancy-expiration.ts para calcular el corte de expiración.
+export const MESA_OCCUPANCY_MAX_DURATION_MS = OCCUPANCY_COOKIE_MAX_AGE_SECONDS * 1000
 
 function isProd(): boolean {
   return process.env.NODE_ENV === "production"
@@ -91,7 +98,11 @@ const ACTIVITY_UPDATE_THROTTLE_MS = 60 * 1000
 
 const MAX_SERIALIZATION_RETRIES = 3
 
-function isSerializationConflict(error: unknown): boolean {
+// Exportado: es el único predicado de "conflicto de serialización P2034" del
+// módulo — P0-D.3C lo reutiliza tal cual (nunca redefine su propia versión)
+// para distinguir, en el resumen del barrido de expiración, un conflicto de
+// concurrencia esperado de un error real.
+export function isSerializationConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
 }
 
@@ -212,16 +223,27 @@ function isRetryableOccupancyConflict(error: unknown): boolean {
   return isSerializationConflict(error) || error instanceof ActiveOccupancyCreationRaceError
 }
 
-async function runSerializableTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+// Exportado con un predicado/límite de reintentos opcionales (por defecto,
+// exactamente el mismo comportamiento que antes: solo P2034 o la carrera de
+// creación de ocupación, hasta MAX_SERIALIZATION_RETRIES intentos) para que
+// P0-D.3C pueda reutilizar el mismo motor de reintento con su propio
+// predicado (solo P2034 — nunca le es aplicable ActiveOccupancyCreationRaceError,
+// que es específico de la apertura de ocupación) sin duplicar el bucle.
+export async function runSerializableTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { isRetryable?: (error: unknown) => boolean; maxRetries?: number }
+): Promise<T> {
+  const isRetryable = options?.isRetryable ?? isRetryableOccupancyConflict
+  const maxRetries = options?.maxRetries ?? MAX_SERIALIZATION_RETRIES
   let lastError: unknown
-  for (let attempt = 1; attempt <= MAX_SERIALIZATION_RETRIES; attempt++) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await db.$transaction(fn, {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       })
     } catch (error) {
       lastError = error
-      if (error instanceof MultipleActiveOccupanciesError || !isRetryableOccupancyConflict(error) || attempt === MAX_SERIALIZATION_RETRIES) {
+      if (error instanceof MultipleActiveOccupanciesError || !isRetryable(error) || attempt === maxRetries) {
         throw error
       }
     }
