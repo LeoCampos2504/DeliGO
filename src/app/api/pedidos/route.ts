@@ -2,16 +2,81 @@ import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { SESSION_COOKIE_NAME, findSesionByToken } from "@/lib/auth"
+import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromRequest } from "@/lib/auth"
+import { resolveTerminalSession } from "@/lib/operaciones-terminal-auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
 import {
   notifySalonNewOrderForOperations,
   parseSubscriptionEndpoint,
 } from "@/lib/salon-new-order-notification"
-import { evaluateMesaGeofence, logMesaGeofenceObservation } from "@/lib/mesa-geofence"
+import {
+  evaluateMesaGeofence,
+  logMesaGeofenceObservation,
+  MESA_GEOFENCE_MODE,
+  type MesaGeofenceStatus,
+} from "@/lib/mesa-geofence"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
+
+// ============================================
+// P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
+// ============================================
+// Sanitizados a propósito: nunca distancia, coordenadas, radio ni precisión
+// máxima. "inside" y "business_unconfigured" nunca aparecen acá (nunca
+// bloquean).
+const MESA_GEOFENCE_ERROR_BY_STATUS: Partial<Record<MesaGeofenceStatus, { message: string; code: string }>> = {
+  outside: {
+    message: "No pudimos confirmar que estés en el establecimiento.",
+    code: "MESA_GEOFENCE_OUTSIDE",
+  },
+  missing: {
+    message: "Necesitamos permiso de ubicación para aceptar pedidos desde esta mesa.",
+    code: "MESA_GEOFENCE_MISSING",
+  },
+  inaccurate: {
+    message: "No pudimos obtener una ubicación suficientemente precisa.",
+    code: "MESA_GEOFENCE_INACCURATE",
+  },
+  invalid: {
+    message: "No pudimos validar la ubicación del dispositivo.",
+    code: "MESA_GEOFENCE_INVALID",
+  },
+}
+
+// Identidad de personal autorizado que nunca se bloquea por geocerca de mesa
+// — resuelta EXCLUSIVAMENTE desde cookies de sesión reales, nunca desde el
+// body. `sessionUserType`/`sessionUserId` vienen de la sesión `deligo_session`
+// ya resuelta más arriba en el handler (cliente/negocio/repartidor/superadmin);
+// acá solo se usa el caso "negocio" (el dueño operando su propio negocio).
+// Cuenta Operativa y Terminal Operativa usan cookies propias, completamente
+// independientes de `deligo_session`.
+async function isAuthenticatedStaffForNegocio(
+  request: NextRequest,
+  negocioId: string,
+  sessionUserType: string | null,
+  sessionUserId: string | null
+): Promise<boolean> {
+  if (sessionUserType === "negocio" && sessionUserId === negocioId) {
+    return true
+  }
+
+  const cuentaOperativa = await getOperationalAccountFromRequest(request)
+  if (
+    cuentaOperativa?.empleados.some(
+      (empleado) => empleado.activo && empleado.negocio.id === negocioId
+    )
+  ) {
+    return true
+  }
+
+  const terminal = await resolveTerminalSession(request)
+  if (terminal && terminal.negocio.id === negocioId) {
+    return true
+  }
+
+  return false
+}
 
 // Platform service fee used server-side. This must never come from the request body.
 const SERVICE_FEE_FIXED = 250
@@ -871,9 +936,18 @@ export async function POST(request: NextRequest) {
     let clienteNombre = "Invitado"
     let clienteTelefono = ""
     let clienteUpdateData: { ultimoIp: string; dispositivoFingerprint?: string } | null = null
+    // P0-C.2: capturado para el bypass de geocerca de mesa de personal
+    // autenticado (ver isAuthenticatedStaffForNegocio) — no cambia ningún
+    // comportamiento existente del flujo de cliente de abajo.
+    let sessionUserType: string | null = null
+    let sessionUserId: string | null = null
 
     if (token) {
       const session = await findSesionByToken(token)
+      if (session) {
+        sessionUserType = session.userType
+        sessionUserId = session.userId
+      }
       if (session && session.userType === "cliente") {
         const cliente = await db.cliente.findUnique({
           where: { id: session.userId },
@@ -976,23 +1050,64 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // P0-C.1: geocerca de mesa en modo observación. Nunca provoca 400,
-      // nunca cancela ni revierte la creación del pedido, nunca altera
-      // idempotencia/precios/stock/promociones/notificaciones/asignación de
-      // mozo, y nunca guarda las coordenadas del cliente en ningún lado —
-      // solo se registra un resultado sanitizado (ver logMesaGeofenceObservation).
+      // P0-C.2: geocerca de mesa en modo enforce para negocios calibrados.
+      // La decisión ocurre acá, ANTES de cualquier escritura (stock, pedido,
+      // notificaciones, actualización de cliente) — un pedido bloqueado nunca
+      // llega a crearse, así que no hace falta revertir nada ni se consume la
+      // clave de idempotencia. El personal autenticado (Negocio, Cuenta
+      // Operativa, Terminal Operativa) nunca se bloquea; esa identidad se
+      // resuelve siempre server-side desde las cookies de sesión reales,
+      // nunca desde un campo del body. Nunca se guardan las coordenadas del
+      // cliente en ningún lado — solo un resultado sanitizado (ver
+      // logMesaGeofenceObservation).
+      let geofenceBlockResponse: NextResponse | null = null
       try {
+        const negocioCalibrado =
+          negocio.lat != null && negocio.lng != null && negocio.ubicacionCalibradaEn != null
+
         const geofenceResult = evaluateMesaGeofence(
           { lat: negocio.lat, lng: negocio.lng, ubicacionCalibradaEn: negocio.ubicacionCalibradaEn },
           pedidoInput.mesaGeolocation
         )
+
+        let blocked = false
+        if (MESA_GEOFENCE_MODE === "enforce" && negocioCalibrado && geofenceResult.status !== "inside") {
+          const isStaffOrder = await isAuthenticatedStaffForNegocio(
+            request,
+            negocioId,
+            sessionUserType,
+            sessionUserId
+          )
+          blocked = !isStaffOrder
+        }
+
         logMesaGeofenceObservation("mesa_geofence_check_order", {
           negocioId,
           mesaNumero,
           result: geofenceResult,
+          blocked,
         })
+
+        if (blocked) {
+          const errorInfo = MESA_GEOFENCE_ERROR_BY_STATUS[geofenceResult.status]
+          if (errorInfo) {
+            geofenceBlockResponse = NextResponse.json(
+              {
+                error: errorInfo.message,
+                code: errorInfo.code,
+                geofenceStatus: geofenceResult.status,
+                canRetry: true,
+              },
+              { status: 403 }
+            )
+          }
+        }
       } catch (geofenceError) {
         console.error("[MesaGeofence] Error evaluando geocerca en pedido:", geofenceError)
+      }
+
+      if (geofenceBlockResponse) {
+        return geofenceBlockResponse
       }
     }
 

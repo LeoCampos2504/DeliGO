@@ -72,6 +72,10 @@ interface CartPanelProps {
 
 type CartStep = "items" | "checkout"
 
+// P0-C.2: distingue el bloqueo server-side de geocerca (mensaje sanitizado ya
+// listo para mostrar) de cualquier otro error de red/servidor.
+class MesaGeofenceBlockedError extends Error {}
+
 // ============================================
 // Custom hook: drag-to-dismiss from handle only
 // Uses document-level move/end listeners so the
@@ -306,16 +310,32 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
     // P0-C.1, corregida acá sin cambiar ninguna lógica de datos/idempotencia).
     setIsSubmitting(true)
 
-    // P0-C.1: lectura fresca de ubicación justo antes de confirmar un pedido
+    // P0-C.2: lectura fresca de ubicación justo antes de confirmar un pedido
     // de mesa — nunca se reutiliza la lectura inicial (la de abrir el QR).
-    // Modo observación: si falla por cualquier motivo, el bloque simplemente
-    // se omite y el pedido se envía igual — nunca se inventa 0,0 ni se
-    // reutilizan las coordenadas de delivery.
+    // Modo enforce para negocio calibrado: si la lectura falla, no se envía
+    // el pedido (nunca se inventa 0,0 ni se reutilizan coordenadas de
+    // delivery) — se libera isSubmitting, se conserva el carrito tal cual, y
+    // se permite reintentar. El servidor igual volvería a bloquear un intento
+    // sin ubicación, pero evitamos el viaje de red inútil.
     let mesaGeolocation: { lat: number; lng: number; accuracy: number } | undefined
     if (isMesaOrder && mesaGeofenceReady) {
       const location = await getFreshClientLocation()
       if (location.ok) {
         mesaGeolocation = { lat: location.lat, lng: location.lng, accuracy: location.accuracy }
+      } else {
+        setIsSubmitting(false)
+        if (location.reason === "denied") {
+          toast.error("Necesitamos permiso de ubicación para aceptar pedidos desde esta mesa.", {
+            description: "Permití la ubicación del sitio y volvé a intentarlo. También podés pedirle al Mozo que cargue tu pedido.",
+          })
+        } else if (location.reason === "timeout") {
+          toast.error("La ubicación tardó demasiado en responder. Volvé a intentarlo.")
+        } else if (location.reason === "unsupported") {
+          toast.error("Este dispositivo no permite verificar la ubicación desde el navegador. Pedile al Mozo que cargue tu pedido.")
+        } else {
+          toast.error("No pudimos verificar tu ubicación. Volvé a intentarlo.")
+        }
+        return
       }
     }
     try {
@@ -360,6 +380,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
           // del usuario arranque limpio, sin dejarlo bloqueado.
           idempotencyKeyRef.current = null
         }
+        // P0-C.2: bloqueo de geocerca (403) — la misma key se conserva a
+        // propósito: el contenido del pedido no cambió, solo la ubicación, así
+        // que un reintento tras corregirla debe tratarse como el mismo intento.
+        if (res.status === 403 && typeof data.code === "string" && data.code.startsWith("MESA_GEOFENCE_")) {
+          throw new MesaGeofenceBlockedError(data.error || "No pudimos confirmar tu ubicación.")
+        }
         // Para el resto de los errores (429, 500, red/timeout) se conserva la
         // misma key: un reintento del mismo submit debe ser tratado como el
         // mismo intento, nunca crear un segundo pedido.
@@ -377,8 +403,16 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
         })
       }, 2200)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error al procesar el pedido"
-      toast.error("Error al procesar el pedido", { description: message })
+      if (err instanceof MesaGeofenceBlockedError) {
+        // Carrito, productos y notas quedan intactos — el usuario solo
+        // necesita corregir su ubicación (o pedirle al Mozo) y reintentar.
+        toast.error(err.message, {
+          description: "También podés pedirle al Mozo que cargue tu pedido.",
+        })
+      } else {
+        const message = err instanceof Error ? err.message : "Error al procesar el pedido"
+        toast.error("Error al procesar el pedido", { description: message })
+      }
     } finally {
       setIsSubmitting(false)
     }

@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { evaluateMesaGeofence, logMesaGeofenceObservation } from "@/lib/mesa-geofence"
+import { evaluateMesaGeofence, logMesaGeofenceObservation, MESA_GEOFENCE_MODE } from "@/lib/mesa-geofence"
 
 // ============================================
-// DeliGO — Comprobación pública de geocerca de mesa (P0-C.1, modo observación)
+// DeliGO — Comprobación pública de geocerca de mesa (P0-C.2, modo enforce)
 // ============================================
 // Público a propósito (se llama al abrir el QR de mesa, antes de cualquier
 // sesión). Nunca acepta negocioId, mesaId como fuente de autoridad, radio,
 // precisión máxima, un booleano "estaDentro" ni las coordenadas del negocio
 // — la mesa se resuelve SIEMPRE server-side por (negocioId real, numero).
-// En modo observación, `canContinue` es siempre `true`: esta ruta solo
-// informa, nunca bloquea. El bloqueo real queda para P0-C.2.
+// `canContinue` ahora refleja la política real en modo enforce (solo
+// informativo: esta ruta nunca crea ni bloquea un pedido). La autoridad real
+// del bloqueo vive exclusivamente en POST /api/pedidos — aunque el cliente
+// nunca llame a esta ruta, ese endpoint sigue rechazando el pedido.
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -78,14 +80,22 @@ export async function POST(req: NextRequest) {
       body.mesaGeolocation
     )
 
+    // "inside" y "business_unconfigured" nunca bloquean; el resto sí en modo
+    // enforce. Esto es solo informativo para la UI que se muestra al abrir el
+    // QR — el bloqueo real y definitivo ocurre en POST /api/pedidos.
+    const canContinue =
+      MESA_GEOFENCE_MODE !== "enforce" ||
+      result.status === "inside" ||
+      result.status === "business_unconfigured"
+
     logMesaGeofenceObservation("mesa_geofence_check_open", {
       negocioId: negocio.id,
       mesaNumero,
       result,
+      blocked: !canContinue,
     })
 
-    // Modo observación: nunca bloquea, solo informa una categoría sanitizada.
-    return NextResponse.json({ ok: true, status: result.status, canContinue: true })
+    return NextResponse.json({ ok: true, status: result.status, canContinue })
   } catch (error) {
     console.error("[MesaGeofence] Error en la comprobación pública:", error)
     return NextResponse.json({ ok: true, status: "invalid", canContinue: true })

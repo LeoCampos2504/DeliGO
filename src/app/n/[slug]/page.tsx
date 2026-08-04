@@ -321,14 +321,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const isEffectiveMesaOrder = !!effectiveMesaNumero
 
   // ============================================
-  // P0-C.1: geocerca de mesa en modo observación
+  // P0-C.2: geocerca de mesa en modo enforce
   // ============================================
   // Solo para el cliente que escanea el QR (nunca para Mozo, delivery,
   // retiro ni navegación normal del menú), y solo cuando el negocio ya
-  // calibró su ubicación (mesaGeofenceReady). No bloquea nada — únicamente
-  // informa un estado no bloqueante mientras se prueba el comportamiento
-  // real (permiso denegado, precisión, timeouts) antes de activar el
-  // bloqueo real en una etapa posterior (P0-C.2).
+  // calibró su ubicación (mesaGeofenceReady). Este banner es puramente
+  // informativo/UX — nunca decide nada: la autoridad real del bloqueo vive
+  // en el servidor (POST /api/pedidos), tanto para el checkout desde acá
+  // como para cualquier request manipulado.
   type MesaGeofenceUiState =
     | "idle"
     | "checking"
@@ -909,7 +909,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         </div>
       )}
 
-      {/* ===== GEOCERCA DE MESA — modo observación, no bloqueante (P0-C.1) ===== */}
+      {/* ===== GEOCERCA DE MESA — modo enforce, informativo (P0-C.2) ===== */}
       {shouldCheckMesaGeofence && mesaGeofenceState !== "idle" && (
         <div className="mx-4 mt-3 p-3 rounded-2xl border border-border/60 bg-muted/30 flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-background">
@@ -925,20 +925,27 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <p className="text-xs text-muted-foreground">
               {mesaGeofenceState === "checking" &&
                 "Necesitamos tu ubicación para confirmar que estás en el local."}
-              {mesaGeofenceState === "confirmed" && "Ubicación confirmada."}
+              {mesaGeofenceState === "confirmed" && "Ubicación confirmada. Ya podés realizar tu pedido."}
               {mesaGeofenceState === "outside" &&
-                "No pudimos confirmar que estés en el establecimiento."}
+                "No pudimos confirmar que estés en el establecimiento. Los pedidos desde mesa solo pueden realizarse dentro del local."}
               {mesaGeofenceState === "inaccurate" &&
                 "No pudimos obtener una ubicación suficientemente precisa. Activá la ubicación precisa e intentá nuevamente."}
               {mesaGeofenceState === "denied" &&
-                "No pudimos verificar tu ubicación. También podés pedirle al Mozo que cargue tu pedido."}
+                "Necesitamos permiso de ubicación para aceptar pedidos desde esta mesa."}
               {mesaGeofenceState === "timeout" &&
-                "La ubicación tardó demasiado en responder. Podés intentarlo nuevamente."}
+                "La ubicación tardó demasiado en responder. Volvé a intentarlo."}
               {mesaGeofenceState === "unsupported" &&
-                "Este dispositivo no permite verificar la ubicación desde el navegador."}
+                "Este dispositivo no permite verificar la ubicación desde el navegador. Pedile al Mozo que cargue tu pedido."}
               {mesaGeofenceState === "error" &&
                 "No pudimos verificar tu ubicación. Podés intentarlo nuevamente."}
             </p>
+            {(mesaGeofenceState === "outside" || mesaGeofenceState === "denied") && (
+              <p className="text-xs text-muted-foreground/80 mt-0.5">
+                {mesaGeofenceState === "denied"
+                  ? "Permití la ubicación del sitio y volvé a intentarlo. También podés pedirle al Mozo que cargue tu pedido."
+                  : "También podés pedirle al Mozo que cargue tu pedido."}
+              </p>
+            )}
           </div>
           {(mesaGeofenceState === "outside" ||
             mesaGeofenceState === "inaccurate" ||
@@ -948,11 +955,12 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <button
               type="button"
               onClick={() => void runMesaGeofenceCheck()}
-              className="shrink-0 p-1.5 rounded-full hover:bg-background transition-colors"
-              aria-label="Reintentar"
-              title="Reintentar"
+              className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full hover:bg-background transition-colors text-xs font-semibold text-muted-foreground"
+              aria-label="Volver a comprobar ubicación"
+              title="Volver a comprobar ubicación"
             >
-              <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Volver a comprobar ubicación</span>
             </button>
           )}
         </div>

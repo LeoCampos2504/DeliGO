@@ -12,8 +12,10 @@
 export const MESA_GEOFENCE_RADIUS_METERS = 200
 export const MESA_GEOFENCE_MAX_ACCURACY_METERS = 150
 // "observe": nunca bloquea la creación del pedido, solo informa/registra.
-// "enforce" queda reservado para una etapa posterior (P0-C.2).
-export const MESA_GEOFENCE_MODE = "observe" as const
+// "enforce" (P0-C.2): bloquea pedidos públicos de mesa de negocios calibrados
+// que no resuelven "inside" — la decisión real vive en POST /api/pedidos,
+// nunca en el cliente. No configurable por negocio ni por el cliente.
+export const MESA_GEOFENCE_MODE = "enforce" as const
 
 export type MesaGeofenceStatus =
   | "inside"
@@ -122,6 +124,10 @@ export function logMesaGeofenceObservation(
     negocioId: string
     mesaNumero: number
     result: MesaGeofenceResult
+    // P0-C.2: si esta evaluación terminó bloqueando el pedido/la comprobación
+    // (siempre calculado server-side, nunca recibido del cliente). Ausente =
+    // false, para no romper ningún llamador existente.
+    blocked?: boolean
   }
 ) {
   console.info(`[MesaGeofence] ${event}`, {
@@ -133,6 +139,7 @@ export function logMesaGeofenceObservation(
     accuracyMeters:
       details.result.accuracyMeters === null ? null : Math.round(details.result.accuracyMeters),
     mode: MESA_GEOFENCE_MODE,
+    blocked: details.blocked ?? false,
     timestamp: new Date().toISOString(),
   })
 }
