@@ -11,6 +11,10 @@ import {
 } from "@/lib/salon-new-order-notification"
 import { getClientIp } from "@/lib/rate-limit"
 import { isNegocioOpen } from "@/lib/utils"
+import {
+  buildIngredientesQuitadosSnapshot,
+  type IngredienteQuitadoCanonico,
+} from "@/lib/pedido-item-personalizacion"
 
 const MAX_ITEMS_PER_ORDER = 50
 const MAX_QUANTITY_PER_ITEM = 99
@@ -41,7 +45,10 @@ interface ValidatedPedidoItem {
   cantidad: number
   agregados: Array<{ id: string; nombre: string; precio: number; tipo: string }>
   secciones: Record<string, SectionSelection>
-  ingredientesQuitados: string[]
+  // P1-A.2B: snapshot autoritativo server-side (nombre/grupo derivados de
+  // Producto -> ProductoIngrediente -> Ingrediente) — nunca los datos crudos
+  // enviados por el Mozo. Ver buildIngredientesQuitadosSnapshot.
+  ingredientesQuitados: IngredienteQuitadoCanonico[]
   talle: string
   color: string
 }
@@ -1004,7 +1011,7 @@ export async function POST(
               ingredientes: {
                 include: {
                   ingrediente: {
-                    select: { id: true, nombre: true, negocioId: true },
+                    select: { id: true, nombre: true, categoria: true, negocioId: true },
                   },
                 },
               },
@@ -1053,13 +1060,24 @@ export async function POST(
             const validSections = validateProductSections(item.secciones, productSections)
             if (!validSections.ok) throw new Error(validSections.error)
 
-            const ingredientesDisponibles = new Set(
-              producto.ingredientes.map((pi) => pi.ingrediente.nombre)
+            // P1-A.2B.1: snapshot autoritativo server-side — mismo builder y
+            // misma regla que POST /api/pedidos (el Mozo tampoco es autoridad
+            // para grupo/categoría/orden), validando explícitamente que cada
+            // referencia de ingrediente pertenezca al negocio seguro resuelto
+            // por la sesión (`auth.negocio.id`) — nunca solo implícito en la
+            // consulta. Un nombre inexistente, de otro producto/negocio, o
+            // ambiguo se rechaza sin distinguir el motivo.
+            const { snapshot: ingredientesQuitadosSnapshot, invalidNames } = buildIngredientesQuitadosSnapshot(
+              item.ingredientesQuitados,
+              producto.ingredientes.map((pi) => ({
+                nombre: pi.ingrediente.nombre,
+                categoria: pi.ingrediente.categoria,
+                negocioId: pi.ingrediente.negocioId,
+              })),
+              auth.negocio.id
             )
-            for (const ingrediente of item.ingredientesQuitados) {
-              if (!ingredientesDisponibles.has(ingrediente)) {
-                throw new Error("INGREDIENTE_INVALIDO")
-              }
+            if (invalidNames.length > 0) {
+              throw new Error("INGREDIENTE_INVALIDO")
             }
 
             const talles = safeParseJSON<string[]>(producto.talles, [])
@@ -1139,7 +1157,7 @@ export async function POST(
               cantidad: item.cantidad,
               agregados: validatedAgregados,
               secciones: validSections.value,
-              ingredientesQuitados: item.ingredientesQuitados,
+              ingredientesQuitados: ingredientesQuitadosSnapshot,
               talle: item.talle,
               color: item.color,
             })
@@ -1185,6 +1203,9 @@ export async function POST(
                   agregados: JSON.stringify(item.agregados),
                   secciones: JSON.stringify(item.secciones),
                   ingredientes: JSON.stringify([]),
+                  // P1-A.2B: `item.ingredientesQuitados` ya es el snapshot canónico
+                  // (IngredienteQuitadoCanonico[]) armado por buildIngredientesQuitadosSnapshot
+                  // más arriba — persiste `[]` cuando no se pidió quitar nada, igual que antes.
                   ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
                   seccionesPrecios: JSON.stringify({}),
                   talle: item.talle,

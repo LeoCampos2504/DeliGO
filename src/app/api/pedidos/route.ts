@@ -24,6 +24,10 @@ import {
 } from "@/lib/mesa-occupancy"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
+import {
+  buildIngredientesQuitadosSnapshot,
+  type IngredienteQuitadoCanonico,
+} from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
@@ -145,7 +149,10 @@ interface ValidatedPedidoItem {
   cantidad: number
   agregados: Array<{ id: string; nombre: string; precio: number; tipo: string }>
   secciones: Record<string, SectionSelection>
-  ingredientesQuitados: string[]
+  // P1-A.2B: snapshot autoritativo server-side (nombre/grupo derivados de
+  // Producto -> ProductoIngrediente -> Ingrediente) — nunca los datos crudos
+  // enviados por el cliente. Ver buildIngredientesQuitadosSnapshot.
+  ingredientesQuitados: IngredienteQuitadoCanonico[]
   talle: string
   color: string
 }
@@ -633,7 +640,11 @@ function createPedidoIdempotencyFingerprint(params: {
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([section, selection]) => [section, normalizeSectionSelectionForFingerprint(selection)])
       ),
-      ingredientesQuitados: [...item.ingredientesQuitados].sort(),
+      // El fingerprint identifica "qué pidió el cliente", no el snapshot
+      // derivado — se hashean los nombres solicitados (deterministas dado el
+      // mismo producto), nunca el grupo server-side, igual que el resto de
+      // este fingerprint nunca incluye datos derivados (ej. precio).
+      ingredientesQuitados: item.ingredientesQuitados.map((entry) => entry.nombre).sort(),
       talle: item.talle,
       color: item.color,
     }))
@@ -765,7 +776,7 @@ export async function POST(request: NextRequest) {
         ingredientes: {
           include: {
             ingrediente: {
-              select: { id: true, nombre: true, negocioId: true },
+              select: { id: true, nombre: true, categoria: true, negocioId: true },
             },
           },
         },
@@ -834,13 +845,28 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: validSections.error }, { status: 400 })
       }
 
-      const ingredientesDisponibles = new Set(
-        producto.ingredientes.map((pi) => pi.ingrediente.nombre)
+      // P1-A.2B.1: snapshot autoritativo server-side — nombre/grupo derivados
+      // exclusivamente de la relación real Producto -> ProductoIngrediente ->
+      // Ingrediente de ESTE producto, validando explícitamente que cada
+      // referencia pertenezca al negocio autoritativo del pedido (`negocioId`,
+      // ya validado más arriba contra `requestedNegocioId` y contra todos los
+      // productos) — el schema no impide estructuralmente que
+      // ProductoIngrediente apunte a un Ingrediente de otro negocio, así que
+      // esta validación no puede quedar solo implícita en la consulta. Un
+      // nombre inexistente, de otro producto/negocio, o ambiguo (dos
+      // ingredientes reales con el mismo nombre en este producto) se rechaza
+      // con el mismo error genérico, sin distinguir el motivo.
+      const { snapshot: ingredientesQuitadosSnapshot, invalidNames } = buildIngredientesQuitadosSnapshot(
+        item.ingredientesQuitados,
+        producto.ingredientes.map((pi) => ({
+          nombre: pi.ingrediente.nombre,
+          categoria: pi.ingrediente.categoria,
+          negocioId: pi.ingrediente.negocioId,
+        })),
+        negocioId
       )
-      for (const ingrediente of item.ingredientesQuitados) {
-        if (!ingredientesDisponibles.has(ingrediente)) {
-          return NextResponse.json({ error: "Ingrediente invalido" }, { status: 400 })
-        }
+      if (invalidNames.length > 0) {
+        return NextResponse.json({ error: "Ingrediente invalido" }, { status: 400 })
       }
 
       const talles = safeParseJSON<string[]>(producto.talles, [])
@@ -931,7 +957,7 @@ export async function POST(request: NextRequest) {
         cantidad: item.cantidad,
         agregados: validatedAgregados,
         secciones: validSections.value,
-        ingredientesQuitados: item.ingredientesQuitados,
+        ingredientesQuitados: ingredientesQuitadosSnapshot,
         talle: item.talle,
         color: item.color,
       })
@@ -1291,6 +1317,9 @@ export async function POST(request: NextRequest) {
           agregados: JSON.stringify(item.agregados),
           secciones: JSON.stringify(item.secciones),
           ingredientes: JSON.stringify([]),
+          // P1-A.2B: `item.ingredientesQuitados` ya es el snapshot canónico
+          // (IngredienteQuitadoCanonico[]) armado por buildIngredientesQuitadosSnapshot
+          // más arriba — persiste `[]` cuando no se pidió quitar nada, igual que antes.
           ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
           seccionesPrecios: JSON.stringify({}),
           talle: item.talle,

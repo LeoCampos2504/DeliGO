@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
-import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { groupIngredientesQuitados } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // DeliGO Operaciones - Salon personal: detalle de un pedido de mesa (SOLO LECTURA)
@@ -125,16 +125,15 @@ export async function GET(
             precio: item.precio,
             agregados: safeParseJSON(item.agregados, []),
             secciones: safeParseJSON(item.secciones, {}),
-            // P1-A.2A-ii: contrato plano (string[]) — el único consumidor de este
-            // endpoint es PedidoDetalleDrawer (src/components/operativo/pedido-detalle.tsx,
-            // vía src/app/operaciones/mi-panel/[slug]/salon/page.tsx), que hoy soporta tanto
-            // este formato como el agrupado. Se eligió NO usar groupIngredientesQuitados
-            // acá: como todavía no existe ningún pedido con `grupo` real persistido, agrupar
-            // solo produciría un único grupo con la etiqueta de fallback ("Ingredientes")
-            // para el 100% de los pedidos actuales — un cambio visual (agrega un título que
-            // hoy no existe) sin ningún beneficio real todavía. Se preserva el string[] plano
-            // exacto que ya renderiza el drawer para esta superficie.
-            ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
+            // P1-A.2B: los pedidos nuevos ya persisten `grupo` real (snapshot
+            // estructurado autoritativo — ver buildIngredientesQuitadosSnapshot).
+            // `groupIngredientesQuitados` usa ese grupo persistido para pedidos
+            // nuevos, y el grupo neutral "Ingredientes" para pedidos históricos
+            // (`string[]` plano, sin grupo declarado) — el único consumidor de
+            // este endpoint es PedidoDetalleDrawer (vía
+            // src/app/operaciones/mi-panel/[slug]/salon/page.tsx), que ya soporta
+            // la forma agrupada desde P1-A.1.
+            ingredientesQuitados: groupIngredientesQuitados(item.ingredientesQuitados),
             talle: item.talle || null,
             color: item.color || null,
           })),

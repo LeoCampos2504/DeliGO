@@ -6,9 +6,11 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import {
   parsePedidoItemAgregados,
   parsePedidoItemSecciones,
-  parsePedidoItemIngredientesQuitadosEntries,
+  parseIngredientesQuitadosPersistidos,
   enrichIngredientesQuitadosConGrupoReal,
+  groupIngredientesQuitados,
   type ProductoIngredienteRef,
+  type IngredienteQuitadoGrupo,
 } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
@@ -38,22 +40,59 @@ import {
 //
 // Cierre técnico N/A acá: sin mutaciones (no hay POST/PATCH/PUT/DELETE).
 //
-// P1-A.1 — grupo real de ingredientes quitados (server-authoritative, sin
-// tocar el formato persistido de PedidoItem.ingredientesQuitados): ese campo
-// sigue siendo, para TODO pedido histórico o nuevo, un array plano de
-// nombres — no se cambia esa escritura en POST /api/pedidos porque al menos
-// otros 7 archivos fuera del alcance de esta corrección (paneles/vistas de
-// Salón, PyR, Negocio y Cliente) leen y renderizan ese mismo campo asumiendo
-// siempre `string[]`; escribir ahí un array de objetos los rompería (React
-// no puede renderizar un objeto como hijo). En cambio, el grupo/categoría
-// real se DERIVA en este endpoint, en el momento de la lectura, cruzando los
-// nombres persistidos contra la lista real de ingredientes del producto
-// (Producto -> ProductoIngrediente -> Ingrediente) — nunca contra un grupo
-// que el propio dato pudiera declarar. Ver enrichIngredientesQuitadosConGrupoReal
-// en src/lib/pedido-item-personalizacion.ts para el detalle completo y
-// CLAUDE_REPORT.md para la justificación arquitectónica completa.
+// P1-A.2B/P1-A.2B.1 — grupo real de ingredientes quitados, con dos fuentes
+// según el ORIGEN de cada entrada (nunca según si su `grupo` es `null`):
+// - Entradas SNAPSHOT (origen === "snapshot", P1-A.2B en adelante):
+//   `PedidoItem.ingredientesQuitados` ya persiste el snapshot estructurado
+//   autoritativo (`IngredienteQuitadoCanonico[]`, ver
+//   buildIngredientesQuitadosSnapshot en src/lib/pedido-item-personalizacion.ts)
+//   — el `grupo` de cada entrada ya es el real, congelado en el momento de
+//   crear el pedido. Estas entradas se agrupan directamente con
+//   `groupIngredientesQuitados`, SIN volver a consultar el producto — incluso
+//   cuando `grupo` quedó en `null` porque el ingrediente no tenía categoría
+//   en ese momento (P1-A.2B.1: `grupo === null` NUNCA es el criterio para
+//   decidir si hace falta reconsultar; un snapshot con `grupo: null` es un
+//   dato final, no una entrada legacy sin resolver — reconsultar acá
+//   sobrescribiría ese `null` histórico si el negocio le asigna una
+//   categoría al ingrediente más adelante). El origen se obtiene de
+//   `parseIngredientesQuitadosPersistidos`, que distingue string vs. objeto
+//   en el JSON crudo, nunca por el valor de `grupo`.
+// - Entradas LEGACY (origen === "legacy", string plano histórico): el grupo
+//   real se sigue DERIVANDO en el momento de la lectura, cruzando el nombre
+//   contra la lista real de ingredientes del producto (Producto ->
+//   ProductoIngrediente -> Ingrediente) vía `enrichIngredientesQuitadosConGrupoReal`
+//   — nunca se migran ni se reescriben, siguen funcionando sin backfill.
+// - Formato MIXTO dentro de un mismo ítem (defensivo, no debería ocurrir en
+//   la práctica ya que cada ítem se persiste atómicamente en un solo
+//   formato): las entradas snapshot se agrupan directamente, las legacy se
+//   enriquecen por consulta batched, y ambos resultados se combinan.
+// Ver CLAUDE_REPORT.md para la justificación arquitectónica completa.
 
 const ACTIVE_MESA_ORDER_STATES = ["recibido", "preparando", "listo_para_retirar"] as const
+
+/**
+ * Combina grupos ya armados por dos fuentes distintas (snapshot estructurado
+ * + enriquecimiento legacy) en una sola lista — si ambas fuentes producen un
+ * grupo con el mismo nombre (ej. "Vegetales" tanto en una entrada nueva como
+ * en una legacy enriquecida), sus ingredientes se unen sin duplicar. Orden
+ * final: alfabético por nombre de grupo (ninguna de las dos fuentes declara
+ * un `grupoOrden` real hoy — ver comentario de `buildIngredientesQuitadosSnapshot`).
+ */
+function mergeIngredienteGrupos(...listas: IngredienteQuitadoGrupo[][]): IngredienteQuitadoGrupo[] {
+  const porGrupo = new Map<string, Set<string>>()
+  for (const lista of listas) {
+    for (const { grupo, ingredientes } of lista) {
+      if (!porGrupo.has(grupo)) porGrupo.set(grupo, new Set())
+      for (const ingrediente of ingredientes) porGrupo.get(grupo)!.add(ingrediente)
+    }
+  }
+  return [...porGrupo.entries()]
+    .map(([grupo, ingredientes]) => ({
+      grupo,
+      ingredientes: [...ingredientes].sort((a, b) => a.localeCompare(b, "es")),
+    }))
+    .sort((a, b) => a.grupo.localeCompare(b.grupo, "es"))
+}
 
 export async function GET(
   req: NextRequest,
@@ -129,14 +168,27 @@ export async function GET(
       )
     }
 
-    // P1-A.1: una sola consulta adicional, agrupada por producto (nunca una
-    // consulta por ítem) — solo para los productos que efectivamente tienen
-    // algo que enriquecer. `negocioId` se incluye en el `where` para nunca
-    // cruzar accidentalmente contra un producto de otro negocio.
+    // P1-A.2B.1: se parsea una sola vez por ítem (reutilizado más abajo tanto
+    // para decidir qué productos consultar como para el mapeo final).
+    // `parseIngredientesQuitadosPersistidos` distingue el ORIGEN real de cada
+    // entrada (string legacy vs. objeto snapshot) — nunca se infiere a partir
+    // de `grupo !== null`, porque un snapshot legítimo puede tener
+    // `grupo: null`.
+    const persistidosPorItem = new Map(
+      pedido.items.map((item) => [item.id, parseIngredientesQuitadosPersistidos(item.ingredientesQuitados)])
+    )
+
+    // Solo se consulta el producto para los ítems que todavía tienen alguna
+    // entrada de origen LEGACY — un pedido 100% estructurado (todas sus
+    // entradas ya vinieron como snapshot desde P1-A.2B, tengan o no `grupo`)
+    // no dispara ninguna consulta acá. Una sola consulta adicional, agrupada
+    // por producto (nunca una consulta por ítem). `negocioId` se incluye en
+    // el `where` para nunca cruzar accidentalmente contra un producto de
+    // otro negocio.
     const productoIds = [
       ...new Set(
         pedido.items
-          .filter((item) => parsePedidoItemIngredientesQuitadosEntries(item.ingredientesQuitados).length > 0)
+          .filter((item) => (persistidosPorItem.get(item.id) ?? []).some((entry) => entry.origen === "legacy"))
           .map((item) => item.productoId)
           .filter((productoId): productoId is string => Boolean(productoId))
       ),
@@ -174,13 +226,26 @@ export async function GET(
           empleadoNombre: pedido.empleadoNombre,
           notas: pedido.notas || null,
           items: pedido.items.map((item) => {
-            const nombresQuitados = parsePedidoItemIngredientesQuitadosEntries(item.ingredientesQuitados).map(
-              (entry) => entry.nombre
-            )
-            const ingredientesQuitados = enrichIngredientesQuitadosConGrupoReal(
-              nombresQuitados,
+            const persistidos = persistidosPorItem.get(item.id) ?? []
+            // Entradas snapshot (origen real, no inferido por `grupo`): su
+            // `grupo` persistido ES el real (incluso si es `null`) — se
+            // agrupan directamente, sin volver a tocar la DB.
+            const resueltos = persistidos
+              .filter((entry) => entry.origen === "snapshot")
+              .map((entry) => entry.ingrediente)
+            // Entradas legacy (string plano histórico): se resuelven contra
+            // el producto real, igual que antes de P1-A.2B.
+            const nombresLegacy = persistidos
+              .filter((entry) => entry.origen === "legacy")
+              .map((entry) => entry.ingrediente.nombre)
+
+            const gruposResueltos = groupIngredientesQuitados(resueltos)
+            const gruposLegacy = enrichIngredientesQuitadosConGrupoReal(
+              nombresLegacy,
               (item.productoId && ingredientesRefPorProducto.get(item.productoId)) || []
             )
+            const ingredientesQuitados = mergeIngredienteGrupos(gruposResueltos, gruposLegacy)
+
             return {
               id: item.id,
               nombre: item.nombre,

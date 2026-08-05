@@ -427,11 +427,262 @@ export function groupIngredientesQuitados(
 /**
  * JSON de `string[]` válido para flujos legacy que todavía esperan ese
  * contrato exacto (ej. hidratar el carrito al "repetir pedido"). Nunca
- * serializa objetos crudos. No se usa todavía para escribir
- * `PedidoItem.ingredientesQuitados` en la base de datos (eso es P1-A.2B).
+ * serializa objetos crudos.
  */
 export function serializeIngredientesQuitadosLegacy(raw: unknown): string {
   return JSON.stringify(getIngredientesQuitadosNombres(raw))
+}
+
+// ---------------------------------------------------------------------------
+// P1-A.2B.1 — Distinción de ORIGEN (legacy vs. snapshot estructurado)
+// ---------------------------------------------------------------------------
+// `parseIngredientesQuitadosRawEntries` (arriba) normaliza la FORMA de cada
+// entrada pero descarta si venía como string plano o como objeto — eso alcanza
+// para todos los consumidores de solo lectura (nombres planos, agrupado
+// declarado), pero NO alcanza para decidir si una entrada ya es un snapshot
+// autoritativo completo. Un snapshot estructurado con `grupo: null` (el
+// ingrediente no tenía categoría al momento de crear el pedido) es un dato
+// FINAL y congelado — no debe tratarse igual que un string legacy solo porque
+// ambos comparten `grupo === null`. Por eso esta sección parsea de nuevo,
+// preservando el origen real de cada entrada, en vez de reutilizar
+// `parseIngredientesQuitadosRawEntries` (cuyo contrato de deduplicación
+// "queda la primera" no debe alterarse — ver comentario de esa función).
+
+export type IngredienteQuitadoOrigen = "legacy" | "snapshot"
+
+interface IngredienteQuitadoRawEntryConOrigen extends IngredienteQuitadoRawEntry {
+  origen: IngredienteQuitadoOrigen
+}
+
+/**
+ * Mismo parseo que `parseIngredientesQuitadosRawEntries`, pero conservando de
+ * qué tipo de dato vino cada entrada (`"legacy"` = string plano, `"snapshot"`
+ * = objeto estructurado, sin importar si su `grupo` es `null` o no). Regla de
+ * deduplicación DISTINTA a propósito: ante la misma identidad (nombre+grupo),
+ * un snapshot estructurado siempre reemplaza a una entrada legacy ya vista
+ * (nunca al revés); entre dos entradas del mismo origen, gana la primera
+ * (mismo criterio determinista que el resto del archivo). No muta `raw`,
+ * nunca lanza.
+ */
+function parseIngredientesQuitadosRawEntriesConOrigen(raw: unknown): IngredienteQuitadoRawEntryConOrigen[] {
+  const parsed = parseJsonMaybeString(raw)
+  if (!Array.isArray(parsed)) return []
+
+  const byKey = new Map<string, IngredienteQuitadoRawEntryConOrigen>()
+  const order: string[] = []
+
+  for (const entry of parsed) {
+    let candidate: IngredienteQuitadoRawEntryConOrigen | null = null
+
+    if (typeof entry === "string") {
+      const nombre = entry.trim()
+      if (!nombre) continue
+      candidate = { nombre, grupo: null, grupoOrden: null, opcionOrden: null, origen: "legacy" }
+    } else if (isPlainObject(entry)) {
+      const nombre = typeof entry.nombre === "string" ? entry.nombre.trim() : ""
+      if (!nombre) continue
+      if (entry.accion !== undefined && entry.accion !== "quitar") continue
+      const grupo = typeof entry.grupo === "string" && entry.grupo.trim() ? entry.grupo.trim() : null
+      candidate = {
+        nombre,
+        grupo,
+        grupoOrden: normalizeOrdenField(entry.grupoOrden),
+        opcionOrden: normalizeOrdenField(entry.opcionOrden),
+        origen: "snapshot",
+      }
+    } else {
+      continue
+    }
+
+    const key = rawEntryDedupKey(candidate.nombre, candidate.grupo)
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, candidate)
+      order.push(key)
+      continue
+    }
+    if (existing.origen === "legacy" && candidate.origen === "snapshot") {
+      byKey.set(key, candidate)
+    }
+  }
+
+  return order.map((key) => byKey.get(key)!)
+}
+
+export interface IngredienteQuitadoPersistido {
+  ingrediente: IngredienteQuitadoCanonico
+  origen: IngredienteQuitadoOrigen
+}
+
+/**
+ * Forma canónica de cada ingrediente quitado, junto con su origen real
+ * (`"legacy"` | `"snapshot"`). A diferencia de `parseIngredientesQuitadosCanonicos`,
+ * esta es la función que un endpoint de LECTURA con acceso al producto real
+ * (el detalle de Mozo) debe usar para decidir si una entrada necesita
+ * reconsultar el producto — nunca inferir el origen comparando
+ * `entry.grupo !== null`, porque un snapshot legítimo puede tener
+ * `grupo: null` (ingrediente sin categoría al momento de crear el pedido) y
+ * eso NO lo convierte en legacy.
+ */
+export function parseIngredientesQuitadosPersistidos(raw: unknown): IngredienteQuitadoPersistido[] {
+  return parseIngredientesQuitadosRawEntriesConOrigen(raw).map((entry) => ({
+    ingrediente: {
+      nombre: entry.nombre,
+      grupo: entry.grupo,
+      accion: "quitar" as const,
+      grupoOrden: entry.grupoOrden,
+      opcionOrden: entry.opcionOrden,
+    },
+    origen: entry.origen,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// P1-A.2B — Builder autoritativo del snapshot persistido
+// ---------------------------------------------------------------------------
+// A diferencia de todo lo demás en este archivo (que solo LEE/normaliza datos
+// ya persistidos), esta función construye el dato que un endpoint de
+// escritura (POST /api/pedidos, alta manual de Mozo) va a guardar. El cliente
+// nunca es autoridad acá: `requested` se trata exclusivamente como "qué
+// nombres pidió quitar" — cualquier `grupo`/`accion`/`orden` que el cliente
+// hubiera enviado se descarta sin leerlo siquiera (extractRequestedNames solo
+// mira `.nombre`). El `grupo` final sale SIEMPRE de `productoIngredientes`
+// (la relación real Producto -> ProductoIngrediente -> Ingrediente, ya
+// resuelta y scopeada al negocio/producto correctos por el llamador).
+
+function extractRequestedNames(requested: unknown): string[] {
+  const parsed = parseJsonMaybeString(requested)
+  if (!Array.isArray(parsed)) return []
+  const result: string[] = []
+  for (const entry of parsed) {
+    if (typeof entry === "string") {
+      const nombre = entry.trim()
+      if (nombre) result.push(nombre)
+      continue
+    }
+    // Defensivo: si por error llega un objeto (el cliente nunca debería
+    // enviar esta forma en el request), se extrae únicamente `.nombre` — el
+    // resto de sus campos (grupo/accion/orden/id) se ignora sin leerlos.
+    if (isPlainObject(entry) && typeof entry.nombre === "string") {
+      const nombre = entry.nombre.trim()
+      if (nombre) result.push(nombre)
+    }
+  }
+  return result
+}
+
+export interface BuildIngredientesQuitadosSnapshotResult {
+  snapshot: IngredienteQuitadoCanonico[]
+  invalidNames: string[]
+}
+
+/**
+ * Referencia de un ingrediente real de un producto, para el builder
+ * autoritativo. Incluye `negocioId` a propósito (P1-A.2B.1): el schema NO
+ * tiene una restricción compuesta de negocio en `ProductoIngrediente ->
+ * Ingrediente` (`Ingrediente.negocioId` no está validado contra el negocio
+ * del producto a nivel de base de datos), así que una relación
+ * estructuralmente inconsistente (`Producto` del negocio A apuntando, vía
+ * `ProductoIngrediente`, a un `Ingrediente` del negocio B) es posible aunque
+ * las APIs administrativas nunca la creen. El builder valida esto de forma
+ * EXPLÍCITA — nunca confía en que el llamador ya filtró correctamente.
+ */
+export interface ProductoIngredienteSnapshotRef {
+  nombre: string
+  categoria: string | null
+  negocioId: string
+}
+
+/**
+ * Construye el snapshot autoritativo de `ingredientesQuitados` a partir de lo
+ * que pidió el cliente (`requested`, tratado únicamente como una lista de
+ * nombres) y la lista real de ingredientes del producto ya validado
+ * (`productoIngredientes`). El llamador sigue siendo responsable de pasar
+ * solo referencias del producto correcto — pero el negocio de cada
+ * referencia se revalida acá mismo contra `expectedNegocioId`, sin depender
+ * únicamente de esa responsabilidad externa (ver `ProductoIngredienteSnapshotRef`).
+ *
+ * Reglas:
+ * - `nombre` y `grupo` (= `categoria.trim()`, o `null` si queda vacía) salen
+ *   siempre de `productoIngredientes`, nunca de `requested`.
+ * - `accion` es siempre `"quitar"`.
+ * - `grupoOrden`/`opcionOrden` quedan siempre en `null` — ni `Ingrediente` ni
+ *   `ProductoIngrediente` tienen una columna de orden real en el schema
+ *   actual (auditado explícitamente), así que no hay ningún valor canónico
+ *   que persistir; inventar uno violaría la regla de nunca fabricar datos
+ *   que el negocio no configuró.
+ * - Un nombre repetido en `requested` se deduplica (se conserva la primera
+ *   aparición).
+ * - Una referencia con `ref.negocioId !== expectedNegocioId` NUNCA es
+ *   candidata válida: se descarta ANTES de participar en la resolución de
+ *   nombre/categoría o en la detección de ambigüedad — nunca se persiste su
+ *   `negocioId`, nunca se expone en ninguna respuesta.
+ * - Un nombre que no resuelve contra ninguna referencia válida del negocio
+ *   esperado (inexistente, pertenece a otro producto, o solo existe en una
+ *   referencia de otro negocio) se agrega a `invalidNames`, nunca al
+ *   snapshot.
+ * - Si existen una referencia válida del negocio esperado Y otra de otro
+ *   negocio con el mismo nombre, la referencia ajena se descarta por completo
+ *   (regla anterior) antes de llegar a la detección de ambigüedad — por lo
+ *   tanto NO se marca ambiguo; se usa únicamente la referencia válida. La
+ *   ambigüedad real (dos `Ingrediente` distintos y AMBOS del negocio
+ *   esperado comparten nombre — posible porque `Ingrediente` no tiene
+ *   restricción de unicidad por nombre) sigue rechazándose: se agrega a
+ *   `invalidNames`, porque el contrato público identifica ingredientes solo
+ *   por nombre y no hay forma segura de elegir uno sin arriesgarse a
+ *   fusionar dos ingredientes reales distintos. El llamador debe responder
+ *   400 ante cualquier `invalidNames` no vacío — nunca crear el pedido con
+ *   un snapshot parcial.
+ * - No muta `requested` ni `productoIngredientes`. Nunca lanza.
+ */
+export function buildIngredientesQuitadosSnapshot(
+  requested: unknown,
+  productoIngredientes: ProductoIngredienteSnapshotRef[],
+  expectedNegocioId: string
+): BuildIngredientesQuitadosSnapshotResult {
+  const requestedNames = extractRequestedNames(requested)
+
+  const categoriaPorNombre = new Map<string, string | null>()
+  const ambiguousNames = new Set<string>()
+  const seenNombres = new Set<string>()
+  for (const ref of productoIngredientes) {
+    // Una referencia de otro negocio nunca es candidata — se descarta antes
+    // de poder resolver un nombre o de poder disparar una falsa ambigüedad.
+    if (ref.negocioId !== expectedNegocioId) continue
+    const nombre = ref.nombre.trim()
+    if (!nombre) continue
+    if (seenNombres.has(nombre)) {
+      ambiguousNames.add(nombre)
+      continue
+    }
+    seenNombres.add(nombre)
+    const categoria = (ref.categoria ?? "").trim()
+    categoriaPorNombre.set(nombre, categoria || null)
+  }
+
+  const snapshot: IngredienteQuitadoCanonico[] = []
+  const invalidNames: string[] = []
+  const dedup = new Set<string>()
+
+  for (const nombre of requestedNames) {
+    if (dedup.has(nombre)) continue
+    dedup.add(nombre)
+
+    if (ambiguousNames.has(nombre) || !categoriaPorNombre.has(nombre)) {
+      invalidNames.push(nombre)
+      continue
+    }
+
+    snapshot.push({
+      nombre,
+      grupo: categoriaPorNombre.get(nombre) ?? null,
+      accion: "quitar",
+      grupoOrden: null,
+      opcionOrden: null,
+    })
+  }
+
+  return { snapshot, invalidNames }
 }
 
 /** Normaliza los tres campos de personalización de un PedidoItem a la vez. */
