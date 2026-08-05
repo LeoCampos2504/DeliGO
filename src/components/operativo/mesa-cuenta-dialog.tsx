@@ -222,157 +222,186 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className }: MesaCuentaDi
       </Button>
 
       <Dialog open={open} onOpenChange={(next) => !closing && setOpen(next)}>
-        <DialogContent className="max-w-lg print:max-w-full print:border-0 print:shadow-none">
-          <DialogHeader className="print:hidden">
-            <DialogTitle>Cuenta — Mesa {mesaNumero}</DialogTitle>
-            <DialogDescription>
-              {cuenta?.closed
-                ? "Cuenta cerrada. La mesa ya está libre."
-                : "Vista previa de la cuenta de esta ocupación."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {status === "loading" && (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground print:hidden">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Cargando cuenta…
-            </div>
-          )}
-
-          {status === "empty" && (
-            <div className="py-8 flex flex-col items-center gap-3 text-center print:hidden">
-              <p className="text-sm text-muted-foreground">Esta mesa no tiene una ocupación activa.</p>
-              {lastClosedOcupacionId && (
-                <Button size="sm" variant="outline" className="rounded-xl gap-1.5" onClick={() => void handleViewLastClosed()}>
-                  <Receipt className="h-3.5 w-3.5" />
-                  Ver último ticket cerrado
-                </Button>
-              )}
-            </div>
-          )}
-
-          {(status === "unauthorized" || status === "error") && (
-            <p className="py-8 text-center text-sm text-muted-foreground print:hidden">
-              No se pudo cargar la cuenta de esta mesa.
-            </p>
-          )}
-
-          {status === "forbidden" && (
-            <p className="py-8 text-center text-sm text-muted-foreground print:hidden">
-              No tenés permiso para ver la cuenta de esta mesa.
-            </p>
-          )}
-
-          {status === "ready" && cuenta && (
-            <div id="ticket-print-root" className="space-y-4">
-              <div className="space-y-0.5 text-center">
-                <p className="font-semibold">{cuenta.negocio.nombre}</p>
-                <p className="text-sm text-muted-foreground">Mesa {cuenta.mesa.numero}</p>
-                <p className="text-xs text-muted-foreground">
-                  Apertura: {formatFechaHora(cuenta.ocupacion.iniciadaEn)}
-                </p>
-                {cuenta.closed && cuenta.ocupacion.cerradaEn && (
-                  <p className="text-xs text-muted-foreground">
-                    Cierre: {formatFechaHora(cuenta.ocupacion.cerradaEn)}
-                  </p>
+        <DialogContent
+          className="mesa-cuenta-dialog-content flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 print:static print:left-auto print:top-auto print:block print:h-auto print:max-h-none print:max-w-full print:translate-x-0 print:translate-y-0 print:transform-none print:animate-none print:overflow-visible print:border-0 print:p-0 print:shadow-none sm:h-[90dvh] sm:max-h-[90dvh] sm:w-[calc(100%_-_2rem)] sm:max-w-3xl sm:rounded-lg sm:border sm:p-0"
+        >
+          <div className="flex h-full min-h-0 flex-col print:h-auto print:min-h-0">
+            <DialogHeader className="shrink-0 border-b border-border/60 bg-card px-4 pb-4 pr-12 pt-[calc(1rem+env(safe-area-inset-top,0px))] sm:px-6 sm:py-5 print:hidden">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <DialogTitle>Cuenta — Mesa {mesaNumero}</DialogTitle>
+                  <DialogDescription>
+                    {cuenta?.closed
+                      ? "Cuenta cerrada. La mesa ya está libre."
+                      : "Vista previa de la cuenta de esta ocupación."}
+                  </DialogDescription>
+                </div>
+                {status === "ready" && cuenta && (
+                  <Badge variant={cuenta.closed ? "secondary" : "outline"} className="shrink-0">
+                    {cuenta.closed ? "Cerrada" : "Activa"}
+                  </Badge>
                 )}
               </div>
+            </DialogHeader>
 
-              {!cuenta.puedeCerrar && !cuenta.closed && (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 print:hidden">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    Hay {cuenta.pedidosPendientesCount} pedido(s) todavía no entregados ni cancelados. No se puede
-                    cerrar la cuenta hasta resolverlos.
-                  </span>
+            <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-8 touch-pan-y sm:px-6 sm:py-5 print:block print:h-auto print:max-h-none print:overflow-visible print:p-0">
+              {status === "loading" && (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground print:hidden">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cargando cuenta…
                 </div>
               )}
 
-              {cuenta.pedidos.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground">Esta ocupación no tiene pedidos.</p>
+              {status === "empty" && (
+                <div className="flex flex-col items-center gap-3 py-8 text-center print:hidden">
+                  <p className="text-sm text-muted-foreground">Esta mesa no tiene una ocupación activa.</p>
+                  {lastClosedOcupacionId && (
+                    <Button size="sm" variant="outline" className="gap-1.5 rounded-xl" onClick={() => void handleViewLastClosed()}>
+                      <Receipt className="h-3.5 w-3.5" />
+                      Ver último ticket cerrado
+                    </Button>
+                  )}
+                </div>
               )}
 
-              <div className="space-y-3">
-                {cuenta.pedidos.map((pedido, index) => (
-                  <div key={pedido.id} className="space-y-1 border-b pb-2 last:border-b-0">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Pedido {index + 1} · {formatFechaHora(pedido.fecha)}</span>
-                      {pedido.excluido && <Badge variant="outline">Cancelado</Badge>}
-                      {pedido.pendiente && <Badge variant="outline">Pendiente</Badge>}
+              {(status === "unauthorized" || status === "error") && (
+                <p className="py-8 text-center text-sm text-muted-foreground print:hidden">
+                  No se pudo cargar la cuenta de esta mesa.
+                </p>
+              )}
+
+              {status === "forbidden" && (
+                <p className="py-8 text-center text-sm text-muted-foreground print:hidden">
+                  No tenés permiso para ver la cuenta de esta mesa.
+                </p>
+              )}
+
+              {status === "ready" && cuenta && (
+                <div id="ticket-print-root" className="space-y-4 print:block print:h-auto print:max-h-none print:overflow-visible">
+                  <div className="space-y-0.5 text-center">
+                    <p className="font-semibold">{cuenta.negocio.nombre}</p>
+                    <p className="text-sm text-muted-foreground">Mesa {cuenta.mesa.numero}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Apertura: {formatFechaHora(cuenta.ocupacion.iniciadaEn)}
+                    </p>
+                    {cuenta.closed && cuenta.ocupacion.cerradaEn && (
+                      <p className="text-xs text-muted-foreground">
+                        Cierre: {formatFechaHora(cuenta.ocupacion.cerradaEn)}
+                      </p>
+                    )}
+                  </div>
+
+                  {!cuenta.puedeCerrar && !cuenta.closed && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 print:hidden">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Hay {cuenta.pedidosPendientesCount} pedido(s) todavía no entregados ni cancelados. No se puede
+                        cerrar la cuenta hasta resolverlos.
+                      </span>
                     </div>
-                    {pedido.items.map((item) => (
-                      <div key={item.id} className="text-sm">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span>
-                            {item.cantidad}x {item.nombre}
-                          </span>
-                          <span className="shrink-0">{formatPrice(item.subtotalLineaAprox)}</span>
+                  )}
+
+                  {cuenta.pedidos.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground">Esta ocupación no tiene pedidos.</p>
+                  )}
+
+                  <div className="space-y-3">
+                    {cuenta.pedidos.map((pedido, index) => (
+                      <div key={pedido.id} className="space-y-1 border-b pb-2 last:border-b-0">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Pedido {index + 1} · {formatFechaHora(pedido.fecha)}</span>
+                          {pedido.excluido && <Badge variant="outline">Cancelado</Badge>}
+                          {pedido.pendiente && <Badge variant="outline">Pendiente</Badge>}
                         </div>
-                        {item.agregados.length > 0 && (
-                          <p className="pl-3 text-xs text-muted-foreground">
-                            + {item.agregados.map((agregado) => agregado.nombre).join(", ")}
-                          </p>
-                        )}
-                        {item.secciones.map((seccion) => (
-                          <p key={seccion} className="pl-3 text-xs text-muted-foreground">
-                            {seccion}
-                          </p>
+                        {pedido.items.map((item) => (
+                          <div key={item.id} className="text-sm">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span>
+                                {item.cantidad}x {item.nombre}
+                              </span>
+                              <span className="shrink-0">{formatPrice(item.subtotalLineaAprox)}</span>
+                            </div>
+                            {item.agregados.length > 0 && (
+                              <p className="pl-3 text-xs text-muted-foreground">
+                                + {item.agregados.map((agregado) => agregado.nombre).join(", ")}
+                              </p>
+                            )}
+                            {item.secciones.map((seccion) => (
+                              <p key={seccion} className="pl-3 text-xs text-muted-foreground">
+                                {seccion}
+                              </p>
+                            ))}
+                            {item.ingredientesQuitados.length > 0 && (
+                              <p className="pl-3 text-xs text-muted-foreground">
+                                Sin: {item.ingredientesQuitados.join(", ")}
+                              </p>
+                            )}
+                            {(item.talle || item.color) && (
+                              <p className="pl-3 text-xs text-muted-foreground">
+                                {[item.talle, item.color].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
                         ))}
-                        {item.ingredientesQuitados.length > 0 && (
-                          <p className="pl-3 text-xs text-muted-foreground">
-                            Sin: {item.ingredientesQuitados.join(", ")}
-                          </p>
-                        )}
-                        {(item.talle || item.color) && (
-                          <p className="pl-3 text-xs text-muted-foreground">
-                            {[item.talle, item.color].filter(Boolean).join(" · ")}
-                          </p>
-                        )}
+                        <div className="flex items-baseline justify-between text-xs font-medium">
+                          <span>Subtotal pedido</span>
+                          <span>{pedido.excluido ? formatPrice(0) : formatPrice(pedido.subtotalPedido)}</span>
+                        </div>
                       </div>
                     ))}
-                    <div className="flex items-baseline justify-between text-xs font-medium">
-                      <span>Subtotal pedido</span>
-                      <span>{pedido.excluido ? formatPrice(0) : formatPrice(pedido.subtotalPedido)}</span>
-                    </div>
                   </div>
-                ))}
-              </div>
 
-              <div className="flex items-baseline justify-between border-t pt-2 text-base font-semibold">
-                <span>Total</span>
-                <span>{formatPrice(cuenta.totalGeneral)}</span>
-              </div>
+                  <div className="flex items-baseline justify-between border-t pt-2 text-base font-semibold">
+                    <span>Total</span>
+                    <span>{formatPrice(cuenta.totalGeneral)}</span>
+                  </div>
 
-              <p className="text-center text-xs text-muted-foreground">
-                {cuenta.closed ? "Cuenta cerrada" : "Vista previa — todavía no se cerró la cuenta"}
-              </p>
-            </div>
-          )}
+                  <p className="text-center text-xs text-muted-foreground">
+                    {cuenta.closed ? "Cuenta cerrada" : "Vista previa — todavía no se cerró la cuenta"}
+                  </p>
+                </div>
+              )}
+            </main>
 
-          <DialogFooter className="print:hidden">
-            {status === "ready" && cuenta && (
-              <>
-                <Button
-                  variant="outline"
-                  className="rounded-xl gap-1.5"
-                  onClick={() => window.print()}
-                >
-                  <Printer className="h-4 w-4" />
-                  Imprimir
-                </Button>
-                {!cuenta.closed && (
-                  <Button
-                    className="rounded-xl gap-1.5"
-                    disabled={!cuenta.puedeCerrar}
-                    onClick={() => setConfirmCloseOpen(true)}
-                  >
-                    <Lock className="h-4 w-4" />
-                    Cerrar cuenta
-                  </Button>
-                )}
-              </>
-            )}
-          </DialogFooter>
+            <DialogFooter className="shrink-0 flex-col gap-3 border-t border-border/60 bg-card px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4 sm:pb-4 print:hidden">
+              {status === "ready" && cuenta && (
+                <>
+                  <div className="min-w-0 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-medium">{cuenta.pedidos.length} pedido(s)</span>
+                      <span className="font-semibold">Total: {formatPrice(cuenta.totalGeneral)}</span>
+                    </div>
+                    {!cuenta.closed && !cuenta.puedeCerrar && (
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        {cuenta.pedidosPendientesCount} pendiente(s) sin entregar o cancelar
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex w-full shrink-0 flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-1.5 rounded-xl sm:w-auto"
+                      onClick={() => window.print()}
+                    >
+                      <Printer className="h-4 w-4" />
+                      {cuenta.closed ? "Imprimir" : "Imprimir vista previa"}
+                    </Button>
+                    {!cuenta.closed && (
+                      <Button
+                        className="w-full gap-1.5 rounded-xl sm:w-auto"
+                        disabled={!cuenta.puedeCerrar}
+                        onClick={() => setConfirmCloseOpen(true)}
+                      >
+                        <Lock className="h-4 w-4" />
+                        Cerrar cuenta
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

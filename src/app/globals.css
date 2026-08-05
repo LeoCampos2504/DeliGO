@@ -330,6 +330,14 @@ body.ios-device.ios-keyboard-open .ios-bottom-nav {
   }
 }
 
+/* P2: the full-screen account dialog uses viewport-fit=cover on iOS. Keep
+   Radix's close button below the top safe area without changing other dialogs. */
+@media (max-width: 639px) {
+  .mesa-cuenta-dialog-content > [data-slot="dialog-close"] {
+    top: calc(1rem + env(safe-area-inset-top, 0px));
+  }
+}
+
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {
   outline: 2px solid #FB8C00;
@@ -343,6 +351,13 @@ body.ios-device.ios-keyboard-open .ios-bottom-nav {
    este elemento": se oculta todo por visibilidad y se revierte únicamente
    para el ticket y sus descendientes. */
 @media print {
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -350,10 +365,27 @@ body.ios-device.ios-keyboard-open .ios-bottom-nav {
   #ticket-print-root * {
     visibility: visible;
   }
+
+  .mesa-cuenta-dialog-content,
+  .mesa-cuenta-dialog-content > div,
+  .mesa-cuenta-dialog-content main,
   #ticket-print-root {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    max-width: none !important;
+    overflow: visible !important;
+    transform: none !important;
+  }
+
+  .mesa-cuenta-dialog-content {
+    display: block !important;
   }
 }
