@@ -21,6 +21,8 @@ import {
   resolveMesaOccupancyForOrder,
   heartbeatMesaOccupancyForOrder,
   logMesaOccupancyOrderEvent,
+  openOrReuseMesaOccupancyForStaff,
+  heartbeatOcupacionForStaffOrder,
 } from "@/lib/mesa-occupancy"
 import { isNegocioOpen } from "@/lib/utils"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
@@ -702,8 +704,14 @@ class PedidoIdempotencyConflictError extends Error {}
 // (nada se crea, nada se actualiza) y se traduce a un 403 sanitizado más
 // abajo, sin exponer detalle ni stack.
 class MesaOccupancyBlockedError extends Error {
-  constructor(public readonly reason: "missing" | "invalid") {
-    super(reason === "missing" ? "Ocupación de mesa requerida" : "Ocupación de mesa inválida")
+  constructor(public readonly reason: "missing" | "invalid" | "unavailable") {
+    super(
+      reason === "missing"
+        ? "Ocupación de mesa requerida"
+        : reason === "invalid"
+          ? "Ocupación de mesa inválida"
+          : "No se pudo vincular el pedido a la ocupación de la mesa"
+    )
   }
 }
 
@@ -1281,6 +1289,40 @@ export async function POST(request: NextRequest) {
     const resolvedMesaIdForOccupancy: string | null = isMesaOrder ? mesaId : null
     const resolvedMesaNumeroForOccupancy: number | null = isMesaOrder ? mesaNumero : null
 
+    // P2 corrección final: cuando la ocupación NO se exige acá (personal
+    // autenticado, o negocio todavía sin geocerca calibrada) pero el pedido
+    // SIGUE siendo de mesa, se abre/reutiliza la ocupación ANTES de la
+    // transacción principal, usando `openOrReuseMesaOccupancyForStaff` — la
+    // variante para personal (nunca la de dispositivo): no genera token, no
+    // calcula hash, y NUNCA crea/toca ninguna `CredencialOcupacionMesa` (a
+    // diferencia de la variante de dispositivo, que sí crearía una
+    // credencial nueva en cada llamada sin token — quedaría huérfana, ya que
+    // el personal nunca la usa ni la cookie se configura). Dentro de la
+    // transacción de creación, `heartbeatOcupacionForStaffOrder` revalida
+    // esta MISMA ocupación con una escritura condicional real — si alguien
+    // la cerró justo en el medio, la creación se rechaza por completo (nunca
+    // se crea el pedido con `ocupacionMesaId: null`).
+    let staffOcupacionId: string | null = null
+    if (isMesaOrder && !requiresMesaOccupancy && resolvedMesaIdForOccupancy) {
+      try {
+        const outcome = await openOrReuseMesaOccupancyForStaff({
+          negocioId,
+          mesaId: resolvedMesaIdForOccupancy,
+        })
+        staffOcupacionId = outcome.ocupacionId
+      } catch (error) {
+        console.error("Error abriendo/reutilizando ocupación para pedido de personal/no calibrado:", error)
+        return NextResponse.json(
+          {
+            error: "No se pudo vincular el pedido a la ocupación de la mesa. Intentá de nuevo.",
+            code: "MESA_OCCUPANCY_UNAVAILABLE",
+            canRetry: true,
+          },
+          { status: 409 }
+        )
+      }
+    }
+
     const pedidoCreateData = {
       negocioId,
       negocioSlug: negocio.slug,
@@ -1417,6 +1459,24 @@ export async function POST(request: NextRequest) {
             outcome: "valid",
             linked: true,
           })
+        } else if (isMesaOrder && resolvedMesaIdForOccupancy && staffOcupacionId) {
+          // P2 corrección (Bloqueos 3/5/8): revalida, DENTRO de esta misma
+          // transacción, la ocupación ya abierta/reutilizada antes de entrar
+          // acá (`staffOcupacionId`) con una escritura condicional real
+          // (`heartbeatOcupacionForStaffOrder`). Si un cierre comercial
+          // concurrente ya la cerró, esto devuelve "unavailable" y SE ABORTA
+          // toda la transacción — nunca se crea el pedido con
+          // `ocupacionMesaId: null` como fallback silencioso.
+          const guard = await heartbeatOcupacionForStaffOrder(tx, {
+            negocioId,
+            mesaId: resolvedMesaIdForOccupancy,
+            ocupacionId: staffOcupacionId,
+            now: new Date(),
+          })
+          if (guard.status === "unavailable") {
+            throw new MesaOccupancyBlockedError("unavailable")
+          }
+          validatedOcupacionId = guard.ocupacionId
         }
 
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
@@ -1585,6 +1645,20 @@ export async function POST(request: NextRequest) {
     // distingue cuál de las causas ocurrió (revocada, cerrada, expirada, otra
     // mesa/negocio, puntero cambiado quedan todas colapsadas en "invalid").
     if (error instanceof MesaOccupancyBlockedError) {
+      if (error.reason === "unavailable") {
+        // P2 corrección: camino de personal autenticado/negocio no calibrado
+        // — nunca es un problema de ubicación/geocerca del cliente, así que
+        // nunca lleva `requiresLocationCheck`. El pedido nunca se creó (toda
+        // la transacción se revirtió) — quien llama puede reintentar.
+        return NextResponse.json(
+          {
+            error: "No se pudo vincular el pedido a la ocupación de la mesa. Intentá de nuevo.",
+            code: "MESA_OCCUPANCY_UNAVAILABLE",
+            canRetry: true,
+          },
+          { status: 409 }
+        )
+      }
       const info =
         error.reason === "missing"
           ? { error: "Necesitamos volver a validar tu acceso a esta mesa.", code: "MESA_OCCUPANCY_REQUIRED" }

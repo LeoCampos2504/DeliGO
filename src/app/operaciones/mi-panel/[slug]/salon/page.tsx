@@ -32,6 +32,7 @@ import {
   type PedidoDetalleState,
 } from "@/components/operativo/pedido-detalle"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
+import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { cn } from "@/lib/utils"
 
 // ============================================
@@ -855,13 +856,16 @@ export default function SalonPersonalPage() {
                       ) : (
                         <p className="text-[11px] text-muted-foreground px-1">Sin pedidos activos</p>
                       )}
-                      <div className="pt-1 border-t border-border/50">
+                      <div className="pt-1 border-t border-border/50 flex items-center justify-between gap-2 flex-wrap">
                         <MesaOccupancyControl
                           mesaId={mesa.id}
                           mesaNumero={mesa.numero}
                           onClosed={() => void loadPanel({ silent: true })}
                           onAccessDenied={() => void loadPanel({ silent: true })}
+                          allowClose={false}
                         />
+                        {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
+                        <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
                       </div>
                     </CardContent>
                   </Card>

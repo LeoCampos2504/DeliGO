@@ -44,6 +44,16 @@ interface MesaOccupancyControlProps {
   // recibe ni transporta datos de autorización (actor/negocio/empleado).
   onAccessDenied?: () => void
   className?: string
+  // P2 corrección (Bloqueo 2): cuando el host también monta `MesaCuentaDialog`
+  // (P2), la acción normal de cierre debe ser únicamente "Cerrar cuenta" —
+  // el botón técnico "Cerrar ocupación" de este control (que nunca revisa
+  // pedidos pendientes) quedaría como un bypass visible de esa protección.
+  // Con `allowClose={false}` este control sigue mostrando el estado técnico
+  // (activa/sin ocupación) tal cual siempre lo hizo, pero oculta el botón y
+  // el diálogo de confirmación de cierre — nunca deja de consultar ni de
+  // reflejar el estado real. Default `true`: no rompe ningún otro montaje
+  // existente que no pase esta prop.
+  allowClose?: boolean
 }
 
 function formatHora(iso: string): string | null {
@@ -53,7 +63,14 @@ function formatHora(iso: string): string | null {
   return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
 }
 
-export function MesaOccupancyControl({ mesaId, mesaNumero, onClosed, onAccessDenied, className }: MesaOccupancyControlProps) {
+export function MesaOccupancyControl({
+  mesaId,
+  mesaNumero,
+  onClosed,
+  onAccessDenied,
+  className,
+  allowClose = true,
+}: MesaOccupancyControlProps) {
   const [status, setStatus] = useState<Status>("loading")
   const [occupancy, setOccupancy] = useState<MesaOccupancyInfo | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -209,17 +226,19 @@ export function MesaOccupancyControl({ mesaId, mesaNumero, onClosed, onAccessDen
           {actividad ? ` · última actividad ${actividad}` : ""}
         </span>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        className="rounded-xl gap-1.5 h-8 text-xs"
-        onClick={() => setConfirmOpen(true)}
-      >
-        <LockOpen className="h-3.5 w-3.5" />
-        Cerrar ocupación
-      </Button>
+      {allowClose && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="rounded-xl gap-1.5 h-8 text-xs"
+          onClick={() => setConfirmOpen(true)}
+        >
+          <LockOpen className="h-3.5 w-3.5" />
+          Cerrar ocupación
+        </Button>
+      )}
 
-      <AlertDialog open={confirmOpen} onOpenChange={(open) => !closing && setConfirmOpen(open)}>
+      <AlertDialog open={allowClose && confirmOpen} onOpenChange={(open) => !closing && setConfirmOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cerrar ocupación de la mesa {mesaNumero}</AlertDialogTitle>

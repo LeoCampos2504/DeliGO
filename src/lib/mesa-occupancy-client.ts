@@ -18,7 +18,12 @@ export interface MesaOccupancyInfo {
 
 export type MesaOccupancyStatusOutcome =
   | { kind: "active"; occupancy: MesaOccupancyInfo }
-  | { kind: "none" }
+  // P2 corrección (Bloqueo 4): `lastClosedOcupacionId` es el id de la
+  // última ocupación cerrada de esta mesa, si existe — permite a la UI
+  // ofrecer reabrir/reimprimir ese ticket cerrado (GET .../cuenta acepta
+  // ocupaciones cerradas). `null` si esta mesa nunca tuvo una ocupación
+  // cerrada, o si el negocio/mesa no tiene ninguna registrada todavía.
+  | { kind: "none"; lastClosedOcupacionId: string | null }
   | { kind: "unauthorized" }
   | { kind: "forbidden" }
   | { kind: "error" }
@@ -58,7 +63,12 @@ export async function fetchMesaOccupancyStatus(
     }
   }
 
-  return { kind: "none" }
+  const lastClosedOcupacionId =
+    typeof (data as Record<string, unknown>).lastClosedOcupacionId === "string"
+      ? ((data as Record<string, unknown>).lastClosedOcupacionId as string)
+      : null
+
+  return { kind: "none", lastClosedOcupacionId }
 }
 
 export type MesaOccupancyCloseOutcome =

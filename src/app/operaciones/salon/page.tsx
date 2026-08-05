@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select"
 import { Logo } from "@/components/shared/logo"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
+import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
@@ -810,14 +811,17 @@ function SalonView({
             )}
 
             {selectedMesaObj && (
-              <div className="mb-4 rounded-xl border border-border/50 bg-card p-3">
+              <div className="mb-4 rounded-xl border border-border/50 bg-card p-3 flex items-center justify-between gap-2 flex-wrap">
                 <MesaOccupancyControl
                   key={selectedMesaObj.id}
                   mesaId={selectedMesaObj.id}
                   mesaNumero={selectedMesaObj.numero}
                   onClosed={onRefresh}
                   onAccessDenied={onRefresh}
+                  allowClose={false}
                 />
+                {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
+                <MesaCuentaDialog mesaId={selectedMesaObj.id} mesaNumero={selectedMesaObj.numero} />
               </div>
             )}
             {selectedOrders.length === 0 ? (

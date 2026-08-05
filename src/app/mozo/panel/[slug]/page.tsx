@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
+import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import {
   PedidoDetalleDrawer,
   type PedidoDetalleState,
@@ -1337,13 +1338,16 @@ function MesaCard({
         </div>
 
         {mesa.asignadaAMi && (
-          <div className="pt-1 border-t border-border/60">
+          <div className="pt-1 border-t border-border/60 flex items-center justify-between gap-2 flex-wrap">
             <MesaOccupancyControl
               mesaId={mesa.id}
               mesaNumero={mesa.numero}
               onClosed={onOccupancyClosed}
               onAccessDenied={onOccupancyClosed}
+              allowClose={false}
             />
+            {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes), solo mesas asignadas a este mozo. El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
+            <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
           </div>
         )}
       </CardContent>

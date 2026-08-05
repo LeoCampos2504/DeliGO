@@ -335,3 +335,25 @@ body.ios-device.ios-keyboard-open .ios-bottom-nav {
   outline: 2px solid #FB8C00;
   outline-offset: 2px;
 }
+
+/* ─── P2: impresión de ticket de cuenta de mesa ─── */
+/* Aísla exclusivamente #ticket-print-root (y su contenido) al imprimir,
+   sin importar en qué profundidad del DOM esté montado (funciona incluso
+   dentro de un Dialog/portal de Radix) — patrón estándar de "imprimir solo
+   este elemento": se oculta todo por visibilidad y se revierte únicamente
+   para el ticket y sus descendientes. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #ticket-print-root,
+  #ticket-print-root * {
+    visibility: visible;
+  }
+  #ticket-print-root {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+}

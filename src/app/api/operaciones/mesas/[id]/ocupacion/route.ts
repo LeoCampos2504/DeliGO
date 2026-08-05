@@ -60,7 +60,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return jsonNoStore({ error: "Estado de ocupación inconsistente" }, { status: 409 })
   }
   if (result.status === "none") {
-    return jsonNoStore({ hasActiveOccupancy: false, occupancy: null })
+    // P2 corrección (Bloqueo 4): además de "sin ocupación activa", informa
+    // el id de la última ocupación CERRADA de esta mesa (si existe), para
+    // que la UI pueda ofrecer reabrir/reimprimir ese ticket ya cerrado vía
+    // GET /api/operaciones/ocupaciones/[id]/cuenta — nunca autoriza nada por
+    // sí solo, ese endpoint revalida todo de nuevo.
+    return jsonNoStore({
+      hasActiveOccupancy: false,
+      occupancy: null,
+      lastClosedOcupacionId: result.lastClosedOcupacionId,
+    })
   }
   return jsonNoStore({
     hasActiveOccupancy: true,

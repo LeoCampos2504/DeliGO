@@ -11,6 +11,7 @@ import {
 } from "@/lib/salon-new-order-notification"
 import { getClientIp } from "@/lib/rate-limit"
 import { isNegocioOpen } from "@/lib/utils"
+import { openOrReuseMesaOccupancyForStaff, heartbeatOcupacionForStaffOrder } from "@/lib/mesa-occupancy"
 import {
   buildIngredientesQuitadosSnapshot,
   type IngredienteQuitadoCanonico,
@@ -864,6 +865,39 @@ export async function POST(
       return noStore(NextResponse.json({ error: "Mesa es requerida" }, { status: 400 }))
     }
 
+    // P2 corrección final: abre/reutiliza la ocupación de esta mesa ANTES de
+    // la transacción principal, usando `openOrReuseMesaOccupancyForStaff` —
+    // la variante para personal (nunca la de dispositivo): no genera token,
+    // no calcula hash, y NUNCA crea/toca ninguna `CredencialOcupacionMesa` (a
+    // diferencia de la variante de dispositivo, que crearía una credencial
+    // nueva e inútil en cada pedido manual del Mozo, ya que nunca se
+    // configura ninguna cookie para el personal). El propio núcleo revalida
+    // `mesa.negocioId === auth.negocio.id` internamente (nunca confía en
+    // `mesaId` del body sin esa comprobación). Dentro de la transacción
+    // principal, `heartbeatOcupacionForStaffOrder` revalida esta MISMA
+    // ocupación con una escritura condicional real antes de crear el
+    // pedido — si un cierre comercial concurrente ya la cerró, la creación
+    // se rechaza por completo (nunca se crea con `ocupacionMesaId: null`).
+    let staffOcupacionId: string
+    try {
+      const outcome = await openOrReuseMesaOccupancyForStaff({
+        negocioId: auth.negocio.id,
+        mesaId,
+      })
+      staffOcupacionId = outcome.ocupacionId
+    } catch (error) {
+      console.error("[Mozo] Error abriendo/reutilizando ocupación para pedido manual:", error)
+      return noStore(
+        NextResponse.json(
+          {
+            error: "No se pudo vincular el pedido a la ocupación de la mesa. Intentá de nuevo.",
+            code: "MESA_OCCUPANCY_UNAVAILABLE",
+          },
+          { status: 409 }
+        )
+      )
+    }
+
     if (body.metodoPago !== "transferencia" && body.metodoPago !== "efectivo") {
       return noStore(NextResponse.json({ error: "Metodo de pago invalido" }, { status: 400 }))
     }
@@ -1166,6 +1200,23 @@ export async function POST(
           serverTotalProductos = roundMoney(serverTotalProductos)
           const finalTotal = serverTotalProductos
 
+          // P2 corrección (Bloqueos 3/5/8): revalida, DENTRO de esta misma
+          // transacción, la ocupación ya abierta/reutilizada antes de entrar
+          // acá (`staffOcupacionId`) con una escritura condicional real. Si
+          // un cierre comercial concurrente ya la cerró entre ambos pasos,
+          // esto aborta TODA la transacción — nunca se crea el pedido con
+          // `ocupacionMesaId: null` como fallback silencioso.
+          const ocupacionGuard = await heartbeatOcupacionForStaffOrder(tx, {
+            negocioId: negocio.id,
+            mesaId: mesa.id,
+            ocupacionId: staffOcupacionId,
+            now: new Date(),
+          })
+          if (ocupacionGuard.status === "unavailable") {
+            throw new Error("MESA_OCCUPANCY_UNAVAILABLE")
+          }
+          const ocupacionMesaId = ocupacionGuard.ocupacionId
+
           const pedido = await tx.pedido.create({
             data: {
               negocioId: negocio.id,
@@ -1189,6 +1240,7 @@ export async function POST(
               negocioLng: negocio.lng,
               mesaId: mesa.id,
               mesaNumero: mesa.numero,
+              ocupacionMesaId,
               empleadoId: empleado.id,
               empleadoNombre: empleado.nombre,
               idempotencyKey,
@@ -1289,6 +1341,17 @@ export async function POST(
           NextResponse.json(
             { error: "Solo podes cargar pedidos en mesas asignadas a tu cuenta" },
             { status: 403 }
+          )
+        )
+      }
+      if (error.message === "MESA_OCCUPANCY_UNAVAILABLE") {
+        // P2 corrección: la ocupación se cerró (cierre comercial concurrente)
+        // justo entre abrirla/reutilizarla y crear el pedido — se rechaza
+        // por completo, nunca se crea con ocupacionMesaId: null.
+        return noStore(
+          NextResponse.json(
+            { error: "No se pudo vincular el pedido a la ocupación de la mesa. Intentá de nuevo." },
+            { status: 409 }
           )
         )
       }

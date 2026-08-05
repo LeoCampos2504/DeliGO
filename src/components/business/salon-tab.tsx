@@ -72,6 +72,7 @@ import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
+import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
@@ -1702,13 +1703,16 @@ function MesaDetailDrawer({
         </div>
 
         {/* P0-D.3B: estado técnico de ocupación de mesa y cierre seguro */}
-        <div className="mb-4 p-3 rounded-xl border border-border/50 bg-muted/20">
+        <div className="mb-4 p-3 rounded-xl border border-border/50 bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
           <MesaOccupancyControl
             mesaId={mesa.id}
             mesaNumero={mesa.numero}
             onClosed={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             onAccessDenied={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
+            allowClose={false}
           />
+          {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
+          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
         </div>
 
         {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}
