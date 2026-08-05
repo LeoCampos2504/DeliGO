@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 interface MesaOperativa {
   id: string
@@ -913,6 +914,13 @@ function CartLine({
   item: OrderItem
   onQuantityChange: (key: string, quantity: number) => void
 }) {
+  // El carrito en construcción arma `ingredientesQuitados` como string[] plano
+  // (ver addConfiguredProduct), pero se normaliza igual con el helper
+  // compartido de P1-A para quedar a salvo de cualquier forma inesperada
+  // (JSON corrupto, entradas vacías) sin reconsultar el producto — nunca
+  // lanza y nunca deja pasar un objeto crudo a JSX.
+  const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
+
   return (
     <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
       <div className="flex items-start justify-between gap-2">
@@ -927,6 +935,15 @@ function CartLine({
             {Object.entries(item.secciones).map(([section, value]) => (
               <Badge key={section} variant="outline" className="text-[10px]">
                 {section}: {typeof value === "string" ? value : Object.entries(value).map(([name, quantity]) => `${name} x${quantity}`).join(", ")}
+              </Badge>
+            ))}
+            {ingredientesQuitados.map((nombre) => (
+              <Badge
+                key={nombre}
+                variant="secondary"
+                className="text-[10px] h-5 px-1.5 font-normal bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 border-orange-200 dark:border-orange-800"
+              >
+                Sin {nombre}
               </Badge>
             ))}
           </div>
