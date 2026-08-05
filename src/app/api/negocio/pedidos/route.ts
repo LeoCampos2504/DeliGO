@@ -100,7 +100,12 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-        orderBy: { fecha: "desc" },
+        // Orden estable (P1-B): se conserva la dirección existente (más recientes
+        // primero, usada tanto por la vista de "activos" como por "historial" de este
+        // mismo endpoint) y se agrega `id` como desempate determinista. Sin este
+        // desempate, dos pedidos con `fecha` idéntica podían intercambiar posición
+        // entre polls (orders-tab.tsx refetchInterval=15s, salon-tab.tsx=5s).
+        orderBy: [{ fecha: "desc" }, { id: "desc" }],
         skip,
         take: limit,
       }),

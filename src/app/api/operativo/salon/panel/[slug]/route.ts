@@ -63,6 +63,11 @@ export async function GET(
           metodoEntrega: "mesa",
           estado: { in: [...ACTIVE_MESA_ORDER_STATES] },
         },
+        // Orden estable (P1-B): más antiguos primero con `id` como desempate determinista,
+        // mismo criterio FIFO operativo que src/app/api/operaciones/pyr/panel/route.ts.
+        // Antes no tenía orderBy: el orden de `pedidosActivos` por mesa dependía del orden
+        // de retorno de la base de datos, no garantizado entre queries idénticas.
+        orderBy: [{ fecha: "asc" }, { id: "asc" }],
         select: {
           id: true,
           mesaNumero: true,
