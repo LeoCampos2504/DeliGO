@@ -54,6 +54,7 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // Types
@@ -105,7 +106,8 @@ interface PedidoItemData {
   secciones: Record<string, string | Record<string, number>>
   seccionesPrecios: Record<string, number>
   ingredientes: string[]
-  ingredientesQuitados: string[]
+  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de renderizar. */
+  ingredientesQuitados: unknown
   talle: string
   color: string
   producto?: { id: string; nombre: string; imagenUrl: string | null }
@@ -608,7 +610,7 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
                     // Robust client-side parsing in case API returns strings
                     const agregados = parseItemField(item.agregados, []) as Array<{ id?: string; nombre: string; precio: number }>
                     const secciones = parseItemField(item.secciones, {}) as Record<string, string>
-                    const ingredientesQuitados = isRestaurante ? parseItemField(item.ingredientesQuitados, []) as string[] : []
+                    const ingredientesQuitados = isRestaurante ? getIngredientesQuitadosNombres(item.ingredientesQuitados) : []
                     const hasDetails = agregados.length > 0 || Object.keys(secciones).length > 0 || ingredientesQuitados.length > 0 || item.talle || item.color
 
                     return (

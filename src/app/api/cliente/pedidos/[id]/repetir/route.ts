@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // Seguridad-6B.3: repetición de pedido — datos de precios/stock ligados a la sesión del cliente, nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -128,13 +129,9 @@ export async function PUT(
         seccionesPreciosParsed = {}
       }
 
-      // Parse ingredientesQuitados for frontend
-      let ingredientesQuitadosParsed: string[] = []
-      try {
-        ingredientesQuitadosParsed = JSON.parse(item.ingredientesQuitados || "[]")
-      } catch {
-        ingredientesQuitadosParsed = []
-      }
+      // P1-A.2A-ii: acepta formato histórico o estructurado, siempre entrega string[]
+      // de nombres — el cliente hidrata el carrito con este contrato legacy exacto.
+      const ingredientesQuitadosParsed = getIngredientesQuitadosNombres(item.ingredientesQuitados)
 
       return {
         id: item.id,

@@ -40,7 +40,8 @@ interface PedidoItem {
   secciones: Record<string, string | Record<string, number>>
   seccionesPrecios: Record<string, number>
   ingredientes: string[]
-  ingredientesQuitados: string[]
+  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — este campo no se renderiza en este archivo hoy, pero el tipo no debe fingir una forma que la API no garantiza. Si algún día se muestra, normalizar con getIngredientesQuitadosNombres/groupIngredientesQuitados de "@/lib/pedido-item-personalizacion" antes de usarlo en JSX. */
+  ingredientesQuitados: unknown
   talle: string
   color: string
   producto?: { id: string; nombre: string; imagenUrl: string | null }

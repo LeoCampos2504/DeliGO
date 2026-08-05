@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangle, RefreshCw } from "lucide-react"
+import { AlertTriangle, RefreshCw, StickyNote } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Drawer,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/drawer"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatPrice } from "@/lib/utils"
+import type { IngredienteQuitadoGrupo } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // DeliGO Operaciones — Detalle de pedido (personal PyR + Salón)
@@ -26,6 +27,24 @@ import { formatPrice } from "@/lib/utils"
 // estado/entrega con sus propios mapas de labels ya existentes, para no
 // duplicar ni divergir esos mapas dentro de este componente compartido.
 
+/**
+ * P1-A.1: `ingredientesQuitados` acepta DOS formas, según quién arme el DTO:
+ * - `string[]` (formato histórico/plano) — el que siguen enviando Salón y
+ *   PyR (sus rutas de detalle no fueron tocadas por esta corrección).
+ * - `PedidoDetalleIngredienteQuitadoGrupo[]` (formato agrupado, nuevo) — el
+ *   que arma exclusivamente el detalle de Mozo, ya agrupado y ordenado
+ *   server-side por el grupo/categoría REAL del ingrediente (ver
+ *   src/lib/pedido-item-personalizacion.ts, enrichIngredientesQuitadosConGrupoReal).
+ * `PedidoDetalleItemRow` detecta cuál de las dos formas recibió y renderiza
+ * en consecuencia — ninguna de las dos formas rompe a la otra.
+ *
+ * P1-A.2A-i: alias del tipo ya exportado por el helper compartido (mismo
+ * shape que usan `groupIngredientesQuitados`/`enrichIngredientesQuitadosConGrupoReal`)
+ * en vez de una interfaz local duplicada — una sola fuente de verdad para
+ * "grupo de ingredientes quitados" en todo el código.
+ */
+export type PedidoDetalleIngredienteQuitadoGrupo = IngredienteQuitadoGrupo
+
 export interface PedidoDetalleItemDTO {
   id: string
   nombre: string
@@ -33,7 +52,7 @@ export interface PedidoDetalleItemDTO {
   precio: number
   agregados: Array<{ id?: string; nombre: string; precio: number }>
   secciones: Record<string, string | Record<string, number>>
-  ingredientesQuitados: string[]
+  ingredientesQuitados: string[] | PedidoDetalleIngredienteQuitadoGrupo[]
   talle?: string | null
   color?: string | null
 }
@@ -47,6 +66,8 @@ export interface PedidoDetalleDTO {
   clienteNombre?: string | null
   mesaNumero?: number | null
   empleadoNombre?: string | null
+  /** Nota/aclaración del cliente para todo el pedido (P1-A) — nunca por ítem. Opcional: los llamadores que todavía no la piden simplemente no la pasan. */
+  notas?: string | null
   items: PedidoDetalleItemDTO[]
 }
 
@@ -118,6 +139,18 @@ export function PedidoDetalleDrawer({
                   <PedidoDetalleItemRow key={item.id} item={item} />
                 ))}
               </div>
+              {/* Nota del pedido (P1-A): una sola vez, separada de las personalizaciones de cada ítem. */}
+              {state.data.notas && (
+                <div className="pt-2 mt-1 border-t border-border/50 space-y-1">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
+                    <StickyNote className="h-3 w-3" />
+                    Nota del pedido
+                  </span>
+                  <p className="text-xs text-foreground/90 whitespace-pre-wrap break-words">
+                    {state.data.notas}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -206,18 +239,39 @@ function PedidoDetalleItemRow({ item }: { item: PedidoDetalleItemDTO }) {
               ))}
             </div>
           )}
-          {item.ingredientesQuitados?.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {item.ingredientesQuitados.map((ing, i) => (
-                <span
-                  key={i}
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium"
-                >
-                  Sin {ing}
-                </span>
-              ))}
-            </div>
-          )}
+          {item.ingredientesQuitados?.length > 0 &&
+            (typeof item.ingredientesQuitados[0] === "string" ? (
+              // Formato histórico/plano (Salón, PyR): una sola fila sin agrupar — comportamiento sin cambios.
+              <div className="flex flex-wrap gap-1">
+                {(item.ingredientesQuitados as string[]).map((ing, i) => (
+                  <span
+                    key={i}
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium"
+                  >
+                    Sin {ing}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              // Formato agrupado (Mozo, P1-A.1): un bloque con título por cada grupo real.
+              <div className="space-y-1">
+                {(item.ingredientesQuitados as PedidoDetalleIngredienteQuitadoGrupo[]).map((grupo) => (
+                  <div key={grupo.grupo}>
+                    <p className="text-[9px] font-semibold text-muted-foreground">{grupo.grupo}</p>
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {grupo.ingredientes.map((ing, i) => (
+                        <span
+                          key={i}
+                          className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium"
+                        >
+                          Sin {ing}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
         </div>
       )}
     </div>

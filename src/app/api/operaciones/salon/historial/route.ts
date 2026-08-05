@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -116,7 +117,10 @@ export async function GET(req: NextRequest) {
         secciones: safeParseJSON(item.secciones, {}),
         seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
         ingredientes: safeParseJSON(item.ingredientes, []),
-        ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+        // P1-A.2A-ii: contrato plano estable — la UI de historial (src/app/operaciones/salon/historial/page.tsx)
+        // ya normaliza con getIngredientesQuitadosNombres, así que este endpoint entrega
+        // directamente ese mismo string[] normalizado, nunca un objeto crudo.
+        ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
         talle: item.talle,
         color: item.color,
       })),

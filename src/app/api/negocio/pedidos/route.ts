@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -116,7 +117,10 @@ export async function GET(req: NextRequest) {
           secciones: safeParseJSON(item.secciones, {}),
           seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
           ingredientes: safeParseJSON(item.ingredientes, []),
-          ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+          // P1-A.2A-ii: contrato plano estable (orders-tab.tsx/salon-tab.tsx ya lo
+          // consumen como string[] vía getIngredientesQuitadosNombres) — nunca un
+          // objeto crudo, sin importar el formato persistido.
+          ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
         }
         return parsed
       }),
@@ -359,7 +363,7 @@ export async function PUT(req: NextRequest) {
         secciones: safeParseJSON(item.secciones, {}),
         seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
         ingredientes: safeParseJSON(item.ingredientes, []),
-        ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+        ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
       })),
     })
   } catch (error) {

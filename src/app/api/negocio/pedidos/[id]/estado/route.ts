@@ -6,6 +6,7 @@ import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -357,7 +358,9 @@ export async function PATCH(
         secciones: safeParseJSON(item.secciones, {}),
         seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
         ingredientes: safeParseJSON(item.ingredientes, []),
-        ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+        // P1-A.2A-ii: mismo contrato plano estable que el listado principal
+        // (GET /api/negocio/pedidos) — string[] normalizado, nunca un objeto crudo.
+        ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
       })),
     })
   } catch (error) {

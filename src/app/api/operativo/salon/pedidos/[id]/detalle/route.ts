@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // DeliGO Operaciones - Salon personal: detalle de un pedido de mesa (SOLO LECTURA)
@@ -124,7 +125,16 @@ export async function GET(
             precio: item.precio,
             agregados: safeParseJSON(item.agregados, []),
             secciones: safeParseJSON(item.secciones, {}),
-            ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+            // P1-A.2A-ii: contrato plano (string[]) — el único consumidor de este
+            // endpoint es PedidoDetalleDrawer (src/components/operativo/pedido-detalle.tsx,
+            // vía src/app/operaciones/mi-panel/[slug]/salon/page.tsx), que hoy soporta tanto
+            // este formato como el agrupado. Se eligió NO usar groupIngredientesQuitados
+            // acá: como todavía no existe ningún pedido con `grupo` real persistido, agrupar
+            // solo produciría un único grupo con la etiqueta de fallback ("Ingredientes")
+            // para el 100% de los pedidos actuales — un cambio visual (agrega un título que
+            // hoy no existe) sin ningún beneficio real todavía. Se preserva el string[] plano
+            // exacto que ya renderiza el drawer para esta superficie.
+            ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
             talle: item.talle || null,
             color: item.color || null,
           })),

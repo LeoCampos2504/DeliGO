@@ -55,6 +55,7 @@ import {
 import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { useCartStore, type CartItemAgregado } from "@/store/cart-store"
 import { ReviewDialog } from "@/components/client/review-dialog"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import dynamic from "next/dynamic"
 
 // Dynamic import for the tracking map (heavy Leaflet dependency)
@@ -73,7 +74,8 @@ interface PedidoItem {
   cantidad: number
   agregados: string
   secciones: string
-  ingredientesQuitados: string
+  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de renderizar. */
+  ingredientesQuitados: unknown
   talle: string
   color: string
 }
@@ -121,7 +123,8 @@ interface RepeatOrderItem {
   agregados: { id: string; nombre: string; precio: number }[]
   secciones: Record<string, string | Record<string, number>> | string
   seccionesPrecios: Record<string, number> | string
-  ingredientesQuitados: string[] | string
+  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de usarla. */
+  ingredientesQuitados: unknown
   talle: string
   color: string
   disponible: boolean
@@ -509,15 +512,10 @@ function RepeatOrderDialog({
         }
         if (typeof seccionesParsed !== "object" || Array.isArray(seccionesParsed)) seccionesParsed = {}
 
-        // Parse ingredientes quitados (API may return parsed array or string)
-        let ingredientesQuitados: string[] = []
-        try {
-          ingredientesQuitados = typeof item.ingredientesQuitados === "string"
-            ? JSON.parse(item.ingredientesQuitados || "[]")
-            : (Array.isArray(item.ingredientesQuitados) ? item.ingredientesQuitados : [])
-        } catch {
-          ingredientesQuitados = []
-        }
+        // P1-A.2A-i: el carrito solo acepta el contrato legacy (string[] de
+        // nombres) — la normalización tolera formato histórico o
+        // estructurado de origen, pero siempre entrega nombres planos acá.
+        const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
 
         // Use updated price if available
         const precio = item.precioActual ?? item.precio
@@ -739,15 +737,10 @@ function RepeatOrderDialog({
                     })()}
                     {/* Ingredientes quitados */}
                     {item.disponible && (() => {
-                      let parsed: string[] = []
-                      try {
-                        parsed = typeof item.ingredientesQuitados === "string"
-                          ? JSON.parse(item.ingredientesQuitados || "[]")
-                          : (Array.isArray(item.ingredientesQuitados) ? item.ingredientesQuitados : [])
-                      } catch { parsed = [] }
-                      return parsed.length > 0 ? (
+                      const nombres = getIngredientesQuitadosNombres(item.ingredientesQuitados)
+                      return nombres.length > 0 ? (
                         <p className="text-[11px] text-orange-600/70 dark:text-orange-400/70 mt-0.5">
-                          Sin {parsed.join(", ")}
+                          Sin {nombres.join(", ")}
                         </p>
                       ) : null
                     })()}
@@ -1480,14 +1473,8 @@ function ItemsList({ items }: { items: PedidoItem[] }) {
           secciones = []
         }
 
-        // Parse ingredientes quitados
-        let ingredientesQuitados: string[] = []
-        try {
-          const parsed = JSON.parse(item.ingredientesQuitados || "[]")
-          ingredientesQuitados = Array.isArray(parsed) ? parsed : []
-        } catch {
-          ingredientesQuitados = []
-        }
+        // Parse ingredientes quitados (P1-A.2A-i: acepta formato histórico o estructurado)
+        const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
 
         return (
           <div key={item.id} className="flex items-start gap-3 p-2 rounded-lg bg-muted/30">

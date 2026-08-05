@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: detalle de un pedido activo (SOLO LECTURA)
@@ -121,7 +122,11 @@ export async function GET(
             precio: item.precio,
             agregados: safeParseJSON(item.agregados, []),
             secciones: safeParseJSON(item.secciones, {}),
-            ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+            // P1-A.2A-ii: mismo razonamiento que el detalle operativo de Salón — el único
+            // consumidor es PedidoDetalleDrawer (vía src/app/operaciones/mi-panel/[slug]/pyr/pedidos/page.tsx),
+            // que soporta ambos formatos, pero agrupar hoy solo mostraría un grupo de
+            // fallback sin ningún dato real de grupo detrás — se preserva el string[] plano.
+            ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
             talle: item.talle || null,
             color: item.color || null,
           })),

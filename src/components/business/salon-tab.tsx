@@ -72,6 +72,7 @@ import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // Types
@@ -139,7 +140,8 @@ interface PedidoMesa {
     secciones: Record<string, string | Record<string, number>>
     seccionesPrecios: Record<string, number>
     ingredientes: string[]
-    ingredientesQuitados: string[]
+    /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de renderizar. */
+    ingredientesQuitados: unknown
     talle?: string
     color?: string
   }>
@@ -1786,7 +1788,8 @@ function MesaDetailDrawer({
                   {/* Items detail */}
                   <div className="space-y-2">
                     {order.items.map((item) => {
-                      const hasDetails = (item.agregados?.length > 0) || (Object.keys(item.secciones || {}).length > 0) || (item.ingredientesQuitados?.length > 0) || item.talle || item.color
+                      const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
+                      const hasDetails = (item.agregados?.length > 0) || (Object.keys(item.secciones || {}).length > 0) || (ingredientesQuitados.length > 0) || item.talle || item.color
                       return (
                         <div key={item.id}>
                           <div className="flex items-center justify-between text-xs">
@@ -1829,9 +1832,9 @@ function MesaDetailDrawer({
                                   ))}
                                 </div>
                               )}
-                              {item.ingredientesQuitados?.length > 0 && (
+                              {ingredientesQuitados.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
-                                  {item.ingredientesQuitados.map((ing, i) => (
+                                  {ingredientesQuitados.map((ing, i) => (
                                     <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium">Sin {ing}</span>
                                   ))}
                                 </div>

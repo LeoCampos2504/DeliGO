@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -111,7 +112,10 @@ export async function GET(req: NextRequest) {
         secciones: safeParseJSON(item.secciones, {}),
         seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
         ingredientes: safeParseJSON(item.ingredientes, []),
-        ingredientesQuitados: safeParseJSON(item.ingredientesQuitados, []),
+        // P1-A.2A-ii: contrato plano estable — deliveries-tab.tsx no renderiza este campo
+        // hoy, pero el endpoint no debe propagar un objeto crudo bajo un tipo históricamente
+        // documentado como texto.
+        ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
       })),
     }))
 

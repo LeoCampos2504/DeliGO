@@ -7,6 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import {
+  PedidoDetalleDrawer,
+  type PedidoDetalleState,
+} from "@/components/operativo/pedido-detalle"
+import {
   AlertTriangle,
   Armchair,
   ArrowLeft,
@@ -14,6 +18,7 @@ import {
   BellRing,
   CheckCircle2,
   Download,
+  Eye,
   Loader2,
   LogOut,
   Receipt,
@@ -218,6 +223,84 @@ export default function MozoSalonPanelPage() {
     setState({ status: "loading" })
     router.replace(nav.homeHref)
   }, [invalidateSilentRefresh, router, nav.homeHref])
+
+  // Detalle de un pedido de mesa (drawer, bajo demanda — P1-A). Mismo patrón
+  // exacto que el detalle de Salón (src/app/operaciones/mi-panel/[slug]/salon/page.tsx):
+  // independiente del refresco del panel, una sola solicitud activa a la vez
+  // (abort de la anterior) + guardia de generación propia contra respuestas
+  // fuera de orden.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null)
+  const [detalleState, setDetalleState] = useState<PedidoDetalleState | null>(null)
+  const detalleAcRef = useRef<AbortController | null>(null)
+  const detalleGenRef = useRef(0)
+
+  const cerrarDetalle = useCallback(() => {
+    detalleAcRef.current?.abort()
+    detalleAcRef.current = null
+    detalleGenRef.current += 1
+    setDetalleAbierto(null)
+    setDetalleState(null)
+  }, [])
+
+  const cargarDetalle = useCallback(
+    async (pedidoId: string) => {
+      detalleAcRef.current?.abort()
+      const ac = new AbortController()
+      detalleAcRef.current = ac
+      const generation = ++detalleGenRef.current
+      setDetalleState({ status: "loading" })
+
+      try {
+        const query = new URLSearchParams({ slug })
+        const res = await fetch(
+          `/api/operativo/mozo/pedidos/${encodeURIComponent(pedidoId)}/detalle?${query.toString()}`,
+          { cache: "no-store", signal: ac.signal }
+        )
+        const data = await res.json().catch(() => ({}))
+        if (generation !== detalleGenRef.current) return
+
+        // Pérdida de área/sesión mientras el detalle estaba abierto: misma salida
+        // atómica que el resto del panel — cierra el drawer, no deja datos visibles.
+        if (data.estado === "area_no_habilitada") {
+          cerrarDetalle()
+          redirectToPersonalHomeAfterAreaLoss()
+          return
+        }
+        if (res.status === 401 || data.estado === "sin_sesion") {
+          cerrarDetalle()
+          setState({ status: "no-session" })
+          return
+        }
+        if (res.status === 403 || data.estado === "acceso_no_disponible") {
+          cerrarDetalle()
+          setState({ status: "unavailable" })
+          return
+        }
+        // 404 (pedido fuera de alcance) u otro error: error local del drawer, con
+        // reintento — no afecta al resto del panel ni a otros pedidos.
+        if (!res.ok || !data.ok || !data.pedido) {
+          setDetalleState({ status: "error" })
+          return
+        }
+
+        setDetalleState({ status: "ready", data: data.pedido })
+      } catch {
+        if (ac.signal.aborted || generation !== detalleGenRef.current) return
+        setDetalleState({ status: "error" })
+      } finally {
+        if (detalleAcRef.current === ac) detalleAcRef.current = null
+      }
+    },
+    [slug, cerrarDetalle, redirectToPersonalHomeAfterAreaLoss]
+  )
+
+  const abrirDetalle = useCallback(
+    (pedidoId: string) => {
+      setDetalleAbierto(pedidoId)
+      void cargarDetalle(pedidoId)
+    },
+    [cargarDetalle]
+  )
 
   const scrollToMesa = useCallback((mesaId: string) => {
     const element = document.getElementById(`mesa-${mesaId}`)
@@ -1029,6 +1112,7 @@ export default function MozoSalonPanelPage() {
                         onOrder={() => router.push(nav.pedidoHref(slug, mesa.id))}
                         onEntregar={(pedidoId) => handleEntregarPedido(mesa.id, pedidoId)}
                         onOccupancyClosed={() => void loadPanel({ silent: true })}
+                        onVerDetalle={abrirDetalle}
                       />
                     )
                   })}
@@ -1038,6 +1122,29 @@ export default function MozoSalonPanelPage() {
           )}
         </div>
       </div>
+
+      {/* Detalle de pedido de mesa (drawer, bajo demanda — P1-A) */}
+      <PedidoDetalleDrawer
+        open={detalleAbierto != null}
+        onOpenChange={(open) => {
+          if (!open) cerrarDetalle()
+        }}
+        state={detalleState}
+        onRetry={() => {
+          if (detalleAbierto) void cargarDetalle(detalleAbierto)
+        }}
+        title={
+          detalleState?.status === "ready" && detalleState.data.mesaNumero != null
+            ? `Mesa ${detalleState.data.mesaNumero}`
+            : "Detalle del pedido"
+        }
+        estadoLabel={
+          detalleState?.status === "ready"
+            ? ESTADO_LABEL[detalleState.data.estado] ?? detalleState.data.estado
+            : ""
+        }
+        nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
+      />
     </main>
   )
 }
@@ -1051,6 +1158,7 @@ function MesaCard({
   onOrder,
   onEntregar,
   onOccupancyClosed,
+  onVerDetalle,
 }: {
   mesa: MesaOperativa
   loading: boolean
@@ -1060,6 +1168,7 @@ function MesaCard({
   onOrder: () => void
   onEntregar: (pedidoId: string) => void
   onOccupancyClosed: () => void
+  onVerDetalle: (pedidoId: string) => void
 }) {
   const readyOrders = mesa.pedidosActivos.filter((pedido) => pedido.estado === "listo_para_retirar")
 
@@ -1150,11 +1259,22 @@ function MesaCard({
         </div>
 
         {mesa.pedidosActivos.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1.5">
             {mesa.pedidosActivos.map((pedido) => (
-              <Badge key={pedido.id} variant="outline" className="rounded-full text-[10px]">
-                {ESTADO_LABEL[pedido.estado] ?? pedido.estado}
-              </Badge>
+              <button
+                key={pedido.id}
+                type="button"
+                onClick={() => onVerDetalle(pedido.id)}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 text-left transition hover:bg-muted/60"
+              >
+                <Badge variant="outline" className="rounded-full text-[10px]">
+                  {ESTADO_LABEL[pedido.estado] ?? pedido.estado}
+                </Badge>
+                <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                  <Eye className="h-3 w-3" />
+                  Ver detalle
+                </span>
+              </button>
             ))}
           </div>
         )}

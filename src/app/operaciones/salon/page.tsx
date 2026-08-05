@@ -42,6 +42,7 @@ import { Logo } from "@/components/shared/logo"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
+import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
 // Tipos (espejo del panel seguro de Salón)
@@ -68,7 +69,8 @@ interface PedidoItem {
   precio: number
   agregados: Array<{ id?: string; nombre: string; precio: number }>
   secciones: Record<string, string | Record<string, number>>
-  ingredientesQuitados: string[]
+  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de renderizar. */
+  ingredientesQuitados: unknown
   talle?: string | null
   color?: string | null
 }
@@ -1020,10 +1022,11 @@ function PedidoCard({
 
       <div className="space-y-2">
         {order.items.map((item) => {
+          const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
           const hasDetails =
             (item.agregados?.length ?? 0) > 0 ||
             Object.keys(item.secciones || {}).length > 0 ||
-            (item.ingredientesQuitados?.length ?? 0) > 0 ||
+            ingredientesQuitados.length > 0 ||
             item.talle ||
             item.color
           return (
@@ -1072,9 +1075,9 @@ function PedidoCard({
                       ))}
                     </div>
                   )}
-                  {item.ingredientesQuitados?.length > 0 && (
+                  {ingredientesQuitados.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {item.ingredientesQuitados.map((ing, i) => (
+                      {ingredientesQuitados.map((ing, i) => (
                         <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium">
                           Sin {ing}
                         </span>
