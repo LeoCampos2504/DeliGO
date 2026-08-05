@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
 import { operacionesSalonNewOrderNotification, sendPushNotification } from "@/lib/push"
 
 type NotifySalonNewOrderParams = {
@@ -100,7 +101,13 @@ export async function notifySalonNewOrderForOperations(
     return { attemptedEndpoints: [] }
   }
 
-  const panelUrl = `/operaciones/mi-panel/${encodeURIComponent(params.slug)}/salon`
+  // P1-C: se agrega `pedidoId` al destino interno (misma convención de deep-link
+  // ya usada por orders-tab.tsx) para que el Service Worker pueda navegar directo
+  // al pedido/mesa correspondiente en vez de solo abrir el panel general.
+  const panelUrl = buildPedidoDeepLinkUrl(
+    `/operaciones/mi-panel/${encodeURIComponent(params.slug)}/salon`,
+    params.pedidoId
+  )
   const payload = operacionesSalonNewOrderNotification(
     params.pedidoId,
     params.mesaNumero,

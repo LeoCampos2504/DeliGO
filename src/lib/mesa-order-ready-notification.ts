@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
 import { mesaOrderReadyNotification, sendPushNotification } from "@/lib/push"
 
 type ReadyMesaPedido = {
@@ -224,7 +225,13 @@ export async function notifyMesaOrderReadyForMozo({
   const mesaNumero = await resolveMesaNumero(pedido)
   if (mesaNumero === null) return
 
-  const panelUrl = `/mozo/panel/${encodeURIComponent(pedido.negocioSlug)}`
+  // P1-C: se agrega `pedidoId` al destino interno (misma convención de deep-link
+  // ya usada por orders-tab.tsx) para que el Service Worker pueda navegar directo
+  // al pedido/mesa correspondiente en vez de solo abrir el panel general del Mozo.
+  const panelUrl = buildPedidoDeepLinkUrl(
+    `/mozo/panel/${encodeURIComponent(pedido.negocioSlug)}`,
+    pedido.id
+  )
   const payload = mesaOrderReadyNotification(pedido.id, mesaNumero, { panelUrl })
   const persisted = await persistMesaOrderReadyNotificationOnce({
     mozoId: mozo.id,

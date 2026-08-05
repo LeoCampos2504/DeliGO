@@ -187,6 +187,12 @@ export default function MozoSalonPanelPage() {
   const router = useRouter()
   const nav = useOperativoNav()
   const slug = params.slug
+  // P1-C: deep-link desde una notificación push de pedido de mesa (mismo patrón de
+  // consumo-único que orders-tab.tsx: `focusPedidoId`/`focusResolved`, `?pedidoId=`,
+  // leído una sola vez de `window.location.search` al montar y limpiado con
+  // `history.replaceState` para no reabrirse en renders/pollings posteriores).
+  const [focusPedidoId, setFocusPedidoId] = useState<string | null>(null)
+  const [focusResolved, setFocusResolved] = useState(false)
   const [state, setState] = useState<PageState>({ status: "loading" })
   const [actionMesaIds, setActionMesaIds] = useState<Set<string>>(() => new Set())
   const [entregandoIds, setEntregandoIds] = useState<Set<string>>(() => new Set())
@@ -301,6 +307,32 @@ export default function MozoSalonPanelPage() {
     },
     [cargarDetalle]
   )
+
+  // P1-C: lee `?pedidoId=` una sola vez al montar (deep-link desde una notificación
+  // push de "pedido listo") y limpia el parámetro de la URL de inmediato, para que
+  // no vuelva a dispararse en un remonte, en un refresh de router, ni al compartir
+  // la URL ya limpia.
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const pid = urlParams.get("pedidoId")
+    if (!pid) return
+    setFocusPedidoId(pid)
+    setFocusResolved(false)
+    urlParams.delete("pedidoId")
+    const newSearch = urlParams.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+  }, [])
+
+  // La apertura reutiliza exactamente `abrirDetalle` (el mismo camino que un click
+  // manual en un pedido): el drawer y `cargarDetalle` ya revalidan sesión/área/scope
+  // server-side en cada llamada, así que un `pedidoId` ajeno, entregado, cancelado o
+  // fuera de alcance simplemente muestra el estado de error ya existente del drawer
+  // (sin datos filtrados) en vez de romper el panel general, que sigue visible detrás.
+  useEffect(() => {
+    if (state.status !== "ready" || !focusPedidoId || focusResolved) return
+    abrirDetalle(focusPedidoId)
+    setFocusResolved(true)
+  }, [state.status, focusPedidoId, focusResolved, abrirDetalle])
 
   const scrollToMesa = useCallback((mesaId: string) => {
     const element = document.getElementById(`mesa-${mesaId}`)
