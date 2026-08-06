@@ -48,6 +48,7 @@ import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSeccio
 import { CartPanel } from "@/components/cart/cart-panel"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
 import { MesaSelectorSheet } from "@/components/business/mesa-selector-sheet"
+import { MesaClienteCuentaPanel } from "@/components/shared/mesa-cliente-cuenta-panel"
 import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
@@ -964,6 +965,11 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             </button>
           )}
         </div>
+      )}
+
+      {/* ===== CUENTA PÚBLICA DE MESA (cliente, 23-B) ===== */}
+      {isMesaOrder && mesaNumero && !isAuthenticatedMozo && (
+        <MesaClienteCuentaPanel slug={slug} mesaNumero={mesaNumero} colorPrincipal={negocio.colorPrincipal} />
       )}
 
       {/* ===== CLOSED BANNER ===== */}
