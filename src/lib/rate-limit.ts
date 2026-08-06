@@ -33,6 +33,19 @@ export const RATE_LIMITS = {
   // varias personas de una misma mesa pueden comprobar casi al mismo tiempo,
   // y un reintento tras "inaccurate"/"timeout" no debe agotarse enseguida.
   mesaGeofence: { maxRequests: 20, windowMs: 5 * 60 * 1000 },      // 20 per 5 min
+  // 23-B: lectura pública de la cuenta de mesa por el cliente, pensada para
+  // polling periódico (no un intento único como mesaGeofence) y para varios
+  // dispositivos de la misma mesa que puedan compartir la misma IP (wifi del
+  // local) — generoso a propósito, nunca debe cortar un polling normal.
+  mesaCuentaPublica: { maxRequests: 180, windowMs: 5 * 60 * 1000 }, // 180 per 5 min
+  // 23-B-CORRECCIÓN-1: límite grueso por IP SOLA (sin slug/mesa en la
+  // clave), evaluado antes que `mesaCuentaPublica` — acota el total de
+  // combinaciones de slug/mesa que un mismo IP puede probar por ventana,
+  // independientemente de que cada combinación individual todavía tenga
+  // cupo en su propia clave (`ip:slug:mesa`). 600/5min ~ 2 req/s sostenidos:
+  // muy por encima de cualquier polling legítimo de varios dispositivos
+  // reales en una misma mesa, pero acota la explotación de cardinalidad.
+  mesaCuentaPublicaIp: { maxRequests: 600, windowMs: 5 * 60 * 1000 }, // 600 per 5 min
   // 24-A: OAuth Superadmin — bucket propio, separado de "login" (clave
   // compartida legacy) y de "operativoJoin" (Google operativo), para que un
   // abuso en cualquiera de los otros dos no afecte ni se vea afectado por
