@@ -893,6 +893,11 @@ export default function SalonPersonalPage() {
         }
         estadoLabel={detalleState?.status === "ready" ? estadoLabel(detalleState.data.estado) : ""}
         nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
+        cancelarPedido={{
+          onCancelled: () => {
+            void loadPanel({ silent: true })
+          },
+        }}
       />
     </Shell>
   )

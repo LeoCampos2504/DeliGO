@@ -1177,6 +1177,12 @@ export default function MozoSalonPanelPage() {
             : ""
         }
         nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
+        cancelarPedido={{
+          onCancelled: () => {
+            invalidateSilentRefresh()
+            void loadPanel({ silent: true })
+          },
+        }}
       />
     </main>
   )

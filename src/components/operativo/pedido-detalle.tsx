@@ -12,6 +12,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatPrice } from "@/lib/utils"
 import type { IngredienteQuitadoGrupo } from "@/lib/pedido-item-personalizacion"
+import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
+import type { CancelarPedidoMesaExito } from "@/lib/mesa-pedido-cancelacion-client"
 
 // ============================================
 // DeliGO Operaciones — Detalle de pedido (personal PyR + Salón)
@@ -87,6 +89,19 @@ interface PedidoDetalleDrawerProps {
   estadoLabel: string
   /** Nombre a mostrar sobre el listado de productos (cliente o mozo asignado). */
   nombreMostrado?: string | null
+  /**
+   * 23-A2: acción de cancelación opcional. Solo Mozo y Salón personal la
+   * pasan (23-A1 autoriza esos actores + Salón terminal + Negocio/admin,
+   * ninguno de los cuales usa este drawer compartido salvo Mozo/Salón). PyR
+   * (src/app/operaciones/mi-panel/[slug]/pyr/pedidos/page.tsx) también
+   * reusa este mismo componente pero NUNCA pasa esta prop — 23-A1 no
+   * autoriza a PyR a cancelar pedidos de mesa, y CancelarPedidoMesaDialog
+   * ya es deny-by-default por su cuenta, pero mantenerlo opt-in evita que
+   * el botón aparezca ahí aunque sea inerte.
+   */
+  cancelarPedido?: {
+    onCancelled: (pedido: CancelarPedidoMesaExito) => void
+  }
 }
 
 export function PedidoDetalleDrawer({
@@ -97,6 +112,7 @@ export function PedidoDetalleDrawer({
   title,
   estadoLabel,
   nombreMostrado,
+  cancelarPedido,
 }: PedidoDetalleDrawerProps) {
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -155,10 +171,23 @@ export function PedidoDetalleDrawer({
           )}
         </div>
 
-        <DrawerFooter className="border-t pt-3">
-          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
+        <DrawerFooter className="border-t pt-3 flex-row gap-2">
+          <Button variant="outline" className="rounded-xl flex-1" onClick={() => onOpenChange(false)}>
             Cerrar
           </Button>
+          {cancelarPedido && state?.status === "ready" && (
+            <CancelarPedidoMesaDialog
+              pedidoId={state.data.id}
+              estado={state.data.estado}
+              metodoEntrega={state.data.metodoEntrega}
+              referencia={title}
+              onCancelled={(pedido) => {
+                cancelarPedido.onCancelled(pedido)
+                onOpenChange(false)
+              }}
+              className="flex-1 h-9"
+            />
+          )}
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

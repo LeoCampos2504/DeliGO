@@ -73,6 +73,7 @@ import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
+import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 // ============================================
@@ -1850,22 +1851,37 @@ function MesaDetailDrawer({
                     })}
                   </div>
 
-                  {/* Action button */}
-                  {nextAction && (
-                    <Button
-                      size="sm"
-                      className={cn("w-full rounded-xl gap-1.5 font-semibold h-8 text-xs text-white", nextAction.color)}
-                      onClick={() => updateStatusMutation.mutate({ pedidoId: order.id, estado: nextAction.nextEstado })}
-                      disabled={updateStatusMutation.isPending}
-                    >
-                      {updateStatusMutation.isPending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      )}
-                      {nextAction.label}
-                    </Button>
-                  )}
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2">
+                    {nextAction && (
+                      <Button
+                        size="sm"
+                        className={cn("flex-1 rounded-xl gap-1.5 font-semibold h-8 text-xs text-white", nextAction.color)}
+                        onClick={() => updateStatusMutation.mutate({ pedidoId: order.id, estado: nextAction.nextEstado })}
+                        disabled={updateStatusMutation.isPending}
+                      >
+                        {updateStatusMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        {nextAction.label}
+                      </Button>
+                    )}
+                    <CancelarPedidoMesaDialog
+                      pedidoId={order.id}
+                      estado={order.estado}
+                      metodoEntrega={order.metodoEntrega}
+                      referencia={order.mesaNumero != null ? `Mesa ${order.mesaNumero}` : undefined}
+                      onCancelled={() => {
+                        queryClient.invalidateQueries({ queryKey: ["mesa-orders", negocio.id] })
+                        queryClient.invalidateQueries({ queryKey: ["negocio-pedidos", negocio.id] })
+                        queryClient.invalidateQueries({ queryKey: [TAB_COUNTS_KEY] })
+                        queryClient.invalidateQueries({ queryKey: ["salon-stats", negocio.id] })
+                      }}
+                      className={cn("h-8", nextAction ? "flex-1" : "w-full")}
+                    />
+                  </div>
                 </motion.div>
               )
             })}

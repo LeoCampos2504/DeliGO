@@ -41,6 +41,7 @@ import {
 import { Logo } from "@/components/shared/logo"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
+import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
@@ -846,6 +847,7 @@ function SalonView({
                     capacidades={data.capacidades}
                     saving={actingIds.has(order.id)}
                     onAction={onAction}
+                    onCancelled={onRefresh}
                   />
                 ))}
               </div>
@@ -996,11 +998,13 @@ function PedidoCard({
   capacidades,
   saving,
   onAction,
+  onCancelled,
 }: {
   order: PedidoPanel
   capacidades: Capacidades
   saving: boolean
   onAction: (pedidoId: string, estado: string) => void
+  onCancelled: () => void
 }) {
   const cfg = STATUS_CONFIG[order.estado]
   const StatusIcon = cfg?.icon ?? Clock
@@ -1095,17 +1099,27 @@ function PedidoCard({
         })}
       </div>
 
-      {action && (
-        <Button
-          size="sm"
-          className="w-full rounded-xl gap-1.5 h-9 text-sm font-semibold"
-          onClick={() => onAction(order.id, action.target)}
-          disabled={saving}
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {action.label}
-        </Button>
-      )}
+      <div className="flex items-center gap-2">
+        {action && (
+          <Button
+            size="sm"
+            className="flex-1 rounded-xl gap-1.5 h-9 text-sm font-semibold"
+            onClick={() => onAction(order.id, action.target)}
+            disabled={saving}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {action.label}
+          </Button>
+        )}
+        <CancelarPedidoMesaDialog
+          pedidoId={order.id}
+          estado={order.estado}
+          metodoEntrega="mesa"
+          referencia={order.mesaNumero != null ? `Mesa ${order.mesaNumero}` : undefined}
+          onCancelled={onCancelled}
+          className={cn("h-9", action ? "flex-1" : "w-full")}
+        />
+      </div>
     </div>
   )
 }
