@@ -547,9 +547,20 @@ model RepartidorNegocio {
 // ============================================
 // SUPERADMIN
 // ============================================
+// 24-A: Google-only con bootstrap seguro.
+// "password" queda nullable y sin uso — código de login por clave común
+// retirado (src/app/api/auth/login/route.ts). No se elimina la columna acá
+// para no forzar una migración destructiva sobre datos legacy.
+// "googleSub" (claim `sub` de Google, @unique) es la única autoridad de
+// identidad estable una vez vinculada — el email nunca la reemplaza. La
+// unicidad a nivel de base es lo que garantiza que un bootstrap concurrente
+// nunca vincule dos filas a la misma identidad de Google.
 model SuperAdmin {
   id               String   @id @default(cuid())
-  password         String
+  password         String?
+  email            String?
+  googleSub        String?  @unique
+  activo           Boolean  @default(true)
   pushSubscription String?
   createdAt        DateTime @default(now())
 
