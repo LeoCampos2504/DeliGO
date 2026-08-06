@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { fetchMesaOccupancyStatus } from "@/lib/mesa-occupancy-client"
+import { ACCOUNT_PRINTING_ENABLED } from "@/lib/printing-feature"
 import type { CuentaMesaResult } from "@/lib/mesa-cuenta"
 
 // ============================================
@@ -36,9 +37,16 @@ import type { CuentaMesaResult } from "@/lib/mesa-cuenta"
 // pide la cuenta server-side (GET /api/operaciones/ocupaciones/[id]/cuenta),
 // muestra vista previa + ticket, y cierra la cuenta (POST a la misma ruta)
 // con confirmación explícita. Nunca calcula el total en el cliente — el
-// total mostrado es siempre el que devuelve el servidor. Impresión vía
-// `window.print()` del navegador (ver @media print en globals.css); nunca
-// WebUSB/Web Serial/ESC-POS (eso queda para P3).
+// total mostrado es siempre el que devuelve el servidor.
+//
+// Impresión (P3-PARK): el botón "Imprimir"/"Imprimir vista previa"
+// (`window.print()` del navegador, ver @media print en globals.css) queda
+// condicionado por `ACCOUNT_PRINTING_ENABLED` (src/lib/printing-feature.ts,
+// default deshabilitado) — decisión de producto: la impresión no es
+// prioridad actual, se oculta hasta reactivarla. "Ver cuenta"/"Cerrar
+// cuenta" nunca dependen de esa bandera. Nunca WebUSB/Web Serial/ESC-POS en
+// este componente — esa infraestructura (P3-A/P3-B1) permanece intacta en
+// src/lib/thermal-print/, sin ninguna integración de UI todavía.
 
 type CuentaResponse = CuentaMesaResult & {
   ok: true
@@ -378,26 +386,30 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className }: MesaCuentaDi
                       </p>
                     )}
                   </div>
-                  <div className="flex w-full shrink-0 flex-col-reverse gap-2 sm:w-auto sm:flex-row">
-                    <Button
-                      variant="outline"
-                      className="w-full gap-1.5 rounded-xl sm:w-auto"
-                      onClick={() => window.print()}
-                    >
-                      <Printer className="h-4 w-4" />
-                      {cuenta.closed ? "Imprimir" : "Imprimir vista previa"}
-                    </Button>
-                    {!cuenta.closed && (
-                      <Button
-                        className="w-full gap-1.5 rounded-xl sm:w-auto"
-                        disabled={!cuenta.puedeCerrar}
-                        onClick={() => setConfirmCloseOpen(true)}
-                      >
-                        <Lock className="h-4 w-4" />
-                        Cerrar cuenta
-                      </Button>
-                    )}
-                  </div>
+                  {(ACCOUNT_PRINTING_ENABLED || !cuenta.closed) && (
+                    <div className="flex w-full shrink-0 flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+                      {ACCOUNT_PRINTING_ENABLED && (
+                        <Button
+                          variant="outline"
+                          className="w-full gap-1.5 rounded-xl sm:w-auto"
+                          onClick={() => window.print()}
+                        >
+                          <Printer className="h-4 w-4" />
+                          {cuenta.closed ? "Imprimir" : "Imprimir vista previa"}
+                        </Button>
+                      )}
+                      {!cuenta.closed && (
+                        <Button
+                          className="w-full gap-1.5 rounded-xl sm:w-auto"
+                          disabled={!cuenta.puedeCerrar}
+                          onClick={() => setConfirmCloseOpen(true)}
+                        >
+                          <Lock className="h-4 w-4" />
+                          Cerrar cuenta
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </DialogFooter>
