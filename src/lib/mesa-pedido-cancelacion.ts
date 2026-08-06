@@ -47,37 +47,18 @@ import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-c
 // ---------------------------------------------------------------------------
 // Validación del motivo (sección 11)
 // ---------------------------------------------------------------------------
-
-export const MOTIVO_CANCELACION_MIN_LEN = 5
-export const MOTIVO_CANCELACION_MAX_LEN = 500
-
-export type ValidacionMotivoCancelacion =
-  | { ok: true; motivo: string }
-  | { ok: false; error: string }
-
-/**
- * Solo hace `trim()` y valida longitud — nunca elimina/transforma contenido
- * válido del motivo (React escapa al renderizar más adelante, no acá).
- */
-export function validarMotivoCancelacionMesa(value: unknown): ValidacionMotivoCancelacion {
-  if (typeof value !== "string") {
-    return { ok: false, error: "El motivo de cancelación es obligatorio." }
-  }
-  const motivo = value.trim()
-  if (motivo.length < MOTIVO_CANCELACION_MIN_LEN) {
-    return {
-      ok: false,
-      error: `El motivo debe tener al menos ${MOTIVO_CANCELACION_MIN_LEN} caracteres.`,
-    }
-  }
-  if (motivo.length > MOTIVO_CANCELACION_MAX_LEN) {
-    return {
-      ok: false,
-      error: `El motivo no puede superar los ${MOTIVO_CANCELACION_MAX_LEN} caracteres.`,
-    }
-  }
-  return { ok: true, motivo }
-}
+// 23-A2: constantes y función pura extraídas a mesa-pedido-cancelacion-contract.ts
+// (sin Prisma/next/auth) para que la UI las importe sin arrastrar código
+// server-only. Reexportadas acá tal cual — mismo comportamiento, ningún
+// cambio de validación, status code ni autorización. route.ts y
+// mesa-pedido-cancelacion.test.ts siguen importando estos símbolos desde
+// este archivo sin modificación.
+export {
+  MOTIVO_CANCELACION_MIN_LEN,
+  MOTIVO_CANCELACION_MAX_LEN,
+  validarMotivoCancelacionMesa,
+  type ValidacionMotivoCancelacion,
+} from "@/lib/mesa-pedido-cancelacion-contract"
 
 // ---------------------------------------------------------------------------
 // Actor (sección 9, 10) — resolución EXCLUSIVA desde sesión server-side
