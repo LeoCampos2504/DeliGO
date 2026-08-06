@@ -36,6 +36,13 @@ export type AuditAction =
   // General
   | "sesion.login"
   | "sesion.logout"
+  // Superadmin Google-only (24-A)
+  | "superadmin.google_login"
+  | "superadmin.google_bootstrap"
+  | "superadmin.google_rechazado"
+  | "superadmin.logout"
+  | "superadmin.sesion_revocada"
+  | "superadmin.anomalia_multiples_registros"
 
 interface AuditLogParams {
   userId: string

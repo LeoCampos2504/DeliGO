@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 
 const MAX_DENUNCIAS_BEFORE_BLOCK = 3
 const MAX_SERIALIZATION_RETRIES = 3
@@ -52,14 +52,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const { id } = await params

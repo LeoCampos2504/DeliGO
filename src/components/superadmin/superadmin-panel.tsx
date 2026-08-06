@@ -21,8 +21,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/shared/logo"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/hooks/use-auth"
-import { useAuthStore } from "@/store/auth-store"
 import { useSuperAdminStore, type SuperAdminTab } from "@/store/superadmin-store"
 import { OverviewTab } from "./overview-tab"
 import { PendientesTab } from "./pendientes-tab"
@@ -52,9 +50,22 @@ const tabItems: { id: SuperAdminTab; label: string; icon: typeof Shield }[] = [
 // ============================================
 export function SuperAdminPanel() {
   const { activeTab, setActiveTab, refreshKey } = useSuperAdminStore()
-  const { logout } = useAuth()
-  const authUser = useAuthStore((s) => s.user)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  // 24-A: sesión Superadmin aislada — logout propio, nunca el /api/auth/logout
+  // compartido con cliente/negocio/repartidor.
+  const logout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    try {
+      await fetch("/api/superadmin/auth/logout", { method: "POST" })
+    } catch {
+      // Continuar igual: el objetivo es volver a /admin sin sesión visible.
+    } finally {
+      window.location.href = "/admin"
+    }
+  }
 
   // Fetch dashboard data
   const { data, isLoading } = useQuery({
@@ -64,7 +75,6 @@ export function SuperAdminPanel() {
       if (!res.ok) throw new Error("Error")
       return res.json()
     },
-    enabled: !!authUser?.id,
     refetchInterval: 30000,
   })
 
@@ -102,6 +112,7 @@ export function SuperAdminPanel() {
                 size="icon"
                 className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
                 onClick={logout}
+                disabled={loggingOut}
                 title="Cerrar sesión"
               >
                 <LogOut className="h-4 w-4" />

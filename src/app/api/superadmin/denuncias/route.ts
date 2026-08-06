@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 
 // Seguridad-6B.2: denuncias de usuarios y datos de clientes asociados — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -8,14 +8,9 @@ const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 // GET - List all denuncias for superadmin with filtering and pagination
 export async function GET(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const { searchParams } = new URL(req.url)

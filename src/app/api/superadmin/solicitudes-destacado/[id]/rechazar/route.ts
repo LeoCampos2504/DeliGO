@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }
 
     const { id } = await params

@@ -33,6 +33,12 @@ export const RATE_LIMITS = {
   // varias personas de una misma mesa pueden comprobar casi al mismo tiempo,
   // y un reintento tras "inaccurate"/"timeout" no debe agotarse enseguida.
   mesaGeofence: { maxRequests: 20, windowMs: 5 * 60 * 1000 },      // 20 per 5 min
+  // 24-A: OAuth Superadmin — bucket propio, separado de "login" (clave
+  // compartida legacy) y de "operativoJoin" (Google operativo), para que un
+  // abuso en cualquiera de los otros dos no afecte ni se vea afectado por
+  // intentos sobre la cuenta de mayor privilegio de la plataforma.
+  superadminOAuthStart: { maxRequests: 10, windowMs: 5 * 60 * 1000 },   // 10 per 5 min
+  superadminOAuthCallback: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)
 } as const
 

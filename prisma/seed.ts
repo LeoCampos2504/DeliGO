@@ -27,16 +27,13 @@ async function main() {
   await db.cliente.deleteMany()
   await db.repartidor.deleteMany()
   await db.negocio.deleteMany()
+  // 24-A-CORRECCIÓN-1: el seed ya NO crea ningún SuperAdmin. La única
+  // identidad administrativa válida es Google-only (SUPERADMIN_GOOGLE_SUB
+  // pineado, o bootstrap por SUPERADMIN_GOOGLE_EMAIL +
+  // SUPERADMIN_BOOTSTRAP_ENABLED="true" — ver src/lib/superadmin-auth.ts).
+  // deleteMany() se conserva para dejar la tabla realmente vacía tras
+  // sembrar, lista para un bootstrap real.
   await db.superAdmin.deleteMany()
-
-  // ============================================
-  // SUPERADMIN
-  // ============================================
-  const adminPassword = await hashPassword("admin123")
-  await db.superAdmin.create({
-    data: { password: adminPassword },
-  })
-  console.log("✅ SuperAdmin creado")
 
   // ============================================
   // CLIENTES
@@ -542,7 +539,7 @@ async function main() {
   console.log("📧 Cliente test: test@deligo.com / 123456")
   console.log("🏪 Negocio test: donjorge / 123456")
   console.log("🛵 Repartidor test: repartidor@deligo.com / 123456")
-  console.log("👑 Admin: admin123")
+  console.log("👑 Admin: sin credencial de seed — bootstrap vía Google (ver SUPERADMIN_GOOGLE_SUB / SUPERADMIN_BOOTSTRAP_ENABLED)")
 }
 
 main()

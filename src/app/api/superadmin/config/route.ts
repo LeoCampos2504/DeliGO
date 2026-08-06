@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 
 // Seguridad-6B.2: configuración global de la plataforma — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 
 async function verifySuperAdmin(req: NextRequest) {
-  const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  const user = await getUserFromToken(token)
-  if (!user || user.type !== "superadmin") return null
-  return user
+  const auth = await requireSuperadminSession(req)
+  if (!auth.ok) return null
+  return auth.admin
 }
 
 // GET - Get platform config

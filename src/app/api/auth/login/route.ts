@@ -31,8 +31,10 @@ export async function POST(req: NextRequest) {
         return await loginNegocio(body)
       case "repartidor":
         return await loginRepartidor(body)
-      case "superadmin":
-        return await loginSuperAdmin(body)
+      // 24-A: el acceso Superadmin por clave común queda retirado por
+      // completo — "superadmin" ya no es un `tipo` reconocido acá. El único
+      // camino de autenticación es Google OAuth vía
+      // /api/superadmin/auth/google (ver src/lib/superadmin-auth.ts).
       default:
         return NextResponse.json(
           { error: "Tipo de login inválido" },
@@ -239,46 +241,6 @@ async function loginRepartidor(data: { email: string; password: string }) {
       nombre: repartidor.nombre,
       email: repartidor.email,
       activo: repartidor.activo,
-    },
-  })
-  setCookie(res, token)
-  return res
-}
-
-async function loginSuperAdmin(data: { password: string }) {
-  const { password } = data
-
-  if (!password) {
-    return NextResponse.json(
-      { error: "Contraseña requerida" },
-      { status: 400 }
-    )
-  }
-
-  const admin = await db.superAdmin.findFirst()
-
-  if (!admin) {
-    return NextResponse.json(
-      { error: "No existe una cuenta de administrador" },
-      { status: 401 }
-    )
-  }
-
-  const valid = await comparePassword(password, admin.password)
-  if (!valid) {
-    return NextResponse.json(
-      { error: "Contraseña incorrecta" },
-      { status: 401 }
-    )
-  }
-
-  const token = await createSession(admin.id, "superadmin")
-  const res = NextResponse.json({
-    ok: true,
-    user: {
-      id: admin.id,
-      type: "superadmin",
-      nombre: "SuperAdmin",
     },
   })
   setCookie(res, token)

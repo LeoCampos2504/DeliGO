@@ -1,24 +1,19 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import dynamic from "next/dynamic"
-import { useAuthStore } from "@/store/auth-store"
-import { useAuth } from "@/hooks/use-auth"
-import { useHydrated } from "@/hooks/use-hydrated"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Eye,
-  EyeOff,
-  Loader2,
-  Lock,
-  Shield,
-} from "lucide-react"
-import { toast } from "sonner"
+import { Loader2, Shield } from "lucide-react"
+
+// ============================================
+// DeliGO Superadmin — /admin (24-A: Google-only)
+// ============================================
+// Completamente aislado de useAuthStore/useAuth (cliente/negocio/repartidor):
+// consulta su propia sesión vía GET /api/superadmin/auth/me, usando la
+// cookie dedicada `deligo_superadmin_session`. Nunca mezcla estado con el
+// resto de la app.
 
 const SuperAdminPanel = dynamic(
   () => import("@/components/superadmin/superadmin-panel").then((mod) => mod.SuperAdminPanel),
@@ -67,150 +62,162 @@ const SuperAdminPanel = dynamic(
   }
 )
 
+// Mensajes genéricos únicamente — nunca revelan qué email/sub está
+// autorizado, ni por qué exactamente se rechazó un intento puntual.
+const ERROR_MESSAGES: Record<string, string> = {
+  access_denied: "Acceso cancelado. Intentá nuevamente si fue un error.",
+  invalid_request: "No pudimos completar el inicio de sesión. Intentá de nuevo.",
+  not_authorized: "Esta cuenta de Google no tiene acceso al panel de administración.",
+  server_error: "El acceso de administración no está disponible en este momento.",
+}
+
+type SessionState = "checking" | "authenticated" | "unauthenticated"
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.6 5.6 0 0 1-2.41 3.65v3.03h3.86c2.26-2.09 3.57-5.17 3.57-8.92Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.86-3.03c-1.07.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.28v3.12A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.25a7.2 7.2 0 0 1 0-4.5V6.63H1.28a12 12 0 0 0 0 10.74l3.99-3.12Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.94 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.28 6.63l3.99 3.12C6.22 6.9 8.87 4.75 12 4.75Z"
+      />
+    </svg>
+  )
+}
+
 // ============================================
-// SuperAdmin Login Form (shown when not authenticated)
+// Login screen — únicamente "Continuar con Google"
 // ============================================
-function AdminLoginForm() {
-  const router = useRouter()
-  const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [loading, setLoading] = useState(false)
+function AdminLoginScreen({ errorCode }: { errorCode: string | null }) {
+  const [redirecting, setRedirecting] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
+  const handleContinueWithGoogle = useCallback(() => {
+    if (redirecting) return // evita doble click / doble navegación
+    setRedirecting(true)
+    window.location.href = "/api/superadmin/auth/google"
+  }, [redirecting])
 
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: "superadmin", password }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        toast.error(data.error || "Error al iniciar sesión")
-        return
-      }
-
-      // Update auth store
-      useAuthStore.getState().loginSuperAdmin({
-        id: data.user.id,
-      })
-
-      toast.success("🔐 Panel de administración activado")
-      router.replace("/")
-    } catch {
-      toast.error("Error de conexión. Intentá de nuevo.")
-    } finally {
-      setLoading(false)
-    }
-  }
+  const errorMessage = errorCode ? ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.invalid_request : null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4 py-8">
-      {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-purple-500/5" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full bg-purple-500/3" />
       </div>
 
       <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
-        {/* Header */}
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="h-16 w-16 rounded-3xl bg-gradient-to-br from-purple-600 to-violet-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <Shield className="h-8 w-8 text-white" />
+            <Shield className="h-8 w-8 text-white" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">Panel de Admin</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">DeliGO Superadmin</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Acceso exclusivo de administración
             </p>
           </div>
         </div>
 
-        {/* Login Card */}
-        <Card className="w-full border-border/50 shadow-lg shadow-purple-500/5">
-          <CardContent className="p-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-semibold">
-                  Contraseña de administrador
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 pr-10 h-11 rounded-xl"
-                    required
-                    minLength={6}
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
+        {errorMessage && (
+          <div
+            role="alert"
+            className="w-full rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive text-center"
+          >
+            {errorMessage}
+          </div>
+        )}
 
-              <Button
-                type="submit"
-                className="w-full h-11 rounded-xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white"
-                disabled={loading}
-              >
-                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Acceder"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        <Button
+          type="button"
+          onClick={handleContinueWithGoogle}
+          disabled={redirecting}
+          aria-busy={redirecting}
+          className="w-full h-12 rounded-xl font-semibold text-sm bg-white text-neutral-800 border border-border hover:bg-neutral-50 dark:bg-white dark:text-neutral-800 dark:hover:bg-neutral-100 flex items-center justify-center gap-3"
+        >
+          {redirecting ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <GoogleIcon />
+          )}
+          <span>{redirecting ? "Redirigiendo…" : "Continuar con Google"}</span>
+        </Button>
 
-        {/* Security notice */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-xl p-3">
-          <Shield className="h-4 w-4 shrink-0 text-purple-500" />
+          <Shield className="h-4 w-4 shrink-0 text-purple-500" aria-hidden="true" />
           <span>Este acceso es exclusivo para administradores autorizados de la plataforma.</span>
         </div>
+      </div>
+    </div>
+  )
+}
 
-
+function CheckingSessionScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-4">
+        <div className="h-12 w-12 rounded-2xl bg-purple-500/10 animate-pulse" />
+        <Skeleton className="h-5 w-40 rounded" />
+        <Skeleton className="h-3 w-24 rounded" />
       </div>
     </div>
   )
 }
 
 // ============================================
-// Admin Page: Shows login or panel
+// Admin Page: consulta su propia sesión y decide qué mostrar
 // ============================================
 export default function AdminPage() {
-  const hydrated = useHydrated()
-  useAuth()
-  const isAuth = useAuthStore((s) => s.user !== null)
-  const uType = useAuthStore((s) => s.user?.type ?? null)
+  return (
+    <Suspense fallback={<CheckingSessionScreen />}>
+      <AdminPageContent />
+    </Suspense>
+  )
+}
 
-  // Wait for hydration
-  if (!hydrated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-purple-500/10 animate-pulse" />
-          <Skeleton className="h-5 w-40 rounded" />
-          <Skeleton className="h-3 w-24 rounded" />
-        </div>
-      </div>
-    )
+function AdminPageContent() {
+  const searchParams = useSearchParams()
+  const errorCode = searchParams.get("superadmin_auth_error")
+  const [sessionState, setSessionState] = useState<SessionState>("checking")
+  const hasChecked = useRef(false)
+
+  useEffect(() => {
+    if (hasChecked.current) return
+    hasChecked.current = true
+
+    let cancelled = false
+    fetch("/api/superadmin/auth/me", { cache: "no-store", credentials: "same-origin" })
+      .then((res) => {
+        if (cancelled) return
+        setSessionState(res.ok ? "authenticated" : "unauthenticated")
+      })
+      .catch(() => {
+        if (!cancelled) setSessionState("unauthenticated")
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (sessionState === "checking") {
+    return <CheckingSessionScreen />
   }
 
-  // Not authenticated — show login form
-  if (!isAuth || uType !== "superadmin") {
-    return <AdminLoginForm />
+  if (sessionState === "authenticated") {
+    return <SuperAdminPanel />
   }
 
-  // Authenticated — show panel
-  return <SuperAdminPanel />
+  return <AdminLoginScreen errorCode={errorCode} />
 }

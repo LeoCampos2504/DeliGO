@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { findSesionByToken } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { mkdir, readdir, stat, unlink, writeFile } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
@@ -15,14 +15,9 @@ const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 export async function POST(request: NextRequest) {
   try {
     // Verify superadmin
-    const token = request.cookies.get("deligo_session")?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(request)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const session = await findSesionByToken(token)
-    if (!session || session.userType !== "superadmin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")
@@ -126,14 +121,9 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Verify superadmin
-    const token = request.cookies.get("deligo_session")?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(request)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const session = await findSesionByToken(token)
-    if (!session || session.userType !== "superadmin") {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")

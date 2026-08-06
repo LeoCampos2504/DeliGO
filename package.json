@@ -63,6 +63,7 @@
     "embla-carousel-autoplay": "^8.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.2",
+    "google-auth-library": "^11.0.0",
     "html5-qrcode": "^2.3.8",
     "input-otp": "^1.4.2",
     "leaflet": "^1.9.4",

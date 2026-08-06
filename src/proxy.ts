@@ -19,9 +19,18 @@ import {
 
 const SESSION_COOKIE = "deligo_session"
 
+// 24-A: cookie de sesión Superadmin, aislada de SESSION_COOKIE — nunca
+// mezclada con cliente/negocio/repartidor. Token opaco de 256 bits en hex
+// (ver src/lib/superadmin-auth.ts), no un UUID — de ahí el regex separado.
+const SUPERADMIN_SESSION_COOKIE = "deligo_superadmin_session"
+
 // UUID v4 regex for lightweight session token validation
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+// 32 random bytes, hex-encoded (64 lowercase hex chars) — see
+// generateSuperadminSessionToken in src/lib/superadmin-auth.ts.
+const SUPERADMIN_TOKEN_REGEX = /^[0-9a-f]{64}$/i
 
 // ---------------------------------------------------------------------------
 // Route classification helpers
@@ -36,14 +45,20 @@ const PUBLIC_API_PREFIXES = [
   "/api/upload",    // file upload (auth checked in handler)
   "/api/cloudinary", // Cloudinary config (public)
   "/api/chat/cleanup", // cron cleanup (auth via header secret)
+  // 24-A: inicio/callback/logout/me de OAuth Superadmin — no puede exigir
+  // una cookie que todavía no existe. Cada handler hace su propia
+  // validación real (nunca queda sin protección: ver
+  // src/lib/superadmin-auth.ts requireSuperadminSession).
+  "/api/superadmin/auth",
 ]
 
 /** Role-specific protected route prefixes and the required userType */
-const ROLE_PROTECTED_ROUTES: Array<{ prefix: string; userType: string }> = [
-  { prefix: "/api/cliente", userType: "cliente" },
-  { prefix: "/api/negocio", userType: "negocio" },
-  { prefix: "/api/repartidor", userType: "repartidor" },
-  { prefix: "/api/superadmin", userType: "superadmin" },
+const ROLE_PROTECTED_ROUTES: Array<{ prefix: string; userType: string; cookieName: string; tokenPattern: RegExp }> = [
+  { prefix: "/api/cliente", userType: "cliente", cookieName: SESSION_COOKIE, tokenPattern: UUID_REGEX },
+  { prefix: "/api/negocio", userType: "negocio", cookieName: SESSION_COOKIE, tokenPattern: UUID_REGEX },
+  { prefix: "/api/repartidor", userType: "repartidor", cookieName: SESSION_COOKIE, tokenPattern: UUID_REGEX },
+  // 24-A: cookie y formato de token propios — nunca la cookie compartida.
+  { prefix: "/api/superadmin", userType: "superadmin", cookieName: SUPERADMIN_SESSION_COOKIE, tokenPattern: SUPERADMIN_TOKEN_REGEX },
 ]
 
 /** Routes that require *any* authenticated session */
@@ -185,6 +200,14 @@ function getSessionToken(request: NextRequest): string | null {
   return token
 }
 
+/** Same soft-check idea as getSessionToken, but for an arbitrary cookie/pattern pair. */
+function getCookieToken(request: NextRequest, cookieName: string, pattern: RegExp): string | null {
+  const token = request.cookies.get(cookieName)?.value
+  if (!token) return null
+  if (!pattern.test(token)) return null
+  return token
+}
+
 // ---------------------------------------------------------------------------
 // Route protection logic
 // ---------------------------------------------------------------------------
@@ -215,6 +238,7 @@ function hasHandlerManagedAuth(pathname: string, method: string): boolean {
 }
 
 function checkRouteProtection(
+  request: NextRequest,
   pathname: string,
   method: string,
   token: string | null
@@ -229,18 +253,20 @@ function checkRouteProtection(
     return { allowed: true }
   }
 
-  // 3. Role-specific routes
-  for (const { prefix, userType } of ROLE_PROTECTED_ROUTES) {
+  // 3. Role-specific routes — each entry reads its own cookie/format (24-A's
+  // Superadmin cookie is isolated from the shared SESSION_COOKIE).
+  for (const { prefix, userType, cookieName, tokenPattern } of ROLE_PROTECTED_ROUTES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {
-      if (!token) {
+      const roleToken = getCookieToken(request, cookieName, tokenPattern)
+      if (!roleToken) {
         return {
           allowed: false,
           status: 401,
           message: `Se requiere autenticación de ${userType}`,
         }
       }
-      // Soft check passed — cookie exists and looks like a UUID.
-      // The route handler will do the full userType validation.
+      // Soft check passed — cookie exists and looks well-formed.
+      // The route handler will do the full validation.
       return { allowed: true }
     }
   }
@@ -327,7 +353,7 @@ export function proxy(request: NextRequest) {
   // --- API route protection (soft auth) ---
   if (isApiRoute) {
     const token = getSessionToken(request)
-    const check = checkRouteProtection(pathname, request.method, token)
+    const check = checkRouteProtection(request, pathname, request.method, token)
 
     if (isRouteBlocked(check)) {
       const response = NextResponse.json(

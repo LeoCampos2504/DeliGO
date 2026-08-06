@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireSuperadminSession } from "@/lib/superadmin-auth"
 
 // Seguridad-6B: dashboard de superadmin expone deuda y datos de todos los
 // negocios de la plataforma — nunca cacheable.
@@ -41,14 +41,9 @@ function calcularEstadoSuscripcion(negocio: {
 // GET - SuperAdmin dashboard data
 export async function GET(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
+    const auth = await requireSuperadminSession(req)
+    if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "superadmin") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
 
     // Get all negocios with computed data
