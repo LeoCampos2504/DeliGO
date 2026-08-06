@@ -52,6 +52,7 @@ import { MesaClienteCuentaPanel } from "@/components/shared/mesa-cliente-cuenta-
 import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
+import { resolveEffectiveMesa, shouldFetchCustomerMesaData } from "@/lib/mesa-checkout-transition"
 import dynamic from "next/dynamic"
 import { toast } from "sonner"
 
@@ -145,6 +146,12 @@ interface NegocioAPI {
   // P0-C.1: booleano sanitizado — nunca trae coordenadas del negocio ni
   // fecha de calibración, solo si la geocerca de mesa está lista para pedir.
   mesaGeofenceReady?: boolean
+  // Tarea 20 (Dark Kitchen): ¿este negocio tiene Salón habilitado? Cuando es
+  // `false`, `?mesa=N` nunca debe activar modo mesa — el servidor sigue
+  // siendo la autoridad real (mesa-geofence/mesa-cuenta/pedidos ya
+  // rechazan todo lo de mesa igual), esto es solo para que la UI no
+  // muestre banners/controles de una función que el negocio no ofrece.
+  salonHabilitado?: boolean
   productos: ProductoAPI[]
   productosSinSeccion: ProductoAPI[]
   secciones: SeccionAPI[]
@@ -229,6 +236,18 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     enabled: !!slug,
   })
 
+  // Tarea 20-CORRECCIÓN-1 (Dark Kitchen): `isMesaOrder` (arriba) refleja
+  // ÚNICAMENTE que la URL trae `?mesa=N` — nunca es autoridad de
+  // comportamiento por sí solo (ver auditoría completa en CODEX_REPORT.md,
+  // tabla de usos de `isMesaOrder`). La única fuente de verdad de si ESTE
+  // negocio realmente ofrece pedidos de mesa es `negocio.salonHabilitado`
+  // (booleano sanitizado, ya deriva de `Negocio.salonActivo` server-side —
+  // ver `GET /api/negocios/[slug]`). Se usa para gatear la resolución de
+  // mesa efectiva más abajo (`effectiveMesaNumero`/`effectiveMesaId`), que
+  // es el ÚNICO flag real usado para cualquier comportamiento de mesa en
+  // esta página (geocerca, cuenta pública, checkout, payload del pedido).
+  const salonHabilitadoDelNegocio = !!negocio?.salonHabilitado
+
   // Fetch mozo info when mozo param is present
   const { data: mozoData } = useQuery({
     queryKey: ["mozo-info", mozoParam, negocio?.id, storedMozoToken],
@@ -306,20 +325,38 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   } | null>({
     queryKey: ["customer-mesa", slug, mesaNumero],
     queryFn: async () => {
-      if (!mesaNumero || !slug || isAuthenticatedMozo) return null
+      // Tarea 20-CORRECCIÓN-1/2: nunca consultar mesas-public para un
+      // negocio sin Salón habilitado (ni mientras `negocio` todavía está
+      // cargando) — ni siquiera la consulta debe intentarse.
+      if (!shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo, salonHabilitadoDelNegocio })) return null
       const res = await fetch(`/api/negocio/mesas-public?slug=${slug}`)
       if (!res.ok) return null
       const data = await res.json()
       const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
       return found ?? null
     },
-    enabled: !!mesaNumero && !!slug && !isAuthenticatedMozo,
+    enabled: shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo, salonHabilitadoDelNegocio }),
   })
 
-  // Determine the effective mesa number and ID for cart
-  const effectiveMesaNumero = mesaNumero ?? mozoSelectedMesa?.numero ?? null
-  const effectiveMesaId = mozoSelectedMesa?.id ?? customerMesaData?.id ?? null
-  const isEffectiveMesaOrder = !!effectiveMesaNumero
+  // Determine the effective mesa number and ID for cart.
+  // Tarea 20-CORRECCIÓN-1/2: este es el ÚNICO flag real de comportamiento
+  // de mesa en toda la página. El componente `mesaNumero` (URL del
+  // cliente) solo cuenta si `salonHabilitadoDelNegocio` es true (false
+  // tanto mientras `negocio` carga como cuando el Salón está deshabilitado
+  // — mismo resultado en ambos casos); `mozoSelectedMesa` no se re-gatea
+  // acá porque un mozo autenticado ya implica Salón habilitado (la sesión
+  // de mozo lo exige server-side). Lógica pura extraída a
+  // mesa-checkout-transition.ts (ver sus tests para la matriz completa de
+  // transiciones: carga inicial, true/false, refetch en ambos sentidos,
+  // cambio de mesa) — nunca se guarda una copia derivada en estado, así
+  // que no puede quedar desincronizada.
+  const { effectiveMesaNumero, effectiveMesaId, isEffectiveMesaOrder } = resolveEffectiveMesa({
+    mesaNumero,
+    salonHabilitadoDelNegocio,
+    mozoSelectedMesaNumero: mozoSelectedMesa?.numero ?? null,
+    mozoSelectedMesaId: mozoSelectedMesa?.id ?? null,
+    customerMesaId: customerMesaData?.id ?? null,
+  })
 
   // ============================================
   // P0-C.2: geocerca de mesa en modo enforce
@@ -357,7 +394,16 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     setMesaGeofenceState("idle")
   }
 
-  const shouldCheckMesaGeofence = isMesaOrder && !isAuthenticatedMozo && !!negocio?.mesaGeofenceReady
+  // TAREA-20-CORRECCIÓN-2: equivalente a shouldCheckMesaGeofence() de
+  // mesa-checkout-transition.ts (probada ahí — ver escenario 11), pero
+  // escrita inline a propósito: enrutar esta expresión puntual a través de
+  // esa función rompe la memoización manual del `useCallback` de
+  // runMesaGeofenceCheck ANTERIOR — React Compiler infiere una dependencia
+  // distinta (`setMesaGeofenceState`) apenas esta línea deja de ser una
+  // expresión booleana simple, y se salta la optimización de ese
+  // useCallback por completo (confirmado reproducible: falla igual en una
+  // sola línea). El comportamiento es idéntico en ambas formas.
+  const shouldCheckMesaGeofence = isEffectiveMesaOrder && !isAuthenticatedMozo && !!negocio?.mesaGeofenceReady
 
   const runMesaGeofenceCheck = React.useCallback(async () => {
     if (!mesaNumero) return
@@ -431,11 +477,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const cartTotal = useCartStore((s) => s.total())
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
 
-  // Auth gate helper: check if user can interact with ordering (not for mesa/mozo)
-  const canOrder = isMesaOrder || (isAuthenticated() && userType() === "cliente")
+  // Auth gate helper: check if user can interact with ordering (not for mesa/mozo).
+  // Tarea 20-CORRECCIÓN-1: usa isEffectiveMesaOrder (nunca isMesaOrder crudo)
+  // para que un negocio sin Salón nunca omita login/ubicación solo porque
+  // la URL trae ?mesa=N.
+  const canOrder = isEffectiveMesaOrder || (isAuthenticated() && userType() === "cliente")
 
   const requireAuth = (): boolean => {
-    if (isMesaOrder) return true // mesa orders don't need auth
+    if (isEffectiveMesaOrder) return true // mesa orders don't need auth
     if (!isAuthenticated() || userType() !== "cliente") {
       setAuthModalOpen(true)
       return false
@@ -444,7 +493,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   }
 
   const requireLocation = (): boolean => {
-    if (isMesaOrder) return true // mesa orders don't need location
+    if (isEffectiveMesaOrder) return true // mesa orders don't need location
     if (!deliveryAddress) {
       setAddressSelectorOpen(true)
       return false
@@ -549,7 +598,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   useEffect(() => {
     if (autoOpenProductId && negocio && autoOpenRef.current) {
       // Only auto-open for authenticated users or mesa orders
-      if (!isMesaOrder && !isAuthenticated()) {
+      if (!isEffectiveMesaOrder && !isAuthenticated()) {
         autoOpenRef.current = false
         return
       }
@@ -877,7 +926,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       )}
 
       {/* ===== MESA BANNER (customer via QR, no mozo) ===== */}
-      {isMesaOrder && mesaNumero && !isAuthenticatedMozo && (
+      {/* Tarea 20-CORRECCIÓN-1: gateado por isEffectiveMesaOrder (el único flag real de mesa), nunca por isMesaOrder crudo — nunca se muestra si el negocio no tiene Salón. */}
+      {isEffectiveMesaOrder && effectiveMesaNumero && !isAuthenticatedMozo && (
         <div
           className="mx-4 mt-3 p-3 rounded-2xl border flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300"
           style={{
@@ -899,7 +949,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
               className="text-sm font-bold"
               style={{ color: negocio.colorPrincipal }}
             >
-              Mesa {mesaNumero}
+              Mesa {effectiveMesaNumero}
             </p>
             <p className="text-xs text-muted-foreground">
               {customerMesaData?.mozoAsignado
@@ -968,8 +1018,9 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       )}
 
       {/* ===== CUENTA PÚBLICA DE MESA (cliente, 23-B) ===== */}
-      {isMesaOrder && mesaNumero && !isAuthenticatedMozo && (
-        <MesaClienteCuentaPanel slug={slug} mesaNumero={mesaNumero} colorPrincipal={negocio.colorPrincipal} />
+      {/* Tarea 20-CORRECCIÓN-1: gateado por isEffectiveMesaOrder — nunca se monta el panel si el negocio no tiene Salón. */}
+      {isEffectiveMesaOrder && effectiveMesaNumero && !isAuthenticatedMozo && (
+        <MesaClienteCuentaPanel slug={slug} mesaNumero={effectiveMesaNumero} colorPrincipal={negocio.colorPrincipal} />
       )}
 
       {/* ===== CLOSED BANNER ===== */}

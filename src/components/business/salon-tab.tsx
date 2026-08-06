@@ -233,6 +233,12 @@ export function SalonTab({ negocio }: SalonTabProps) {
   const salonActivo = config?.salonActivo ?? false
   const empleadosActivos = config?.empleadosActivos ?? false
 
+  // Tarea 20 (Dark Kitchen): desactivar Salón puede quedar bloqueado
+  // server-side (mesas ocupadas / pedidos de mesa pendientes) — el mensaje
+  // real del servidor (nunca genérico) se propaga hasta el toast. Activar
+  // nunca tiene reglas de bloqueo.
+  const [confirmDisableSalonOpen, setConfirmDisableSalonOpen] = useState(false)
+
   const toggleSalonMutation = useMutation({
     mutationFn: async (value: boolean) => {
       const res = await fetch("/api/negocio/config", {
@@ -240,7 +246,10 @@ export function SalonTab({ negocio }: SalonTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ salonActivo: value }),
       })
-      if (!res.ok) throw new Error("Error actualizando configuración")
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(typeof body?.error === "string" ? body.error : "Error actualizando configuración")
+      }
       return res.json()
     },
     onSuccess: (data) => {
@@ -250,8 +259,8 @@ export function SalonTab({ negocio }: SalonTabProps) {
       queryClient.invalidateQueries({ queryKey: ["negocio-config", negocio.id] })
       toast.success(data.salonActivo ? "Salón activado" : "Salón desactivado")
     },
-    onError: () => {
-      toast.error("Error al actualizar la configuración")
+    onError: (error: Error) => {
+      toast.error(error.message || "Error al actualizar la configuración")
     },
   })
 
@@ -360,10 +369,54 @@ export function SalonTab({ negocio }: SalonTabProps) {
               </div>
               <Switch
                 checked={salonActivo}
-                onCheckedChange={(v) => toggleSalonMutation.mutate(v)}
+                onCheckedChange={(v) => {
+                  // Activar nunca tiene reglas de bloqueo — se aplica directo.
+                  // Desactivar SIEMPRE se confirma antes (el servidor puede
+                  // igual bloquearlo si hay actividad de mesa real).
+                  if (v) {
+                    toggleSalonMutation.mutate(true)
+                  } else {
+                    setConfirmDisableSalonOpen(true)
+                  }
+                }}
                 disabled={toggleSalonMutation.isPending}
               />
             </div>
+
+            <Dialog open={confirmDisableSalonOpen} onOpenChange={(open) => !toggleSalonMutation.isPending && setConfirmDisableSalonOpen(open)}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>¿Desactivar el salón?</DialogTitle>
+                  <DialogDescription>
+                    Dejarás de recibir pedidos desde mesas con código QR. Tus mesas, números y
+                    códigos QR se conservan — podés volver a habilitar el salón más adelante y
+                    todo seguirá funcionando igual.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setConfirmDisableSalonOpen(false)}
+                    disabled={toggleSalonMutation.isPending}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => {
+                      toggleSalonMutation.mutate(false, {
+                        onSettled: () => setConfirmDisableSalonOpen(false),
+                      })
+                    }}
+                    disabled={toggleSalonMutation.isPending}
+                  >
+                    {toggleSalonMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Desactivar salón"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {!salonActivo ? (
               <div className="text-center py-8 px-4">

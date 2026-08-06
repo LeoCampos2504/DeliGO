@@ -196,7 +196,18 @@ describe("23-B — integración en la página pública", () => {
     const src = read(PUBLIC_PAGE)
     expect(src).toContain('import { MesaClienteCuentaPanel } from "@/components/shared/mesa-cliente-cuenta-panel"')
     expect(src).toMatch(/<MesaClienteCuentaPanel[\s\S]*?\/>/)
-    expect(src).toMatch(/isMesaOrder\s*&&\s*mesaNumero\s*&&\s*!isAuthenticatedMozo/)
+    // Tarea 20-CORRECCIÓN-1/2: el gate real es el ÚNICO flag efectivo de
+    // mesa de toda la página, `isEffectiveMesaOrder` — derivado por
+    // `resolveEffectiveMesa` (lógica pura, mesa-checkout-transition.ts) de
+    // `effectiveMesaNumero`, que a su vez solo toma `mesaNumero` (URL del
+    // cliente) cuando `salonHabilitadoDelNegocio` es true. Nunca isMesaOrder
+    // crudo ni la variable intermedia `mesaHabilitadaParaEsteNegocio` de la
+    // versión anterior (Tarea 20), para que un negocio sin Salón nunca
+    // active el modo mesa aunque la URL traiga `?mesa=N`.
+    expect(src).toContain("const salonHabilitadoDelNegocio = !!negocio?.salonHabilitado")
+    expect(src).toMatch(/const \{ effectiveMesaNumero, effectiveMesaId, isEffectiveMesaOrder \} = resolveEffectiveMesa\(\{/)
+    expect(src).not.toContain("mesaHabilitadaParaEsteNegocio")
+    expect(src).toMatch(/isEffectiveMesaOrder\s*&&\s*effectiveMesaNumero\s*&&\s*!isAuthenticatedMozo/)
   })
 
   test("la página nunca pasa negocioId/mesaId/ocupacionId al panel — solo slug/mesaNumero públicos", () => {

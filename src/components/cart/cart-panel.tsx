@@ -32,6 +32,7 @@ import { cn, formatPrice } from "@/lib/utils"
 import { useCartStore, type CartItem, type DeliveryAddress } from "@/store/cart-store"
 import { toast } from "sonner"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
+import { defaultMetodoEntregaManual, resolveMetodoEntrega } from "@/lib/mesa-checkout-transition"
 
 // ============================================
 // Types
@@ -161,9 +162,26 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [step, setStep] = useState<CartStep>("items")
-  const [metodoEntrega, setMetodoEntrega] = useState<"retiro" | "domicilio" | "mesa">(
-    isMesaOrder ? "mesa" : (negocio.ofreceDelivery ? "domicilio" : "retiro")
+
+  // TAREA-20-CORRECCIÓN-2: `mesaNumero` llega de forma asíncrona (depende de
+  // `negocio.salonHabilitado`, resuelto recién cuando termina la query del
+  // padre) y puede transicionar en cualquier dirección mientras este panel
+  // ya está montado (null -> mesa real, mesa real -> null si el Salón se
+  // desactiva). Guardar `metodoEntrega` como un `useState` inicializado una
+  // sola vez desde `isMesaOrder` quedaría desincronizado apenas ese prop
+  // cambia — el payload podría terminar mezclando `metodoEntrega:"retiro"`
+  // (estado viejo) con un `mesaNumero` fresco, o viceversa. En vez de
+  // resincronizar con un efecto, `metodoEntrega` se DERIVA en cada render a
+  // partir de `isMesaOrder` (siempre al día) y de la elección manual del
+  // usuario para el caso no-mesa — nunca puede quedar stale, porque nunca se
+  // guarda una copia de "mesa" en estado.
+  const [metodoEntregaManual, setMetodoEntregaManual] = useState<"retiro" | "domicilio">(
+    defaultMetodoEntregaManual(negocio.ofreceDelivery)
   )
+  const metodoEntrega = resolveMetodoEntrega({ isMesaOrder, metodoEntregaManual })
+  const setMetodoEntrega = (v: "retiro" | "domicilio" | "mesa") => {
+    if (v !== "mesa") setMetodoEntregaManual(v)
+  }
 
   // Track whether delivery is unavailable due to zone
   const [deliveryUnavailable, setDeliveryUnavailable] = useState(false)
