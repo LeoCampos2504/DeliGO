@@ -20,11 +20,16 @@ export async function GET(req: NextRequest) {
       return clearTerminalSessionCookie(response)
     }
 
+    // `salonActivo` (Tarea 20) se resuelve server-only dentro del contexto
+    // de sesión para que `requireOperacionesArea` lo revalide en cada
+    // request — nunca viaja en esta respuesta JSON.
+    const { salonActivo: _salonActivo, ...negocioSeguro } = ctx.negocio
+
     return NextResponse.json(
       {
         ok: true,
         terminal: ctx.terminal,
-        negocio: ctx.negocio,
+        negocio: negocioSeguro,
       },
       { headers: NO_STORE_HEADERS }
     )

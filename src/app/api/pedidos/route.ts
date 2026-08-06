@@ -23,8 +23,10 @@ import {
   logMesaOccupancyOrderEvent,
   openOrReuseMesaOccupancyForStaff,
   heartbeatOcupacionForStaffOrder,
+  SalonDeshabilitadoError,
 } from "@/lib/mesa-occupancy"
 import { isNegocioOpen } from "@/lib/utils"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import {
   buildIngredientesQuitadosSnapshot,
@@ -729,7 +731,34 @@ function isSafeIdempotentPedido(params: {
   )
 }
 
+// Tarea 20-CORRECCIÓN-1/2: puntos de pausa SOLO para tests deterministas de
+// concurrencia real contra PostgreSQL (ver src/lib/negocio-salon.test.ts,
+// Casos A/B). `POST` (exportado, HTTP-alcanzable) mantiene EXACTAMENTE la
+// firma que Next.js espera (`(request: NextRequest)`, sin segundo parámetro)
+// — el validador de rutas generado (`.next/types/validator.ts`,
+// `RouteHandlerConfig<"/api/pedidos">`) tipa estructuralmente cada export
+// HTTP (GET/POST/...) contra la firma real de Next; un segundo parámetro
+// ahí rompe esa comprobación (confirmado: causó los 2 errores TypeScript
+// nuevos de TAREA-20-CORRECCIÓN-1, ver CODEX_REPORT.md sección de
+// reconciliación 34→36). La implementación real vive en
+// `handlePedidoCreation` (nunca exportada como método HTTP), y el segundo
+// export `POST_FOR_TESTS` — un nombre que Next.js nunca reconoce como
+// método HTTP, así que su validador de rutas ni siquiera lo mira — es la
+// única forma en que un test puede pasar `testHooks`.
+export interface PedidoRouteTestHooks {
+  beforeNegocioFetch?: () => Promise<void>
+  beforeFinalSalonRevalidation?: () => Promise<void>
+}
+
 export async function POST(request: NextRequest) {
+  return handlePedidoCreation(request)
+}
+
+export async function POST_FOR_TESTS(request: NextRequest, testHooks: PedidoRouteTestHooks) {
+  return handlePedidoCreation(request, testHooks)
+}
+
+async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRouteTestHooks) {
   // Concurrency protection: compute lock key before try block so it's accessible in finally
   const ip = getClientIp(request)
   const rlKey = request.cookies.get(SESSION_COOKIE_NAME)?.value || ip
@@ -810,6 +839,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    await testHooks?.beforeNegocioFetch?.()
     const negocio = await db.negocio.findUnique({
       where: { id: negocioId },
     })
@@ -1050,6 +1080,21 @@ export async function POST(request: NextRequest) {
     let requiresMesaOccupancy = false
 
     if (isMesaOrder) {
+      // Tarea 20 (Dark Kitchen): mismo patrón que el chequeo de
+      // `ofreceDelivery` para "domicilio" más abajo — rechazo temprano,
+      // antes de resolver la mesa, para que un negocio sin Salón nunca
+      // filtre si una mesa/mozo existen. La apertura de ocupación (paso
+      // posterior, tanto vía dispositivo como vía personal) revalida esta
+      // misma capacidad DENTRO de su propia transacción — este chequeo acá
+      // es la respuesta rápida y clara para el caso común, no la única
+      // defensa.
+      if (!tieneSalonHabilitado(negocio)) {
+        return NextResponse.json(
+          { error: "El negocio no tiene Salón habilitado" },
+          { status: 400 }
+        )
+      }
+
       // mesaNumero or mesaId is required for mesa orders
       if (!mesaNumero && !mesaId) {
         return NextResponse.json(
@@ -1479,6 +1524,30 @@ export async function POST(request: NextRequest) {
           validatedOcupacionId = guard.ocupacionId
         }
 
+        // Tarea 20-CORRECCIÓN-1 (Caso C): el chequeo temprano (línea ~1062)
+        // y la apertura/heartbeat de ocupación de arriba pueden haber leído
+        // `salonActivo=true` un instante antes de que una desactivación
+        // concurrente comitee — y para el camino de dispositivo/cliente
+        // (`requiresMesaOccupancy`), la ocupación ya existía de una llamada
+        // ANTERIOR y separada a POST /api/public/mesa-geofence, así que
+        // `resolveMesaOccupancyForOrder`/`heartbeatMesaOccupancyForOrder` de
+        // arriba NUNCA vuelven a mirar `salonActivo` por sí solos. Esta es
+        // la revalidación definitiva y real: una lectura fresca, dentro de
+        // esta MISMA transacción, en el último instante antes de escribir el
+        // pedido — si una desactivación ganó la carrera en cualquier punto
+        // anterior, esto la detecta y aborta toda la transacción (rollback
+        // completo, igual que MesaOccupancyBlockedError).
+        if (isMesaOrder) {
+          await testHooks?.beforeFinalSalonRevalidation?.()
+          const negocioFresco = await tx.negocio.findUnique({
+            where: { id: negocioId },
+            select: { salonActivo: true },
+          })
+          if (!tieneSalonHabilitado(negocioFresco)) {
+            throw new SalonDeshabilitadoError()
+          }
+        }
+
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
         // previo) — recién ahí es seguro aplicar el side effect y crear.
         if (clienteId && clienteUpdateData) {
@@ -1498,6 +1567,7 @@ export async function POST(request: NextRequest) {
       .catch(async (error) => {
         if (error instanceof PedidoIdempotencyConflictError) throw error
         if (error instanceof MesaOccupancyBlockedError) throw error
+        if (error instanceof SalonDeshabilitadoError) throw error
 
         // Carrera: dos requests con la misma key pasaron el chequeo previo casi
         // al mismo tiempo — el índice único (negocioId, idempotencyKey) rechaza
@@ -1639,6 +1709,18 @@ export async function POST(request: NextRequest) {
             "Ya existe un pedido distinto con esta clave de idempotencia. Generá una clave nueva e intentá de nuevo.",
         },
         { status: 409 }
+      )
+    }
+    // Tarea 20-CORRECCIÓN-1 (Caso C): la desactivación de Salón ganó la
+    // carrera entre el chequeo temprano y la revalidación final dentro de la
+    // transacción de creación — el pedido nunca se creó (rollback completo).
+    // Mismo mensaje y status que el chequeo temprano (línea ~1062): desde la
+    // perspectiva del cliente es exactamente el mismo motivo de rechazo,
+    // solo detectado más tarde.
+    if (error instanceof SalonDeshabilitadoError) {
+      return NextResponse.json(
+        { error: "El negocio no tiene Salón habilitado" },
+        { status: 400 }
       )
     }
     // P0-D.2: cookie ausente o credencial inválida — el código público nunca

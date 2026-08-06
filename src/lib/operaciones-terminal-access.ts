@@ -54,16 +54,38 @@ const AREA_BASE_SCOPE: Record<OperacionesArea, OperacionesScope> = {
  * Un área está disponible cuando está en `terminal.areas` y además tiene su scope base
  * de lectura (`salon.ver` / `pyr.ver`). El área `mozo` y cualquier otra fuera del
  * allowlist nunca cuentan como disponibles.
+ *
+ * Tarea 20 (Dark Kitchen): el área "salon" ADEMÁS exige que el negocio
+ * tenga la capacidad de Salón habilitada en este mismo instante
+ * (`context.negocio.salonActivo`) — revalidado en CADA request, nunca
+ * confiado desde el momento de activación de la terminal ni desde ningún
+ * dato guardado en el cliente. El área "pyr" es completamente independiente
+ * de Salón y nunca se ve afectada por esta condición.
  */
 export function hasTerminalArea(context: TerminalSessionContext, area: OperacionesArea): boolean {
   if (!(OPERACIONES_AREAS as readonly string[]).includes(area)) return false
-  return context.terminal.areas.includes(area) && context.terminal.scopes.includes(AREA_BASE_SCOPE[area])
+  if (!context.terminal.areas.includes(area) || !context.terminal.scopes.includes(AREA_BASE_SCOPE[area])) {
+    return false
+  }
+  if (area === "salon" && context.negocio.salonActivo !== true) return false
+  return true
 }
 
-/** True si la terminal tiene el scope exacto (solo scopes del allowlist). */
+/**
+ * True si la terminal tiene el scope exacto (solo scopes del allowlist).
+ *
+ * Tarea 20: cualquier scope con prefijo `"salon."` exige ADEMÁS
+ * `context.negocio.salonActivo` — varios endpoints de Salón autorizan por
+ * scope concreto (`requireOperacionesScope`) en vez de por área
+ * (`requireOperacionesArea`/`hasTerminalArea`, ya gateada arriba); este es
+ * el punto único que cubre ambos estilos de autorización sin duplicar la
+ * condición. Los scopes `"pyr."` nunca se ven afectados.
+ */
 export function hasTerminalScope(context: TerminalSessionContext, scope: OperacionesScope): boolean {
   if (!(OPERACIONES_SCOPES as readonly string[]).includes(scope)) return false
-  return context.terminal.scopes.includes(scope)
+  if (!context.terminal.scopes.includes(scope)) return false
+  if (scope.startsWith("salon.") && context.negocio.salonActivo !== true) return false
+  return true
 }
 
 /** Exige una sesión de terminal válida y activa. 401 en caso contrario. */

@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
+import { desactivarSalonSiPermitido } from "@/lib/negocio-salon"
+import { mensajeBloqueoDesactivacionSalon } from "@/lib/negocio-salon-contract"
 
 // Seguridad-6B: respuesta de config de negocio nunca debe quedar en caché
 // (propia del navegador o de un proxy intermedio) — contiene datos privados
@@ -297,6 +299,33 @@ export async function PATCH(req: NextRequest) {
         parsedCalibrado
 
       return noStoreJson(safeCalibrado)
+    }
+
+    // Tarea 20 (Dark Kitchen): apagar Salón (true -> false) es la ÚNICA
+    // transición que puede quedar bloqueada — rama aislada, igual que
+    // `calibrarUbicacion` arriba, para que nunca se mezcle con el guardado
+    // genérico del resto del body ni se aplique parcialmente. Reactivar
+    // (`salonActivo: true`) nunca tiene reglas de bloqueo (sección 12 de la
+    // tarea) y sigue el camino genérico de abajo sin cambios. Si el body
+    // trae además otros campos junto a `salonActivo: false`, se resuelve
+    // primero la desactivación (todo o nada) y luego, si no fue bloqueada,
+    // el resto de los campos se aplica normalmente más abajo.
+    if (body.salonActivo === false) {
+      const resultado = await desactivarSalonSiPermitido(negocioId)
+      if (!resultado.ok) {
+        return noStoreJson(
+          { error: mensajeBloqueoDesactivacionSalon(resultado.code), code: resultado.code },
+          { status: 409 }
+        )
+      }
+      await auditLog({
+        userId: negocioId,
+        userType: "negocio",
+        accion: "negocio.salon_desactivado",
+        recurso: "negocio",
+        recursoId: negocioId,
+        detalle: {},
+      })
     }
 
     const updateData: Record<string, unknown> = {}

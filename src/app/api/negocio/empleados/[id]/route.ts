@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -105,6 +106,18 @@ export async function PUT(
             { error: "No se puede asignar área a un empleado eliminado o inactivo" },
             { status: 409 }
           )
+        }
+        // Tarea 20 (Dark Kitchen): "mozo" y "salon" son exclusivamente
+        // funciones de Salón — nunca se permite reasignar a ninguna de las
+        // dos mientras el negocio no tenga Salón habilitado.
+        if (normalized === "mozo" || normalized === "salon") {
+          const negocioActual = await db.negocio.findUnique({ where: { id: negocioId }, select: { salonActivo: true } })
+          if (!tieneSalonHabilitado(negocioActual)) {
+            return NextResponse.json(
+              { error: "El negocio no tiene Salón habilitado. Activalo antes de asignar esta área." },
+              { status: 409 }
+            )
+          }
         }
         updateData.areaOperativa = normalized
         updateData.asignacionVersion = { increment: 1 }

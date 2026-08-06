@@ -6,6 +6,7 @@ import { SESSION_COOKIE_NAME, findSesionByToken, OPERATIONAL_SESSION_COOKIE_NAME
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 
 // ============================================
 // DeliGO — Ocupación rotativa de mesa
@@ -212,6 +213,23 @@ async function createActiveOccupancy(tx: Prisma.TransactionClient, negocioId: st
 // una tercera — se aborta con este error, sanitizado, sin ids en el mensaje.
 class MultipleActiveOccupanciesError extends Error {}
 
+// Tarea 20: error de dominio — el negocio no tiene Salón habilitado en el
+// instante de esta lectura, dentro de la MISMA transacción que abre/
+// reutiliza la ocupación (nunca una consulta previa y separada). Nunca se
+// construye en ningún otro punto. Los llamadores (mesa-geofence.ts, que ya
+// gatea antes de llegar acá, y la creación de pedido de personal en
+// pedidos/route.ts) ya envuelven esta llamada en su propio try/catch
+// genérico — este error se propaga y se trata igual que cualquier otro
+// fallo de apertura, sin exponer detalles internos ni distinguirlo de
+// otros motivos de fallo. Nunca se reintenta (no es un conflicto de
+// serialización real): `isRetryableOccupancyConflict` no lo reconoce.
+export class SalonDeshabilitadoError extends Error {
+  constructor() {
+    super("El negocio no tiene Salón habilitado")
+    this.name = "SalonDeshabilitadoError"
+  }
+}
+
 // Reintenta tanto el conflicto de serialización (P2034, cualquier escritura
 // concurrente sobre las mismas filas) como el error de dominio específico
 // de la carrera de creación de ocupación activa
@@ -298,7 +316,23 @@ export interface MesaOccupancyOutcome {
  * traducción de ActiveOccupancyCreationRaceError si no hay ninguna) — sin
  * duplicarla entre las dos variantes.
  */
-async function openOrReuseMesaOccupancyCore(tx: Prisma.TransactionClient, params: { negocioId: string; mesaId: string }) {
+export interface MesaOccupancyTestHooks {
+  /**
+   * Pausa inyectable EXCLUSIVA de tests (Tarea 20) — nunca se pasa desde
+   * ningún caller de producción. Se invoca justo después de confirmar que
+   * el negocio tiene Salón habilitado, dentro de la MISMA transacción
+   * Serializable, antes de leer/crear la ocupación. Permite construir una
+   * carrera real y determinista contra una desactivación de Salón
+   * concurrente.
+   */
+  afterSalonCheck?: () => Promise<void>
+}
+
+async function openOrReuseMesaOccupancyCore(
+  tx: Prisma.TransactionClient,
+  params: { negocioId: string; mesaId: string },
+  testHooks?: MesaOccupancyTestHooks
+) {
   const { negocioId, mesaId } = params
 
   const mesa = await tx.mesa.findUnique({
@@ -311,6 +345,23 @@ async function openOrReuseMesaOccupancyCore(tx: Prisma.TransactionClient, params
     // negocioId/mesaId) — este caso no debería ocurrir nunca en la práctica.
     throw new Error("Mesa no coincide con el negocio resuelto server-side")
   }
+
+  // Tarea 20: lectura fresca de la capacidad, DENTRO de esta misma
+  // transacción Serializable — nunca una consulta previa y separada del
+  // llamador. Es el único punto donde se abre/reutiliza una ocupación
+  // (device y staff comparten este núcleo), así que es el punto correcto
+  // para cerrar el enforcement server-side sin depender de que cada ruta
+  // pública (mesa-geofence) recuerde repetir el chequeo — aunque
+  // mesa-geofence.ts YA lo hace antes de llegar acá (defensa en
+  // profundidad), el camino de personal (openOrReuseMesaOccupancyForStaff,
+  // llamado directamente desde la creación de pedidos) no tenía ningún
+  // gate previo hasta esta tarea.
+  const negocio = await tx.negocio.findUnique({ where: { id: negocioId }, select: { salonActivo: true } })
+  if (!tieneSalonHabilitado(negocio)) {
+    throw new SalonDeshabilitadoError()
+  }
+
+  await testHooks?.afterSalonCheck?.()
 
   const currentOcupacion = mesa.ocupacionActualId
     ? await tx.sesionOcupacionMesa.findUnique({ where: { id: mesa.ocupacionActualId } })
@@ -404,20 +455,24 @@ async function openOrReuseMesaOccupancyCore(tx: Prisma.TransactionClient, params
   return { ocupacion: nuevaOcupacion, occupancyCreated: true, pointerRepaired: false }
 }
 
-export async function openOrReuseMesaOccupancy(params: {
-  negocioId: string
-  mesaId: string
-  existingToken: string | null
-}): Promise<MesaOccupancyOutcome> {
+export async function openOrReuseMesaOccupancy(
+  params: {
+    negocioId: string
+    mesaId: string
+    existingToken: string | null
+  },
+  testHooks?: MesaOccupancyTestHooks
+): Promise<MesaOccupancyOutcome> {
   const { negocioId, mesaId, existingToken } = params
   const existingTokenHash = existingToken ? hashMesaOccupancyToken(existingToken) : null
   const now = Date.now()
 
   return runSerializableTransaction(async (tx) => {
-    const { ocupacion: activeOcupacion, occupancyCreated, pointerRepaired } = await openOrReuseMesaOccupancyCore(tx, {
-      negocioId,
-      mesaId,
-    })
+    const { ocupacion: activeOcupacion, occupancyCreated, pointerRepaired } = await openOrReuseMesaOccupancyCore(
+      tx,
+      { negocioId, mesaId },
+      testHooks
+    )
 
     if (occupancyCreated) {
       // ---- Ocupación recién creada: siempre credencial nueva para este
@@ -514,16 +569,17 @@ export interface StaffMesaOccupancyOutcome {
  * por sí solo no ofrece ninguna garantía de que la ocupación siga activa un
  * instante después de devolver el resultado.
  */
-export async function openOrReuseMesaOccupancyForStaff(params: {
-  negocioId: string
-  mesaId: string
-}): Promise<StaffMesaOccupancyOutcome> {
+export async function openOrReuseMesaOccupancyForStaff(
+  params: { negocioId: string; mesaId: string },
+  testHooks?: MesaOccupancyTestHooks
+): Promise<StaffMesaOccupancyOutcome> {
   const { negocioId, mesaId } = params
   return runSerializableTransaction(async (tx) => {
-    const { ocupacion, occupancyCreated, pointerRepaired } = await openOrReuseMesaOccupancyCore(tx, {
-      negocioId,
-      mesaId,
-    })
+    const { ocupacion, occupancyCreated, pointerRepaired } = await openOrReuseMesaOccupancyCore(
+      tx,
+      { negocioId, mesaId },
+      testHooks
+    )
     return { ocupacionId: ocupacion.id, occupancyCreated, pointerRepaired }
   })
 }

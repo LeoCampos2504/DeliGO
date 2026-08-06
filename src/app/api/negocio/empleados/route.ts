@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -124,6 +125,20 @@ export async function POST(req: NextRequest) {
         return noStoreJson({ error: "Área operativa inválida" }, { status: 400 })
       }
       areaOperativa = normalized
+    }
+
+    // Tarea 20 (Dark Kitchen): "mozo" y "salon" son exclusivamente
+    // funciones de Salón (auditado: un empleado con área efectiva "mozo"
+    // no tiene ninguna función fuera de mesas) — nunca se permite asignar
+    // ninguna de las dos mientras el negocio no tenga Salón habilitado.
+    if ((areaOperativa === "mozo" || areaOperativa === "salon")) {
+      const negocioActual = await db.negocio.findUnique({ where: { id: negocioId }, select: { salonActivo: true } })
+      if (!tieneSalonHabilitado(negocioActual)) {
+        return noStoreJson(
+          { error: "El negocio no tiene Salón habilitado. Activalo antes de asignar esta área." },
+          { status: 409 }
+        )
+      }
     }
 
     // No permitir crear un empleado inactivo con un área asignada.

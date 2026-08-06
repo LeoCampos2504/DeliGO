@@ -8,6 +8,7 @@ import {
   resolveEffectiveGrant,
   parseStoredGrant,
 } from "@/lib/operaciones-terminal-permissions"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 
 const MAX_NOMBRE_LENGTH = 60
 
@@ -122,6 +123,20 @@ export async function POST(req: NextRequest) {
     // Áreas/scopes se recalculan/normalizan server-side (nunca se confía en el frontend;
     // `mozo` y delivery quedan descartados por el helper).
     const { areas, scopes } = resolveEffectiveGrant(perfil, body.areas, body.scopes)
+
+    // Tarea 20 (Dark Kitchen): defensa en profundidad — el gate autoritativo
+    // es la activación (operaciones/terminal/activar), pero tampoco tiene
+    // sentido dejar crear una terminal de área "salon" mientras el negocio
+    // no tenga Salón habilitado. Una terminal exclusivamente "pyr" se crea
+    // sin esta restricción.
+    if (areas.includes("salon")) {
+      const negocio = await db.negocio.findUnique({ where: { id: user.id }, select: { salonActivo: true } })
+      if (!tieneSalonHabilitado(negocio)) {
+        return noStore(
+          NextResponse.json({ error: "El negocio no tiene Salón habilitado" }, { status: 409 })
+        )
+      }
+    }
 
     const terminal = await db.terminalOperativa.create({
       data: {

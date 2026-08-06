@@ -401,9 +401,18 @@ export async function GET(
       tiempoEntrega: negocio.tiempoEntrega,
       lat: negocio.lat,
       lng: negocio.lng,
-      // P0-C.1: booleano sanitizado — nunca se exponen salonActivo ni
-      // ubicacionCalibradaEn (fecha de calibración) en esta respuesta pública.
+      // P0-C.1: booleano sanitizado — nunca se expone ubicacionCalibradaEn
+      // (fecha de calibración) en esta respuesta pública.
       mesaGeofenceReady: !!(negocio.salonActivo && negocio.lat != null && negocio.lng != null && negocio.ubicacionCalibradaEn != null),
+      // Tarea 20 (Dark Kitchen): a diferencia de `mesaGeofenceReady` (que
+      // combina varias condiciones), este booleano expone EXCLUSIVAMENTE la
+      // capacidad de Salón — la UI pública lo necesita para decidir si
+      // `?mesa=N` activa el modo mesa en este negocio, o si debe degradar
+      // silenciosamente al menú normal (nunca mostrar mesa/QR/cuenta si el
+      // negocio no tiene Salón). No es información sensible: ya se puede
+      // inferir indirectamente por el comportamiento observable de
+      // mesa-geofence/mesa-cuenta/mesas-public, que ya lo usan como gate.
+      salonHabilitado: negocio.salonActivo === true,
       mostrarVentas: negocio.mostrarVentas,
       aceptaTransferencia: negocio.aceptaTransferencia,
       aliasBancario: negocio.aliasBancario,

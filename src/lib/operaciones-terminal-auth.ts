@@ -127,6 +127,11 @@ export interface TerminalSessionContext {
     nombre: string
     slug: string
     colorPrincipal: string
+    // Tarea 20: expuesto server-only dentro del contexto de sesión (nunca
+    // en una respuesta JSON directa) para que `requireOperacionesArea`
+    // pueda exigirlo específicamente para el área "salon" — el área "pyr"
+    // sigue siendo independiente de esta capacidad.
+    salonActivo: boolean
   }
 }
 
@@ -158,7 +163,7 @@ export async function resolveTerminalSession(req: NextRequest): Promise<Terminal
           scopes: true,
           revokedAt: true,
           negocio: {
-            select: { id: true, nombre: true, slug: true, colorPrincipal: true },
+            select: { id: true, nombre: true, slug: true, colorPrincipal: true, salonActivo: true },
           },
         },
       },

@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { auditLog } from "@/lib/audit"
 import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { parseStoredGrant } from "@/lib/operaciones-terminal-permissions"
+import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 import {
   generateOpaqueToken,
   getTerminalSessionExpiry,
@@ -90,12 +91,22 @@ export async function POST(req: NextRequest) {
             perfil: true,
             areas: true,
             scopes: true,
-            negocio: { select: { id: true, nombre: true, slug: true, colorPrincipal: true } },
+            negocio: { select: { id: true, nombre: true, slug: true, colorPrincipal: true, salonActivo: true } },
           },
         })
         if (!terminal) return { ok: false }
         if (terminal.revokedAt || terminal.estado === "revocado") return { ok: false }
         if (terminal.estado !== "pendiente") return { ok: false }
+
+        // Tarea 20 (Dark Kitchen): una terminal cuyo grant incluye el área
+        // "salon" nunca puede activarse mientras el negocio no tenga Salón
+        // habilitado — mismo mensaje genérico que cualquier otro motivo de
+        // rechazo (nunca se distingue la causa). Una terminal exclusivamente
+        // de área "pyr" activa igual, sin depender de esta capacidad.
+        const grantParaActivar = parseStoredGrant(terminal.areas, terminal.scopes)
+        if (grantParaActivar.areas.includes("salon") && !tieneSalonHabilitado(terminal.negocio)) {
+          return { ok: false }
+        }
 
         // Consumo atómico: solo gana quien marca usedAt cuando todavía estaba libre.
         const consumed = await tx.vinculacionTerminalOperativa.updateMany({
@@ -133,6 +144,10 @@ export async function POST(req: NextRequest) {
           data: { estado: "activo", lastUsedAt: now },
         })
 
+        // `salonActivo` se leyó solo para el chequeo de arriba — nunca debe
+        // viajar en la respuesta JSON (que expone `negocio` tal cual al
+        // cliente); se excluye explícitamente acá.
+        const { salonActivo: _salonActivo, ...negocioSeguro } = terminal.negocio
         return {
           ok: true,
           rawToken,
@@ -143,7 +158,7 @@ export async function POST(req: NextRequest) {
             perfil: terminal.perfil,
             areas: terminal.areas,
             scopes: terminal.scopes,
-            negocio: terminal.negocio,
+            negocio: negocioSeguro,
           },
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
