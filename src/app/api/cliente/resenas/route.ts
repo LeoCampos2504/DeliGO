@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newReviewNotification } from "@/lib/push"
+import { recomputePublicReviewRating } from "@/lib/review-moderation-server"
 
 // Seguridad-6B.3: creación de reseña depende de la sesión del cliente — nunca cacheable.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
@@ -10,7 +11,6 @@ function noStoreJson<T>(data: T, init?: ResponseInit) {
   response.headers.set("Cache-Control", "private, no-store")
   return response
 }
-
 // POST /api/cliente/resenas — Create a review for a delivered order
 export async function POST(req: NextRequest) {
   try {
@@ -101,27 +101,29 @@ export async function POST(req: NextRequest) {
       .trim()
       .slice(0, 500) // Max 500 chars
 
-    // Create the review
-    const resena = await db.resena.create({
-      data: {
-        negocioId: pedido.negocioId,
-        clienteId: user.id,
-        clienteNombre: user.nombre,
-        pedidoId,
-        puntuacion,
-        comentario: sanitizedComment,
-        rapidez: Math.round(rapidez),
-        calidad: Math.round(calidad),
-        precio: Math.round(precio),
-      },
-      include: {
-        cliente: { select: { id: true, nombre: true } },
-        pedido: { select: { id: true, negocioNombre: true, fecha: true } },
-      },
+    // La reseña y el cache público se confirman juntos, para que una reseña
+    // OCULTA_EN_REVISION nunca vuelva a entrar al rating por un POST posterior.
+    const resena = await db.$transaction(async (tx) => {
+      const created = await tx.resena.create({
+        data: {
+          negocioId: pedido.negocioId,
+          clienteId: user.id,
+          clienteNombre: user.nombre,
+          pedidoId,
+          puntuacion,
+          comentario: sanitizedComment,
+          rapidez: Math.round(rapidez),
+          calidad: Math.round(calidad),
+          precio: Math.round(precio),
+        },
+        include: {
+          cliente: { select: { id: true, nombre: true } },
+          pedido: { select: { id: true, negocioNombre: true, fecha: true } },
+        },
+      })
+      await recomputePublicReviewRating(tx, pedido.negocioId)
+      return created
     })
-
-    // Update negocio rating cache
-    await updateNegocioRating(pedido.negocioId)
 
     // Send push notification to the negocio about the new review
     try {
@@ -160,21 +162,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-// Helper: Recalculate negocio rating cache
-async function updateNegocioRating(negocioId: string) {
-  const stats = await db.resena.aggregate({
-    where: { negocioId },
-    _avg: { puntuacion: true },
-    _count: true,
-  })
-
-  await db.negocio.update({
-    where: { id: negocioId },
-    data: {
-      puntuacionPromedio: stats._avg.puntuacion ?? 0,
-      totalResenas: stats._count,
-    },
-  })
 }

@@ -333,6 +333,7 @@ export interface AuthUser {
   slug?: string
   rubro?: string
   aprobado?: boolean
+  suspendido?: boolean
   usuario?: string
   activo?: boolean
 }

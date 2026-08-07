@@ -308,6 +308,7 @@ export async function GET(
           },
         },
         resenas: {
+          where: { estadoModeracion: "PUBLICADA" },
           orderBy: { fecha: "desc" },
           take: 20,
           select: {
