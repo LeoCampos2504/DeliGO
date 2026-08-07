@@ -8,6 +8,7 @@ import { useAuthStore } from "@/store/auth-store"
 import { useAuth } from "@/hooks/use-auth"
 import { useHydrated } from "@/hooks/use-hydrated"
 import { useSuspensionCheck } from "@/hooks/use-suspension-check"
+import { NEGOCIO_POST_LOGIN_PATH } from "@/lib/negocio-post-login-navigation"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -158,7 +159,7 @@ function NegocioLoginForm() {
       })
 
       toast.success(`🏪 ¡Bienvenido, ${data.user.nombre}!`)
-      router.replace("/")
+      router.replace(NEGOCIO_POST_LOGIN_PATH)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
     } finally {
