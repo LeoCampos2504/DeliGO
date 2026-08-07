@@ -5,7 +5,10 @@ import {
   validateOperationalSession,
 } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
+import {
+  areaOperativaRequiereSalon,
+  resolveAreaOperativaEfectiva,
+} from "@/lib/area-operativa"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -94,15 +97,22 @@ export async function GET(req: NextRequest) {
     // efectiva la deriva el servidor; el cliente nunca la envía. Aditivo: se agregan
     // areaOperativa + areaOperativaEfectiva por vínculo sin quitar campos previos.
     const operationalLinks = account.empleados
-      .filter((empleado) =>
+      .map((empleado) => ({
+        empleado,
+        areaOperativaEfectiva: resolveAreaOperativaEfectiva({
+          areaOperativa: empleado.areaOperativa,
+          rol: empleado.rol,
+        }),
+      }))
+      .filter(({ empleado, areaOperativaEfectiva }) =>
         empleado.activo &&
         !empleado.eliminado &&
         empleado.negocio.aprobado &&
         !empleado.negocio.suspendido &&
-        empleado.negocio.salonActivo &&
-        empleado.negocio.empleadosActivos
+        empleado.negocio.empleadosActivos &&
+        (!areaOperativaRequiereSalon(areaOperativaEfectiva) || empleado.negocio.salonActivo)
       )
-      .map((empleado) => ({
+      .map(({ empleado, areaOperativaEfectiva }) => ({
         empleado: {
           id: empleado.id,
           nombre: empleado.nombre,
@@ -110,10 +120,7 @@ export async function GET(req: NextRequest) {
           rol: empleado.rol,
           activo: empleado.activo,
           areaOperativa: empleado.areaOperativa,
-          areaOperativaEfectiva: resolveAreaOperativaEfectiva({
-            areaOperativa: empleado.areaOperativa,
-            rol: empleado.rol,
-          }),
+          areaOperativaEfectiva,
         },
         negocio: {
           id: empleado.negocio.id,

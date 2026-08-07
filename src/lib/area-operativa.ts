@@ -51,6 +51,15 @@ export function resolveAreaOperativaEfectiva(input: {
   return "sin_asignar"
 }
 
+/**
+ * Tarea 20: PyR personal es independiente de la capacidad de Salón. Todas
+ * las demás áreas conservan el gate de Salón; en particular, `sin_asignar`
+ * queda denegada por defecto y no amplía el acceso histórico.
+ */
+export function areaOperativaRequiereSalon(area: AreaOperativa): boolean {
+  return area !== "pyr"
+}
+
 /** True si el área efectiva del empleado es Mozo. */
 export function esAreaMozoEfectiva(input: { areaOperativa: unknown; rol: unknown }): boolean {
   return resolveAreaOperativaEfectiva(input) === "mozo"

@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
+  areaOperativaRequiereSalon,
   resolveAreaOperativaEfectiva,
   type AreaOperativa,
 } from "@/lib/area-operativa"
@@ -98,8 +99,8 @@ export async function resolveOperativoAreaForSlug(
       slug,
       aprobado: true,
       suspendido: false,
-      salonActivo: true,
       empleadosActivos: true,
+      ...(areaOperativaRequiereSalon(areaEsperada) ? { salonActivo: true } : {}),
     },
     select: {
       id: true,
