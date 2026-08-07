@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
+import { esRutaCatalogoNegocio } from "@/lib/cliente-catalog-navigation"
 
 export function ChatFab() {
   const { unreadCount, setSheetOpen, setUnreadCount } = useChatStore()
@@ -15,9 +16,9 @@ export function ChatFab() {
   const pathname = usePathname()
 
   const canChat = isAuthenticated() && userType() !== "superadmin"
-  // Hide chat on: catalog page (/n/), mozo/mesas link (/m/), salon link (/s/), repartidor page
+  // Hide chat on: catalog pages (public or Cliente-scoped), mozo/mesas link (/m/), salon link (/s/), repartidor page
   // Show chat on: employee orders/reviews link (/e/) — chat is for cliente-negocio only, not for mozo mesas or delivery
-  const isHidden = pathname.startsWith("/n/") || pathname.startsWith("/m/") || pathname.startsWith("/s/") || pathname.startsWith("/repartidor")
+  const isHidden = esRutaCatalogoNegocio(pathname) || pathname.startsWith("/m/") || pathname.startsWith("/s/") || pathname.startsWith("/repartidor")
 
   // Periodically fetch unread count
   useEffect(() => {

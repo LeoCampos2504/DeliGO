@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef, Suspense } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useHydrated } from "@/hooks/use-hydrated"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 
 import {
   ArrowLeft,
@@ -53,6 +53,7 @@ import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
 import { resolveEffectiveMesa, shouldFetchCustomerMesaData } from "@/lib/mesa-checkout-transition"
+import { getCatalogoPathActual } from "@/lib/cliente-catalog-navigation"
 import dynamic from "next/dynamic"
 import { toast } from "sonner"
 
@@ -194,6 +195,7 @@ export default function CatalogoPage({ params }: { params: Promise<{ slug: strin
 function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = React.use(params)
   const hydrated = useHydrated()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const isPreview = searchParams.get("preview") === "true"
   const mesaParam = searchParams.get("mesa")
@@ -613,10 +615,10 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         setSelectedProduct(product)
         setDetailOpen(true)
         // Clean URL
-        window.history.replaceState({}, '', `/n/${slug}`)
+        window.history.replaceState({}, '', getCatalogoPathActual(pathname, slug))
       }
     }
-  }, [autoOpenProductId, negocio, slug])
+  }, [autoOpenProductId, negocio, pathname, slug])
 
   // Handle add to cart (with auth + location gate)
   const handleAddToCart = (item: CartItem) => {

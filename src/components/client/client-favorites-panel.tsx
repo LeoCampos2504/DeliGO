@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
 import { HorariosPopover } from "@/components/shared/horarios-popover"
+import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 
 // ============================================
 // Types
@@ -177,7 +178,7 @@ function FavoriteCard({
       exit={{ opacity: 0, scale: 0.9, y: -10 }}
       transition={{ type: "spring", stiffness: 350, damping: 30 }}
     >
-      <Link href={`/n/${negocio.slug}`} className="block group">
+      <Link href={getClienteCatalogoPath(negocio.slug)} className="block group">
         <div className="relative overflow-hidden rounded-2xl bg-card border border-border/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
           {/* Banner */}
           <div

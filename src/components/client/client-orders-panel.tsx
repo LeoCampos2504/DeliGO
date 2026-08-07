@@ -56,6 +56,7 @@ import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { useCartStore, type CartItemAgregado } from "@/store/cart-store"
 import { ReviewDialog } from "@/components/client/review-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 import dynamic from "next/dynamic"
 
 // Dynamic import for the tracking map (heavy Leaflet dependency)
@@ -553,7 +554,7 @@ function RepeatOrderDialog({
       queryClient.invalidateQueries({ queryKey: ["cart"] })
 
       // Navigate to business page
-      router.push(`/n/${negocio.slug}`)
+      router.push(getClienteCatalogoPath(negocio.slug))
     } catch {
       toast.error("Error al agregar productos al carrito")
     } finally {

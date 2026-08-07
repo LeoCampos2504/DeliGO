@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { cn, formatPrice } from "@/lib/utils"
+import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 
 // ============================================
 // Types
@@ -318,7 +319,7 @@ export function ClientPromosPanel({ deliveryPrecios, hasDeliveryAddress }: Clien
               >
                 {/* Business section header */}
                 <Link
-                  href={`/n/${group.negocio.slug}`}
+                  href={getClienteCatalogoPath(group.negocio.slug)}
                   className="flex items-center gap-2 mb-2 group"
                 >
                   <div
@@ -381,7 +382,7 @@ function PromoCard({ promo, index }: { promo: Promocion; index: number }) {
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: index * 0.03 }}
     >
-      <Link href={`/n/${promo.negocio.slug}?productoId=${promo.id}`} className="block group">
+      <Link href={`${getClienteCatalogoPath(promo.negocio.slug)}?productoId=${encodeURIComponent(promo.id)}`} className="block group">
         <Card className="border-border/50 shadow-sm overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
           {/* Image area */}
           <div className="relative h-36 overflow-hidden bg-muted/30">

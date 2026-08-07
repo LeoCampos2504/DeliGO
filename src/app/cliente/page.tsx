@@ -42,6 +42,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore } from "@/store/nav-store"
 import { useCartStore } from "@/store/cart-store"
+import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 import type { UserType } from "@/lib/auth"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -1013,7 +1014,7 @@ function BusinessCard({
   const deliveryLabel = getDeliveryLabel(negocio, deliveryPrecio, hasDeliveryAddress)
 
   return (
-    <Link href={`/n/${negocio.slug}`} className="block group cursor-pointer">
+    <Link href={getClienteCatalogoPath(negocio.slug)} className="block group cursor-pointer">
       <div className="relative overflow-hidden rounded-2xl bg-card border border-border/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
         {/* Banner */}
         <div
