@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
+import {
+  ClientAccountDeletionConflictError,
+  deleteClientAccount,
+} from "@/lib/client-account-deletion"
 
 // Seguridad-6B: eliminación y exportación de cuenta manejan datos personales
 // completos — nunca cacheables.
@@ -27,34 +31,7 @@ export async function DELETE(req: NextRequest) {
 
     const clienteId = cliente.id
 
-    // Use a transaction to explicitly delete ALL related records before deleting the cliente.
-    // This ensures the delete works even if PostgreSQL cascade constraints aren't properly set
-    // at the database level (common issue after migrations or prisma db push).
-    await db.$transaction(async (tx) => {
-      // 1. Delete resenas (cascade from cliente)
-      await tx.resena.deleteMany({ where: { clienteId } })
-
-      // 2. Set clienteId to null on pedidos (SetNull from cliente)
-      await tx.pedido.updateMany({
-        where: { clienteId },
-        data: { clienteId: null },
-      })
-
-      // 3. Set clienteId to null on chat mensajes (SetNull from cliente)
-      await tx.chatMensaje.updateMany({
-        where: { clienteId },
-        data: { clienteId: null },
-      })
-
-      // 4. Delete favoritos (cascade from cliente)
-      await tx.favorito.deleteMany({ where: { clienteId } })
-
-      // 5. Delete direcciones (cascade from cliente)
-      await tx.direccion.deleteMany({ where: { clienteId } })
-
-      // 6. Finally, delete the cliente itself
-      await tx.cliente.delete({ where: { id: clienteId } })
-    }, { timeout: 15000 })
+    await deleteClientAccount(clienteId)
 
     // Delete the session (outside transaction — it's independent)
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -71,6 +48,12 @@ export async function DELETE(req: NextRequest) {
 
     return response
   } catch (error) {
+    if (error instanceof ClientAccountDeletionConflictError) {
+      return NextResponse.json(
+        { error: "La cuenta cambió durante la eliminación. Intentá nuevamente." },
+        { status: 409, headers: NO_STORE_HEADERS }
+      )
+    }
     console.error("Cuenta DELETE error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }

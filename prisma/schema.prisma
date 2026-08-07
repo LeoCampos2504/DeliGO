@@ -524,7 +524,7 @@ enum ActorSolicitudRevisionResena {
 model Resena {
   id               String    @id @default(cuid())
   negocioId        String
-  clienteId        String
+  clienteId        String?
   clienteNombre    String
   pedidoId         String    @unique
   puntuacion       Int // 1-5
@@ -541,7 +541,7 @@ model Resena {
   moderadaEn       DateTime?
 
   negocio             Negocio                    @relation(fields: [negocioId], references: [id])
-  cliente             Cliente                    @relation(fields: [clienteId], references: [id])
+  cliente             Cliente?                   @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   pedido              Pedido                     @relation(fields: [pedidoId], references: [id])
   solicitudesRevision SolicitudRevisionResena[]
 
