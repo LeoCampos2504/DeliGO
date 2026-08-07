@@ -13,6 +13,13 @@ export function isClientAccountDeletionSerializationConflict(error: unknown): bo
   )
 }
 
+export function isClientAccountAlreadyDeletedError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2025"
+  )
+}
+
 export async function retryClientAccountDeletion<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < CLIENT_ACCOUNT_DELETION_MAX_ATTEMPTS; attempt++) {
     try {
@@ -59,7 +66,15 @@ export async function deleteClientAccountInTransaction(
 
   await tx.favorito.deleteMany({ where: { clienteId } })
   await tx.direccion.deleteMany({ where: { clienteId } })
-  await tx.cliente.delete({ where: { id: clienteId } })
+  try {
+    await tx.cliente.delete({ where: { id: clienteId } })
+  } catch (error) {
+    // Solo este delete puede observar una cuenta eliminada por el request concurrente.
+    if (isClientAccountAlreadyDeletedError(error)) {
+      throw new ClientAccountDeletionConflictError()
+    }
+    throw error
+  }
 }
 
 export async function deleteClientAccount(clienteId: string) {

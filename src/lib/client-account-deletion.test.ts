@@ -23,6 +23,13 @@ function serializationConflict() {
   })
 }
 
+function clientAlreadyDeletedConflict() {
+  return new Prisma.PrismaClientKnownRequestError("client already deleted test conflict", {
+    code: "P2025",
+    clientVersion: Prisma.prismaVersion.client,
+  })
+}
+
 describe("19-B0.1 — schema y migración estáticos", () => {
   const schema = read("prisma/schema.prisma")
   const migration = read(migrationPath)
@@ -99,6 +106,31 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       }),
     ).rejects.toBeInstanceOf(ClientAccountDeletionConflictError)
     expect(attempts).toBe(CLIENT_ACCOUNT_DELETION_MAX_ATTEMPTS)
+  })
+
+  test("clasifica P2025 solo en el delete final y no lo reintenta", async () => {
+    const operation = async () => ({ count: 1 })
+    const tx = {
+      resena: { updateMany: operation },
+      pedido: { updateMany: operation },
+      chatMensaje: { updateMany: operation },
+      favorito: { deleteMany: operation },
+      direccion: { deleteMany: operation },
+      cliente: { delete: async () => { throw clientAlreadyDeletedConflict() } },
+    } as unknown as Prisma.TransactionClient
+
+    await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
+      ClientAccountDeletionConflictError,
+    )
+
+    let attempts = 0
+    await expect(
+      retryClientAccountDeletion(async () => {
+        attempts += 1
+        throw new ClientAccountDeletionConflictError()
+      }),
+    ).rejects.toBeInstanceOf(ClientAccountDeletionConflictError)
+    expect(attempts).toBe(1)
   })
 
   test("la ruta usa el core y no borra físicamente reseñas", () => {
