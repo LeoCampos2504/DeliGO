@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
+import { isPrincipalPwaRole } from "@/lib/pwa-identity"
 
 /**
  * Dynamic Manifest Link Component
@@ -20,6 +21,11 @@ export function DynamicManifest() {
   const config = getRoleConfig(role)
 
   useEffect(() => {
+    // Principal PWA scopes are emitted in the initial HTML by their layouts.
+    // Do not mutate their identity after hydration: doing so would make the
+    // installability contract depend on JavaScript and can create duplicates.
+    if (isPrincipalPwaRole(role)) return
+
     // ── Compute manifest href ──
     // For token-based roles with a token in URL, use the dynamic API endpoint
     // so the installed PWA opens to /{m|s|e}/{token} directly
