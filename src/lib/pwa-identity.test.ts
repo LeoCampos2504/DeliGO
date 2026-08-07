@@ -14,23 +14,23 @@ import {
 const contracts = {
   cliente: {
     id: "/cliente/?pwa=cliente",
-    scope: "/cliente/",
-    startUrl: "/cliente/",
+    scope: "/cliente",
+    startUrl: "/cliente",
   },
   negocio: {
     id: "/negocio/?pwa=negocio",
-    scope: "/negocio/",
-    startUrl: "/negocio/",
+    scope: "/negocio",
+    startUrl: "/negocio",
   },
   operaciones: {
     id: "/operaciones/?pwa=operaciones",
-    scope: "/operaciones/",
-    startUrl: "/operaciones/",
+    scope: "/operaciones",
+    startUrl: "/operaciones",
   },
   repartidor: {
     id: "/repartidor/?pwa=repartidor",
-    scope: "/repartidor/",
-    startUrl: "/repartidor/",
+    scope: "/repartidor",
+    startUrl: "/repartidor",
   },
 } as const
 
