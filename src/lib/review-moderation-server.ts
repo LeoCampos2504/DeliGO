@@ -6,6 +6,7 @@ import {
   getReviewModerationExpiry,
   type ReviewModerationReason,
 } from "@/lib/review-moderation-policy";
+import { notifyReviewModerationSuperadmins } from "@/lib/review-moderation-notifications";
 
 export const REVIEW_MODERATION_EXPLANATION_MAX_LENGTH = 2000;
 
@@ -148,6 +149,12 @@ export async function createReviewModerationRequest(input: {
                 estado: "PENDIENTE",
               }),
             },
+          });
+
+          await notifyReviewModerationSuperadmins(tx, {
+            solicitudId: solicitud.id,
+            titulo: "Nueva solicitud de revisión",
+            cuerpo: "Un negocio solicitó la revisión de una reseña.",
           });
 
           await recomputePublicReviewRating(tx, input.negocioId);

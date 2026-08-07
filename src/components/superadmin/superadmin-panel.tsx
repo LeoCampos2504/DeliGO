@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Flame,
   FileCheck,
+  MessageSquareWarning,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/shared/logo"
@@ -30,6 +31,8 @@ import { DeudasTab } from "./deudas-tab"
 import { PromocionadosTab } from "./promocionados-tab"
 import { DenunciasTab } from "./denuncias-tab"
 import { SolicitudesDestacadoTab } from "./solicitudes-destacado-tab"
+import { ReviewModerationTab } from "./review-moderation-tab"
+import { SuperadminNotificationBell } from "./superadmin-notification-bell"
 
 // ============================================
 // Tab config
@@ -40,6 +43,7 @@ const tabItems: { id: SuperAdminTab; label: string; icon: typeof Shield }[] = [
   { id: "activos", label: "Activos", icon: Store },
   { id: "promocionados", label: "Destacados", icon: Flame },
   { id: "solicitudes-destacado", label: "Sol. Destacado", icon: FileCheck },
+  { id: "moderacion-resenas", label: "Moderación", icon: MessageSquareWarning },
   { id: "alertas", label: "Alertas", icon: AlertTriangle },
   { id: "deudas", label: "Deudas", icon: DollarSign },
   { id: "denuncias", label: "Denuncias", icon: ShieldAlert },
@@ -95,6 +99,7 @@ export function SuperAdminPanel() {
           <div className="flex items-center justify-between">
             <Logo size="sm" />
             <div className="flex items-center gap-1.5">
+              <SuperadminNotificationBell onModeration={() => setActiveTab("moderacion-resenas")} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -274,6 +279,7 @@ export function SuperAdminPanel() {
             {activeTab === "solicitudes-destacado" && (
               <SolicitudesDestacadoTab />
             )}
+            {activeTab === "moderacion-resenas" && <ReviewModerationTab />}
           </motion.div>
         </AnimatePresence>
       </main>

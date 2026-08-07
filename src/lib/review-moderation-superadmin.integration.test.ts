@@ -46,6 +46,7 @@ async function cleanup() {
   const clienteIds = clientes.map((row) => row.id)
   await db.sesion.deleteMany({ where: { userId: { in: [...adminIds, ...clienteIds] } } })
   await db.auditLog.deleteMany({ where: { userId: { in: adminIds } } })
+  await db.notificacion.deleteMany({ where: { userId: { in: [...negocioIds, ...adminIds, ...clienteIds] } } })
   if (negocioIds.length) {
     await db.evidenciaSolicitudRevisionResena.deleteMany({ where: { solicitud: { negocioId: { in: negocioIds } } } })
     await db.solicitudRevisionResenaEvento.deleteMany({ where: { solicitud: { negocioId: { in: negocioIds } } } })

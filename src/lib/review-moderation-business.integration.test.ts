@@ -29,7 +29,10 @@ async function cleanup() {
   const negocios = await db.negocio.findMany({ where: { slug: { startsWith: prefix } }, select: { id: true } }); const ids = negocios.map(x => x.id)
   const clients = await db.cliente.findMany({ where: { email: { startsWith: prefix } }, select: { id: true } }); const clientIds = clients.map(x => x.id)
   const admins = await db.superAdmin.findMany({ where: { email: { startsWith: prefix } }, select: { id: true } }); const adminIds = admins.map(x => x.id)
-  await db.sesion.deleteMany({ where: { userId: { in: [...ids, ...clientIds, ...adminIds] } } }); await db.auditLog.deleteMany({ where: { userId: { in: [...ids, ...adminIds] } } })
+  const solicitudes = ids.length ? await db.solicitudRevisionResena.findMany({ where: { negocioId: { in: ids } }, select: { id: true } }) : []
+  const notificationRequestFilter = solicitudes.length ? { OR: solicitudes.map((solicitud) => ({ datos: { contains: solicitud.id } })) } : undefined
+  await db.sesion.deleteMany({ where: { userId: { in: [...ids, ...clientIds, ...adminIds] } } }); await db.auditLog.deleteMany({ where: { userId: { in: [...ids, ...adminIds] } } }); await db.notificacion.deleteMany({ where: { userId: { in: [...ids, ...clientIds, ...adminIds] } } })
+  if (notificationRequestFilter) await db.notificacion.deleteMany({ where: notificationRequestFilter })
   if (ids.length) { await db.evidenciaSolicitudRevisionResena.deleteMany({ where: { solicitud: { negocioId: { in: ids } } } }); await db.solicitudRevisionResenaEvento.deleteMany({ where: { solicitud: { negocioId: { in: ids } } } }); await db.solicitudRevisionResena.deleteMany({ where: { negocioId: { in: ids } } }); await db.resena.deleteMany({ where: { negocioId: { in: ids } } }); await db.pedido.deleteMany({ where: { negocioId: { in: ids } } }); await db.negocio.deleteMany({ where: { id: { in: ids } } }) }
   await db.cliente.deleteMany({ where: { id: { in: clientIds } } }); await db.superAdmin.deleteMany({ where: { id: { in: adminIds } } })
 }

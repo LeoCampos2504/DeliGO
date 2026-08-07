@@ -82,9 +82,17 @@ async function cleanupFixtures() {
   const negocioIds = negocios.map((negocio) => negocio.id)
   const clientes = await db.cliente.findMany({ where: { email: { startsWith: prefix } }, select: { id: true } })
   const clienteIds = clientes.map((cliente) => cliente.id)
+  const solicitudes = negocioIds.length
+    ? await db.solicitudRevisionResena.findMany({ where: { negocioId: { in: negocioIds } }, select: { id: true } })
+    : []
+  const notificationRequestFilter = solicitudes.length
+    ? { OR: solicitudes.map((solicitud) => ({ datos: { contains: solicitud.id } })) }
+    : undefined
 
   if (negocioIds.length) {
     await db.auditLog.deleteMany({ where: { userId: { in: negocioIds } } })
+    await db.notificacion.deleteMany({ where: { userId: { in: negocioIds } } })
+    if (notificationRequestFilter) await db.notificacion.deleteMany({ where: notificationRequestFilter })
     await db.evidenciaSolicitudRevisionResena.deleteMany({ where: { solicitud: { negocioId: { in: negocioIds } } } })
     await db.solicitudRevisionResenaEvento.deleteMany({ where: { solicitud: { negocioId: { in: negocioIds } } } })
     await db.solicitudRevisionResena.deleteMany({ where: { negocioId: { in: negocioIds } } })
@@ -92,6 +100,7 @@ async function cleanupFixtures() {
     await db.pedido.deleteMany({ where: { negocioId: { in: negocioIds } } })
   }
   if (clienteIds.length) {
+    await db.notificacion.deleteMany({ where: { userId: { in: clienteIds } } })
     await db.sesion.deleteMany({ where: { userId: { in: [...negocioIds, ...clienteIds] } } })
     await db.cliente.deleteMany({ where: { id: { in: clienteIds } } })
   }

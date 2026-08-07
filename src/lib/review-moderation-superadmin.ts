@@ -11,6 +11,7 @@ import {
   type ReviewModerationRequestStatus,
 } from "@/lib/review-moderation-policy"
 import { recomputePublicReviewRating } from "@/lib/review-moderation-server"
+import { notifyReviewModerationBusiness } from "@/lib/review-moderation-notifications"
 
 export const REVIEW_MODERATION_DECISION_MAX_LENGTH = 2000
 export const REVIEW_MODERATION_LIST_DEFAULT_LIMIT = 20
@@ -185,6 +186,31 @@ export async function mutateReviewModerationRequest(input: {
             detalle: JSON.stringify({ solicitudId: current.id, resenaId: current.resenaId, estadoAnterior: current.estado, estadoNuevo: next }),
           },
         })
+
+        if (input.action === "PEDIR_INFORMACION") {
+          await notifyReviewModerationBusiness(tx, {
+            negocioId: current.negocioId,
+            solicitudId: current.id,
+            titulo: "Se necesita información adicional",
+            cuerpo: "Se solicitó información adicional para continuar con la revisión de una reseña.",
+          })
+        }
+        if (input.action === "APROBAR") {
+          await notifyReviewModerationBusiness(tx, {
+            negocioId: current.negocioId,
+            solicitudId: current.id,
+            titulo: "Solicitud de revisión aprobada",
+            cuerpo: "La solicitud fue aprobada y la reseña dejó de publicarse.",
+          })
+        }
+        if (input.action === "RECHAZAR") {
+          await notifyReviewModerationBusiness(tx, {
+            negocioId: current.negocioId,
+            solicitudId: current.id,
+            titulo: "Solicitud de revisión rechazada",
+            cuerpo: "La solicitud fue rechazada y la reseña volvió a publicarse.",
+          })
+        }
 
         return {
           solicitud: { id: current.id, estado: next, resueltaEn: terminal ? now : null, updatedAt: now },

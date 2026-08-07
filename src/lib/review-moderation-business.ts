@@ -4,6 +4,7 @@ import {
   canUseReviewModerationInformationExtension,
   getReviewModerationExpiry,
 } from "@/lib/review-moderation-policy"
+import { notifyReviewModerationSuperadmins } from "@/lib/review-moderation-notifications"
 
 export const REVIEW_MODERATION_BUSINESS_INFORMATION_MAX_LENGTH = 2000
 const MAX_ATTEMPTS = 3
@@ -59,7 +60,7 @@ export async function addBusinessReviewModerationInformation(input: {
           where: { id: input.solicitudId, negocioId: input.negocioId },
           select: {
             id: true, negocioId: true, resenaId: true, estado: true, activeKey: true,
-            prorrogaInformacionUsada: true, venceEn: true,
+            prorrogaInformacionUsada: true, venceEn: true, revisadaPorSuperadminId: true,
             resena: { select: { id: true, negocioId: true, estadoModeracion: true } },
           },
         })
@@ -107,6 +108,12 @@ export async function addBusinessReviewModerationInformation(input: {
             recursoId: solicitud.id,
             detalle: JSON.stringify({ solicitudId: solicitud.id, resenaId: solicitud.resenaId, estadoAnterior: "REQUIERE_INFORMACION", estadoNuevo: "EN_REVISION", prorrogaAplicada }),
           },
+        })
+        await notifyReviewModerationSuperadmins(tx, {
+          solicitudId: solicitud.id,
+          reviewerId: solicitud.revisadaPorSuperadminId,
+          titulo: "Información adicional recibida",
+          cuerpo: "Un negocio aportó información para una solicitud de revisión.",
         })
 
         return { solicitud: { id: solicitud.id, estado: "EN_REVISION" as const, venceEn, updatedAt: now } }
