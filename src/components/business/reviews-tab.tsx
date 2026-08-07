@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
-import { Star, MessageSquare, Send, Filter, X, Check } from "lucide-react"
+import { Star, MessageSquare, Send, Filter, X, Check, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
@@ -20,6 +20,8 @@ import {
 import { cn, timeAgo } from "@/lib/utils"
 import { toast } from "sonner"
 import { TAB_COUNTS_KEY } from "./business-panel"
+import { ReviewModerationDialog } from "./review-moderation-dialog"
+import { canBusinessRequestReview, getBusinessModerationStatusCopy, type BusinessReviewModerationStatus } from "@/lib/review-moderation-business-ui"
 
 // ============================================
 // Types
@@ -45,6 +47,15 @@ interface Resena {
   respuestaNegocio: string | null
   fechaRespuesta: string | null
   fecha: string
+  estadoModeracion: string
+  moderacion: {
+    id: string
+    estado: BusinessReviewModerationStatus
+    motivo: string
+    venceEn: string
+    resueltaEn: string | null
+    motivoDecision: string | null
+  } | null
 }
 
 interface ReviewsStats {
@@ -156,6 +167,7 @@ export function ReviewsTab({ negocio }: ReviewsTabProps) {
   const [page, setPage] = useState(1)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [replyText, setReplyText] = useState("")
+  const [moderationDialog, setModerationDialog] = useState<{ resena: Resena; mode: "create" | "history" } | null>(null)
 
   // Fetch reviews
   const { data, isLoading } = useQuery<ReviewsResponse>({
@@ -363,6 +375,7 @@ export function ReviewsTab({ negocio }: ReviewsTabProps) {
                 colorPrincipal={negocio.colorPrincipal}
                 isRopa={isRopa}
                 isNegocio={isNegocio}
+                onModerationClick={(mode) => setModerationDialog({ resena, mode })}
               />
             ))}
           </AnimatePresence>
@@ -399,6 +412,13 @@ export function ReviewsTab({ negocio }: ReviewsTabProps) {
           )}
         </div>
       )}
+      <ReviewModerationDialog
+        review={moderationDialog?.resena ?? null}
+        mode={moderationDialog?.mode ?? "history"}
+        open={!!moderationDialog}
+        onOpenChange={(open) => { if (!open) setModerationDialog(null) }}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ["negocio-resenas", negocio.id] })}
+      />
     </div>
   )
 }
@@ -419,6 +439,7 @@ function ReviewCard({
   colorPrincipal,
   isRopa,
   isNegocio,
+  onModerationClick,
 }: {
   resena: Resena
   delay: number
@@ -432,9 +453,12 @@ function ReviewCard({
   colorPrincipal: string
   isRopa: boolean
   isNegocio: boolean
+  onModerationClick: (mode: "create" | "history") => void
 }) {
   const hasReply = !!resena.respuestaNegocio
   const hasSubRatings = resena.rapidez !== null || resena.calidad !== null || resena.precio !== null
+  const moderationCopy = resena.moderacion ? getBusinessModerationStatusCopy(resena.moderacion.estado) : null
+  const canRequestModeration = canBusinessRequestReview(resena.estadoModeracion, resena.moderacion?.estado)
 
   return (
     <motion.div
@@ -520,6 +544,14 @@ function ReviewCard({
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {resena.respuestaNegocio}
               </p>
+            </div>
+          )}
+
+          {(moderationCopy || canRequestModeration) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/40 p-2.5">
+              {moderationCopy && <Badge variant="outline" className="gap-1 text-xs"><ShieldCheck className="h-3 w-3" />{moderationCopy.label}</Badge>}
+              {moderationCopy && <Button variant="ghost" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onModerationClick("history")}>Ver seguimiento</Button>}
+              {canRequestModeration && <Button variant="ghost" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onModerationClick("create")}>Solicitar revisión</Button>}
             </div>
           )}
 

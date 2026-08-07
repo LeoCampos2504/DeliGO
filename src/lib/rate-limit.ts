@@ -24,6 +24,7 @@ export const RATE_LIMITS = {
   review: { maxRequests: 3, windowMs: 5 * 60 * 1000 },          // 3 per 5 min
   reviewModerationBusiness: { maxRequests: 5, windowMs: 24 * 60 * 60 * 1000 }, // 5 per negocio/day
   reviewModerationReview: { maxRequests: 1, windowMs: 24 * 60 * 60 * 1000 }, // 1 per negocio+reseña/day
+  reviewModerationBusinessInformation: { maxRequests: 10, windowMs: 60 * 60 * 1000 }, // 10 per negocio/hour
   order: { maxRequests: 5, windowMs: 5 * 60 * 1000 },           // 5 per 5 min
   push: { maxRequests: 10, windowMs: 60 * 1000 },               // 10 per min
   password: { maxRequests: 3, windowMs: 15 * 60 * 1000 },       // 3 per 15 min

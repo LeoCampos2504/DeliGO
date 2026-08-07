@@ -42,12 +42,29 @@ export async function GET(req: NextRequest) {
     const [resenas, filteredTotal, allTotal, stats, distribucion, sinRespuestaCount] = await Promise.all([
       db.resena.findMany({
         where,
-        include: {
-          cliente: {
-            select: { id: true, nombre: true },
-          },
-          pedido: {
-            select: { id: true, negocioNombre: true, fecha: true },
+        select: {
+          id: true,
+          clienteNombre: true,
+          puntuacion: true,
+          comentario: true,
+          rapidez: true,
+          calidad: true,
+          precio: true,
+          respuestaNegocio: true,
+          fechaRespuesta: true,
+          fecha: true,
+          estadoModeracion: true,
+          solicitudesRevision: {
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: 1,
+            select: {
+              id: true,
+              estado: true,
+              motivo: true,
+              venceEn: true,
+              resueltaEn: true,
+              motivoDecision: true,
+            },
           },
         },
         orderBy: { fecha: "desc" },
@@ -81,7 +98,10 @@ export async function GET(req: NextRequest) {
     ])
 
     return noStoreJson({
-      resenas,
+      resenas: resenas.map(({ solicitudesRevision, ...resena }) => ({
+        ...resena,
+        moderacion: solicitudesRevision[0] ?? null,
+      })),
       stats: {
         promedio: stats._avg.puntuacion ?? 0,
         rapidez: stats._avg.rapidez ?? 0,

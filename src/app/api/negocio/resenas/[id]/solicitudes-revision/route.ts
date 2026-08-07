@@ -7,11 +7,34 @@ import {
   isReviewModerationConflict,
   parseCreateReviewModerationRequestBody,
 } from "@/lib/review-moderation-server"
+import {
+  getBusinessReviewModerationHistory,
+  ReviewModerationBusinessNotFoundError,
+} from "@/lib/review-moderation-business"
 
 function noStoreJson<T>(data: T, init?: ResponseInit) {
   const response = NextResponse.json(data, init)
   response.headers.set("Cache-Control", "private, no-store")
   return response
+}
+
+// GET /api/negocio/resenas/[id]/solicitudes-revision - historial propio y sanitizado.
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    if (!token) return noStoreJson({ error: "No autenticado" }, { status: 401 })
+    const user = await getUserFromToken(token)
+    if (!user || user.type !== "negocio") return noStoreJson({ error: "No autenticado" }, { status: 401 })
+    if (!user.aprobado || user.suspendido) return noStoreJson({ error: "Acceso denegado" }, { status: 403 })
+
+    const { id } = await params
+    if (!id) return noStoreJson({ error: "Reseña no encontrada" }, { status: 404 })
+    return noStoreJson(await getBusinessReviewModerationHistory({ negocioId: user.id, resenaId: id }))
+  } catch (error) {
+    if (error instanceof ReviewModerationBusinessNotFoundError) return noStoreJson({ error: "Reseña no encontrada" }, { status: 404 })
+    console.error("Error getting business review moderation history:", error)
+    return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
+  }
 }
 
 // POST /api/negocio/resenas/[id]/solicitudes-revision
