@@ -205,6 +205,7 @@ model Negocio {
   ingredientes         Ingrediente[]
   pedidos              Pedido[]
   resenas              Resena[]
+  solicitudesRevisionResena SolicitudRevisionResena[]
   favoritos            Favorito[]
   deudaHistorial       DeudaHistorial[]
   repartidores         RepartidorNegocio[]
@@ -481,6 +482,45 @@ model ChatMensaje {
 // ============================================
 // RESEÑAS
 // ============================================
+enum EstadoModeracionResena {
+  PUBLICADA
+  OCULTA_EN_REVISION
+  ELIMINADA_POR_MODERACION
+}
+
+enum EstadoSolicitudRevisionResena {
+  PENDIENTE
+  EN_REVISION
+  REQUIERE_INFORMACION
+  APROBADA
+  RECHAZADA
+  RESTAURADA_AUTOMATICAMENTE
+}
+
+enum MotivoSolicitudRevisionResena {
+  FALSA
+  ILEGAL
+  OFENSIVA
+  DISCRIMINATORIA
+  OTRA_INFRACCION
+}
+
+enum TipoEventoSolicitudRevisionResena {
+  SOLICITUD_CREADA
+  TOMADA_EN_REVISION
+  INFORMACION_REQUERIDA
+  INFORMACION_APORTADA
+  APROBADA
+  RECHAZADA
+  RESTAURADA_AUTOMATICAMENTE
+}
+
+enum ActorSolicitudRevisionResena {
+  NEGOCIO
+  SUPERADMIN
+  SISTEMA
+}
+
 model Resena {
   id               String    @id @default(cuid())
   negocioId        String
@@ -495,12 +535,93 @@ model Resena {
   respuestaNegocio String?
   fechaRespuesta   DateTime?
   fecha            DateTime  @default(now())
+  // Fuente de verdad de visibilidad pública. La solicitud conserva el expediente
+  // y la reseña nunca se borra cuando la moderación aprueba una eliminación.
+  estadoModeracion EstadoModeracionResena @default(PUBLICADA)
+  moderadaEn       DateTime?
 
-  negocio Negocio @relation(fields: [negocioId], references: [id])
-  cliente Cliente @relation(fields: [clienteId], references: [id])
-  pedido  Pedido  @relation(fields: [pedidoId], references: [id])
+  negocio             Negocio                    @relation(fields: [negocioId], references: [id])
+  cliente             Cliente                    @relation(fields: [clienteId], references: [id])
+  pedido              Pedido                     @relation(fields: [pedidoId], references: [id])
+  solicitudesRevision SolicitudRevisionResena[]
 
+  // Habilita la FK compuesta SolicitudRevisionResena(resenaId, negocioId), que
+  // evita asociar en DB una reseña de un negocio con otro negocio distinto.
+  @@unique([id, negocioId])
   @@map("resenas")
+}
+
+// Expediente de una solicitud del dueño del negocio. `activeKey` es la garantía
+// de una sola solicitud activa: para PENDIENTE/EN_REVISION/REQUIERE_INFORMACION
+// vale resenaId; para estados terminales vale NULL. El CHECK versionado en la
+// migración refuerza esa correspondencia que Prisma no puede expresar.
+model SolicitudRevisionResena {
+  id                       String                        @id @default(cuid())
+  resenaId                 String
+  negocioId                String
+  motivo                   MotivoSolicitudRevisionResena
+  explicacionOriginal      String
+  estado                   EstadoSolicitudRevisionResena @default(PENDIENTE)
+  activeKey                String?                       @unique
+  venceEn                  DateTime
+  resueltaEn               DateTime?
+  revisadaPorSuperadminId  String?
+  motivoDecision           String?
+  prorrogaInformacionUsada Boolean                       @default(false)
+  createdAt                DateTime                      @default(now())
+  updatedAt                DateTime                      @updatedAt
+
+  resena                Resena                    @relation(fields: [resenaId, negocioId], references: [id, negocioId], onDelete: Restrict)
+  negocio               Negocio                   @relation(fields: [negocioId], references: [id], onDelete: Restrict)
+  revisadaPorSuperadmin SuperAdmin?               @relation(fields: [revisadaPorSuperadminId], references: [id], onDelete: Restrict)
+  eventos               SolicitudRevisionResenaEvento[]
+  evidencias            EvidenciaSolicitudRevisionResena[]
+
+  @@index([negocioId, estado, createdAt])
+  @@index([estado, venceEn])
+  @@index([resenaId, createdAt])
+  @@map("solicitudes_revision_resena")
+}
+
+// Línea de tiempo append-only del expediente. `metadata` conserva solo datos
+// sanitizados/no sensibles serializados como JSON; nunca contenido binario.
+model SolicitudRevisionResenaEvento {
+  id          String                            @id @default(cuid())
+  solicitudId String
+  tipo        TipoEventoSolicitudRevisionResena
+  actorTipo   ActorSolicitudRevisionResena
+  actorId     String?
+  mensaje     String?
+  metadata    String                            @default("{}")
+  createdAt   DateTime                          @default(now())
+
+  solicitud  SolicitudRevisionResena           @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  evidencias EvidenciaSolicitudRevisionResena[]
+
+  @@index([solicitudId, createdAt])
+  @@map("solicitudes_revision_resena_eventos")
+}
+
+// Solo metadata privada preparada para 19-F. No guarda URL pública, contenido
+// ni rutas locales arbitrarias; storageKey se resolverá por un proxy autorizado.
+model EvidenciaSolicitudRevisionResena {
+  id                  String                          @id @default(cuid())
+  solicitudId         String
+  eventoId            String?
+  uploaderTipo        ActorSolicitudRevisionResena
+  uploaderId          String?
+  storageKey          String                          @unique
+  mimeType            String
+  bytes               Int
+  sha256              String
+  nombrePresentacion  String
+  createdAt           DateTime                        @default(now())
+
+  solicitud SolicitudRevisionResena        @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  evento    SolicitudRevisionResenaEvento? @relation(fields: [eventoId], references: [id], onDelete: Restrict)
+
+  @@index([solicitudId, createdAt])
+  @@map("evidencias_solicitud_revision_resena")
 }
 
 // ============================================
@@ -563,6 +684,8 @@ model SuperAdmin {
   activo           Boolean  @default(true)
   pushSubscription String?
   createdAt        DateTime @default(now())
+
+  solicitudesRevisionResenaRevisadas SolicitudRevisionResena[]
 
   @@map("super_admins")
 }
