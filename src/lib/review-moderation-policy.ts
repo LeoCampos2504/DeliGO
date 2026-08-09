@@ -28,6 +28,22 @@ export function isReviewPublic(status: ReviewModerationStatus): boolean {
   return status === "PUBLICADA"
 }
 
+/**
+ * 19-H1: estado sanitizado que la superficie privada del Cliente autor puede
+ * recibir — nunca el enum interno de moderación. El servidor puede leer
+ * `estadoModeracion` para derivar este valor, pero jamás debe devolverlo tal
+ * cual: `en_revision`/`no_publicada` son neutrales, no revelan motivo,
+ * explicación, evidencia, actor ni expediente.
+ */
+export const CLIENT_REVIEW_VISIBILITY_STATUSES = ["publicada", "en_revision", "no_publicada"] as const
+export type ClientReviewVisibility = (typeof CLIENT_REVIEW_VISIBILITY_STATUSES)[number]
+
+export function getClientReviewVisibility(status: ReviewModerationStatus): ClientReviewVisibility {
+  if (status === "PUBLICADA") return "publicada"
+  if (status === "OCULTA_EN_REVISION") return "en_revision"
+  return "no_publicada"
+}
+
 export function isReviewModerationRequestActive(status: ReviewModerationRequestStatus): boolean {
   return ACTIVE_REQUEST_STATUSES.has(status)
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
+import { getClientReviewVisibility } from "@/lib/review-moderation-policy"
 
 // Seguridad-6B: historial de pedidos del cliente — datos privados, nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -32,7 +33,9 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         items: true,
-        resena: { select: { id: true, puntuacion: true } },
+        // `estadoModeracion` se lee sólo para derivar `estadoVisibilidad`
+        // server-side (19-H1) — nunca se devuelve tal cual al Cliente.
+        resena: { select: { id: true, puntuacion: true, estadoModeracion: true } },
         negocio: {
           select: {
             logoUrl: true,
@@ -50,9 +53,13 @@ export async function GET(req: NextRequest) {
 
     // Flatten negocio data into each pedido for client consumption
     const pedidosFlat = pedidos.map((p) => {
-      const { negocio, ...rest } = p
+      const { negocio, resena, ...rest } = p
       return {
         ...rest,
+        // 19-H1: nunca se expone `estadoModeracion` (ni ningún otro dato del
+        // expediente de moderación) al Cliente — sólo el estado neutral
+        // derivado. Una reseña sin moderación en curso es "publicada".
+        resena: resena ? { id: resena.id, puntuacion: resena.puntuacion, estadoVisibilidad: getClientReviewVisibility(resena.estadoModeracion) } : null,
         lat: rest.lat,
         lng: rest.lng,
         direccion: rest.direccion,

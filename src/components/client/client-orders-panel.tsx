@@ -53,6 +53,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
+import { getClientReviewVisibilityCopy } from "@/lib/review-moderation-client-ui"
 import { useCartStore, type CartItemAgregado } from "@/store/cart-store"
 import { ReviewDialog } from "@/components/client/review-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
@@ -94,7 +95,7 @@ interface Pedido {
   fecha: string
   items: PedidoItem[]
   clienteConfirmaRecibido: boolean
-  resena: { id: string; puntuacion: number } | null
+  resena: { id: string; puntuacion: number; estadoVisibilidad: "publicada" | "en_revision" | "no_publicada" } | null
   canceladoPor: string | null
   canceladoMotivo: string | null
   // Delivery tracking fields (from API)
@@ -1339,10 +1340,10 @@ function HistoryOrderCard({
         </div>
       )}
 
-      {/* Review indicator */}
+      {/* Review indicator — 19-H1: copy neutral según estadoVisibilidad sanitizado (nunca el enum interno de moderación). */}
       {pedido.resena && !isCancelled && (
         <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs mb-2">
-          <div className="flex items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-0.5">
             {Array.from({ length: 5 }).map((_, i) => (
               <Star
                 key={i}
@@ -1355,7 +1356,7 @@ function HistoryOrderCard({
               />
             ))}
           </div>
-          <span className="font-medium">Tu reseña</span>
+          <span className="min-w-0 flex-1 break-words font-medium">{getClientReviewVisibilityCopy(pedido.resena.estadoVisibilidad)}</span>
         </div>
       )}
 
