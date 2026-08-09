@@ -111,11 +111,22 @@ afterAll(async () => {
 
 describe("19-E - notificaciones persistentes de moderación", () => {
   test("la solicitud, información y decisión notifican una vez a los destinatarios correctos", async () => {
+    // La DB TESTING es compartida y puede tener otros SuperAdmin activos
+    // legítimos además de los fixtures adminA/adminB — la regla productiva es
+    // "una notificación por cada SuperAdmin activo", no "exactamente 2". Se
+    // toma el conjunto real de activos justo antes de la acción para no
+    // depender de un conteo global fijo.
+    const activeSuperadminIdsBefore = (await db.superAdmin.findMany({ where: { activo: true }, select: { id: true } })).map((row) => row.id).sort()
+    expect(activeSuperadminIdsBefore).toContain(adminAId)
+    expect(activeSuperadminIdsBefore).toContain(adminBId)
+
     const review = await createReview("flujo")
     const request = await createReviewModerationRequest({ negocioId, resenaId: review.id, motivo: "FALSA", explicacion: "Solicitud de prueba" })
     const initial = await db.notificacion.findMany({ where: { datos: { contains: request.id } }, orderBy: { createdAt: "asc" } })
-    expect(initial).toHaveLength(2)
-    expect(initial.map((row) => row.userId).sort()).toEqual([adminAId, adminBId].sort())
+    // Exactamente una notificación por cada SuperAdmin activo esperado, ni
+    // más ni menos: comparar arrays ordenados detecta tanto destinatarios
+    // faltantes/extra como duplicados hacia un mismo destinatario.
+    expect(initial.map((row) => row.userId).sort()).toEqual(activeSuperadminIdsBefore)
     expect(initial.every((row) => row.userType === "superadmin" && row.titulo === "Nueva solicitud de revisión" && !row.cuerpo.includes("Solicitud de prueba") && !row.datos.includes(clienteId))).toBe(true)
 
     await mutateReviewModerationRequest({ solicitudId: request.id, superadminId: adminAId, action: "TOMAR_EN_REVISION" })

@@ -81,7 +81,7 @@ export async function getReviewModerationRequestDetail(id: string) {
       },
       eventos: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: { tipo: true, actorTipo: true, mensaje: true, createdAt: true },
+        select: { id: true, tipo: true, actorTipo: true, mensaje: true, createdAt: true, evidencias: { select: { id: true, nombrePresentacion: true, mimeType: true, bytes: true, createdAt: true } } },
       },
     },
   })

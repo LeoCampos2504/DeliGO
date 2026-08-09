@@ -125,7 +125,7 @@ export async function createReviewModerationRequest(input: {
           });
           if (changed.count !== 1) throw new ReviewModerationConflictError();
 
-          await tx.solicitudRevisionResenaEvento.create({
+          const evento = await tx.solicitudRevisionResenaEvento.create({
             data: {
               solicitudId: solicitud.id,
               tipo: "SOLICITUD_CREADA",
@@ -158,7 +158,7 @@ export async function createReviewModerationRequest(input: {
           });
 
           await recomputePublicReviewRating(tx, input.negocioId);
-          return solicitud;
+          return { ...solicitud, eventoId: evento.id };
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

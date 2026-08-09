@@ -33,7 +33,7 @@ export async function getBusinessReviewModerationHistory(input: { negocioId: str
           motivoDecision: true, createdAt: true, updatedAt: true,
           eventos: {
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-            select: { tipo: true, actorTipo: true, mensaje: true, createdAt: true },
+            select: { id: true, tipo: true, actorTipo: true, mensaje: true, createdAt: true, evidencias: { select: { id: true, nombrePresentacion: true, mimeType: true, bytes: true, createdAt: true } } },
           },
         },
       },
@@ -89,7 +89,7 @@ export async function addBusinessReviewModerationInformation(input: {
         })
         if (changed.count !== 1) throw new ReviewModerationBusinessConflictError()
 
-        await tx.solicitudRevisionResenaEvento.create({
+          const evento = await tx.solicitudRevisionResenaEvento.create({
           data: {
             solicitudId: solicitud.id,
             tipo: "INFORMACION_APORTADA",
@@ -116,7 +116,7 @@ export async function addBusinessReviewModerationInformation(input: {
           cuerpo: "Un negocio aportó información para una solicitud de revisión.",
         })
 
-        return { solicitud: { id: solicitud.id, estado: "EN_REVISION" as const, venceEn, updatedAt: now } }
+        return { solicitud: { id: solicitud.id, estado: "EN_REVISION" as const, venceEn, updatedAt: now }, eventoId: evento.id }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 })
     } catch (error) {
       if (isSerializationConflict(error) && attempt < MAX_ATTEMPTS - 1) continue

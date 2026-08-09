@@ -83,6 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         motivo: solicitud.motivo,
         venceEn: solicitud.venceEn,
         createdAt: solicitud.createdAt,
+        eventoId: solicitud.eventoId,
       },
     }, { status: 201 })
   } catch (error) {
