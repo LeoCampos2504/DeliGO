@@ -5,7 +5,7 @@ import { readFileSync } from "fs"
 import {
   REVIEW_MODERATION_TTL_DAYS, canReviewModerationTransition, canUseReviewModerationInformationExtension,
   getReviewModerationActiveKey, getReviewModerationExpiry, getReviewModerationTransition,
-  isReviewModerationRequestActive, isReviewPublic, summarizePublicReviewRating,
+  isReviewModerationExpiryCandidate, isReviewModerationRequestActive, isReviewPublic, summarizePublicReviewRating,
 } from "./review-moderation-policy"
 
 describe("19-A — contrato puro de moderación de reseñas", () => {
@@ -52,6 +52,30 @@ describe("19-A — contrato puro de moderación de reseñas", () => {
     expect(canUseReviewModerationInformationExtension("REQUIERE_INFORMACION", false)).toBe(true)
     expect(canUseReviewModerationInformationExtension("REQUIERE_INFORMACION", true)).toBe(false)
     expect(canUseReviewModerationInformationExtension("EN_REVISION", false)).toBe(false)
+  })
+
+  test("19-G — candidatura de vencimiento automático usa venceEn persistido, nunca un conteo recalculado", () => {
+    const now = new Date("2026-08-09T12:00:00.000Z")
+    const vencida = new Date("2026-08-09T11:59:59.999Z")
+    const exacta = now
+    const futura = new Date("2026-08-09T12:00:00.001Z")
+    const prorrogaFutura = new Date("2026-09-01T00:00:00.000Z")
+
+    for (const estado of ["PENDIENTE", "EN_REVISION", "REQUIERE_INFORMACION"] as const) {
+      expect(isReviewModerationExpiryCandidate({ estado, venceEn: vencida }, now)).toBe(true)
+      // fecha exactamente igual a `now` = vencida (`<=`)
+      expect(isReviewModerationExpiryCandidate({ estado, venceEn: exacta }, now)).toBe(true)
+      expect(isReviewModerationExpiryCandidate({ estado, venceEn: futura }, now)).toBe(false)
+      // Una prórroga ya aplicada (19-D) mueve `venceEn` hacia el futuro — la
+      // política sólo mira ese valor persistido, nunca recalcula desde
+      // `createdAt`, así que una solicitud "conceptualmente vieja" con
+      // prórroga futura NO es candidata.
+      expect(isReviewModerationExpiryCandidate({ estado, venceEn: prorrogaFutura }, now)).toBe(false)
+    }
+
+    for (const estado of ["APROBADA", "RECHAZADA", "RESTAURADA_AUTOMATICAMENTE"] as const) {
+      expect(isReviewModerationExpiryCandidate({ estado, venceEn: vencida }, now)).toBe(false)
+    }
   })
 
   test("rating público incluye solamente PUBLICADA sin nuevo rounding", () => {

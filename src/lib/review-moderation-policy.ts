@@ -69,6 +69,20 @@ export function canUseReviewModerationInformationExtension(status: ReviewModerat
   return status === "REQUIERE_INFORMACION" && !alreadyUsed
 }
 
+/**
+ * 19-G: una solicitud es candidata a vencimiento automático únicamente si
+ * sigue activa Y su `venceEn` persistido (la autoridad — nunca
+ * `createdAt + TTL` recalculado, porque 19-D puede haber aplicado la única
+ * prórroga) ya llegó o pasó. `<=` para que el instante exacto cuente como
+ * vencido.
+ */
+export function isReviewModerationExpiryCandidate(
+  input: { estado: ReviewModerationRequestStatus; venceEn: Date },
+  now: Date
+): boolean {
+  return isReviewModerationRequestActive(input.estado) && input.venceEn.getTime() <= now.getTime()
+}
+
 export interface PublicReviewRatingInput {
   puntuacion: number
   estadoModeracion: ReviewModerationStatus
