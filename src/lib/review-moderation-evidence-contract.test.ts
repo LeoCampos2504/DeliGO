@@ -18,6 +18,8 @@ const superadminDownload = readFileSync(join(root, "src/app/api/superadmin/solic
 const businessProjection = readFileSync(join(root, "src/lib/review-moderation-business.ts"), "utf8")
 const superadminProjection = readFileSync(join(root, "src/lib/review-moderation-superadmin.ts"), "utf8")
 const publicReviewRoute = readFileSync(join(root, "src/app/api/negocios/[slug]/route.ts"), "utf8")
+const businessDialog = readFileSync(join(root, "src/components/business/review-moderation-dialog.tsx"), "utf8")
+const superadminTab = readFileSync(join(root, "src/components/superadmin/review-moderation-tab.tsx"), "utf8")
 
 test("upload route is session-owned, multipart-only, rate-limited and maps sanitized HTTP errors", () => {
   expect(uploadRoute).toContain('req.cookies.get(SESSION_COOKIE_NAME)')
@@ -154,5 +156,44 @@ test("no evidence delete endpoint was introduced", () => {
   for (const folder of folders) {
     const files = readdirSync(folder, { recursive: true }).filter((entry) => String(entry).endsWith("route.ts"))
     for (const file of files) expect(readFileSync(join(folder, String(file)), "utf8")).not.toContain("export async function DELETE")
+  }
+})
+
+// 19-F4: evita regresiones del overflow horizontal — verifica que las reglas
+// estructurales que lo previenen (contenedor que puede achicarse, texto libre
+// que puede romper línea, acciones que no se dejan empujar) sigan presentes,
+// en vez de fijar clases completas frágiles ante refactors cosméticos.
+test("evidence rows stay shrinkable so long filenames wrap instead of overflowing", () => {
+  for (const source of [businessDialog, superadminTab]) {
+    expect(source).toContain("min-w-0 flex-1 break-all")
+    expect(source).toContain("h-4 w-4 shrink-0")
+  }
+})
+
+test("free-text moderation fields (explanation, decision, event messages) allow word wrap", () => {
+  for (const source of [businessDialog, superadminTab]) {
+    expect(source).toContain("whitespace-pre-wrap break-words")
+  }
+})
+
+test("business names in flex rows can shrink instead of forcing horizontal scroll", () => {
+  expect(superadminTab).toContain('className="min-w-0 flex-1"><p className="break-words font-semibold">{item.negocio.nombre}')
+  expect(superadminTab).toContain('className="min-w-0 break-words text-xs text-muted-foreground">{detail.data.negocio.nombre}')
+})
+
+test("superadmin evidence timeline mirrors business layout without gaining upload/delete controls", () => {
+  expect(superadminTab).not.toContain('type="file"')
+  expect(superadminTab).not.toContain("export async function DELETE")
+  expect(superadminTab).not.toContain("secure_url")
+  expect(superadminTab).not.toContain("signedUrl")
+  expect(superadminTab).not.toContain("storageKey")
+  expect(businessDialog).not.toContain("secure_url")
+  expect(businessDialog).not.toContain("signedUrl")
+  expect(businessDialog).not.toContain("storageKey")
+})
+
+test("no indiscriminate horizontal-overflow patch was used to mask the layout bug", () => {
+  for (const source of [businessDialog, superadminTab]) {
+    expect(source).not.toContain("overflow-x-hidden")
   }
 })
