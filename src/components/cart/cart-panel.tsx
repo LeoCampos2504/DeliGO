@@ -45,6 +45,11 @@ interface NegocioAPI {
   colorPrincipal: string
   logoUrl: string | null
   ofreceDelivery: boolean
+  // T20-DK1: booleano sanitizado del contrato público (negocios/[slug]) —
+  // mismo patrón que salonHabilitado. `undefined` (llamador viejo/objeto de
+  // test incompleto) se trata como disponible, igual que el default `true`
+  // en DB.
+  retiroHabilitado?: boolean
   precioDelivery: number
   deliveryMode?: string
   tiempoEntrega: number
@@ -178,7 +183,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   const [metodoEntregaManual, setMetodoEntregaManual] = useState<"retiro" | "domicilio">(
     defaultMetodoEntregaManual(negocio.ofreceDelivery)
   )
-  const metodoEntrega = resolveMetodoEntrega({ isMesaOrder, metodoEntregaManual })
+  const metodoEntrega = resolveMetodoEntrega({
+    isMesaOrder,
+    metodoEntregaManual,
+    ofreceDelivery: negocio.ofreceDelivery,
+    ofreceRetiro: negocio.retiroHabilitado,
+  })
   const setMetodoEntrega = (v: "retiro" | "domicilio" | "mesa") => {
     if (v !== "mesa") setMetodoEntregaManual(v)
   }
@@ -252,8 +262,10 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
         setDeliveryZoneInfo(zoneInfo)
         const outsideZone = zoneInfo.checked && !zoneInfo.delivery && zoneInfo.reason === "outside_zones"
         setDeliveryUnavailable(outsideZone)
-        // If outside zone and currently on domicilio, switch to retiro
-        if (outsideZone && metodoEntrega === "domicilio") {
+        // T20-DK1: solo cae a retiro si el negocio realmente lo ofrece — un
+        // negocio "solo delivery" nunca debe terminar en metodoEntrega
+        // "retiro" por este fallback (Retiro no es una opción para él).
+        if (outsideZone && metodoEntrega === "domicilio" && negocio.retiroHabilitado !== false) {
           setMetodoEntrega("retiro")
         }
         // Update cart store with the zone-specific price
@@ -269,7 +281,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
         setCheckingZone(false)
       })
     return () => { cancelled = true }
-  }, [deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio, negocio.ofreceDelivery, metodoEntrega])
+  }, [deliveryAddress?.lat, deliveryAddress?.lng, negocio.slug, negocio.id, negocio.nombre, negocio.precioDelivery, setActiveNegocio, negocio.ofreceDelivery, negocio.retiroHabilitado, metodoEntrega])
 
   const deliveryFee = metodoEntrega === "domicilio" ? storePrecioDelivery : 0
   const isOutsideDeliveryZone = deliveryZoneInfo?.checked && !deliveryZoneInfo.delivery && deliveryZoneInfo.reason === "outside_zones"
@@ -1048,6 +1060,16 @@ function CartCheckoutStep({
   deliveryUnavailable?: boolean
   disabled?: boolean
 }) {
+  // T20-DK1: qué botones de método puede ver el Cliente. Retiro solo existe
+  // si el negocio lo ofrece; Delivery se oculta cuando está fuera de zona
+  // ÚNICAMENTE si hay un canal alternativo (Retiro) al que el Cliente pueda
+  // cambiarse — un negocio "solo delivery" nunca se queda sin ningún botón
+  // visible, porque no tiene otro canal para ofrecer en su lugar (el bloqueo
+  // de envío fuera de zona ya lo maneja el footer, más abajo).
+  const showRetiroButton = negocio.retiroHabilitado !== false
+  const showDeliveryButton = negocio.ofreceDelivery && (showRetiroButton ? !deliveryUnavailable : true)
+  const visibleMethodCount = (showRetiroButton ? 1 : 0) + (showDeliveryButton ? 1 : 0)
+
   return (
     <div className="px-4 py-4 space-y-5">
       {/* ===== DELIVERY METHOD ===== */}
@@ -1084,7 +1106,8 @@ function CartCheckoutStep({
         <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
           Método de entrega
         </h3>
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className={cn("grid gap-2.5", visibleMethodCount >= 2 ? "grid-cols-2" : "grid-cols-1")}>
+          {showRetiroButton && (
           <button
             onClick={() => setMetodoEntrega("retiro")}
             disabled={disabled}
@@ -1138,8 +1161,9 @@ function CartCheckoutStep({
               </div>
             )}
           </button>
+          )}
 
-          {negocio.ofreceDelivery && !deliveryUnavailable && (
+          {showDeliveryButton && (
             <button
               onClick={() => setMetodoEntrega("domicilio")}
               disabled={disabled}
@@ -1203,7 +1227,9 @@ function CartCheckoutStep({
           <div className="mt-2 flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
             <Store className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
-              Tu ubicación está fuera de la zona de delivery. Solo podés retirar en local.
+              {showRetiroButton
+                ? "Tu ubicación está fuera de la zona de delivery. Solo podés retirar en local."
+                : "El delivery no está disponible para esta ubicación."}
             </p>
           </div>
         )}
@@ -1272,7 +1298,9 @@ function CartCheckoutStep({
                       Fuera de la zona de delivery
                     </p>
                     <p className="text-[11px] text-destructive/70 mt-0.5">
-                      Tu ubicación no está dentro de las zonas de cobertura. Elegí retirar en local o cambiá tu dirección desde el inicio.
+                      {showRetiroButton
+                        ? "Tu ubicación no está dentro de las zonas de cobertura. Elegí retirar en local o cambiá tu dirección desde el inicio."
+                        : "Tu ubicación no está dentro de las zonas de cobertura. Cambiá tu dirección desde el inicio para continuar."}
                     </p>
                   </div>
                 </div>

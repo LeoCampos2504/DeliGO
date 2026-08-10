@@ -214,3 +214,66 @@ describe("Casos adicionales — mozo autenticado (transitividad, no re-gateado p
     expect(result.isEffectiveMesaOrder).toBe(true)
   })
 })
+
+describe("16. T20-DK1 — resolveMetodoEntrega con capability de Retiro independiente", () => {
+  test("sin ofreceDelivery/ofreceRetiro (llamadores viejos): se comporta exactamente igual que antes — ambos canales disponibles", () => {
+    expect(resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro" })).toBe("retiro")
+    expect(resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio" })).toBe("domicilio")
+  })
+
+  test("Solo retiro (delivery OFF, retiro ON): domicilio manual nunca es válido, retiro siempre lo es", () => {
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: false, ofreceRetiro: true })
+    ).toBe("retiro")
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: false, ofreceRetiro: true })
+    ).toBe("retiro") // elección manual stale (domicilio ya no existe para este negocio) — cae a retiro
+  })
+
+  test("Delivery + retiro (ambos ON): honra la elección manual tal cual, sin forzar ningún canal", () => {
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: true, ofreceRetiro: true })
+    ).toBe("retiro")
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: true, ofreceRetiro: true })
+    ).toBe("domicilio")
+  })
+
+  test("Solo delivery (delivery ON, retiro OFF): siempre domicilio, incluso si la elección manual quedó en retiro", () => {
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: true, ofreceRetiro: false })
+    ).toBe("domicilio")
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: true, ofreceRetiro: false })
+    ).toBe("domicilio") // nunca devuelve "retiro" — Retiro está deshabilitado para este negocio
+  })
+
+  test("isMesaOrder siempre gana, sin importar las capabilities de retiro/delivery", () => {
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: true, metodoEntregaManual: "retiro", ofreceDelivery: true, ofreceRetiro: false })
+    ).toBe("mesa")
+  })
+
+  test("cambio dinámico: manual retiro + Retiro pasa a OFF -> domicilio (si Delivery sigue ON)", () => {
+    const antes = resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: true, ofreceRetiro: true })
+    const despues = resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: true, ofreceRetiro: false })
+    expect(antes).toBe("retiro")
+    expect(despues).toBe("domicilio")
+  })
+
+  test("cambio dinámico: manual domicilio + Delivery pasa a OFF -> retiro (si Retiro sigue ON)", () => {
+    const antes = resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: true, ofreceRetiro: true })
+    const despues = resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: false, ofreceRetiro: true })
+    expect(antes).toBe("domicilio")
+    expect(despues).toBe("retiro")
+  })
+
+  test("0 canales no-mesa (delivery OFF + retiro OFF, estado que el servidor ya impide alcanzar): no explota, devuelve la elección manual tal cual", () => {
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "retiro", ofreceDelivery: false, ofreceRetiro: false })
+    ).toBe("retiro")
+    expect(
+      resolveMetodoEntrega({ isMesaOrder: false, metodoEntregaManual: "domicilio", ofreceDelivery: false, ofreceRetiro: false })
+    ).toBe("domicilio")
+  })
+})

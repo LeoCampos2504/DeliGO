@@ -1250,6 +1250,18 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       ? request.cookies.get(MESA_OCCUPANCY_COOKIE_NAME)?.value ?? null
       : null
 
+    // T20-DK1: mismo estilo que el gate de `ofreceDelivery` para "domicilio"
+    // más abajo — la UI ya oculta el botón de Retiro cuando el negocio no lo
+    // ofrece, pero nunca es la única defensa: un negocio "solo delivery"
+    // nunca puede terminar con un Pedido metodoEntrega:"retiro", sin importar
+    // qué envíe el body.
+    if (pedidoInput.metodoEntrega === "retiro" && !negocio.ofreceRetiro) {
+      return NextResponse.json(
+        { error: "El negocio no ofrece retiro" },
+        { status: 400 }
+      )
+    }
+
     // Determine delivery-specific fields
     let finalPrecioDelivery = 0
 

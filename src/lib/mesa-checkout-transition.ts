@@ -87,9 +87,34 @@ export function defaultMetodoEntregaManual(ofreceDelivery: boolean): "retiro" | 
 // "atascado" en mesa ni en retiro/domicilio porque nunca se guarda una
 // copia de "mesa" en estado; solo se recuerda la última elección manual
 // del usuario para el caso no-mesa (para no perderla si vuelve a esa mesa).
+//
+// T20-DK1: `ofreceDelivery`/`ofreceRetiro` son opcionales (default `true`,
+// el comportamiento histórico de antes de que "retiro" tuviera su propia
+// capability) para no romper ningún llamador existente. Cuando la elección
+// manual apunta a un canal que dejó de estar habilitado (p. ej. el negocio
+// desactivó Retiro mientras el Cliente lo tenía seleccionado), se deriva
+// automáticamente el canal que sí sigue disponible — nunca se guarda una
+// copia de esa corrección en estado, se recalcula en cada render igual que
+// el resto de este archivo.
 export function resolveMetodoEntrega(params: {
   isMesaOrder: boolean
   metodoEntregaManual: "retiro" | "domicilio"
+  ofreceDelivery?: boolean
+  ofreceRetiro?: boolean
 }): MetodoEntrega {
-  return params.isMesaOrder ? "mesa" : params.metodoEntregaManual
+  if (params.isMesaOrder) return "mesa"
+
+  const ofreceDelivery = params.ofreceDelivery ?? true
+  const ofreceRetiro = params.ofreceRetiro ?? true
+
+  if (params.metodoEntregaManual === "retiro" && ofreceRetiro) return "retiro"
+  if (params.metodoEntregaManual === "domicilio" && ofreceDelivery) return "domicilio"
+
+  // La elección manual ya no es válida (su canal se deshabilitó) — cae al
+  // otro canal si está disponible. Si ninguno lo está (0 canales, estado que
+  // el servidor ya impide alcanzar), se devuelve la elección tal cual: no
+  // hay nada válido para derivar.
+  if (ofreceDelivery) return "domicilio"
+  if (ofreceRetiro) return "retiro"
+  return params.metodoEntregaManual
 }

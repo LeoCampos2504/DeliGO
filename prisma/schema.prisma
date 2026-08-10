@@ -118,6 +118,11 @@ model Negocio {
 
   // Delivery
   ofreceDelivery        Boolean @default(false)
+  // T20-DK1 (Dark Kitchen): capacidad de Retiro independiente de Delivery —
+  // default true conserva EXACTAMENTE el comportamiento de todos los
+  // negocios existentes (retiro estaba siempre disponible antes de este
+  // campo). false + ofreceDelivery=true habilita la modalidad "solo delivery".
+  ofreceRetiro          Boolean @default(true)
   zonaDeliveryActiva    Boolean @default(false)
   zonasDelivery         String  @default("[]") // JSON array of zone objects
   precioDelivery        Float   @default(0)

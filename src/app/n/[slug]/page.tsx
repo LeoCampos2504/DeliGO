@@ -153,6 +153,9 @@ interface NegocioAPI {
   // rechazan todo lo de mesa igual), esto es solo para que la UI no
   // muestre banners/controles de una función que el negocio no ofrece.
   salonHabilitado?: boolean
+  // T20-DK1: booleano sanitizado — mismo patrón que salonHabilitado. Decide
+  // si el badge/checkout puede ofrecer Retiro como método de entrega.
+  retiroHabilitado?: boolean
   productos: ProductoAPI[]
   productosSinSeccion: ProductoAPI[]
   secciones: SeccionAPI[]
@@ -1066,10 +1069,16 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             </span>
           </span>
         )}
-        {isOutsideDeliveryZone && (
+        {isOutsideDeliveryZone && negocio.retiroHabilitado !== false && (
           <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
             <Store className="h-3.5 w-3.5" />
             <span className="font-semibold">Solo retiro en local</span>
+          </span>
+        )}
+        {isOutsideDeliveryZone && negocio.retiroHabilitado === false && (
+          <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+            <X className="h-3.5 w-3.5" />
+            <span className="font-semibold">Delivery no disponible en tu ubicación</span>
           </span>
         )}
         {!isRopa && (

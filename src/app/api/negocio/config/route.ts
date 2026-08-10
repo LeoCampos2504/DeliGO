@@ -5,6 +5,7 @@ import { auditLog } from "@/lib/audit"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
 import { desactivarSalonSiPermitido } from "@/lib/negocio-salon"
 import { mensajeBloqueoDesactivacionSalon } from "@/lib/negocio-salon-contract"
+import { tieneAlMenosUnCanalDePedido, SIN_CANALES_PEDIDO_ERROR } from "@/lib/negocio-canales-pedido"
 
 // Seguridad-6B: respuesta de config de negocio nunca debe quedar en caché
 // (propia del navegador o de un proxy intermedio) — contiene datos privados
@@ -26,6 +27,30 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
     }
   }
   return value
+}
+
+// T20-DK1: única fuente de verdad de "¿este cambio dejaría al negocio sin
+// ningún canal para recibir pedidos?" — compara el estado actual en DB con
+// los campos que efectivamente vienen en el body (los que no vienen
+// conservan su valor actual). Reutilizada por PUT y PATCH para que ninguno
+// de los dos pueda dejar salonActivo/ofreceDelivery/ofreceRetiro en false
+// simultáneamente.
+async function quedariaSinCanalesDePedido(
+  negocioId: string,
+  cambios: { salonActivo?: unknown; ofreceDelivery?: unknown; ofreceRetiro?: unknown }
+): Promise<boolean> {
+  const current = await db.negocio.findUnique({
+    where: { id: negocioId },
+    select: { salonActivo: true, ofreceDelivery: true, ofreceRetiro: true },
+  })
+  if (!current) return false // 404 se maneja en el resto del handler, no acá
+
+  const next = {
+    salonActivo: cambios.salonActivo !== undefined ? cambios.salonActivo === true : current.salonActivo,
+    ofreceDelivery: cambios.ofreceDelivery !== undefined ? cambios.ofreceDelivery === true : current.ofreceDelivery,
+    ofreceRetiro: cambios.ofreceRetiro !== undefined ? cambios.ofreceRetiro === true : current.ofreceRetiro,
+  }
+  return !tieneAlMenosUnCanalDePedido(next)
 }
 
 // GET - Get negocio config
@@ -150,6 +175,21 @@ export async function PUT(req: NextRequest) {
       )
     }
 
+    // T20-DK1: booleano real, nunca coercionar "true"/"false" (string).
+    if (body.ofreceRetiro !== undefined && typeof body.ofreceRetiro !== "boolean") {
+      return noStoreJson({ error: "ofreceRetiro debe ser true o false" }, { status: 400 })
+    }
+
+    if (body.ofreceDelivery !== undefined || body.ofreceRetiro !== undefined) {
+      const sinCanales = await quedariaSinCanalesDePedido(negocioId, {
+        ofreceDelivery: body.ofreceDelivery,
+        ofreceRetiro: body.ofreceRetiro,
+      })
+      if (sinCanales) {
+        return noStoreJson({ error: SIN_CANALES_PEDIDO_ERROR }, { status: 400 })
+      }
+    }
+
     // Build update data
     const updateData: Record<string, unknown> = {}
 
@@ -168,6 +208,7 @@ export async function PUT(req: NextRequest) {
     if (mensajeBienvenida !== undefined) updateData.mensajeBienvenida = mensajeBienvenida
     if (colorPrincipal !== undefined) updateData.colorPrincipal = colorPrincipal
     if (ofreceDelivery !== undefined) updateData.ofreceDelivery = ofreceDelivery
+    if (body.ofreceRetiro !== undefined) updateData.ofreceRetiro = body.ofreceRetiro
     if (seguimientoDeliveryActivo !== undefined) updateData.seguimientoDeliveryActivo = seguimientoDeliveryActivo
     if (aceptaTransferencia !== undefined) updateData.aceptaTransferencia = aceptaTransferencia
     if (aliasBancario !== undefined) updateData.aliasBancario = aliasBancario
@@ -242,6 +283,25 @@ export async function PATCH(req: NextRequest) {
 
     const negocioId = user.id
     const body = await req.json()
+
+    // T20-DK1: booleano real, nunca coercionar "true"/"false" (string).
+    if (body.ofreceRetiro !== undefined && typeof body.ofreceRetiro !== "boolean") {
+      return noStoreJson({ error: "ofreceRetiro debe ser true o false" }, { status: 400 })
+    }
+
+    // T20-DK1: ningún cambio de canal (Salón/Delivery/Retiro) puede dejar al
+    // negocio sin ninguno de los tres habilitado — chequeo temprano, antes de
+    // cualquier escritura (incluida la desactivación de Salón más abajo).
+    if (body.salonActivo !== undefined || body.ofreceDelivery !== undefined || body.ofreceRetiro !== undefined) {
+      const sinCanales = await quedariaSinCanalesDePedido(negocioId, {
+        salonActivo: body.salonActivo,
+        ofreceDelivery: body.ofreceDelivery,
+        ofreceRetiro: body.ofreceRetiro,
+      })
+      if (sinCanales) {
+        return noStoreJson({ error: SIN_CANALES_PEDIDO_ERROR }, { status: 400 })
+      }
+    }
 
     // P0-B: calibración explícita de la ubicación del negocio — rama aislada,
     // separada por completo del guardado genérico de campos de abajo. Es la
@@ -346,6 +406,7 @@ export async function PATCH(req: NextRequest) {
     if (body.mensajeBienvenida !== undefined) updateData.mensajeBienvenida = body.mensajeBienvenida
     if (body.colorPrincipal !== undefined) updateData.colorPrincipal = body.colorPrincipal
     if (body.ofreceDelivery !== undefined) updateData.ofreceDelivery = body.ofreceDelivery
+    if (body.ofreceRetiro !== undefined) updateData.ofreceRetiro = body.ofreceRetiro
     if (body.seguimientoDeliveryActivo !== undefined) updateData.seguimientoDeliveryActivo = body.seguimientoDeliveryActivo
     if (body.aceptaTransferencia !== undefined) updateData.aceptaTransferencia = body.aceptaTransferencia
     if (body.aliasBancario !== undefined) updateData.aliasBancario = body.aliasBancario

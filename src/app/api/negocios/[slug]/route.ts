@@ -260,6 +260,9 @@ export async function GET(
         logoUrl: true,
         bannerUrl: true,
         ofreceDelivery: true,
+        // T20-DK1: server-only — nunca se devuelve directamente al cliente.
+        // Solo se usa para calcular el booleano sanitizado retiroHabilitado.
+        ofreceRetiro: true,
         precioDelivery: true,
         deliveryMode: true,
         tiempoEntrega: true,
@@ -414,6 +417,10 @@ export async function GET(
       // inferir indirectamente por el comportamiento observable de
       // mesa-geofence/mesa-cuenta/mesas-public, que ya lo usan como gate.
       salonHabilitado: negocio.salonActivo === true,
+      // T20-DK1: mismo patrón que salonHabilitado — booleano sanitizado, el
+      // Cliente lo necesita para saber si Retiro es una opción de checkout
+      // (habilita/oculta la modalidad "solo delivery").
+      retiroHabilitado: negocio.ofreceRetiro === true,
       mostrarVentas: negocio.mostrarVentas,
       aceptaTransferencia: negocio.aceptaTransferencia,
       aliasBancario: negocio.aliasBancario,

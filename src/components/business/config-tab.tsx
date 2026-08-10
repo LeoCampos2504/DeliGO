@@ -77,6 +77,7 @@ interface NegocioConfig {
   mensajeBienvenida: string
   colorPrincipal: string
   ofreceDelivery: boolean
+  ofreceRetiro: boolean
   seguimientoDeliveryActivo: boolean
   precioDelivery: number
   tiempoEntrega: number
@@ -600,6 +601,21 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               onCheckedChange={(v) => {
                 setDelivery((p) => ({ ...p, ofreceDelivery: v }))
                 saveSection("delivery", { ...delivery, ofreceDelivery: v })
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+            <div>
+              <p className="text-sm font-semibold">Retiro en el local</p>
+              <p className="text-xs text-muted-foreground">Permití que tus clientes retiren sus pedidos en el negocio.</p>
+            </div>
+            <Switch
+              aria-label="Retiro en el local"
+              checked={mergedDelivery.ofreceRetiro ?? true}
+              onCheckedChange={(v) => {
+                setDelivery((p) => ({ ...p, ofreceRetiro: v }))
+                saveSection("delivery", { ...delivery, ofreceRetiro: v })
               }}
             />
           </div>
