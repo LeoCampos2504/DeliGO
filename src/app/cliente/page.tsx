@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect, useRef, Suspense } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import dynamic from "next/dynamic"
 import { useHydrated } from "@/hooks/use-hydrated"
+import { useSoloDeliveryCoverage } from "@/hooks/use-solo-delivery-coverage"
+import { fetchDeliveryPreciosBatched } from "@/lib/delivery-precios-batch"
 import { useRouter, useSearchParams } from "next/navigation"
 
 import {
@@ -110,6 +112,8 @@ interface NegocioHome {
   puntuacionPromedio: number
   totalResenas: number
   ofreceDelivery: boolean
+  // T20-DK2A: booleano sanitizado — nunca `ofreceRetiro` crudo.
+  retiroHabilitado?: boolean
   precioDelivery: number
   precioDeliveryDefault: number
   zonaDeliveryActiva: boolean
@@ -325,6 +329,14 @@ function HomePageContent() {
   })
 
   // Fetch negocios
+  // T20-DK2A: sin lat/lng en la URL — las coordenadas precisas del Cliente
+  // nunca viajan en un query string GET (riesgo de quedar registradas en
+  // logs/proxies/historial). La cobertura de negocios "solo delivery" se
+  // resuelve aparte, vía `useSoloDeliveryCoverage` (POST batch, body JSON).
+  // `enabled` sigue esperando también a `cartHasHydrated` (aunque este fetch
+  // ya no dependa de la ubicación) para que el primer contenido pintado ya
+  // conozca si hay dirección guardada — evita pintar la lista sin filtrar y
+  // reemplazarla enseguida por la versión filtrada (flash).
   const { data: negocios = [], isLoading } = useQuery<NegocioHome[]>({
     queryKey: ["negocios", activeCategory, activeSort, searchQuery],
     queryFn: async () => {
@@ -336,10 +348,27 @@ function HomePageContent() {
       if (!res.ok) throw new Error("Error")
       return res.json()
     },
-    enabled: hydrated,
+    enabled: hydrated && cartHasHydrated,
+  })
+
+  // T20-DK2A: un negocio "solo delivery" fuera de la zona de delivery del
+  // Cliente no debe aparecer en discovery — resuelto en lote (nunca una
+  // consulta por negocio) contra el mismo endpoint que ya calculaba precios,
+  // pasando la ubicación en el body de un POST (nunca en la URL).
+  const soloDeliveryCoverage = useSoloDeliveryCoverage({
+    negocios,
+    lat: deliveryAddress?.lat,
+    lng: deliveryAddress?.lng,
+    enabled: hydrated && cartHasHydrated,
   })
 
   // Fetch zone-based delivery prices when user has a delivery address
+  // T20-DK2C: `negocios` (todo el dataset de discovery, sin paginar) puede
+  // superar los `DELIVERY_PRECIOS_MAX_IDS` que el endpoint acepta por
+  // request (T20-DK2B lo rechaza con 400 en vez de truncar en silencio) —
+  // `fetchDeliveryPreciosBatched` es la misma función de lotes que ya usa
+  // `useSoloDeliveryCoverage`, así que este flujo histórico de precios
+  // nunca puede violar ese límite, sin importar cuántos negocios haya.
   const { data: deliveryPrecios } = useQuery<Record<string, DeliveryPrecio>>({
     queryKey: [
       "delivery-precios",
@@ -349,18 +378,12 @@ function HomePageContent() {
     ],
     queryFn: async () => {
       if (!deliveryAddress || negocios.length === 0) return {}
-      const res = await fetch("/api/negocios/delivery-precios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lat: deliveryAddress.lat,
-          lng: deliveryAddress.lng,
-          negocioIds: negocios.map((n) => n.id),
-        }),
-      })
-      if (!res.ok) return {}
-      const data = await res.json()
-      return data.precios ?? {}
+      const precios = await fetchDeliveryPreciosBatched(
+        deliveryAddress.lat,
+        deliveryAddress.lng,
+        negocios.map((n) => n.id)
+      )
+      return precios as Record<string, DeliveryPrecio>
     },
     enabled:
       hydrated &&
@@ -392,18 +415,23 @@ function HomePageContent() {
 
   // Filter businesses: show all by default (out-of-zone ones are pickup-only)
   // If soloDelivery is ON, only show businesses that deliver to the user's zone
+  // T20-DK2A: independientemente del toggle `soloDelivery`, un negocio
+  // "solo delivery" fuera de cobertura nunca se muestra — no tiene ningún
+  // canal utilizable para esta ubicación (a diferencia de un negocio con
+  // Delivery+retiro, que el toggle sí puede seguir mostrando/ocultando).
   const filteredNegocios = useMemo(() => {
-    if (!deliveryAddress || !deliveryPrecios) return negocios
-    if (!soloDelivery) return negocios
+    const coverageFiltered = negocios.filter((n) => soloDeliveryCoverage.isVisible(n))
+    if (!deliveryAddress || !deliveryPrecios) return coverageFiltered
+    if (!soloDelivery) return coverageFiltered
     // Solo delivery mode: only show businesses that deliver to user's zone
-    return negocios.filter((n) => {
+    return coverageFiltered.filter((n) => {
       if (!n.ofreceDelivery) return false // no delivery at all
       if (!n.zonaDeliveryActiva) return true // flat-rate delivery, always in zone
       const precio = deliveryPrecios[n.id]
       if (!precio) return true // still loading
       return precio.delivery !== false
     })
-  }, [negocios, deliveryPrecios, deliveryAddress, soloDelivery])
+  }, [negocios, deliveryPrecios, deliveryAddress, soloDelivery, soloDeliveryCoverage])
 
   const totalPromos = useMemo(
     () => filteredNegocios.reduce((sum, n) => sum + n.totalPromociones, 0),
@@ -835,6 +863,9 @@ function HomePageContent() {
           <PromotedBusinessesSection
             deliveryPrecios={deliveryPrecios}
             hasDeliveryAddress={!!deliveryAddress}
+            lat={deliveryAddress?.lat}
+            lng={deliveryAddress?.lng}
+            locationReady={hydrated && cartHasHydrated}
           />
         </div>
 
@@ -892,7 +923,7 @@ function HomePageContent() {
 
         {/* Business Grid */}
         <div className="px-4 pb-4">
-          {isLoading ? (
+          {isLoading || soloDeliveryCoverage.isBusy ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <CardSkeleton key={i} />

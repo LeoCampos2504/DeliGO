@@ -16,6 +16,7 @@ import { Star, Bike, Clock, Flame, ChevronRight, ShoppingCart, Sparkles, Store }
 import { formatPrice, isNegocioOpen } from "@/lib/utils"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { useSoloDeliveryCoverage } from "@/hooks/use-solo-delivery-coverage"
 
 // ============================================
 // Types
@@ -41,6 +42,8 @@ interface NegocioPromocionado {
   colorPrincipal: string
   rubro: string
   ofreceDelivery: boolean
+  // T20-DK2A: booleano sanitizado — nunca `ofreceRetiro` crudo.
+  retiroHabilitado?: boolean
   precioDelivery: number
   tiempoEntrega: number
   puntuacionPromedio: number
@@ -106,11 +109,26 @@ function getDiscountedPrice(
 interface PromotedBusinessesSectionProps {
   deliveryPrecios?: Record<string, DeliveryPrecio>
   hasDeliveryAddress?: boolean
+  // T20-DK2A: ubicación conocida del Cliente (mismo store que discovery y
+  // checkout) — un negocio "solo delivery" fuera de esta ubicación se
+  // excluye vía `useSoloDeliveryCoverage` (POST batch, body JSON — nunca en
+  // la URL del fetch de este carrusel).
+  lat?: number
+  lng?: number
+  // T20-DK2A: `false` mientras el store de ubicación todavía no hidrató —
+  // retrasa el PRIMER fetch de promocionados hasta conocer si hay dirección
+  // guardada, para nunca pintar una lista sin filtrar que luego haya que
+  // reemplazar (flash de una card que aparece y desaparece). Default `true`
+  // para no romper otros posibles usos de este componente sin ese contexto.
+  locationReady?: boolean
 }
 
 export function PromotedBusinessesSection({
   deliveryPrecios,
   hasDeliveryAddress,
+  lat,
+  lng,
+  locationReady = true,
 }: PromotedBusinessesSectionProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [api, setApi] = useState<CarouselApi | null>(null)
@@ -126,7 +144,19 @@ export function PromotedBusinessesSection({
       if (!res.ok) throw new Error("Error")
       return res.json()
     },
+    enabled: locationReady,
     staleTime: 1000 * 60 * 5,
+  })
+
+  // T20-DK2A: mismo hook que el listado principal — un negocio "solo
+  // delivery" fuera de cobertura tampoco debe aparecer en el carrusel de
+  // promocionados. Para cuando esta query corre, `locationReady` ya
+  // garantiza que la ubicación (si existe) ya se conoce.
+  const soloDeliveryCoverage = useSoloDeliveryCoverage({
+    negocios: data?.negocios ?? [],
+    lat,
+    lng,
+    enabled: true,
   })
 
   // Compute outside-zone status for promoted businesses
@@ -144,11 +174,13 @@ export function PromotedBusinessesSection({
     return map
   }, [data, hasDeliveryAddress, deliveryPrecios])
 
-  // Show all promoted businesses (out-of-zone ones show as pickup-only)
+  // Show all promoted businesses (out-of-zone ones show as pickup-only) —
+  // T20-DK2A: salvo un "solo delivery" fuera de cobertura, que nunca se
+  // muestra (no tiene ningún canal utilizable para esta ubicación).
   const filteredNegocios = useMemo(() => {
     if (!data?.activo || !data.negocios.length) return []
-    return data.negocios
-  }, [data])
+    return data.negocios.filter((n) => soloDeliveryCoverage.isVisible(n))
+  }, [data, soloDeliveryCoverage])
 
   // Entrance animation
   useEffect(() => {
@@ -173,7 +205,7 @@ export function PromotedBusinessesSection({
   }, [api, onSelect])
 
   // Don't render if feature is off or no businesses
-  if (isLoading) return <PromotedBusinessesSkeleton />
+  if (isLoading || soloDeliveryCoverage.isBusy) return <PromotedBusinessesSkeleton />
   if (!data || data.activo === false || filteredNegocios.length === 0) return null
 
   return (

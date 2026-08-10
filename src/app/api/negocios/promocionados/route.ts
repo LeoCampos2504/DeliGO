@@ -44,6 +44,9 @@ export async function GET() {
         colorPrincipal: true,
         rubro: true,
         ofreceDelivery: true,
+        // T20-DK2A: booleano sanitizado (mismo patrón que negocios/[slug] y
+        // el listado principal) — nunca se expone `ofreceRetiro` crudo.
+        ofreceRetiro: true,
         precioDelivery: true,
         precioDeliveryDefault: true,
         zonaDeliveryActiva: true,
@@ -86,6 +89,7 @@ export async function GET() {
             colorPrincipal: negocio.colorPrincipal,
             rubro: negocio.rubro,
             ofreceDelivery: negocio.ofreceDelivery,
+            retiroHabilitado: negocio.ofreceRetiro === true,
             precioDelivery: negocio.precioDelivery,
             precioDeliveryDefault: negocio.precioDeliveryDefault,
             zonaDeliveryActiva: negocio.zonaDeliveryActiva,
@@ -179,6 +183,7 @@ export async function GET() {
           colorPrincipal: negocio.colorPrincipal,
           rubro: negocio.rubro,
           ofreceDelivery: negocio.ofreceDelivery,
+          retiroHabilitado: negocio.ofreceRetiro === true,
           precioDelivery: negocio.precioDelivery,
           precioDeliveryDefault: negocio.precioDeliveryDefault,
           zonaDeliveryActiva: negocio.zonaDeliveryActiva,

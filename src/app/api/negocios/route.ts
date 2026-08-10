@@ -68,6 +68,11 @@ export async function GET(request: NextRequest) {
       puntuacionPromedio: n.puntuacionPromedio,
       totalResenas: n.totalResenas,
       ofreceDelivery: n.ofreceDelivery,
+      // T20-DK2A: booleano sanitizado (mismo patrón que negocios/[slug]) — la
+      // UI lo necesita para saber qué negocios son "solo delivery" y así
+      // aplicar la exclusión de cobertura sin coordenadas en la URL; nunca
+      // se expone el campo interno `ofreceRetiro`.
+      retiroHabilitado: n.ofreceRetiro === true,
       precioDelivery: n.precioDelivery,
       precioDeliveryDefault: n.precioDeliveryDefault,
       zonaDeliveryActiva: n.zonaDeliveryActiva,

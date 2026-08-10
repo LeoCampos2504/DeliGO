@@ -1,58 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-
-// ============================================
-// Point-in-polygon (ray-casting algorithm)
-// ============================================
-function pointInPolygon(
-  lat: number,
-  lng: number,
-  polygon: { lat: number; lng: number }[]
-): boolean {
-  let inside = false
-  const n = polygon.length
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = polygon[i].lat,
-      yi = polygon[i].lng
-    const xj = polygon[j].lat,
-      yj = polygon[j].lng
-    const intersect =
-      yi > lng !== yj > lng &&
-      lat < ((xj - xi) * (lng - yi)) / (yj - yi) + xi
-    if (intersect) inside = !inside
-  }
-  return inside
-}
-
-// ============================================
-// Safe JSON parser
-// ============================================
-function safeParseJSON(value: unknown, fallback: unknown = []) {
-  if (!value) return fallback
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value)
-      if (Array.isArray(parsed) || (typeof parsed === "object" && parsed !== null)) {
-        return parsed
-      }
-      return fallback
-    } catch {
-      return fallback
-    }
-  }
-  if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-    return value
-  }
-  return fallback
-}
-
-interface ZonaDelivery {
-  id: string
-  nombre: string
-  precio: number
-  puntos: { lat: number; lng: number }[]
-  color: string
-}
+import { resolveDeliveryCoverage, DELIVERY_PRECIOS_MAX_IDS } from "@/lib/delivery-coverage"
 
 // ============================================
 // POST /api/negocios/delivery-precios
@@ -80,12 +28,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Limit batch size
-    const ids = negocioIds.slice(0, 50)
+    // T20-DK2B: rechazo explícito ante exceso — nunca truncar en silencio.
+    // Un truncamiento silencioso dejaría IDs "desaparecidos" de la
+    // respuesta sin que el llamador se entere, indistinguibles de un
+    // negocio inexistente (ver política de "resultado faltante" del hook).
+    // El límite se mantiene (protege tamaño de request/query DB/CPU) — el
+    // consumidor real (`useSoloDeliveryCoverage`) es responsable de dividir
+    // conjuntos más grandes en varios requests de este tamaño.
+    if (negocioIds.length > DELIVERY_PRECIOS_MAX_IDS) {
+      return NextResponse.json(
+        { error: `negocioIds no puede tener más de ${DELIVERY_PRECIOS_MAX_IDS} elementos` },
+        { status: 400 }
+      )
+    }
 
     // Query all specified negocios
     const negocios = await db.negocio.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: negocioIds } },
       select: {
         id: true,
         ofreceDelivery: true,
@@ -97,81 +56,10 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const precios: Record<
-      string,
-      {
-        precioDelivery: number
-        zonaNombre?: string
-        mode: string
-        delivery?: boolean
-        reason?: string
-      }
-    > = {}
+    const precios: Record<string, ReturnType<typeof resolveDeliveryCoverage>> = {}
 
     for (const negocio of negocios) {
-      // No delivery offered
-      if (!negocio.ofreceDelivery) {
-        precios[negocio.id] = {
-          precioDelivery: 0,
-          mode: "none",
-          delivery: false,
-          reason: "no_delivery",
-        }
-        continue
-      }
-
-      // Simple mode (flat fee)
-      if (!negocio.zonaDeliveryActiva || negocio.deliveryMode !== "expert") {
-        precios[negocio.id] = {
-          precioDelivery: negocio.precioDelivery ?? 0,
-          mode: "simple",
-        }
-        continue
-      }
-
-      // Expert mode (zone-based)
-      const zonas = safeParseJSON(negocio.zonasDelivery, []) as ZonaDelivery[]
-
-      if (!Array.isArray(zonas) || zonas.length === 0) {
-        // No zones configured, use default
-        precios[negocio.id] = {
-          precioDelivery: negocio.precioDeliveryDefault ?? negocio.precioDelivery ?? 0,
-          mode: "expert",
-          zonaNombre: undefined,
-        }
-        continue
-      }
-
-      // Check which zone the user's point falls into
-      let found = false
-      for (const zona of zonas) {
-        if (
-          zona.puntos &&
-          Array.isArray(zona.puntos) &&
-          zona.puntos.length >= 3
-        ) {
-          if (pointInPolygon(lat, lng, zona.puntos)) {
-            precios[negocio.id] = {
-              precioDelivery: zona.precio ?? 0,
-              zonaNombre: zona.nombre,
-              mode: "expert",
-            }
-            found = true
-            break
-          }
-        }
-      }
-
-      if (!found) {
-        // Outside all zones - delivery not available for this location
-        precios[negocio.id] = {
-          precioDelivery:
-            negocio.precioDeliveryDefault ?? negocio.precioDelivery ?? 0,
-          mode: "expert",
-          delivery: false,
-          reason: "outside_zones",
-        }
-      }
+      precios[negocio.id] = resolveDeliveryCoverage(negocio, lat, lng)
     }
 
     return NextResponse.json({ precios })
