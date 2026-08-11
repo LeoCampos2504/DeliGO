@@ -76,6 +76,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
         updateMany: operation("pedido", "updateMany"),
       },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -88,6 +89,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       "resena.updateMany",
       "pedido.updateMany",
       "chatMensaje.updateMany",
+      "passwordResetToken.deleteMany",
       "favorito.deleteMany",
       "direccion.deleteMany",
       "cliente.delete",
@@ -99,6 +101,21 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     expect(calls[1].args).toEqual({
       where: { clienteId: "cliente-test" },
       data: { clienteId: null, clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
+    })
+    expect(calls[2].args).toEqual({
+      where: { clienteId: "cliente-test" },
+      data: {
+        clienteId: null,
+        clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME,
+        clienteTelefono: "",
+        direccion: null,
+        referencia: null,
+        lat: null,
+        lng: null,
+      },
+    })
+    expect(calls[4].args).toEqual({
+      where: { userId: "cliente-test", userType: "cliente" },
     })
   })
 
@@ -129,6 +146,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       resena: { updateMany: operation },
       pedido: { findFirst: async () => null, updateMany: operation },
       chatMensaje: { updateMany: operation },
+      passwordResetToken: { deleteMany: operation },
       favorito: { deleteMany: operation },
       direccion: { deleteMany: operation },
       cliente: { delete: async () => { throw clientAlreadyDeletedConflict() } },
@@ -208,6 +226,7 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
         updateMany: operation("pedido", "updateMany"),
       },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -231,9 +250,119 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
       "resena.updateMany",
       "pedido.updateMany",
       "chatMensaje.updateMany",
+      "passwordResetToken.deleteMany",
       "favorito.deleteMany",
       "direccion.deleteMany",
       "cliente.delete",
     ])
+  })
+})
+
+describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de PasswordResetToken (mock)", () => {
+  test("pedido.updateMany sanitiza exactamente los campos estructurados de PII, preservando el resto", async () => {
+    const calls: Array<{ model: string; operation: string; args: unknown }> = []
+    const operation = (model: string, name: string) => async (args: unknown) => {
+      calls.push({ model, operation: name, args })
+      return { count: 1 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: { findFirst: async () => null, updateMany: operation("pedido", "updateMany") },
+      chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+
+    const pedidoUpdate = calls.find((c) => c.model === "pedido" && c.operation === "updateMany")
+    expect(pedidoUpdate?.args).toEqual({
+      where: { clienteId: "cliente-test" },
+      data: {
+        clienteId: null,
+        clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME,
+        clienteTelefono: "",
+        direccion: null,
+        referencia: null,
+        lat: null,
+        lng: null,
+      },
+    })
+    // Campos financieros/operativos/de historial no aparecen en absoluto en
+    // el payload — nunca se tocan.
+    const dataKeys = Object.keys((pedidoUpdate?.args as { data: object }).data)
+    for (const untouched of [
+      "total",
+      "totalProductos",
+      "tarifaServicio",
+      "precioDelivery",
+      "metodoEntrega",
+      "metodoPago",
+      "estado",
+      "negocioId",
+      "deudaAcumulada",
+      "notas",
+      "canceladoMotivo",
+      "items",
+    ]) {
+      expect(dataKeys).not.toContain(untouched)
+    }
+  })
+
+  test("passwordResetToken.deleteMany se acota a userId + userType cliente, ocurre después del guard y antes de cliente.delete", async () => {
+    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const operation = (model: string, name: string) => async (args?: unknown) => {
+      calls.push({ model, operation: name, args })
+      return { count: 1 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: {
+        findFirst: async (args?: unknown) => {
+          calls.push({ model: "pedido", operation: "findFirst", args })
+          return null
+        },
+        updateMany: operation("pedido", "updateMany"),
+      },
+      chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+
+    const order = calls.map((c) => `${c.model}.${c.operation}`)
+    expect(order.indexOf("pedido.findFirst")).toBe(0)
+    expect(order.indexOf("passwordResetToken.deleteMany")).toBeGreaterThan(order.indexOf("pedido.findFirst"))
+    expect(order.indexOf("passwordResetToken.deleteMany")).toBeLessThan(order.indexOf("cliente.delete"))
+
+    const tokenDelete = calls.find((c) => c.model === "passwordResetToken")
+    expect(tokenDelete?.args).toEqual({ where: { userId: "cliente-test", userType: "cliente" } })
+  })
+
+  test("si el guard bloquea por pedido activo, ni pedido.updateMany ni passwordResetToken.deleteMany se ejecutan", async () => {
+    const calls: string[] = []
+    const operation = (label: string) => async () => {
+      calls.push(label)
+      return { count: 1 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
+      chatMensaje: { updateMany: operation("chatMensaje.updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken.deleteMany") },
+      favorito: { deleteMany: operation("favorito.deleteMany") },
+      direccion: { deleteMany: operation("direccion.deleteMany") },
+      cliente: { delete: operation("cliente.delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
+      ClientHasActiveOrdersError,
+    )
+    expect(calls).toEqual([])
   })
 })

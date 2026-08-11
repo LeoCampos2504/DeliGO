@@ -79,15 +79,32 @@ export async function deleteClientAccountInTransaction(
     },
   })
 
+  // Pedido no se borra: conserva historial operativo/financiero completo
+  // (items, totales, estado, timestamps, negocioId, deudaAcumulada), pero
+  // desvincula y sanitiza la PII estructurada que identificaba al Cliente.
+  // Sólo llega hasta acá si el guard de arriba confirmó que TODOS los
+  // pedidos del Cliente son terminales — nunca sanitiza un pedido activo.
   await tx.pedido.updateMany({
     where: { clienteId },
-    data: { clienteId: null },
+    data: {
+      clienteId: null,
+      clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME,
+      clienteTelefono: "",
+      direccion: null,
+      referencia: null,
+      lat: null,
+      lng: null,
+    },
   })
 
   await tx.chatMensaje.updateMany({
     where: { clienteId },
     data: { clienteId: null },
   })
+
+  // Acotado a userType "cliente": nunca borra tokens de Negocio, Repartidor
+  // ni CuentaOperativa que casualmente compartan el mismo userId.
+  await tx.passwordResetToken.deleteMany({ where: { userId: clienteId, userType: "cliente" } })
 
   await tx.favorito.deleteMany({ where: { clienteId } })
   await tx.direccion.deleteMany({ where: { clienteId } })
