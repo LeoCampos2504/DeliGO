@@ -5,7 +5,7 @@
 // Integración real contra PostgreSQL TESTING, sin mocks de Prisma. La guardia
 // inicial exige una URL de testing explícita antes de crear cualquier fixture.
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { randomUUID } from "crypto"
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
@@ -16,6 +16,22 @@ import {
 import { GET as getOperativoMe } from "@/app/api/operativo/me/route"
 import { GET as getPedidosPyr } from "@/app/api/operativo/pyr/pedidos/route"
 import { resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+
+// OPERATIVO_PYR_SALON_TEST_ISOLATION_DEBT: integración real contra
+// PostgreSQL TESTING remoto — el `beforeAll` de este archivo hace ~28
+// escrituras secuenciales reales (5 Negocio + 11 CuentaOperativa + 11
+// Empleado + 1 Pedido) más 11 creaciones de sesión en paralelo, cada
+// round-trip real ~200-300ms — supera ampliamente el default de bun:test
+// (5000ms, aplica también a hooks, no sólo a tests). Sin este valor, el
+// `beforeAll` quedaba abortado a mitad de camino: bun lo marca como fallido
+// y avanza a `afterAll` (que borra, correctamente scopeado, los Negocio ya
+// creados hasta ese punto), mientras la promesa abandonada del `beforeAll`
+// sigue corriendo en segundo plano y intenta crear más Empleado referenciando
+// un Negocio que la limpieza ya borró — de ahí el P2003 en
+// `empleados_negocioId_fkey`, un síntoma en cascada del timeout, no una FK
+// faltante real. Mismo criterio ya aplicado en todos los demás archivos
+// `*.integration.test.ts`/de integración real de este proyecto.
+setDefaultTimeout(60_000)
 
 const testDatabaseUrl = process.env.DELIGO_TEST_DATABASE_URL
 if (!testDatabaseUrl || process.env.DATABASE_URL !== testDatabaseUrl) {
