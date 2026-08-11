@@ -7,13 +7,17 @@ import { join } from "path"
 import {
   ANONYMIZED_REVIEW_CLIENT_NAME,
   CLIENT_ACCOUNT_DELETION_MAX_ATTEMPTS,
+  CLIENT_ACCOUNT_DELETION_TERMINAL_STATES,
   ClientAccountDeletionConflictError,
+  ClientHasActiveOrdersError,
   deleteClientAccountInTransaction,
+  isPedidoTerminalForClientAccountDeletion,
   retryClientAccountDeletion,
 } from "./client-account-deletion"
 
 const ROOT = process.cwd()
-const read = (relativePath: string) => readFileSync(join(ROOT, ...relativePath.split("/")), "utf8")
+const read = (relativePath: string) =>
+  readFileSync(join(ROOT, ...relativePath.split("/")), "utf8").replace(/\r\n/g, "\n")
 const migrationPath = "prisma/migrations/20260807010000_preserve_reviews_on_client_deletion/migration.sql"
 
 function serializationConflict() {
@@ -64,7 +68,13 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     }
     const tx = {
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { updateMany: operation("pedido", "updateMany") },
+      pedido: {
+        findFirst: async (args: unknown) => {
+          calls.push({ model: "pedido", operation: "findFirst", args })
+          return null
+        },
+        updateMany: operation("pedido", "updateMany"),
+      },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
@@ -74,6 +84,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     await deleteClientAccountInTransaction(tx, "cliente-test")
 
     expect(calls.map(({ model, operation }) => `${model}.${operation}`)).toEqual([
+      "pedido.findFirst",
       "resena.updateMany",
       "pedido.updateMany",
       "chatMensaje.updateMany",
@@ -82,6 +93,10 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       "cliente.delete",
     ])
     expect(calls[0].args).toEqual({
+      where: { clienteId: "cliente-test", estado: { notIn: ["entregado", "cancelado"] } },
+      select: { id: true },
+    })
+    expect(calls[1].args).toEqual({
       where: { clienteId: "cliente-test" },
       data: { clienteId: null, clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
     })
@@ -112,7 +127,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     const operation = async () => ({ count: 1 })
     const tx = {
       resena: { updateMany: operation },
-      pedido: { updateMany: operation },
+      pedido: { findFirst: async () => null, updateMany: operation },
       chatMensaje: { updateMany: operation },
       favorito: { deleteMany: operation },
       direccion: { deleteMany: operation },
@@ -135,10 +150,90 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
 
   test("la ruta usa el core y no borra físicamente reseñas", () => {
     const route = read("src/app/api/cliente/cuenta/route.ts")
-    expect(route).toContain('import {\n  ClientAccountDeletionConflictError,\n  deleteClientAccount,\n} from "@/lib/client-account-deletion"')
+    expect(route).toContain(
+      'import {\n  ClientAccountDeletionConflictError,\n  ClientHasActiveOrdersError,\n  deleteClientAccount,\n} from "@/lib/client-account-deletion"',
+    )
     expect(route).toContain("await deleteClientAccount(clienteId)")
     expect(route).not.toContain("resena.deleteMany")
     expect(route).toContain("ClientAccountDeletionConflictError")
     expect(route).toContain("status: 409")
+  })
+})
+
+describe("19-B0.2B0 — terminalidad de Pedido para el guard de eliminación", () => {
+  test("CLIENT_ACCOUNT_DELETION_TERMINAL_STATES es exactamente entregado y cancelado", () => {
+    expect([...CLIENT_ACCOUNT_DELETION_TERMINAL_STATES]).toEqual(["entregado", "cancelado"])
+  })
+
+  test("entregado y cancelado son terminales", () => {
+    expect(isPedidoTerminalForClientAccountDeletion("entregado")).toBe(true)
+    expect(isPedidoTerminalForClientAccountDeletion("cancelado")).toBe(true)
+  })
+
+  test("todo estado no terminal (incluido uno desconocido/futuro) bloquea por defecto", () => {
+    for (const estado of [
+      "recibido",
+      "preparando",
+      "en_camino",
+      "listo_para_retirar",
+      "confirmado",
+      "un-estado-futuro-desconocido",
+    ]) {
+      expect(isPedidoTerminalForClientAccountDeletion(estado)).toBe(false)
+    }
+  })
+
+  test("la ruta mapea ClientHasActiveOrdersError a 409 con code CLIENT_HAS_ACTIVE_ORDERS y mensaje sin PII", () => {
+    const route = read("src/app/api/cliente/cuenta/route.ts")
+    expect(route).toContain("ClientHasActiveOrdersError")
+    expect(route).toContain("CLIENT_HAS_ACTIVE_ORDERS")
+    expect(route).toContain("Tenés un pedido en curso. Podrás eliminar tu cuenta cuando finalice.")
+  })
+})
+
+describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activos (mock)", () => {
+  function txWithPedidoLookup(findFirstResult: { id: string } | null) {
+    const calls: Array<{ model: string; operation: string }> = []
+    const operation = (model: string, name: string) => async () => {
+      calls.push({ model, operation: name })
+      return { count: 0 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: {
+        findFirst: async () => {
+          calls.push({ model: "pedido", operation: "findFirst" })
+          return findFirstResult
+        },
+        updateMany: operation("pedido", "updateMany"),
+      },
+      chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+    return { tx, calls }
+  }
+
+  test("si existe un pedido activo, rechaza con ClientHasActiveOrdersError sin escribir nada", async () => {
+    const { tx, calls } = txWithPedidoLookup({ id: "pedido-activo" })
+    await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
+      ClientHasActiveOrdersError,
+    )
+    expect(calls).toEqual([{ model: "pedido", operation: "findFirst" }])
+  })
+
+  test("sin pedidos activos, procede con la secuencia completa de eliminación", async () => {
+    const { tx, calls } = txWithPedidoLookup(null)
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    expect(calls.map(({ model, operation }) => `${model}.${operation}`)).toEqual([
+      "pedido.findFirst",
+      "resena.updateMany",
+      "pedido.updateMany",
+      "chatMensaje.updateMany",
+      "favorito.deleteMany",
+      "direccion.deleteMany",
+      "cliente.delete",
+    ])
   })
 })

@@ -4,6 +4,7 @@ import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { SESSION_COOKIE_NAME } from "@/lib/auth"
 import {
   ClientAccountDeletionConflictError,
+  ClientHasActiveOrdersError,
   deleteClientAccount,
 } from "@/lib/client-account-deletion"
 
@@ -48,6 +49,15 @@ export async function DELETE(req: NextRequest) {
 
     return response
   } catch (error) {
+    if (error instanceof ClientHasActiveOrdersError) {
+      return NextResponse.json(
+        {
+          error: "Tenés un pedido en curso. Podrás eliminar tu cuenta cuando finalice.",
+          code: "CLIENT_HAS_ACTIVE_ORDERS",
+        },
+        { status: 409, headers: NO_STORE_HEADERS }
+      )
+    }
     if (error instanceof ClientAccountDeletionConflictError) {
       return NextResponse.json(
         { error: "La cuenta cambió durante la eliminación. Intentá nuevamente." },

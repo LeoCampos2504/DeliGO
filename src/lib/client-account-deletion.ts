@@ -4,7 +4,18 @@ import { db } from "@/lib/db"
 export const ANONYMIZED_REVIEW_CLIENT_NAME = "Usuario eliminado"
 export const CLIENT_ACCOUNT_DELETION_MAX_ATTEMPTS = 3
 
+// Único criterio de terminalidad: el estado del Pedido, sin importar
+// metodoEntrega. Se comprueba pertenencia al conjunto TERMINAL (no al de
+// "activos") para que cualquier estado futuro/desconocido bloquee por
+// defecto la eliminación en lugar de dejarla pasar en silencio.
+export const CLIENT_ACCOUNT_DELETION_TERMINAL_STATES = ["entregado", "cancelado"] as const
+
+export function isPedidoTerminalForClientAccountDeletion(estado: string): boolean {
+  return (CLIENT_ACCOUNT_DELETION_TERMINAL_STATES as readonly string[]).includes(estado)
+}
+
 export class ClientAccountDeletionConflictError extends Error {}
+export class ClientHasActiveOrdersError extends Error {}
 
 export function isClientAccountDeletionSerializationConflict(error: unknown): boolean {
   return (
@@ -45,6 +56,20 @@ export async function deleteClientAccountInTransaction(
   tx: Prisma.TransactionClient,
   clienteId: string,
 ) {
+  // Bloquea la eliminación mientras exista al menos un pedido no terminal.
+  // Debe ser la primera operación: nada se escribe todavía, así que un
+  // rechazo acá no deja mutaciones parciales por revertir.
+  const pedidoActivo = await tx.pedido.findFirst({
+    where: {
+      clienteId,
+      estado: { notIn: [...CLIENT_ACCOUNT_DELETION_TERMINAL_STATES] },
+    },
+    select: { id: true },
+  })
+  if (pedidoActivo) {
+    throw new ClientHasActiveOrdersError()
+  }
+
   // No se borra la reseña: conserva rating, contenido y expediente, pero no identidad.
   await tx.resena.updateMany({
     where: { clienteId },
