@@ -21,7 +21,7 @@
 // `describe` crea su propio negocio/mesa en `beforeAll` y limpia todo en
 // `afterAll`.
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
 import { randomUUID } from "crypto"
 import { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
@@ -43,6 +43,17 @@ import { PUT as editarEmpleado } from "@/app/api/negocio/empleados/[id]/route"
 import { GET as getNegocioPublico } from "@/app/api/negocios/[slug]/route"
 import { POST_FOR_TESTS as crearPedido, type PedidoRouteTestHooks } from "@/app/api/pedidos/route"
 import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth"
+
+// T20-CONCURRENCY-DEBT-1: este archivo es integración real contra PostgreSQL
+// TESTING remoto (sin mocks) — cada round-trip cuesta ~200-300ms (más un
+// arranque en frío de varios segundos para la primera conexión del proceso),
+// y varios tests acá encadenan varias lecturas/escrituras reales más
+// reintentos de conflictos de serialización legítimos. El default de
+// bun:test (5000ms por test) alcanza a cortar esos tests a mitad de camino
+// aunque su lógica sea correcta — mismo criterio ya aplicado en todos los
+// demás archivos `*.integration.test.ts` de este proyecto (ver p. ej.
+// device-identity-integration.test.ts, client-account-deletion*.test.ts).
+setDefaultTimeout(60_000)
 
 // ---------------------------------------------------------------------------
 // Helpers de fixture
@@ -343,61 +354,71 @@ describe("Tarea 20 — concurrencia: desactivación vs. apertura de ocupación",
   })
 
   test("Caso 1 — la desactivación gana: commiteada ENTRE la comprobación de capacidad y la creación de la ocupación -> la apertura falla, cero ocupaciones activas", async () => {
-    const mesaId = await crearMesa(negocioId)
+    // T20-CONCURRENCY-DEBT-1: try/finally agregado — `negocioId` es
+    // compartido con "Caso 2" (mismo `beforeAll` del describe). Antes, el
+    // reset de `salonActivo: true` de abajo sólo corría si TODAS las
+    // aserciones pasaban; si esta prueba fallaba antes de esa línea (p. ej.
+    // por cualquier fallo real, no sólo un timeout), "Caso 2" arrancaba con
+    // `salonActivo: false` heredado y fallaba en cascada por una causa ajena
+    // a su propio escenario. El `finally` hace que la restauración sea
+    // incondicional — no depende de que el resto del test haya salido bien.
+    try {
+      const mesaId = await crearMesa(negocioId)
 
-    const rendezvous = crearRendezvous()
-    const aperturaPromise = openOrReuseMesaOccupancyForStaff(
-      { negocioId, mesaId },
-      {
-        afterSalonCheck: async () => {
-          rendezvous.señalizarLlegada()
-          await rendezvous.continuar
+      const rendezvous = crearRendezvous()
+      const aperturaPromise = openOrReuseMesaOccupancyForStaff(
+        { negocioId, mesaId },
+        {
+          afterSalonCheck: async () => {
+            rendezvous.señalizarLlegada()
+            await rendezvous.continuar
+          },
+        }
+      )
+
+      // Esperamos la señal real de que la apertura ya confirmó "Salón
+      // habilitado" y está pausada, exactamente antes de crear la ocupación.
+      await rendezvous.llegada
+
+      // Mutación concurrente, COMMITEADA de verdad — UNA sola sentencia SQL
+      // (no varias llamadas ORM separadas, para minimizar los round-trips a
+      // una base remota y no mantener la transacción interactiva pausada más
+      // allá del timeout por defecto de Prisma de 5s) que de todos modos LEE
+      // `sesiones_ocupacion_mesa` (vía el `NOT EXISTS`) antes de escribir
+      // `negocios` — necesario para que Postgres, bajo aislamiento
+      // Serializable real, registre la dependencia lectura-escritura
+      // correcta entre esta transacción y la apertura pausada (que lee
+      // `negocios` y escribe `sesiones_ocupacion_mesa`): sin esa lectura acá,
+      // no habría ningún ciclo que detectar y ambas operaciones podrían
+      // completarse "válidamente" en cualquier orden serial equivalente,
+      // aunque el resultado real fuera incorrecto.
+      await db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`
+            UPDATE negocios
+            SET "salonActivo" = false
+            WHERE id = ${negocioId}
+              AND NOT EXISTS (
+                SELECT 1 FROM sesiones_ocupacion_mesa
+                WHERE "negocioId" = ${negocioId} AND estado = 'activa'
+              )
+          `
         },
-      }
-    )
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
 
-    // Esperamos la señal real de que la apertura ya confirmó "Salón
-    // habilitado" y está pausada, exactamente antes de crear la ocupación.
-    await rendezvous.llegada
+      rendezvous.liberar()
 
-    // Mutación concurrente, COMMITEADA de verdad — UNA sola sentencia SQL
-    // (no varias llamadas ORM separadas, para minimizar los round-trips a
-    // una base remota y no mantener la transacción interactiva pausada más
-    // allá del timeout por defecto de Prisma de 5s) que de todos modos LEE
-    // `sesiones_ocupacion_mesa` (vía el `NOT EXISTS`) antes de escribir
-    // `negocios` — necesario para que Postgres, bajo aislamiento
-    // Serializable real, registre la dependencia lectura-escritura
-    // correcta entre esta transacción y la apertura pausada (que lee
-    // `negocios` y escribe `sesiones_ocupacion_mesa`): sin esa lectura acá,
-    // no habría ningún ciclo que detectar y ambas operaciones podrían
-    // completarse "válidamente" en cualquier orden serial equivalente,
-    // aunque el resultado real fuera incorrecto.
-    await db.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`
-          UPDATE negocios
-          SET "salonActivo" = false
-          WHERE id = ${negocioId}
-            AND NOT EXISTS (
-              SELECT 1 FROM sesiones_ocupacion_mesa
-              WHERE "negocioId" = ${negocioId} AND estado = 'activa'
-            )
-        `
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-    )
+      // Bajo aislamiento Serializable real, esto debe fallar: al reintentar
+      // (runSerializableTransaction), la relectura de `salonActivo` ya ve
+      // `false` — nunca queda una ocupación activa en un negocio sin Salón.
+      await expect(aperturaPromise).rejects.toThrow(SalonDeshabilitadoError)
 
-    rendezvous.liberar()
-
-    // Bajo aislamiento Serializable real, esto debe fallar: al reintentar
-    // (runSerializableTransaction), la relectura de `salonActivo` ya ve
-    // `false` — nunca queda una ocupación activa en un negocio sin Salón.
-    await expect(aperturaPromise).rejects.toThrow(SalonDeshabilitadoError)
-
-    const ocupacionesActivas = await db.sesionOcupacionMesa.count({ where: { negocioId, mesaId, estado: "activa" } })
-    expect(ocupacionesActivas).toBe(0)
-
-    await db.negocio.update({ where: { id: negocioId }, data: { salonActivo: true } })
+      const ocupacionesActivas = await db.sesionOcupacionMesa.count({ where: { negocioId, mesaId, estado: "activa" } })
+      expect(ocupacionesActivas).toBe(0)
+    } finally {
+      await db.negocio.update({ where: { id: negocioId }, data: { salonActivo: true } })
+    }
   })
 
   test("Caso 2 — la apertura gana: ocupación COMMITEADA antes de intentar desactivar -> desactivación bloqueada", async () => {
@@ -820,6 +841,35 @@ describe("Tarea 20-CORRECCIÓN-1/2 — POST /api/pedidos: desactivación de Sal�
       const productoId = await crearProducto(negocioId)
       const mesa = await db.mesa.findUniqueOrThrow({ where: { id: mesaId } })
 
+      // T20-CONCURRENCY-DEBT-1: la ocupación se pre-abre ACÁ, ANTES de
+      // arrancar el pedido (mismo helper — `openOrReuseMesaOccupancyForStaff`
+      // — que el propio flujo de personal usaría; el pedido más abajo la
+      // REUTILIZA, mismo patrón ya probado en "Caso 2" más arriba en este
+      // archivo) — a diferencia de la versión anterior de este test, que
+      // dejaba que el pedido la creara DENTRO de su propia transacción
+      // pausada. Esto permite verificar TODAS las precondiciones (ocupación
+      // activa, intento normal de desactivar bloqueado, salonActivo todavía
+      // true) ANTES de que exista ninguna transacción interactiva en pausa —
+      // ninguna de estas lecturas/verificaciones cuenta contra el timeout por
+      // defecto de Prisma para transacciones interactivas (5s, independiente
+      // del timeout de bun:test) — la ventana real en la que la transacción
+      // del pedido queda pausada se reduce al mínimo: UNA sola sentencia SQL,
+      // mismo criterio ya aplicado en "Caso 1".
+      await openOrReuseMesaOccupancyForStaff({ negocioId, mesaId })
+
+      const ocupacionAntesDeDesactivar = await db.sesionOcupacionMesa.findFirst({ where: { negocioId, mesaId, estado: "activa" } })
+      expect(ocupacionAntesDeDesactivar).not.toBeNull() // la apertura previa ya comiteó de verdad
+
+      // Prueba de que este escenario es GENUINAMENTE fuera de contrato: la
+      // desactivación REAL de la aplicación, en este mismo instante (con la
+      // ocupación ya activa), queda bloqueada — como debe ser. Un admin
+      // operando normalmente NUNCA podría producir el estado que este test
+      // simula a continuación.
+      const intentoNormal = await desactivarSalonSiPermitido(negocioId)
+      expect(intentoNormal).toEqual({ ok: false, code: "ocupacion_activa" })
+      const negocioTrasIntentoNormal = await db.negocio.findUniqueOrThrow({ where: { id: negocioId }, select: { salonActivo: true } })
+      expect(negocioTrasIntentoNormal.salonActivo).toBe(true) // el intento normal NO cambió nada
+
       const rendezvous = crearRendezvous()
       const testHooks: PedidoRouteTestHooks = {
         beforeFinalSalonRevalidation: async () => {
@@ -835,25 +885,12 @@ describe("Tarea 20-CORRECCIÓN-1/2 — POST /api/pedidos: desactivación de Sal�
 
       // Para cuando llega esta señal, el chequeo temprano (línea ~1062) YA
       // leyó `salonActivo=true` y la apertura/reutilización de ocupación
-      // (openOrReuseMesaOccupancyForStaff, su propia transacción, ya
-      // comiteada) YA volvió a confirmar Salón habilitado — la transacción
-      // de creación del pedido está pausada exactamente en el instante
-      // anterior a su propia relectura final, dentro de la MISMA
-      // transacción que crea el pedido.
+      // (openOrReuseMesaOccupancyForStaff, dentro del pedido, REUTILIZA la
+      // que ya preabrimos arriba — misma ocupación, nunca crea una segunda) YA
+      // volvió a confirmar Salón habilitado — la transacción de creación del
+      // pedido está pausada exactamente en el instante anterior a su propia
+      // relectura final, dentro de la MISMA transacción que crea el pedido.
       await rendezvous.llegada
-
-      const ocupacionAntesDeDesactivar = await db.sesionOcupacionMesa.findFirst({ where: { negocioId, mesaId, estado: "activa" } })
-      expect(ocupacionAntesDeDesactivar).not.toBeNull() // la apertura previa ya comiteó de verdad
-
-      // Prueba de que este escenario es GENUINAMENTE fuera de contrato: la
-      // desactivación REAL de la aplicación, en este mismo instante (con la
-      // ocupación ya activa), queda bloqueada — como debe ser. Un admin
-      // operando normalmente NUNCA podría producir el estado que este test
-      // simula a continuación.
-      const intentoNormal = await desactivarSalonSiPermitido(negocioId)
-      expect(intentoNormal).toEqual({ ok: false, code: "ocupacion_activa" })
-      const negocioTrasIntentoNormal = await db.negocio.findUniqueOrThrow({ where: { id: negocioId }, select: { salonActivo: true } })
-      expect(negocioTrasIntentoNormal.salonActivo).toBe(true) // el intento normal NO cambió nada
 
       // Mutación ADMINISTRATIVA DIRECTA, deliberadamente fuera de contrato:
       // un `UPDATE` SQL crudo que bypasea a propósito
@@ -864,6 +901,8 @@ describe("Tarea 20-CORRECCIÓN-1/2 — POST /api/pedidos: desactivación de Sal�
       // (bug en otra ruta, migración manual, acceso directo a la base por
       // un operador), el pedido igual se rechaza. Esto NO prueba ninguna
       // garantía de atomicidad general — ver límites documentados abajo.
+      // Única sentencia SQL emitida MIENTRAS la transacción del pedido sigue
+      // pausada — a propósito, no se agrega ningún otro round-trip acá.
       await db.$executeRaw`UPDATE negocios SET "salonActivo" = false WHERE id = ${negocioId}`
 
       rendezvous.liberar()
