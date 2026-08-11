@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { cloudinary, extractPublicId } from "@/lib/cloudinary"
+import { processPendingChatAttachmentDeletions } from "@/lib/chat-attachment-deletion"
 
 // ============================================
 // GET/POST /api/chat/cleanup
@@ -14,6 +15,13 @@ import { cloudinary, extractPublicId } from "@/lib/cloudinary"
 //
 // Fails closed outside development: if CLEANUP_SECRET isn't configured,
 // the endpoint is unavailable rather than silently open.
+//
+// 19-B0.2D1: además del cleanup histórico por antigüedad de abajo (sin
+// cambios en su lógica/cadencia), este endpoint ahora también reintenta el
+// outbox durable de eliminación de cuenta (`ChatAttachmentDeletionJob`) —
+// mismo secreto, mismo endpoint, para no crear un segundo cron. Un job que
+// falla acá simplemente permanece para el próximo ciclo; nunca aborta el
+// cleanup histórico ni viceversa.
 // ============================================
 
 const CLEANUP_DAYS = 10
@@ -38,6 +46,16 @@ async function runCleanup(req: NextRequest) {
   }
 
   try {
+    // ─────────────────────────────────────────────
+    // Step 0: Retry pending outbox jobs (19-B0.2D1 — account deletion
+    // attachments). Independiente del cleanup histórico de abajo: un fallo
+    // acá no afecta al Step 1-4, y viceversa.
+    // ─────────────────────────────────────────────
+    const outboxResult = await processPendingChatAttachmentDeletions()
+    console.log(
+      `[Chat Cleanup] Outbox: processed=${outboxResult.processed} deleted=${outboxResult.deleted} failed=${outboxResult.failed}`
+    )
+
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - CLEANUP_DAYS)
     console.log(`[Chat Cleanup] Cutoff: ${cutoff.toISOString()}`)
@@ -76,8 +94,10 @@ async function runCleanup(req: NextRequest) {
           try {
             await cloudinary.uploader.destroy(publicId)
             deletedFiles++
-          } catch (err) {
-            console.error(`[Chat Cleanup] Failed to delete image ${publicId}:`, err)
+          } catch {
+            // 19-B0.2D1: nunca loguear publicId (puede incorporar una
+            // versión saneada del nombre de archivo original).
+            console.error("[Chat Cleanup] Failed to delete image (see failedFiles count)")
             failedFiles++
           }
         }
@@ -96,8 +116,8 @@ async function runCleanup(req: NextRequest) {
             try {
               await cloudinary.uploader.destroy(publicId, { resource_type: "image" })
               deletedFiles++
-            } catch (err) {
-              console.error(`[Chat Cleanup] Failed to delete file ${publicId}:`, err)
+            } catch {
+              console.error("[Chat Cleanup] Failed to delete file (see failedFiles count)")
               failedFiles++
             }
           }
@@ -139,6 +159,7 @@ async function runCleanup(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      outbox: outboxResult,
       cutoff: cutoff.toISOString(),
       messagesProcessed: oldMessages.length,
       filesDeleted: deletedFiles,

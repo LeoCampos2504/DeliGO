@@ -4,6 +4,7 @@ import { validateSession } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, chatMessageNotification } from "@/lib/push"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
+import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
 
 // Phone number filtering regex (Argentine phone patterns)
 const PHONE_PATTERN = /(?:(?:\+?54|0)?(?:11|[2-9]\d{2,4})[\s\-]?\d{4,}[\s\-]?\d{0,4})|(?:whatsapp\.com|wa\.me|\/send\?phone)/gi
@@ -122,7 +123,7 @@ export async function GET(
     }
 
     // Get messages
-    const mensajes = await db.chatMensaje.findMany({
+    const mensajesRaw = await db.chatMensaje.findMany({
       where: { pedidoId },
       orderBy: { fecha: "asc" },
       select: {
@@ -139,6 +140,10 @@ export async function GET(
         clienteId: true,
       },
     })
+    // Defensa en profundidad (19-B0.2D1): enmascara cualquier mensaje de
+    // Cliente ya eliminado que aún conserve contenido sin sanitizar (p. ej.
+    // cuentas eliminadas antes de que esta sanitización existiera).
+    const mensajes = mensajesRaw.map(sanitizeDeletedClientChatMessageForRead)
 
     // Mark messages from other parties as read
     const otherRemitentes =

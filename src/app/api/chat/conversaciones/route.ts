@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
+import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
 
 // ============================================
 // Conversation type shared between active & archived
@@ -33,20 +34,27 @@ const mensajeSelect = {
     imagenUrl: true,
     archivoUrl: true,
     archivoNombre: true,
+    clienteId: true,
   },
 }
 
-// Build a preview string from the last message
+// Build a preview string from the last message. Defensa en profundidad
+// (19-B0.2D1): enmascara el preview si el último mensaje es de un Cliente ya
+// eliminado que aún conserve contenido sin sanitizar (cuentas eliminadas
+// antes de que esta sanitización existiera).
 function buildLastMessagePreview(lastMsg: {
   texto: string | null
   imagenUrl: string | null
   archivoUrl: string | null
   archivoNombre: string | null
+  remitente: string
+  clienteId: string | null
 } | undefined): string | null {
   if (!lastMsg) return null
-  if (lastMsg.texto) return lastMsg.texto
-  if (lastMsg.imagenUrl) return "📷 Imagen"
-  if (lastMsg.archivoUrl) return `📄 ${lastMsg.archivoNombre || "Archivo"}`
+  const safe = sanitizeDeletedClientChatMessageForRead(lastMsg)
+  if (safe.texto) return safe.texto
+  if (safe.imagenUrl) return "📷 Imagen"
+  if (safe.archivoUrl) return `📄 ${safe.archivoNombre || "Archivo"}`
   return null
 }
 
@@ -79,6 +87,7 @@ function toConversation(
       imagenUrl: string | null
       archivoUrl: string | null
       archivoNombre: string | null
+      clienteId: string | null
     }>
     negocio?: { logoUrl: string | null }
   },

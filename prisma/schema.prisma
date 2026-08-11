@@ -484,6 +484,27 @@ model ChatMensaje {
   @@map("chat_mensajes")
 }
 
+// 19-B0.2D1: outbox durable para el borrado físico de adjuntos de Chat.
+// Entidad puramente interna (sin relación a Cliente/ChatMensaje, sin
+// endpoint CRUD, nunca expuesta por API/UI): guarda lo mínimo indispensable
+// para reintentar `provider.destroy(identifier)` hasta que tenga éxito o el
+// asset ya no exista. `identifier` es potencialmente sensible (para PDF de
+// Cloudinary puede incorporar una versión saneada del nombre de archivo
+// original) — nunca se loguea ni se expone; la fila se borra apenas el
+// borrado remoto tiene éxito (o el asset ya no existe).
+model ChatAttachmentDeletionJob {
+  id            String    @id @default(cuid())
+  provider      String // "cloudinary" | "local"
+  resourceType  String // "image" | "raw" (cloudinary) | "file" (local)
+  identifier    String // publicId (cloudinary) o path relativo bajo uploads/chat/ (local)
+  attempts      Int       @default(0)
+  lastAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([provider, resourceType, identifier])
+  @@map("chat_attachment_deletion_jobs")
+}
+
 // ============================================
 // RESEÑAS
 // ============================================
