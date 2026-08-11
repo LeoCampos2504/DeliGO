@@ -6,6 +6,11 @@ import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromReques
 import { resolveTerminalSession } from "@/lib/operaciones-terminal-auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
+import {
+  applyDeviceEvasionAutoBlock,
+  ensureClienteBloqueadoRecordForDevice,
+  findForeignDeviceBlockMatch,
+} from "@/lib/client-block-security"
 import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
 import {
   notifySalonNewOrderForOperations,
@@ -1044,11 +1049,54 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         if (cliente) {
           // Check if customer is blocked
           if (cliente.bloqueado) {
-            return NextResponse.json(
+            // SEC-BLOCK-1: cuenta ya bloqueada — se rechaza exactamente igual
+            // que antes, pero además se enriquece el registro ClienteBloqueado
+            // con el dispositivo actual (para detectar una futura cuenta nueva
+            // evasora desde este mismo dispositivo) y, si la cookie de
+            // dispositivo es nueva, se setea en esta misma respuesta 403 (si
+            // no se hace acá, un cliente bloqueado que solo intenta pedir
+            // nunca terminaría con la cookie seteada).
+            await ensureClienteBloqueadoRecordForDevice(db, {
+              clienteId: cliente.id,
+              clienteNombre: cliente.nombre,
+              deviceId: deviceIdentity.deviceId,
+              ip: getClientIp(request),
+            })
+            const blockedResponse = NextResponse.json(
               { error: "Tu cuenta ha sido bloqueada. Contactá a soporte para más información." },
               { status: 403 }
             )
+            if (deviceIdentity.isNew) {
+              setDeviceCookie(blockedResponse, deviceIdentity.token)
+            }
+            return blockedResponse
           }
+
+          // SEC-BLOCK-1: cuenta todavía no marcada bloqueada — chequeo
+          // anti-evasión ANTES de cualquier efecto secundario del pedido
+          // (stock, Pedido, PedidoEvento, notificaciones). Señal fuerte
+          // únicamente: igualdad exacta de fingerprint contra una fila
+          // ClienteBloqueado huérfana o de otra cuenta (ver
+          // findForeignDeviceBlockMatch). La IP nunca dispara esto por sí
+          // sola.
+          const foreignBlockMatch = await findForeignDeviceBlockMatch(deviceIdentity.deviceId, cliente.id)
+          if (foreignBlockMatch) {
+            await applyDeviceEvasionAutoBlock({
+              clienteId: cliente.id,
+              clienteNombre: cliente.nombre,
+              deviceId: deviceIdentity.deviceId,
+              ip: getClientIp(request),
+            })
+            const blockedResponse = NextResponse.json(
+              { error: "Tu cuenta ha sido bloqueada. Contactá a soporte para más información." },
+              { status: 403 }
+            )
+            if (deviceIdentity.isNew) {
+              setDeviceCookie(blockedResponse, deviceIdentity.token)
+            }
+            return blockedResponse
+          }
+
           clienteId = cliente.id
           clienteNombre = cliente.nombre
           clienteTelefono = cliente.telefono

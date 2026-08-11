@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { comparePassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
+import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
 
 function setCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -103,6 +104,21 @@ async function loginCliente(data: { email: string; password: string }, req: Next
     await db.cliente.updateMany({
       where: { id: cliente.id, dispositivoFingerprint: "" },
       data: { dispositivoFingerprint: deviceIdentity.deviceId },
+    })
+  }
+
+  // SEC-BLOCK-1: el login de una cuenta ya bloqueada sigue permitido sin
+  // cambios (nunca se rechaza acá, nunca se invalida la sesión) — solo se
+  // enriquece el registro ClienteBloqueado con el dispositivo actual, para
+  // que una futura cuenta nueva creada desde este mismo dispositivo sea
+  // detectada como evasión (ver findForeignDeviceBlockMatch en
+  // src/lib/client-block-security.ts). La IP nunca decide esto.
+  if (cliente.bloqueado) {
+    await ensureClienteBloqueadoRecordForDevice(db, {
+      clienteId: cliente.id,
+      clienteNombre: cliente.nombre,
+      deviceId: deviceIdentity.deviceId,
+      ip: getClientIp(req),
     })
   }
 
