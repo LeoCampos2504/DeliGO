@@ -440,46 +440,57 @@ describe("Tarea 20 — concurrencia: desactivación vs. apertura de ocupación",
 // ---------------------------------------------------------------------------
 
 describe("Tarea 20 — terminal de Salón rechazada sin capacidad", () => {
-  let negocioSinSalonId: string
-  let tokenSesionNegocio: string
-
-  beforeAll(async () => {
-    negocioSinSalonId = await crearNegocio(false)
-    tokenSesionNegocio = await sesionNegocio(negocioSinSalonId)
-  })
-
-  afterAll(async () => {
-    await limpiarNegocio(negocioSinSalonId)
-    await db.sesion.deleteMany({ where: { userId: { in: idsSesionParaLimpiar } } })
-  })
-
+  // NEGOCIO_SALON_TERMINAL_TEST_ORDER_DEBT: cada test usa su PROPIO negocio y
+  // su propia sesión, creados y destruidos DENTRO del propio test (nunca
+  // vía beforeAll/afterAll del describe, nunca compartidos). Antes, ambos
+  // tests operaban sobre el MISMO `negocioSinSalonId`: el segundo crea y
+  // persiste una terminal 'pyr' real, así que el primero — que asume
+  // implícitamente "0 terminales" como estado inicial — sólo pasaba si
+  // corría ANTES que el otro. El orden por declaración de bun:test lo
+  // garantizaba siempre; `--randomize` no. Con una fixture 100% propia por
+  // test, "0 terminales" es un hecho genuinamente determinista de CADA test,
+  // sin importar el orden de ejecución ni si corre solo o junto a otros.
   test("27. crear terminal con área 'salon' -> 409, nunca se crea", async () => {
-    const req = reqConCookie(
-      "http://localhost/api/negocio/terminales-operativas",
-      { [SESSION_COOKIE_NAME]: tokenSesionNegocio },
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nombre: "Pantalla", perfil: "pantalla" }) }
-    )
-    const res = await crearTerminal(req)
-    expect(res.status).toBe(409)
-    const listado = await listarTerminales(reqConCookie("http://localhost/api/negocio/terminales-operativas", { [SESSION_COOKIE_NAME]: tokenSesionNegocio }))
-    const body = await listado.json()
-    expect(body.terminales.length).toBe(0)
+    const negocioId = await crearNegocio(false)
+    try {
+      const token = await createSession(negocioId, "negocio")
+      const req = reqConCookie(
+        "http://localhost/api/negocio/terminales-operativas",
+        { [SESSION_COOKIE_NAME]: token },
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nombre: "Pantalla", perfil: "pantalla" }) }
+      )
+      const res = await crearTerminal(req)
+      expect(res.status).toBe(409)
+      const listado = await listarTerminales(reqConCookie("http://localhost/api/negocio/terminales-operativas", { [SESSION_COOKIE_NAME]: token }))
+      const body = await listado.json()
+      expect(body.terminales.length).toBe(0)
+    } finally {
+      await db.sesion.deleteMany({ where: { userId: negocioId } })
+      await limpiarNegocio(negocioId)
+    }
   })
 
   test("crear terminal exclusivamente 'pyr' -> permitida (PyR es independiente de Salón)", async () => {
-    const req = reqConCookie(
-      "http://localhost/api/negocio/terminales-operativas",
-      { [SESSION_COOKIE_NAME]: tokenSesionNegocio },
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nombre: "PyR Terminal", perfil: "pyr_completo" }),
-      }
-    )
-    const res = await crearTerminal(req)
-    expect(res.status).toBe(201)
-    const body = await res.json()
-    expect(body.terminal.areas).toEqual(["pyr"])
+    const negocioId = await crearNegocio(false)
+    try {
+      const token = await createSession(negocioId, "negocio")
+      const req = reqConCookie(
+        "http://localhost/api/negocio/terminales-operativas",
+        { [SESSION_COOKIE_NAME]: token },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nombre: "PyR Terminal", perfil: "pyr_completo" }),
+        }
+      )
+      const res = await crearTerminal(req)
+      expect(res.status).toBe(201)
+      const body = await res.json()
+      expect(body.terminal.areas).toEqual(["pyr"])
+    } finally {
+      await db.sesion.deleteMany({ where: { userId: negocioId } })
+      await limpiarNegocio(negocioId)
+    }
   })
 })
 
