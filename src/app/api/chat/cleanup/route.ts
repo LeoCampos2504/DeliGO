@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { cloudinary, extractPublicId } from "@/lib/cloudinary"
-import { processPendingChatAttachmentDeletions } from "@/lib/chat-attachment-deletion"
+import {
+  processPendingChatAttachmentDeletions,
+  queueChatAttachmentDeletionJobs,
+  resolveChatAttachmentDeletionTargets,
+} from "@/lib/chat-attachment-deletion"
 
 // ============================================
 // GET/POST /api/chat/cleanup
@@ -17,11 +20,22 @@ import { processPendingChatAttachmentDeletions } from "@/lib/chat-attachment-del
 // the endpoint is unavailable rather than silently open.
 //
 // 19-B0.2D1: además del cleanup histórico por antigüedad de abajo (sin
-// cambios en su lógica/cadencia), este endpoint ahora también reintenta el
-// outbox durable de eliminación de cuenta (`ChatAttachmentDeletionJob`) —
-// mismo secreto, mismo endpoint, para no crear un segundo cron. Un job que
-// falla acá simplemente permanece para el próximo ciclo; nunca aborta el
-// cleanup histórico ni viceversa.
+// cambios en su lógica/cadencia/umbral/selección), este endpoint ahora
+// también reintenta el outbox durable de eliminación de cuenta
+// (`ChatAttachmentDeletionJob`) — mismo secreto, mismo endpoint, para no
+// crear un segundo cron. Un job que falla acá simplemente permanece para el
+// próximo ciclo; nunca aborta el cleanup histórico ni viceversa.
+//
+// CHAT-HISTORICAL-ATTACHMENT-RETRY-1: el cleanup histórico de abajo ahora
+// enruta el borrado físico por el MISMO outbox durable (nunca una segunda
+// arquitectura) — antes intentaba `cloudinary.uploader.destroy(...)`
+// directamente y limpiaba `imagenUrl`/`archivoUrl` sin importar si ese
+// intento había fallado, perdiendo para siempre la única referencia
+// necesaria para reintentar. Ahora, dentro de una transacción DB corta, se
+// encola el job durable ANTES de limpiar los punteros — si el borrado físico
+// falla, el job sigue disponible para el próximo ciclo de este mismo cron
+// (o cualquier corrida futura de `processPendingChatAttachmentDeletions`),
+// exactamente igual que ya garantiza la eliminación de cuenta.
 // ============================================
 
 const CLEANUP_DAYS = 10
@@ -63,6 +77,10 @@ async function runCleanup(req: NextRequest) {
     // ─────────────────────────────────────────────
     // Step 1: Find messages older than cutoff that still have files
     // ─────────────────────────────────────────────
+    // `pedidoId` es indispensable acá (no sólo un campo más): es el mismo
+    // dato que `resolveChatAttachmentDeletionTargets` necesita para
+    // revalidar cada URL contra su pedido real (misma regla que ya usa la
+    // eliminación de cuenta) antes de encolar cualquier job de borrado.
     const oldMessages = await db.chatMensaje.findMany({
       where: {
         fecha: { lt: cutoff },
@@ -73,75 +91,52 @@ async function runCleanup(req: NextRequest) {
       },
       select: {
         id: true,
+        pedidoId: true,
         imagenUrl: true,
         archivoUrl: true,
       },
     })
     console.log(`[Chat Cleanup] Found ${oldMessages.length} old messages with files`)
 
-    let deletedFiles = 0
-    let failedFiles = 0
-    const updatedMessageIds: string[] = []
-
     // ─────────────────────────────────────────────
-    // Step 2: Delete each file from Cloudinary
+    // Step 2: Encolar los jobs de borrado físico durable y limpiar los
+    // punteros de la DB, atómicamente en una transacción corta — MISMO
+    // orden y mismo mecanismo que ya usa `deleteClientAccountInTransaction`
+    // (src/lib/client-account-deletion.ts): el job se persiste ANTES de que
+    // `imagenUrl`/`archivoUrl` (la única fuente para reconstruir el
+    // identifier) deje de existir. Nunca se llama a Cloudinary/filesystem
+    // dentro de esta transacción — sólo operaciones DB.
     // ─────────────────────────────────────────────
-    for (const msg of oldMessages) {
-      // Delete image from Cloudinary
-      if (msg.imagenUrl) {
-        const publicId = extractPublicId(msg.imagenUrl)
-        if (publicId) {
-          try {
-            await cloudinary.uploader.destroy(publicId)
-            deletedFiles++
-          } catch {
-            // 19-B0.2D1: nunca loguear publicId (puede incorporar una
-            // versión saneada del nombre de archivo original).
-            console.error("[Chat Cleanup] Failed to delete image (see failedFiles count)")
-            failedFiles++
-          }
-        }
-      }
-
-      // Delete file (PDF) from Cloudinary
-      if (msg.archivoUrl) {
-        const publicId = extractPublicId(msg.archivoUrl)
-        if (publicId) {
-          try {
-            // PDFs uploaded as "raw" need resource_type: "raw" for deletion
-            await cloudinary.uploader.destroy(publicId, { resource_type: "raw" })
-            deletedFiles++
-          } catch {
-            // Try as image in case it was uploaded that way
-            try {
-              await cloudinary.uploader.destroy(publicId, { resource_type: "image" })
-              deletedFiles++
-            } catch {
-              console.error("[Chat Cleanup] Failed to delete file (see failedFiles count)")
-              failedFiles++
-            }
-          }
-        }
-      }
-
-      updatedMessageIds.push(msg.id)
-    }
-
-    // ─────────────────────────────────────────────
-    // Step 3: Clear the URLs from the DB so we don't try to delete them again
-    // ─────────────────────────────────────────────
-    if (updatedMessageIds.length > 0) {
-      await db.chatMensaje.updateMany({
-        where: { id: { in: updatedMessageIds } },
-        data: {
-          imagenUrl: null,
-          archivoUrl: null,
-          archivoNombre: null,
-          archivoTipo: null,
-        },
+    let queuedTargets = 0
+    if (oldMessages.length > 0) {
+      await db.$transaction(async (tx) => {
+        const targets = oldMessages.flatMap(resolveChatAttachmentDeletionTargets)
+        queuedTargets = targets.length
+        await queueChatAttachmentDeletionJobs(tx, targets)
+        await tx.chatMensaje.updateMany({
+          where: { id: { in: oldMessages.map((msg) => msg.id) } },
+          data: {
+            imagenUrl: null,
+            archivoUrl: null,
+            archivoNombre: null,
+            archivoTipo: null,
+          },
+        })
       })
-      console.log(`[Chat Cleanup] Cleared URLs for ${updatedMessageIds.length} messages`)
+      console.log(`[Chat Cleanup] Cleared URLs for ${oldMessages.length} messages`)
     }
+
+    // ─────────────────────────────────────────────
+    // Step 3: Intentar el borrado físico ahora (best-effort, fuera de la
+    // transacción DB) para los jobs recién encolados — si falla, quedan
+    // durables para el próximo ciclo de este mismo cron (Step 0 de arriba),
+    // exactamente el mismo patrón best-effort-post-commit que ya usa
+    // `deleteClientAccount` (src/lib/client-account-deletion.ts).
+    // ─────────────────────────────────────────────
+    const historicalOutboxResult =
+      queuedTargets > 0 ? await processPendingChatAttachmentDeletions() : null
+    const deletedFiles = historicalOutboxResult?.deleted ?? 0
+    const failedFiles = historicalOutboxResult?.failed ?? 0
 
     // ─────────────────────────────────────────────
     // Step 4: Delete messages with no content at all (text + files all null) older than cutoff
