@@ -1212,11 +1212,21 @@ model Notificacion {
   leido     Boolean  @default(false)
   pedidoId  String? // related order ID (for navigation)
   negocioId String? // related business ID
+  // 19-B0.2E1: provenance estructurada — identifica al Cliente cuyos datos
+  // (nombre/dirección/texto de chat) pueden estar embebidos en titulo/cuerpo
+  // cuando el DESTINATARIO (userId/userType) es OTRO actor (Negocio/Repartidor).
+  // NUNCA representa al destinatario ni lo reemplaza. Sin FK: la limpieza al
+  // eliminar la cuenta del Cliente la gestiona la aplicación (sanitiza el
+  // contenido y luego nulifica este campo en la misma transacción), no un
+  // `onDelete` de base de datos — evitar un SetNull automático que borre la
+  // provenance antes de poder sanitizar el contenido embebido.
+  sourceClienteId String?
   datos     String   @default("{}") // JSON: additional data for navigation/action
   createdAt DateTime @default(now())
 
   @@index([userId, userType, leido, createdAt])
   @@index([userId, userType, createdAt])
+  @@index([sourceClienteId])
   @@map("notificaciones")
 }
 

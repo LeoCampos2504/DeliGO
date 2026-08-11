@@ -10,6 +10,12 @@ type NotifySalonNewOrderParams = {
   clienteNombre: string
   total: number
   mozoNombre?: string | null
+  /**
+   * 19-B0.2E1: provenance estructurada — el Cliente cuyo nombre puede quedar
+   * embebido en `titulo`/`cuerpo` (cuando no hay `mozoNombre`). `null`/`undefined`
+   * para pedidos de mesa asistidos por Mozo (sin sesión de Cliente real).
+   */
+  clienteId?: string | null
 }
 
 type NotifySalonNewOrderResult = {
@@ -131,6 +137,7 @@ export async function notifySalonNewOrderForOperations(
             cuerpo: payload.body,
             pedidoId: params.pedidoId,
             negocioId: params.negocioId,
+            sourceClienteId: params.clienteId || null,
             datos: JSON.stringify({ mesaNumero: params.mesaNumero, url: panelUrl }),
           },
         })

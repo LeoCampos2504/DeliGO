@@ -367,6 +367,10 @@ export async function POST(
           cuerpo: chatPayload.body,
           pedidoId,
           negocioId: pedido.negocioId,
+          // 19-B0.2E1: título/cuerpo embeben el nombre del Cliente y un
+          // fragmento real de su mensaje — pedido.clienteId es el emisor real
+          // (userType === "cliente" en esta rama).
+          sourceClienteId: pedido.clienteId,
           pushSubscription: negocioData?.pushSubscription ?? null,
           pushPayload: chatPayload,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },

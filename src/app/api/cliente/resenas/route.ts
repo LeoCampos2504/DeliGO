@@ -146,6 +146,11 @@ export async function POST(req: NextRequest) {
         cuerpo: notification.body,
         pedidoId: pedidoId,
         negocioId: pedido.negocioId,
+        // 19-B0.2E1: el cuerpo embebe user.nombre (el Cliente autor real de la
+        // reseña) — provenance estructurada para futuras reseñas, ya que E0
+        // detectó que muchas notificaciones de review no tienen pedidoId
+        // confiable para reconstruir esta relación retroactivamente.
+        sourceClienteId: user.id,
         pushSubscription: negocioData?.pushSubscription ?? null,
         pushPayload: notification,
         cleanupExpired: { model: "negocio", id: pedido.negocioId },

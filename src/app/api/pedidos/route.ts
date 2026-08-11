@@ -1627,6 +1627,9 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         cuerpo: payload.body,
         pedidoId: pedido.id,
         negocioId: negocioId,
+        // 19-B0.2E1: el cuerpo embebe clienteNombre — clienteId es null cuando
+        // el pedido fue creado sin sesión de Cliente real (mesa/guest).
+        sourceClienteId: clienteId || null,
         pushSubscription: negocioWithPush?.pushSubscription ?? null,
         pushPayload: payload,
         cleanupExpired: { model: "negocio", id: negocioId },
@@ -1649,6 +1652,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           clienteNombre,
           total: finalTotal,
           mozoNombre: empleadoNombre,
+          clienteId: clienteId || null,
         })
         modernSalonEndpoints = modernResult.attemptedEndpoints
       } catch (modernSalonError) {
@@ -1695,6 +1699,9 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
               cuerpo: salonPayload.body,
               pedidoId: pedido.id,
               negocioId: negocioId,
+              // 19-B0.2E1: el cuerpo puede embeber clienteNombre (cuando no hay
+              // mozo) — clienteId es null para pedidos de mesa sin sesión real.
+              sourceClienteId: clienteId || null,
               datos: { mesaNumero },
               pushSubscription: sharedPush.pushSubscriptionSalon,
               pushPayload: salonPayload,

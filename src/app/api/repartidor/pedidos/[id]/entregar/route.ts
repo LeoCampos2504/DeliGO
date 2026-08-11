@@ -198,6 +198,8 @@ export async function PUT(
         titulo: negocioPayload.title,
         cuerpo: negocioPayload.body,
         pedidoId,
+        // 19-B0.2E1: el cuerpo embebe clienteNombre.
+        sourceClienteId: pedido.clienteId,
         pushSubscription: negocio?.pushSubscription ?? null,
         pushPayload: negocioPayload,
         cleanupExpired: { model: "negocio", id: pedido.negocioId },

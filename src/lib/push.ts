@@ -147,6 +147,16 @@ interface CreateNotificationParams {
   cuerpo: string
   pedidoId?: string | null
   negocioId?: string | null
+  /**
+   * 19-B0.2E1: provenance estructurada — el Cliente cuyos datos (nombre,
+   * dirección, texto) están embebidos en `titulo`/`cuerpo` cuando el
+   * DESTINATARIO (`userId`/`userType`) es OTRO actor (Negocio/Repartidor).
+   * Nunca representa al destinatario ni lo reemplaza. Sólo debe pasarse
+   * cuando el caller conoce con certeza al Cliente de origen (nunca se
+   * infiere acá a partir de `titulo`/`cuerpo`/`pedidoId`) — omitir cuando la
+   * notificación no embebe PII de un Cliente distinto del destinatario.
+   */
+  sourceClienteId?: string | null
   /** Additional data for navigation/action (JSON-serializable) */
   datos?: Record<string, unknown>
   /** If provided, also send a push notification to this subscription */
@@ -190,6 +200,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
     cuerpo,
     pedidoId,
     negocioId,
+    sourceClienteId,
     datos,
     pushSubscription,
     pushPayload,
@@ -233,6 +244,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
         cuerpo,
         pedidoId: pedidoId || null,
         negocioId: negocioId || null,
+        sourceClienteId: sourceClienteId || null,
         datos: JSON.stringify(navigationData),
       },
     })

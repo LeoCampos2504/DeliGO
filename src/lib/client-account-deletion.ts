@@ -6,6 +6,10 @@ import {
   queueChatAttachmentDeletionJobs,
   resolveChatAttachmentDeletionTargets,
 } from "@/lib/chat-attachment-deletion"
+import {
+  NEUTRAL_NOTIFICATION_COPY,
+  NOTIFICATION_TYPES_WITH_CLIENT_PII,
+} from "@/lib/notification-account-deletion"
 
 export const ANONYMIZED_REVIEW_CLIENT_NAME = "Usuario eliminado"
 export const CLIENT_ACCOUNT_DELETION_MAX_ATTEMPTS = 3
@@ -75,6 +79,16 @@ export async function deleteClientAccountInTransaction(
   if (pedidoActivo) {
     throw new ClientHasActiveOrdersError()
   }
+
+  // 19-B0.2E1: se capturan los ids de TODOS los Pedidos del Cliente ANTES de
+  // que el `pedido.updateMany` de más abajo nulifique `Pedido.clienteId` —
+  // es el único puente determinista para localizar Notificacion de terceros
+  // (Negocio/Repartidor) que embeben datos de este Cliente. Sólo ids, sin PII.
+  const clientPedidos = await tx.pedido.findMany({
+    where: { clienteId },
+    select: { id: true },
+  })
+  const clientPedidoIds = clientPedidos.map((p) => p.id)
 
   // No se borra la reseña: conserva rating, contenido y expediente, pero no identidad.
   await tx.resena.updateMany({
@@ -155,6 +169,42 @@ export async function deleteClientAccountInTransaction(
     data: { clienteId: null },
   })
 
+  // Notificacion propias del Cliente: se borran (nunca alcanzables por
+  // ninguna sesión futura una vez eliminada la cuenta, sin valor operativo
+  // para nadie más). No depende de `sourceClienteId` — `userId`/`userType`
+  // ya identifican al destinatario con certeza estructural.
+  await tx.notificacion.deleteMany({
+    where: { userId: clienteId, userType: "cliente" },
+  })
+
+  // Notificacion de terceros (Negocio/Repartidor/Empleado) cuyo contenido
+  // puede embeber datos de este Cliente: se sanitiza con un copy neutral fijo
+  // por tipo — nunca regex/replace/LIKE sobre nombre/dirección/texto. Los
+  // targets se identifican de forma determinista por `pedidoId` (Pedidos de
+  // este Cliente, capturados arriba ANTES de nulificar `Pedido.clienteId`) o
+  // por `sourceClienteId` (provenance estructurada de filas nuevas). Se
+  // agrupa por tipo (un único `updateMany` por tipo, no por fila) — una fila
+  // que matchee por ambos criterios sólo se actualiza una vez. Notificacion
+  // legacy sin `pedidoId` seguro y sin `sourceClienteId` (provenance
+  // ambigua) queda deliberadamente sin tocar.
+  for (const tipo of NOTIFICATION_TYPES_WITH_CLIENT_PII) {
+    const copy = NEUTRAL_NOTIFICATION_COPY[tipo]
+    await tx.notificacion.updateMany({
+      where: {
+        tipo,
+        OR: [
+          { pedidoId: { in: clientPedidoIds } },
+          { sourceClienteId: clienteId },
+        ],
+      },
+      data: {
+        titulo: copy.titulo,
+        cuerpo: copy.cuerpo,
+        sourceClienteId: null,
+      },
+    })
+  }
+
   // Acotado a userType "cliente": nunca borra tokens de Negocio, Repartidor
   // ni CuentaOperativa que casualmente compartan el mismo userId.
   await tx.passwordResetToken.deleteMany({ where: { userId: clienteId, userType: "cliente" } })
@@ -171,6 +221,16 @@ export async function deleteClientAccountInTransaction(
       clienteId: null,
       clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME,
     },
+  })
+
+  // ClienteBloqueado (19-B0.2E1): la fila NUNCA se borra ni se desvincula —
+  // `ip`/`fingerprint`/`clienteId`/`fecha` son el dato de seguridad central
+  // del bloqueo (anti-evasión) y se preservan exactamente. Sólo se
+  // pseudonimiza el nombre de display, que no participa en ningún matching
+  // de enforcement real (auditado en 19-B0.2E0).
+  await tx.clienteBloqueado.updateMany({
+    where: { clienteId },
+    data: { clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
   })
 
   await tx.favorito.deleteMany({ where: { clienteId } })

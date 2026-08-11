@@ -154,6 +154,8 @@ export async function POST(
             cuerpo: payload.body,
             pedidoId: id,
             negocioId,
+            // 19-B0.2E1: el cuerpo embebe la dirección de entrega del Cliente.
+            sourceClienteId: pedido.clienteId,
             pushSubscription: rn.repartidor.pushSubscription,
             pushPayload: payload,
             cleanupExpired: { model: "repartidor", id: rn.repartidor.id },

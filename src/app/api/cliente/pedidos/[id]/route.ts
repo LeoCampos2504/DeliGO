@@ -151,6 +151,10 @@ export async function PUT(
           titulo: payload.title,
           cuerpo: payload.body,
           pedidoId: id,
+          // 19-B0.2E1: el cuerpo embebe clienteNombre — cliente.id es la
+          // sesión autenticada que ejecuta esta cancelación (verificada
+          // contra pedido.clienteId más arriba).
+          sourceClienteId: cliente.id,
           pushSubscription: negocioData?.pushSubscription ?? null,
           pushPayload: payload,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
@@ -326,6 +330,9 @@ export async function PUT(
           titulo: confirmedPayload.title,
           cuerpo: confirmedPayload.body,
           pedidoId: id,
+          // 19-B0.2E1: el cuerpo embebe clienteNombre — cliente.id es la
+          // sesión autenticada que confirma la recepción.
+          sourceClienteId: cliente.id,
           pushSubscription: negocioData?.pushSubscription ?? null,
           pushPayload: confirmedPayload,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
@@ -349,6 +356,8 @@ export async function PUT(
                 titulo: repPayload.title,
                 cuerpo: repPayload.body,
                 pedidoId: id,
+                // 19-B0.2E1: el cuerpo embebe clienteNombre.
+                sourceClienteId: cliente.id,
                 pushSubscription: rn.repartidor.pushSubscription,
                 pushPayload: repPayload,
                 cleanupExpired: { model: "repartidor", id: rn.repartidor.id },

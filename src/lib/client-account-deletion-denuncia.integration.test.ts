@@ -297,8 +297,8 @@ describe("19-B0.2C — activo + terminal: ni Pedido ni Denuncia se tocan si el g
   })
 })
 
-describe("19-B0.2C — ClienteBloqueado preexistente: sin cambios (política reservada a B0.2E)", () => {
-  test("una fila ClienteBloqueado creada antes de eliminar la cuenta sigue existiendo intacta después", async () => {
+describe("19-B0.2C/E1 — ClienteBloqueado preexistente: fila preservada, sólo el nombre se pseudonimiza (política E1)", () => {
+  test("ip/fingerprint/clienteId/fecha quedan intactos; clienteNombre pasa a ANONYMIZED_REVIEW_CLIENT_NAME", async () => {
     const cliente = await ensureCliente(`bloqueado-${randomUUID()}`)
     const bloqueo = await db.clienteBloqueado.create({
       data: {
@@ -314,8 +314,14 @@ describe("19-B0.2C — ClienteBloqueado preexistente: sin cambios (política res
 
     const snapshot = await db.clienteBloqueado.findUnique({ where: { id: bloqueo.id } })
     expect(snapshot).not.toBeNull()
+    // 19-B0.2E1: la fila nunca se borra; ip/fingerprint/clienteId/fecha son el
+    // dato de seguridad anti-evasión y se preservan exactamente. Sólo el
+    // nombre de display se pseudonimiza (no participa en ningún enforcement).
+    expect(snapshot?.ip).toBe(bloqueo.ip)
+    expect(snapshot?.fingerprint).toBe(bloqueo.fingerprint)
     expect(snapshot?.clienteId).toBe(cliente.id)
-    expect(snapshot?.clienteNombre).toBe(bloqueo.clienteNombre)
+    expect(snapshot?.fecha.getTime()).toBe(bloqueo.fecha.getTime())
+    expect(snapshot?.clienteNombre).toBe(ANONYMIZED_REVIEW_CLIENT_NAME)
 
     await db.clienteBloqueado.deleteMany({ where: { id: bloqueo.id } })
   })
