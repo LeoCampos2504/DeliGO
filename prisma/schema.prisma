@@ -1121,7 +1121,11 @@ model OpcionesCompartidas {
 // ============================================
 model Denuncia {
   id            String   @id @default(cuid())
-  clienteId     String
+  // 19-B0.2C: nullable únicamente para preservar el expediente cuando la
+  // cuenta del Cliente denunciado se elimina — la creación de una Denuncia
+  // nueva sigue exigiendo un Cliente real (POST /api/denuncias valida esto
+  // en la aplicación, no en el schema).
+  clienteId     String?
   negocioId     String
   pedidoId      String? // optional: linked order
   negocioNombre String // denormalized for quick display
@@ -1130,8 +1134,8 @@ model Denuncia {
   motivo        String // reason text (preset label or custom)
   fecha         DateTime @default(now())
 
-  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cliente Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  negocio Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
   @@index([clienteId])
   @@index([negocioId])

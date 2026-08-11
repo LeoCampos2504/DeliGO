@@ -77,6 +77,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -90,6 +91,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       "pedido.updateMany",
       "chatMensaje.updateMany",
       "passwordResetToken.deleteMany",
+      "denuncia.updateMany",
       "favorito.deleteMany",
       "direccion.deleteMany",
       "cliente.delete",
@@ -116,6 +118,10 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     })
     expect(calls[4].args).toEqual({
       where: { userId: "cliente-test", userType: "cliente" },
+    })
+    expect(calls[5].args).toEqual({
+      where: { clienteId: "cliente-test" },
+      data: { clienteId: null, clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
     })
   })
 
@@ -147,6 +153,7 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       pedido: { findFirst: async () => null, updateMany: operation },
       chatMensaje: { updateMany: operation },
       passwordResetToken: { deleteMany: operation },
+      denuncia: { updateMany: operation },
       favorito: { deleteMany: operation },
       direccion: { deleteMany: operation },
       cliente: { delete: async () => { throw clientAlreadyDeletedConflict() } },
@@ -227,6 +234,7 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
       },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -251,6 +259,7 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
       "pedido.updateMany",
       "chatMensaje.updateMany",
       "passwordResetToken.deleteMany",
+      "denuncia.updateMany",
       "favorito.deleteMany",
       "direccion.deleteMany",
       "cliente.delete",
@@ -270,6 +279,7 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       pedido: { findFirst: async () => null, updateMany: operation("pedido", "updateMany") },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -328,6 +338,7 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       },
       chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
       favorito: { deleteMany: operation("favorito", "deleteMany") },
       direccion: { deleteMany: operation("direccion", "deleteMany") },
       cliente: { delete: operation("cliente", "delete") },
@@ -355,6 +366,7 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
       chatMensaje: { updateMany: operation("chatMensaje.updateMany") },
       passwordResetToken: { deleteMany: operation("passwordResetToken.deleteMany") },
+      denuncia: { updateMany: operation("denuncia.updateMany") },
       favorito: { deleteMany: operation("favorito.deleteMany") },
       direccion: { deleteMany: operation("direccion.deleteMany") },
       cliente: { delete: operation("cliente.delete") },
@@ -364,5 +376,79 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       ClientHasActiveOrdersError,
     )
     expect(calls).toEqual([])
+  })
+})
+
+describe("19-B0.2C — Denuncia: pseudonimización + FK SetNull (mock)", () => {
+  test("denuncia.updateMany pseudonimiza clienteId/clienteNombre, después de passwordResetToken y antes de favorito/cliente.delete", async () => {
+    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const operation = (model: string, name: string) => async (args?: unknown) => {
+      calls.push({ model, operation: name, args })
+      return { count: 1 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: { findFirst: async () => null, updateMany: operation("pedido", "updateMany") },
+      chatMensaje: { updateMany: operation("chatMensaje", "updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+
+    const order = calls.map((c) => `${c.model}.${c.operation}`)
+    expect(order.indexOf("denuncia.updateMany")).toBeGreaterThan(order.indexOf("passwordResetToken.deleteMany"))
+    expect(order.indexOf("denuncia.updateMany")).toBeLessThan(order.indexOf("favorito.deleteMany"))
+    expect(order.indexOf("denuncia.updateMany")).toBeLessThan(order.indexOf("cliente.delete"))
+
+    const denunciaUpdate = calls.find((c) => c.model === "denuncia")
+    expect(denunciaUpdate?.args).toEqual({
+      where: { clienteId: "cliente-test" },
+      data: { clienteId: null, clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
+    })
+  })
+
+  test("si el guard bloquea por pedido activo, denuncia.updateMany tampoco se ejecuta", async () => {
+    const calls: string[] = []
+    const operation = (label: string) => async () => {
+      calls.push(label)
+      return { count: 1 }
+    }
+    const tx = {
+      resena: { updateMany: operation("resena.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
+      chatMensaje: { updateMany: operation("chatMensaje.updateMany") },
+      passwordResetToken: { deleteMany: operation("passwordResetToken.deleteMany") },
+      denuncia: { updateMany: operation("denuncia.updateMany") },
+      favorito: { deleteMany: operation("favorito.deleteMany") },
+      direccion: { deleteMany: operation("direccion.deleteMany") },
+      cliente: { delete: operation("cliente.delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
+      ClientHasActiveOrdersError,
+    )
+    expect(calls).toEqual([])
+  })
+
+  test("schema y migración: FK de Denuncia pasa de Cascade a SetNull, columna nullable, sin tocar datos", () => {
+    const schema = read("prisma/schema.prisma")
+    const migration = read(
+      "prisma/migrations/20260810000000_preserve_denuncia_on_client_delete/migration.sql",
+    )
+
+    expect(schema).toContain("clienteId     String?\n  negocioId     String\n")
+    expect(schema).toContain("cliente Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)")
+
+    expect(migration).toContain('ALTER TABLE "denuncias" DROP CONSTRAINT "denuncias_clienteId_fkey"')
+    expect(migration).toContain('ALTER TABLE "denuncias" ALTER COLUMN "clienteId" DROP NOT NULL')
+    expect(migration).toContain('FOREIGN KEY ("clienteId") REFERENCES "clientes"("id") ON DELETE SET NULL ON UPDATE CASCADE')
+    expect(migration).not.toMatch(/DROP\s+TABLE/i)
+    expect(migration).not.toMatch(/\bDELETE\s+FROM\b/i)
+    expect(migration).not.toMatch(/\bTRUNCATE\b/i)
+    expect(migration).not.toMatch(/\bUPDATE\s+"denuncias"/i)
   })
 })

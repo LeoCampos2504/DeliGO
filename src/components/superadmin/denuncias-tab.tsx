@@ -43,7 +43,10 @@ import { toast } from "sonner"
 // ============================================
 interface Denuncia {
   id: string
-  clienteId: string
+  // 19-B0.2C: null cuando la cuenta del Cliente denunciado fue eliminada —
+  // el expediente se preserva pseudonimizado (clienteNombre = "Usuario
+  // eliminado"), sin un Cliente real al que enlazar.
+  clienteId: string | null
   negocioId: string
   pedidoId: string | null
   negocioNombre: string
@@ -306,7 +309,7 @@ export function DenunciasTab() {
         <div className="space-y-2">
           <AnimatePresence>
             {denuncias.map((denuncia) => {
-              const cliente = clienteMap[denuncia.clienteId]
+              const cliente = denuncia.clienteId ? clienteMap[denuncia.clienteId] : undefined
               return (
                 <DenunciaCard
                   key={denuncia.id}
@@ -521,6 +524,9 @@ function DenunciaCard({
 }) {
   const config = motivoConfig[denuncia.motivoTipo] || motivoConfig.otro
   const MotivoIcon = config.icon
+  // 19-B0.2C: sin Cliente real (cuenta eliminada, expediente pseudonimizado)
+  // no hay nada que "ver" — se muestra el mismo contenido pero sin acción.
+  const clienteId = denuncia.clienteId
 
   return (
     <motion.div
@@ -533,24 +539,39 @@ function DenunciaCard({
       <div className="p-4">
         <div className="flex items-start gap-3">
           {/* Cliente avatar */}
-          <button
-            onClick={() => onOpenCliente(denuncia.clienteId)}
-            className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center shrink-0 cursor-pointer hover:bg-orange-500/20 transition-colors"
-            title="Ver detalle del cliente"
-          >
-            <UserX className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-          </button>
+          {clienteId ? (
+            <button
+              onClick={() => onOpenCliente(clienteId)}
+              className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center shrink-0 cursor-pointer hover:bg-orange-500/20 transition-colors"
+              title="Ver detalle del cliente"
+            >
+              <UserX className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+            </button>
+          ) : (
+            <div
+              className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center shrink-0"
+              title="Cuenta eliminada"
+            >
+              <UserX className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
 
           {/* Info */}
           <div className="flex-1 min-w-0">
             {/* Cliente name + badges */}
             <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={() => onOpenCliente(denuncia.clienteId)}
-                className="font-bold text-sm truncate hover:underline cursor-pointer"
-              >
-                {denuncia.clienteNombre}
-              </button>
+              {clienteId ? (
+                <button
+                  onClick={() => onOpenCliente(clienteId)}
+                  className="font-bold text-sm truncate hover:underline cursor-pointer"
+                >
+                  {denuncia.clienteNombre}
+                </button>
+              ) : (
+                <span className="font-bold text-sm truncate text-muted-foreground">
+                  {denuncia.clienteNombre}
+                </span>
+              )}
               {cliente?.bloqueado && (
                 <Badge className="text-[10px] shrink-0 border-0 bg-red-500/10 text-red-700 dark:text-red-300">
                   🚫 Bloqueado

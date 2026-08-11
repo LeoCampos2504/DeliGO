@@ -40,8 +40,10 @@ export async function GET(req: NextRequest) {
       db.denuncia.count({ where }),
     ])
 
-    // Get unique cliente IDs and fetch their info
-    const clienteIds = [...new Set(denuncias.map((d) => d.clienteId))]
+    // Get unique cliente IDs and fetch their info. 19-B0.2C: denuncias de
+    // cuentas eliminadas tienen clienteId=null (pseudonimizadas) — se
+    // excluyen acá, ya no hay Cliente real que buscar para esas filas.
+    const clienteIds = [...new Set(denuncias.map((d) => d.clienteId).filter((id): id is string => id !== null))]
     const clientes = await db.cliente.findMany({
       where: { id: { in: clienteIds } },
       select: {

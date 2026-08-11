@@ -106,6 +106,20 @@ export async function deleteClientAccountInTransaction(
   // ni CuentaOperativa que casualmente compartan el mismo userId.
   await tx.passwordResetToken.deleteMany({ where: { userId: clienteId, userType: "cliente" } })
 
+  // No se borra la Denuncia: conserva el expediente de abuso completo
+  // (negocio denunciante, motivo, pedido vinculado, timestamps), pero
+  // desvincula y pseudonimiza al autor denunciado. El FK (onDelete: SetNull)
+  // por sí solo ya impediría que la fila se borre, pero no pseudonimizaría
+  // clienteNombre — por eso el core lo hace explícitamente acá, antes de
+  // borrar Cliente.
+  await tx.denuncia.updateMany({
+    where: { clienteId },
+    data: {
+      clienteId: null,
+      clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME,
+    },
+  })
+
   await tx.favorito.deleteMany({ where: { clienteId } })
   await tx.direccion.deleteMany({ where: { clienteId } })
   try {

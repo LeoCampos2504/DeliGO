@@ -83,18 +83,31 @@ export async function DELETE(
           return { kind: "not_found" as const }
         }
 
+        // 19-B0.2C: la denuncia puede pertenecer a una cuenta ya eliminada
+        // (clienteId=null, pseudonimizada). No existe ningún Cliente real
+        // que reconciliar/desbloquear en ese caso — cortar acá.
+        if (denuncia.clienteId === null) {
+          return {
+            kind: "deleted" as const,
+            clienteNombre: denuncia.clienteNombre,
+            desbloqueado: false,
+            denunciasRestantes: 0,
+          }
+        }
+        const clienteId = denuncia.clienteId
+
         // Check if the cliente should be auto-unblocked — releído dentro de la misma
         // transacción Serializable que borró la denuncia, para que el conteo nunca
         // quede desincronizado con una creación/eliminación concurrente del mismo
         // cliente.
         const denunciasRestantes = await tx.denuncia.count({
-          where: { clienteId: denuncia.clienteId },
+          where: { clienteId },
         })
 
         // Releer cliente dentro de la misma transacción — se usa para normalizar el
         // estado final en ambas ramas, no solo para decidir si desbloquear.
         const cliente = await tx.cliente.findUnique({
-          where: { id: denuncia.clienteId },
+          where: { id: clienteId },
           select: { bloqueado: true, ultimoIp: true, dispositivoFingerprint: true },
         })
 
@@ -105,20 +118,20 @@ export async function DELETE(
           // aplicables, incluso si el cliente ya estaba bloqueado antes de este borrado
           // (repara un bloqueo histórico incompleto en vez de "no tocar nada").
           await tx.cliente.updateMany({
-            where: { id: denuncia.clienteId, bloqueado: false },
+            where: { id: clienteId, bloqueado: false },
             data: { bloqueado: true, bloqueadoFecha: new Date() },
           })
 
           if (cliente?.ultimoIp && cliente.ultimoIp !== "unknown") {
             const existingIpBlock = await tx.clienteBloqueado.findFirst({
-              where: { ip: cliente.ultimoIp, clienteId: denuncia.clienteId },
+              where: { ip: cliente.ultimoIp, clienteId },
             })
             if (!existingIpBlock) {
               await tx.clienteBloqueado.create({
                 data: {
                   ip: cliente.ultimoIp,
                   fingerprint: cliente.dispositivoFingerprint || "",
-                  clienteId: denuncia.clienteId,
+                  clienteId,
                   clienteNombre: denuncia.clienteNombre,
                 },
               })
@@ -127,14 +140,14 @@ export async function DELETE(
 
           if (cliente?.dispositivoFingerprint) {
             const existingFpBlock = await tx.clienteBloqueado.findFirst({
-              where: { fingerprint: cliente.dispositivoFingerprint, clienteId: denuncia.clienteId },
+              where: { fingerprint: cliente.dispositivoFingerprint, clienteId },
             })
             if (!existingFpBlock) {
               await tx.clienteBloqueado.create({
                 data: {
                   ip: cliente.ultimoIp || "",
                   fingerprint: cliente.dispositivoFingerprint,
-                  clienteId: denuncia.clienteId,
+                  clienteId,
                   clienteNombre: denuncia.clienteNombre,
                 },
               })
@@ -148,7 +161,7 @@ export async function DELETE(
           desbloqueado = cliente?.bloqueado === true
 
           await tx.cliente.updateMany({
-            where: { id: denuncia.clienteId, bloqueado: true },
+            where: { id: clienteId, bloqueado: true },
             data: {
               bloqueado: false,
               bloqueadoFecha: null,
@@ -158,7 +171,7 @@ export async function DELETE(
           // Limpieza acotada exclusivamente a este cliente — nunca por IP/fingerprint
           // solos, para no afectar el bloqueo de otro cliente que comparta esos valores.
           await tx.clienteBloqueado.deleteMany({
-            where: { clienteId: denuncia.clienteId },
+            where: { clienteId },
           })
         }
 
