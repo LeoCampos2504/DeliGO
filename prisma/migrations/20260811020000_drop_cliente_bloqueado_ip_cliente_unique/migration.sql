@@ -1,0 +1,39 @@
+-- BLOCKED-LOGIN-500-2: elimina EXCLUSIVAMENTE el índice único parcial legacy
+-- "clientes_bloqueados_ip_cliente_key" ("ip", "clienteId"), creado por
+-- 20260707000000_add_cliente_bloqueado_unique_active (Seguridad-5B) cuando el
+-- código de aplicación de esa época trataba un bloqueo por IP y un bloqueo
+-- por fingerprint como dos hechos independientes, cada uno como mucho una
+-- fila por cliente.
+--
+-- SEC-BLOCK-1 (posterior a esa migración) redefinió el contrato: el
+-- fingerprint/deviceId server-managed es la única señal fuerte, y un mismo
+-- Cliente bloqueado puede — y debe poder — iniciar sesión legítimamente desde
+-- múltiples dispositivos distintos que comparten la misma IP (misma red
+-- doméstica/de oficina/wifi pública), generando una fila ClienteBloqueado
+-- nueva POR DISPOSITIVO (ver ensureClienteBloqueadoRecordForDevice en
+-- src/lib/client-block-security.ts, cuyo único dedupe real es
+-- (clienteId, fingerprint) — nunca ip). El índice único legacy sobre
+-- ("ip", "clienteId") quedó incompatible con ese contrato sin que ninguna
+-- migración posterior lo removiera: cualquier segundo login de un Cliente ya
+-- bloqueado desde un dispositivo nuevo, pero la MISMA IP que un dispositivo
+-- previamente registrado, hacía fallar `clienteBloqueado.create()` con
+-- Prisma P2002 ("Unique constraint failed on the fields: (`ip`,`clienteId`)")
+-- y el login devolvía 500 en vez de 200 — reproducido de forma determinista
+-- tanto en PostgreSQL TESTING (invocación directa del handler) como en
+-- DeliGO Copy (vía logs Railway, BLOCKED-LOGIN-500-1/2).
+--
+-- Este drop es IF EXISTS: seguro de aplicar sin importar si el objeto ya fue
+-- eliminado por una corrida previa de esta misma migración, y seguro para
+-- cualquier entorno (incluida una futura promoción a producción) donde el
+-- objeto pudiera estar ausente por cualquier motivo. No borra, actualiza ni
+-- lee ninguna fila existente — es una operación puramente de catálogo sobre
+-- un índice, nunca sobre datos.
+--
+-- El índice único parcial hermano "clientes_bloqueados_fingerprint_cliente_key"
+-- ("fingerprint", "clienteId") NO se toca: sigue siendo exactamente compatible
+-- con el contrato actual (es, de hecho, el mismo par que
+-- ensureClienteBloqueadoRecordForDevice ya verifica en la aplicación antes de
+-- crear — este índice sólo actúa como backstop persistente ante una carrera,
+-- nunca bloquea un escenario legítimo bajo SEC-BLOCK-1).
+
+DROP INDEX IF EXISTS "clientes_bloqueados_ip_cliente_key";

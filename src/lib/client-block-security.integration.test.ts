@@ -732,3 +732,93 @@ describe("SEC-BLOCK-1 — Indistinguibilidad de la respuesta bloqueada", () => {
     expect(Object.keys(bodyPre).sort()).toEqual(["error"])
   })
 })
+
+// ============================================
+// BLOCKED-LOGIN-500-2 — regresión permanente: un mismo Cliente bloqueado
+// debe poder loguearse desde múltiples dispositivos que comparten la MISMA
+// IP, sin P2002/500. Un índice único legacy `(ip, clienteId)`
+// (20260707000000_add_cliente_bloqueado_unique_active, "Seguridad-5B")
+// predataba SEC-BLOCK-1 y quedó incompatible con su contrato (dedupe
+// exclusivamente por (clienteId, fingerprint), la IP es sólo contexto) —
+// removido en 20260811020000_drop_cliente_bloqueado_ip_cliente_unique. La IP
+// nunca debe actuar como identidad ni como hard-block acá.
+// ============================================
+describe("BLOCKED-LOGIN-500-2 — Login multi-dispositivo, misma IP, cuenta ya bloqueada", () => {
+  test("3 dispositivos distintos desde la misma IP: los 3 logins devuelven 200, crean 3 filas, un 4to login del mismo dispositivo A no duplica, y el checkout sigue bloqueado con el mismo mensaje", async () => {
+    const { hashPassword } = await import("@/lib/auth")
+    const sharedIp = `203.0.113.${50 + (Date.now() % 40)}`
+    const cliente = await ensureCliente(`p2002-multidev-${randomUUID()}`, { bloqueado: true })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+
+    const deviceA = randomDeviceToken()
+    const deviceB = randomDeviceToken()
+    const deviceC = randomDeviceToken()
+
+    const resA = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceA, ip: sharedIp }))
+    expect(resA.status).toBe(200)
+
+    const resB = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceB, ip: sharedIp }))
+    expect(resB.status).toBe(200)
+
+    const resC = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceC, ip: sharedIp }))
+    expect(resC.status).toBe(200)
+
+    const rowsAfterThree = await db.clienteBloqueado.findMany({ where: { clienteId: cliente.id } })
+    expect(rowsAfterThree).toHaveLength(3)
+    const fingerprints = new Set(rowsAfterThree.map((r) => r.fingerprint))
+    expect(fingerprints.size).toBe(3)
+    // IP_USED_ONLY_AS_CONTEXT: la misma IP se guarda como dato de contexto en
+    // las 3 filas, pero nunca impide crear una fila nueva por dispositivo —
+    // el dedupe real es (clienteId, fingerprint), nunca (clienteId, ip).
+    for (const row of rowsAfterThree) {
+      expect(row.ip).toBe(sharedIp)
+      expect(row.clienteId).toBe(cliente.id)
+    }
+
+    // Repetir el mismo dispositivo A, misma IP: dedupe por (clienteId, fingerprint),
+    // no crea una 4ta fila.
+    const resARepeat = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceA, ip: sharedIp }))
+    expect(resARepeat.status).toBe(200)
+    const rowsAfterRepeat = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
+    expect(rowsAfterRepeat).toBe(3)
+
+    // La sesión creada en el login sigue siendo válida (perfil accesible).
+    const sessionToken = extractSetCookie(resA, SESSION_COOKIE_NAME)
+    expect(sessionToken).not.toBeNull()
+    const perfilRes = await perfilRoute(reqPerfil(`${SESSION_COOKIE_NAME}=${sessionToken}`))
+    expect(perfilRes.status).toBe(200)
+
+    // El checkout sigue bloqueado, con el mismo mensaje exacto, y no crea Pedido.
+    const negocio = await ensureNegocio(`p2002-multidev-${randomUUID()}`)
+    const productoId = await ensureProducto(negocio.id)
+    const checkoutRes = await crearPedido(
+      reqPedido(pedidoBody({ negocioId: negocio.id, productoId }), { sessionToken: sessionToken!, deviceCookie: deviceA, ip: sharedIp }),
+      {}
+    )
+    expect(checkoutRes.status).toBe(403)
+    const checkoutBody = await checkoutRes.json()
+    expect(checkoutBody.error).toBe(BLOCKED_MESSAGE)
+    const pedidosCount = await db.pedido.count({ where: { clienteId: cliente.id } })
+    expect(pedidosCount).toBe(0)
+  })
+
+  test("misma IP, dispositivos concurrentes: ningún login falla por P2002 (ip, clienteId)", async () => {
+    const { hashPassword } = await import("@/lib/auth")
+    const sharedIp = `203.0.113.${90 + (Date.now() % 8)}`
+    const cliente = await ensureCliente(`p2002-concurrent-${randomUUID()}`, { bloqueado: true })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+
+    const devices = [randomDeviceToken(), randomDeviceToken(), randomDeviceToken()]
+    const results = await Promise.all(
+      devices.map((deviceToken) =>
+        loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceToken, ip: sharedIp }))
+      )
+    )
+    for (const res of results) {
+      expect(res.status).toBe(200)
+    }
+
+    const rows = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
+    expect(rows).toBe(devices.length)
+  })
+})
