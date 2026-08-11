@@ -4,6 +4,7 @@ import { hashPassword } from "@/lib/auth"
 import { generateSlug } from "@/lib/utils"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
+import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     switch (tipo) {
       case "cliente":
-        return await registerCliente(body)
+        return await registerCliente(body, req)
       case "negocio":
         return await registerNegocio(body)
       case "repartidor":
@@ -51,7 +52,7 @@ async function registerCliente(data: {
   email: string
   password: string
   telefono?: string
-}) {
+}, req: NextRequest) {
   const { nombre, email, password, telefono } = data
 
   if (!nombre?.trim() || !email?.trim() || !password) {
@@ -81,6 +82,12 @@ async function registerCliente(data: {
     )
   }
 
+  // SEC-DEVICE-1: identidad técnica de dispositivo server-managed — el
+  // registro no rechaza ni consulta ClienteBloqueado (eso es SEC-BLOCK-1),
+  // sólo asegura que la cuenta nazca con la señal ya disponible en vez de
+  // esperar al primer pedido.
+  const deviceIdentity = getOrCreateDeviceIdentity(req)
+
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
   const cliente = await db.cliente.create({
@@ -90,6 +97,7 @@ async function registerCliente(data: {
       password: hashedPassword,
       telefono: telefono?.trim() || "",
       verificationToken,
+      dispositivoFingerprint: deviceIdentity.deviceId,
     },
   })
 
@@ -98,12 +106,16 @@ async function registerCliente(data: {
     console.error("[Register] Failed to send verification email:", err)
   })
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     needsVerification: true,
     email: cliente.email,
     userType: "cliente",
   })
+  if (deviceIdentity.isNew) {
+    setDeviceCookie(response, deviceIdentity.token)
+  }
+  return response
 }
 
 async function registerNegocio(data: {

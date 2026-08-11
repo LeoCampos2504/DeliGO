@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromRequest } from "@/lib/auth"
 import { resolveTerminalSession } from "@/lib/operaciones-terminal-auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { createNotification, newOrderNotification, salonNewOrderNotification } from "@/lib/push"
 import {
   notifySalonNewOrderForOperations,
@@ -139,7 +140,6 @@ interface PedidoPayload {
   mesaId: string | null
   mesaNumero: number | null
   empleadoCodigo: string | null
-  fingerprint: string | null
   // P0-C.1: sin validar acá a propósito — una ubicación malformada nunca debe
   // rechazar el pedido completo (modo observación). Se evalúa de forma
   // tolerante más abajo, solo para pedidos de mesa, con evaluateMesaGeofence.
@@ -423,7 +423,9 @@ function validatePedidoPayload(payload: unknown): ValidationResult<PedidoPayload
     mesaId: readOptionalText(payload.mesaId),
     mesaNumero: mesaNumero.value,
     empleadoCodigo: readOptionalText(payload.empleadoCodigo),
-    fingerprint: readOptionalText(payload.fingerprint),
+    // SEC-DEVICE-1: `payload.fingerprint` (body arbitrario, client-controlled)
+    // dejó de leerse — la identidad de dispositivo ahora se deriva
+    // server-side desde la cookie `deligo_device` (ver getOrCreateDeviceIdentity).
     mesaGeolocation: payload.mesaGeolocation,
   })
 }
@@ -1014,6 +1016,11 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
 
     // Get session to find cliente
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+    // SEC-DEVICE-1: identidad de dispositivo server-managed — reemplaza la
+    // confianza en `payload.fingerprint` (arbitrario, client-controlled).
+    // Sólo lectura de cookie acá (sin DB); la cookie se setea en la
+    // respuesta final sólo si `isNew`.
+    const deviceIdentity = getOrCreateDeviceIdentity(request)
     let clienteId: string | null = null
     let clienteNombre = "Invitado"
     let clienteTelefono = ""
@@ -1048,7 +1055,9 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
 
           clienteUpdateData = {
             ultimoIp: getClientIp(request),
-            ...(pedidoInput.fingerprint ? { dispositivoFingerprint: pedidoInput.fingerprint } : {}),
+            // SEC-DEVICE-1: siempre el id server-derived — nunca el
+            // `payload.fingerprint` legacy (client-controlled, ya no se lee).
+            dispositivoFingerprint: deviceIdentity.deviceId,
           }
         }
       }
@@ -1719,7 +1728,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
     // creación nueva (201) como para un replay idempotente (200) — los clientes
     // que todavía no envían Idempotency-Key nunca ven el status 200 acá, siguen
     // recibiendo exactamente 201 como hoy.
-    return NextResponse.json(pedido, { status: result.status === "created" ? 201 : 200 })
+    const pedidoResponse = NextResponse.json(pedido, { status: result.status === "created" ? 201 : 200 })
+    // SEC-DEVICE-1: sólo setea la cookie cuando no existía una válida — una
+    // cookie ya presente nunca se reemplaza en cada pedido.
+    if (deviceIdentity.isNew) {
+      setDeviceCookie(pedidoResponse, deviceIdentity.token)
+    }
+    return pedidoResponse
   } catch (error) {
     if (error instanceof PedidoIdempotencyConflictError) {
       return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { comparePassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 
 function setCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     switch (tipo) {
       case "cliente":
-        return await loginCliente(body)
+        return await loginCliente(body, req)
       case "negocio":
         return await loginNegocio(body)
       case "repartidor":
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function loginCliente(data: { email: string; password: string }) {
+async function loginCliente(data: { email: string; password: string }, req: NextRequest) {
   const { email, password } = data
 
   if (!email?.trim() || !password) {
@@ -88,6 +89,23 @@ async function loginCliente(data: { email: string; password: string }) {
   }
 
   const token = await createSession(cliente.id, "cliente")
+
+  // SEC-DEVICE-1: sólo rellena el device id si la cuenta todavía no tiene
+  // ninguno (cuentas creadas antes de esta tarea, o cuya cookie se perdió
+  // antes del primer registro/pedido) — nunca sobrescribe un valor ya
+  // presente en cada login. Una cuenta usada legítimamente desde varios
+  // dispositivos no debe perder silenciosamente la señal de un dispositivo
+  // anterior sólo por loguearse de nuevo desde otro; el checkout (acción
+  // menos frecuente y más relevante para seguridad) sigue actualizando el
+  // valor en cada pedido, igual que ya hace con `ultimoIp`.
+  const deviceIdentity = getOrCreateDeviceIdentity(req)
+  if (!cliente.dispositivoFingerprint) {
+    await db.cliente.updateMany({
+      where: { id: cliente.id, dispositivoFingerprint: "" },
+      data: { dispositivoFingerprint: deviceIdentity.deviceId },
+    })
+  }
+
   const res = NextResponse.json({
     ok: true,
     user: {
@@ -99,6 +117,9 @@ async function loginCliente(data: { email: string; password: string }) {
     },
   })
   setCookie(res, token)
+  if (deviceIdentity.isNew) {
+    setDeviceCookie(res, deviceIdentity.token)
+  }
   return res
 }
 
