@@ -86,7 +86,7 @@ export default function RootLayout({
       <body className={`${nunito.variable} font-sans antialiased bg-background text-foreground`}>
         <ThemeProvider>
           <QueryProvider>
-            <div className="min-h-dvh ios-min-viewport-height flex flex-col">
+            <div className="min-h-dvh flex flex-col">
               <main className="flex-1">{children}</main>
             </div>
             <DynamicManifest />

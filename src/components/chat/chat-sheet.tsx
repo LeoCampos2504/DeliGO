@@ -243,7 +243,7 @@ export function ChatSheet() {
     <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh ios-viewport-height"
+        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
       >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>

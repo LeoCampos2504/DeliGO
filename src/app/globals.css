@@ -293,28 +293,28 @@ body.ios-device > div:first-child {
   min-height: 100dvh;
 }
 
-/* ─── Bottom nav on iOS: smooth keyboard hide ───
-   No GPU compositing hacks (translateZ(0), will-change, backface-visibility)
-   — they trigger an iOS Safari bug where fixed-element content becomes
-   invisible. We just add a transition for the slide-down animation when
-   the keyboard opens. ─── */
-html.ios-device .ios-bottom-nav {
-  transition: transform 200ms ease-in-out;
-}
-
-/* ─── Hide bottom nav when iOS keyboard opens ─── */
+/* ─── Hide bottom nav when iOS keyboard opens ───
+   IOS-24-FIX-A: no transform/translate here anymore. Real-device testing
+   showed the fixed nav's compositor layer can end up misplaced (moving
+   with page content, floating mid-page) after a keyboard open/close +
+   scroll cycle when a transform is used to hide it. visibility +
+   pointer-events hides it fully without ever touching the nav's own
+   position/compositing layer. ─── */
 html.ios-device.ios-keyboard-open .ios-bottom-nav,
 body.ios-device.ios-keyboard-open .ios-bottom-nav {
-  transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
+  visibility: hidden !important;
   pointer-events: none !important;
 }
 
-/* ─── iOS viewport height — use instead of h-screen / 100vh ─── */
+/* ─── iOS viewport height — use instead of h-screen / 100vh ───
+   IOS-24-FIX-A: root layout and Chat/Sidebar/Orders sheets no longer use
+   this — they rely on native 100dvh instead, since --visual-viewport-height
+   can be left stale by IOSKeyboardFix after the keyboard closes (real-device
+   confirmed: nav displacement, cropped Chat on reopen). Still used by
+   src/components/cart/cart-panel.tsx (out of scope for this fix — not
+   reported as symptomatic, kept unchanged). ─── */
 .ios-viewport-height {
   height: var(--visual-viewport-height, 100dvh) !important;
-}
-.ios-min-viewport-height {
-  min-height: var(--visual-viewport-height, 100dvh) !important;
 }
 
 /* ─── iOS keyboard offset for bottom-positioned elements ─── */
