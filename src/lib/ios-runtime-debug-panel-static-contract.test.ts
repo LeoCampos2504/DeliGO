@@ -1,0 +1,93 @@
+/// <reference types="bun-types" />
+
+// ============================================
+// IOS-24-RUNTIME-DIAGNOSTIC — contrato estático focal
+// ============================================
+// Protege únicamente que la instrumentación temporal de diagnóstico sea
+// segura de tener en el árbol: sólo se activa con ?iosdebug=1, nunca previene
+// eventos nativos, nunca escribe scroll/estilos de body/html, y no modifica
+// ningún archivo productivo de IOS-24 (BottomNav, Chat, sheet.tsx,
+// globals.css, IOSKeyboardFix). Lectura de texto, no un parser de TSX
+// completo. NO simula iOS/WebKit real.
+// REAL_IPHONE_VERIFICATION_REQUIRED=SI
+
+import { describe, expect, test } from "bun:test"
+import { readFileSync } from "fs"
+import { join } from "path"
+
+const PANEL = join(process.cwd(), "src", "components", "pwa", "ios-runtime-debug-panel.tsx")
+const ROOT_LAYOUT = join(process.cwd(), "src", "app", "layout.tsx")
+const BOTTOM_NAV = join(process.cwd(), "src", "components", "shared", "bottom-nav.tsx")
+const CHAT_SHEET = join(process.cwd(), "src", "components", "chat", "chat-sheet.tsx")
+const CHAT_VIEW = join(process.cwd(), "src", "components", "chat", "chat-view.tsx")
+const UI_SHEET = join(process.cwd(), "src", "components", "ui", "sheet.tsx")
+const GLOBALS_CSS = join(process.cwd(), "src", "app", "globals.css")
+const IOS_KEYBOARD_FIX = join(process.cwd(), "src", "components", "pwa", "ios-keyboard-fix.tsx")
+
+describe("IOS-24-RUNTIME-DIAGNOSTIC — contrato estático del panel de diagnóstico", () => {
+  test("A. el panel sólo se activa vía el query param literal iosdebug=1 (no por user-agent/entorno)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain('"iosdebug"')
+    expect(source).toContain('=== "1"')
+    expect(source).not.toMatch(/userAgent/i)
+    expect(source).not.toMatch(/NODE_ENV|process\.env/i)
+  })
+
+  test("B. el panel nunca llama preventDefault()/stopPropagation()/stopImmediatePropagation() (se excluyen menciones en comentarios)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).not.toMatch(/\.(preventDefault|stopPropagation|stopImmediatePropagation)\(/)
+  })
+
+  test("C. el panel nunca llama window.scrollTo/scrollBy ni escribe scrollTop", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).not.toMatch(/window\.scrollTo|window\.scrollBy|\.scrollTop\s*=/)
+  })
+
+  test("D. el panel nunca escribe estilos/clases de document.body o document.documentElement", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).not.toMatch(/document\.body\.style|document\.body\.classList|document\.documentElement\.style|document\.documentElement\.classList/)
+  })
+
+  test("E. el panel no usa transform/translate para su propio posicionamiento (position: fixed sin transform)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain('position: "fixed"')
+    expect(source).not.toMatch(/transform\s*:/i)
+  })
+
+  test("F. el panel no muestra el valor/contenido del input enfocado, sólo tag/type", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).not.toMatch(/\.value\b/)
+    expect(source).not.toMatch(/textContent|innerText/)
+  })
+
+  test("G. el panel no expone location.search completo en el diagnóstico mostrado/copiado, sólo pathname", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("window.location.pathname")
+    expect(source).not.toMatch(/path:\s*window\.location\.search/)
+    expect(source).not.toMatch(/\$\{live\.search\}/)
+  })
+
+  test("H. root layout monta el panel junto a IOSKeyboardFix, sin más cambios en el archivo", () => {
+    const source = readFileSync(ROOT_LAYOUT, "utf-8")
+    expect(source).toContain("<IOSRuntimeDebugPanel />")
+    expect(source).toContain("<IOSKeyboardFix />")
+  })
+
+  test("I. IOSKeyboardFix no fue modificado (sigue sin restaurar scroll/posición — el diagnóstico no lo tocó)", () => {
+    const source = readFileSync(IOS_KEYBOARD_FIX, "utf-8")
+    expect(source).not.toMatch(/scrollTo|scrollY|scrollTop/)
+  })
+
+  test("J. BottomNav, ChatSheet, ChatView, sheet.tsx no mencionan el panel de diagnóstico ni fueron acoplados a él", () => {
+    for (const file of [BOTTOM_NAV, CHAT_SHEET, CHAT_VIEW, UI_SHEET]) {
+      const source = readFileSync(file, "utf-8")
+      expect(source).not.toContain("ios-runtime-debug-panel")
+      expect(source).not.toContain("IOSRuntimeDebugPanel")
+    }
+  })
+
+  test("K. globals.css no fue modificado para el panel (estilos inline en el propio componente)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    expect(css).not.toMatch(/iosdebug|ios-runtime-debug/i)
+  })
+})
