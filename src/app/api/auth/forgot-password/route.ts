@@ -10,6 +10,7 @@ import {
   PASSWORD_RESET_TOKEN_TTL_MS,
   type PasswordResetAccountType,
 } from "@/lib/password-reset"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // POST /api/auth/forgot-password — Bugfix-5D
@@ -186,7 +187,7 @@ export async function POST(req: NextRequest) {
 
     return noStore(genericResponse())
   } catch (error) {
-    console.error("[ForgotPassword] Error:", error)
+    console.error("[ForgotPassword] Error:", safeErrorForLog(error))
     // Mismo mensaje genérico incluso ante un error inesperado — nunca
     // distinguir por status/mensaje si la cuenta existe o no.
     return noStore(genericResponse())

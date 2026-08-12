@@ -7,6 +7,7 @@ import {
   ClientHasActiveOrdersError,
   deleteClientAccount,
 } from "@/lib/client-account-deletion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: eliminación y exportación de cuenta manejan datos personales
 // completos — nunca cacheables.
@@ -64,7 +65,7 @@ export async function DELETE(req: NextRequest) {
         { status: 409, headers: NO_STORE_HEADERS }
       )
     }
-    console.error("Cuenta DELETE error:", error)
+    console.error("Cuenta DELETE error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
@@ -128,7 +129,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Export GET error:", error)
+    console.error("Export GET error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

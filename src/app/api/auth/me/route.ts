@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function noStore(response: NextResponse): NextResponse {
   response.headers.set("Cache-Control", "private, no-store")
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     return noStore(NextResponse.json({ ok: true, user }))
   } catch (error) {
-    console.error("Me error:", error)
+    console.error("Me error:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "Error interno del servidor" },

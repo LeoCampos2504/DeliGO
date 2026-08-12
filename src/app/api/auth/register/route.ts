@@ -5,6 +5,7 @@ import { generateSlug } from "@/lib/utils"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
         )
     }
   } catch (error) {
-    console.error("Register error:", error)
+    console.error("Register error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
@@ -103,7 +104,7 @@ async function registerCliente(data: {
 
   // Send verification email (non-blocking)
   sendVerificationEmail(cliente.email, cliente.nombre, verificationToken, "cliente").catch((err) => {
-    console.error("[Register] Failed to send verification email:", err)
+    console.error("[Register] Failed to send verification email:", safeErrorForLog(err))
   })
 
   const response = NextResponse.json({
@@ -207,7 +208,7 @@ async function registerNegocio(data: {
 
   // Send verification email (non-blocking)
   sendVerificationEmail(negocio.email, negocio.nombre, verificationToken, "negocio").catch((err) => {
-    console.error("[Register] Failed to send verification email:", err)
+    console.error("[Register] Failed to send verification email:", safeErrorForLog(err))
   })
 
   return NextResponse.json({
@@ -267,7 +268,7 @@ async function registerRepartidor(data: {
 
   // Send verification email (non-blocking)
   sendVerificationEmail(repartidor.email, repartidor.nombre, verificationToken, "repartidor").catch((err) => {
-    console.error("[Register] Failed to send verification email:", err)
+    console.error("[Register] Failed to send verification email:", safeErrorForLog(err))
   })
 
   return NextResponse.json({

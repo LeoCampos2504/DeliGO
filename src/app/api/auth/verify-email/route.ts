@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const HOURS_24 = 24 * 60 * 60 * 1000
 
@@ -114,7 +115,7 @@ export async function GET(req: NextRequest) {
       message: "El enlace de verificación no es válido o ya fue utilizado.",
     })
   } catch (error) {
-    console.error("Verify email error:", error)
+    console.error("Verify email error:", safeErrorForLog(error))
     return renderHtmlPage({
       success: false,
       title: "Error",

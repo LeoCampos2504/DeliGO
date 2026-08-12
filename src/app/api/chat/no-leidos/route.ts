@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET /api/chat/no-leidos — Get unread message count for current user
 export async function GET(req: NextRequest) {
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ noLeidos, pedidosActivos })
   } catch (error) {
-    console.error("[Chat NoLeidos] Error:", error)
+    console.error("[Chat NoLeidos] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 interface TrackingResponse {
   trackable: boolean
@@ -107,7 +108,7 @@ export async function GET(
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error("Error fetching tracking data:", error)
+    console.error("Error fetching tracking data:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener datos de seguimiento" },
       { status: 500 }

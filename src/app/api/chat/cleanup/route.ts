@@ -5,6 +5,7 @@ import {
   queueChatAttachmentDeletionJobs,
   resolveChatAttachmentDeletionTargets,
 } from "@/lib/chat-attachment-deletion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // GET/POST /api/chat/cleanup
@@ -163,7 +164,7 @@ async function runCleanup(req: NextRequest) {
     })
   } catch (error) {
     // Log the full error so it shows up in Railway logs
-    console.error("[Chat Cleanup] Error:", error)
+    console.error("[Chat Cleanup] Error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: favoritos del cliente — preferencia privada ligada a la sesión, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
       })),
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Cliente favoritos GET error:", error)
+    console.error("Cliente favoritos GET error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action: "added" }, { headers: NO_STORE_HEADERS })
     }
   } catch (error) {
-    console.error("Cliente favoritos POST error:", error)
+    console.error("Cliente favoritos POST error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

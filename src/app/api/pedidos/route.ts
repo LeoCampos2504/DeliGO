@@ -38,6 +38,7 @@ import {
   buildIngredientesQuitadosSnapshot,
   type IngredienteQuitadoCanonico,
 } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
@@ -1289,7 +1290,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           })
         }
       } catch (geofenceError) {
-        console.error("[MesaGeofence] Error evaluando geocerca en pedido:", geofenceError)
+        console.error("[MesaGeofence] Error evaluando geocerca en pedido:", safeErrorForLog(geofenceError))
       }
 
       if (geofenceBlockResponse) {
@@ -1425,7 +1426,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         })
         staffOcupacionId = outcome.ocupacionId
       } catch (error) {
-        console.error("Error abriendo/reutilizando ocupación para pedido de personal/no calibrado:", error)
+        console.error("Error abriendo/reutilizando ocupación para pedido de personal/no calibrado:", safeErrorForLog(error))
         return NextResponse.json(
           {
             error: "No se pudo vincular el pedido a la ocupación de la mesa. Intentá de nuevo.",
@@ -1692,7 +1693,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         cleanupExpired: { model: "negocio", id: negocioId },
       })
     } catch (pushError) {
-      console.error("[Push] Failed to send new order notification:", pushError)
+      console.error("[Push] Failed to send new order notification:", safeErrorForLog(pushError))
     }
 
     // Envío moderno a Salón: todas las cuentas operativas personales con
@@ -1713,7 +1714,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         })
         modernSalonEndpoints = modernResult.attemptedEndpoints
       } catch (modernSalonError) {
-        console.error("[Push] Failed to send modern operaciones salon notification:", modernSalonError)
+        console.error("[Push] Failed to send modern operaciones salon notification:", safeErrorForLog(modernSalonError))
       }
     }
 
@@ -1767,7 +1768,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           }
         }
       } catch (sharedPushError) {
-        console.error("[Push] Failed to send shared-display notification:", sharedPushError)
+        console.error("[Push] Failed to send shared-display notification:", safeErrorForLog(sharedPushError))
       }
     }
     }
@@ -1835,7 +1836,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         { status: 403 }
       )
     }
-    console.error("Error creating pedido:", error)
+    console.error("Error creating pedido:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }
@@ -1896,7 +1897,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(pedidos)
   } catch (error) {
-    console.error("Error fetching pedidos:", error)
+    console.error("Error fetching pedidos:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

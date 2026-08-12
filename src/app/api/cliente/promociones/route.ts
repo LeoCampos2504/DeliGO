@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET /api/cliente/promociones - Get all active promotions
 export async function GET(req: NextRequest) {
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, promociones })
   } catch (error) {
-    console.error("Cliente promociones GET error:", error)
+    console.error("Cliente promociones GET error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

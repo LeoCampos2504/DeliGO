@@ -4,6 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, newReviewNotification } from "@/lib/push"
 import { recomputePublicReviewRating } from "@/lib/review-moderation-server"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.3: creación de reseña depende de la sesión del cliente — nunca cacheable.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
@@ -156,12 +157,12 @@ export async function POST(req: NextRequest) {
         cleanupExpired: { model: "negocio", id: pedido.negocioId },
       })
     } catch (pushError) {
-      console.error("[Push] Failed to send review notification:", pushError)
+      console.error("[Push] Failed to send review notification:", safeErrorForLog(pushError))
     }
 
     return noStoreJson(resena, { status: 201 })
   } catch (error) {
-    console.error("Error creating resena:", error)
+    console.error("Error creating resena:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al crear la reseña" },
       { status: 500 }

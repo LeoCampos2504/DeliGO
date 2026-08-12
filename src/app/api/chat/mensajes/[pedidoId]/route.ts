@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 import { createNotification, chatMessageNotification } from "@/lib/push"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Phone number filtering regex (Argentine phone patterns)
 const PHONE_PATTERN = /(?:(?:\+?54|0)?(?:11|[2-9]\d{2,4})[\s\-]?\d{4,}[\s\-]?\d{0,4})|(?:whatsapp\.com|wa\.me|\/send\?phone)/gi
@@ -174,7 +175,7 @@ export async function GET(
       },
     })
   } catch (error) {
-    console.error("[Chat Mensajes GET] Error:", error)
+    console.error("[Chat Mensajes GET] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
   }
 }
@@ -397,7 +398,7 @@ export async function POST(
       }
 
     } catch (pushError) {
-      console.error("[Push] Failed to send chat notification:", pushError)
+      console.error("[Push] Failed to send chat notification:", safeErrorForLog(pushError))
     }
 
     return NextResponse.json({
@@ -406,7 +407,7 @@ export async function POST(
       telefonoFiltrado,
     })
   } catch (error) {
-    console.error("[Chat Mensajes POST] Error:", error)
+    console.error("[Chat Mensajes POST] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
   }
 }

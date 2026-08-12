@@ -8,6 +8,7 @@ import {
   PASSWORD_RESET_ACCOUNT_TYPES,
   type PasswordResetAccountType,
 } from "@/lib/password-reset"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // POST /api/auth/reset-password — Bugfix-5D
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
       NextResponse.json({ success: true, loginPath: LOGIN_PATH[result.accountType] })
     )
   } catch (error) {
-    console.error("[ResetPassword] Error:", error)
+    console.error("[ResetPassword] Error:", safeErrorForLog(error))
     return invalidResponse()
   }
 }

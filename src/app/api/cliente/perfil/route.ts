@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: perfil del cliente (email, teléfono, direcciones, favoritos) —
 // datos personales, nunca cacheables.
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
       },
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Profile GET error:", error)
+    console.error("Profile GET error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
@@ -89,7 +90,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ ok: true, perfil: updated }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Profile PUT error:", error)
+    console.error("Profile PUT error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

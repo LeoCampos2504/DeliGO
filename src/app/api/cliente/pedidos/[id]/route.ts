@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Confirmar recepción es la única operación que procesa tarifa/deuda del pedido
 // (Seguridad-2B). Este error de dominio dispara el rollback completo de la
@@ -160,7 +161,7 @@ export async function PUT(
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
         })
       } catch (pushError) {
-        console.error("[Push] Failed to send cancellation notification:", pushError)
+        console.error("[Push] Failed to send cancellation notification:", safeErrorForLog(pushError))
       }
 
       return noStoreJson({
@@ -366,7 +367,7 @@ export async function PUT(
           }
         }
       } catch (pushError) {
-        console.error("[Push] Failed to send confirmation notification:", pushError)
+        console.error("[Push] Failed to send confirmation notification:", safeErrorForLog(pushError))
       }
 
       // Send "rate your order" notification after delay (for retiro/mesa orders delivered by negocio)
@@ -397,7 +398,7 @@ export async function PUT(
               })
             }
           } catch (reviewPushError) {
-            console.error("[Push] Failed to send review request notification:", reviewPushError)
+            console.error("[Push] Failed to send review request notification:", safeErrorForLog(reviewPushError))
           }
         }, 2 * 60 * 1000) // 2 minutes
       }
@@ -407,7 +408,7 @@ export async function PUT(
 
     return noStoreJson({ error: "Acción no válida" }, { status: 400 })
   } catch (error) {
-    console.error("Cliente pedido PUT error:", error)
+    console.error("Cliente pedido PUT error:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

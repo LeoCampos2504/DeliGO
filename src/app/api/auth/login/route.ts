@@ -4,6 +4,7 @@ import { comparePassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_H
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function setCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
         )
     }
   } catch (error) {
-    console.error("Login error:", error)
+    console.error("Login error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Simple in-memory rate limiting: max 1 resend per email per 60 seconds
 const resendTimestamps = new Map<string, number>()
@@ -117,12 +118,12 @@ export async function POST(req: NextRequest) {
 
     // Send verification email (non-blocking)
     sendVerificationEmail(user.email, user.nombre, verificationToken, userType as "cliente" | "negocio" | "repartidor").catch((err) => {
-      console.error("[Resend] Failed to send verification email:", err)
+      console.error("[Resend] Failed to send verification email:", safeErrorForLog(err))
     })
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Resend verification error:", error)
+    console.error("Resend verification error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error interno del servidor" },
       { status: 500 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { getClientReviewVisibility } from "@/lib/review-moderation-policy"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: historial de pedidos del cliente — datos privados, nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, pedidos: pedidosFlat }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Cliente pedidos GET error:", error)
+    console.error("Cliente pedidos GET error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

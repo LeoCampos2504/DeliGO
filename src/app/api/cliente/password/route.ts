@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { comparePassword, hashPassword } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.3: cambio de contraseña — operación sensible, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -65,7 +66,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ ok: true, message: "Contraseña actualizada correctamente" }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Password PUT error:", error)
+    console.error("Password PUT error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.3: direcciones físicas del cliente — nunca cacheables.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     return noStoreJson({ ok: true, direcciones })
   } catch (error) {
-    console.error("Direccion GET error:", error)
+    console.error("Direccion GET error:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
 
     return noStoreJson({ ok: true, direccion: nuevaDireccion }, { status: 201 })
   } catch (error) {
-    console.error("Direccion POST error:", error)
+    console.error("Direccion POST error:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
@@ -114,7 +115,7 @@ export async function PUT(req: NextRequest) {
 
     return noStoreJson({ ok: true, direccion: updated })
   } catch (error) {
-    console.error("Direccion PUT error:", error)
+    console.error("Direccion PUT error:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
@@ -146,7 +147,7 @@ export async function DELETE(req: NextRequest) {
 
     return noStoreJson({ ok: true, message: "Dirección eliminada" })
   } catch (error) {
-    console.error("Direccion DELETE error:", error)
+    console.error("Direccion DELETE error:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
 import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Conversation type shared between active & archived
@@ -278,7 +279,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ conversations, archived })
   } catch (error) {
-    console.error("[Chat Conversaciones] Error:", error)
+    console.error("[Chat Conversaciones] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
   }
 }

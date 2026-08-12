@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { MESA_OCCUPANCY_COOKIE_NAME, clearMesaOccupancyCookie } from "@/lib/mesa-occupancy"
 import { resolveMesaClienteCuenta } from "@/lib/mesa-cliente-cuenta"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO — GET público: cuenta de la ocupación activa de una mesa (23-B)
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
       ...resultado.cuenta,
     })
   } catch (error) {
-    console.error("[MesaClienteCuenta] Error resolviendo cuenta pública:", error)
+    console.error("[MesaClienteCuenta] Error resolviendo cuenta pública:", safeErrorForLog(error))
     return jsonNoStore({ error: "Error del servidor" }, { status: 500 })
   }
 }

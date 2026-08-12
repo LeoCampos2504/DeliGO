@@ -8,6 +8,7 @@ import {
   setMesaOccupancyCookie,
   logMesaOccupancyEvent,
 } from "@/lib/mesa-occupancy"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO — Comprobación pública de geocerca de mesa (P0-C.2 enforce + P0-D.1)
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
       } catch (occupancyError) {
         // Nunca se expone el detalle ni se bloquea el pedido por esto — la
         // fundación de P0-D.1 todavía no es requisito (eso es P0-D.2).
-        console.error("[MesaOccupancy] Error abriendo/reutilizando ocupación:", occupancyError)
+        console.error("[MesaOccupancy] Error abriendo/reutilizando ocupación:", safeErrorForLog(occupancyError))
         logMesaOccupancyEvent({
           negocioId: negocio.id,
           mesaNumero,
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest) {
     }
     return response
   } catch (error) {
-    console.error("[MesaGeofence] Error en la comprobación pública:", error)
+    console.error("[MesaGeofence] Error en la comprobación pública:", safeErrorForLog(error))
     return NextResponse.json({ ok: true, status: "invalid", canContinue: true })
   }
 }

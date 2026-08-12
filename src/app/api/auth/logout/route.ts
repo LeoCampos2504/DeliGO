@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { deleteSession, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
     res.cookies.delete(SESSION_COOKIE_NAME)
     return res
   } catch (error) {
-    console.error("Logout error:", error)
+    console.error("Logout error:", safeErrorForLog(error))
     const res = NextResponse.json({ ok: true })
     res.cookies.delete(SESSION_COOKIE_NAME)
     return res
