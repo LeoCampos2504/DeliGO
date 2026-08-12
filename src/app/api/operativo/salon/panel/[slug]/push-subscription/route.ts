@@ -5,6 +5,7 @@ import {
   noStore,
   resolveOperativoAreaForSlug,
 } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type PushSubscriptionInput = {
   endpoint: string
@@ -146,7 +147,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalonPush] Error loading subscription state:", error)
+    console.error("[OperativoSalonPush] Error loading subscription state:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo consultar la suscripcion" },
@@ -199,7 +200,7 @@ export async function POST(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalonPush] Error saving subscription:", error)
+    console.error("[OperativoSalonPush] Error saving subscription:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo guardar la suscripcion" },
@@ -241,7 +242,7 @@ export async function DELETE(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalonPush] Error clearing subscription:", error)
+    console.error("[OperativoSalonPush] Error clearing subscription:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo borrar la suscripcion" },

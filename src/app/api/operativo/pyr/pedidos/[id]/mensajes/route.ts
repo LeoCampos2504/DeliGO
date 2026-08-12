@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, chatMessageNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: mensajes de un pedido activo
@@ -193,7 +194,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoPyR] Error loading mensajes:", error)
+    console.error("[OperativoPyR] Error loading mensajes:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }
@@ -315,7 +316,7 @@ export async function POST(
 
     return noStore(NextResponse.json({ ok: true, mensaje: { id: created.mensajeId } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al enviar mensaje:", error)
+    console.error("[OperativoPyR] Error al enviar mensaje:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

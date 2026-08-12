@@ -9,6 +9,7 @@ import {
   areaOperativaRequiereSalon,
   resolveAreaOperativaEfectiva,
 } from "@/lib/area-operativa"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -168,7 +169,7 @@ export async function GET(req: NextRequest) {
       })
     )
   } catch (error) {
-    console.error("[OperativoMe] Error:", error)
+    console.error("[OperativoMe] Error:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "Error interno del servidor" },

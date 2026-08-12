@@ -3,6 +3,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — Salón personal: iniciar preparación (Operaciones-1J)
@@ -95,7 +96,7 @@ export async function POST(
       NextResponse.json({ ok: true, estado: "preparando", pedido: { id, estado: "preparando" } })
     )
   } catch (error) {
-    console.error("[OperativoSalon] Error al iniciar preparación:", error)
+    console.error("[OperativoSalon] Error al iniciar preparación:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

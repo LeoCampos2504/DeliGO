@@ -17,6 +17,7 @@ import {
   setDeviceCookie,
   WEEKLY_REGISTRATION_LIMIT,
 } from "@/lib/operativo-registration-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/
 
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest) {
     if (isNewDevice) setDeviceCookie(response, deviceToken)
     return response
   } catch (error) {
-    console.error("[OperativoRegister] Error:", error)
+    console.error("[OperativoRegister] Error:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "No se pudo crear la cuenta" },

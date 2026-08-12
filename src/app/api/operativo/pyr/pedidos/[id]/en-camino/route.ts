@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, newDeliveryNotification, orderUpdateNotification } from "@/lib/push"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — PyR personal: marcar en camino (Operaciones-1R)
@@ -169,7 +170,7 @@ export async function POST(
     // 8) Respuesta mínima: nunca se devuelve el pedido completo.
     return noStore(NextResponse.json({ ok: true, pedido: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al marcar en camino:", error)
+    console.error("[OperativoPyR] Error al marcar en camino:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

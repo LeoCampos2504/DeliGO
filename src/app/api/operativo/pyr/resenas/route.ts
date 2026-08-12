@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: resenas y metricas (SOLO LECTURA - Operaciones-1N)
@@ -110,7 +111,7 @@ export async function GET(req: NextRequest) {
       })
     )
   } catch (error) {
-    console.error("[OperativoPyR] Error loading resenas:", error)
+    console.error("[OperativoPyR] Error loading resenas:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ ok: false, error: "No se pudieron cargar las resenas" }, { status: 500 })
     )

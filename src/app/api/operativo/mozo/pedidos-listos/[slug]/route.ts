@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — Mozo personal: pedidos listos asignados (Operaciones-1L.1)
@@ -205,7 +206,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPedidosListos] Error loading pedidos listos:", error)
+    console.error("[OperativoMozoPedidosListos] Error loading pedidos listos:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ ok: false, error: "No se pudieron cargar los pedidos" }, { status: 500 })
     )

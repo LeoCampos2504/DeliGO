@@ -3,6 +3,7 @@ import {
   resolveTerminalSession,
   clearTerminalSessionCookie,
 } from "@/lib/operaciones-terminal-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
       { headers: NO_STORE_HEADERS }
     )
   } catch (error) {
-    console.error("[OperacionesTerminal] Error obteniendo contexto:", error)
+    console.error("[OperacionesTerminal] Error obteniendo contexto:", safeErrorForLog(error))
     return NextResponse.json(
       { ok: false, error: "Error del servidor" },
       { status: 500, headers: NO_STORE_HEADERS }

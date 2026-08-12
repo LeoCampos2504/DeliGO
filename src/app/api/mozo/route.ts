@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function readBearerToken(req: NextRequest): string | null {
   const authorization = req.headers.get("authorization")
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
       myAssignedMesas: empleado.mesas,
     }))
   } catch (error) {
-    console.error("Error validating mozo token:", error)
+    console.error("Error validating mozo token:", safeErrorForLog(error))
     return noStore(NextResponse.json({ error: "Error del servidor" }, { status: 500 }))
   }
 }

@@ -4,6 +4,7 @@ import {
   resolverActorCancelacionMesa,
   validarMotivoCancelacionMesa,
 } from "@/lib/mesa-pedido-cancelacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — Cancelar pedido de mesa (23-A1)
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       200
     )
   } catch (error) {
-    console.error("[OperacionesCancelarPedido] Error al cancelar pedido de mesa:", error)
+    console.error("[OperacionesCancelarPedido] Error al cancelar pedido de mesa:", safeErrorForLog(error))
     return noStoreJson({ ok: false, error: "Error del servidor" }, 500)
   }
 }

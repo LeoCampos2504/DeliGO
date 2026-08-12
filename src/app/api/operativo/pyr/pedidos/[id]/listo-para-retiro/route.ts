@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — PyR personal: marcar listo para retirar (Operaciones-1Q)
@@ -135,7 +136,7 @@ export async function POST(
     // 7) Respuesta mínima: nunca se devuelve el pedido completo.
     return noStore(NextResponse.json({ ok: true, pedido: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al marcar listo para retirar:", error)
+    console.error("[OperativoPyR] Error al marcar listo para retirar:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

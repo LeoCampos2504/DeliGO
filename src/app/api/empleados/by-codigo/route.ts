@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, createRateLimitKey, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const MAX_CODIGO_LENGTH = 20
 const MAX_NEGOCIO_ID_LENGTH = 50
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(empleado)
   } catch (error) {
-    console.error("Error finding empleado by codigo:", error)
+    console.error("Error finding empleado by codigo:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
   }
 }

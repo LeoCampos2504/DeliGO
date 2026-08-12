@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: pedidos activos (SOLO LECTURA - Operaciones-1O + 1S.1)
@@ -116,7 +117,7 @@ export async function GET(req: NextRequest) {
       })
     )
   } catch (error) {
-    console.error("[OperativoPyR] Error loading pedidos activos:", error)
+    console.error("[OperativoPyR] Error loading pedidos activos:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ ok: false, error: "No se pudieron cargar los pedidos" }, { status: 500 })
     )

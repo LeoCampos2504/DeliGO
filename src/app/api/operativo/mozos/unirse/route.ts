@@ -10,6 +10,7 @@ import {
   getClientIp,
   rateLimitResponse,
 } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const SERIALIZATION_RETRY_LIMIT = 3
 
@@ -292,7 +293,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    console.error("[OperativoUnirse] Error:", error)
+    console.error("[OperativoUnirse] Error:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "Error interno del servidor" },

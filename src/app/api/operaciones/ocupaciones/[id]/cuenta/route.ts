@@ -6,6 +6,7 @@ import {
   logMesaOccupancyCloseEvent,
 } from "@/lib/mesa-occupancy"
 import { buildCuentaMesa, type CuentaPedidoInput } from "@/lib/mesa-cuenta"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO — Cuenta de mesa (P2): vista previa y cierre comercial
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       ...cuenta,
     })
   } catch (error) {
-    console.error("[MesaCuenta] Error cerrando cuenta:", error)
+    console.error("[MesaCuenta] Error cerrando cuenta:", safeErrorForLog(error))
     logMesaOccupancyCloseEvent({
       negocioId: ocupacion.negocioId,
       mesaNumero: mesa.numero,

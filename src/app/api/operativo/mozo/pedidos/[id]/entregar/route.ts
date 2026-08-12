@@ -4,6 +4,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — Mozo personal: marcar entregado (Operaciones-1M + 1M.1)
@@ -166,7 +167,7 @@ export async function POST(
       // proyecto un patrón importable y reutilizable de retry para este caso, solo
       // helpers privados duplicados por archivo en otros endpoints). Se usa la conducta
       // genérica de error ya existente.
-      console.error("[OperativoMozo] Error en la transacción de entrega:", txError)
+      console.error("[OperativoMozo] Error en la transacción de entrega:", safeErrorForLog(txError))
       return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
     }
 
@@ -206,7 +207,7 @@ export async function POST(
       NextResponse.json({ ok: true, estado: "entregado", pedido: { id, estado: "entregado" } })
     )
   } catch (error) {
-    console.error("[OperativoMozo] Error al marcar como entregado:", error)
+    console.error("[OperativoMozo] Error al marcar como entregado:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

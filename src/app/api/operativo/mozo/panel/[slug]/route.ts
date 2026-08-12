@@ -7,6 +7,7 @@ import {
   noStore,
   resolveOperativoMozoForSlug,
 } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const ACTIVE_MESA_ORDER_STATES = ["recibido", "preparando", "listo_para_retirar"]
 const SERIALIZATION_RETRY_LIMIT = 3
@@ -188,7 +189,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPanel] Error loading panel:", error)
+    console.error("[OperativoMozoPanel] Error loading panel:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo cargar el salón" },
@@ -470,7 +471,7 @@ export async function POST(
       })
     )
   } catch (error) {
-    console.error("[OperativoMozoPanel] Error applying action:", error)
+    console.error("[OperativoMozoPanel] Error applying action:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo completar la acción" },

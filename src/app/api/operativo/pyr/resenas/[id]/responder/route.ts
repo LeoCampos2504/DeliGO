@@ -5,6 +5,7 @@ import { auditLog } from "@/lib/audit"
 import { createNotification, reviewReplyNotification } from "@/lib/push"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — PyR personal: responder reseña (Operaciones-1N)
@@ -160,7 +161,7 @@ export async function POST(
 
     return noStore(NextResponse.json({ ok: true, resena: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Falló la respuesta a una reseña:", error)
+    console.error("[OperativoPyR] Falló la respuesta a una reseña:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

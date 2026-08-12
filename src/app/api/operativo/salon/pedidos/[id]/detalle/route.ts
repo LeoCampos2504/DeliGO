@@ -3,6 +3,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { groupIngredientesQuitados } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones - Salon personal: detalle de un pedido de mesa (SOLO LECTURA)
@@ -141,7 +142,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalon] Error loading pedido detalle:", error)
+    console.error("[OperativoSalon] Error loading pedido detalle:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ ok: false, error: "No se pudo cargar el detalle" }, { status: 500 })
     )

@@ -6,6 +6,7 @@ import {
   resolveMesaOccupancyCloseActor,
   logMesaOccupancyCloseEvent,
 } from "@/lib/mesa-occupancy"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO — Endpoint canónico de ocupación de mesa para personal (P0-D.3A)
@@ -153,7 +154,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // "inconsistent"
     return jsonNoStore({ error: "Estado de ocupación inconsistente" }, { status: 409 })
   } catch (error) {
-    console.error("[MesaOccupancy] Error cerrando ocupación:", error)
+    console.error("[MesaOccupancy] Error cerrando ocupación:", safeErrorForLog(error))
     logMesaOccupancyCloseEvent({
       negocioId: mesa.negocioId,
       mesaNumero: mesa.numero,

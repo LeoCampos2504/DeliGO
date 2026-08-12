@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Bugfix-5C: callback de Google OAuth para CuentaOperativa
@@ -354,7 +355,7 @@ export async function GET(req: NextRequest) {
       // Condición de carrera: otra request creó la misma cuenta (mismo email
       // o mismo googleId) entre el findUnique y el create. Reconsultar de
       // forma segura en vez de devolver el error crudo de Prisma.
-      console.error("[OperativoGoogle] Race al crear cuenta:", createError)
+      console.error("[OperativoGoogle] Race al crear cuenta:", safeErrorForLog(createError))
       const retryAccount = await db.cuentaOperativa.findFirst({
         where: { OR: [{ googleId: googleUser.sub }, { email: googleEmail }] },
       })
@@ -367,7 +368,7 @@ export async function GET(req: NextRequest) {
       return redirectWithReason("/operaciones/ingresar", "error")
     }
   } catch (error) {
-    console.error("[OperativoGoogle] Callback error:", error)
+    console.error("[OperativoGoogle] Callback error:", safeErrorForLog(error))
     return redirectWithReason("/operaciones/ingresar", "error")
   }
 }

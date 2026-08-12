@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     setOperationalCookie(response, sessionToken)
     return noStore(response)
   } catch (error) {
-    console.error("[OperativoLogin] Error:", error)
+    console.error("[OperativoLogin] Error:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "Error interno del servidor" },

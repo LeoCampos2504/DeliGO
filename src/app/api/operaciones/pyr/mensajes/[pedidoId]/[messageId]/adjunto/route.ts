@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 import { resolveAdjuntoBytes } from "@/lib/chat-adjunto-stream"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones - Terminal PyR: adjunto de un mensaje (SOLO LECTURA, proxy autorizado)
@@ -93,7 +94,7 @@ export async function GET(
 
     return new NextResponse(new Uint8Array(resource.bytes), { status: 200, headers: resource.headers })
   } catch (error) {
-    console.error("[OperacionesPyR] Error loading adjunto:", error)
+    console.error("[OperacionesPyR] Error loading adjunto:", safeErrorForLog(error))
     return notFound()
   }
 }

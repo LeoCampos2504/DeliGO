@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — PyR personal: iniciar preparación (Operaciones-1P.1)
@@ -131,7 +132,7 @@ export async function POST(
     // 7) Respuesta mínima: nunca se devuelve el pedido completo.
     return noStore(NextResponse.json({ ok: true, pedido: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al iniciar preparación:", error)
+    console.error("[OperativoPyR] Error al iniciar preparación:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

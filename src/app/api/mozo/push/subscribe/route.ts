@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // POST /api/mozo/push/subscribe — Save push subscription for a mozo via their personal token
 export async function POST(req: NextRequest) {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error saving mozo push subscription:", error)
+    console.error("Error saving mozo push subscription:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al guardar la suscripción" },
       { status: 500 }

@@ -16,6 +16,7 @@ import {
   buildIngredientesQuitadosSnapshot,
   type IngredienteQuitadoCanonico,
 } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const MAX_ITEMS_PER_ORDER = 50
 const MAX_QUANTITY_PER_ITEM = 99
@@ -609,7 +610,7 @@ async function sendManualOrderNotifications(params: {
       cleanupExpired: { model: "negocio", id: params.negocioId },
     })
   } catch (pushError) {
-    console.error("[OperativoPedidoManual] Failed business notification:", pushError)
+    console.error("[OperativoPedidoManual] Failed business notification:", safeErrorForLog(pushError))
   }
 
   // Envío moderno a Salón (Legacy-Cleanup-1C.2B): se intenta primero para
@@ -628,7 +629,7 @@ async function sendManualOrderNotifications(params: {
       })
       modernSalonEndpoints = modernResult.attemptedEndpoints
     } catch (modernSalonError) {
-      console.error("[OperativoPedidoManual] Failed modern salon notification:", modernSalonError)
+      console.error("[OperativoPedidoManual] Failed modern salon notification:", safeErrorForLog(modernSalonError))
     }
   }
 
@@ -671,7 +672,7 @@ async function sendManualOrderNotifications(params: {
       }
     }
   } catch (sharedPushError) {
-    console.error("[OperativoPedidoManual] Failed salon notification:", sharedPushError)
+    console.error("[OperativoPedidoManual] Failed salon notification:", safeErrorForLog(sharedPushError))
   }
 }
 
@@ -828,7 +829,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoPedidoManual] Error loading menu:", error)
+    console.error("[OperativoPedidoManual] Error loading menu:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo cargar el menu" },
@@ -886,7 +887,7 @@ export async function POST(
       })
       staffOcupacionId = outcome.ocupacionId
     } catch (error) {
-      console.error("[Mozo] Error abriendo/reutilizando ocupación para pedido manual:", error)
+      console.error("[Mozo] Error abriendo/reutilizando ocupación para pedido manual:", safeErrorForLog(error))
       return noStore(
         NextResponse.json(
           {
@@ -1391,7 +1392,7 @@ export async function POST(
       )
     }
 
-    console.error("[OperativoPedidoManual] Error creating order:", error)
+    console.error("[OperativoPedidoManual] Error creating order:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { ok: false, error: "No se pudo crear el pedido" },

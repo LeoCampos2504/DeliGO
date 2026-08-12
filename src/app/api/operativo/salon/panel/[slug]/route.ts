@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Operaciones — Panel personal de Salón (SOLO LECTURA · Operaciones-1I)
@@ -122,7 +123,7 @@ export async function GET(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalon] Error loading panel:", error)
+    console.error("[OperativoSalon] Error loading panel:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ ok: false, error: "No se pudo cargar el salón" }, { status: 500 })
     )

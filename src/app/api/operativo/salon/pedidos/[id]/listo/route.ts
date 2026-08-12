@@ -3,6 +3,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 
 // ============================================
@@ -132,7 +133,7 @@ export async function POST(
       })
     )
   } catch (error) {
-    console.error("[OperativoSalon] Error al marcar como listo:", error)
+    console.error("[OperativoSalon] Error al marcar como listo:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }
