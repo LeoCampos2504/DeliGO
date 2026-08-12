@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
 import { operacionesSalonNewOrderNotification, sendPushNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type NotifySalonNewOrderParams = {
   pedidoId: string
@@ -142,7 +143,7 @@ export async function notifySalonNewOrderForOperations(
           },
         })
         .catch((error) => {
-          console.error("[Push/OperacionesSalon] Error persistiendo notificacion:", error)
+          console.error("[Push/OperacionesSalon] Error persistiendo notificacion:", safeErrorForLog(error))
         })
     )
   )

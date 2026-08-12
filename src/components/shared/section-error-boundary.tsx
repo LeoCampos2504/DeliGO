@@ -3,6 +3,7 @@
 import { Component, ReactNode } from "react"
 import { AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 interface Props {
   children: ReactNode
@@ -25,7 +26,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Section error:", error, errorInfo)
+    console.error("Section error:", safeErrorForLog(error), { componentStack: errorInfo.componentStack })
   }
 
   render() {

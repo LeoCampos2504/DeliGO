@@ -9,6 +9,7 @@ import { ConversationList } from "./conversation-list"
 import { ChatView } from "./chat-view"
 import { MessageCircle, Loader2, WifiOff, RefreshCw } from "lucide-react"
 import { SheetDescription } from "@/components/ui/sheet"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export function ChatSheet() {
   const {
@@ -88,7 +89,7 @@ export function ChatSheet() {
     })
 
     socket.on("connect_error", (err) => {
-      console.warn("[Chat] Connection error:", err.message)
+      console.warn("[Chat] Connection error:", safeErrorForLog(err))
       setConnectionFailed(true)
       setConnecting(false)
     })

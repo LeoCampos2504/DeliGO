@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Types
@@ -159,7 +160,7 @@ function MozoScannerContent({ params }: { params: Promise<{ slug: string }> }) {
         () => {} // Ignore scan failures (called frequently)
       )
     } catch (err) {
-      console.error("Error starting scanner:", err)
+      console.error("Error starting scanner:", safeErrorForLog(err))
       toast.error("No se pudo acceder a la cámara. Verificá los permisos.")
       setScanning(false)
     }

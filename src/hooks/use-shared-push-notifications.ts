@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 interface UseSharedPushNotificationsParams {
   /** The shared-display token (salonToken or empleadosToken) */
@@ -132,7 +133,7 @@ export function useSharedPushNotifications({
       setIsSubscribed(true)
       toast.success("Notificaciones activadas 🔔")
     } catch (error) {
-      console.error("Push subscribe error:", error)
+      console.error("Push subscribe error:", safeErrorForLog(error))
       toast.error("Error al activar notificaciones")
     } finally {
       setLoading(false)
@@ -163,7 +164,7 @@ export function useSharedPushNotifications({
       setPermission("default")
       toast.success("Notificaciones desactivadas")
     } catch (error) {
-      console.error("Push unsubscribe error:", error)
+      console.error("Push unsubscribe error:", safeErrorForLog(error))
       toast.error("Error al desactivar notificaciones")
     } finally {
       setLoading(false)

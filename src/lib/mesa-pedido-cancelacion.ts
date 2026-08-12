@@ -43,6 +43,7 @@ import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ---------------------------------------------------------------------------
 // Validación del motivo (sección 11)
@@ -356,7 +357,7 @@ export async function cancelarPedidoMesa(params: {
     )
   } catch (error) {
     if (error instanceof DeudaReversionError) {
-      console.error("[MesaPedidoCancelacion] Reversión de deuda falló:", error)
+      console.error("[MesaPedidoCancelacion] Reversión de deuda falló:", safeErrorForLog(error))
       return { kind: "server_error" }
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
@@ -364,7 +365,7 @@ export async function cancelarPedidoMesa(params: {
       // efectos ni presentar una respuesta engañosa.
       return { kind: "conflict" }
     }
-    console.error("[MesaPedidoCancelacion] Error en la transacción de cancelación:", error)
+    console.error("[MesaPedidoCancelacion] Error en la transacción de cancelación:", safeErrorForLog(error))
     return { kind: "server_error" }
   }
 }

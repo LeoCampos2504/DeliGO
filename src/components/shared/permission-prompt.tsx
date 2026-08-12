@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Bell, X, Shield, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const STORAGE_KEY = "deligo-permissions-prompted"
 
@@ -144,11 +145,11 @@ export function PermissionPrompt() {
             await savePushSubscription(subscription)
           }
         } catch (err) {
-          console.error("Push subscription error:", err)
+          console.error("Push subscription error:", safeErrorForLog(err))
         }
       }
     } catch (err) {
-      console.error("Permission request error:", err)
+      console.error("Permission request error:", safeErrorForLog(err))
     } finally {
       localStorage.setItem(STORAGE_KEY, "true")
       setState("done")

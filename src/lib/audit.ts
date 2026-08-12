@@ -2,6 +2,7 @@
 // Registers who did what and when for security tracking
 
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export type AuditAction =
   // Productos
@@ -73,7 +74,7 @@ export async function auditLog(params: AuditLogParams): Promise<void> {
     })
   } catch (error) {
     // Don't fail the main operation if audit logging fails
-    console.error("[AuditLog] Failed to write audit log:", error)
+    console.error("[AuditLog] Failed to write audit log:", safeErrorForLog(error))
   }
 }
 
@@ -117,6 +118,6 @@ export async function logPedidoEstadoChange(params: {
       })
     }
   } catch (error) {
-    console.error("[AuditLog] Failed to log pedido estado change:", error)
+    console.error("[AuditLog] Failed to log pedido estado change:", safeErrorForLog(error))
   }
 }

@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary"
 import { randomUUID } from "crypto"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Configure Cloudinary from env vars
 cloudinary.config({
@@ -100,7 +101,7 @@ export async function uploadImage(
       publicId: result.public_id,
     }
   } catch (error) {
-    console.error("Error uploading image to Cloudinary:", error)
+    console.error("Error uploading image to Cloudinary:", safeErrorForLog(error))
     return null
   }
 }
@@ -167,7 +168,7 @@ export async function uploadFile(
       }
     }
   } catch (error) {
-    console.error("Error uploading file to Cloudinary:", error)
+    console.error("Error uploading file to Cloudinary:", safeErrorForLog(error))
     return null
   }
 }
@@ -205,7 +206,7 @@ export async function deleteImage(publicId: string): Promise<boolean> {
     await cloudinary.uploader.destroy(publicId)
     return true
   } catch (error) {
-    console.error("Error deleting image from Cloudinary:", error)
+    console.error("Error deleting image from Cloudinary:", safeErrorForLog(error))
     return false
   }
 }

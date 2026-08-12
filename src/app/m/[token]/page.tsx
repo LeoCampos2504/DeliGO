@@ -29,6 +29,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Types
@@ -255,7 +256,7 @@ export default function MozoPage() {
         toast.error("Error al activar notificaciones")
       }
     } catch (err) {
-      console.error("Push subscribe error:", err)
+      console.error("Push subscribe error:", safeErrorForLog(err))
       toast.error("Error al activar notificaciones")
     } finally {
       setPushLoading(false)
@@ -280,7 +281,7 @@ export default function MozoPage() {
       setMozoInfo(prev => prev ? { ...prev, hasPushSubscription: false } : prev)
       toast.success("Notificaciones desactivadas")
     } catch (err) {
-      console.error("Push unsubscribe error:", err)
+      console.error("Push unsubscribe error:", safeErrorForLog(err))
       toast.error("Error al desactivar notificaciones")
     } finally {
       setPushLoading(false)

@@ -2,6 +2,8 @@
 // DeliGO - Service Worker Registration
 // ============================================
 
+import { safeErrorForLog } from "@/lib/log-safe-error";
+
 const SW_PATH = "/sw.js";
 
 let registration: ServiceWorkerRegistration | null = null;
@@ -86,7 +88,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     }
     const updateInterval = setInterval(() => {
       reg.update().catch((err) => {
-        console.warn("[SW] Update check failed:", err);
+        console.warn("[SW] Update check failed:", safeErrorForLog(err));
       });
     }, 30 * 60 * 1000);
 
@@ -97,7 +99,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 
     return reg;
   } catch (error) {
-    console.error("[SW] Service worker registration failed:", error);
+    console.error("[SW] Service worker registration failed:", safeErrorForLog(error));
     return null;
   }
 }
@@ -117,7 +119,7 @@ export async function unregisterServiceWorker(): Promise<boolean> {
     console.log("[SW] Service worker unregistered");
     return result;
   } catch (error) {
-    console.error("[SW] Service worker unregistration failed:", error);
+    console.error("[SW] Service worker unregistration failed:", safeErrorForLog(error));
     return false;
   }
 }

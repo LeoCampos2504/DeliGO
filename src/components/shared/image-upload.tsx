@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react"
 import { Camera, X, Loader2, Upload, ImagePlus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Types
@@ -83,7 +84,7 @@ export function ImageUpload({
         const data = await res.json()
         onChange(data.url)
       } catch (err) {
-        console.error("Upload error:", err)
+        console.error("Upload error:", safeErrorForLog(err))
         alert(err instanceof Error ? err.message : "Error al subir la imagen")
       } finally {
         setUploading(false)
