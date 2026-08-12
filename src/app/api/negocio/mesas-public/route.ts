@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUBLIC endpoint — returns active mesas for a negocio by slug
 // Used by mozos and customers to see available mesas
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ mesas: formatted })
   } catch (error) {
-    console.error("Error fetching public mesas:", error)
+    console.error("Error fetching public mesas:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener mesas" },
       { status: 500 }

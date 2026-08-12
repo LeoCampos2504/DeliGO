@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   DEFAULT_OPERACIONES_PROFILE,
   isOperacionesProfile,
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
       NextResponse.json({ ok: true, terminales: terminales.map(serializeTerminal) })
     )
   } catch (error) {
-    console.error("[TerminalesOperativas] Error listing:", error)
+    console.error("[TerminalesOperativas] Error listing:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ error: "Error al obtener terminales" }, { status: 500 })
     )
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
 
     return noStore(NextResponse.json({ ok: true, terminal: serializeTerminal(terminal) }, { status: 201 }))
   } catch (error) {
-    console.error("[TerminalesOperativas] Error creating:", error)
+    console.error("[TerminalesOperativas] Error creating:", safeErrorForLog(error))
     return noStore(
       NextResponse.json({ error: "Error al crear la terminal" }, { status: 500 })
     )

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
 
@@ -157,7 +158,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ stats, periodo })
   } catch (error) {
-    console.error("Error getting mozo stats:", error)
+    console.error("Error getting mozo stats:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 })
   }
 }

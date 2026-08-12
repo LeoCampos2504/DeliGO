@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   readSharedOptionIdList,
   readStringIdList,
@@ -283,7 +284,7 @@ export async function PUT(
       precioPromo,
     })
   } catch (error) {
-    console.error("Error updating producto:", error)
+    console.error("Error updating producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar producto" },
       { status: 500 }
@@ -335,7 +336,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, message: "Producto eliminado" })
   } catch (error) {
-    console.error("Error deleting producto:", error)
+    console.error("Error deleting producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar producto" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
 
@@ -189,7 +190,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ resumen, mozos: mozosStats, periodo }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error getting salon stats:", error)
+    console.error("Error getting salon stats:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error del servidor" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

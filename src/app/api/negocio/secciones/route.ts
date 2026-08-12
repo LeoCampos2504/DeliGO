@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { readStringIdList, validateNegocioResourceOwnership } from "@/lib/access-control"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List secciones for negocio
 export async function GET(req: NextRequest) {
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(secciones)
   } catch (error) {
-    console.error("Error listing secciones:", error)
+    console.error("Error listing secciones:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener secciones" },
       { status: 500 }
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(seccionWithProducts, { status: 201 })
   } catch (error) {
-    console.error("Error creating seccion:", error)
+    console.error("Error creating seccion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear sección" },
       { status: 500 }

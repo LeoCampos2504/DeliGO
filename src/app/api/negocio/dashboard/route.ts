@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: panel de negocio (ventas, deuda, pedidos recientes) — datos
 // financieros privados, nunca cacheables.
@@ -139,7 +140,7 @@ export async function GET(req: NextRequest) {
       },
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Dashboard error:", error)
+    console.error("Dashboard error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener datos del dashboard" },
       { status: 500, headers: NO_STORE_HEADERS }

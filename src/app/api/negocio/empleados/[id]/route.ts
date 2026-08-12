@@ -4,6 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -176,7 +177,7 @@ export async function PUT(
 
     return NextResponse.json(serializeEmpleado(updated))
   } catch (error) {
-    console.error("Error updating empleado:", error)
+    console.error("Error updating empleado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar empleado" },
       { status: 500 }
@@ -230,7 +231,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, message: "Empleado eliminado" })
   } catch (error) {
-    console.error("Error deleting empleado:", error)
+    console.error("Error deleting empleado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar empleado" },
       { status: 500 }

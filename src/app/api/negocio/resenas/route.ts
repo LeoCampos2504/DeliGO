@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: reseñas del negocio (comentarios y datos del cliente que las escribió) — nunca cacheables.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
@@ -125,7 +126,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error listing resenas:", error)
+    console.error("Error listing resenas:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al obtener reseñas" },
       { status: 500 }
@@ -203,7 +204,7 @@ export async function PATCH(req: NextRequest) {
 
     return noStoreJson(updated)
   } catch (error) {
-    console.error("Error replying to resena:", error)
+    console.error("Error replying to resena:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al responder reseña" },
       { status: 500 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { auditLog } from "@/lib/audit"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -96,7 +97,7 @@ export async function DELETE(
 
     return noStore(NextResponse.json({ ok: true }))
   } catch (error) {
-    console.error("[MozoInvitaciones] Error revoking:", error)
+    console.error("[MozoInvitaciones] Error revoking:", safeErrorForLog(error))
     return noStore(
       NextResponse.json(
         { error: "Error al revocar invitación" },

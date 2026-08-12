@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.3: contadores internos del panel del negocio — nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ activeOrders, resenasSinRespuesta }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Counts error:", error)
+    console.error("Counts error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener conteos" },
       { status: 500, headers: NO_STORE_HEADERS }

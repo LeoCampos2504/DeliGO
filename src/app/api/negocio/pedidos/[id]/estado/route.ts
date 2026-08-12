@@ -7,6 +7,7 @@ import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -261,7 +262,7 @@ export async function PATCH(
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
         })
       } catch (pushError) {
-        console.error("[Push] Failed to send order update notification:", pushError)
+        console.error("[Push] Failed to send order update notification:", safeErrorForLog(pushError))
       }
     }
 
@@ -294,7 +295,7 @@ export async function PATCH(
           }
         }
       } catch (pushError) {
-        console.error("[Push] Failed to send delivery notification to repartidores:", pushError)
+        console.error("[Push] Failed to send delivery notification to repartidores:", safeErrorForLog(pushError))
       }
     }
 
@@ -313,7 +314,7 @@ export async function PATCH(
           estadoAnterior: currentEstado,
         })
       } catch (mozoPushError) {
-        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, mozoPushError)
+        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, safeErrorForLog(mozoPushError))
       }
     }
 
@@ -346,7 +347,7 @@ export async function PATCH(
             })
           }
         } catch (reviewPushError) {
-          console.error("[Push] Failed to send review request notification:", reviewPushError)
+          console.error("[Push] Failed to send review request notification:", safeErrorForLog(reviewPushError))
         }
       }, 2 * 60 * 1000) // 2 minutes
     }
@@ -366,7 +367,7 @@ export async function PATCH(
       })),
     })
   } catch (error) {
-    console.error("Error updating pedido estado:", error)
+    console.error("Error updating pedido estado:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al actualizar estado del pedido" },
       { status: 500 }

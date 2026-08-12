@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUT - Update mesa
 export async function PUT(
@@ -61,7 +62,7 @@ export async function PUT(
 
     return NextResponse.json(updated)
   } catch (error) {
-    console.error("Error updating mesa:", error)
+    console.error("Error updating mesa:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar mesa" },
       { status: 500 }
@@ -101,7 +102,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, message: "Mesa eliminada" })
   } catch (error) {
-    console.error("Error deleting mesa:", error)
+    console.error("Error deleting mesa:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar mesa" },
       { status: 500 }

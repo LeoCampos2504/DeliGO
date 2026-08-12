@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUT - Update opcion compartida
 export async function PUT(
@@ -40,7 +41,7 @@ export async function PUT(
 
     return NextResponse.json({ data: updated })
   } catch (error) {
-    console.error("Error updating opcion compartida:", error)
+    console.error("Error updating opcion compartida:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar opción compartida" },
       { status: 500 }
@@ -103,7 +104,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error deleting opcion compartida:", error)
+    console.error("Error deleting opcion compartida:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar opción compartida" },
       { status: 500 }

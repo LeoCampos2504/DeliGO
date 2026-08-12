@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List mesas for negocio
 export async function GET(req: NextRequest) {
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(mesas)
   } catch (error) {
-    console.error("Error listing mesas:", error)
+    console.error("Error listing mesas:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener mesas" },
       { status: 500 }
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(mesa, { status: 201 })
   } catch (error) {
-    console.error("Error creating mesa:", error)
+    console.error("Error creating mesa:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear mesa" },
       { status: 500 }

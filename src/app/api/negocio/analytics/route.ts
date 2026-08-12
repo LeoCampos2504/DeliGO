@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.3: analytics privados del negocio (ingresos, productos, métodos de pago) — nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -280,7 +281,7 @@ export async function GET(req: NextRequest) {
       },
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Analytics error:", error)
+    console.error("Analytics error:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener analytics" },
       { status: 500, headers: NO_STORE_HEADERS }

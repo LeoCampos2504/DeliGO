@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { readStringIdList, validateNegocioResourceOwnership } from "@/lib/access-control"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUT - Update seccion (including products assignment)
 export async function PUT(
@@ -99,7 +100,7 @@ export async function PUT(
 
     return NextResponse.json(updated)
   } catch (error) {
-    console.error("Error updating seccion:", error)
+    console.error("Error updating seccion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar sección" },
       { status: 500 }
@@ -143,7 +144,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, message: "Sección eliminada" })
   } catch (error) {
-    console.error("Error deleting seccion:", error)
+    console.error("Error deleting seccion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar sección" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   addBusinessReviewModerationInformation,
   isReviewModerationBusinessConflict,
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (error) {
     if (error instanceof ReviewModerationBusinessNotFoundError) return noStoreJson({ error: "Solicitud no encontrada" }, { status: 404 })
     if (isReviewModerationBusinessConflict(error)) return noStoreJson({ error: "La solicitud cambió durante la revisión." }, { status: 409 })
-    console.error("Error adding business review moderation information:", error)
+    console.error("Error adding business review moderation information:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

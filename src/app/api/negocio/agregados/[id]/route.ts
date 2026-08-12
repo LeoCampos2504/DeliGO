@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUT - Update agregado
 export async function PUT(
@@ -58,7 +59,7 @@ export async function PUT(
 
     return NextResponse.json(updated)
   } catch (error) {
-    console.error("Error updating agregado:", error)
+    console.error("Error updating agregado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar agregado" },
       { status: 500 }
@@ -107,7 +108,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, message: "Agregado eliminado" })
   } catch (error) {
-    console.error("Error deleting agregado:", error)
+    console.error("Error deleting agregado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar agregado" },
       { status: 500 }

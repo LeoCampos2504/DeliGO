@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List ingredientes for negocio
 export async function GET(req: NextRequest) {
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(ingredientes)
   } catch (error) {
-    console.error("Error listing ingredientes:", error)
+    console.error("Error listing ingredientes:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener ingredientes" },
       { status: 500 }
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(ingrediente, { status: 201 })
   } catch (error) {
-    console.error("Error creating ingrediente:", error)
+    console.error("Error creating ingrediente:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear ingrediente" },
       { status: 500 }

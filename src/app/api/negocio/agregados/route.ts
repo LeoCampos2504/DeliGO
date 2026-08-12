@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List agregados for negocio
 export async function GET(req: NextRequest) {
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(agregados)
   } catch (error) {
-    console.error("Error listing agregados:", error)
+    console.error("Error listing agregados:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener agregados" },
       { status: 500 }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(agregado, { status: 201 })
   } catch (error) {
-    console.error("Error creating agregado:", error)
+    console.error("Error creating agregado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear agregado" },
       { status: 500 }

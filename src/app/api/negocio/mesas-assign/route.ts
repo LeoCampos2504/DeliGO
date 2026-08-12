@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type AssignmentAuth =
   | { kind: "negocio" }
@@ -208,7 +209,7 @@ export async function POST(req: NextRequest) {
         : null,
     })
   } catch (error) {
-    console.error("Error assigning mozo to mesa:", error)
+    console.error("Error assigning mozo to mesa:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al asignar mozo a mesa" },
       { status: 500 }

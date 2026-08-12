@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ categorias })
   } catch (error) {
-    console.error("Error getting categorias:", error)
+    console.error("Error getting categorias:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener categorías" },
       { status: 500 }
@@ -131,7 +132,7 @@ export async function PUT(req: NextRequest) {
       categorias: safeParseJSON(updated.categorias, []),
     })
   } catch (error) {
-    console.error("Error updating categorias:", error)
+    console.error("Error updating categorias:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar categorías" },
       { status: 500 }
@@ -206,7 +207,7 @@ export async function PATCH(req: NextRequest) {
       productsUpdated: updateResult.count,
     })
   } catch (error) {
-    console.error("Error renaming categoria:", error)
+    console.error("Error renaming categoria:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al renombrar la categoría" },
       { status: 500 }

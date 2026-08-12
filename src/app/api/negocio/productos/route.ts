@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   readSharedOptionIdList,
   readStringIdList,
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(productosParsed)
   } catch (error) {
-    console.error("Error listing productos:", error)
+    console.error("Error listing productos:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener productos" },
       { status: 500 }
@@ -297,7 +298,7 @@ export async function POST(req: NextRequest) {
       precioPromo,
     }, { status: 201 })
   } catch (error) {
-    console.error("Error creating producto:", error)
+    console.error("Error creating producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear producto" },
       { status: 500 }

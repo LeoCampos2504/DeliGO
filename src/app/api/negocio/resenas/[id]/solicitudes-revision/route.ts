@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   ReviewModerationNotFoundError,
   createReviewModerationRequest,
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return noStoreJson(await getBusinessReviewModerationHistory({ negocioId: user.id, resenaId: id }))
   } catch (error) {
     if (error instanceof ReviewModerationBusinessNotFoundError) return noStoreJson({ error: "Reseña no encontrada" }, { status: 404 })
-    console.error("Error getting business review moderation history:", error)
+    console.error("Error getting business review moderation history:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (isReviewModerationConflict(error)) {
       return noStoreJson({ error: "La reseña cambió o ya tiene una solicitud activa." }, { status: 409 })
     }
-    console.error("Error creating review moderation request:", error)
+    console.error("Error creating review moderation request:", safeErrorForLog(error))
     return noStoreJson({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Point-in-polygon algorithm (ray casting)
 function pointInPolygon(lat: number, lng: number, polygon: { lat: number; lng: number }[]): boolean {
@@ -90,7 +91,7 @@ export async function GET(req: NextRequest) {
       mode: "expert",
     })
   } catch (error) {
-    console.error("Error checking delivery zone:", error)
+    console.error("Error checking delivery zone:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al verificar zona" }, { status: 500 })
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List opciones compartidas for negocio
 export async function GET(req: NextRequest) {
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data: opciones })
   } catch (error) {
-    console.error("Error listing opciones compartidas:", error)
+    console.error("Error listing opciones compartidas:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener opciones compartidas" },
       { status: 500 }
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: opcionCompartida }, { status: 201 })
   } catch (error) {
-    console.error("Error creating opcion compartida:", error)
+    console.error("Error creating opcion compartida:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear opción compartida" },
       { status: 500 }

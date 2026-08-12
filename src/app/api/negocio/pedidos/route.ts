@@ -4,6 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -145,7 +146,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error listing pedidos:", error)
+    console.error("Error listing pedidos:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener pedidos" },
       { status: 500 }
@@ -355,7 +356,7 @@ export async function PUT(req: NextRequest) {
           estadoAnterior: currentEstado,
         })
       } catch (mozoPushError) {
-        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, mozoPushError)
+        console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, safeErrorForLog(mozoPushError))
       }
     }
 
@@ -372,7 +373,7 @@ export async function PUT(req: NextRequest) {
       })),
     })
   } catch (error) {
-    console.error("Error updating pedido:", error)
+    console.error("Error updating pedido:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar pedido" },
       { status: 500 }
