@@ -14,6 +14,7 @@ import {
   createSuperadminSession,
   bootstrapOrAuthenticateSuperadmin,
 } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // DeliGO Superadmin — Callback OAuth Google (24-A)
@@ -176,7 +177,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     // Nunca filtrar tokens/respuesta de Google/client secret — solo un
     // código sanitizado a consola.
-    console.error("[SuperadminGoogleCallback] Error inesperado:", error instanceof Error ? error.message : "unknown")
+    console.error("[SuperadminGoogleCallback] Error inesperado:", safeErrorForLog(error))
     return redirectWithError("server_error")
   }
 }

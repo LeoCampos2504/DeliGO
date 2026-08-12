@@ -6,6 +6,7 @@ import { join } from "path"
 import { existsSync } from "fs"
 import { exec } from "child_process"
 import { promisify } from "util"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const execAsync = promisify(exec)
 
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
         )
       } catch (pgError) {
         // If pg_dump is not available, create a JSON export using Prisma
-        console.warn("[Backup] pg_dump failed, falling back to JSON export:", pgError)
+        console.warn("[Backup] pg_dump failed, falling back to JSON export:", safeErrorForLog(pgError))
         backupFilename = `deligo-backup-${TIMESTAMP}.json`
         backupPath = join(BACKUP_DIR, backupFilename)
 
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
       totalBackups: Math.min(backups.length, 30),
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("[Backup] Error:", error)
+    console.error("[Backup] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al crear backup" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ backups: backupInfo }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("[Backup] Error listing:", error)
+    console.error("[Backup] Error listing:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al listar backups" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

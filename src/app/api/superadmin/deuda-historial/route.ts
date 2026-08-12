@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: historial de pagos de deuda de la plataforma — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
       },
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error getting debt history:", error)
+    console.error("Error getting debt history:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener historial" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

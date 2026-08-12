@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - Get today's delivered orders (or full history with ?history=true)
 export async function GET(req: NextRequest) {
@@ -123,7 +124,7 @@ export async function GET(req: NextRequest) {
       total: pedidos.length,
     })
   } catch (error) {
-    console.error("Error getting delivered orders:", error)
+    console.error("Error getting delivered orders:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener entregas" }, { status: 500 })
   }
 }

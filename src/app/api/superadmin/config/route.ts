@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.2: configuración global de la plataforma — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
       promocionadosActivos: config.promocionadosActivos,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error getting platform config:", error)
+    console.error("Error getting platform config:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener configuración" },
       { status: 500, headers: NO_STORE_HEADERS }
@@ -83,7 +84,7 @@ export async function PUT(req: NextRequest) {
       promocionadosActivos: config.promocionadosActivos,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error updating platform config:", error)
+    console.error("Error updating platform config:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar configuración" },
       { status: 500, headers: NO_STORE_HEADERS }

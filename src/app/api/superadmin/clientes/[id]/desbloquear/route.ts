@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: acción superadmin sobre un cliente bloqueado — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -89,7 +90,7 @@ export async function POST(
       denunciasEliminadas: eliminarDenuncias ? denunciasEliminadas : undefined,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error unblocking cliente:", error)
+    console.error("Error unblocking cliente:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al desbloquear el cliente" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

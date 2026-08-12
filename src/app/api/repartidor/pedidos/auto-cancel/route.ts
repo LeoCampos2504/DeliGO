@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const DEFAULT_AUTO_CANCEL_MINUTES = 30
 const MIN_AUTO_CANCEL_MINUTES = 5
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
           cancelledCount += 1
         }
       } catch (error) {
-        console.error(`Error auto-cancelling pedido ${candidato.id}:`, error)
+        console.error(`Error auto-cancelling pedido ${candidato.id}:`, safeErrorForLog(error))
       }
     }
 
@@ -175,7 +176,7 @@ export async function POST(req: NextRequest) {
       message: `${cancelledCount} pedido(s) cancelado(s) automáticamente`,
     })
   } catch (error) {
-    console.error("Error auto-cancelling pedidos:", error)
+    console.error("Error auto-cancelling pedidos:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al cancelar pedidos viejos" },
       { status: 500 }

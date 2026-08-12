@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { createNotification, negocioApprovedNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: aprobación/eliminación de un negocio por superadmin — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -62,12 +63,12 @@ export async function POST(
         })
       }
     } catch (pushError) {
-      console.error("[Push] Failed to send approval notification:", pushError)
+      console.error("[Push] Failed to send approval notification:", safeErrorForLog(pushError))
     }
 
     return NextResponse.json({ ok: true, mensaje: "Negocio aprobado con plan de prueba (30 días)" }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error approving negocio:", error)
+    console.error("Error approving negocio:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al aprobar" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }
@@ -89,7 +90,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true, mensaje: "Negocio eliminado" }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error deleting negocio:", error)
+    console.error("Error deleting negocio:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al eliminar" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

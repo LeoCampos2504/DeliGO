@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export async function POST(
   req: NextRequest,
@@ -39,7 +40,7 @@ export async function POST(
 
     return NextResponse.json({ mensaje: "Solicitud rechazada" })
   } catch (error) {
-    console.error("Error rejecting destacado solicitud:", error)
+    console.error("Error rejecting destacado solicitud:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al rechazar solicitud" },
       { status: 500 }

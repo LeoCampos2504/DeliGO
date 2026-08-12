@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
       mios,
     })
   } catch (error) {
-    console.error("Error getting repartidor pedidos:", error)
+    console.error("Error getting repartidor pedidos:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener pedidos" }, { status: 500 })
   }
 }

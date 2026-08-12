@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getReviewModerationRequestDetail, ReviewModerationSuperadminNotFoundError } from "@/lib/review-moderation-superadmin"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function response(data: unknown, init?: ResponseInit) {
   const result = NextResponse.json(data, init)
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return response(await getReviewModerationRequestDetail(id))
   } catch (error) {
     if (error instanceof ReviewModerationSuperadminNotFoundError) return response({ error: "Solicitud no encontrada" }, { status: 404 })
-    console.error("Error getting review moderation request:", error)
+    console.error("Error getting review moderation request:", safeErrorForLog(error))
     return response({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

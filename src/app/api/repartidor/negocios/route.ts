@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List associated negocios
 export async function GET(req: NextRequest) {
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
       })),
     })
   } catch (error) {
-    console.error("Error listing repartidor negocios:", error)
+    console.error("Error listing repartidor negocios:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener negocios" }, { status: 500 })
   }
 }
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error adding negocio:", error)
+    console.error("Error adding negocio:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al asociar negocio" }, { status: 500 })
   }
 }
@@ -201,7 +202,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error removing negocio:", error)
+    console.error("Error removing negocio:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al desasociar negocio" }, { status: 500 })
   }
 }

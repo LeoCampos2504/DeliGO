@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const productPublicSelect = {
   id: true,
@@ -440,7 +441,7 @@ export async function GET(
       totalVentas: negocio._count.pedidos,
     })
   } catch (error) {
-    console.error("Error fetching negocio:", error)
+    console.error("Error fetching negocio:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener el negocio" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listReviewModerationRequests, parseReviewModerationListParams } from "@/lib/review-moderation-superadmin"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function response(data: unknown, init?: ResponseInit) {
   const result = NextResponse.json(data, init)
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     if (!parsed) return response({ error: "Filtros inválidos" }, { status: 400 })
     return response(await listReviewModerationRequests(parsed))
   } catch (error) {
-    console.error("Error listing review moderation requests:", error)
+    console.error("Error listing review moderation requests:", safeErrorForLog(error))
     return response({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

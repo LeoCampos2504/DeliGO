@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET /api/notificaciones — List notifications for current user
 export async function GET(req: NextRequest) {
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
       noLeidos,
     })
   } catch (error) {
-    console.error("Error fetching notifications:", error)
+    console.error("Error fetching notifications:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener notificaciones" }, { status: 500 })
   }
 }
@@ -107,7 +108,7 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ error: "Acción no válida" }, { status: 400 })
   } catch (error) {
-    console.error("Error updating notifications:", error)
+    console.error("Error updating notifications:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al actualizar notificaciones" }, { status: 500 })
   }
 }
@@ -158,7 +159,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ error: "Parámetros no válidos" }, { status: 400 })
   } catch (error) {
-    console.error("Error deleting notifications:", error)
+    console.error("Error deleting notifications:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al eliminar notificaciones" }, { status: 500 })
   }
 }

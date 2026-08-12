@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { createNotification, orderDeliveredNotification, orderDeliveredByRepartidorNotification, reviewRequestNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // PUT - Mark order as delivered by repartidor
 export async function PUT(
@@ -180,7 +181,7 @@ export async function PUT(
               })
             }
           } catch (reviewPushError) {
-            console.error("[Push] Failed to send review request notification:", reviewPushError)
+            console.error("[Push] Failed to send review request notification:", safeErrorForLog(reviewPushError))
           }
         }, 2 * 60 * 1000) // 2 minutes
       }
@@ -205,7 +206,7 @@ export async function PUT(
         cleanupExpired: { model: "negocio", id: pedido.negocioId },
       })
     } catch (pushError) {
-      console.error("[Push] Failed to send delivery notifications:", pushError)
+      console.error("[Push] Failed to send delivery notifications:", safeErrorForLog(pushError))
     }
 
     return NextResponse.json({
@@ -218,7 +219,7 @@ export async function PUT(
       },
     })
   } catch (error) {
-    console.error("Error marking pedido as delivered:", error)
+    console.error("Error marking pedido as delivered:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al marcar como entregado" }, { status: 500 })
   }
 }

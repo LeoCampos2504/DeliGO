@@ -5,6 +5,7 @@ import { existsSync } from "fs"
 import { validateSession } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Allowed file types
@@ -196,7 +197,7 @@ async function tryCloudinaryUpload(
       return await uploadImage(file, folder)
     }
   } catch (error) {
-    console.error("[Upload] Cloudinary upload failed, falling back to local:", error)
+    console.error("[Upload] Cloudinary upload failed, falling back to local:", safeErrorForLog(error))
     return null
   }
 }
@@ -328,7 +329,7 @@ export async function POST(req: NextRequest) {
       publicId: result.publicId,
     })
   } catch (error) {
-    console.error("[Upload] Error:", error)
+    console.error("[Upload] Error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al subir archivo" }, { status: 500 })
   }
 }

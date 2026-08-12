@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // POST - Repartidor accepts a pending delivery order
 // This uses optimistic concurrency: only accept if no other repartidor has claimed it yet
@@ -183,7 +184,7 @@ export async function POST(
       message: "Pedido aceptado correctamente",
     })
   } catch (error) {
-    console.error("Error accepting pedido:", error)
+    console.error("Error accepting pedido:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al aceptar el pedido" },
       { status: 500 }

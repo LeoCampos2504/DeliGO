@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export async function GET(request: NextRequest) {
   try {
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result)
   } catch (error) {
-    console.error("Error fetching negocios:", error)
+    console.error("Error fetching negocios:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al cargar negocios" },
       { status: 500 }

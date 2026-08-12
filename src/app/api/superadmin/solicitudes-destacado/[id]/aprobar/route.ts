@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 export async function POST(
   req: NextRequest,
@@ -63,7 +64,7 @@ export async function POST(
       nuevaFecha: nuevaFecha.toISOString(),
     })
   } catch (error) {
-    console.error("Error approving destacado solicitud:", error)
+    console.error("Error approving destacado solicitud:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al aprobar solicitud" },
       { status: 500 }

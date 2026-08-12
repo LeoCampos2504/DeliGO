@@ -48,6 +48,22 @@ function looksLikeProviderHttpError(value: unknown): value is { statusCode?: num
   return "statusCode" in candidate || "body" in candidate || "endpoint" in candidate || "headers" in candidate
 }
 
+// GLOBAL-LOGS-PII-2D-A — forma de un error de `child_process.exec`/`execFile`
+// (Node core, no un `throw new Error(...)` de este repo): trae `.cmd` (el
+// comando exacto ejecutado) y su `.message` es literalmente
+// `Command failed: <cmd>\n<stderr>`. Si ese comando se construyó
+// interpolando una variable con un secreto (por ejemplo `DATABASE_URL` con
+// password embebido, como en `superadmin/backup/route.ts`), tanto `.cmd`
+// como `.message` lo exponen verbatim — a diferencia del `Error` de
+// aplicación propio de este repo (auditado en 1B), este caso nunca fue
+// cubierto por esa auditoría porque no es un `throw new Error(...)` escrito
+// en `src/`. Nunca se reenvía `.message` ni `.cmd`; sólo `code`/`signal`,
+// que ya alcanzan para diagnosticar sin arriesgar el secreto interpolado.
+function looksLikeExecError(value: unknown): value is { cmd?: unknown; code?: unknown; signal?: unknown } {
+  if (typeof value !== "object" || value === null) return false
+  return "cmd" in (value as Record<string, unknown>)
+}
+
 /**
  * Convierte un `unknown` atrapado en un catch en una forma segura para
  * pasar a `console.error`/`console.warn`. Nunca lanza. Nunca incluye
@@ -92,6 +108,21 @@ export function safeErrorForLog(error: unknown): SafeLoggedError {
     return {
       errorType: error instanceof Error ? error.name || "ProviderHttpError" : "ProviderHttpError",
       code: typeof statusCode === "number" || typeof statusCode === "string" ? statusCode : undefined,
+    }
+  }
+
+  if (looksLikeExecError(error)) {
+    // Debe evaluarse ANTES del branch genérico de `Error` de abajo: un
+    // error de `child_process.exec` también es `instanceof Error`, pero su
+    // `.message` (y `.cmd`) puede contener un comando con un secreto
+    // interpolado — nunca cubierto por la auditoría de 1B (ver comentario
+    // de `looksLikeExecError`).
+    const code = (error as { code?: unknown }).code
+    const signal = (error as { signal?: unknown }).signal
+    return {
+      errorType: "ChildProcessExecError",
+      code: typeof code === "number" || typeof code === "string" ? code : undefined,
+      target: typeof signal === "string" ? { signal } : undefined,
     }
   }
 

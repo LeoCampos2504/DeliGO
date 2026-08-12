@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { isReviewModerationSuperadminConflict, mutateReviewModerationRequest, ReviewModerationSuperadminNotFoundError } from "@/lib/review-moderation-superadmin"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function response(data: unknown, init?: ResponseInit) {
   const result = NextResponse.json(data, init)
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (error) {
     if (error instanceof ReviewModerationSuperadminNotFoundError) return response({ error: "Solicitud no encontrada" }, { status: 404 })
     if (isReviewModerationSuperadminConflict(error)) return response({ error: "La solicitud cambió durante la revisión." }, { status: 409 })
-    console.error("Error taking review moderation request:", error)
+    console.error("Error taking review moderation request:", safeErrorForLog(error))
     return response({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - Public endpoint: returns promoted businesses with their most ordered products + general products
 export async function GET() {
@@ -206,7 +207,7 @@ export async function GET() {
       negocios: negociosConProductos,
     })
   } catch (error) {
-    console.error("Error getting promoted negocios:", error)
+    console.error("Error getting promoted negocios:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener negocios promocionados" },
       { status: 500 }

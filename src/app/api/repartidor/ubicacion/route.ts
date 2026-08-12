@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 interface UpdateUbicacionBody {
   pedidoId: string
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest) {
       repartidorLastUpdate: now.toISOString(),
     })
   } catch (error) {
-    console.error("Error updating repartidor ubicacion:", error)
+    console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar ubicación" },
       { status: 500 }

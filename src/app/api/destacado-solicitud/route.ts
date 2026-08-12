@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const PRECIO_DIA = 500
 const PRECIO_MES = 10000
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ solicitud }, { status: 201 })
   } catch (error) {
-    console.error("Error creating destacado solicitud:", error)
+    console.error("Error creating destacado solicitud:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear solicitud" },
       { status: 500 }
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ solicitudes })
   } catch (error) {
-    console.error("Error getting destacado solicitudes:", error)
+    console.error("Error getting destacado solicitudes:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener solicitudes" },
       { status: 500 }

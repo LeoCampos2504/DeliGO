@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.2: abono de deuda de un negocio — dato financiero, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -96,7 +97,7 @@ export async function POST(
       montoAbonado: outcome.montoAbonado,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error clearing debt:", error)
+    console.error("Error clearing debt:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al abonar deuda" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

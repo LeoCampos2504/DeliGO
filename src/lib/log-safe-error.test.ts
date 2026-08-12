@@ -11,7 +11,11 @@
 
 import { describe, expect, test } from "bun:test"
 import { Prisma } from "@prisma/client"
+import { exec } from "child_process"
+import { promisify } from "util"
 import { safeErrorForLog } from "./log-safe-error"
+
+const execAsync = promisify(exec)
 
 const SENTINELS = [
   "secret-user-99@example.test",
@@ -102,6 +106,61 @@ describe("GLOBAL-LOGS-PII-1B — safeErrorForLog: provider-like (statusCode/body
     const serialized = JSON.stringify(result)
 
     expect(result.code).toBe(429)
+    assertNoSentinelsLeaked(serialized)
+  })
+})
+
+describe("GLOBAL-LOGS-PII-2D-A — safeErrorForLog: child_process.exec (caso REAL demostrado)", () => {
+  test("EXEC_SECRET_NOT_LOGGED: el error crudo de un exec() fallido SÍ embebe el comando (incl. el secreto interpolado); safeErrorForLog nunca lo reenvía", async () => {
+    // Reproduce el escenario exacto de src/app/api/superadmin/backup/route.ts:
+    // `execAsync(\`pg_dump "${DATABASE_URL}" ...\`)` — si pg_dump falla, el
+    // error de Node SIEMPRE trae `.message = "Command failed: <cmd>..."` y
+    // `.cmd` con el comando completo. Se prueba contra un `exec()` real (no
+    // simulado) para confirmar el comportamiento real de Node, con un
+    // sentinel sintético en vez de una URL real.
+    const fakeDatabaseUrl = `postgresql://user:${SENTINELS[1]}@localhost:5432/db`
+    let caught: unknown = null
+    try {
+      await execAsync(`node -e "process.exit(1)" "${fakeDatabaseUrl}"`)
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).not.toBeNull()
+    const rawError = caught as { message?: string; cmd?: string }
+
+    // Primero: confirmar que el error CRUDO de Node sí filtra el secreto —
+    // si esta aserción alguna vez fallara, significaría que el comportamiento
+    // de Node cambió y el branch de safeErrorForLog ya no sería necesario
+    // para este caso (pero no se debe asumir, se debe seguir verificando).
+    expect(rawError.message).toContain(SENTINELS[1])
+    expect(rawError.cmd).toContain(SENTINELS[1])
+
+    // Ahora: confirmar que safeErrorForLog blinda completamente ese mismo error.
+    const result = safeErrorForLog(caught)
+    const serialized = JSON.stringify(result)
+
+    expect(result.errorType).toBe("ChildProcessExecError")
+    assertNoSentinelsLeaked(serialized)
+    expect(serialized).not.toContain("Command failed")
+    // Nunca reenvía cmd/message — sólo errorType (+ code si aplica).
+    expect(Object.keys(result).every((k) => ["errorType", "code", "target"].includes(k))).toBe(true)
+  })
+
+  test("un objeto con forma de exec-error pero SIN ser instancia de Error también se blinda", () => {
+    // Defensivo: el detector se basa en la presencia de `.cmd`, no en
+    // `instanceof Error`, por si algún wrapper no preserva el prototipo.
+    const plainExecShaped = {
+      cmd: `pg_dump "postgresql://user:${SENTINELS[1]}@host/db"`,
+      message: `Command failed: pg_dump "postgresql://user:${SENTINELS[1]}@host/db"`,
+      code: 1,
+    }
+
+    const result = safeErrorForLog(plainExecShaped)
+    const serialized = JSON.stringify(result)
+
+    expect(result.errorType).toBe("ChildProcessExecError")
+    expect(result.code).toBe(1)
     assertNoSentinelsLeaked(serialized)
   })
 })

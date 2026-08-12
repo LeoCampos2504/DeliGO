@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { resolveDeliveryCoverage, DELIVERY_PRECIOS_MAX_IDS } from "@/lib/delivery-coverage"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // POST /api/negocios/delivery-precios
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ precios })
   } catch (error) {
-    console.error("Error calculating delivery prices:", error)
+    console.error("Error calculating delivery prices:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al calcular precios de delivery" },
       { status: 500 }

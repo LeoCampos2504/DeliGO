@@ -3,6 +3,7 @@ import { Prisma, type Denuncia } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Preset denuncia reasons
 const MOTIVOS_PRESET: Record<string, string> = {
@@ -308,7 +309,7 @@ export async function POST(req: NextRequest) {
         : `Denuncia registrada (${totalDenuncias}/${MAX_DENUNCIAS_BEFORE_BLOCK})`,
     }, { status: 201 })
   } catch (error) {
-    console.error("Error creating denuncia:", error)
+    console.error("Error creating denuncia:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al crear la denuncia" }, { status: 500 })
   }
 }
@@ -367,7 +368,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ denuncias, clienteInfo })
   } catch (error) {
-    console.error("Error fetching denuncias:", error)
+    console.error("Error fetching denuncias:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener denuncias" }, { status: 500 })
   }
 }

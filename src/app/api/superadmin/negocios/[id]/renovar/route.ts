@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { createNotification, subscriptionRenewedNotification } from "@/lib/push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: renovación de suscripción de un negocio por superadmin — expone la
 // nueva fecha de vencimiento; nunca cacheable.
@@ -75,7 +76,7 @@ export async function POST(
         })
       }
     } catch (pushError) {
-      console.error("[Push] Failed to send renewal notification:", pushError)
+      console.error("[Push] Failed to send renewal notification:", safeErrorForLog(pushError))
     }
 
     return NextResponse.json({
@@ -84,7 +85,7 @@ export async function POST(
       nuevoVencimiento: nuevoVencimiento.toISOString(),
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error renewing subscription:", error)
+    console.error("Error renewing subscription:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al renovar" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

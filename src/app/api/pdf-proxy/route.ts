@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { validateCloudinaryPdfUrl } from "@/lib/resource-url"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const MAX_PDF_PROXY_SIZE = 10 * 1024 * 1024
 
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("PDF proxy error:", error)
+    console.error("PDF proxy error:", safeErrorForLog(error))
     return NextResponse.json({ error: "Failed to fetch PDF" }, { status: 500 })
   }
 }

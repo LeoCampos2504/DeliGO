@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.2: denuncias de usuarios y datos de clientes asociados — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
       ...(clienteInfo ? { clienteInfo } : {}),
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error fetching denuncias:", error)
+    console.error("Error fetching denuncias:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener denuncias" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

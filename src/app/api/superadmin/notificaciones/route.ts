@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function response(data: unknown, init?: ResponseInit) {
   const result = NextResponse.json(data, init)
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     ])
     return response({ notificaciones, noLeidos })
   } catch (error) {
-    console.error("Error getting superadmin notifications:", error)
+    console.error("Error getting superadmin notifications:", safeErrorForLog(error))
     return response({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
@@ -45,7 +46,7 @@ export async function PATCH(req: NextRequest) {
     const noLeidos = await db.notificacion.count({ where: { ...where, leido: false } })
     return response({ ok: true, noLeidos })
   } catch (error) {
-    console.error("Error updating superadmin notifications:", error)
+    console.error("Error updating superadmin notifications:", safeErrorForLog(error))
     return response({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

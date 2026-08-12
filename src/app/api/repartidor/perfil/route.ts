@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME, hashPassword, comparePassword } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - Repartidor profile data
 export async function GET(req: NextRequest) {
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
       })),
     })
   } catch (error) {
-    console.error("Error getting repartidor profile:", error)
+    console.error("Error getting repartidor profile:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener perfil" }, { status: 500 })
   }
 }
@@ -134,7 +135,7 @@ export async function PUT(req: NextRequest) {
       telefono: updated.telefono,
     })
   } catch (error) {
-    console.error("Error updating repartidor profile:", error)
+    console.error("Error updating repartidor profile:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al actualizar perfil" }, { status: 500 })
   }
 }

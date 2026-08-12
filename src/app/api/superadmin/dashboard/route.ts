@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: dashboard de superadmin expone deuda y datos de todos los
 // negocios de la plataforma — nunca cacheable.
@@ -193,7 +194,7 @@ export async function GET(req: NextRequest) {
       },
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error getting superadmin dashboard:", error)
+    console.error("Error getting superadmin dashboard:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener dashboard" },
       { status: 500, headers: NO_STORE_HEADERS }

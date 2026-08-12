@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // POST /api/push/unsubscribe — Remove push subscription for the current user
 export async function POST(req: NextRequest) {
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, removed })
   } catch (error) {
-    console.error("Error removing push subscription:", error)
+    console.error("Error removing push subscription:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al eliminar la suscripción" },
       { status: 500 }

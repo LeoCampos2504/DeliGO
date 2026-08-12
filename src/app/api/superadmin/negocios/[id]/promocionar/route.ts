@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B.4: promoción/destacado de un negocio por superadmin — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -108,7 +109,7 @@ export async function PUT(
 
     return NextResponse.json(updated, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error updating promocionado:", error)
+    console.error("Error updating promocionado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar promoción" },
       { status: 500, headers: NO_STORE_HEADERS }

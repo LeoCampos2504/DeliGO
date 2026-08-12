@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const LIMITE_MINIMO_DEUDA = 5000
 
@@ -57,7 +58,7 @@ export async function PUT(
       nuevoLimite,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error updating debt limit:", error)
+    console.error("Error updating debt limit:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al actualizar límite" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

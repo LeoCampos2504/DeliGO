@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - List all destacado solicitudes (superadmin)
 export async function GET(req: NextRequest) {
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error("Error getting destacado solicitudes:", error)
+    console.error("Error getting destacado solicitudes:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al obtener solicitudes" },
       { status: 500 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const MAX_DENUNCIAS_BEFORE_BLOCK = 3
 const MAX_SERIALIZATION_RETRIES = 3
@@ -206,7 +207,7 @@ export async function DELETE(
       denunciasRestantes,
     }, { headers: NO_STORE_HEADERS })
   } catch (error) {
-    console.error("Error deleting denuncia:", error)
+    console.error("Error deleting denuncia:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al eliminar la denuncia" }, { status: 500, headers: NO_STORE_HEADERS })
   }
 }

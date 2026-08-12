@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getClientIp } from "@/lib/rate-limit"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   SUPERADMIN_SESSION_COOKIE_NAME,
   revokeSuperadminSession,
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
         await auditSuperadminLogout(admin.id, getClientIp(req))
       }
     } catch (error) {
-      console.error("[SuperadminLogout] Error:", error instanceof Error ? error.message : "unknown")
+      console.error("[SuperadminLogout] Error:", safeErrorForLog(error))
     }
   }
 
