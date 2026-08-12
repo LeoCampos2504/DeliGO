@@ -6,10 +6,12 @@
 // ============================================
 //
 // Read-only runtime instrumentation for IOS-24 (residual scroll / visual
-// viewport position left incorrect after the iOS keyboard opens/closes).
-// This is NOT a fix — it never calls scrollTo/preventDefault, never writes
-// body/html styles or classes, never touches BottomNav/Chat/IOSKeyboardFix.
-// It only observes window/document/visualViewport and displays the values.
+// viewport position left incorrect after the iOS keyboard opens/closes, and
+// the residual BottomNav drift observed during manual scroll). This is NOT
+// a fix — it never calls scrollTo/preventDefault, never writes body/html
+// styles or classes, never touches BottomNav/Chat/IOSKeyboardFix. It only
+// observes window/document/visualViewport/the nav's own DOM node and
+// displays the values.
 //
 // Activation: exclusively via `?iosdebug=1` in the URL. Once activated, a
 // sessionStorage flag keeps the panel visible across internal navigation
@@ -20,12 +22,19 @@
 // the same concept `src/components/pwa/ios-keyboard-fix.tsx` uses — this
 // file does NOT import or read that component's internal/private state, it
 // independently recomputes the same public browser APIs read-only.
+//
+// IOS-24-NAV-RUNTIME-DIAGNOSTIC: adds read-only geometry of the BottomNav
+// itself, located exclusively via the existing `.ios-bottom-nav` class (no
+// new productive class/id was added). `getBoundingClientRect()` and
+// `getComputedStyle()` are pure reads — nothing here writes to the nav's
+// style/class, moves it, or changes its behavior in any way.
 
 import { useEffect, useRef, useState, type CSSProperties } from "react"
 
 const STORAGE_KEY = "deligo-iosdebug"
 const EDITABLE_SELECTOR =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"], [contenteditable=""]'
+const NAV_SELECTOR = ".ios-bottom-nav"
 const KEYBOARD_THRESHOLD = 80
 const STABLE_FRAMES_REQUIRED = 6
 const STABLE_TOLERANCE_PX = 1
@@ -53,6 +62,40 @@ type Metrics = {
   keyboardOpen: boolean
   path: string
   timestamp: number
+  // NAV geometry — IOS-24-NAV-RUNTIME-DIAGNOSTIC, all read-only.
+  navCount: number
+  navParentTag: string | null
+  navParentIsBody: boolean
+  navRectTop: number | null
+  navRectBottom: number | null
+  navRectLeft: number | null
+  navRectRight: number | null
+  navRectWidth: number | null
+  navRectHeight: number | null
+  navComputedPosition: string | null
+  navComputedTop: string | null
+  navComputedBottom: string | null
+  navComputedLeft: string | null
+  navComputedRight: string | null
+  navComputedTransform: string | null
+  navComputedVisibility: string | null
+  navComputedDisplay: string | null
+  navComputedZIndex: string | null
+  layoutViewportBottom: number
+  visualViewportTop: number
+  visualViewportBottom: number
+  // Why these matter (diagnostic only, never used to change behavior):
+  // - If navRectTop stays stable while window.scrollY changes, the nav is
+  //   behaving as fixed relative to the viewport (correct).
+  // - If navDocumentTop (rect.top + scrollY) stays roughly constant while
+  //   scrollY changes, the nav is visually behaving like part of the
+  //   document/absolute-positioned content, even if computed position still
+  //   reports "fixed" — a strong signal of a WebKit fixed-layer/compositor
+  //   issue rather than a CSS mistake.
+  navGapToLayoutBottom: number | null
+  navGapToVisualBottom: number | null
+  navDocumentTop: number | null
+  navDocumentBottom: number | null
 }
 
 type Snapshot = Metrics & { label: string }
@@ -64,7 +107,21 @@ type EventLogEntry = {
   vvOffsetTop: number | null
   vvHeight: number | null
   innerHeight: number
+  navRectTop: number | null
+  navRectBottom: number | null
+  navGapToLayoutBottom: number | null
+  navGapToVisualBottom: number | null
+  navDocumentTop: number | null
+  navCount: number
 }
+
+type NavBaseline = {
+  rectTop: number
+  rectBottom: number
+  gapLayout: number
+  gapVisual: number
+  scrollY: number
+} | null
 
 function isEditableTarget(target: EventTarget | Element | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -87,6 +144,94 @@ function readMetrics(hasEditableFocus: boolean): Metrics {
   const keyboardOffset = Math.max(0, heightDiff - offsetTop)
   const keyboardFromViewport = heightDiff > KEYBOARD_THRESHOLD || keyboardOffset > KEYBOARD_THRESHOLD
 
+  // NAV geometry — read-only. `.ios-bottom-nav` is the existing productive
+  // class already used by globals.css for keyboard-open hiding; no new
+  // class/id was added to BottomNav for this diagnostic.
+  const navs = document.querySelectorAll<HTMLElement>(NAV_SELECTOR)
+  const navCount = navs.length
+  const nav = navs[0] ?? null
+  const layoutViewportBottom = window.innerHeight
+  const visualViewportTop = offsetTop
+  const visualViewportBottom = offsetTop + viewportHeight
+
+  let navGeometry: Pick<
+    Metrics,
+    | "navParentTag"
+    | "navParentIsBody"
+    | "navRectTop"
+    | "navRectBottom"
+    | "navRectLeft"
+    | "navRectRight"
+    | "navRectWidth"
+    | "navRectHeight"
+    | "navComputedPosition"
+    | "navComputedTop"
+    | "navComputedBottom"
+    | "navComputedLeft"
+    | "navComputedRight"
+    | "navComputedTransform"
+    | "navComputedVisibility"
+    | "navComputedDisplay"
+    | "navComputedZIndex"
+    | "navGapToLayoutBottom"
+    | "navGapToVisualBottom"
+    | "navDocumentTop"
+    | "navDocumentBottom"
+  >
+
+  if (nav) {
+    const rect = nav.getBoundingClientRect()
+    const computed = window.getComputedStyle(nav)
+    const parent = nav.parentElement
+    navGeometry = {
+      navParentTag: parent?.tagName ?? null,
+      navParentIsBody: parent === document.body,
+      navRectTop: rect.top,
+      navRectBottom: rect.bottom,
+      navRectLeft: rect.left,
+      navRectRight: rect.right,
+      navRectWidth: rect.width,
+      navRectHeight: rect.height,
+      navComputedPosition: computed.position,
+      navComputedTop: computed.top,
+      navComputedBottom: computed.bottom,
+      navComputedLeft: computed.left,
+      navComputedRight: computed.right,
+      navComputedTransform: computed.transform,
+      navComputedVisibility: computed.visibility,
+      navComputedDisplay: computed.display,
+      navComputedZIndex: computed.zIndex,
+      navGapToLayoutBottom: layoutViewportBottom - rect.bottom,
+      navGapToVisualBottom: visualViewportBottom - rect.bottom,
+      navDocumentTop: rect.top + window.scrollY,
+      navDocumentBottom: rect.bottom + window.scrollY,
+    }
+  } else {
+    navGeometry = {
+      navParentTag: null,
+      navParentIsBody: false,
+      navRectTop: null,
+      navRectBottom: null,
+      navRectLeft: null,
+      navRectRight: null,
+      navRectWidth: null,
+      navRectHeight: null,
+      navComputedPosition: null,
+      navComputedTop: null,
+      navComputedBottom: null,
+      navComputedLeft: null,
+      navComputedRight: null,
+      navComputedTransform: null,
+      navComputedVisibility: null,
+      navComputedDisplay: null,
+      navComputedZIndex: null,
+      navGapToLayoutBottom: null,
+      navGapToVisualBottom: null,
+      navDocumentTop: null,
+      navDocumentBottom: null,
+    }
+  }
+
   return {
     scrollY: window.scrollY,
     pageYOffset: window.pageYOffset,
@@ -106,6 +251,11 @@ function readMetrics(hasEditableFocus: boolean): Metrics {
     keyboardOpen: hasEditableFocus || keyboardFromViewport,
     path: window.location.pathname,
     timestamp: Date.now(),
+    navCount,
+    layoutViewportBottom,
+    visualViewportTop,
+    visualViewportBottom,
+    ...navGeometry,
   }
 }
 
@@ -114,20 +264,26 @@ function fmt(value: number | null): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+function fmtStr(value: string | null): string {
+  return value === null ? "UNAVAILABLE" : value
+}
+
 export function IOSRuntimeDebugPanel() {
   const [active, setActive] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [live, setLive] = useState<Metrics | null>(null)
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [events, setEvents] = useState<EventLogEntry[]>([])
+  const [navBaseline, setNavBaseline] = useState<NavBaseline>(null)
   const hasEditableFocusRef = useRef(false)
   const rafRef = useRef(0)
   const stabilizeRafRef = useRef(0)
 
   // Activation gate — client-only, never touches window/document on server.
   // setActive runs inside a deferred callback (not as a direct effect-body
-  // statement) — same idiom already used by src/components/shared/install-prompt.tsx
-  // for this exact "detect client-only condition, then flip state" shape.
+  // statement) — same idiom already used elsewhere in this codebase for
+  // this exact "detect client-only condition, then flip state" shape
+  // (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (typeof window === "undefined") return
     const params = new URLSearchParams(window.location.search)
@@ -163,9 +319,23 @@ export function IOSRuntimeDebugPanel() {
     const pushEvent = (name: string): Metrics => {
       const m = readMetrics(hasEditableFocusRef.current)
       setEvents((prev) =>
-        [...prev, { time: m.timestamp, event: name, scrollY: m.scrollY, vvOffsetTop: m.vvOffsetTop, vvHeight: m.vvHeight, innerHeight: m.innerHeight }].slice(
-          -MAX_EVENT_LOG
-        )
+        [
+          ...prev,
+          {
+            time: m.timestamp,
+            event: name,
+            scrollY: m.scrollY,
+            vvOffsetTop: m.vvOffsetTop,
+            vvHeight: m.vvHeight,
+            innerHeight: m.innerHeight,
+            navRectTop: m.navRectTop,
+            navRectBottom: m.navRectBottom,
+            navGapToLayoutBottom: m.navGapToLayoutBottom,
+            navGapToVisualBottom: m.navGapToVisualBottom,
+            navDocumentTop: m.navDocumentTop,
+            navCount: m.navCount,
+          },
+        ].slice(-MAX_EVENT_LOG)
       )
       return m
     }
@@ -276,6 +446,31 @@ export function IOSRuntimeDebugPanel() {
   const handleClear = () => {
     setSnapshots([])
     setEvents([])
+    setNavBaseline(null)
+  }
+
+  // Captures a manual NAV snapshot. Label is chosen automatically (no extra
+  // UI/dropdown, per instructions to keep the UI simple): the first capture
+  // becomes the baseline; later captures are labeled by whether the keyboard
+  // is currently open, so a sequence of taps tells the "before input / during
+  // keyboard / after keyboard" story without the user having to pick a label.
+  const handleCaptureNav = () => {
+    const m = readMetrics(hasEditableFocusRef.current)
+    let label: string
+    if (!navBaseline && m.navRectTop !== null) {
+      label = "NAV_BASELINE"
+      setNavBaseline({
+        rectTop: m.navRectTop,
+        rectBottom: m.navRectBottom ?? m.navRectTop,
+        gapLayout: m.navGapToLayoutBottom ?? 0,
+        gapVisual: m.navGapToVisualBottom ?? 0,
+        scrollY: m.scrollY,
+      })
+    } else {
+      label = m.keyboardOpen ? "NAV_SCROLL_KEYBOARD_OPEN" : "NAV_SCROLL_AFTER_KEYBOARD"
+    }
+    setSnapshots((prev) => [...prev, { ...m, label }])
+    setLive(m)
   }
 
   const handleCopy = () => {
@@ -283,6 +478,7 @@ export function IOSRuntimeDebugPanel() {
       note: "IOS-24 diagnostic — technical metrics only, no PII",
       iosdebug: "ON",
       live,
+      navBaseline,
       snapshots,
       events,
     }
@@ -319,8 +515,18 @@ export function IOSRuntimeDebugPanel() {
     padding: "2px 6px",
     fontSize: "10px",
     marginRight: "4px",
+    marginBottom: "4px",
     cursor: "pointer",
   }
+
+  const deltaRectTop = live && navBaseline && live.navRectTop !== null ? live.navRectTop - navBaseline.rectTop : null
+  const deltaRectBottom =
+    live && navBaseline && live.navRectBottom !== null ? live.navRectBottom - navBaseline.rectBottom : null
+  const deltaGapLayout =
+    live && navBaseline && live.navGapToLayoutBottom !== null ? live.navGapToLayoutBottom - navBaseline.gapLayout : null
+  const deltaGapVisual =
+    live && navBaseline && live.navGapToVisualBottom !== null ? live.navGapToVisualBottom - navBaseline.gapVisual : null
+  const deltaScrollY = live && navBaseline ? live.scrollY - navBaseline.scrollY : null
 
   return (
     <div style={panelStyle}>
@@ -336,6 +542,9 @@ export function IOSRuntimeDebugPanel() {
           <div style={{ marginBottom: "6px" }}>
             <button type="button" style={buttonStyle} onClick={handleClear}>
               Clear
+            </button>
+            <button type="button" style={buttonStyle} onClick={handleCaptureNav}>
+              Capture NAV
             </button>
             <button type="button" style={buttonStyle} onClick={handleCopy}>
               Copy diagnostic
@@ -364,11 +573,41 @@ path=${live.path}`}
             </div>
           )}
 
+          {live && (
+            <div style={{ whiteSpace: "pre", marginBottom: "6px", borderTop: "1px solid #444", paddingTop: "4px" }}>
+              {`--- NAV geometry ---
+navCount=${live.navCount}
+navParentTag=${fmtStr(live.navParentTag)}
+navParentIsBody=${live.navParentIsBody}
+navRect: top=${fmt(live.navRectTop)} bottom=${fmt(live.navRectBottom)} left=${fmt(live.navRectLeft)} right=${fmt(live.navRectRight)} w=${fmt(live.navRectWidth)} h=${fmt(live.navRectHeight)}
+navComputed: position=${fmtStr(live.navComputedPosition)} top=${fmtStr(live.navComputedTop)} bottom=${fmtStr(live.navComputedBottom)} left=${fmtStr(live.navComputedLeft)} right=${fmtStr(live.navComputedRight)}
+navComputed: transform=${fmtStr(live.navComputedTransform)}
+navComputed: visibility=${fmtStr(live.navComputedVisibility)} display=${fmtStr(live.navComputedDisplay)} zIndex=${fmtStr(live.navComputedZIndex)}
+layoutViewportBottom=${live.layoutViewportBottom}
+visualViewportTop=${fmt(live.visualViewportTop)} visualViewportBottom=${fmt(live.visualViewportBottom)}
+navGapToLayoutBottom=${fmt(live.navGapToLayoutBottom)}
+navGapToVisualBottom=${fmt(live.navGapToVisualBottom)}
+navDocumentTop=${fmt(live.navDocumentTop)} navDocumentBottom=${fmt(live.navDocumentBottom)}`}
+            </div>
+          )}
+
+          {navBaseline && (
+            <div style={{ whiteSpace: "pre", marginBottom: "6px", borderTop: "1px solid #444", paddingTop: "4px" }}>
+              {`--- NAV baseline/delta ---
+navBaselineRectTop=${navBaseline.rectTop} navBaselineRectBottom=${navBaseline.rectBottom}
+navBaselineGapLayout=${navBaseline.gapLayout} navBaselineGapVisual=${navBaseline.gapVisual}
+navBaselineScrollY=${navBaseline.scrollY}
+navDeltaRectTop=${fmt(deltaRectTop)} navDeltaRectBottom=${fmt(deltaRectBottom)}
+navDeltaGapLayout=${fmt(deltaGapLayout)} navDeltaGapVisual=${fmt(deltaGapVisual)}
+navDeltaScrollY=${fmt(deltaScrollY)}`}
+            </div>
+          )}
+
           <div style={{ color: "#fff", marginBottom: "2px" }}>Snapshots ({snapshots.length})</div>
           <div style={{ maxHeight: "120px", overflowY: "auto", marginBottom: "6px" }}>
             {snapshots.map((s, i) => (
               <div key={`${s.label}-${s.timestamp}-${i}`}>
-                {s.label}: y={s.scrollY} vvTop={fmt(s.vvOffsetTop)} vvH={fmt(s.vvHeight)} kb={String(s.keyboardOpen)}
+                {s.label}: y={s.scrollY} vvTop={fmt(s.vvOffsetTop)} vvH={fmt(s.vvHeight)} kb={String(s.keyboardOpen)} navTop={fmt(s.navRectTop)} navGapV={fmt(s.navGapToVisualBottom)}
               </div>
             ))}
           </div>
@@ -377,7 +616,7 @@ path=${live.path}`}
           <div style={{ maxHeight: "140px", overflowY: "auto" }}>
             {events.map((e, i) => (
               <div key={`${e.event}-${e.time}-${i}`}>
-                {e.event}: y={e.scrollY} vvTop={fmt(e.vvOffsetTop)} vvH={fmt(e.vvHeight)} ih={e.innerHeight}
+                {e.event}: y={e.scrollY} vvTop={fmt(e.vvOffsetTop)} vvH={fmt(e.vvHeight)} ih={e.innerHeight} navTop={fmt(e.navRectTop)} navGapV={fmt(e.navGapToVisualBottom)} navN={e.navCount}
               </div>
             ))}
           </div>

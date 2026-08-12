@@ -51,7 +51,13 @@ describe("IOS-24-RUNTIME-DIAGNOSTIC — contrato estático del panel de diagnós
   test("E. el panel no usa transform/translate para su propio posicionamiento (position: fixed sin transform)", () => {
     const source = readFileSync(PANEL, "utf-8")
     expect(source).toContain('position: "fixed"')
-    expect(source).not.toMatch(/transform\s*:/i)
+    // Se aísla el objeto panelStyle (el shell fixed real) del resto del
+    // archivo — IOS-24-NAV-RUNTIME-DIAGNOSTIC agregó campos de datos como
+    // `navComputedTransform` (lectura diagnóstica del transform del NAV,
+    // no del propio panel), que de otro modo coincidirían con un grep global.
+    const panelStyleMatch = source.match(/const panelStyle: CSSProperties = \{([\s\S]*?)\n  \}/)
+    expect(panelStyleMatch).not.toBeNull()
+    expect(panelStyleMatch?.[1] ?? "").not.toMatch(/\btransform\s*:/i)
   })
 
   test("F. el panel no muestra el valor/contenido del input enfocado, sólo tag/type", () => {
@@ -98,5 +104,53 @@ describe("IOS-24-RUNTIME-DIAGNOSTIC — contrato estático del panel de diagnós
   test("K. globals.css no fue modificado para el panel (estilos inline en el propio componente)", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     expect(css).not.toMatch(/iosdebug|ios-runtime-debug/i)
+  })
+
+  test("L. IOS-24-NAV-RUNTIME-DIAGNOSTIC: localiza el nav exclusivamente vía la clase productiva existente .ios-bottom-nav, sin agregar clase/id nuevo", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain('".ios-bottom-nav"')
+    expect(source).not.toMatch(/data-ios-?debug|ios-nav-debug-id/i)
+  })
+
+  test("M. el panel nunca escribe en el/los nodo(s) del nav (sólo querySelectorAll/getBoundingClientRect/getComputedStyle — lectura pura)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).not.toMatch(/nav\.style\.|nav\.classList|navs?\[\d+\]\.style|navs?\[\d+\]\.classList|\.setAttribute\(/)
+  })
+
+  test("N. usa getBoundingClientRect para la geometría real del nav", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("getBoundingClientRect")
+  })
+
+  test("O. usa getComputedStyle de forma read-only para el nav", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("getComputedStyle")
+  })
+
+  test("P. calcula navGapToLayoutBottom (distancia real al layout viewport)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("navGapToLayoutBottom")
+  })
+
+  test("Q. calcula navGapToVisualBottom (distancia real al visual viewport)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("navGapToVisualBottom")
+  })
+
+  test("R. calcula navDocumentTop/navDocumentBottom (posición documental derivada, rect + scrollY)", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toContain("navDocumentTop")
+    expect(source).toMatch(/navDocumentTop:\s*rect\.top\s*\+\s*window\.scrollY/)
+  })
+
+  test("S. mide navCount para detectar duplicación de portales/instancias", () => {
+    const source = readFileSync(PANEL, "utf-8")
+    expect(source).toMatch(/navCount\s*[,:]/)
+    expect(source).toContain("querySelectorAll")
+  })
+
+  test("T. BottomNav sigue sin ningún cambio (sin diff productivo esperado en esta tarea)", () => {
+    const source = readFileSync(BOTTOM_NAV, "utf-8")
+    expect(source).not.toMatch(/ios-runtime-debug|iosdebug/i)
   })
 })
