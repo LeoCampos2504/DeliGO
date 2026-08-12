@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 import { Home, ClipboardList, Heart, Tag, User } from "lucide-react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
@@ -15,36 +17,60 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
 ]
 
 /**
- * BottomNav — Pure CSS-driven keyboard handling.
+ * BottomNav — floating dock, portaled to document.body.
  *
- * NO inline style manipulation, NO useEffect for keyboard detection,
- * NO manual position: absolute hacks.
+ * IOS-24-NAV-DOCK: this used to render as a descendant deep inside
+ * src/app/cliente/page.tsx's scrollable subtree. On iPhone, manual scroll
+ * (no keyboard involved at all) could visually detach it from the bottom
+ * of the screen — a residual symptom left after IOS-24-POSITION-FIX, which
+ * fixed keyboard-driven scroll but not this. Portaling to document.body
+ * removes it from that subtree entirely and gives it the viewport as its
+ * containing block. This is NOT presented as a magic WebKit fix — portal-
+ * to-body alone did NOT fix the old Chat bug (see IOS-24-RESIDUAL-SCROLL-
+ * AUDIT), which needed the real position-restore logic in
+ * src/components/pwa/ios-keyboard-fix.tsx. Here it's used specifically to
+ * isolate the nav from Cliente's content subtree.
  *
- * The global IOSKeyboardFix component adds `ios-keyboard-open` to <html>/<body>
- * when the virtual keyboard is open on iOS. CSS rules in globals.css use that
- * class to hide this nav with transform + pointer-events.
- *
- * This component is stateless — it only renders the nav and lets CSS do the rest.
+ * The bottom gap (safe-area + a constant 8px) is an intentional design
+ * choice, never a keyboard-height compensation — it never reads
+ * `--visual-viewport-height`, `--ios-keyboard-offset`, or `window.scrollY`.
+ * Keyboard-open handling stays exactly as IOS-24-FIX-A left it:
+ * `visibility:hidden` + `pointer-events:none` via the
+ * `.ios-keyboard-open .ios-bottom-nav` rule in globals.css — no transform,
+ * no JS keyboard detection here. z-40 (not z-50) is deliberate: Chat's
+ * Sheet/Radix dialogs render at z-50, so the dock always stacks below them
+ * regardless of portal mount order.
  */
 export function BottomNav() {
   const { isAuthenticated, userType } = useAuthStore()
   const { activeTab, setActiveTab } = useNavStore()
+  const [mounted, setMounted] = useState(false)
 
-  // Only show for logged-in clients
-  if (!isAuthenticated() || userType() !== "cliente") return null
+  useEffect(() => {
+    // setMounted runs inside a deferred callback (not as a direct effect-body
+    // statement) — same idiom already used elsewhere in this codebase for
+    // this exact "detect client-only condition, then flip state" shape
+    // (react-hooks/set-state-in-effect).
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
-  return (
+  // Only show for logged-in clients, and only once mounted on the client —
+  // document.body isn't available during SSR, and gating on `mounted` keeps
+  // the first client render identical to the server render (both render
+  // nothing), avoiding a hydration mismatch.
+  if (!mounted || !isAuthenticated() || userType() !== "cliente") return null
+
+  const dock = (
     <nav
       className={cn(
         "ios-bottom-nav",
-        "fixed bottom-0 left-0 right-0 z-50",
-        "bg-card/95 backdrop-blur-md border-t border-border",
-        "pb-safe",
-        "supports-[backdrop-filter]:bg-card/80",
-        "transition-transform duration-200 ease-in-out"
+        "fixed z-40 left-3 right-3 mx-auto max-w-lg",
+        "bottom-[calc(env(safe-area-inset-bottom,0px)+8px)]",
+        "bg-card border border-border rounded-3xl shadow-lg overflow-hidden"
       )}
     >
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
+      <div className="flex items-center justify-around h-16">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id
           const Icon = tab.icon
@@ -74,4 +100,6 @@ export function BottomNav() {
       </div>
     </nav>
   )
+
+  return createPortal(dock, document.body)
 }

@@ -184,7 +184,7 @@ export function ClientProfilePanel() {
       <ProfileHeader perfil={perfil} initials={initials} />
 
       {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 pb-24 space-y-3">
+      <div className="max-w-2xl mx-auto px-4 pb-28 space-y-3">
         {/* Stats */}
         <StatsRow perfil={perfil} />
 
@@ -1704,7 +1704,7 @@ function ProfileSkeleton() {
         ))}
       </div>
       {/* Sections skeleton */}
-      <div className="max-w-2xl mx-auto px-4 pb-24 space-y-3 mt-3">
+      <div className="max-w-2xl mx-auto px-4 pb-28 space-y-3 mt-3">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="h-32 rounded-xl bg-muted/50 border border-border/30" />
         ))}

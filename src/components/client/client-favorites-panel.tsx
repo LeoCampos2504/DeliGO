@@ -116,7 +116,7 @@ export function ClientFavoritesPanel() {
       </div>
 
       {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 pt-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 pt-4 pb-28">
         {isLoading ? (
           <FavoritesSkeleton />
         ) : favoritos.length === 0 ? (

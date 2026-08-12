@@ -308,7 +308,7 @@ export function ClientOrdersPanel() {
       <OrdersHeader />
 
       {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 pb-28">
         {/* Tab switcher */}
         <div className="flex items-center gap-1 bg-muted rounded-xl p-1 mb-4">
           <button
@@ -1603,7 +1603,7 @@ function OrdersSkeleton() {
           <div className="mt-2 h-3 w-44 rounded bg-white/5" />
         </div>
       </div>
-      <div className="max-w-2xl mx-auto px-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 pb-28">
         <div className="flex gap-1 bg-muted rounded-xl p-1 mb-4">
           <div className="flex-1 h-9 rounded-lg bg-background/50" />
           <div className="flex-1 h-9 rounded-lg" />

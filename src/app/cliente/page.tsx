@@ -978,9 +978,12 @@ function HomePageContent() {
           </div>
         </div>
 
-        {/* Bottom spacer for nav — accounts for safe area on iPhone */}
+        {/* Bottom spacer for the floating nav dock — accounts for its height
+            (h-16) + the safe-area/gap it now floats above (IOS-24-NAV-DOCK).
+            Previously used the class "h-bottom-nav-spacer", which had no
+            matching CSS rule anywhere (dead — the div had zero height). */}
         {isAuthenticated() && userType() === "cliente" && (
-          <div className="h-bottom-nav-spacer" />
+          <div className="h-28" />
         )}
       </main>
 

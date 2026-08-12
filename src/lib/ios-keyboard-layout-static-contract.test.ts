@@ -29,9 +29,9 @@ describe("IOS-24-FIX-A — contrato estático de arquitectura del layout iOS", (
     expect(source).not.toContain("ios-viewport-height")
   })
 
-  test("C. BottomNav sigue siendo fixed bottom-0 (no se cambió el positioning en FIX-A)", () => {
+  test("C. BottomNav sigue siendo position:fixed (FIX-A no tocó esto; IOS-24-NAV-DOCK después cambió bottom-0 por un gap de diseño, ver ios-nav-dock-static-contract.test.ts)", () => {
     const source = readFileSync(BOTTOM_NAV, "utf-8")
-    expect(source).toContain("fixed bottom-0")
+    expect(source).toMatch(/\bfixed\b/)
   })
 
   test("D. la regla de .ios-keyboard-open para .ios-bottom-nav no usa transform/translate", () => {

@@ -227,7 +227,7 @@ export function ClientPromosPanel({ deliveryPrecios, hasDeliveryAddress }: Clien
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 -mt-4 space-y-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 -mt-4 space-y-4 pb-28">
         {/* Stats bar */}
         <motion.div
           initial={{ y: 20, opacity: 0 }}
@@ -509,7 +509,7 @@ function PromosSkeleton() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 -mt-4 space-y-4 pb-24">
+      <div className="max-w-2xl mx-auto px-4 -mt-4 space-y-4 pb-28">
         {/* Stats skeleton */}
         <div className="h-16 rounded-xl bg-muted/50 border border-border/30" />
 
