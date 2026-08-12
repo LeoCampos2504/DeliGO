@@ -73,9 +73,18 @@ describe("IOS-24-RUNTIME-DIAGNOSTIC — contrato estático del panel de diagnós
     expect(source).toContain("<IOSKeyboardFix />")
   })
 
-  test("I. IOSKeyboardFix no fue modificado (sigue sin restaurar scroll/posición — el diagnóstico no lo tocó)", () => {
+  test("I. IOSKeyboardFix (fase IOS-24-POSITION-FIX): la restauración de scroll que agrega no usa scrollTo(0,0) hardcodeado ni un setTimeout ciego como mecanismo de espera", () => {
+    // Nota: esta aserción cambió respecto de la fase de instrumentación
+    // (donde exigía "IOSKeyboardFix sin cambios") — esa premisa quedó
+    // obsoleta a propósito en IOS-24-POSITION-FIX, que extiende el mismo
+    // archivo para restaurar la posición real pre-focus. Lo que sigue
+    // protegido aquí es que la extensión no reintroduzca los antipatrones
+    // ya rechazados (scrollTo(0,0) fijo, setTimeout ciego).
     const source = readFileSync(IOS_KEYBOARD_FIX, "utf-8")
-    expect(source).not.toMatch(/scrollTo|scrollY|scrollTop/)
+    expect(source).toMatch(/scrollTo|preFocusScrollY/)
+    expect(source).not.toMatch(/scrollTo\(\s*\{\s*top:\s*0\s*,/)
+    expect(source).not.toMatch(/scrollTo\(\s*0\s*,\s*0\s*\)/)
+    expect(source).not.toMatch(/setTimeout/)
   })
 
   test("J. BottomNav, ChatSheet, ChatView, sheet.tsx no mencionan el panel de diagnóstico ni fueron acoplados a él", () => {
