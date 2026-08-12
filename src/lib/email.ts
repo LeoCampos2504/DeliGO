@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto"
 import { Resend } from "resend"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
 // Email Configuration - Resend API
@@ -41,6 +42,17 @@ const APP_URL = resolvePublicOrigin()
 const EMAIL_ENABLED = !!RESEND_API_KEY
 
 const resend = EMAIL_ENABLED ? new Resend(RESEND_API_KEY) : null
+
+// GLOBAL-LOGS-PII-1: mismo criterio de enmascarado que ya usan las páginas
+// cliente ("j***n@example.com") — nunca el email completo en logs runtime,
+// aunque sí se sigue enviando completo al provider (Resend) y al propio
+// destinatario en el cuerpo del email.
+export function maskEmailForLog(email: string): string {
+  const [local, domain] = email.split("@")
+  if (!local || !domain) return "***"
+  if (local.length <= 2) return `${local[0]}***@${domain}`
+  return `${local[0]}***${local[local.length - 1]}@${domain}`
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -155,9 +167,12 @@ Si no creaste esta cuenta, ignorá este email.
   `
 
   if (!EMAIL_ENABLED || !resend) {
-    // In development, log the verification link instead of sending
-    console.log(`\n📧 [EMAIL DEV MODE] Verification email for ${email} (${userType})`)
-    console.log(`   Verification URL: ${verificationUrl}\n`)
+    // GLOBAL-LOGS-PII-1B: nunca imprimir la URL/token de verificación, ni
+    // siquiera en modo desarrollo — un log compartido, CI, terminal history
+    // o captura de pantalla puede exponerlo igual que en producción. Antes
+    // se imprimía la URL completa acá; ahora sólo una señal de que el envío
+    // fue simulado, sin URL ni token.
+    console.log(`[Email] Verification email simulated (dev mode) for ${maskEmailForLog(email)} (${userType})`)
     return true
   }
 
@@ -171,14 +186,14 @@ Si no creaste esta cuenta, ignorá este email.
     })
 
     if (error) {
-      console.error(`[Email] Resend API error sending verification to ${email}:`, error)
+      console.error(`[Email] Resend API error sending verification to ${maskEmailForLog(email)}:`, safeErrorForLog(error))
       return false
     }
 
-    console.log(`[Email] Verification sent to ${email}: ${data?.id}`)
+    console.log(`[Email] Verification sent to ${maskEmailForLog(email)}: ${data?.id}`)
     return true
   } catch (error) {
-    console.error(`[Email] Failed to send verification to ${email}:`, error)
+    console.error(`[Email] Failed to send verification to ${maskEmailForLog(email)}:`, safeErrorForLog(error))
     return false
   }
 }
@@ -228,14 +243,14 @@ export async function sendPasswordResetEmail(
     })
 
     if (error) {
-      console.error("[Email] Resend API error sending password reset:", error)
+      console.error("[Email] Resend API error sending password reset:", safeErrorForLog(error))
       return false
     }
 
     console.log(`[Email] Password reset sent: ${data?.id}`)
     return true
   } catch (error) {
-    console.error("[Email] Failed to send password reset:", error)
+    console.error("[Email] Failed to send password reset:", safeErrorForLog(error))
     return false
   }
 }

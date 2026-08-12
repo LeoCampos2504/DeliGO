@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
     // antes de este cambio, nunca uno nuevo.
     return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
-    console.error("Error listing empleados:", error)
+    console.error("Error listing empleados:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al obtener empleados" },
       { status: 500 }
@@ -194,7 +195,10 @@ export async function POST(req: NextRequest) {
     })
 
     // Audit log
-    await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.creado", recurso: "empleado", recursoId: empleado.id, detalle: { nombre: empleado.nombre, codigo: empleado.codigo } })
+    // GLOBAL-LOGS-PII-1: `codigo` es el identificador operativo con el que
+    // se busca al empleado desde un endpoint público (by-codigo) — nunca se
+    // persiste en el registro de auditoría, sólo el nombre.
+    await auditLog({ userId: negocioId, userType: "negocio", accion: "empleado.creado", recurso: "empleado", recursoId: empleado.id, detalle: { nombre: empleado.nombre } })
 
     // Auditar la asignación de área cuando se crea con un área concreta (sin datos sensibles).
     if (areaOperativa !== "sin_asignar") {
@@ -203,7 +207,7 @@ export async function POST(req: NextRequest) {
 
     return noStoreJson(serializeEmpleado(empleado), { status: 201 })
   } catch (error) {
-    console.error("Error creating empleado:", error)
+    console.error("Error creating empleado:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al crear empleado" },
       { status: 500 }

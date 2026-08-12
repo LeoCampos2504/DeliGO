@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
@@ -86,7 +87,11 @@ export async function GET(req: NextRequest) {
     })
 
     if (!tokenResponse.ok) {
-      console.error("Google token exchange failed:", await tokenResponse.text())
+      // GLOBAL-LOGS-PII-1: nunca el body crudo de la respuesta de Google
+      // (mismo criterio ya aplicado en operativo/auth/google/callback) — sólo
+      // el status, suficiente para diagnosticar sin arriesgar datos echoed
+      // por el proveedor.
+      console.error(`Google token exchange failed (status=${tokenResponse.status})`)
       return errorRedirect("token_exchange")
     }
 
@@ -98,7 +103,9 @@ export async function GET(req: NextRequest) {
     })
 
     if (!userResponse.ok) {
-      console.error("Google user info failed:", await userResponse.text())
+      // GLOBAL-LOGS-PII-1: idem — nunca el body crudo (podría incluir datos
+      // de perfil parcialmente ecoados por Google en el error).
+      console.error(`Google user info failed (status=${userResponse.status})`)
       return errorRedirect("user_info")
     }
 
@@ -221,7 +228,7 @@ export async function GET(req: NextRequest) {
 
     return response
   } catch (error) {
-    console.error("Google OAuth callback error:", error)
+    console.error("Google OAuth callback error:", safeErrorForLog(error))
 
     const role =
       req.cookies.get("google_oauth_role")?.value === "repartidor"

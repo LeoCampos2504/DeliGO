@@ -6,6 +6,7 @@ import { validateOptionalImageUrl } from "@/lib/resource-url"
 import { desactivarSalonSiPermitido } from "@/lib/negocio-salon"
 import { mensajeBloqueoDesactivacionSalon } from "@/lib/negocio-salon-contract"
 import { tieneAlMenosUnCanalDePedido, SIN_CANALES_PEDIDO_ERROR } from "@/lib/negocio-canales-pedido"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: respuesta de config de negocio nunca debe quedar en caché
 // (propia del navegador o de un proxy intermedio) — contiene datos privados
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
 
     return noStoreJson(safeData)
   } catch (error) {
-    console.error("Error getting config:", error)
+    console.error("Error getting config:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al obtener configuración" },
       { status: 500 }
@@ -260,7 +261,7 @@ export async function PUT(req: NextRequest) {
 
     return noStoreJson(safeData)
   } catch (error) {
-    console.error("Error updating config:", error)
+    console.error("Error updating config:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al actualizar configuración" },
       { status: 500 }
@@ -486,7 +487,11 @@ export async function PATCH(req: NextRequest) {
     })
 
     // Audit log
-    await auditLog({ userId: negocioId, userType: "negocio", accion: "negocio.config_cambiada", recurso: "negocio", recursoId: negocioId, detalle: { cambios: body } })
+    // GLOBAL-LOGS-PII-1: nunca persistir el body crudo — puede incluir
+    // `repartidorCodigo` (código operativo de acceso) u otros valores que no
+    // deben quedar en un registro de auditoría de largo plazo. Sólo se
+    // guarda QUÉ campos cambiaron, nunca los valores.
+    await auditLog({ userId: negocioId, userType: "negocio", accion: "negocio.config_cambiada", recurso: "negocio", recursoId: negocioId, detalle: { camposActualizados: Object.keys(updateData) } })
 
     // Parse JSON fields for response
     const parsed = {
@@ -507,7 +512,7 @@ export async function PATCH(req: NextRequest) {
 
     return noStoreJson(safeData)
   } catch (error) {
-    console.error("Error patching config:", error)
+    console.error("Error patching config:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al actualizar configuración" },
       { status: 500 }

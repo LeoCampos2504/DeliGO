@@ -4,6 +4,7 @@
 // VAPID-based web push notifications + DB persistence
 
 import webpush from "web-push"
+import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // VAPID keys - generate once and store in env vars
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ""
@@ -249,7 +250,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
       },
     })
   } catch (error) {
-    console.error("[Notificacion] Error persisting notification:", error)
+    console.error("[Notificacion] Error persisting notification:", safeErrorForLog(error))
     // Don't fail the whole operation if DB write fails
   }
 
@@ -264,12 +265,12 @@ export async function createNotification(params: CreateNotificationParams): Prom
           console.warn(`[Push] sendPushNotification returned false for tipo=${tipo} userId=${userId} (VAPID not configured or subscription expired)`)
         }
       } catch (err) {
-        console.error(`[Push] Error sending push notification (tipo=${tipo} userId=${userId}):`, err)
+        console.error(`[Push] Error sending push notification (tipo=${tipo} userId=${userId}):`, safeErrorForLog(err))
       }
     } else {
       // Fire-and-forget (default for non-critical notifications)
       pushPromise.catch((err) => {
-        console.error("[Push] Error sending push notification:", err)
+        console.error("[Push] Error sending push notification:", safeErrorForLog(err))
       })
     }
   }
@@ -296,9 +297,13 @@ export async function sendPushNotification(
     return true
   } catch (error: unknown) {
     const err = error as { statusCode?: number; message?: string; body?: string }
-    const endpoint = cleanupExpired?.suppressEndpointLog
-      ? "suppressed"
-      : subscription?.endpoint || "unknown"
+    // GLOBAL-LOGS-PII-1: el endpoint de push es, en la práctica, un
+    // identificador de dispositivo de larga duración (equivalente a una
+    // credencial del canal push de ese browser/device) — nunca se imprime
+    // raw acá, sin importar el caller. `suppressEndpointLog` sigue
+    // controlando el detalle adicional (mensaje/body del proveedor) para
+    // rutas que ya optaban por un modo aún más estricto.
+    const endpoint = "redacted"
     // 410 = subscription expired, 404 = subscription gone
     if (err.statusCode === 410 || err.statusCode === 404) {
       console.log(`[Push] Subscription expired (statusCode=${err.statusCode}, endpoint=${endpoint}), should be removed`)
@@ -333,7 +338,7 @@ export async function sendPushNotification(
             console.log(`[Push] Cleaned up expired subscription for ${cleanupExpired.model}:${cleanupExpired.id} (field=${fieldToClear})`)
           }
         } catch (cleanupError) {
-          console.error("[Push] Failed to cleanup expired subscription:", cleanupError)
+          console.error("[Push] Failed to cleanup expired subscription:", safeErrorForLog(cleanupError))
         }
       }
       return false
@@ -344,8 +349,11 @@ export async function sendPushNotification(
       `[Push] Error sending notification (statusCode=${err.statusCode}, endpoint=${endpoint}):`,
       cleanupExpired?.suppressEndpointLog ? "details suppressed" : err.message || error
     )
-    if (err.body && !cleanupExpired?.suppressEndpointLog) {
-      console.error(`[Push] Response body:`, err.body)
+    // GLOBAL-LOGS-PII-1: el body crudo de la respuesta del proveedor puede
+    // incluir el endpoint/subscription material (según el comentario
+    // original de esta función) — nunca se imprime, sin importar el caller.
+    if (err.body) {
+      console.error(`[Push] Response body received (length=${err.body.length}), withheld from logs`)
     }
     return false
   }
