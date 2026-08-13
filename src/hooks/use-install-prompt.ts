@@ -201,13 +201,14 @@ export function useInstallPrompt() {
     prompt.prompt()
     const { outcome } = await prompt.userChoice
 
+    // The deferred prompt can never be reused either way, but "accepted"
+    // only means the user confirmed the OS dialog — Android can still take
+    // a while to actually finish installing. isInstalledValue must stay
+    // false until the authoritative `appinstalled` event fires (module-level
+    // listener below); setting it here caused "App instalada" to appear
+    // before the install had actually completed.
     deferredPromptValue = null
     promptListeners.forEach((l) => l())
-
-    if (outcome === "accepted") {
-      isInstalledValue = true
-      installedListeners.forEach((l) => l())
-    }
 
     return outcome === "accepted"
   }, [])

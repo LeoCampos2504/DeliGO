@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Download, X, Share, Smartphone, ChevronRight, ChevronDown, ShieldCheck, Wifi, Globe, Chrome, MoreVertical } from "lucide-react"
@@ -33,14 +33,19 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const successShownRef = useRef(false)
 
   const role = getRoleFromPath(pathname)
   const config = getRoleConfig(role)
 
-  // Listen for appinstalled to show success state
+  // Listen for appinstalled — the authoritative, OS-confirmed install event —
+  // to show the success state exactly once, even if the event fires more
+  // than once for this mount.
   useEffect(() => {
     if (typeof window === "undefined") return
     const handler = () => {
+      if (successShownRef.current) return
+      successShownRef.current = true
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 3000)
     }
