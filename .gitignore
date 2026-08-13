@@ -17,3 +17,10 @@ uploads/
 *.db
 *.db-journal
 db/
+
+# OBSERVABILITY + LOAD/PERFORMANCE CERTIFICATION — artifacts generados por
+# cada run (summary/manifest/human-report/etc.). El harness (load-tests/**/*.js,
+# load-tests/**/*.ts) SÍ se versiona — sólo los resultados quedan ignorados.
+# Los runtime secrets (tokens crudos) nunca están acá — viven fuera del repo,
+# en %TEMP%\deligo-loadcert\<runId>\.
+/load-tests/results/
