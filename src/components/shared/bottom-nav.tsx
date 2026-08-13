@@ -34,6 +34,14 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
  * The bottom gap (safe-area + a constant 8px) is an intentional design
  * choice, never a keyboard-height compensation — it never reads
  * `--visual-viewport-height`, `--ios-keyboard-offset`, or `window.scrollY`.
+ * The class below (`bottom-[calc(env(safe-area-inset-bottom,0px)+8px)]`) is
+ * the base/default value. IOS-24-NAV-SAFEAREA-STABILITY found, via the
+ * runtime diagnostic panel on a real device, that this dynamic env() value
+ * itself changes at runtime on iOS Safari (8px vs 42px total, observed),
+ * moving the dock. For iOS only, a higher-specificity CSS rule in
+ * globals.css (`body.ios-device .ios-bottom-nav`) overrides `bottom` with a
+ * static safe-area footprint instead — this file does not need a JS
+ * conditional for that; non-iOS keeps using the class below unmodified.
  * Keyboard-open handling stays exactly as IOS-24-FIX-A left it:
  * `visibility:hidden` + `pointer-events:none` via the
  * `.ios-keyboard-open .ios-bottom-nav` rule in globals.css — no transform,

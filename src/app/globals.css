@@ -306,6 +306,32 @@ body.ios-device.ios-keyboard-open .ios-bottom-nav {
   pointer-events: none !important;
 }
 
+/* ─── iOS bottom nav: stable bottom offset ───
+   IOS-24-NAV-SAFEAREA-STABILITY: the runtime diagnostic panel (real device)
+   ruled out portal duplication, wrong parent, lost position:fixed, and shell
+   transform as causes of nav drift — navCount=1, navParentIsBody=true,
+   navComputedPosition=fixed, navComputedTransform=none. The actual cause:
+   env(safe-area-inset-bottom) itself is not constant on iOS Safari — it
+   changed at runtime between two real states (8px and 42px total bottom,
+   a 34px swing), moving the dock's own `bottom` value. This is unrelated to
+   the keyboard: --ios-keyboard-offset/--visual-viewport-height are not read
+   here, and this rule never applies while .ios-keyboard-open (that state
+   hides the nav entirely via the rule above).
+   Fix: for iOS only, replace the dynamic inset with a static footprint —
+   env(safe-area-max-inset-bottom, 34px). If a browser doesn't expose that
+   env var, env() falls back to the literal 34px, which is the real maximum
+   safe-area-inset-bottom footprint already measured on the diagnosed
+   device — not a guess, and never meant to represent keyboard height.
+   The 8px design gap is unchanged and still the only spacing on top of the
+   safe area. Higher selector specificity (body.ios-device .ios-bottom-nav)
+   overrides the base Tailwind bottom-[...] utility on <nav> without
+   !important; non-iOS keeps that dynamic base class untouched. This is the
+   single source for the dock's bottom position on iOS — nothing else in
+   this file or in bottom-nav.tsx sets `bottom` for .ios-bottom-nav. ─── */
+body.ios-device .ios-bottom-nav {
+  bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px);
+}
+
 /* ─── iOS viewport height — use instead of h-screen / 100vh ───
    IOS-24-FIX-A: root layout and Chat/Sidebar/Orders sheets no longer use
    this — they rely on native 100dvh instead, since --visual-viewport-height

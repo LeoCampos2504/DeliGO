@@ -9,6 +9,14 @@
 // backdrop-filter, y que el resto de IOS-24 (IOSKeyboardFix, Chat) sigue
 // intacto. Lectura de texto, no un parser de TSX completo.
 // REAL_IPHONE_VERIFICATION_REQUIRED=SI
+//
+// IOS-24-NAV-SAFEAREA-STABILITY añadió los tests L-R: protegen que iOS use
+// una huella de safe-area ESTÁTICA (env(safe-area-max-inset-bottom, 34px))
+// para el `bottom` del dock en lugar de la safe-area dinámica directa, que
+// el gap de diseño de 8px se mantenga, que la regla esté scopeada a
+// body.ios-device (no-iOS conserva el comportamiento dinámico anterior), y
+// que siga habiendo una sola fuente para el `bottom` del nav (sin
+// pb-safe/mb-safe duplicados en el componente).
 
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "fs"
@@ -88,7 +96,7 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(ruleBody).toMatch(/visibility\s*:\s*hidden/)
   })
 
-  test("I. no se reintroduce padding-bottom global (globals.css sin tocar por esta tarea)", () => {
+  test("I. no se reintroduce padding-bottom global en body.ios-device > div:first-child", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     const firstChildRuleStart = css.indexOf("body.ios-device > div:first-child")
     expect(firstChildRuleStart).toBeGreaterThan(-1)
@@ -108,6 +116,61 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
       const source = readFileSync(file, "utf-8")
       expect(source).not.toMatch(/bottom-nav|createPortal/)
     }
+  })
+
+  test("L. iOS usa una huella de safe-area ESTÁTICA para el bottom del dock: env(safe-area-max-inset-bottom, 34px)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    const ruleStart = css.indexOf("body.ios-device .ios-bottom-nav {")
+    expect(ruleStart).toBeGreaterThan(-1)
+    const ruleEnd = css.indexOf("}", ruleStart)
+    const ruleBody = css.slice(ruleStart, ruleEnd)
+    expect(ruleBody).toMatch(/env\(safe-area-max-inset-bottom,\s*34px\)/)
+  })
+
+  test("M. la regla estática de iOS mantiene el gap de diseño de 8px", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    const ruleStart = css.indexOf("body.ios-device .ios-bottom-nav {")
+    const ruleEnd = css.indexOf("}", ruleStart)
+    const ruleBody = css.slice(ruleStart, ruleEnd)
+    expect(ruleBody).toMatch(/\+\s*8px/)
+  })
+
+  test("N. la regla estática de iOS está scopeada a body.ios-device (no aplica a no-iOS) y no usa !important", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    const ruleStart = css.indexOf("body.ios-device .ios-bottom-nav {")
+    const ruleEnd = css.indexOf("}", ruleStart)
+    const ruleBody = css.slice(ruleStart, ruleEnd)
+    expect(ruleBody).not.toMatch(/!important/)
+    // el selector no debe ser un selector global (":root", "*", o sin scope)
+    const selectorLine = css.slice(0, ruleStart).split("\n").pop() ?? ""
+    expect(selectorLine + css.slice(ruleStart, ruleStart + 5)).not.toMatch(/^\s*(:root|\*)\s/)
+  })
+
+  test("O. la regla estática de iOS no depende de teclado/viewport-visual (no es un offset de teclado)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    const ruleStart = css.indexOf("body.ios-device .ios-bottom-nav {")
+    const ruleEnd = css.indexOf("}", ruleStart)
+    const ruleBody = css.slice(ruleStart, ruleEnd)
+    expect(ruleBody).not.toMatch(/--ios-keyboard-offset|--visual-viewport-height|--visual-viewport-offset-top/)
+  })
+
+  test("P. no-iOS conserva la safe-area dinámica: la clase base en bottom-nav.tsx sigue usando env(safe-area-inset-bottom) sin condicional JS", () => {
+    const source = readFileSync(BOTTOM_NAV, "utf-8")
+    expect(source).toContain("bottom-[calc(env(safe-area-inset-bottom,0px)+8px)]")
+  })
+
+  test("Q. fuente única de safe-area: bottom-nav.tsx no usa las clases pb-safe/mb-safe (evita duplicar la safe-area como padding además de bottom)", () => {
+    const source = readFileSync(BOTTOM_NAV, "utf-8")
+    expect(source).not.toMatch(/\bpb-safe\b|\bmb-safe\b/)
+  })
+
+  test("R. fuente única de bottom: sólo existe una regla en globals.css que fije `bottom` para .ios-bottom-nav (fuera de la ocultación por teclado, que no usa bottom)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8")
+    const blockPattern = /[^{}]*\.ios-bottom-nav[^{]*\{[^}]*\}/g
+    const blocks = css.match(blockPattern) ?? []
+    const blocksSettingBottom = blocks.filter((block) => /\bbottom\s*:/.test(block))
+    expect(blocksSettingBottom.length).toBe(1)
+    expect(blocksSettingBottom[0]).toContain("body.ios-device .ios-bottom-nav")
   })
 
   test("sanity check: el detector de transform en el shell encuentra un caso sintético que sí lo usa", () => {
