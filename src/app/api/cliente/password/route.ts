@@ -4,6 +4,7 @@ import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { comparePassword, hashPassword } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validatePassword } from "@/lib/password-policy"
 
 // Seguridad-6B.3: cambio de contraseña — operación sensible, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -41,9 +42,10 @@ export async function PUT(req: NextRequest) {
       )
     }
 
-    if (passwordNueva.length < 6) {
+    const passwordCheck = validatePassword(passwordNueva)
+    if (!passwordCheck.ok) {
       return NextResponse.json(
-        { error: "La nueva contraseña debe tener al menos 6 caracteres" },
+        { error: passwordCheck.error },
         { status: 400, headers: NO_STORE_HEADERS }
       )
     }

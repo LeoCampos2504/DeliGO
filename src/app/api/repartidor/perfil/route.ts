@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME, hashPassword, comparePassword } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validatePassword } from "@/lib/password-policy"
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // GET - Repartidor profile data
 export async function GET(req: NextRequest) {
@@ -87,13 +89,21 @@ export async function PUT(req: NextRequest) {
     if (nombre?.trim()) updateData.nombre = nombre.trim()
     if (telefono !== undefined) updateData.telefono = telefono
 
-    // Password change
+    // Password change — el rate limit corre SOLO en esta rama (currentPassword
+    // && newPassword ambos presentes), nunca en una edición normal de
+    // nombre/teléfono: PASSWORD-POLICY-HARDENING cierra el gap encontrado en
+    // la auditoría (este era el único cambio de contraseña sin rate limit),
+    // usando el mismo patrón que /api/cliente/password (ip:userId).
     if (currentPassword && newPassword) {
-      if (newPassword.length < 6) {
-        return NextResponse.json(
-          { error: "La nueva contraseña debe tener al menos 6 caracteres" },
-          { status: 400 }
-        )
+      const ip = getClientIp(req)
+      const rl = checkRateLimit("password", `${ip}:${user.id}`)
+      if (!rl.allowed) {
+        return rateLimitResponse(rl, "Demasiados intentos. Esperá un momento.")
+      }
+
+      const passwordCheck = validatePassword(newPassword)
+      if (!passwordCheck.ok) {
+        return NextResponse.json({ error: passwordCheck.error }, { status: 400 })
       }
 
       const repartidor = await db.repartidor.findFirst({ where: { id: user.id, eliminado: false } })

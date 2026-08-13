@@ -9,6 +9,7 @@ import {
   type PasswordResetAccountType,
 } from "@/lib/password-reset"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validatePassword } from "@/lib/password-policy"
 
 // ============================================
 // POST /api/auth/reset-password — Bugfix-5D
@@ -66,13 +67,12 @@ export async function POST(req: NextRequest) {
       return invalidResponse()
     }
 
-    // Misma política de contraseña que registro/login existentes — no se
-    // introduce una política distinta solo para el reset (deuda documentada
-    // en el reporte: hoy es únicamente un mínimo de 6 caracteres).
-    if (password.length < 6) {
-      return noStore(
-        NextResponse.json({ error: "La contraseña debe tener al menos 6 caracteres" }, { status: 400 })
-      )
+    // PASSWORD-POLICY-HARDENING: misma política central que registro/cambio
+    // (src/lib/password-policy.ts) — nunca una regla distinta sólo para el
+    // reset.
+    const passwordCheck = validatePassword(password)
+    if (!passwordCheck.ok) {
+      return noStore(NextResponse.json({ error: passwordCheck.error }, { status: 400 }))
     }
     if (password !== confirmPassword) {
       return noStore(NextResponse.json({ error: "Las contraseñas no coinciden" }, { status: 400 }))

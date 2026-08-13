@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Logo } from "@/components/shared/logo"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // DeliGO — Restablecer contraseña (Bugfix-5D)
@@ -107,8 +108,12 @@ function ResetPasswordContent() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (password.length < 6) {
-      setState({ step: "error", message: "La contraseña debe tener al menos 6 caracteres" })
+    const passwordLength = passwordCodePointLength(password)
+    if (passwordLength < PASSWORD_MIN_LENGTH || passwordLength > PASSWORD_MAX_LENGTH) {
+      setState({
+        step: "error",
+        message: `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`,
+      })
       return
     }
     if (password !== confirmPassword) {
@@ -153,7 +158,6 @@ function ResetPasswordContent() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
-              minLength={6}
               autoComplete="new-password"
               className="h-11 rounded-xl px-9"
             />
@@ -178,12 +182,15 @@ function ResetPasswordContent() {
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               required
-              minLength={6}
               autoComplete="new-password"
               className="h-11 rounded-xl px-9"
             />
           </div>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          Usá entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres. Podés usar espacios.
+        </p>
 
         <Button type="submit" className="h-11 w-full rounded-xl font-semibold" disabled={submitting}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Restablecer contraseña"}

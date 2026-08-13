@@ -6,6 +6,7 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validatePassword } from "@/lib/password-policy"
 
 export async function POST(req: NextRequest) {
   try {
@@ -68,11 +69,9 @@ async function registerCliente(data: {
     return NextResponse.json({ error: "Email inválido" }, { status: 400 })
   }
 
-  if (password.length < 6) {
-    return NextResponse.json(
-      { error: "La contraseña debe tener al menos 6 caracteres" },
-      { status: 400 }
-    )
+  const passwordCheck = validatePassword(password)
+  if (!passwordCheck.ok) {
+    return NextResponse.json({ error: passwordCheck.error }, { status: 400 })
   }
 
   const existing = await db.cliente.findUnique({ where: { email: email.toLowerCase() } })
@@ -156,11 +155,9 @@ async function registerNegocio(data: {
     )
   }
 
-  if (password.length < 6) {
-    return NextResponse.json(
-      { error: "La contraseña debe tener al menos 6 caracteres" },
-      { status: 400 }
-    )
+  const passwordCheck = validatePassword(password)
+  if (!passwordCheck.ok) {
+    return NextResponse.json({ error: passwordCheck.error }, { status: 400 })
   }
 
   const rubrosValidos = ["restaurante", "ropa", "negocio"]
@@ -239,11 +236,9 @@ async function registerRepartidor(data: {
     return NextResponse.json({ error: "Email inválido" }, { status: 400 })
   }
 
-  if (password.length < 6) {
-    return NextResponse.json(
-      { error: "La contraseña debe tener al menos 6 caracteres" },
-      { status: 400 }
-    )
+  const passwordCheck = validatePassword(password)
+  if (!passwordCheck.ok) {
+    return NextResponse.json({ error: passwordCheck.error }, { status: 400 })
   }
 
   const existing = await db.repartidor.findUnique({ where: { email: email.toLowerCase() } })

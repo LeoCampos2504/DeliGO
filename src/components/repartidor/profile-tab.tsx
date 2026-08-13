@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label"
 import { useAuthStore } from "@/store/auth-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
 import { toast } from "sonner"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // Types
@@ -220,8 +221,9 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
       toast.error("Completá ambos campos de contraseña")
       return
     }
-    if (newPassword.length < 6) {
-      toast.error("La nueva contraseña debe tener al menos 6 caracteres")
+    const newPasswordLength = passwordCodePointLength(newPassword)
+    if (newPasswordLength < PASSWORD_MIN_LENGTH || newPasswordLength > PASSWORD_MAX_LENGTH) {
+      toast.error(`La nueva contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`)
       return
     }
     updateMutation.mutate({ currentPassword, newPassword })
@@ -380,6 +382,7 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   className="pl-10 rounded-xl"
                   placeholder="Contraseña actual"
+                  autoComplete="current-password"
                 />
               </div>
             </div>
@@ -394,7 +397,8 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="pl-10 rounded-xl"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+                  autoComplete="new-password"
                 />
               </div>
             </div>

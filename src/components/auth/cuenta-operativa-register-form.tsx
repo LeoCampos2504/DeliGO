@@ -6,6 +6,7 @@ import { Loader2, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // Bugfix-5B: formulario de registro de CuentaOperativa, compartido entre
@@ -53,6 +54,12 @@ export function CuentaOperativaRegisterForm({ onSuccess, loginHref }: CuentaOper
 
     if (password !== confirmPassword) {
       setError({ message: "Las contraseñas no coinciden" })
+      return
+    }
+
+    const passwordLength = passwordCodePointLength(password)
+    if (passwordLength < PASSWORD_MIN_LENGTH || passwordLength > PASSWORD_MAX_LENGTH) {
+      setError({ message: `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres` })
       return
     }
 
@@ -115,9 +122,11 @@ export function CuentaOperativaRegisterForm({ onSuccess, loginHref }: CuentaOper
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
-            minLength={6}
             autoComplete="new-password"
           />
+          <p className="text-xs text-muted-foreground">
+            Usá entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres. Podés usar espacios.
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="confirm-password">Confirmar contraseña</Label>
@@ -127,7 +136,6 @@ export function CuentaOperativaRegisterForm({ onSuccess, loginHref }: CuentaOper
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             required
-            minLength={6}
             autoComplete="new-password"
           />
         </div>

@@ -12,6 +12,7 @@ import { LegalDialog } from "@/components/shared/legal-content"
 import { Loader2, Store, AtSign, Lock, Mail, Tag, ShieldCheck, MailCheck, RefreshCw, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 import { motion, AnimatePresence } from "framer-motion"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // Helper: Mask email
@@ -55,6 +56,12 @@ export default function NegocioRegisterPage() {
 
     if (!termsAccepted) {
       toast.error("Debés aceptar los términos y condiciones para registrarte")
+      return
+    }
+
+    const passwordLength = passwordCodePointLength(form.password)
+    if (passwordLength < PASSWORD_MIN_LENGTH || passwordLength > PASSWORD_MAX_LENGTH) {
+      toast.error(`La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`)
       return
     }
 
@@ -201,10 +208,12 @@ export default function NegocioRegisterPage() {
                           onChange={(e) => setForm({ ...form, password: e.target.value })}
                           className="pl-10 h-11 rounded-xl"
                           required
-                          minLength={6}
+                          autoComplete="new-password"
                         />
                       </div>
-                      <p className="text-[10px] text-muted-foreground">Mínimo 6 caracteres</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Usá entre {PASSWORD_MIN_LENGTH} y {PASSWORD_MAX_LENGTH} caracteres. Podés usar espacios.
+                      </p>
                     </div>
 
                     <div className="space-y-2">

@@ -84,6 +84,7 @@ import { useCartStore } from "@/store/cart-store"
 import { useNavStore } from "@/store/nav-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
 import { TermsContent as SharedTermsContent, PrivacyContent as SharedPrivacyContent, CookiesContent as SharedCookiesContent } from "@/components/shared/legal-content"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // Types
@@ -881,8 +882,9 @@ function PasswordSection() {
       toast.error("Las contraseñas no coinciden")
       return
     }
-    if (newPassword.length < 6) {
-      toast.error("La contraseña debe tener al menos 6 caracteres")
+    const newPasswordLength = passwordCodePointLength(newPassword)
+    if (newPasswordLength < PASSWORD_MIN_LENGTH || newPasswordLength > PASSWORD_MAX_LENGTH) {
+      toast.error(`La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`)
       return
     }
     mutation.mutate({ passwordActual: currentPassword, passwordNueva: newPassword })
@@ -900,6 +902,7 @@ function PasswordSection() {
               onChange={(e) => setCurrentPassword(e.target.value)}
               className="h-9 text-sm pr-10"
               placeholder="••••••"
+              autoComplete="current-password"
               required
             />
             <button
@@ -919,7 +922,8 @@ function PasswordSection() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="h-9 text-sm pr-10"
-              placeholder="Mínimo 6 caracteres"
+              placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+              autoComplete="new-password"
               required
             />
             <button
@@ -939,6 +943,7 @@ function PasswordSection() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             className="h-9 text-sm"
             placeholder="Repetí la contraseña"
+            autoComplete="new-password"
             required
           />
         </div>

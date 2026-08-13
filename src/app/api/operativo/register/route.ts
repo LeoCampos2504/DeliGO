@@ -18,6 +18,7 @@ import {
   WEEKLY_REGISTRATION_LIMIT,
 } from "@/lib/operativo-registration-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validatePassword } from "@/lib/password-policy"
 
 const EMAIL_REGEX = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/
 
@@ -99,13 +100,9 @@ export async function POST(req: NextRequest) {
       return noStore(NextResponse.json({ error: "Email inválido" }, { status: 400 }))
     }
 
-    if (password.length < 6) {
-      return noStore(
-        NextResponse.json(
-          { error: "La contraseña debe tener al menos 6 caracteres" },
-          { status: 400 }
-        )
-      )
+    const passwordCheck = validatePassword(password)
+    if (!passwordCheck.ok) {
+      return noStore(NextResponse.json({ error: passwordCheck.error }, { status: 400 }))
     }
 
     // Camino rápido: la mayoría de los emails duplicados se detectan acá,

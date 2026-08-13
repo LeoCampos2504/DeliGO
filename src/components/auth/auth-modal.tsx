@@ -34,6 +34,7 @@ import { LegalDialog } from "@/components/shared/legal-content"
 import { useAuthStore } from "@/store/auth-store"
 import { toast } from "sonner"
 import type { UserType } from "@/lib/auth"
+import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
 // ============================================
 // Types
@@ -827,6 +828,12 @@ export function RegisterStep({
       return
     }
 
+    const passwordLength = passwordCodePointLength(password)
+    if (passwordLength < PASSWORD_MIN_LENGTH || passwordLength > PASSWORD_MAX_LENGTH) {
+      toast.error(`La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres`)
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -1077,12 +1084,11 @@ export function RegisterStep({
             <Input
               id="reg-password"
               type={showPassword ? "text" : "password"}
-              placeholder="Mínimo 6 caracteres"
+              placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="pl-10 pr-10 h-11 rounded-xl"
               required
-              minLength={6}
               autoComplete="new-password"
             />
             <button
