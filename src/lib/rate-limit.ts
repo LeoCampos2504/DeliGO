@@ -18,7 +18,14 @@ interface RateLimitConfig {
 
 // Pre-configured rate limits matching the original Flask app
 export const RATE_LIMITS = {
-  login: { maxRequests: 5, windowMs: 5 * 60 * 1000 },          // 5 per 5 min
+  // AUTH-LOGIN-THROTTLE-HARDENING: subido de 5 a 10 — esta capa cuenta TODO
+  // intento (éxito o fallo, ver checkRateLimit) por IP, y varias personas
+  // pueden compartir una misma red/NAT (comercio, oficina, wifi pública). La
+  // protección precisa contra fuerza bruta dirigida a UNA cuenta pasa a la
+  // dimensión por cuenta (src/lib/auth-login-throttle.ts, PostgreSQL,
+  // ACCOUNT_FAILURE_LIMIT=10 en 10 min, sólo fallos) — esta capa IP sigue
+  // siendo sólo la barrera gruesa de primera línea.
+  login: { maxRequests: 10, windowMs: 5 * 60 * 1000 },         // 10 per 5 min
   register: { maxRequests: 3, windowMs: 60 * 60 * 1000 },       // 3 per hour
   chat: { maxRequests: 30, windowMs: 60 * 1000 },               // 30 per min
   review: { maxRequests: 3, windowMs: 5 * 60 * 1000 },          // 3 per 5 min

@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { comparePassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
+import {
+  checkLoginAccountThrottle,
+  clearLoginFailures,
+  LOGIN_THROTTLE_MESSAGE,
+  loginThrottleKey,
+  recordLoginFailure,
+} from "@/lib/auth-login-throttle"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -16,12 +23,30 @@ function setCookie(response: NextResponse, token: string): void {
   })
 }
 
+// AUTH-LOGIN-THROTTLE-HARDENING: dimensión por cuenta, compartida vía
+// PostgreSQL (src/lib/auth-login-throttle.ts) — independiente del límite por
+// IP de arriba. Se llama SOLO cuando la cuenta no existe o la contraseña es
+// incorrecta (nunca en estados posteriores como email no verificado/negocio
+// no aprobado/etc. — ver §25 del hardening). PRE-COMMIT FINAL CORRECTION:
+// ambas dimensiones reutilizan el mismo LOGIN_THROTTLE_MESSAGE (importado de
+// auth-login-throttle.ts, nunca duplicado localmente) para que el body de un
+// 429 nunca revele cuál de las dos lo disparó. Retry-After sí puede diferir
+// legítimamente entre dimensiones (reflejan ventanas distintas, 5min vs
+// 10min) — eso no es una fuga, es el tiempo real de espera.
+async function accountLoginFailureResponse(throttleKey: string, genericMessage: string) {
+  const result = await recordLoginFailure(throttleKey)
+  if (result?.throttled) {
+    return rateLimitResponse({ retryAfterMs: result.retryAfterMs }, LOGIN_THROTTLE_MESSAGE)
+  }
+  return NextResponse.json({ error: genericMessage }, { status: 401 })
+}
+
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req)
     const rl = checkRateLimit("login", ip)
     if (!rl.allowed) {
-      return rateLimitResponse(rl, "Demasiados intentos. Intentá de nuevo en 5 minutos.")
+      return rateLimitResponse(rl, LOGIN_THROTTLE_MESSAGE)
     }
 
     const body = await req.json()
@@ -63,23 +88,29 @@ async function loginCliente(data: { email: string; password: string }, req: Next
     )
   }
 
+  const normalizedEmail = email.toLowerCase().trim()
+  const throttleKey = loginThrottleKey("cliente", normalizedEmail)
+
+  const throttle = await checkLoginAccountThrottle(throttleKey)
+  if (!throttle.allowed) {
+    return rateLimitResponse({ retryAfterMs: throttle.retryAfterMs }, LOGIN_THROTTLE_MESSAGE)
+  }
+
   const cliente = await db.cliente.findUnique({
-    where: { email: email.toLowerCase().trim() },
+    where: { email: normalizedEmail },
   })
 
   if (!cliente || !cliente.password) {
-    return NextResponse.json(
-      { error: "Email o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
   const valid = await comparePassword(password, cliente.password)
   if (!valid) {
-    return NextResponse.json(
-      { error: "Email o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
+  }
+
+  if (throttle.hadActiveFailures) {
+    await clearLoginFailures(throttleKey)
   }
 
   // Check email verification
@@ -150,23 +181,29 @@ async function loginNegocio(data: { usuario: string; password: string }) {
     )
   }
 
+  const normalizedUsuario = usuario.trim()
+  const throttleKey = loginThrottleKey("negocio", normalizedUsuario)
+
+  const throttle = await checkLoginAccountThrottle(throttleKey)
+  if (!throttle.allowed) {
+    return rateLimitResponse({ retryAfterMs: throttle.retryAfterMs }, LOGIN_THROTTLE_MESSAGE)
+  }
+
   const negocio = await db.negocio.findUnique({
-    where: { usuario: usuario.trim() },
+    where: { usuario: normalizedUsuario },
   })
 
   if (!negocio) {
-    return NextResponse.json(
-      { error: "Usuario o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Usuario o contraseña incorrectos")
   }
 
   const valid = await comparePassword(password, negocio.password)
   if (!valid) {
-    return NextResponse.json(
-      { error: "Usuario o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Usuario o contraseña incorrectos")
+  }
+
+  if (throttle.hadActiveFailures) {
+    await clearLoginFailures(throttleKey)
   }
 
   // Check email verification BEFORE aprobado check
@@ -236,23 +273,29 @@ async function loginRepartidor(data: { email: string; password: string }) {
     )
   }
 
+  const normalizedEmail = email.toLowerCase().trim()
+  const throttleKey = loginThrottleKey("repartidor", normalizedEmail)
+
+  const throttle = await checkLoginAccountThrottle(throttleKey)
+  if (!throttle.allowed) {
+    return rateLimitResponse({ retryAfterMs: throttle.retryAfterMs }, LOGIN_THROTTLE_MESSAGE)
+  }
+
   const repartidor = await db.repartidor.findUnique({
-    where: { email: email.toLowerCase().trim() },
+    where: { email: normalizedEmail },
   })
 
   if (!repartidor || !repartidor.password) {
-    return NextResponse.json(
-      { error: "Email o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
   const valid = await comparePassword(password, repartidor.password)
   if (!valid) {
-    return NextResponse.json(
-      { error: "Email o contraseña incorrectos" },
-      { status: 401 }
-    )
+    return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
+  }
+
+  if (throttle.hadActiveFailures) {
+    await clearLoginFailures(throttleKey)
   }
 
   // Check email verification

@@ -774,6 +774,31 @@ model PasswordResetToken {
 }
 
 // ============================================
+// LOGIN THROTTLE — dimensión por cuenta (AUTH-LOGIN-THROTTLE-HARDENING)
+// ============================================
+// Tabla mínima, opaca: throttleKey es SHA-256(accountType + ":" +
+// normalizedIdentifier) — nunca el email/usuario en claro, nunca password,
+// nunca IP (la dimensión IP sigue en memoria de proceso, ver
+// src/lib/rate-limit.ts). Cuenta EXCLUSIVAMENTE fallos de login (contraseña
+// incorrecta o cuenta inexistente) — nunca intentos exitosos ni estados de
+// negocio posteriores (email no verificado, negocio no aprobado/suspendido,
+// repartidor inactivo, etc.). Ventana fija: al expirar (resetAt <= now) la
+// próxima falla arranca una ventana nueva, igual semántica que RATE_LIMITS
+// en src/lib/rate-limit.ts. Sin FK a ninguna cuenta real — el estado
+// pertenece únicamente a esta tabla, nunca se refleja como un flag en
+// Cliente/Negocio/Repartidor/CuentaOperativa (nunca hay "cuenta bloqueada"
+// persistente, sólo un cooldown temporal aquí).
+model LoginThrottle {
+  throttleKey String   @id @map("throttle_key")
+  count       Int      @default(1)
+  resetAt     DateTime @map("reset_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([resetAt])
+  @@map("login_throttle")
+}
+
+// ============================================
 // LÍMITE DE REGISTRO DE CUENTA OPERATIVA (Bugfix-5F)
 // ============================================
 // Un evento por cada CuentaOperativa creada exitosamente vía
