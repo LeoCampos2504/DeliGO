@@ -20,6 +20,13 @@ import { POST_FOR_TESTS as crearPedido } from "@/app/api/pedidos/route"
 setDefaultTimeout(60_000)
 
 const prefix = "test-sec-device-1-"
+// PRE-COMMIT FINAL CORRECTION: fixture de contraseña — simple valor fijo
+// usado sólo para hacer login/registro en estos tests, no para probar
+// Password Policy. Reemplaza el antiguo fixture literal (una contraseña de
+// la familia "password" de 11 caracteres) que quedó blocklisted por
+// PASSWORD-POLICY-HARDENING. Este valor SÍ pasa validatePassword() (10-128
+// code points, fuera de la blocklist local) — confirmado antes de usarlo.
+const TEST_FIXTURE_PASSWORD = "CorrectHorseBattery42"
 const clienteIds: string[] = []
 const negocioIds: string[] = []
 
@@ -119,7 +126,7 @@ function reqPedido(body: unknown, opts: { sessionToken?: string; deviceCookie?: 
 function reqRegister(email: string, deviceCookie?: string): NextRequest {
   return new NextRequest("http://localhost/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ tipo: "cliente", termsAccepted: "true", nombre: `${prefix}reg`, email, password: "password123" }),
+    body: JSON.stringify({ tipo: "cliente", termsAccepted: "true", nombre: `${prefix}reg`, email, password: TEST_FIXTURE_PASSWORD }),
     headers: {
       "content-type": "application/json",
       "x-forwarded-for": randomUUID(),
@@ -199,9 +206,9 @@ describe("SEC-DEVICE-1 — Login", () => {
     // backfill sin depender de un login exitoso completo, actualizando el
     // password a un hash real conocido.
     const { hashPassword } = await import("@/lib/auth")
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
 
-    const res = await loginRoute(reqLogin(cliente.email, "password123"))
+    const res = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD))
     expect(res.status).toBe(200)
     const setToken = extractSetCookie(res, DEVICE_COOKIE_NAME)
     expect(setToken).not.toBeNull()
@@ -214,10 +221,10 @@ describe("SEC-DEVICE-1 — Login", () => {
     const originalHash = sha256Hex(randomDeviceToken())
     const cliente = await ensureCliente(`login-existing-${randomUUID()}`, originalHash)
     const { hashPassword } = await import("@/lib/auth")
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
 
     const otroDeviceToken = randomDeviceToken()
-    const res = await loginRoute(reqLogin(cliente.email, "password123", otroDeviceToken))
+    const res = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, otroDeviceToken))
     expect(res.status).toBe(200)
 
     const after = await db.cliente.findUnique({ where: { id: cliente.id } })

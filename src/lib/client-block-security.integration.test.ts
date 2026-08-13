@@ -26,6 +26,13 @@ setDefaultTimeout(60_000)
 
 const prefix = "test-sec-block-1-"
 const BLOCKED_MESSAGE = "Tu cuenta ha sido bloqueada. Contactá a soporte para más información."
+// PRE-COMMIT FINAL CORRECTION: fixture de contraseña — simple valor fijo
+// usado sólo para hacer login/registro en estos tests, no para probar
+// Password Policy. Reemplaza el antiguo fixture literal (una contraseña de
+// la familia "password" de 11 caracteres) que quedó blocklisted por
+// PASSWORD-POLICY-HARDENING. Este valor SÍ pasa validatePassword() (10-128
+// code points, fuera de la blocklist local) — confirmado antes de usarlo.
+const TEST_FIXTURE_PASSWORD = "CorrectHorseBattery42"
 
 const clienteIds: string[] = []
 const negocioIds: string[] = []
@@ -149,7 +156,7 @@ function reqPedido(
 function reqRegister(email: string, opts: { deviceCookie?: string; ip?: string } = {}): NextRequest {
   return new NextRequest("http://localhost/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ tipo: "cliente", termsAccepted: "true", nombre: `${prefix}reg`, email, password: "password123" }),
+    body: JSON.stringify({ tipo: "cliente", termsAccepted: "true", nombre: `${prefix}reg`, email, password: TEST_FIXTURE_PASSWORD }),
     headers: {
       "content-type": "application/json",
       "x-forwarded-for": opts.ip ?? randomUUID(),
@@ -254,10 +261,10 @@ describe("SEC-BLOCK-1 — Login de cuenta ya bloqueada", () => {
   test("sigue devolviendo 200 y crea sesión, pero enriquece ClienteBloqueado con el dispositivo actual", async () => {
     const { hashPassword } = await import("@/lib/auth")
     const cliente = await ensureCliente(`login-blocked-${randomUUID()}`, { bloqueado: true })
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
     const deviceToken = randomDeviceToken()
 
-    const res = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceToken }))
+    const res = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceToken }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
@@ -275,9 +282,9 @@ describe("SEC-BLOCK-1 — Login de cuenta ya bloqueada", () => {
   test("login normal (cuenta NO bloqueada) nunca crea filas ClienteBloqueado", async () => {
     const { hashPassword } = await import("@/lib/auth")
     const cliente = await ensureCliente(`login-normal-${randomUUID()}`)
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
 
-    const res = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: randomDeviceToken() }))
+    const res = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: randomDeviceToken() }))
     expect(res.status).toBe(200)
 
     const count = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
@@ -748,19 +755,19 @@ describe("BLOCKED-LOGIN-500-2 — Login multi-dispositivo, misma IP, cuenta ya b
     const { hashPassword } = await import("@/lib/auth")
     const sharedIp = `203.0.113.${50 + (Date.now() % 40)}`
     const cliente = await ensureCliente(`p2002-multidev-${randomUUID()}`, { bloqueado: true })
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
 
     const deviceA = randomDeviceToken()
     const deviceB = randomDeviceToken()
     const deviceC = randomDeviceToken()
 
-    const resA = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceA, ip: sharedIp }))
+    const resA = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceA, ip: sharedIp }))
     expect(resA.status).toBe(200)
 
-    const resB = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceB, ip: sharedIp }))
+    const resB = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceB, ip: sharedIp }))
     expect(resB.status).toBe(200)
 
-    const resC = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceC, ip: sharedIp }))
+    const resC = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceC, ip: sharedIp }))
     expect(resC.status).toBe(200)
 
     const rowsAfterThree = await db.clienteBloqueado.findMany({ where: { clienteId: cliente.id } })
@@ -777,7 +784,7 @@ describe("BLOCKED-LOGIN-500-2 — Login multi-dispositivo, misma IP, cuenta ya b
 
     // Repetir el mismo dispositivo A, misma IP: dedupe por (clienteId, fingerprint),
     // no crea una 4ta fila.
-    const resARepeat = await loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceA, ip: sharedIp }))
+    const resARepeat = await loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceA, ip: sharedIp }))
     expect(resARepeat.status).toBe(200)
     const rowsAfterRepeat = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
     expect(rowsAfterRepeat).toBe(3)
@@ -806,12 +813,12 @@ describe("BLOCKED-LOGIN-500-2 — Login multi-dispositivo, misma IP, cuenta ya b
     const { hashPassword } = await import("@/lib/auth")
     const sharedIp = `203.0.113.${90 + (Date.now() % 8)}`
     const cliente = await ensureCliente(`p2002-concurrent-${randomUUID()}`, { bloqueado: true })
-    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword("password123") } })
+    await db.cliente.update({ where: { id: cliente.id }, data: { password: await hashPassword(TEST_FIXTURE_PASSWORD) } })
 
     const devices = [randomDeviceToken(), randomDeviceToken(), randomDeviceToken()]
     const results = await Promise.all(
       devices.map((deviceToken) =>
-        loginRoute(reqLogin(cliente.email, "password123", { deviceCookie: deviceToken, ip: sharedIp }))
+        loginRoute(reqLogin(cliente.email, TEST_FIXTURE_PASSWORD, { deviceCookie: deviceToken, ip: sharedIp }))
       )
     )
     for (const res of results) {
