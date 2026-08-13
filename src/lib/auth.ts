@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "crypto"
 import type { NextRequest } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 
 // ============================================
@@ -216,7 +217,16 @@ export const OPERATIONAL_SESSION_USER_TYPE = "cuenta_operativa"
 // Session management (DB-backed)
 // ============================================
 
-export async function createSession(
+// SESSION_LOGIN_ATOMICITY_DEBT: variante que acepta un Prisma.TransactionClient
+// (además del singleton `db`, que lo satisface estructuralmente sin cast) para
+// que loginCliente pueda insertar la Sesion dentro de la MISMA transacción que
+// el backfill de dispositivoFingerprint y el enrichment SEC-BLOCK-1 — evita
+// que un fallo posterior dentro de esa transacción deje una Sesion persistida
+// sin que el cliente reciba la cookie que la referencia. Único lugar que
+// genera el token, calcula expiresAt y hashea — createSession() de abajo es
+// un wrapper delgado sobre esta función, nunca una implementación paralela.
+export async function createSessionWithClient(
+  client: Prisma.TransactionClient,
   userId: string,
   userType: UserType
 ): Promise<string> {
@@ -224,7 +234,7 @@ export async function createSession(
   const expiresAt = new Date()
   expiresAt.setHours(expiresAt.getHours() + SESSION_DURATION_HOURS)
 
-  await db.sesion.create({
+  await client.sesion.create({
     data: {
       token: hashSessionToken(token),
       userId,
@@ -235,6 +245,13 @@ export async function createSession(
 
   // La cookie recibe el token real — nunca el hash.
   return token
+}
+
+export async function createSession(
+  userId: string,
+  userType: UserType
+): Promise<string> {
+  return createSessionWithClient(db, userId, userType)
 }
 
 export async function validateSession(

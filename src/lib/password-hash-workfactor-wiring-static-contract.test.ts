@@ -50,13 +50,17 @@ function functionBody(src: string, signature: string): string {
 }
 
 describe("PASSWORD_HASH_WORKFACTOR_REHASH — punto de inserción correcto por tipo de cuenta", () => {
-  test("Cliente: evaluatePasswordHash -> ... -> emailVerified gate -> maybeUpgradePasswordHash -> createSession (en ese orden textual)", () => {
+  test("Cliente: evaluatePasswordHash -> ... -> emailVerified gate -> maybeUpgradePasswordHash -> createSessionWithClient (en ese orden textual)", () => {
     const src = read(AUTH_LOGIN)
     const body = functionBody(src, "async function loginCliente(")
     const idxEvaluate = body.indexOf("await evaluatePasswordHash(password, cliente.password)")
     const idxEmailGate = body.indexOf("if (!cliente.emailVerified)")
     const idxRehash = body.indexOf("await maybeUpgradePasswordHash({")
-    const idxCreateSession = body.indexOf('await createSession(cliente.id, "cliente")')
+    // SESSION_LOGIN_ATOMICITY_DEBT: la sesión de Cliente ahora se crea con
+    // createSessionWithClient(tx, ...) dentro de una transacción (nunca
+    // createSession(...) suelto) — mismo call-site, nombre de función
+    // distinto; la garantía real (rehash antes de crear la sesión) no cambió.
+    const idxCreateSession = body.indexOf('createSessionWithClient(tx, cliente.id, "cliente")')
     expect(idxEvaluate).toBeGreaterThan(-1)
     expect(idxEmailGate).toBeGreaterThan(idxEvaluate)
     expect(idxRehash).toBeGreaterThan(idxEmailGate)
@@ -133,18 +137,26 @@ describe("NO REHASH ANTES DE UN STATUS GATE QUE NIEGA LA SESIÓN", () => {
   })
 })
 
-describe("SESSION/DEVICE NO REORDENADOS (Session Atomicity fuera de alcance)", () => {
-  test("Cliente: createSession -> device identity -> SEC-BLOCK-1 enrichment -> cookie, exactamente en ese orden relativo (sólo se insertó el rehash ANTES de createSession, nada más se movió)", () => {
+describe("REHASH NO REORDENADO POR SESSION_LOGIN_ATOMICITY_DEBT", () => {
+  // SESSION_LOGIN_ATOMICITY_DEBT reordenó deliberadamente device identity /
+  // session / SEC-BLOCK-1 (ahora: device identity -> transacción con
+  // session+fingerprint+block -> cookie) para eliminar una sesión/fingerprint
+  // huérfanos ante un fallo interno — ver
+  // session-login-atomicity-wiring-static-contract.test.ts para el contrato
+  // detallado de ESE orden. Lo único que le importa a PASSWORD-HASH-WORKFACTOR-MIGRATION
+  // es que el rehash oportunista siga ocurriendo antes de toda esa maquinaria,
+  // sin haber sido movido por ese cambio.
+  test("Cliente: maybeUpgradePasswordHash sigue ANTES de device identity, de la transacción de sesión y de la cookie", () => {
     const src = read(AUTH_LOGIN)
     const body = functionBody(src, "async function loginCliente(")
-    const idxCreateSession = body.indexOf('await createSession(cliente.id, "cliente")')
+    const idxRehash = body.indexOf("await maybeUpgradePasswordHash({")
     const idxDeviceIdentity = body.indexOf("getOrCreateDeviceIdentity(req)")
-    const idxSecBlock = body.indexOf("ensureClienteBloqueadoRecordForDevice(")
+    const idxTx = body.indexOf("await db.$transaction(async (tx) => {")
     const idxSetCookie = body.indexOf("setCookie(res, token)")
-    expect(idxCreateSession).toBeGreaterThan(-1)
-    expect(idxDeviceIdentity).toBeGreaterThan(idxCreateSession)
-    expect(idxSecBlock).toBeGreaterThan(idxDeviceIdentity)
-    expect(idxSetCookie).toBeGreaterThan(idxSecBlock)
+    expect(idxRehash).toBeGreaterThan(-1)
+    expect(idxDeviceIdentity).toBeGreaterThan(idxRehash)
+    expect(idxTx).toBeGreaterThan(idxDeviceIdentity)
+    expect(idxSetCookie).toBeGreaterThan(idxTx)
   })
 })
 

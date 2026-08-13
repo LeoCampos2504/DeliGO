@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { evaluatePasswordHash, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { evaluatePasswordHash, createSession, createSessionWithClient, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   checkLoginAccountThrottle,
@@ -133,38 +133,58 @@ async function loginCliente(data: { email: string; password: string }, req: Next
     needsUpgrade: evaluation.needsUpgrade,
   })
 
-  const token = await createSession(cliente.id, "cliente")
-
-  // SEC-DEVICE-1: sólo rellena el device id si la cuenta todavía no tiene
-  // ninguno (cuentas creadas antes de esta tarea, o cuya cookie se perdió
-  // antes del primer registro/pedido) — nunca sobrescribe un valor ya
-  // presente en cada login. Una cuenta usada legítimamente desde varios
-  // dispositivos no debe perder silenciosamente la señal de un dispositivo
-  // anterior sólo por loguearse de nuevo desde otro; el checkout (acción
-  // menos frecuente y más relevante para seguridad) sigue actualizando el
-  // valor en cada pedido, igual que ya hace con `ultimoIp`.
+  // SEC-DEVICE-1: sólo se lee/genera la identidad de dispositivo acá (puro,
+  // sin DB) — la cookie de dispositivo NUNCA se entrega antes de que la
+  // transacción de abajo commitee (ver SESSION_LOGIN_ATOMICITY_DEBT).
   const deviceIdentity = getOrCreateDeviceIdentity(req)
-  if (!cliente.dispositivoFingerprint) {
-    await db.cliente.updateMany({
-      where: { id: cliente.id, dispositivoFingerprint: "" },
-      data: { dispositivoFingerprint: deviceIdentity.deviceId },
-    })
-  }
 
-  // SEC-BLOCK-1: el login de una cuenta ya bloqueada sigue permitido sin
-  // cambios (nunca se rechaza acá, nunca se invalida la sesión) — solo se
-  // enriquece el registro ClienteBloqueado con el dispositivo actual, para
-  // que una futura cuenta nueva creada desde este mismo dispositivo sea
-  // detectada como evasión (ver findForeignDeviceBlockMatch en
-  // src/lib/client-block-security.ts). La IP nunca decide esto.
-  if (cliente.bloqueado) {
-    await ensureClienteBloqueadoRecordForDevice(db, {
-      clienteId: cliente.id,
-      clienteNombre: cliente.nombre,
-      deviceId: deviceIdentity.deviceId,
-      ip: getClientIp(req),
-    })
-  }
+  // SESSION_LOGIN_ATOMICITY_DEBT: session INSERT + backfill de
+  // dispositivoFingerprint + enrichment SEC-BLOCK-1 viven en una única
+  // transacción. REORDER puro (adelantar el backfill/enrichment sin
+  // transacción) fue descartado: con una device identity nueva, un fallo en
+  // createSession después de un backfill ya committeado dejaría
+  // Cliente.dispositivoFingerprint apuntando a un token que la cookie nunca
+  // llegó a entregar — y ese backfill nunca puede repetirse (la guarda
+  // `dispositivoFingerprint: ""` deja de matchear para siempre). La
+  // transacción hace que cualquier fallo interno (session insert, backfill,
+  // o SEC-BLOCK-1) revierta los tres writes juntos — nunca queda sesión,
+  // fingerprint ni evidencia de bloqueo huérfanos.
+  const token = await db.$transaction(async (tx) => {
+    const sessionToken = await createSessionWithClient(tx, cliente.id, "cliente")
+
+    // Sólo rellena el device id si la cuenta todavía no tiene ninguno
+    // (cuentas creadas antes de esta tarea, o cuya cookie se perdió antes
+    // del primer registro/pedido) — nunca sobrescribe un valor ya presente
+    // en cada login. Una cuenta usada legítimamente desde varios
+    // dispositivos no debe perder silenciosamente la señal de un
+    // dispositivo anterior sólo por loguearse de nuevo desde otro; el
+    // checkout (acción menos frecuente y más relevante para seguridad)
+    // sigue actualizando el valor en cada pedido, igual que ya hace con
+    // `ultimoIp`.
+    if (!cliente.dispositivoFingerprint) {
+      await tx.cliente.updateMany({
+        where: { id: cliente.id, dispositivoFingerprint: "" },
+        data: { dispositivoFingerprint: deviceIdentity.deviceId },
+      })
+    }
+
+    // SEC-BLOCK-1: el login de una cuenta ya bloqueada sigue permitido sin
+    // cambios (nunca se rechaza acá, nunca se invalida la sesión) — solo se
+    // enriquece el registro ClienteBloqueado con el dispositivo actual, para
+    // que una futura cuenta nueva creada desde este mismo dispositivo sea
+    // detectada como evasión (ver findForeignDeviceBlockMatch en
+    // src/lib/client-block-security.ts). La IP nunca decide esto.
+    if (cliente.bloqueado) {
+      await ensureClienteBloqueadoRecordForDevice(tx, {
+        clienteId: cliente.id,
+        clienteNombre: cliente.nombre,
+        deviceId: deviceIdentity.deviceId,
+        ip: getClientIp(req),
+      })
+    }
+
+    return sessionToken
+  })
 
   const res = NextResponse.json({
     ok: true,
