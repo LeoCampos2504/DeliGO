@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  comparePassword,
+  evaluatePasswordHash,
   createOperationalSession,
   OPERATIONAL_SESSION_COOKIE_NAME,
   SESSION_DURATION_HOURS,
@@ -14,6 +14,7 @@ import {
   loginThrottleKey,
   recordLoginFailure,
 } from "@/lib/auth-login-throttle"
+import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // AUTH-LOGIN-THROTTLE-HARDENING: mismo helper que src/app/api/auth/login/route.ts
@@ -104,14 +105,24 @@ export async function POST(req: NextRequest) {
       return noStore(await accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos"))
     }
 
-    const valid = await comparePassword(password, account.password)
-    if (!valid) {
+    const evaluation = await evaluatePasswordHash(password, account.password)
+    if (!evaluation.valid) {
       return noStore(await accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos"))
     }
 
     if (throttle.hadActiveFailures) {
       await clearLoginFailures(throttleKey)
     }
+
+    // PASSWORD-HASH-WORKFACTOR-MIGRATION: sin más gates después del password
+    // acá — activo/eliminado ya se filtraron en el lookup, antes de comparar.
+    await maybeUpgradePasswordHash({
+      accountType: "cuenta_operativa",
+      accountId: account.id,
+      plainPassword: password,
+      oldStoredHash: account.password,
+      needsUpgrade: evaluation.needsUpgrade,
+    })
 
     const sessionToken = await createOperationalSession(account.id)
     const response = NextResponse.json({

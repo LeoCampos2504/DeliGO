@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { comparePassword, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { evaluatePasswordHash, createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   checkLoginAccountThrottle,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth-login-throttle"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
+import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 function setCookie(response: NextResponse, token: string): void {
@@ -104,8 +105,8 @@ async function loginCliente(data: { email: string; password: string }, req: Next
     return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
-  const valid = await comparePassword(password, cliente.password)
-  if (!valid) {
+  const evaluation = await evaluatePasswordHash(password, cliente.password)
+  if (!evaluation.valid) {
     return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
@@ -120,6 +121,17 @@ async function loginCliente(data: { email: string; password: string }, req: Next
       { status: 403 }
     )
   }
+
+  // PASSWORD-HASH-WORKFACTOR-MIGRATION: rehash oportunista — sólo acá, ya con
+  // password+emailVerified confirmados (nunca antes de un gate que podría
+  // negar el login). No bloquea el login si falla.
+  await maybeUpgradePasswordHash({
+    accountType: "cliente",
+    accountId: cliente.id,
+    plainPassword: password,
+    oldStoredHash: cliente.password,
+    needsUpgrade: evaluation.needsUpgrade,
+  })
 
   const token = await createSession(cliente.id, "cliente")
 
@@ -197,8 +209,8 @@ async function loginNegocio(data: { usuario: string; password: string }) {
     return accountLoginFailureResponse(throttleKey, "Usuario o contraseña incorrectos")
   }
 
-  const valid = await comparePassword(password, negocio.password)
-  if (!valid) {
+  const evaluation = await evaluatePasswordHash(password, negocio.password)
+  if (!evaluation.valid) {
     return accountLoginFailureResponse(throttleKey, "Usuario o contraseña incorrectos")
   }
 
@@ -226,6 +238,17 @@ async function loginNegocio(data: { usuario: string; password: string }) {
       },
     })
   }
+
+  // PASSWORD-HASH-WORKFACTOR-MIGRATION: aprobado===true ya garantizado acá —
+  // aplica a la rama suspendido Y a la normal (ambas crean sesión hoy, la
+  // suspensión no niega el login, ver §25 del diseño aprobado).
+  await maybeUpgradePasswordHash({
+    accountType: "negocio",
+    accountId: negocio.id,
+    plainPassword: password,
+    oldStoredHash: negocio.password,
+    needsUpgrade: evaluation.needsUpgrade,
+  })
 
   if (negocio.suspendido) {
     // Allow login but mark as suspended so the frontend shows a contact banner
@@ -289,8 +312,8 @@ async function loginRepartidor(data: { email: string; password: string }) {
     return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
-  const valid = await comparePassword(password, repartidor.password)
-  if (!valid) {
+  const evaluation = await evaluatePasswordHash(password, repartidor.password)
+  if (!evaluation.valid) {
     return accountLoginFailureResponse(throttleKey, "Email o contraseña incorrectos")
   }
 
@@ -312,6 +335,15 @@ async function loginRepartidor(data: { email: string; password: string }) {
       { status: 403 }
     )
   }
+
+  // PASSWORD-HASH-WORKFACTOR-MIGRATION: emailVerified+activo ya garantizados acá.
+  await maybeUpgradePasswordHash({
+    accountType: "repartidor",
+    accountId: repartidor.id,
+    plainPassword: password,
+    oldStoredHash: repartidor.password,
+    needsUpgrade: evaluation.needsUpgrade,
+  })
 
   const token = await createSession(repartidor.id, "repartidor")
   const res = NextResponse.json({

@@ -122,11 +122,15 @@ describe("PASSWORD-POLICY-HARDENING — login NUNCA importa la política de crea
     expect(source).not.toMatch(/password\.length/)
   })
 
-  test("PBKDF2_ITERATIONS/SALT_LENGTH/KEY_LENGTH permanecen exactamente en los valores auditados (hashing no tocado)", () => {
+  test("PASSWORD-HASH-WORKFACTOR-MIGRATION: verificación legacy (100000/16/32) permanece exactamente en los valores auditados — Password Policy nunca tocó ni toca hashing", () => {
     const source = readFileSync(AUTH_LIB, "utf-8")
-    expect(source).toContain("const PBKDF2_ITERATIONS = 100000")
+    expect(source).toContain("const PBKDF2_ITERATIONS_LEGACY = 100000")
     expect(source).toContain("const SALT_LENGTH = 16")
     expect(source).toContain("const KEY_LENGTH = 32")
+    // El work factor NUEVO (v2) es responsabilidad de PASSWORD-HASH-WORKFACTOR-MIGRATION,
+    // no de Password Policy — este contrato sólo protege que la verificación
+    // legacy conserve exactamente sus parámetros históricos.
+    expect(source).toContain("const PBKDF2_ITERATIONS_CURRENT = 600000")
   })
 })
 

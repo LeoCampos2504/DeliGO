@@ -5,12 +5,44 @@ import { db } from "@/lib/db"
 // ============================================
 // Password utilities (using Web Crypto API - native, no bcryptjs)
 // ============================================
+// PASSWORD-HASH-WORKFACTOR-MIGRATION: dos formatos conviven a propósito.
+// LEGACY (`<saltHex>:<keyHex>`, PBKDF2-HMAC-SHA256, 100000 iteraciones) sigue
+// verificándose exactamente como siempre — nunca se le exige un reset. Toda
+// escritura NUEVA (hashPassword) emite únicamente el formato versionado v2
+// (`v2$pbkdf2-sha256$<iterations>$<saltHex>$<keyHex>`, 600000 iteraciones
+// hoy). Un hash legacy verificado con éxito se re-hashea de forma oportunista
+// SÓLO desde el punto de login correspondiente (ver auth/login/route.ts y
+// operativo/login/route.ts) vía `src/lib/password-hash-upgrade.ts` — nunca
+// acá, este archivo permanece sin ninguna dependencia de Prisma en esta
+// sección, exactamente como antes de esta migración.
+//
+// Deliberadamente SIN aplicar la política central de contraseñas
+// (longitud/blocklist, definida en otro módulo) — nunca en este archivo, y
+// es lo que permite seguir re-hasheando passwords legacy de 6-9 caracteres
+// sin romper su login.
 
-const PBKDF2_ITERATIONS = 100000
+const PBKDF2_ITERATIONS_LEGACY = 100000
+const PBKDF2_ITERATIONS_CURRENT = 600000
 const SALT_LENGTH = 16
 const KEY_LENGTH = 32
+const PASSWORD_HASH_VERSION_CURRENT = "v2"
+const PASSWORD_HASH_ALGORITHM_CURRENT = "pbkdf2-sha256"
+// Cota defensiva contra un valor de iteraciones corrupto/manipulado en la
+// columna DB — nunca confiar ciegamente en un costo leído de storage antes
+// de derivar PBKDF2 con él (evita un costo arbitrariamente alto por una fila
+// dañada). 100000 = piso (nunca más débil que legacy); 2000000 = techo.
+const MIN_SUPPORTED_V2_ITERATIONS = 100000
+const MAX_SUPPORTED_V2_ITERATIONS = 2000000
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array> {
+// Forma legacy EXACTA: 32 hex (salt de 16 bytes) + ":" + 64 hex (key de 32
+// bytes), nada más — un tercer ":", hex inválido o longitud distinta no
+// matchea (los grupos capturados ya vienen validados como hex por el regex).
+const LEGACY_HASH_PATTERN = /^([0-9a-fA-F]{32}):([0-9a-fA-F]{64})$/
+const V2_ITERATIONS_PATTERN = /^[1-9][0-9]*$/
+const V2_SALT_HEX_PATTERN = /^[0-9a-fA-F]{32}$/
+const V2_KEY_HEX_PATTERN = /^[0-9a-fA-F]{64}$/
+
+async function deriveKey(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const encoder = new TextEncoder()
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
@@ -23,7 +55,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array
     {
       name: "PBKDF2",
       salt,
-      iterations: PBKDF2_ITERATIONS,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -46,31 +78,85 @@ function fromHex(hex: string): Uint8Array {
   return bytes
 }
 
-export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH))
-  const key = await deriveKey(password, salt)
-  return `${toHex(salt)}:${toHex(key)}`
+// Comparación en tiempo constante respecto del CONTENIDO de ambos buffers.
+// El único early-return no-constante-en-tiempo es por longitud, que nunca es
+// un secreto (es un parámetro de protocolo fijo por formato).
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let result = 0
+  for (let i = 0; i < a.length; i++) {
+    result |= a[i] ^ b[i]
+  }
+  return result === 0
 }
 
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH))
+  const key = await deriveKey(password, salt, PBKDF2_ITERATIONS_CURRENT)
+  return `${PASSWORD_HASH_VERSION_CURRENT}$${PASSWORD_HASH_ALGORITHM_CURRENT}$${PBKDF2_ITERATIONS_CURRENT}$${toHex(salt)}$${toHex(key)}`
+}
+
+export interface PasswordHashEvaluation {
+  /** true si `password` matchea `storedHash` (en cualquiera de los 2 formatos soportados). */
+  valid: boolean
+  /**
+   * true sólo si `valid===true` Y el hash almacenado está por debajo del
+   * costo actual (legacy siempre; v2 con iterations < PBKDF2_ITERATIONS_CURRENT).
+   * Nunca true para un hash inválido/no reconocido, ni para un v2 con costo
+   * igual o mayor al actual (nunca degradar un hash más fuerte).
+   */
+  needsUpgrade: boolean
+}
+
+const INVALID_EVALUATION: PasswordHashEvaluation = { valid: false, needsUpgrade: false }
+
+/**
+ * Parsea y verifica `storedHash` UNA sola vez, devolviendo tanto si la
+ * contraseña es correcta como si el hash debería re-hashearse a v2 actual.
+ * Fail-closed ante cualquier formato desconocido/malformado — nunca lanza.
+ */
+export async function evaluatePasswordHash(password: string, storedHash: string): Promise<PasswordHashEvaluation> {
+  if (storedHash.startsWith("v2$")) {
+    const parts = storedHash.split("$")
+    if (parts.length !== 5) return INVALID_EVALUATION
+    const [version, algorithm, iterationsRaw, saltHex, keyHex] = parts
+    if (version !== PASSWORD_HASH_VERSION_CURRENT) return INVALID_EVALUATION
+    if (algorithm !== PASSWORD_HASH_ALGORITHM_CURRENT) return INVALID_EVALUATION
+    if (!V2_ITERATIONS_PATTERN.test(iterationsRaw)) return INVALID_EVALUATION
+    const iterations = Number(iterationsRaw)
+    if (!Number.isSafeInteger(iterations)) return INVALID_EVALUATION
+    if (iterations < MIN_SUPPORTED_V2_ITERATIONS || iterations > MAX_SUPPORTED_V2_ITERATIONS) return INVALID_EVALUATION
+    if (!V2_SALT_HEX_PATTERN.test(saltHex)) return INVALID_EVALUATION
+    if (!V2_KEY_HEX_PATTERN.test(keyHex)) return INVALID_EVALUATION
+
+    const salt = fromHex(saltHex)
+    const storedKey = fromHex(keyHex)
+    const derivedKey = await deriveKey(password, salt, iterations)
+    if (!constantTimeEqual(derivedKey, storedKey)) return INVALID_EVALUATION
+
+    return { valid: true, needsUpgrade: iterations < PBKDF2_ITERATIONS_CURRENT }
+  }
+
+  // Versión desconocida (cualquier prefijo que no sea "v2$" pero que tampoco
+  // matchee la forma legacy exacta de abajo) cae acá y falla cerrado igual.
+  const legacyMatch = LEGACY_HASH_PATTERN.exec(storedHash)
+  if (!legacyMatch) return INVALID_EVALUATION
+  const [, saltHex, keyHex] = legacyMatch
+
+  const salt = fromHex(saltHex)
+  const storedKey = fromHex(keyHex)
+  const derivedKey = await deriveKey(password, salt, PBKDF2_ITERATIONS_LEGACY)
+  if (!constantTimeEqual(derivedKey, storedKey)) return INVALID_EVALUATION
+
+  return { valid: true, needsUpgrade: true }
+}
+
+/** Wrapper delgado sobre evaluatePasswordHash — preserva la API/firma existente para todos los call-sites que sólo necesitan el booleano. */
 export async function comparePassword(
   password: string,
   hash: string
 ): Promise<boolean> {
-  const [saltHex, keyHex] = hash.split(":")
-  if (!saltHex || !keyHex) return false
-
-  const salt = fromHex(saltHex)
-  const storedKey = fromHex(keyHex)
-  const derivedKey = await deriveKey(password, salt)
-
-  if (derivedKey.length !== storedKey.length) return false
-
-  // Constant-time comparison
-  let result = 0
-  for (let i = 0; i < derivedKey.length; i++) {
-    result |= derivedKey[i] ^ storedKey[i]
-  }
-  return result === 0
+  return (await evaluatePasswordHash(password, hash)).valid
 }
 
 // ============================================

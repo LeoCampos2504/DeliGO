@@ -187,12 +187,17 @@ describe("AUTH-LOGIN-THROTTLE-HARDENING — status gates NO cuentan como fallo (
     expect(activoIdx).toBeGreaterThan(clearIdx)
   })
 
-  test("CuentaOperativa: activo/eliminado están comprobados ANTES de comparePassword (secuencia real preservada, documentada explícitamente en el código)", () => {
+  test("CuentaOperativa: activo/eliminado están comprobados ANTES de la verificación de password (secuencia real preservada, documentada explícitamente en el código)", () => {
     const source = read(OPERATIVO_LOGIN_ROUTE)
     const eliminadoIdx = source.indexOf("account.eliminado || !account.activo")
-    const comparePasswordIdx = source.indexOf("comparePassword(password, account.password)")
+    // PASSWORD-HASH-WORKFACTOR-MIGRATION: la ruta ahora llama
+    // evaluatePasswordHash(...) en vez de comparePassword(...) (mismo punto,
+    // mismo orden — sólo cambió el nombre de la función para poder devolver
+    // también la señal de needsUpgrade). El gate activo/eliminado sigue
+    // exactamente antes de la verificación de password, sin reordenar nada.
+    const verifyPasswordIdx = source.indexOf("evaluatePasswordHash(password, account.password)")
     expect(eliminadoIdx).toBeGreaterThan(-1)
-    expect(comparePasswordIdx).toBeGreaterThan(eliminadoIdx)
+    expect(verifyPasswordIdx).toBeGreaterThan(eliminadoIdx)
     // El comentario que documenta esta secuencia real debe seguir presente.
     expect(source).toMatch(/secuencia real/)
   })
