@@ -18,6 +18,7 @@ import {
   Flame,
   FileCheck,
   MessageSquareWarning,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Logo } from "@/components/shared/logo"
@@ -32,6 +33,7 @@ import { PromocionadosTab } from "./promocionados-tab"
 import { DenunciasTab } from "./denuncias-tab"
 import { SolicitudesDestacadoTab } from "./solicitudes-destacado-tab"
 import { ReviewModerationTab } from "./review-moderation-tab"
+import { ConfiguracionTab } from "./configuracion-tab"
 import { SuperadminNotificationBell } from "./superadmin-notification-bell"
 
 // ============================================
@@ -46,6 +48,7 @@ const tabItems: { id: SuperAdminTab; label: string; icon: typeof Shield }[] = [
   { id: "moderacion-resenas", label: "Moderación", icon: MessageSquareWarning },
   { id: "alertas", label: "Alertas", icon: AlertTriangle },
   { id: "deudas", label: "Deudas", icon: DollarSign },
+  { id: "configuracion", label: "Configuración", icon: Settings },
   { id: "denuncias", label: "Denuncias", icon: ShieldAlert },
 ]
 
@@ -280,6 +283,7 @@ export function SuperAdminPanel() {
               <SolicitudesDestacadoTab />
             )}
             {activeTab === "moderacion-resenas" && <ReviewModerationTab />}
+            {activeTab === "configuracion" && <ConfiguracionTab />}
           </motion.div>
         </AnimatePresence>
       </main>

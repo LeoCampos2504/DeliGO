@@ -78,7 +78,7 @@ export function DeudasTab({ negocios, isLoading, constants }: DeudasTabProps) {
 
   const totalDeuda = conDeuda.reduce((sum, n) => sum + n.deudaTarifa, 0)
   const limiteGlobal = constants?.limiteSemanalDeuda ?? 10000
-  const tarifaServicio = constants?.tarifaServicio ?? 250
+  const tarifaServicio = constants?.tarifaServicio ?? null
 
   return (
     <div className="space-y-6">
@@ -90,7 +90,7 @@ export function DeudasTab({ negocios, isLoading, constants }: DeudasTabProps) {
           </div>
           <div>
             <h2 className="font-bold text-lg">Gestión de deudas</h2>
-            <p className="text-xs text-muted-foreground">Tarifa por servicio: {formatPrice(tarifaServicio)} por pedido entregado</p>
+            <p className="text-xs text-muted-foreground">Tarifa por servicio: {tarifaServicio == null ? "No disponible" : `${formatPrice(tarifaServicio)} por pedido entregado`}</p>
           </div>
         </div>
 

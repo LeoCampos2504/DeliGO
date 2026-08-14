@@ -39,6 +39,7 @@ import {
   type IngredienteQuitadoCanonico,
 } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { getPlatformServiceFee } from "@/lib/platform-settings"
 
 // ============================================
 // P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
@@ -99,8 +100,8 @@ async function isAuthenticatedStaffForNegocio(
   return false
 }
 
-// Platform service fee used server-side. This must never come from the request body.
-const SERVICE_FEE_FIXED = 250
+// Mesa keeps its existing fee-disabled semantics. Non-mesa orders read the
+// current platform setting inside the creation transaction and snapshot it.
 const MESA_SERVICE_FEE_ENABLED = false
 const MAX_ITEMS_PER_ORDER = 50
 const MAX_QUANTITY_PER_ITEM = 99
@@ -1373,8 +1374,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
     const finalReferencia = isMesaOrder ? null : pedidoInput.referencia
     const finalLat = isMesaOrder ? null : pedidoInput.lat
     const finalLng = isMesaOrder ? null : pedidoInput.lng
-    const serverTarifaServicio = isMesaOrder && !MESA_SERVICE_FEE_ENABLED ? 0 : SERVICE_FEE_FIXED
-    const finalTotal = roundMoney(serverTotalProductos + finalPrecioDelivery + serverTarifaServicio)
+    const finalTotalWithoutServiceFee = roundMoney(serverTotalProductos + finalPrecioDelivery)
 
     // Solo se calcula si vino una key válida — en modo legacy (sin key) se guarda
     // `null` en ambas columnas, exactamente el mismo comportamiento que hoy.
@@ -1445,9 +1445,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       clienteId,
       clienteNombre,
       clienteTelefono,
-      total: finalTotal,
       totalProductos: serverTotalProductos,
-      tarifaServicio: serverTarifaServicio,
       precioDelivery: finalPrecioDelivery,
       metodoEntrega: pedidoInput.metodoEntrega,
       metodoPago: pedidoInput.metodoPago,
@@ -1620,6 +1618,11 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
 
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
         // previo) — recién ahí es seguro aplicar el side effect y crear.
+        const snapshotTarifaServicio = isMesaOrder && !MESA_SERVICE_FEE_ENABLED
+          ? 0
+          : await getPlatformServiceFee(tx)
+        const snapshotTotal = roundMoney(finalTotalWithoutServiceFee + snapshotTarifaServicio)
+
         if (clienteId && clienteUpdateData) {
           await tx.cliente.update({
             where: { id: clienteId },
@@ -1628,7 +1631,12 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         }
 
         const created = await tx.pedido.create({
-          data: { ...pedidoCreateData, ocupacionMesaId: validatedOcupacionId },
+          data: {
+            ...pedidoCreateData,
+            total: snapshotTotal,
+            tarifaServicio: snapshotTarifaServicio,
+            ocupacionMesaId: validatedOcupacionId,
+          },
           include: { items: true },
         })
 
@@ -1666,6 +1674,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       })
 
     const pedido = result.pedido
+    const finalTotal = pedido.total
 
     // Las notificaciones push solo tienen sentido para un pedido genuinamente
     // nuevo — un replay idempotente no debe volver a notificar al negocio/salón.

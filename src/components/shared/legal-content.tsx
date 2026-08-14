@@ -43,7 +43,7 @@ export function TermsContent() {
         <li>Los precios y disponibilidad son establecidos por cada negocio.</li>
         <li>Los tiempos de entrega son estimados y pueden variar.</li>
         <li>Podés cancelar un pedido dentro de los primeros minutos antes de que el negocio lo confirme.</li>
-        <li>La tarifa de servicio ($250 fijos) se aplica a cada pedido para mantener la plataforma.</li>
+        <li>La tarifa de servicio vigente se aplica a cada pedido para mantener la plataforma.</li>
       </ul>
 
       <h3 className="font-semibold text-foreground">5. Métodos de pago</h3>

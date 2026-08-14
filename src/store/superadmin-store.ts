@@ -6,7 +6,7 @@ import { create } from "zustand"
 // SuperAdmin store types
 // ============================================
 
-export type SuperAdminTab = "overview" | "pendientes" | "activos" | "promocionados" | "alertas" | "deudas" | "denuncias" | "solicitudes-destacado" | "moderacion-resenas"
+export type SuperAdminTab = "overview" | "pendientes" | "activos" | "promocionados" | "alertas" | "deudas" | "denuncias" | "solicitudes-destacado" | "moderacion-resenas" | "configuracion"
 
 interface SuperAdminState {
   activeTab: SuperAdminTab

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
+import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Seguridad-6B: dashboard de superadmin expone deuda y datos de todos los
@@ -180,6 +181,8 @@ export async function GET(req: NextRequest) {
       solicitudesDestacado: solicitudesDestacadoCount,
     }
 
+    const tarifaServicio = await getPlatformServiceFee(db)
+
     return NextResponse.json({
       stats,
       pendientes,
@@ -187,7 +190,7 @@ export async function GET(req: NextRequest) {
       conAlerta,
       todosLosNegocios: activos,
       constants: {
-        tarifaServicio: 250,
+        tarifaServicio,
         limiteSemanalDeuda: LIMITE_SEMANAL_DEUDA,
         limiteMinimoDeuda: LIMITE_MINIMO_DEUDA,
         porcentajeAlertaDeuda: PORCENTAJE_ALERTA_DEUDA,

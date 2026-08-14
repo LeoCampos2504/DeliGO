@@ -64,6 +64,7 @@ export const RATE_LIMITS = {
   superadminOAuthStart: { maxRequests: 10, windowMs: 5 * 60 * 1000 },   // 10 per 5 min
   superadminOAuthCallback: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
   superadminReviewModerationAction: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 per superadmin/min
+  superadminConfigMutation: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per superadmin/5 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)
 } as const
 

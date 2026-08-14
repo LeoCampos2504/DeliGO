@@ -129,6 +129,7 @@ interface NegocioAPI {
   horarios: Record<string, unknown>
   ofreceDelivery: boolean
   precioDelivery: number
+  tarifaServicio: number
   deliveryMode?: string
   tiempoEntrega: number
   puntuacionPromedio: number
@@ -478,6 +479,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const totalItems = useCartStore((s) => s.totalItems())
   const activeNegocioId = useCartStore((s) => s.activeNegocioId)
   const setActiveNegocio = useCartStore((s) => s.setActiveNegocio)
+  const setTarifaServicio = useCartStore((s) => s.setTarifaServicio)
   const addItem = useCartStore((s) => s.addItem)
   const cartTotal = useCartStore((s) => s.total())
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
@@ -513,6 +515,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   useEffect(() => {
     if (!negocio) return
     if (!negocio.ofreceDelivery || !deliveryAddress?.lat || !deliveryAddress?.lng) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset external delivery-zone state when inputs become ineligible
       setZoneDeliveryPrice(null)
       setIsOutsideDeliveryZone(false)
       return
@@ -534,12 +537,15 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
   // Set active negocio when data loads
   useEffect(() => {
+    if (negocio) {
+      setTarifaServicio(negocio.tarifaServicio)
+    }
     if (negocio && (!activeNegocioId || activeNegocioId !== negocio.id)) {
       if (cartItems.length === 0) {
         setActiveNegocio(negocio.id, negocio.slug, negocio.nombre, effectiveDeliveryPrice)
       }
     }
-  }, [negocio?.id, activeNegocioId, cartItems.length, setActiveNegocio, negocio, effectiveDeliveryPrice])
+  }, [negocio?.id, negocio?.tarifaServicio, activeNegocioId, cartItems.length, setActiveNegocio, setTarifaServicio, negocio, effectiveDeliveryPrice])
 
   // All products combined (sin seccion + from secciones) for search/filter
   const allProducts = useMemo(() => {

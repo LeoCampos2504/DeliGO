@@ -44,7 +44,7 @@ export async function seedFixtures(runId: string, scenario: string): Promise<See
   const { createOperationalSession, createSession, hashSessionToken } = await import("@/lib/auth")
 
   const counts = countForScenario(scenario)
-  const financialFixture = buildFinancialFixturePlan(counts.orders)
+  const financialFixture = await buildFinancialFixturePlan(counts.orders)
   if (scenario === "compressed50" && (financialFixture.fixtureDebtLimit === null || financialFixture.fixtureDebtLimit < financialFixture.requiredDebtCapacity)) {
     throw new Error("COMPRESSED50_FINANCIAL_FIXTURE_INVALID")
   }

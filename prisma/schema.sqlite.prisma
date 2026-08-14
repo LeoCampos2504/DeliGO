@@ -602,6 +602,7 @@ model ConfigPlataforma {
   clave                 String   @unique @default("")
   valor                 String   @default("")
   promocionadosActivos  Boolean  @default(false)
+  tarifaServicio        Int      @default(250)
   updatedAt             DateTime @updatedAt
 
   @@map("config_plataforma")

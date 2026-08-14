@@ -88,8 +88,8 @@ interface CartState {
   deliveryAddress: DeliveryAddress | null
   savedAddresses: DeliveryAddress[]
 
-  // Service fee fixed amount
-  tarifaServicioFija: number
+  // Current public display value; POST /api/pedidos remains authoritative.
+  tarifaServicio: number
 
   // Hydration flag
   _hasHydrated: boolean
@@ -109,11 +109,11 @@ interface CartState {
   setDeliveryAddress: (address: DeliveryAddress | null) => void
   addSavedAddress: (address: DeliveryAddress) => void
   removeSavedAddress: (index: number) => void
+  setTarifaServicio: (value: number) => void
   setHasHydrated: (v: boolean) => void
 
   // Computed-like getters
   totalProductos: () => number
-  tarifaServicio: () => number
   total: () => number
   totalItems: () => number
 }
@@ -128,7 +128,7 @@ export const useCartStore = create<CartState>()(
       items: [],
       deliveryAddress: null,
       savedAddresses: [],
-      tarifaServicioFija: 250, // Fixed service fee
+      tarifaServicio: 0,
       _hasHydrated: false,
 
       setActiveNegocio: (
@@ -225,6 +225,10 @@ export const useCartStore = create<CartState>()(
         set({ savedAddresses: current.filter((_, i) => i !== index) })
       },
 
+      setTarifaServicio: (value: number) => {
+        set({ tarifaServicio: value })
+      },
+
       setHasHydrated: (v: boolean) => {
         set({ _hasHydrated: v })
       },
@@ -240,13 +244,9 @@ export const useCartStore = create<CartState>()(
         }, 0)
       },
 
-      tarifaServicio: () => {
-        return get().tarifaServicioFija
-      },
-
       total: () => {
         const state = get()
-        return state.totalProductos() + state.tarifaServicio() + state.precioDelivery
+        return state.totalProductos() + state.tarifaServicio + state.precioDelivery
       },
 
       totalItems: () => {

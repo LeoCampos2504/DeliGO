@@ -96,14 +96,14 @@ let configCreadaPorTest = false
 
 beforeAll(async () => {
   await cleanup()
-  const existing = await db.configPlataforma.findFirst()
+  const existing = await db.configPlataforma.findUnique({ where: { clave: "platform" } })
   if (existing) {
     configOriginal = { id: existing.id, promocionadosActivos: existing.promocionadosActivos }
     if (!existing.promocionadosActivos) {
       await db.configPlataforma.update({ where: { id: existing.id }, data: { promocionadosActivos: true } })
     }
   } else {
-    const created = await db.configPlataforma.create({ data: { clave: `t20dk2-${randomUUID()}`, promocionadosActivos: true } })
+    const created = await db.configPlataforma.create({ data: { clave: "platform", promocionadosActivos: true } })
     configCreadaPorTest = true
     configOriginal = { id: created.id, promocionadosActivos: true }
   }

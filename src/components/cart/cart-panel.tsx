@@ -51,6 +51,7 @@ interface NegocioAPI {
   // en DB.
   retiroHabilitado?: boolean
   precioDelivery: number
+  tarifaServicio: number
   deliveryMode?: string
   tiempoEntrega: number
   aceptaTransferencia: boolean
@@ -158,7 +159,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   const updateQuantity = useCartStore((s) => s.updateQuantity)
   const clearCart = useCartStore((s) => s.clearCart)
   const totalProductos = useCartStore((s) => s.totalProductos())
-  const tarifaServicio = useCartStore((s) => s.tarifaServicio())
+  const tarifaServicio = negocio.tarifaServicio
   const activeNegocioId = useCartStore((s) => s.activeNegocioId)
 
   const isMesaOrder = !!mesaNumero
@@ -394,7 +395,6 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
           metodoPago,
           notas,
           totalProductos,
-          tarifaServicio: displayTarifaServicio,
           precioDelivery: deliveryFee,
           deliveryMode: negocio.deliveryMode,
           total: finalTotal,

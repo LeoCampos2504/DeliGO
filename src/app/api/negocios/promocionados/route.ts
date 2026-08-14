@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { getPlatformConfig } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // GET - Public endpoint: returns promoted businesses with their most ordered products + general products
 export async function GET() {
   try {
     // 1. Check if promocionadosActivos is enabled
-    const config = await db.configPlataforma.findFirst()
+    const config = await getPlatformConfig(db)
 
-    if (!config || !config.promocionadosActivos) {
-      return NextResponse.json({ activo: false, negocios: [] })
+    if (!config.promocionadosActivos) {
+      return NextResponse.json({ activo: false, tarifaServicio: config.tarifaServicio, negocios: [] })
     }
 
     // 2. Auto-expire destacados whose destacadoHasta has passed
@@ -204,6 +205,7 @@ export async function GET() {
 
     return NextResponse.json({
       activo: true,
+      tarifaServicio: config.tarifaServicio,
       negocios: negociosConProductos,
     })
   } catch (error) {

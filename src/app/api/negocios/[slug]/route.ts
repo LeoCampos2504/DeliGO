@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const productPublicSelect = {
@@ -352,6 +353,9 @@ export async function GET(
       )
     }
 
+    // Public display only; POST /api/pedidos remains the financial authority.
+    const tarifaServicio = await getPlatformServiceFee(db)
+
     const productos = negocio.productos.map(buildPublicProduct)
 
     const secciones = negocio.secciones.map((section) => ({
@@ -439,6 +443,7 @@ export async function GET(
       secciones,
       resenas,
       totalVentas: negocio._count.pedidos,
+      tarifaServicio,
     })
   } catch (error) {
     console.error("Error fetching negocio:", safeErrorForLog(error))
