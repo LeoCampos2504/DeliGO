@@ -28,6 +28,18 @@ function fmt(value) {
   return typeof value === "number" ? value.toFixed(2) : String(value)
 }
 
+function topSlowEndpoints(metrics) {
+  return Object.entries(metrics)
+    .filter(([name, metric]) => name.startsWith("endpoint_") && metric && metric.values && typeof metric.values["p(95)"] === "number")
+    .map(([name, metric]) => ({
+      endpoint: name.slice("endpoint_".length),
+      p95: metric.values["p(95)"],
+      sampleCount: metric.values.count || 0,
+    }))
+    .sort((a, b) => b.p95 - a.p95)
+    .slice(0, 5)
+}
+
 function buildHumanReport(data, meta) {
   const metrics = data.metrics || {}
   const verdict = extractThresholdVerdict(data)
@@ -58,6 +70,11 @@ function buildHumanReport(data, meta) {
     lines.push(`- http_req_duration p50/p95/p99: ${fmt(d["med"])}ms / ${fmt(d["p(95)"])}ms / ${fmt(d["p(99)"])}ms`)
   }
   lines.push("")
+  lines.push("## Top slow endpoints (p95)")
+  for (const item of topSlowEndpoints(metrics)) {
+    lines.push(`- ${item.endpoint}: ${fmt(item.p95)}ms (${item.sampleCount} samples)`)
+  }
+  lines.push("")
   lines.push("(Ver summary.json para el detalle completo por métrica/tag.)")
   return lines.join("\n") + "\n"
 }
@@ -72,9 +89,15 @@ export function buildSummaryOutputs(data, meta) {
   const verdict = extractThresholdVerdict(data)
   const humanReport = buildHumanReport(data, meta)
   const base = meta.resultsDir.replace(/[\\/]+$/, "")
+  const enriched = {
+    ...data,
+    loadcert: {
+      topSlowEndpoints: topSlowEndpoints(data.metrics || {}),
+    },
+  }
   return {
     stdout: humanReport,
-    [`${base}/summary.json`]: JSON.stringify(data, null, 2),
+    [`${base}/summary.json`]: JSON.stringify(enriched, null, 2),
     [`${base}/threshold-verdict.json`]: JSON.stringify(
       { allPass: allThresholdsPassed(verdict), thresholds: verdict },
       null,

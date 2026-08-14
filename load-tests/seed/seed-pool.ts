@@ -1,43 +1,56 @@
-// OBSERVABILITY + LOAD/PERFORMANCE CERTIFICATION — seed mínimo Fase B
-// ============================================
-// IMPORTANTE (DB hard gate): este módulo NUNCA importa "@/lib/db" ni
-// "@/lib/auth" a nivel de módulo (static import) — eso ejecutaría antes de
-// que podamos fijar `process.env.DATABASE_URL` desde
-// `DELIGO_TEST_DATABASE_URL` (los imports ES se hoistean por delante de
-// cualquier otro código del archivo). En vez de eso, `seedFixtures()` fija
-// el env var y recién ENTONCES hace `await import(...)` dinámico — así este
-// archivo es seguro tanto si se invoca standalone (`bun run seed-pool.ts`)
-// como si `orchestrate.ts` lo importa dinámicamente.
-//
-// Crea fixtures MÍNIMAS: 1 Negocio (retiro-only, aprobado, abierto) + 1
-// Producto + 1 Cliente + 1 Sesion Cliente + 1 Sesion Negocio, directo en
-// PostgreSQL TESTING vía Prisma — nunca vía HTTP (register/login), nunca
-// dispara email/push/Cloudinary reales.
+// Seed aislado de Fase C. Sólo usa DELIGO_TEST_DATABASE_URL y nunca imprime su valor.
+// Los tokens crudos se escriben únicamente bajo %TEMP% y se eliminan en cleanup.
 
 import { randomUUID } from "node:crypto"
 import { emptyManifest, writeManifest, type FixtureManifest } from "./manifest"
 import { writeRuntimePool, type ActorIdentity } from "./runtime-pool"
+import { buildFinancialFixturePlan, type FinancialFixturePlan } from "./service-fee"
 
 export interface SeedResult {
   manifest: FixtureManifest
   runtimePoolFile: string
+  financialFixture: FinancialFixturePlan
+}
+
+function requireTestDatabaseUrl(): string {
+  const value = process.env.DELIGO_TEST_DATABASE_URL
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(
+      "TEST_DB_HARD_GATE: DELIGO_TEST_DATABASE_URL no está disponible. Nunca se usa DATABASE_URL como fallback silencioso. Abortando antes de cualquier write."
+    )
+  }
+  return value
+}
+
+function countForScenario(scenario: string) {
+  if (scenario === "pacingProbe") {
+    return { clientes: 1, negocios: 1, repartidores: 1, operaciones: 1, orders: 0 }
+  }
+  if (scenario === "realistic20") {
+    return { clientes: 14, negocios: 3, repartidores: 2, operaciones: 1, orders: 0 }
+  }
+  if (scenario === "compressed50") {
+    return { clientes: 60, negocios: 1, repartidores: 0, operaciones: 0, orders: 50 }
+  }
+  return { clientes: 1, negocios: 1, repartidores: 0, operaciones: 0, orders: 1 }
 }
 
 export async function seedFixtures(runId: string, scenario: string): Promise<SeedResult> {
-  const testDbUrl = process.env.DELIGO_TEST_DATABASE_URL
-  if (!testDbUrl) {
-    throw new Error(
-      "TEST_DB_HARD_GATE: DELIGO_TEST_DATABASE_URL no está definida — nunca se usa DATABASE_URL como fallback silencioso. Abortando."
-    )
-  }
+  const testDbUrl = requireTestDatabaseUrl()
   process.env.DATABASE_URL = testDbUrl
 
-  // Imports dinámicos, DESPUÉS de fijar DATABASE_URL — ver comentario de cabecera.
+  // Dynamic imports must remain after the hard gate and DATABASE_URL assignment.
   const { db } = await import("@/lib/db")
-  const { createSession, hashSessionToken } = await import("@/lib/auth")
+  const { createOperationalSession, createSession, hashSessionToken } = await import("@/lib/auth")
 
+  const counts = countForScenario(scenario)
+  const financialFixture = buildFinancialFixturePlan(counts.orders)
+  if (scenario === "compressed50" && (financialFixture.fixtureDebtLimit === null || financialFixture.fixtureDebtLimit < financialFixture.requiredDebtCapacity)) {
+    throw new Error("COMPRESSED50_FINANCIAL_FIXTURE_INVALID")
+  }
   const prefix = `loadcert-${runId}`
   const manifest = emptyManifest(runId, scenario)
+  const identities: ActorIdentity[] = []
 
   const negocio = await db.negocio.create({
     data: {
@@ -45,75 +58,141 @@ export async function seedFixtures(runId: string, scenario: string): Promise<See
       slug: `${prefix}-negocio`,
       usuario: `${prefix}-negocio`,
       email: `${prefix}-negocio@example.test`,
-      // Negocio.password no es nullable (a diferencia de Cliente, que sí
-      // admite null para cuentas OAuth-only) — placeholder no usable, nunca
-      // se hace login HTTP con esta cuenta (la sesión ya se crea directo).
       password: "loadcert-fixture-not-a-real-hash",
       emailVerified: new Date(),
       aprobado: true,
       suspendido: false,
       horarioMode: "simple",
       abiertoManual: true,
-      ofreceDelivery: false,
+      ofreceDelivery: true,
       ofreceRetiro: true,
+      salonActivo: true,
+      empleadosActivos: counts.operaciones > 0,
+      repartidorCodigo: `${runId.slice(-8).toUpperCase()}`,
+      limiteDeuda: financialFixture.fixtureDebtLimit,
     },
   })
   manifest.negocioIds.push(negocio.id)
 
   const producto = await db.producto.create({
-    data: {
-      nombre: `${prefix}-producto`,
-      precio: 100,
-      negocioId: negocio.id,
-    },
+    data: { nombre: `${prefix}-producto`, precio: 100, negocioId: negocio.id },
   })
   manifest.productoIds.push(producto.id)
 
-  const cliente = await db.cliente.create({
-    data: {
-      nombre: `${prefix}-cliente`,
-      email: `${prefix}-cliente@example.test`,
-      telefono: "",
-      password: null,
-      emailVerified: new Date(),
-      bloqueado: false,
-    },
-  })
-  manifest.clienteIds.push(cliente.id)
-
-  // Sesiones creadas directo (nunca login HTTP) — reutiliza el helper real
-  // createSession() de src/lib/auth.ts, nunca una reimplementación paralela
-  // de generación/hash de token.
-  const clienteToken = await createSession(cliente.id, "cliente")
-  const negocioToken = await createSession(negocio.id, "negocio")
-  manifest.sessionTokenHashes.push(hashSessionToken(clienteToken), hashSessionToken(negocioToken))
-
-  const idempotencyKey = randomUUID()
-  manifest.idempotencyKeys.push(idempotencyKey)
-
-  const identities: ActorIdentity[] = [
-    {
+  for (let index = 0; index < counts.clientes; index += 1) {
+    const cliente = await db.cliente.create({
+      data: {
+        nombre: `${prefix}-cliente-${index}`,
+        email: `${prefix}-cliente-${index}@example.test`,
+        telefono: "",
+        password: null,
+        emailVerified: new Date(),
+        bloqueado: false,
+      },
+    })
+    manifest.clienteIds.push(cliente.id)
+    const token = await createSession(cliente.id, "cliente")
+    manifest.sessionTokenHashes.push(hashSessionToken(token))
+    identities.push({
       role: "cliente",
-      index: 0,
+      index,
       id: cliente.id,
       email: cliente.email,
-      sessionToken: clienteToken,
-    },
-    {
+      sessionToken: token,
+    })
+  }
+
+  for (let index = 0; index < counts.negocios; index += 1) {
+    const token = await createSession(negocio.id, "negocio")
+    manifest.sessionTokenHashes.push(hashSessionToken(token))
+    identities.push({
       role: "negocio",
-      index: 0,
+      index,
       id: negocio.id,
       email: negocio.email,
-      sessionToken: negocioToken,
+      sessionToken: token,
       negocioSlug: negocio.slug,
       productoId: producto.id,
-    },
-  ]
+    })
+  }
 
-  const runtimePoolFile = writeRuntimePool({ runId, identities, idempotencyKeys: [idempotencyKey] })
+  for (let index = 0; index < counts.repartidores; index += 1) {
+    const repartidor = await db.repartidor.create({
+      data: {
+        nombre: `${prefix}-repartidor-${index}`,
+        email: `${prefix}-repartidor-${index}@example.test`,
+        password: null,
+        emailVerified: new Date(),
+        activo: true,
+        eliminado: false,
+      },
+    })
+    manifest.repartidorIds.push(repartidor.id)
+    await db.repartidorNegocio.create({
+      data: {
+        repartidorId: repartidor.id,
+        negocioId: negocio.id,
+        negocioSlug: negocio.slug,
+        negocioNombre: negocio.nombre,
+        codigoAcceso: negocio.repartidorCodigo ?? "LOADCERT",
+      },
+    })
+    const token = await createSession(repartidor.id, "repartidor")
+    manifest.sessionTokenHashes.push(hashSessionToken(token))
+    identities.push({
+      role: "repartidor",
+      index,
+      id: repartidor.id,
+      email: repartidor.email,
+      sessionToken: token,
+    })
+  }
+
+  if (counts.operaciones > 0) {
+    const cuenta = await db.cuentaOperativa.create({
+      data: {
+        nombre: `${prefix}-operaciones`,
+        email: `${prefix}-operaciones@example.test`,
+        password: null,
+        emailVerified: new Date(),
+        activo: true,
+        eliminado: false,
+      },
+    })
+    manifest.cuentaOperativaIds.push(cuenta.id)
+    const empleado = await db.empleado.create({
+      data: {
+        nombre: `${prefix}-salon`,
+        codigo: `${runId.slice(-6).toUpperCase()}`,
+        rol: "salon",
+        areaOperativa: "salon",
+        permisos: "[]",
+        activo: true,
+        eliminado: false,
+        negocioId: negocio.id,
+        cuentaOperativaId: cuenta.id,
+      },
+    })
+    manifest.empleadoIds.push(empleado.id)
+    const token = await createOperationalSession(cuenta.id)
+    manifest.sessionTokenHashes.push(hashSessionToken(token))
+    identities.push({
+      role: "operaciones",
+      index: 0,
+      id: cuenta.id,
+      email: cuenta.email,
+      sessionToken: token,
+      cookieName: "deligo_operativo_session",
+      negocioSlug: negocio.slug,
+    })
+  }
+
+  const idempotencyKeys = Array.from({ length: counts.orders }, () => randomUUID())
+  manifest.idempotencyKeys.push(...idempotencyKeys)
+
+  const runtimePoolFile = writeRuntimePool({ runId, identities, idempotencyKeys })
   writeManifest(manifest)
-
-  return { manifest, runtimePoolFile }
+  return { manifest, runtimePoolFile, financialFixture }
 }
 
 export async function disconnectSeedDb(): Promise<void> {
@@ -121,7 +200,6 @@ export async function disconnectSeedDb(): Promise<void> {
   await db.$disconnect()
 }
 
-// Permite invocación standalone: `bun run load-tests/seed/seed-pool.ts --run-id <id> --scenario <name>`
 if (import.meta.main) {
   const args = process.argv.slice(2)
   const getArg = (name: string): string | undefined => {
@@ -129,15 +207,14 @@ if (import.meta.main) {
     return idx >= 0 ? args[idx + 1] : undefined
   }
   const runId = getArg("run-id") ?? `loadcert-${Date.now()}-${randomUUID().slice(0, 8)}`
-  const scenario = getArg("scenario") ?? "baseline-readonly"
-
+  const scenario = getArg("scenario") ?? "realistic20"
   seedFixtures(runId, scenario)
     .then(async (result) => {
       console.log(`SEED_OK runId=${runId} manifest=${result.runtimePoolFile}`)
       await disconnectSeedDb()
     })
-    .catch(async (err) => {
-      console.error("SEED_FAILED", err)
+    .catch(async (error) => {
+      console.error("SEED_FAILED", error instanceof Error ? error.name : "unknown")
       await disconnectSeedDb().catch(() => {})
       process.exit(1)
     })

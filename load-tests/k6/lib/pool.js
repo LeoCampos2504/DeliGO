@@ -34,3 +34,7 @@ export function findIdentity(role, index) {
   }
   return match
 }
+
+export function countIdentities(role) {
+  return identities.filter((identity) => identity.role === role).length
+}

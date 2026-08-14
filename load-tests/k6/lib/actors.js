@@ -28,11 +28,12 @@ import http from "k6/http"
 import { TARGET_URL } from "../../config/environments.js"
 
 export const SESSION_COOKIE_NAME = "deligo_session"
+export const OPERATIONAL_SESSION_COOKIE_NAME = "deligo_operativo_session"
 
 /** Crea un CookieJar LOCAL e independiente para un actor, con su session token ya seteado. Nunca se comparte entre actores. */
 export function createActorJar(identity) {
   const jar = new http.CookieJar()
-  jar.set(TARGET_URL, SESSION_COOKIE_NAME, identity.sessionToken)
+  jar.set(TARGET_URL, identity.cookieName || SESSION_COOKIE_NAME, identity.sessionToken)
   return jar
 }
 

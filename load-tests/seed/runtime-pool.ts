@@ -12,13 +12,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 export interface ActorIdentity {
-  role: "cliente" | "negocio"
+  role: "cliente" | "negocio" | "repartidor" | "operaciones"
   /** índice estable dentro del pool — usado por exec.vu.idInTest / exec.scenario.iterationInTest */
   index: number
   id: string
   email: string
   /** token de sesión CRUDO — nunca el hash. Sólo vive en este archivo. */
   sessionToken: string
+  cookieName?: string
   /** sólo presente para el actor "negocio" — usado por el flujo de checkout */
   negocioSlug?: string
   productoId?: string

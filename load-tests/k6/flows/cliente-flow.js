@@ -13,12 +13,14 @@
 import http from "k6/http"
 import { check } from "k6"
 import { TARGET_URL } from "../../config/environments.js"
+import { recordResponse } from "../lib/metrics.js"
 
-export function runClienteReadonlyRound(clienteJar, negocioIdentity) {
+export function runClienteCatalogOnce(clienteJar, negocioIdentity) {
   const catalogRes = http.get(`${TARGET_URL}/api/negocios/${negocioIdentity.negocioSlug}`, {
     jar: clienteJar,
     tags: { name: "catalog_business" },
   })
+  recordResponse(catalogRes, "catalog_business", "cliente")
   check(catalogRes, {
     "catalog_business: status 200": (r) => r.status === 200,
     "catalog_business: body has slug": (r) => {
@@ -29,22 +31,42 @@ export function runClienteReadonlyRound(clienteJar, negocioIdentity) {
       }
     },
   })
+  return catalogRes
+}
 
+export function runClienteActiveOrdersPoll(clienteJar) {
   const ordersRes = http.get(`${TARGET_URL}/api/cliente/pedidos?estado=activos`, {
     jar: clienteJar,
     tags: { name: "client_orders" },
   })
+  recordResponse(ordersRes, "client_orders", "cliente")
   check(ordersRes, {
     "client_orders: status 200": (r) => r.status === 200,
   })
 
+  return ordersRes
+}
+
+export function runClienteChatFabPoll(clienteJar) {
   const unreadRes = http.get(`${TARGET_URL}/api/chat/no-leidos`, {
     jar: clienteJar,
     tags: { name: "client_unread_chat" },
   })
+  recordResponse(unreadRes, "client_unread_chat", "cliente")
   check(unreadRes, {
     "client_unread_chat: status 200": (r) => r.status === 200,
   })
 
+  return unreadRes
+}
+
+export function runClienteReadonlyRound(clienteJar, negocioIdentity) {
+  const catalogRes = runClienteCatalogOnce(clienteJar, negocioIdentity)
+  const ordersRes = runClienteActiveOrdersPoll(clienteJar)
+  const unreadRes = runClienteChatFabPoll(clienteJar)
   return { catalogRes, ordersRes, unreadRes }
+}
+
+export function runClienteRealisticRound(clienteJar, negocioIdentity) {
+  return runClienteReadonlyRound(clienteJar, negocioIdentity)
 }

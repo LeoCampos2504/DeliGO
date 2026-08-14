@@ -20,6 +20,7 @@ export interface CleanupVerdict {
   remainingClientes: number
   remainingNegocios: number
   remainingRepartidores: number
+  remainingEmpleados: number
   remainingCuentasOperativas: number
   runtimeSecretsRemaining: boolean
   allClean: boolean
@@ -33,6 +34,7 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
   process.env.DATABASE_URL = testDbUrl
 
   const { db } = await import("@/lib/db")
+  const empleadoIds = manifest.empleadoIds ?? []
 
   if (manifest.pedidoIds.length) {
     await db.chatMensaje.deleteMany({ where: { pedidoId: { in: manifest.pedidoIds } } })
@@ -61,6 +63,9 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
   if (manifest.clienteIds.length) {
     await db.cliente.deleteMany({ where: { id: { in: manifest.clienteIds } } })
   }
+  if (empleadoIds.length) {
+    await db.empleado.deleteMany({ where: { id: { in: empleadoIds } } })
+  }
   if (manifest.negocioIds.length) {
     await db.negocio.deleteMany({ where: { id: { in: manifest.negocioIds } } })
   }
@@ -80,6 +85,7 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
     remainingClientes,
     remainingNegocios,
     remainingRepartidores,
+    remainingEmpleados,
     remainingCuentasOperativas,
   ] = await Promise.all([
     manifest.pedidoIds.length ? db.pedido.count({ where: { id: { in: manifest.pedidoIds } } }) : 0,
@@ -90,6 +96,7 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
     manifest.clienteIds.length ? db.cliente.count({ where: { id: { in: manifest.clienteIds } } }) : 0,
     manifest.negocioIds.length ? db.negocio.count({ where: { id: { in: manifest.negocioIds } } }) : 0,
     manifest.repartidorIds.length ? db.repartidor.count({ where: { id: { in: manifest.repartidorIds } } }) : 0,
+    empleadoIds.length ? db.empleado.count({ where: { id: { in: empleadoIds } } }) : 0,
     manifest.cuentaOperativaIds.length ? db.cuentaOperativa.count({ where: { id: { in: manifest.cuentaOperativaIds } } }) : 0,
   ])
 
@@ -105,6 +112,7 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
     remainingClientes === 0 &&
     remainingNegocios === 0 &&
     remainingRepartidores === 0 &&
+    remainingEmpleados === 0 &&
     remainingCuentasOperativas === 0 &&
     !runtimeSecretsRemaining
 
@@ -117,6 +125,7 @@ export async function cleanupByManifest(manifest: FixtureManifest): Promise<Clea
     remainingClientes,
     remainingNegocios,
     remainingRepartidores,
+    remainingEmpleados,
     remainingCuentasOperativas,
     runtimeSecretsRemaining,
     allClean,

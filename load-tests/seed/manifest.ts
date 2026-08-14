@@ -16,6 +16,7 @@ export interface FixtureManifest {
   clienteIds: string[]
   negocioIds: string[]
   repartidorIds: string[]
+  empleadoIds: string[]
   cuentaOperativaIds: string[]
   productoIds: string[]
   pedidoIds: string[]
@@ -34,6 +35,7 @@ export function emptyManifest(runId: string, scenario: string): FixtureManifest 
     clienteIds: [],
     negocioIds: [],
     repartidorIds: [],
+    empleadoIds: [],
     cuentaOperativaIds: [],
     productoIds: [],
     pedidoIds: [],
