@@ -40,7 +40,7 @@ const tabItems: { id: RepartidorTab; label: string; icon: typeof Bike; badge?: s
 // ============================================
 export function RepartidorPanel() {
   const { activeTab, setActiveTab, setStats, refreshKey } = useRepartidorStore()
-  const { logout } = useAuth()
+  const { logout } = useAuth({ autoSync: false })
   const authUser = useAuthStore((s) => s.user)
   const [isRefreshing, setIsRefreshing] = useState(false)
 

@@ -54,7 +54,11 @@ async function unlinkCurrentPushSubscription(): Promise<void> {
  *
  * The validation runs once on mount (not on every render) to avoid loops.
  */
-export function useAuth() {
+type UseAuthOptions = {
+  autoSync?: boolean
+}
+
+export function useAuth({ autoSync = true }: UseAuthOptions = {}) {
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -63,7 +67,7 @@ export function useAuth() {
   const logout = useAuthStore((s) => s.logout)
   const hasValidated = useRef(false)
 
-  const syncSession = useCallback(async () => {
+  const syncSession = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/auth/me", {
         cache: "no-store",
@@ -108,7 +112,7 @@ export function useAuth() {
               })
               break
           }
-          return
+          return true
         }
       }
 
@@ -119,18 +123,22 @@ export function useAuth() {
           store.logout()
         }
       }
+      return false
     } catch {
       // Network error — don't clear, might be offline (PWA)
+      return false
     }
   }, [])
 
   useEffect(() => {
+    if (!autoSync) return
+
     // Only validate once per mount to avoid infinite loops
     // (syncSession updates the store which would re-trigger this effect)
     if (hasValidated.current) return
     hasValidated.current = true
     syncSession()
-  }, [syncSession])
+  }, [autoSync, syncSession])
 
   const handleLogout = useCallback(async () => {
     // Remember the role BEFORE clearing the store
