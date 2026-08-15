@@ -56,7 +56,10 @@ import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { getClientReviewVisibilityCopy } from "@/lib/review-moderation-client-ui"
 import { useCartStore, type CartItemAgregado } from "@/store/cart-store"
 import { ReviewDialog } from "@/components/client/review-dialog"
-import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import {
+  formatPedidoItemSecciones,
+  getIngredientesQuitadosNombres,
+} from "@/lib/pedido-item-personalizacion"
 import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 import dynamic from "next/dynamic"
 
@@ -711,25 +714,12 @@ function RepeatOrderDialog({
                     )}
                     {/* Secciones (option sections) */}
                     {item.disponible && (() => {
-                      let parsed: Record<string, string | Record<string, number>> = {}
-                      try {
-                        parsed = typeof item.secciones === "string" ? JSON.parse(item.secciones || "{}") : (item.secciones || {})
-                      } catch { parsed = {} }
-                      if (typeof parsed !== "object" || Array.isArray(parsed)) parsed = {}
-                      return Object.keys(parsed).length > 0 ? (
+                      const secciones = formatPedidoItemSecciones(item.secciones)
+                      return secciones.length > 0 ? (
                         <div className="flex flex-wrap gap-1 mt-0.5">
-                          {Object.entries(parsed).map(([k, v]) => {
-                            let display: string
-                            if (typeof v === "string") {
-                              display = `${k}: ${v}`
-                            } else {
-                              const parts = Object.entries(v as Record<string, number>)
-                                .filter(([, qty]) => qty > 0)
-                                .map(([opt, qty]) => qty > 1 ? `${opt} x${qty}` : opt)
-                              display = `${k}: ${parts.join(", ")}`
-                            }
+                          {secciones.map((display, index) => {
                             return (
-                              <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                              <span key={`${display}-${index}`} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
                                 {display}
                               </span>
                             )
@@ -1462,18 +1452,7 @@ function ItemsList({ items }: { items: PedidoItem[] }) {
         }
 
         // Parse secciones (options chosen from each section)
-        let secciones: string[] = []
-        try {
-          const parsed = JSON.parse(item.secciones || "{}")
-          if (typeof parsed === "object" && parsed !== null) {
-            secciones = Object.entries(parsed).map(([section, value]) => {
-              const val = value as Record<string, number> | string
-              return typeof val === "string" ? val : Object.keys(val).join(", ")
-            })
-          }
-        } catch {
-          secciones = []
-        }
+        const secciones = formatPedidoItemSecciones(item.secciones)
 
         // Parse ingredientes quitados (P1-A.2A-i: acepta formato histórico o estructurado)
         const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)

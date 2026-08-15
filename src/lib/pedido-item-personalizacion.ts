@@ -105,6 +105,29 @@ export function parsePedidoItemSecciones(raw: unknown): Record<string, PedidoIte
   return result
 }
 
+/**
+ * Formats persisted order sections for UI display without discarding option
+ * quantities. The section and option insertion order is preserved.
+ */
+export function formatPedidoItemSecciones(raw: unknown): string[] {
+  const parsed = parsePedidoItemSecciones(raw)
+  const lines: string[] = []
+
+  for (const [section, selection] of Object.entries(parsed)) {
+    if (typeof selection === "string") {
+      lines.push(`${section}: ${selection}`)
+      continue
+    }
+
+    const options = Object.entries(selection)
+      .map(([option, quantity]) => quantity > 1 ? `${option} x${quantity}` : option)
+
+    if (options.length > 0) lines.push(`${section}: ${options.join(", ")}`)
+  }
+
+  return lines
+}
+
 // ---------------------------------------------------------------------------
 // P1-A.1 — Parser retrocompatible de `ingredientesQuitados`
 // ---------------------------------------------------------------------------
