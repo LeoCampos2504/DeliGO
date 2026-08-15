@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import L from "leaflet"
 import { io, Socket } from "socket.io-client"
+import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -312,54 +313,67 @@ export function DeliveryTrackingMap({
   useEffect(() => {
     if (!open) return
 
-    const chatUrl =
-      process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
-      "http://localhost:3003"
+    let cancelled = false
+    let socket: Socket | null = null
 
-    const socket = io(chatUrl, {
-      transports: ["websocket", "polling"],
-      auth: {
-        userId: `tracking-${pedidoId}`,
-        userType: "tracker",
-        userName: "Tracker",
-      },
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-      timeout: 10000,
-    })
+    const connect = async () => {
+      try {
+        const token = await fetchRealtimeToken()
+        if (cancelled) return
+        socket = io(getRealtimeSocketUrl(), {
+        transports: ["websocket", "polling"],
+        path: "/socket.io",
+        auth: { token },
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000,
+        timeout: 10000,
+        })
 
-    socket.on("connect", () => {
-      socket.emit("join-room", pedidoId)
-      setIsLiveSocket(true)
-    })
+        socket.on("connect", () => {
+          void authorizeRealtimeRoom(pedidoId, ["tracking:watch"])
+            .then((capability) => {
+              if (cancelled || !socket?.connected) return
+              socket.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
+                setIsLiveSocket(Boolean(ack?.ok))
+              })
+            })
+            .catch(() => setIsLiveSocket(false))
+        })
 
-    socket.on("repartidor-location", (data: { pedidoId: string; lat: number; lng: number; timestamp: string }) => {
-      if (data.pedidoId !== pedidoId) return
-      const lat = data.lat
-      const lng = data.lng
-      if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
+        socket.on("repartidor-location", (data: { pedidoId: string; lat: number; lng: number; timestamp: string }) => {
+          if (data.pedidoId !== pedidoId) return
+          const lat = data.lat
+          const lng = data.lng
+          if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
 
-      setTrackingData((prev) => {
-        if (prev) {
-          return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
-        }
-        return prev
-      })
-    })
+          setTrackingData((prev) => {
+            if (prev) {
+              return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
+            }
+            return prev
+          })
+        })
 
-    socket.on("disconnect", () => {
-      setIsLiveSocket(false)
-    })
+        socket.on("disconnect", () => {
+          setIsLiveSocket(false)
+        })
 
-    socket.on("connect_error", () => {
-      setIsLiveSocket(false)
-    })
+        socket.on("connect_error", () => {
+          setIsLiveSocket(false)
+        })
 
-    socketRef.current = socket
+        socketRef.current = socket
+      } catch {
+        setIsLiveSocket(false)
+      }
+    }
+
+    void connect()
 
     return () => {
-      socket.disconnect()
+      cancelled = true
+      socket?.disconnect()
       socketRef.current = null
       setIsLiveSocket(false)
     }

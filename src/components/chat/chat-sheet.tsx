@@ -10,6 +10,7 @@ import { ChatView } from "./chat-view"
 import { MessageCircle, Loader2, WifiOff, RefreshCw } from "lucide-react"
 import { SheetDescription } from "@/components/ui/sheet"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
 
 export function ChatSheet() {
   const {
@@ -55,61 +56,68 @@ export function ChatSheet() {
     // Clean up any dead socket first
     cleanupSocket()
     setConnecting(true)
-    setConnectionFailed(false)
 
-    // Use gateway pattern for Socket.IO so Caddy proxies to port 3003
-    const chatUrl =
-      process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
-      "http://localhost:3003"
+    let cancelled = false
 
-    const socket = io(chatUrl, {
-      transports: ["websocket", "polling"],
-      upgrade: true,
-      forceNew: true,
+    const connect = async () => {
+      let token: string
+      try {
+        token = await fetchRealtimeToken()
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("[Chat] Realtime auth failed:", safeErrorForLog(error))
+          setConnectionFailed(true)
+          setConnecting(false)
+        }
+        return
+      }
+      if (cancelled) return
+
+      const socket = io(getRealtimeSocketUrl(), {
+        transports: ["websocket", "polling"],
+        upgrade: true,
+        forceNew: true,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
-      auth: {
-        userId: user.id,
-        userType: user.type,
-        userName: user.nombre,
-      },
-    })
+        auth: { token },
+        path: "/socket.io",
+      })
 
-    socket.on("connect", () => {
-      setConnected(true)
-      setConnecting(false)
-      setConnectionFailed(false)
-    })
+      socket.on("connect", () => {
+        setConnected(true)
+        setConnecting(false)
+        setConnectionFailed(false)
+      })
 
-    socket.on("disconnect", () => {
-      setConnected(false)
-    })
+      socket.on("disconnect", () => {
+        setConnected(false)
+      })
 
-    socket.on("connect_error", (err) => {
-      console.warn("[Chat] Connection error:", safeErrorForLog(err))
-      setConnectionFailed(true)
-      setConnecting(false)
-    })
+      socket.on("connect_error", (err) => {
+        console.warn("[Chat] Connection error:", safeErrorForLog(err))
+        setConnectionFailed(true)
+        setConnecting(false)
+      })
 
-    socket.on("reconnect_attempt", (attempt) => {
-      setConnecting(true)
-      setConnectionFailed(false)
-    })
+      socket.on("reconnect_attempt", () => {
+        setConnecting(true)
+        setConnectionFailed(false)
+      })
 
-    socket.on("reconnect_failed", () => {
-      setConnectionFailed(true)
-      setConnecting(false)
-      // Clear the dead socket so it can be recreated on next sheet open
-      cleanupSocket()
-    })
+      socket.on("reconnect_failed", () => {
+        setConnectionFailed(true)
+        setConnecting(false)
+        // Clear the dead socket so it can be recreated on next sheet open
+        cleanupSocket()
+      })
 
-    socket.on("new-message", (message: any) => {
-      if (message && message.pedidoId) {
-        addMessage(message.pedidoId, message)
-        updateConversationLastMessage(message.pedidoId, message)
+      socket.on("new-message", (message: any) => {
+        if (message && message.pedidoId) {
+          addMessage(message.pedidoId, message)
+          updateConversationLastMessage(message.pedidoId, message)
 
         // Update unread count for conversation
         if (message.remitente !== getRemitenteForUserType(user.type)) {
@@ -118,15 +126,15 @@ export function ChatSheet() {
             updateConversationUnread(message.pedidoId, conv.unreadCount + 1)
           }
         }
-      }
-    })
-
-    socket.on("user-typing", (data: { pedidoId: string; userId: string; userType: string; userName: string }) => {
-      addTypingUser(data.pedidoId, {
-        userId: data.userId,
-        userType: data.userType,
-        userName: data.userName,
+        }
       })
+
+      socket.on("user-typing", (data: { pedidoId: string; userId: string; userType: string; userName?: string }) => {
+        addTypingUser(data.pedidoId, {
+          userId: data.userId,
+          userType: data.userType,
+          userName: data.userName || "Usuario",
+        })
 
       // Auto-remove typing indicator after 3 seconds
       if (typingTimeoutRef.current[data.userId]) {
@@ -135,27 +143,31 @@ export function ChatSheet() {
       typingTimeoutRef.current[data.userId] = setTimeout(() => {
         removeTypingUser(data.pedidoId, data.userId)
       }, 3000)
-    })
+      })
 
-    socket.on("user-stop-typing", (data: { pedidoId: string; userId: string }) => {
-      removeTypingUser(data.pedidoId, data.userId)
-      if (typingTimeoutRef.current[data.userId]) {
-        clearTimeout(typingTimeoutRef.current[data.userId])
-        delete typingTimeoutRef.current[data.userId]
-      }
-    })
+      socket.on("user-stop-typing", (data: { pedidoId: string; userId: string }) => {
+        removeTypingUser(data.pedidoId, data.userId)
+        if (typingTimeoutRef.current[data.userId]) {
+          clearTimeout(typingTimeoutRef.current[data.userId])
+          delete typingTimeoutRef.current[data.userId]
+        }
+      })
 
-    socket.on("unread-update", (data: { count: number }) => {
-      setUnreadCount(data.count)
-    })
+      socket.on("unread-update", (data: { count: number }) => {
+        setUnreadCount(data.count)
+      })
 
-    socket.on("messages-read", () => {
-      // Could trigger a refetch, but for simplicity we'll just update on next fetch
-    })
+      socket.on("messages-read", () => {
+        // Could trigger a refetch, but polling remains unchanged in this phase.
+      })
 
-    socketRef.current = socket
+      socketRef.current = socket
+    }
+
+    void connect()
 
     return () => {
+      cancelled = true
       // Don't disconnect on sheet close, keep connection alive
     }
   }, [isSheetOpen, user, cleanupSocket, retryCount])
@@ -181,9 +193,22 @@ export function ChatSheet() {
     socket.emit("leave-all-rooms")
 
     if (activePedidoId) {
-      socket.emit("join-room", activePedidoId)
-      // Mark messages as read
-      socket.emit("mark-read", activePedidoId)
+      let cancelled = false
+      void authorizeRealtimeRoom(activePedidoId, ["chat:read", "chat:typing"])
+        .then((capability) => {
+          if (cancelled || socketRef.current !== socket || !socket.connected) return
+          socket.emit("join-order-room", capability, (ack: { ok?: boolean; code?: string }) => {
+            if (!ack?.ok) console.warn("[Chat] Order room rejected:", ack?.code || "ROOM_FORBIDDEN")
+          })
+          // Mark messages as read
+          socket.emit("mark-read", activePedidoId)
+        })
+        .catch(() => {
+          // HTTP polling and GET message authorization remain the fallback in this phase.
+        })
+      return () => {
+        cancelled = true
+      }
     }
   }, [activePedidoId, isConnected])
 

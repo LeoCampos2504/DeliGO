@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 
-const chatServiceUrl = "https://harmonious-empathy.up.railway.app";
-
-console.log("[next.config] CHAT_SERVICE_URL =", chatServiceUrl);
+const chatServiceUrl = process.env.REALTIME_SERVICE_URL?.trim();
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -14,12 +12,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
 
   async rewrites() {
-    return [
-      {
-        source: "/socket.io/:path*",
-        destination: `${chatServiceUrl}/socket.io/:path*`,
-      },
-    ];
+    if (!chatServiceUrl) return [];
+    return [{
+      source: "/socket.io/:path*",
+      destination: `${chatServiceUrl}/socket.io/:path*`,
+    }];
   },
 };
 

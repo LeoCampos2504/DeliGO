@@ -64,6 +64,7 @@ const ROLE_PROTECTED_ROUTES: Array<{ prefix: string; userType: string; cookieNam
 /** Routes that require *any* authenticated session */
 const AUTH_REQUIRED_PREFIXES = [
   "/api/chat",
+  "/api/realtime",
   "/api/push/subscribe",
   "/api/push/unsubscribe",
 ]
@@ -148,6 +149,7 @@ function addCorsHeaders(
 
 const ORIGIN_PROTECTED_PREFIXES = [
   "/api/auth/logout",
+  "/api/realtime",
   "/api/cliente",
   "/api/denuncias",
   "/api/destacado-solicitud",

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react"
 import { io, Socket } from "socket.io-client"
+import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
 
 interface ActiveDelivery {
   id: string
@@ -28,6 +29,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   const deliveriesRef = useRef<ActiveDelivery[]>(activeDeliveries)
   const socketRef = useRef<Socket | null>(null)
   const userIdRef = useRef<string | null>(null)
+  const authorizedDeliveryIdsRef = useRef<Set<string>>(new Set())
 
   // Keep the ref in sync so the interval callback always has fresh data
   useEffect(() => {
@@ -53,47 +55,69 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     // Connect or reuse existing socket
     if (socketRef.current?.connected) return
 
+    let cancelled = false
+
     // Get user info from auth store (lazy import to avoid circular deps)
     import("@/store/auth-store").then(({ useAuthStore }) => {
       const user = useAuthStore.getState().user
       if (!user) return
       userIdRef.current = user.id
 
-      const chatUrl =
-        process.env.NEXT_PUBLIC_CHAT_SERVICE_URL ||
-        "http://localhost:3003"
+      const connect = async () => {
+        try {
+          const token = await fetchRealtimeToken()
+          if (cancelled) return
+          const socket = io(getRealtimeSocketUrl(), {
+            transports: ["websocket", "polling"],
+            path: "/socket.io",
+            auth: { token },
+            reconnection: true,
+            reconnectionAttempts: 10,
+            reconnectionDelay: 1000,
+            timeout: 10000,
+          })
 
-      const socket = io(chatUrl, {
-        transports: ["websocket", "polling"],
-        auth: {
-          userId: user.id,
-          userType: "repartidor",
-          userName: user.nombre || "Repartidor",
-        },
-        reconnection: true,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 1000,
-        timeout: 10000,
-      })
+          const authorizeDelivery = (deliveryId: string) => {
+            void authorizeRealtimeRoom(deliveryId, ["tracking:publish"])
+              .then((capability) => {
+                if (cancelled || !socket.connected) return
+                socket.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
+                  if (ack?.ok) authorizedDeliveryIdsRef.current.add(deliveryId)
+                })
+              })
+              .catch(() => {
+                authorizedDeliveryIdsRef.current.delete(deliveryId)
+              })
+          }
 
-      socket.on("connect", () => {
-        // Join rooms for all accepted deliveries
-        const current = deliveriesRef.current.filter(
-          (d) => d.estado === "en_camino" && d.repartidorId
-        )
-        current.forEach((d) => {
-          socket.emit("join-room", d.id)
-        })
-      })
+          socket.on("connect", () => {
+            authorizedDeliveryIdsRef.current.clear()
+            const current = deliveriesRef.current.filter(
+              (d) => d.estado === "en_camino" && d.repartidorId
+            )
+            current.forEach((d) => authorizeDelivery(d.id))
+          })
 
-      socketRef.current = socket
+          socket.on("disconnect", () => {
+            authorizedDeliveryIdsRef.current.clear()
+          })
+
+          socketRef.current = socket
+        } catch {
+          // HTTP GPS persistence remains unchanged in this foundation phase.
+        }
+      }
+
+      void connect()
     })
 
     return () => {
+      cancelled = true
       if (socketRef.current) {
         socketRef.current.disconnect()
         socketRef.current = null
       }
+      authorizedDeliveryIdsRef.current.clear()
     }
   }, [activeDeliveries])
 
@@ -104,7 +128,14 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       (d) => d.estado === "en_camino" && d.repartidorId
     )
     enCamino.forEach((d) => {
-      socketRef.current?.emit("join-room", d.id)
+      void authorizeRealtimeRoom(d.id, ["tracking:publish"])
+        .then((capability) => {
+          if (!socketRef.current?.connected) return
+          socketRef.current.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
+            if (ack?.ok) authorizedDeliveryIdsRef.current.add(d.id)
+          })
+        })
+        .catch(() => authorizedDeliveryIdsRef.current.delete(d.id))
     })
   }, [activeDeliveries])
 
@@ -136,8 +167,8 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
     // 2. Emit via Socket.IO for real-time client tracking
     if (socketRef.current?.connected) {
-      deliveries.forEach((delivery) => {
-        socketRef.current?.emit("location-update", {
+        deliveries.filter((delivery) => authorizedDeliveryIdsRef.current.has(delivery.id)).forEach((delivery) => {
+          socketRef.current?.emit("location-update", {
           pedidoId: delivery.id,
           lat,
           lng,
