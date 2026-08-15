@@ -4,6 +4,7 @@ import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-ter
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -186,6 +187,8 @@ export async function PATCH(
       console.error("[OperacionesPyR] Falló la auditoría de cambio de pedido")
     }
 
+    const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
+
     // 7) Notificaciones best-effort, solo las ya existentes y aplicables a no-mesa.
     if (pedido.clienteId) {
       try {
@@ -204,6 +207,7 @@ export async function PATCH(
           negocioId,
           pushSubscription: cliente?.pushSubscription ?? null,
           pushPayload: payload,
+          reservedPushEndpoints: cancellationPushEndpoints,
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
         })
       } catch {
@@ -238,6 +242,20 @@ export async function PATCH(
         }
       } catch {
         console.error("[OperacionesPyR] Falló una notificación de cambio de pedido")
+      }
+    }
+
+    if (estado === "cancelado") {
+      try {
+        await notifyOperationsOrderCancelled({
+          pedidoId: id,
+          negocioId,
+          metodoEntrega: metodo,
+          canceladoPor: "vendedor",
+          reservedPushEndpoints: cancellationPushEndpoints,
+        })
+      } catch {
+        console.error("[OperacionesPyR] Falló una notificación interna de cancelación")
       }
     }
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera"
+import { createNotification, orderUpdateNotification } from "@/lib/push"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 const DEFAULT_AUTO_CANCEL_MINUTES = 30
@@ -165,6 +167,69 @@ export async function POST(req: NextRequest) {
 
         if (cancelled) {
           cancelledCount += 1
+
+          try {
+            const pedido = await db.pedido.findUnique({
+              where: { id: candidato.id },
+              select: {
+                negocioId: true,
+                negocioNombre: true,
+                clienteId: true,
+                metodoEntrega: true,
+              },
+            })
+            if (!pedido) continue
+
+            const cancellationPushEndpoints = new Set<string>()
+            const payload = orderUpdateNotification(candidato.id, pedido.negocioNombre, "cancelado")
+            if (pedido.clienteId) {
+              const cliente = await db.cliente.findUnique({
+                where: { id: pedido.clienteId },
+                select: { pushSubscription: true },
+              })
+              await createNotification({
+                userId: pedido.clienteId,
+                userType: "cliente",
+                tipo: "order_update",
+                titulo: payload.title,
+                cuerpo: payload.body,
+                pedidoId: candidato.id,
+                negocioId: pedido.negocioId,
+                pushSubscription: cliente?.pushSubscription ?? null,
+                pushPayload: payload,
+                reservedPushEndpoints: cancellationPushEndpoints,
+                cleanupExpired: { model: "cliente", id: pedido.clienteId },
+              })
+            }
+
+            const negocio = await db.negocio.findUnique({
+              where: { id: pedido.negocioId },
+              select: { pushSubscription: true },
+            })
+            await createNotification({
+              userId: pedido.negocioId,
+              userType: "negocio",
+              tipo: "order_update",
+              titulo: payload.title,
+              cuerpo: payload.body,
+              pedidoId: candidato.id,
+              negocioId: pedido.negocioId,
+              pushSubscription: negocio?.pushSubscription ?? null,
+              pushPayload: payload,
+              reservedPushEndpoints: cancellationPushEndpoints,
+              cleanupExpired: { model: "negocio", id: pedido.negocioId },
+            })
+
+            await notifyOperationsOrderCancelled({
+              pedidoId: candidato.id,
+              negocioId: pedido.negocioId,
+              metodoEntrega: pedido.metodoEntrega,
+              canceladoPor: "sistema",
+              reservedPushEndpoints: cancellationPushEndpoints,
+            })
+          } catch (pushError) {
+            console.error("[Push] Failed to send auto-cancellation notifications:", safeErrorForLog(pushError))
+          }
         }
       } catch (error) {
         console.error(`Error auto-cancelling pedido ${candidato.id}:`, safeErrorForLog(error))

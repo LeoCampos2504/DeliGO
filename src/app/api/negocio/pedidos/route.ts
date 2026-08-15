@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { createNotification, orderUpdateNotification } from "@/lib/push"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -341,6 +343,8 @@ export async function PUT(req: NextRequest) {
       })
     }
 
+    const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
+
     if (estado === "listo_para_retirar" && pedido.metodoEntrega === "mesa") {
       try {
         await notifyMesaOrderReadyForMozo({
@@ -357,6 +361,42 @@ export async function PUT(req: NextRequest) {
         })
       } catch (mozoPushError) {
         console.error(`[Push/Mozo] Failed to notify ready mesa order for pedido ${pedidoId}:`, safeErrorForLog(mozoPushError))
+      }
+    }
+
+    if (estado === "cancelado") {
+      try {
+        if (pedido.clienteId) {
+          const cliente = await db.cliente.findUnique({
+            where: { id: pedido.clienteId },
+            select: { pushSubscription: true },
+          })
+          const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, "cancelado")
+          await createNotification({
+            userId: pedido.clienteId,
+            userType: "cliente",
+            tipo: "order_update",
+            titulo: payload.title,
+            cuerpo: payload.body,
+            pedidoId,
+            negocioId,
+            pushSubscription: cliente?.pushSubscription ?? null,
+            pushPayload: payload,
+            reservedPushEndpoints: cancellationPushEndpoints,
+            cleanupExpired: { model: "cliente", id: pedido.clienteId },
+          })
+        }
+
+        await notifyOperationsOrderCancelled({
+          pedidoId,
+          negocioId,
+          metodoEntrega: pedido.metodoEntrega,
+          mesaNumero: pedido.mesaNumero,
+          canceladoPor: "vendedor",
+          reservedPushEndpoints: cancellationPushEndpoints,
+        })
+      } catch (pushError) {
+        console.error("[Push] Failed to send mesa cancellation notifications:", safeErrorForLog(pushError))
       }
     }
 

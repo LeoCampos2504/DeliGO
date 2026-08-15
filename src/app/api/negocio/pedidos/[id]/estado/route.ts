@@ -5,6 +5,7 @@ import { createNotification, orderUpdateNotification, newDeliveryNotification, r
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -241,6 +242,8 @@ export async function PATCH(
     // operación financiera del ciclo de vida del pedido es la confirmación de recepción
     // del cliente (PUT /api/cliente/pedidos/[id] action=confirmar).
 
+    const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
+
     // Send notification to the client about order status update
     if (pedido.clienteId) {
       try {
@@ -259,10 +262,26 @@ export async function PATCH(
           negocioId: negocioId,
           pushSubscription: cliente?.pushSubscription ?? null,
           pushPayload: payload,
+          reservedPushEndpoints: cancellationPushEndpoints,
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
         })
       } catch (pushError) {
         console.error("[Push] Failed to send order update notification:", safeErrorForLog(pushError))
+      }
+    }
+
+    if (estado === "cancelado") {
+      try {
+        await notifyOperationsOrderCancelled({
+          pedidoId,
+          negocioId,
+          metodoEntrega: pedido.metodoEntrega,
+          mesaNumero: pedido.mesaNumero,
+          canceladoPor: "vendedor",
+          reservedPushEndpoints: cancellationPushEndpoints,
+        })
+      } catch (pushError) {
+        console.error("[Push] Failed to send operations cancellation notification:", safeErrorForLog(pushError))
       }
     }
 

@@ -42,6 +42,7 @@ export type NotificationType =
   | "mesa_order_ready"
   | "salon_new_order"
   | "operaciones_salon_new_order"
+  | "operaciones_order_cancelled"
 
 export interface PushNotificationPayload {
   title: string
@@ -78,6 +79,17 @@ export interface NavigationTarget {
   empleado?: string  // tab/section for empleado (mozo PWA at /m/[token])
   salon?: string     // tab/section for salon shared display (/s/[token])
   empleados?: string // tab for empleados shared panel (/e/[token])
+}
+
+export type OperationsCancellationArea = "salon" | "pyr"
+
+export function buildOperationsCancellationUrl(
+  slug: string,
+  area: OperationsCancellationArea,
+  pedidoId: string
+): string {
+  const panelPath = area === "salon" ? "salon" : "pyr/pedidos"
+  return `/operaciones/mi-panel/${encodeURIComponent(slug)}/${panelPath}?pedidoId=${encodeURIComponent(pedidoId)}`
 }
 
 // Maps notification type → navigation target per role
@@ -167,6 +179,8 @@ interface CreateNotificationParams {
   cleanupExpired?: PushSubscriptionCleanup
   /** If true, await the push send so errors surface in logs (default: false, fire-and-forget) */
   awaitPush?: boolean
+  /** Endpoints already used by this logical event across notification channels */
+  reservedPushEndpoints?: Set<string>
 }
 
 export type PushSubscriptionCleanup = {
@@ -175,6 +189,28 @@ export type PushSubscriptionCleanup = {
   field?: string
   suppressEndpointLog?: boolean
   onExpired?: () => void
+}
+
+export function getPushSubscriptionEndpoint(subscriptionJson: string): string | null {
+  try {
+    const parsed = JSON.parse(subscriptionJson) as { endpoint?: unknown }
+    return typeof parsed.endpoint === "string" && parsed.endpoint.trim()
+      ? parsed.endpoint.trim()
+      : null
+  } catch {
+    return null
+  }
+}
+
+export function reservePushEndpoint(
+  subscriptionJson: string,
+  reservedEndpoints: Set<string>
+): boolean {
+  const endpoint = getPushSubscriptionEndpoint(subscriptionJson)
+  if (!endpoint) return true
+  if (reservedEndpoints.has(endpoint)) return false
+  reservedEndpoints.add(endpoint)
+  return true
 }
 
 // Bugfix-4 [17]: rol de PWA "personal" (con sesión) a la que pertenece la
@@ -207,6 +243,7 @@ export async function createNotification(params: CreateNotificationParams): Prom
     pushPayload,
     cleanupExpired,
     awaitPush,
+    reservedPushEndpoints,
   } = params
 
   // Build navigation data
@@ -255,7 +292,11 @@ export async function createNotification(params: CreateNotificationParams): Prom
   }
 
   // 2. Send push notification if subscription exists
-  if (pushSubscription && enrichedPushPayload) {
+  if (
+    pushSubscription &&
+    enrichedPushPayload &&
+    (!reservedPushEndpoints || reservePushEndpoint(pushSubscription, reservedPushEndpoints))
+  ) {
     const pushPromise = sendPushNotification(pushSubscription, enrichedPushPayload, cleanupExpired)
     if (awaitPush) {
       // Await the push so errors surface in the caller's logs
@@ -715,6 +756,41 @@ export function operacionesSalonNewOrderNotification(
     actions: [
       { action: "view", title: "Ver pedido" },
     ],
+    requireInteraction: true,
+  }
+}
+
+export function operacionesOrderCancelledNotification(
+  pedidoId: string,
+  area: OperationsCancellationArea,
+  canceladoPor: string,
+  panelUrl: string,
+  mesaNumero?: number | null
+): PushNotificationPayload {
+  const actorLabel =
+    canceladoPor === "cliente"
+      ? "por el cliente"
+      : canceladoPor === "sistema"
+        ? "automáticamente"
+        : "por el local"
+  const contextLabel = area === "salon"
+    ? mesaNumero == null ? "Un pedido de mesa" : `El pedido de la mesa ${mesaNumero}`
+    : "Un pedido"
+  const icon = area === "salon" ? "/icon-salon-192x192.png" : "/icon-empleado-192x192.png"
+
+  return {
+    title: "Pedido cancelado ❌",
+    body: `${contextLabel} fue cancelado ${actorLabel}`,
+    icon,
+    badge: icon,
+    tag: `operaciones-order-cancelled-${pedidoId}`,
+    data: {
+      type: "operaciones_order_cancelled",
+      pedidoId,
+      area,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: area === "salon" ? "Ver salón" : "Ver pedidos" }],
     requireInteraction: true,
   }
 }

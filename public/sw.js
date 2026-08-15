@@ -334,6 +334,10 @@ self.addEventListener("push", (event) => {
     let icon = "/icon-cliente-192x192.png";
     if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
       icon = "/icon-salon-192x192.png";
+    } else if (notifType === "operaciones_order_cancelled") {
+      icon = data.data?.area === "salon"
+        ? "/icon-salon-192x192.png"
+        : "/icon-empleado-192x192.png";
     } else if (notifType === "mesa_order_ready") {
       icon = "/icon-mozo-192x192.png";
     } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
@@ -357,6 +361,7 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       icon: data.icon || icon,
       badge: data.badge || icon,
+      tag: data.tag || undefined,
       vibrate: [100, 50, 100],
       data: {
         url: typeof data.data?.url === "string" ? data.data.url : null,
@@ -493,6 +498,40 @@ self.addEventListener("notificationclick", (event) => {
       rawUrl.startsWith("/operaciones/mi-panel/") &&
       rawUrl.includes("/salon");
     const targetUrl = isSafeSalonUrl ? rawUrl : "/operaciones/ingresar";
+
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client && "navigate" in client) {
+            const clientUrl = new URL(client.url);
+            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
+              client.focus();
+              client.navigate(targetUrl);
+              return;
+            }
+          }
+        }
+        for (const client of clients) {
+          if ("focus" in client && "navigate" in client) {
+            client.focus();
+            client.navigate(targetUrl);
+            return;
+          }
+        }
+        return self.clients.openWindow(targetUrl);
+      })
+    );
+    return;
+  }
+
+  // ── Operaciones — cancellation (current personal panels) ──
+  if (type === "operaciones_order_cancelled") {
+    const rawUrl = notificationData.url;
+    const isSafeOperationsUrl =
+      isSafeInternalUrl(rawUrl) &&
+      rawUrl.startsWith("/operaciones/mi-panel/") &&
+      (rawUrl.includes("/salon") || rawUrl.includes("/pyr"));
+    const targetUrl = isSafeOperationsUrl ? rawUrl : "/operaciones/ingresar";
 
     event.waitUntil(
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {

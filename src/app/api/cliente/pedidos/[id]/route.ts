@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -140,6 +141,7 @@ export async function PUT(
 
       // Notify negocio that the order was cancelled by the client
       try {
+        const cancellationPushEndpoints = new Set<string>()
         const negocioData = await db.negocio.findUnique({
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
@@ -158,7 +160,16 @@ export async function PUT(
           sourceClienteId: cliente.id,
           pushSubscription: negocioData?.pushSubscription ?? null,
           pushPayload: payload,
+          reservedPushEndpoints: cancellationPushEndpoints,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
+        })
+        await notifyOperationsOrderCancelled({
+          pedidoId: id,
+          negocioId: pedido.negocioId,
+          metodoEntrega: pedido.metodoEntrega,
+          mesaNumero: pedido.mesaNumero,
+          canceladoPor: "cliente",
+          reservedPushEndpoints: cancellationPushEndpoints,
         })
       } catch (pushError) {
         console.error("[Push] Failed to send cancellation notification:", safeErrorForLog(pushError))

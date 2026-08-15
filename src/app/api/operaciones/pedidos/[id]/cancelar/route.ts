@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
+import { db } from "@/lib/db"
 import {
   cancelarPedidoMesa,
   resolverActorCancelacionMesa,
   validarMotivoCancelacionMesa,
 } from "@/lib/mesa-pedido-cancelacion"
+import { createNotification, orderUpdateNotification } from "@/lib/push"
+import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
@@ -99,6 +102,58 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // 4) Respuesta pequeña y segura: nunca negocio/cookies/tokens/sesión/otros
     // pedidos (sección 16).
+    const cancellationPushEndpoints = new Set<string>()
+    try {
+      const pedido = await db.pedido.findUnique({
+        where: { id: pedidoId },
+        select: {
+          negocioId: true,
+          negocioNombre: true,
+          clienteId: true,
+          metodoEntrega: true,
+          mesaNumero: true,
+        },
+      })
+
+      if (pedido?.clienteId) {
+        const cliente = await db.cliente.findUnique({
+          where: { id: pedido.clienteId },
+          select: { pushSubscription: true },
+        })
+        const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, "cancelado")
+        await createNotification({
+          userId: pedido.clienteId,
+          userType: "cliente",
+          tipo: "order_update",
+          titulo: payload.title,
+          cuerpo: payload.body,
+          pedidoId,
+          negocioId: pedido.negocioId,
+          pushSubscription: cliente?.pushSubscription ?? null,
+          pushPayload: payload,
+          reservedPushEndpoints: cancellationPushEndpoints,
+          cleanupExpired: { model: "cliente", id: pedido.clienteId },
+        })
+      }
+
+      if (pedido) {
+        await notifyOperationsOrderCancelled({
+          pedidoId,
+          negocioId: pedido.negocioId,
+          metodoEntrega: pedido.metodoEntrega,
+          mesaNumero: pedido.mesaNumero,
+          canceladoPor: authResult.actor.type,
+          excludeEmpleadoId:
+            authResult.actor.type === "salon_personal" || authResult.actor.type === "mozo"
+              ? authResult.actor.actorId
+              : null,
+          reservedPushEndpoints: cancellationPushEndpoints,
+        })
+      }
+    } catch (pushError) {
+      console.error("[Push] Failed to send operations cancellation notifications:", safeErrorForLog(pushError))
+    }
+
     return noStoreJson(
       {
         ok: true,
