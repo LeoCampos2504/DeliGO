@@ -1,5 +1,9 @@
 const { createServer } = require("http")
 const { Server } = require("socket.io")
+const {
+  INTERNAL_PUBLISH_PATH,
+  createInternalPublishHandler,
+} = require("./internal-publish-handler")
 
 const ALLOWED_USER_TYPES = new Set(["cliente", "negocio", "repartidor"])
 const ALLOWED_SCOPES = new Set(["chat:read", "chat:typing", "tracking:watch", "tracking:publish"])
@@ -192,6 +196,7 @@ function createChatService(options = {}) {
   const metrics = createMetrics()
   const connectedUsers = new Map()
   const startedAt = Date.now()
+  let internalPublishHandler
 
   const httpServer = createServer((req, res) => {
     const url = req.url || ""
@@ -202,6 +207,21 @@ function createChatService(options = {}) {
         service: "deligo-chat",
         uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       }))
+      return
+    }
+    const requestPath = new URL(url, "http://127.0.0.1").pathname
+    if (requestPath === INTERNAL_PUBLISH_PATH) {
+      if (req.method !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json; charset=utf-8" })
+        res.end(JSON.stringify({ ok: false, error: "Method not allowed" }))
+        return
+      }
+      if (!internalPublishHandler) {
+        res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" })
+        res.end(JSON.stringify({ ok: false, error: "Internal publish unavailable" }))
+        return
+      }
+      void internalPublishHandler(req, res)
       return
     }
     if (url.startsWith("/socket.io")) return
@@ -226,6 +246,8 @@ function createChatService(options = {}) {
     connectTimeout: 45000,
     allowEIO3: true,
   })
+
+  internalPublishHandler = createInternalPublishHandler({ io })
 
   io.use(async (socket, next) => {
     try {
