@@ -50,7 +50,7 @@ const tabs: { id: ClientTab; icon: typeof Home; label: string }[] = [
  * regardless of portal mount order.
  */
 export function BottomNav() {
-  const { isAuthenticated, userType } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const { activeTab, setActiveTab } = useNavStore()
   const [mounted, setMounted] = useState(false)
 
@@ -67,7 +67,7 @@ export function BottomNav() {
   // document.body isn't available during SSR, and gating on `mounted` keeps
   // the first client render identical to the server render (both render
   // nothing), avoiding a hydration mismatch.
-  if (!mounted || !isAuthenticated() || userType() !== "cliente") return null
+  if (!mounted || !user || user.type !== "cliente") return null
 
   const dock = (
     <nav

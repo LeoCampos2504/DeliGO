@@ -56,7 +56,11 @@ async function unlinkCurrentPushSubscription(): Promise<void> {
  */
 export function useAuth() {
   const router = useRouter()
-  const { user, isAuthenticated, userType, userName, logout } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const userType = useAuthStore((s) => s.userType)
+  const userName = useAuthStore((s) => s.userName)
+  const logout = useAuthStore((s) => s.logout)
   const hasValidated = useRef(false)
 
   const syncSession = useCallback(async () => {

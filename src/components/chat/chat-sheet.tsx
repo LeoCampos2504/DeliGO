@@ -30,7 +30,7 @@ export function ChatSheet() {
     updateConversationLastMessage,
   } = useChatStore()
 
-  const { user } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const socketRef = useRef<Socket | null>(null)
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({})
   const [connectionFailed, setConnectionFailed] = useState(false)
@@ -48,7 +48,10 @@ export function ChatSheet() {
 
   // Connect to socket when sheet opens
   useEffect(() => {
-    if (!isSheetOpen || !user) return
+    if (!isSheetOpen || !user || user.type === "repartidor") {
+      if (socketRef.current) cleanupSocket()
+      return
+    }
 
     // If already connected, skip
     if (socketRef.current?.connected) return
@@ -185,7 +188,7 @@ export function ChatSheet() {
 
   // Join/leave rooms when activePedidoId changes
   useEffect(() => {
-    if (!socketRef.current || !isConnected) return
+    if (!socketRef.current || !isConnected || user?.type === "repartidor") return
 
     const socket = socketRef.current
 
@@ -210,7 +213,7 @@ export function ChatSheet() {
         cancelled = true
       }
     }
-  }, [activePedidoId, isConnected])
+  }, [activePedidoId, isConnected, user])
 
   // Load conversations when sheet opens
   const loadConversations = useCallback(async () => {
@@ -237,15 +240,15 @@ export function ChatSheet() {
   }, [setUnreadCount])
 
   useEffect(() => {
-    if (isSheetOpen) {
+    if (isSheetOpen && user?.type !== "repartidor") {
       loadConversations()
       loadUnreadCount()
     }
-  }, [isSheetOpen, loadConversations, loadUnreadCount])
+  }, [isSheetOpen, loadConversations, loadUnreadCount, user])
 
   // Refresh conversations periodically while sheet is open
   useEffect(() => {
-    if (!isSheetOpen) return
+    if (!isSheetOpen || user?.type === "repartidor") return
 
     const interval = setInterval(() => {
       loadConversations()
@@ -253,7 +256,7 @@ export function ChatSheet() {
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [isSheetOpen, loadConversations, loadUnreadCount])
+  }, [isSheetOpen, loadConversations, loadUnreadCount, user])
 
   // Retry connection manually
   const handleRetryConnection = useCallback(() => {
@@ -263,6 +266,8 @@ export function ChatSheet() {
 
   // Expose socket for child components
   const getSocket = useCallback(() => socketRef.current, [])
+
+  if (!user || user.type === "repartidor") return null
 
   return (
     <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>

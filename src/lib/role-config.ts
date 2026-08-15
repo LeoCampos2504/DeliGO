@@ -193,6 +193,17 @@ export function getRoleConfig(userType: string): RoleConfig {
 }
 
 /**
+ * Map an authenticated session type to the role-specific PWA configuration.
+ * SuperAdmin uses the admin PWA identity; all other supported session types
+ * already use the same role key in ROLE_CONFIGS.
+ */
+export function getRoleForUserType(userType: string): DeliGORole {
+  if (userType === "superadmin") return "admin"
+  if (userType in ROLE_CONFIGS) return userType as DeliGORole
+  return "cliente"
+}
+
+/**
  * Get role config from current URL pathname
  * Recognizes token-based magic-link routes:
  *   /m/{token}   → mozo

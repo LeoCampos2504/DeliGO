@@ -5,17 +5,17 @@ import { usePathname } from "next/navigation"
 import { MessageCircle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
 import { esRutaCatalogoNegocio } from "@/lib/cliente-catalog-navigation"
+import { isChatEligibleUser } from "@/lib/chat-eligibility"
 
 export function ChatFab() {
   const { unreadCount, setSheetOpen, setUnreadCount } = useChatStore()
-  const { isAuthenticated, userType } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const pathname = usePathname()
 
-  const canChat = isAuthenticated() && userType() !== "superadmin"
+  const canChat = isChatEligibleUser(user)
   // Hide chat on: catalog pages (public or Cliente-scoped), mozo/mesas link (/m/), salon link (/s/), repartidor page
   // Show chat on: employee orders/reviews link (/e/) — chat is for cliente-negocio only, not for mozo mesas or delivery
   const isHidden = esRutaCatalogoNegocio(pathname) || pathname.startsWith("/m/") || pathname.startsWith("/s/") || pathname.startsWith("/repartidor")

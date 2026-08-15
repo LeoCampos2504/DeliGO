@@ -20,7 +20,7 @@ export function ConversationList() {
     setArchivedConversations,
   } = useChatStore()
 
-  const { user } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const [showArchived, setShowArchived] = useState(false)
 
   // Load conversations

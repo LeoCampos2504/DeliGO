@@ -24,9 +24,6 @@ import {
   LogOut,
   MapPin,
   Heart,
-  AlertTriangle,
-  Phone,
-  MessageCircle,
   Store,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -37,7 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { BottomNav } from "@/components/shared/bottom-nav"
 import { AuthModal } from "@/components/auth/auth-modal"
-import { BusinessPanel } from "@/components/business/business-panel"
+import { WrongRoleNotice } from "@/components/shared/wrong-role-notice"
 import { PromotedBusinessesSection } from "@/components/home/promoted-businesses-section"
 import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
@@ -68,16 +65,6 @@ const ClientFavoritesPanel = dynamic(
 const ClientOrdersPanel = dynamic(
   () => import("@/components/client/client-orders-panel").then((mod) => mod.ClientOrdersPanel),
   { ssr: false, loading: () => <OrdersPanelSkeleton /> }
-)
-
-const RepartidorPanel = dynamic(
-  () => import("@/components/repartidor/repartidor-panel").then((mod) => mod.RepartidorPanel),
-  { ssr: false, loading: () => <RepartidorPanelSkeleton /> }
-)
-
-const SuperAdminPanel = dynamic(
-  () => import("@/components/superadmin/superadmin-panel").then((mod) => mod.SuperAdminPanel),
-  { ssr: false, loading: () => <SuperAdminPanelSkeleton /> }
 )
 
 const LocationPickerModal = dynamic(
@@ -317,17 +304,6 @@ function HomePageContent() {
     prevAddressRef.current = addressKey
   }, [deliveryAddress, queryClient])
 
-  // Fetch negocio data for business panel (only when negocio user is logged in)
-  const { data: negocioData } = useQuery({
-    queryKey: ["negocio-profile", authUser?.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/negocios/${authUser?.slug}`)
-      if (!res.ok) throw new Error("Error")
-      return res.json()
-    },
-    enabled: hydrated && isAuthenticated() && userType() === "negocio" && !!authUser?.slug,
-  })
-
   // Fetch negocios
   // T20-DK2A: sin lat/lng en la URL — las coordenadas precisas del Cliente
   // nunca viajan en un query string GET (riesgo de quedar registradas en
@@ -560,36 +536,10 @@ function HomePageContent() {
     )
   }
 
-  // If the logged-in user is a negocio, show the Business Panel
-  if (isAuthenticated() && userType() === "negocio" && authUser) {
-    // If suspended, show suspended screen instead of panel
-    if (authUser.suspendido) {
-      return <NegocioSuspendedScreen nombre={authUser.nombre} />
-    }
-    return (
-      <BusinessPanel
-        negocio={{
-          id: authUser.id,
-          nombre: authUser.nombre,
-          slug: authUser.slug ?? "",
-          rubro: authUser.rubro ?? "restaurante",
-          colorPrincipal: negocioData?.colorPrincipal ?? "#FB8C00",
-          aprobado: authUser.aprobado ?? false,
-          horarioMode: negocioData?.horarioMode,
-          abiertoManual: negocioData?.abiertoManual,
-        }}
-      />
-    )
-  }
-
-  // If the logged-in user is a repartidor, show the Repartidor Panel
-  if (isAuthenticated() && userType() === "repartidor" && authUser) {
-    return <RepartidorPanel />
-  }
-
-  // If the logged-in user is a superadmin, show the SuperAdmin Panel
-  if (isAuthenticated() && userType() === "superadmin" && authUser) {
-    return <SuperAdminPanel />
+  // Each PWA is a strict role experience. A shared-origin session may belong
+  // to another role, but /cliente must never render that role's panel here.
+  if (authUser && authUser.type !== "cliente") {
+    return <WrongRoleNotice expectedRole="cliente" currentType={authUser.type} />
   }
 
   // If the logged-in user is a cliente and on a non-home tab, show the appropriate panel
@@ -1261,91 +1211,6 @@ function CardSkeleton() {
 }
 
 // ============================================
-// Negocio Suspended Screen
-// ============================================
-function NegocioSuspendedScreen({ nombre }: { nombre: string }) {
-  const { logout } = useAuth()
-  const [loggingOut, setLoggingOut] = useState(false)
-
-  const handleLogout = async () => {
-    setLoggingOut(true)
-    await logout()
-  }
-
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4 py-8">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-red-500/5" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full bg-red-500/3" />
-      </div>
-
-      <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
-        {/* Icon */}
-        <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center animate-in zoom-in-50 duration-300">
-          <AlertTriangle className="h-10 w-10 text-red-500" />
-        </div>
-
-        {/* Text */}
-        <div className="text-center">
-          <h1 className="text-2xl font-extrabold tracking-tight">Local suspendido</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Hola <span className="font-semibold">{nombre}</span>, tu local está temporalmente suspendido.
-          </p>
-        </div>
-
-        {/* Card */}
-        <Card className="w-full border-red-200 dark:border-red-900/50 shadow-lg shadow-red-500/10 animate-in slide-in-from-bottom-4 duration-300">
-          <CardContent className="p-6 text-center">
-            <p className="text-sm text-muted-foreground mb-4">
-              Si creés que es un error o querés más información, contactanos por WhatsApp.
-            </p>
-
-            <div className="bg-red-50 dark:bg-red-950/20 rounded-xl p-4 mb-4">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Phone className="h-4 w-4 text-red-500 shrink-0" />
-                <span className="text-sm font-bold text-red-700 dark:text-red-400">
-                  3886418011
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Horario de atención: Lunes a Viernes 9:00 - 18:00
-              </p>
-            </div>
-
-            <a
-              href="https://wa.me/5493886418011?text=Hola%2C%20mi%20local%20está%20suspendido%20y%20necesito%20más%20información"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full"
-            >
-              <Button
-                className="w-full rounded-xl font-bold text-sm bg-green-600 hover:bg-green-700 text-white gap-2"
-                size="lg"
-              >
-                <MessageCircle className="h-5 w-5" />
-                Escribinos por WhatsApp
-              </Button>
-            </a>
-
-            <div className="mt-3">
-              <Button
-                onClick={handleLogout}
-                disabled={loggingOut}
-                variant="outline"
-                className="w-full rounded-xl font-semibold"
-              >
-                {loggingOut ? "Cerrando..." : "Cerrar sesión"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-// ============================================
 // Empty state
 // ============================================
 function EmptyState() {
@@ -1500,103 +1365,6 @@ function OrdersPanelSkeleton() {
             <Skeleton className="h-7 w-full rounded-lg" />
           </div>
         ))}
-      </div>
-    </div>
-  )
-}
-
-function RepartidorPanelSkeleton() {
-  return (
-    <div className="min-h-screen flex flex-col bg-background animate-pulse">
-      {/* Header skeleton */}
-      <div className="bg-blue-500/10 px-4 pt-3 pb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="h-6 w-20 rounded bg-blue-500/10" />
-          <div className="flex gap-2">
-            <div className="h-8 w-8 rounded-full bg-blue-500/10" />
-            <div className="h-8 w-8 rounded-full bg-blue-500/10" />
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/15" />
-          <div>
-            <div className="h-5 w-32 rounded bg-blue-500/10" />
-            <div className="mt-1 h-3 w-24 rounded bg-blue-500/5" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="h-16 rounded-xl bg-amber-500/10" />
-          <div className="h-16 rounded-xl bg-emerald-500/10" />
-        </div>
-      </div>
-      {/* Tabs skeleton */}
-      <div className="px-4 py-1.5 flex gap-2">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-9 w-20 rounded-xl bg-muted/30" />
-        ))}
-      </div>
-      {/* Content skeleton */}
-      <div className="max-w-4xl mx-auto px-4 py-4 space-y-3">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="rounded-2xl bg-card border border-border/50 overflow-hidden">
-            <div className="h-12 bg-muted/30" />
-            <div className="p-4 space-y-3">
-              <div className="h-4 w-1/2 rounded bg-muted/20" />
-              <div className="h-16 rounded-xl bg-muted/20" />
-              <div className="flex gap-2">
-                <div className="flex-1 h-10 rounded-xl bg-muted/20" />
-                <div className="flex-1 h-10 rounded-xl bg-muted/20" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function SuperAdminPanelSkeleton() {
-  return (
-    <div className="min-h-screen flex flex-col bg-background animate-pulse">
-      {/* Header skeleton */}
-      <div className="bg-purple-500/10 px-4 pt-3 pb-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="h-6 w-20 rounded bg-purple-500/10" />
-          <div className="flex gap-2">
-            <div className="h-8 w-8 rounded-full bg-purple-500/10" />
-            <div className="h-8 w-8 rounded-full bg-purple-500/10" />
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-purple-500/15" />
-          <div>
-            <div className="h-5 w-32 rounded bg-purple-500/10" />
-            <div className="mt-1 h-3 w-28 rounded bg-purple-500/5" />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-4 gap-2">
-          <div className="h-16 rounded-xl bg-amber-500/10" />
-          <div className="h-16 rounded-xl bg-emerald-500/10" />
-          <div className="h-16 rounded-xl bg-red-500/10" />
-          <div className="h-16 rounded-xl bg-blue-500/10" />
-        </div>
-      </div>
-      {/* Tabs skeleton */}
-      <div className="px-4 py-1.5 flex gap-2">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-9 w-20 rounded-xl bg-muted/30" />
-        ))}
-      </div>
-      {/* Content skeleton */}
-      <div className="max-w-5xl mx-auto px-4 py-4 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-2xl p-4 bg-muted/30">
-              <div className="h-4 w-20 rounded bg-muted/50 mb-2" />
-              <div className="h-8 w-16 rounded bg-muted/50" />
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )

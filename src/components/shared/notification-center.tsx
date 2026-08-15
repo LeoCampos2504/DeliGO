@@ -104,7 +104,7 @@ interface NotificationBellProps {
 
 export function NotificationBell({ onNavigate }: NotificationBellProps) {
   const { noLeidos, setNoLeidos, decrementNoLeidos, isOpen, setIsOpen } = useNotificationStore()
-  const { isAuthenticated, userType } = useAuthStore()
+  const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
 
   // Fetch unread count
@@ -116,7 +116,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       return res.json() as Promise<{ noLeidos: number }>
     },
     refetchInterval: 10000, // Poll every 10s
-    enabled: !!isAuthenticated() && (userType() === "cliente" || userType() === "negocio" || userType() === "repartidor"),
+    enabled: !!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor"),
   })
 
   // Fetch full notification list (only when popover is open)
@@ -127,7 +127,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       if (!res.ok) return { notificaciones: [] as NotificationItem[], noLeidos: 0 }
       return res.json() as Promise<{ notificaciones: NotificationItem[]; noLeidos: number }>
     },
-    enabled: isOpen && !!isAuthenticated(),
+    enabled: isOpen && !!user,
     staleTime: 0,
   })
 
