@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { QueryProvider } from "@/providers/query-provider";
+import { RealtimeProvider } from "@/providers/realtime-provider";
 import { ChatProvider } from "@/providers/chat-provider";
 import { ServiceWorkerRegistration } from "@/components/shared/sw-registration";
 import { InstallPrompt } from "@/components/shared/install-prompt";
@@ -86,23 +87,25 @@ export default function RootLayout({
       <body className={`${nunito.variable} font-sans antialiased bg-background text-foreground`}>
         <ThemeProvider>
           <QueryProvider>
-            <div className="min-h-dvh flex flex-col">
-              <main className="flex-1">{children}</main>
-            </div>
-            <DynamicManifest />
-            <IOSKeyboardFix />
-            <ChatProvider />
-            <ServiceWorkerRegistration />
-            <InstallPrompt />
-            <PermissionPrompt />
-            <Toaster
-              position="top-center"
-              richColors
-              closeButton
-              toastOptions={{
-                duration: 3000,
-              }}
-            />
+            <RealtimeProvider>
+              <div className="min-h-dvh flex flex-col">
+                <main className="flex-1">{children}</main>
+              </div>
+              <DynamicManifest />
+              <IOSKeyboardFix />
+              <ChatProvider />
+              <ServiceWorkerRegistration />
+              <InstallPrompt />
+              <PermissionPrompt />
+              <Toaster
+                position="top-center"
+                richColors
+                closeButton
+                toastOptions={{
+                  duration: 3000,
+                }}
+              />
+            </RealtimeProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>
