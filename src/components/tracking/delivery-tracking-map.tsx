@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import L from "leaflet"
-import { io, Socket } from "socket.io-client"
-import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
+import { useRealtime } from "@/hooks/use-realtime"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -215,16 +214,24 @@ export function DeliveryTrackingMap({
   const repartidorMarkerRef = useRef<L.Marker | null>(null)
   const destinoMarkerRef = useRef<L.Marker | null>(null)
   const origenMarkerRef = useRef<L.Marker | null>(null)
-  const socketRef = useRef<Socket | null>(null)
   const userInteractedRef = useRef(false)
+  const { client, snapshot } = useRealtime()
 
   const [trackingData, setTrackingData] = useState<TrackingData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [timeSince, setTimeSince] = useState<string>("")
   const [isMapReady, setIsMapReady] = useState(false)
-  const [isLiveSocket, setIsLiveSocket] = useState(false)
+  // True once our tracking:watch lease has been granted for the current
+  // pedido. This alone is NOT "currently live" — the shared transport can
+  // disconnect/reconnect independently of our lease (which the manager keeps
+  // logically held and rejoins on reconnect). See isLiveSocket below.
+  const [isTrackingRoomJoined, setIsTrackingRoomJoined] = useState(false)
   const [isTrackingDisabled, setIsTrackingDisabled] = useState(false)
+  // Live only when our lease is granted AND the shared socket is currently
+  // connected — never a standalone raw-socket "connected" event, since the
+  // transport is owned by RealtimeManager, not this component.
+  const isLiveSocket = isTrackingRoomJoined && snapshot.state === "connected"
 
   // Validate coordinates
   const validDestinoLat = typeof destinoLat === 'number' && isFinite(destinoLat) ? destinoLat : DEFAULT_CENTER[0]
@@ -309,75 +316,51 @@ export function DeliveryTrackingMap({
     }
   }, [open, pedidoId, validDestinoLat, validDestinoLng, destinoDireccion, origenNombre, logoUrl, colorPrincipal])
 
-  // Connect to Socket.IO for real-time location updates
+  // Acquire a shared-realtime room lease for real-time location updates.
+  // No socket, token, or capability is owned here — RealtimeManager is the
+  // single transport/auth authority (see Shared Realtime Provider Slice C).
   useEffect(() => {
     if (!open) return
 
     let cancelled = false
-    let socket: Socket | null = null
+    const controller = new AbortController()
+    let lease: { release: () => void } | null = null
 
-    const connect = async () => {
-      try {
-        const token = await fetchRealtimeToken()
-        if (cancelled) return
-        socket = io(getRealtimeSocketUrl(), {
-        transports: ["websocket", "polling"],
-        path: "/socket.io",
-        auth: { token },
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 2000,
-        timeout: 10000,
-        })
+    const unsubscribe = client.subscribe("repartidor-location", (data) => {
+      if (data.pedidoId !== pedidoId) return
+      const lat = data.lat
+      const lng = data.lng
+      if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
 
-        socket.on("connect", () => {
-          void authorizeRealtimeRoom(pedidoId, ["tracking:watch"])
-            .then((capability) => {
-              if (cancelled || !socket?.connected) return
-              socket.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
-                setIsLiveSocket(Boolean(ack?.ok))
-              })
-            })
-            .catch(() => setIsLiveSocket(false))
-        })
+      setTrackingData((prev) => {
+        if (prev) {
+          return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
+        }
+        return prev
+      })
+    })
 
-        socket.on("repartidor-location", (data: { pedidoId: string; lat: number; lng: number; timestamp: string }) => {
-          if (data.pedidoId !== pedidoId) return
-          const lat = data.lat
-          const lng = data.lng
-          if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
-
-          setTrackingData((prev) => {
-            if (prev) {
-              return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
-            }
-            return prev
-          })
-        })
-
-        socket.on("disconnect", () => {
-          setIsLiveSocket(false)
-        })
-
-        socket.on("connect_error", () => {
-          setIsLiveSocket(false)
-        })
-
-        socketRef.current = socket
-      } catch {
-        setIsLiveSocket(false)
-      }
-    }
-
-    void connect()
+    void client.acquireOrderRoom(pedidoId, ["tracking:watch"], { signal: controller.signal })
+      .then((nextLease) => {
+        if (cancelled) {
+          nextLease.release()
+          return
+        }
+        lease = nextLease
+        setIsTrackingRoomJoined(true)
+      })
+      .catch(() => {
+        if (!cancelled) setIsTrackingRoomJoined(false)
+      })
 
     return () => {
       cancelled = true
-      socket?.disconnect()
-      socketRef.current = null
-      setIsLiveSocket(false)
+      controller.abort()
+      unsubscribe()
+      lease?.release()
+      setIsTrackingRoomJoined(false)
     }
-  }, [open, pedidoId])
+  }, [open, pedidoId, client])
 
   // Initial fetch when opened
   useEffect(() => {
