@@ -8,6 +8,7 @@ import type {
   RealtimeClient,
   RealtimeConnectionSnapshot,
   RealtimeConnectionState,
+  RealtimeChatMessagePayload,
   RealtimeEventHandler,
   RealtimeEventMap,
   RealtimeEventType,
@@ -30,6 +31,7 @@ const ROOM_JOIN_TIMEOUT_MS = 10000
 const MIN_CAPABILITY_REFRESH_DELAY_MS = 250
 const CAPABILITY_RETRY_BASE_MS = 1000
 const CAPABILITY_RETRY_MAX_MS = 30000
+const DEFAULT_IDLE_DISCONNECT_GRACE_MS = 5000
 
 const REALTIME_SCOPES: readonly RealtimeScope[] = [
   "chat:read",
@@ -84,6 +86,7 @@ interface InternalRealtimeDependencies {
   reconnectMaxMs: number
   capabilityRefreshMarginMs: number
   socketConnectTimeoutMs: number
+  idleDisconnectGraceMs: number
 }
 
 function defaultCreateSocket(url: string, options: RealtimeSocketOptions): RealtimeSocketLike {
@@ -155,6 +158,7 @@ export class RealtimeManager {
   private reconnectAttempt = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectWakeScheduled = false
+  private idleDisconnectTimer: ReturnType<typeof setTimeout> | null = null
   private tokenPromise: Promise<RealtimeActorTokenResult> | null = null
   private tokenAbortController: AbortController | null = null
   private connectPromise: Promise<void> | null = null
@@ -180,6 +184,7 @@ export class RealtimeManager {
       reconnectMaxMs: dependencies.reconnectMaxMs || DEFAULT_RECONNECT_MAX_MS,
       capabilityRefreshMarginMs: dependencies.capabilityRefreshMarginMs || DEFAULT_CAPABILITY_REFRESH_MARGIN_MS,
       socketConnectTimeoutMs: dependencies.socketConnectTimeoutMs || DEFAULT_SOCKET_CONNECT_TIMEOUT_MS,
+      idleDisconnectGraceMs: dependencies.idleDisconnectGraceMs ?? DEFAULT_IDLE_DISCONNECT_GRACE_MS,
     }
 
     this.client = {
@@ -187,8 +192,12 @@ export class RealtimeManager {
       getConnectionError: () => this.getConnectionError(),
       getConnectionSnapshot: () => this.getConnectionSnapshot(),
       ensureConnected: () => this.ensureConnected(),
-      acquireOrderRoom: (pedidoId, scopes) => this.acquireOrderRoom(pedidoId, scopes),
+      acquireOrderRoom: (pedidoId, scopes, options) => this.acquireOrderRoom(pedidoId, scopes, options),
       subscribe: (event, handler) => this.subscribe(event, handler),
+      sendTyping: (pedidoId) => this.sendTyping(pedidoId),
+      sendStopTyping: (pedidoId) => this.sendStopTyping(pedidoId),
+      markMessagesRead: (pedidoId) => this.markMessagesRead(pedidoId),
+      sendLegacyChatMessage: (pedidoId, message) => this.sendLegacyChatMessage(pedidoId, message),
       registerResync: (handler) => this.registerResync(handler),
       requestResync: (reason) => this.requestResync(reason),
       stop: (reason) => this.stop(reason),
@@ -246,6 +255,9 @@ export class RealtimeManager {
     this.clearReconnectTimer()
     this.setState("connecting")
     this.connectPromise = this.connectForEpoch(epoch)
+      .then(() => {
+        if (this.isCurrentEpoch(epoch) && !this.hasGlobalRealtimeDemand()) this.scheduleIdleDisconnect()
+      })
       .catch((error: unknown) => {
         if (this.isCurrentEpoch(epoch) && !(error instanceof RealtimeStaleOperationError)) {
           this.setConnectionFailure(error)
@@ -260,34 +272,81 @@ export class RealtimeManager {
 
   async acquireOrderRoom(
     pedidoId: string,
-    scopes: readonly RealtimeScope[]
+    scopes: readonly RealtimeScope[],
+    options: { signal?: AbortSignal } = {},
   ): Promise<RealtimeRoomLease> {
     const normalizedPedidoId = pedidoId.trim()
     const normalizedScopes = normalizeScopes(scopes)
     if (!normalizedPedidoId || normalizedScopes.length === 0) {
       throw new Error("Invalid realtime room lease")
     }
+    if (options.signal?.aborted) throw new Error("Realtime room lease aborted")
     if (!this.actor || this.stopped) throw new Error("Realtime actor unavailable")
 
+    this.clearIdleDisconnectTimer()
     const record = this.rooms.get(normalizedPedidoId) || this.createRoomRecord(normalizedPedidoId)
     const leaseId = `lease-${++this.leaseCounter}`
+    let abortHandler: (() => void) | null = null
+    const abortPromise = options.signal
+      ? new Promise<never>((_, reject) => {
+        abortHandler = () => reject(new Error("Realtime room lease aborted"))
+        options.signal?.addEventListener("abort", abortHandler, { once: true })
+      })
+      : null
     const previousScopeKey = scopeKey(record.requestedScopes)
     record.leases.set(leaseId, new Set(normalizedScopes))
     record.requestedScopes = this.getRequestedScopes(record)
     if (scopeKey(record.requestedScopes) !== previousScopeKey) record.roomGeneration += 1
 
     try {
-      await this.ensureConnected()
-      await this.reconcileRoom(record, this.actorEpoch, this.socketGeneration, false)
+      if (abortPromise) await Promise.race([this.ensureConnected(), abortPromise])
+      else await this.ensureConnected()
+      const reconcilePromise = this.reconcileRoom(record, this.actorEpoch, this.socketGeneration, false)
+      if (abortPromise) await Promise.race([reconcilePromise, abortPromise])
+      else await reconcilePromise
+      if (options.signal?.aborted) throw new Error("Realtime room lease aborted")
       return this.createLease(record, leaseId, normalizedScopes)
     } catch (error) {
       if (this.isCurrentRecord(record) && record.leases.has(leaseId)) {
+        const previousScopeKey = scopeKey(record.requestedScopes)
         record.leases.delete(leaseId)
         record.requestedScopes = this.getRequestedScopes(record)
-        record.roomGeneration += 1
-        if (record.leases.size === 0) this.deleteRoomRecord(record)
+        const scopeChanged = scopeKey(record.requestedScopes) !== previousScopeKey
+        if (scopeChanged) record.roomGeneration += 1
+        if (record.leases.size === 0) {
+          this.leaveRoom(record)
+          this.deleteRoomRecord(record)
+          this.scheduleIdleDisconnect()
+        } else if (scopeChanged) {
+          void this.reconcileRoom(record, this.actorEpoch, this.socketGeneration, false).catch(() => {})
+        }
       }
       throw error
+    } finally {
+      if (abortHandler && options.signal) options.signal.removeEventListener("abort", abortHandler)
+    }
+  }
+
+  sendTyping(pedidoId: string): boolean {
+    return this.emitAuthorizedRoomEvent(pedidoId, "chat:typing", "typing")
+  }
+
+  sendStopTyping(pedidoId: string): boolean {
+    return this.emitAuthorizedRoomEvent(pedidoId, "chat:typing", "stop-typing")
+  }
+
+  markMessagesRead(pedidoId: string): boolean {
+    return this.emitAuthorizedRoomEvent(pedidoId, "chat:read", "mark-read")
+  }
+
+  sendLegacyChatMessage(pedidoId: string, message: RealtimeChatMessagePayload): boolean {
+    const normalizedPedidoId = pedidoId.trim()
+    if (!this.canEmitAuthorizedRoomEvent(normalizedPedidoId, "chat:read")) return false
+    try {
+      this.socket?.emit("message-sent", { pedidoId: normalizedPedidoId, message })
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -341,7 +400,7 @@ export class RealtimeManager {
   }
 
   handleOnline(): void {
-    if (!this.actor || this.stopped) return
+    if (!this.actor || this.stopped || !this.hasGlobalRealtimeDemand()) return
     this.scheduleWake("online")
   }
 
@@ -352,7 +411,7 @@ export class RealtimeManager {
   }
 
   handleVisibilityChange(visible: boolean): void {
-    if (!this.actor || this.stopped || !visible) return
+    if (!this.actor || this.stopped || !visible || !this.hasGlobalRealtimeDemand()) return
     this.scheduleWake("foreground")
   }
 
@@ -360,6 +419,7 @@ export class RealtimeManager {
     this.actorEpoch += 1
     this.stopped = true
     this.clearReconnectTimer()
+    this.clearIdleDisconnectTimer()
     this.reconnectWakeScheduled = false
     this.abortPendingRequests()
     this.detachSocket(true)
@@ -437,7 +497,8 @@ export class RealtimeManager {
       const onDisconnect = () => {
         if (!this.isCurrentSocket(epoch, socketGeneration, socket) || this.stopped) return
         this.invalidateTransportGrants()
-        if (!this.dependencies.isOnline()) this.setState("offline")
+        if (!this.hasGlobalRealtimeDemand()) this.setState("idle")
+        else if (!this.dependencies.isOnline()) this.setState("offline")
         else this.setState("reconnecting")
         this.scheduleReconnect()
         finishReject(new Error("Realtime socket disconnected"))
@@ -497,6 +558,11 @@ export class RealtimeManager {
 
   private async reauthenticate(epoch: number, socketGeneration: number): Promise<void> {
     if (!this.isCurrentSocket(epoch, socketGeneration, this.socket)) return
+    if (!this.hasGlobalRealtimeDemand()) {
+      this.detachSocket(true)
+      this.setState("idle")
+      return
+    }
     if (this.reauthPromise) return this.reauthPromise
 
     this.setState("reauthenticating")
@@ -716,6 +782,7 @@ export class RealtimeManager {
     if (record.leases.size === 0) {
       this.leaveRoom(record)
       this.deleteRoomRecord(record)
+      this.scheduleIdleDisconnect()
       return
     }
     const epoch = this.actorEpoch
@@ -744,8 +811,34 @@ export class RealtimeManager {
     return normalizeScopes([...scopes])
   }
 
+  private hasGlobalRealtimeDemand(): boolean {
+    for (const record of this.rooms.values()) {
+      if (record.leases.size > 0) return true
+    }
+    return false
+  }
+
+  private scheduleIdleDisconnect(): void {
+    if (!this.socket || this.hasGlobalRealtimeDemand() || this.idleDisconnectTimer) return
+    const epoch = this.actorEpoch
+    this.idleDisconnectTimer = this.dependencies.setTimeout(() => {
+      this.idleDisconnectTimer = null
+      if (!this.isCurrentEpoch(epoch) || this.hasGlobalRealtimeDemand() || !this.socket) return
+      this.clearReconnectTimer()
+      this.detachSocket(true)
+      this.connectionError = null
+      this.setState("idle")
+    }, this.dependencies.idleDisconnectGraceMs)
+  }
+
+  private clearIdleDisconnectTimer(): void {
+    if (this.idleDisconnectTimer === null) return
+    this.dependencies.clearTimeout(this.idleDisconnectTimer)
+    this.idleDisconnectTimer = null
+  }
+
   private scheduleReconnect(): void {
-    if (this.stopped || !this.actor || this.reconnectTimer || !this.dependencies.isOnline()) return
+    if (this.stopped || !this.actor || !this.hasGlobalRealtimeDemand() || this.reconnectTimer || !this.dependencies.isOnline()) return
     if (!this.dependencies.isVisible()) return
     const exponential = Math.min(
       this.dependencies.reconnectMaxMs,
@@ -768,7 +861,7 @@ export class RealtimeManager {
     this.reconnectWakeScheduled = true
     Promise.resolve().then(() => {
       this.reconnectWakeScheduled = false
-      if (this.stopped || !this.actor || !this.dependencies.isOnline() || !this.dependencies.isVisible()) return
+      if (this.stopped || !this.actor || !this.hasGlobalRealtimeDemand() || !this.dependencies.isOnline() || !this.dependencies.isVisible()) return
       void this.ensureConnected()
         .then(() => this.requestResync(reason))
         .catch(() => {})
@@ -779,6 +872,27 @@ export class RealtimeManager {
     this.connectionError = errorMessage(error)
     if (!this.dependencies.isOnline()) this.setState("offline")
     else this.setState("error")
+  }
+
+  private emitAuthorizedRoomEvent(
+    pedidoId: string,
+    requiredScope: RealtimeScope,
+    event: "typing" | "stop-typing" | "mark-read",
+  ): boolean {
+    const normalizedPedidoId = pedidoId.trim()
+    if (!this.canEmitAuthorizedRoomEvent(normalizedPedidoId, requiredScope)) return false
+    try {
+      this.socket?.emit(event, normalizedPedidoId)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private canEmitAuthorizedRoomEvent(pedidoId: string, requiredScope: RealtimeScope): boolean {
+    if (!pedidoId || !this.actor || this.stopped || !this.socket?.connected) return false
+    const record = this.rooms.get(pedidoId)
+    return Boolean(record?.joined && record.grantedScopes.includes(requiredScope))
   }
 
   private setState(state: RealtimeConnectionState): void {

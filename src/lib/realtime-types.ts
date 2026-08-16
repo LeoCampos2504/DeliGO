@@ -66,6 +66,10 @@ export interface RealtimeStopTypingPayload {
   userId: string
 }
 
+export interface RealtimeUnreadUpdatePayload {
+  count: number
+}
+
 export interface RealtimeLocationPayload {
   pedidoId: string
   lat: number
@@ -83,6 +87,7 @@ export interface RealtimeEventMap {
   "messages-read": RealtimeMessagesReadPayload
   "user-typing": RealtimeTypingPayload
   "user-stop-typing": RealtimeStopTypingPayload
+  "unread-update": RealtimeUnreadUpdatePayload
   "repartidor-location": RealtimeLocationPayload
 }
 
@@ -155,6 +160,7 @@ export interface RealtimeManagerDependencies {
   reconnectMaxMs?: number
   capabilityRefreshMarginMs?: number
   socketConnectTimeoutMs?: number
+  idleDisconnectGraceMs?: number
 }
 
 export interface RealtimeClient {
@@ -162,8 +168,17 @@ export interface RealtimeClient {
   getConnectionError(): string | null
   getConnectionSnapshot(): RealtimeConnectionSnapshot
   ensureConnected(): Promise<void>
-  acquireOrderRoom(pedidoId: string, scopes: readonly RealtimeScope[]): Promise<RealtimeRoomLease>
+  acquireOrderRoom(
+    pedidoId: string,
+    scopes: readonly RealtimeScope[],
+    options?: { signal?: AbortSignal },
+  ): Promise<RealtimeRoomLease>
   subscribe<K extends RealtimeEventType>(event: K, handler: RealtimeEventHandler<K>): () => void
+  sendTyping(pedidoId: string): boolean
+  sendStopTyping(pedidoId: string): boolean
+  markMessagesRead(pedidoId: string): boolean
+  /** Temporary client producer compatibility until Chat becomes server-authoritative. */
+  sendLegacyChatMessage(pedidoId: string, message: RealtimeChatMessagePayload): boolean
   registerResync(handler: RealtimeResyncHandler): () => void
   requestResync(reason: RealtimeResyncReason): Promise<void>
   stop(reason?: RealtimeStopReason): void

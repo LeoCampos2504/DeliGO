@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Socket } from "socket.io-client"
 import {
   ArrowLeft,
   Send,
@@ -31,13 +30,13 @@ import { useAuthStore } from "@/store/auth-store"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { PdfViewerModal } from "./pdf-viewer-modal"
+import { useRealtime } from "@/hooks/use-realtime"
 
 // ============================================
 // Types
 // ============================================
 interface ChatViewProps {
   pedidoId: string
-  getSocket: () => Socket | null
   onBack: () => void
 }
 
@@ -59,7 +58,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024     // 5MB
 // ============================================
 // Main ChatView Component
 // ============================================
-export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
+export function ChatView({ pedidoId, onBack }: ChatViewProps) {
   const {
     messages,
     pedidoInfo,
@@ -76,6 +75,12 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
   } = useChatStore()
 
   const user = useAuthStore((s) => s.user)
+  const { client } = useRealtime()
+  const actorKey = user ? `${user.type}:${user.id}` : null
+  const isCurrentActor = useCallback(() => {
+    const currentUser = useAuthStore.getState().user
+    return actorKey === (currentUser ? `${currentUser.type}:${currentUser.id}` : null)
+  }, [actorKey])
 
   const [messageText, setMessageText] = useState("")
   const [telefonoFiltrado, setTelefonoFiltrado] = useState(false)
@@ -110,26 +115,36 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
 
   // Load messages
   useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
     const loadMessages = async () => {
       setLoadingMessages(pedidoId, true)
       try {
-        const res = await fetch(`/api/chat/mensajes/${pedidoId}`)
+        const res = await fetch(`/api/chat/mensajes/${pedidoId}`, { signal: controller.signal })
+        if (cancelled) return
         if (!res.ok) {
           toast.error("Error al cargar mensajes")
           return
         }
         const data = await res.json()
+        if (cancelled) return
         setMessages(pedidoId, data.mensajes || [])
         setPedidoInfo(pedidoId, data.pedido)
         updateConversationUnread(pedidoId, 0)
       } catch {
+        if (cancelled) return
         toast.error("Error al cargar mensajes")
       } finally {
-        setLoadingMessages(pedidoId, false)
+        if (!cancelled) setLoadingMessages(pedidoId, false)
       }
     }
-    loadMessages()
-  }, [pedidoId, setMessages, setPedidoInfo, setLoadingMessages, updateConversationUnread])
+    void loadMessages()
+    return () => {
+      cancelled = true
+      controller.abort()
+      if (isCurrentActor()) setLoadingMessages(pedidoId, false)
+    }
+  }, [isCurrentActor, pedidoId, setMessages, setPedidoInfo, setLoadingMessages, updateConversationUnread])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -318,6 +333,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
         body: JSON.stringify(body),
       })
 
+      if (!isCurrentActor()) return
       if (!res.ok) {
         const data = await res.json()
         toast.error(data.error || "Error al enviar mensaje")
@@ -325,6 +341,7 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       }
 
       const data = await res.json()
+      if (!isCurrentActor()) return
 
       if (data.telefonoFiltrado) {
         setTelefonoFiltrado(true)
@@ -338,11 +355,8 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
         addMessage(pedidoId, data.mensaje)
         updateConversationLastMessage(pedidoId, data.mensaje)
 
-        // Broadcast via socket to other users in the room
-        const socket = getSocket()
-        if (socket) {
-          socket.emit("message-sent", { pedidoId, message: data.mensaje })
-        }
+        // Legacy producer compatibility: persistence remains HTTP in Slice B.
+        client.sendLegacyChatMessage(pedidoId, data.mensaje)
       }
 
       setMessageText("")
@@ -350,43 +364,46 @@ export function ChatView({ pedidoId, getSocket, onBack }: ChatViewProps) {
       isAtBottomRef.current = true
 
       // Stop typing
-      const socket = getSocket()
-      if (socket) {
-        socket.emit("stop-typing", pedidoId)
-      }
+      client.sendStopTyping(pedidoId)
     } catch {
-      toast.error("Error al enviar mensaje")
+      if (isCurrentActor()) toast.error("Error al enviar mensaje")
     } finally {
-      setSending(false)
+      if (isCurrentActor()) setSending(false)
     }
-  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, updateConversationLastMessage, setSending, getSocket])
+  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, client, isCurrentActor, updateConversationLastMessage, setSending])
 
   // Typing indicator
   const handleTyping = useCallback(
     (text: string) => {
       setMessageText(text)
 
-      const socket = getSocket()
-      if (!socket) return
-
       if (text.trim()) {
-        socket.emit("typing", pedidoId)
+        client.sendTyping(pedidoId)
 
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current)
         }
         typingTimeoutRef.current = setTimeout(() => {
-          socket.emit("stop-typing", pedidoId)
+          client.sendStopTyping(pedidoId)
         }, 3000)
       } else {
-        socket.emit("stop-typing", pedidoId)
+        client.sendStopTyping(pedidoId)
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = null
         }
       }
     },
-    [pedidoId, getSocket]
+    [client, pedidoId]
   )
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = null
+      client.sendStopTyping(pedidoId)
+    }
+  }, [client, pedidoId])
 
   // Handle key press
   const handleKeyDown = useCallback(

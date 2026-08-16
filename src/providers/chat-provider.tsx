@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
 import { useChatStore } from "@/store/chat-store"
@@ -63,9 +63,23 @@ function useChatDeepLink() {
   }, [openConversation, setSheetOpen, isAuthenticated, userType])
 }
 
+function useChatActorReset() {
+  const user = useAuthStore((state) => state.user)
+  const actorKey = user ? `${user.type}:${user.id}` : null
+  const previousActorKeyRef = useRef<string | null | undefined>(undefined)
+
+  useEffect(() => {
+    if (previousActorKeyRef.current !== undefined && previousActorKeyRef.current !== actorKey) {
+      useChatStore.getState().reset()
+    }
+    previousActorKeyRef.current = actorKey
+  }, [actorKey])
+}
+
 export function ChatProvider() {
   const pathname = usePathname()
   useChatDeepLink()
+  useChatActorReset()
 
   if (pathname === "/mozo" || pathname.startsWith("/mozo/")) {
     return null

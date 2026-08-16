@@ -57,8 +57,6 @@ interface ChatState {
   // UI state
   isSheetOpen: boolean
   activePedidoId: string | null
-  isConnecting: boolean
-  isConnected: boolean
 
   // Data
   conversations: Conversation[]
@@ -79,8 +77,7 @@ interface ChatState {
   setSheetOpen: (open: boolean) => void
   openConversation: (pedidoId: string) => void
   closeConversation: () => void
-  setConnected: (connected: boolean) => void
-  setConnecting: (connecting: boolean) => void
+  reset: () => void
 
   // Data actions
   setConversations: (conversations: Conversation[]) => void
@@ -106,8 +103,6 @@ export const useChatStore = create<ChatState>()((set) => ({
   // UI state
   isSheetOpen: false,
   activePedidoId: null,
-  isConnecting: false,
-  isConnected: false,
 
   // Data
   conversations: [],
@@ -133,8 +128,20 @@ export const useChatStore = create<ChatState>()((set) => ({
   closeConversation: () =>
     set({ activePedidoId: null }),
 
-  setConnected: (connected) => set({ isConnected: connected }),
-  setConnecting: (connecting) => set({ isConnecting: connecting }),
+  reset: () =>
+    set({
+      isSheetOpen: false,
+      activePedidoId: null,
+      conversations: [],
+      archivedConversations: [],
+      messages: {},
+      pedidoInfo: {},
+      unreadCount: 0,
+      typingUsers: {},
+      isLoadingConversations: false,
+      isLoadingMessages: {},
+      isSending: false,
+    }),
 
   // Data actions
   setConversations: (conversations) => set({ conversations }),

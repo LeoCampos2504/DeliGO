@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useCallback, useState } from "react"
-import { io, Socket } from "socket.io-client"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
@@ -9,17 +8,13 @@ import { ConversationList } from "./conversation-list"
 import { ChatView } from "./chat-view"
 import { MessageCircle, Loader2, WifiOff, RefreshCw } from "lucide-react"
 import { SheetDescription } from "@/components/ui/sheet"
-import { safeErrorForLog } from "@/lib/log-safe-error"
-import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
+import { useRealtime } from "@/hooks/use-realtime"
 
 export function ChatSheet() {
   const {
     isSheetOpen,
     setSheetOpen,
     activePedidoId,
-    isConnected,
-    setConnected,
-    setConnecting,
     addMessage,
     addTypingUser,
     removeTypingUser,
@@ -31,196 +26,113 @@ export function ChatSheet() {
   } = useChatStore()
 
   const user = useAuthStore((s) => s.user)
-  const socketRef = useRef<Socket | null>(null)
+  const { client, snapshot } = useRealtime()
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({})
-  const [connectionFailed, setConnectionFailed] = useState(false)
-  const [retryCount, setRetryCount] = useState(0)
+  const conversationsRef = useRef(conversations)
+  const activePedidoIdRef = useRef(activePedidoId)
+  const [retryNonce, setRetryNonce] = useState(0)
 
-  // Cleanup dead socket reference
-  const cleanupSocket = useCallback(() => {
-    if (socketRef.current) {
-      socketRef.current.removeAllListeners()
-      socketRef.current.disconnect()
-      socketRef.current = null
-    }
-    setConnected(false)
-  }, [setConnected])
+  const isConnected = snapshot.state === "connected"
+  const isConnecting = snapshot.state === "connecting" ||
+    snapshot.state === "reauthenticating" || snapshot.state === "reconnecting"
+  const connectionFailed = snapshot.state === "error"
 
-  // Connect to socket when sheet opens
   useEffect(() => {
-    if (!isSheetOpen || !user || user.type === "repartidor") {
-      if (socketRef.current) cleanupSocket()
-      return
+    conversationsRef.current = conversations
+    activePedidoIdRef.current = activePedidoId
+  }, [activePedidoId, conversations])
+
+  // Shared subscription registry: Chat owns no physical socket or raw listener.
+  useEffect(() => {
+    if (!user || user.type === "repartidor") return
+
+    const clearTypingTimeouts = () => {
+      for (const timeout of Object.values(typingTimeoutRef.current)) clearTimeout(timeout)
+      typingTimeoutRef.current = {}
     }
 
-    // If already connected, skip
-    if (socketRef.current?.connected) return
+    const unsubscribers = [
+      client.subscribe("new-message", (message) => {
+        if (!message?.pedidoId) return
+        addMessage(message.pedidoId, message)
+        updateConversationLastMessage(message.pedidoId, message)
 
-    // Clean up any dead socket first
-    cleanupSocket()
-    setConnecting(true)
-
-    let cancelled = false
-
-    const connect = async () => {
-      let token: string
-      try {
-        token = await fetchRealtimeToken()
-      } catch (error) {
-        if (!cancelled) {
-          console.warn("[Chat] Realtime auth failed:", safeErrorForLog(error))
-          setConnectionFailed(true)
-          setConnecting(false)
-        }
-        return
-      }
-      if (cancelled) return
-
-      const socket = io(getRealtimeSocketUrl(), {
-        transports: ["websocket", "polling"],
-        upgrade: true,
-        forceNew: true,
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-        auth: { token },
-        path: "/socket.io",
-      })
-
-      socket.on("connect", () => {
-        setConnected(true)
-        setConnecting(false)
-        setConnectionFailed(false)
-      })
-
-      socket.on("disconnect", () => {
-        setConnected(false)
-      })
-
-      socket.on("connect_error", (err) => {
-        console.warn("[Chat] Connection error:", safeErrorForLog(err))
-        setConnectionFailed(true)
-        setConnecting(false)
-      })
-
-      socket.on("reconnect_attempt", () => {
-        setConnecting(true)
-        setConnectionFailed(false)
-      })
-
-      socket.on("reconnect_failed", () => {
-        setConnectionFailed(true)
-        setConnecting(false)
-        // Clear the dead socket so it can be recreated on next sheet open
-        cleanupSocket()
-      })
-
-      socket.on("new-message", (message: any) => {
-        if (message && message.pedidoId) {
-          addMessage(message.pedidoId, message)
-          updateConversationLastMessage(message.pedidoId, message)
-
-        // Update unread count for conversation
         if (message.remitente !== getRemitenteForUserType(user.type)) {
-          const conv = conversations.find((c) => c.pedidoId === message.pedidoId)
-          if (conv && activePedidoId !== message.pedidoId) {
+          const conv = conversationsRef.current.find((conversation) => conversation.pedidoId === message.pedidoId)
+          if (conv && activePedidoIdRef.current !== message.pedidoId) {
             updateConversationUnread(message.pedidoId, conv.unreadCount + 1)
           }
         }
-        }
-      })
-
-      socket.on("user-typing", (data: { pedidoId: string; userId: string; userType: string; userName?: string }) => {
+      }),
+      client.subscribe("user-typing", (data) => {
         addTypingUser(data.pedidoId, {
           userId: data.userId,
           userType: data.userType,
           userName: data.userName || "Usuario",
         })
-
-      // Auto-remove typing indicator after 3 seconds
-      if (typingTimeoutRef.current[data.userId]) {
-        clearTimeout(typingTimeoutRef.current[data.userId])
-      }
-      typingTimeoutRef.current[data.userId] = setTimeout(() => {
+        const timeoutKey = `${data.pedidoId}:${data.userId}`
+        if (typingTimeoutRef.current[timeoutKey]) clearTimeout(typingTimeoutRef.current[timeoutKey])
+        typingTimeoutRef.current[timeoutKey] = setTimeout(() => {
+          removeTypingUser(data.pedidoId, data.userId)
+          delete typingTimeoutRef.current[timeoutKey]
+        }, 3000)
+      }),
+      client.subscribe("user-stop-typing", (data) => {
         removeTypingUser(data.pedidoId, data.userId)
-      }, 3000)
-      })
-
-      socket.on("user-stop-typing", (data: { pedidoId: string; userId: string }) => {
-        removeTypingUser(data.pedidoId, data.userId)
-        if (typingTimeoutRef.current[data.userId]) {
-          clearTimeout(typingTimeoutRef.current[data.userId])
-          delete typingTimeoutRef.current[data.userId]
+        const timeoutKey = `${data.pedidoId}:${data.userId}`
+        if (typingTimeoutRef.current[timeoutKey]) {
+          clearTimeout(typingTimeoutRef.current[timeoutKey])
+          delete typingTimeoutRef.current[timeoutKey]
         }
-      })
-
-      socket.on("unread-update", (data: { count: number }) => {
+      }),
+      client.subscribe("unread-update", (data) => {
         setUnreadCount(data.count)
-      })
+      }),
+      client.subscribe("messages-read", () => {
+        // HTTP polling remains the fallback; this event has no local UI effect yet.
+      }),
+    ]
 
-      socket.on("messages-read", () => {
-        // Could trigger a refetch, but polling remains unchanged in this phase.
-      })
-
-      socketRef.current = socket
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+      clearTypingTimeouts()
     }
+  }, [addMessage, addTypingUser, client, removeTypingUser, setUnreadCount, updateConversationLastMessage, updateConversationUnread, user?.id, user?.type])
 
-    void connect()
+  // A Chat room is a lease, not a physical socket owned by this component.
+  useEffect(() => {
+    if (!isSheetOpen || !activePedidoId || !user || user.type === "repartidor") return
+
+    let cancelled = false
+    let lease: { release: () => void } | null = null
+    const controller = new AbortController()
+    void client.acquireOrderRoom(activePedidoId, ["chat:read", "chat:typing"], { signal: controller.signal })
+      .then((nextLease) => {
+        if (cancelled) {
+          nextLease.release()
+          return
+        }
+        lease = nextLease
+        client.markMessagesRead(activePedidoId)
+      })
+      .catch(() => {
+        // HTTP polling and GET message authorization remain the fallback in this phase.
+      })
 
     return () => {
       cancelled = true
-      // Don't disconnect on sheet close, keep connection alive
+      controller.abort()
+      lease?.release()
     }
-  }, [isSheetOpen, user, cleanupSocket, retryCount])
-
-  // Disconnect socket on unmount
-  useEffect(() => {
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
-        setConnected(false)
-      }
-    }
-  }, [])
-
-  // Join/leave rooms when activePedidoId changes
-  useEffect(() => {
-    if (!socketRef.current || !isConnected || user?.type === "repartidor") return
-
-    const socket = socketRef.current
-
-    // Leave all pedido rooms
-    socket.emit("leave-all-rooms")
-
-    if (activePedidoId) {
-      let cancelled = false
-      void authorizeRealtimeRoom(activePedidoId, ["chat:read", "chat:typing"])
-        .then((capability) => {
-          if (cancelled || socketRef.current !== socket || !socket.connected) return
-          socket.emit("join-order-room", capability, (ack: { ok?: boolean; code?: string }) => {
-            if (!ack?.ok) console.warn("[Chat] Order room rejected:", ack?.code || "ROOM_FORBIDDEN")
-          })
-          // Mark messages as read
-          socket.emit("mark-read", activePedidoId)
-        })
-        .catch(() => {
-          // HTTP polling and GET message authorization remain the fallback in this phase.
-        })
-      return () => {
-        cancelled = true
-      }
-    }
-  }, [activePedidoId, isConnected, user])
+  }, [activePedidoId, client, isSheetOpen, retryNonce, user?.id, user?.type])
 
   // Load conversations when sheet opens
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/chat/conversaciones")
+      const res = await fetch("/api/chat/conversaciones", { signal })
       if (!res.ok) return
       const data = await res.json()
+      if (signal?.aborted) return
       setConversations(data.conversations || [])
     } catch {
       // silently fail
@@ -228,11 +140,12 @@ export function ChatSheet() {
   }, [setConversations])
 
   // Load unread count
-  const loadUnreadCount = useCallback(async () => {
+  const loadUnreadCount = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch("/api/chat/no-leidos")
+      const res = await fetch("/api/chat/no-leidos", { signal })
       if (!res.ok) return
       const data = await res.json()
+      if (signal?.aborted) return
       setUnreadCount(data.noLeidos || 0)
     } catch {
       // silently fail
@@ -241,31 +154,33 @@ export function ChatSheet() {
 
   useEffect(() => {
     if (isSheetOpen && user?.type !== "repartidor") {
-      loadConversations()
-      loadUnreadCount()
+      const controller = new AbortController()
+      void loadConversations(controller.signal)
+      void loadUnreadCount(controller.signal)
+      return () => controller.abort()
     }
-  }, [isSheetOpen, loadConversations, loadUnreadCount, user])
+  }, [isSheetOpen, loadConversations, loadUnreadCount, user?.id, user?.type])
 
   // Refresh conversations periodically while sheet is open
   useEffect(() => {
     if (!isSheetOpen || user?.type === "repartidor") return
 
+    const controller = new AbortController()
     const interval = setInterval(() => {
-      loadConversations()
-      loadUnreadCount()
+      void loadConversations(controller.signal)
+      void loadUnreadCount(controller.signal)
     }, 10000)
 
-    return () => clearInterval(interval)
-  }, [isSheetOpen, loadConversations, loadUnreadCount, user])
+    return () => {
+      clearInterval(interval)
+      controller.abort()
+    }
+  }, [isSheetOpen, loadConversations, loadUnreadCount, user?.id, user?.type])
 
   // Retry connection manually
   const handleRetryConnection = useCallback(() => {
-    cleanupSocket()
-    setRetryCount((c) => c + 1) // Trigger useEffect re-run
-  }, [cleanupSocket])
-
-  // Expose socket for child components
-  const getSocket = useCallback(() => socketRef.current, [])
+    if (activePedidoId) setRetryNonce((current) => current + 1)
+  }, [activePedidoId])
 
   if (!user || user.type === "repartidor") return null
 
@@ -280,7 +195,6 @@ export function ChatSheet() {
         {activePedidoId ? (
           <ChatView
             pedidoId={activePedidoId}
-            getSocket={getSocket}
             onBack={() => useChatStore.getState().closeConversation()}
           />
         ) : (
@@ -306,10 +220,15 @@ export function ChatSheet() {
                           Sin conexión · Reintentar
                           <RefreshCw className="h-3 w-3" />
                         </button>
-                      ) : (
+                      ) : isConnecting ? (
                         <span className="flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Conectando...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <WifiOff className="h-3 w-3" />
+                          Sin conexión
                         </span>
                       )}
                     </p>

@@ -3,6 +3,7 @@ import { RealtimeManager } from "@/lib/realtime-manager"
 import type {
   RealtimeActorTokenResult,
   RealtimeCapabilityResult,
+  RealtimeChatMessagePayload,
   RealtimeManagerDependencies,
   RealtimeSocketLike,
 } from "@/lib/realtime-types"
@@ -164,6 +165,137 @@ describe("RealtimeManager", () => {
     harness.manager.stop()
   })
 
+  test("chat commands require the shared room grant and preserve the legacy producer event", async () => {
+    const harness = createHarness()
+    const client = harness.manager.getClient()
+    const message: RealtimeChatMessagePayload = {
+      id: "message-1",
+      pedidoId: "pedido-commands",
+      remitente: "cliente",
+      texto: "Hola",
+      imagenUrl: null,
+      archivoUrl: null,
+      archivoNombre: null,
+      archivoTipo: null,
+      leido: false,
+      fecha: new Date().toISOString(),
+      clienteId: "cliente-1",
+    }
+
+    harness.manager.setActor(actor)
+    expect(client.sendTyping("pedido-commands")).toBe(false)
+    const lease = await client.acquireOrderRoom("pedido-commands", ["chat:read", "chat:typing"])
+    const socket = harness.sockets[0]
+
+    expect(client.sendTyping("pedido-commands")).toBe(true)
+    expect(client.sendStopTyping("pedido-commands")).toBe(true)
+    expect(client.markMessagesRead("pedido-commands")).toBe(true)
+    expect(client.sendLegacyChatMessage("pedido-commands", message)).toBe(true)
+    expect(harness.capabilityCalls).toBe(1)
+    expect(socket.clientEvents).toEqual([
+      "join-order-room",
+      "typing",
+      "stop-typing",
+      "mark-read",
+      "message-sent",
+    ])
+
+    lease.release()
+    expect(client.sendTyping("pedido-commands")).toBe(false)
+    harness.manager.stop()
+  })
+
+  test("legacy broadcast failure is best effort after HTTP authority succeeds", async () => {
+    const harness = createHarness({
+      createSocket: () => {
+        const socket = new FakeSocket()
+        const emit = socket.emit.bind(socket)
+        socket.emit = (event, ...args) => {
+          if (event === "message-sent") throw new Error("transport unavailable")
+          return emit(event, ...args)
+        }
+        return socket
+      },
+    })
+    harness.manager.setActor(actor)
+    const lease = await harness.manager.getClient().acquireOrderRoom("pedido-best-effort", ["chat:read"])
+    const sent = harness.manager.getClient().sendLegacyChatMessage("pedido-best-effort", {
+      id: "message-best-effort",
+      pedidoId: "pedido-best-effort",
+      remitente: "cliente",
+      texto: "persisted",
+      imagenUrl: null,
+      archivoUrl: null,
+      archivoNombre: null,
+      archivoTipo: null,
+      leido: false,
+      fecha: new Date().toISOString(),
+      clienteId: "cliente-1",
+    })
+    expect(sent).toBe(false)
+    lease.release()
+    harness.manager.stop()
+  })
+
+  test("disconnects after a bounded zero-demand grace and preserves a future second scope", async () => {
+    const activeTimers = new Map<number, { handler: () => void; timeout: number }>()
+    let nextTimer = 0
+    const harness = createHarness({
+      idleDisconnectGraceMs: 5000,
+      setTimeout: (handler, timeout) => {
+        const id = ++nextTimer
+        activeTimers.set(id, { handler: () => { activeTimers.delete(id); handler() }, timeout })
+        return id as unknown as ReturnType<typeof setTimeout>
+      },
+      clearTimeout: (handle) => { activeTimers.delete(handle as unknown as number) },
+    })
+    harness.manager.setActor(actor)
+    const client = harness.manager.getClient()
+    const chatLease = await client.acquireOrderRoom("pedido-idle", ["chat:read", "chat:typing"])
+    const trackingLease = await client.acquireOrderRoom("pedido-idle", ["tracking:watch"])
+    const socket = harness.sockets[0]
+
+    chatLease.release()
+    expect(socket.connected).toBe(true)
+    expect([...activeTimers.values()].some((timer) => timer.timeout === 5000)).toBe(false)
+
+    trackingLease.release()
+    const idleTimer = [...activeTimers.values()].find((timer) => timer.timeout === 5000)
+    expect(idleTimer).toBeDefined()
+    idleTimer?.handler()
+    expect(socket.connected).toBe(false)
+    expect(client.getConnectionState()).toBe("idle")
+    expect(activeTimers.size).toBe(0)
+
+    const reopenedLease = await client.acquireOrderRoom("pedido-idle", ["chat:read"])
+    expect(harness.sockets).toHaveLength(2)
+    reopenedLease.release()
+    harness.manager.stop()
+  })
+
+  test("aborted room acquisition invalidates the generation before a stale join", async () => {
+    let resolveCapability: ((result: RealtimeCapabilityResult) => void) | undefined
+    const harness = createHarness({
+      authorizeRoom: () => new Promise((resolve) => { resolveCapability = resolve }),
+    })
+    const controller = new AbortController()
+    harness.manager.setActor(actor)
+    const pending = harness.manager.getClient().acquireOrderRoom(
+      "pedido-aborted",
+      ["chat:read", "chat:typing"],
+      { signal: controller.signal },
+    )
+    await flush()
+    controller.abort()
+    await expect(pending).rejects.toThrow("Realtime room lease aborted")
+    resolveCapability?.({ token: "stale-capability", scopes: ["chat:read", "chat:typing"] })
+    await flush()
+    await flush()
+
+    expect(harness.sockets[0].clientEvents.filter((event) => event === "join-order-room")).toHaveLength(0)
+    harness.manager.stop()
+  })
+
   test("coalesces duplicate leases in one room generation", async () => {
     let resolveCapability: ((result: RealtimeCapabilityResult) => void) | undefined
     let capabilityCalls = 0
@@ -321,12 +453,12 @@ describe("RealtimeManager", () => {
     let resyncCalls = 0
     let online = true
     let visible = true
-    const timers: Array<() => void> = []
+    const timers: Array<{ handler: () => void; timeout: number }> = []
     const harness = createHarness({
       isOnline: () => online,
       isVisible: () => visible,
-      setTimeout: (handler) => {
-        timers.push(handler)
+      setTimeout: (handler, timeout) => {
+        timers.push({ handler, timeout })
         return timers.length as unknown as ReturnType<typeof setTimeout>
       },
       clearTimeout: () => undefined,
@@ -344,7 +476,7 @@ describe("RealtimeManager", () => {
     harness.manager.handleOffline()
     visible = false
     harness.sockets[0].emitFromServer("disconnect")
-    expect(timers).toHaveLength(0)
+    expect(timers.filter((timer) => timer.timeout !== 5000)).toHaveLength(0)
     online = true
     visible = true
     unregister()
