@@ -107,6 +107,93 @@ function createHarness(overrides: Partial<RealtimeManagerDependencies> = {}) {
 const actor = { userId: "user-1", userType: "cliente" as const }
 
 describe("RealtimeManager", () => {
+  test("caches snapshots and notifies only when observable state changes", async () => {
+    const harness = createHarness()
+    const initial = harness.manager.getConnectionSnapshot()
+    expect(Object.is(initial, harness.manager.getConnectionSnapshot())).toBe(true)
+    expect(Object.isFrozen(initial)).toBe(true)
+
+    let notifications = 0
+    const notifiedSnapshots: unknown[] = []
+    const unsubscribe = harness.manager.subscribeState(() => {
+      notifications += 1
+      notifiedSnapshots.push(harness.manager.getConnectionSnapshot())
+    })
+
+    harness.manager.setActor(actor)
+    const actorSnapshot = harness.manager.getConnectionSnapshot()
+    expect(Object.is(initial, actorSnapshot)).toBe(false)
+    expect(Object.is(actorSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+    expect(notifications).toBe(2)
+    expect(notifiedSnapshots[1]).toBe(actorSnapshot)
+
+    harness.manager.setActor(actor)
+    expect(notifications).toBe(2)
+    expect(Object.is(actorSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+
+    await harness.manager.ensureConnected()
+    const connectedSnapshot = harness.manager.getConnectionSnapshot()
+    expect(connectedSnapshot.socketGeneration).toBeGreaterThan(actorSnapshot.socketGeneration)
+    expect(Object.is(actorSnapshot, connectedSnapshot)).toBe(false)
+    expect(Object.is(connectedSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+    const notificationsAfterConnect = notifications
+    expect(new Set(notifiedSnapshots).size).toBe(notifiedSnapshots.length)
+
+    await harness.manager.ensureConnected()
+    expect(notifications).toBe(notificationsAfterConnect)
+    expect(Object.is(connectedSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+
+    harness.manager.stop()
+    const stoppedSnapshot = harness.manager.getConnectionSnapshot()
+    expect(Object.is(connectedSnapshot, stoppedSnapshot)).toBe(false)
+    expect(Object.is(stoppedSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+
+    const notificationsBeforeUnsubscribe = notifications
+    unsubscribe()
+    harness.manager.setActor(actor)
+    expect(notifications).toBe(notificationsBeforeUnsubscribe)
+  })
+
+  test("keeps snapshot caches isolated per manager and actor transitions coherent", () => {
+    const first = createHarness().manager
+    const second = createHarness().manager
+    expect(Object.is(first.getConnectionSnapshot(), second.getConnectionSnapshot())).toBe(false)
+
+    first.setActor({ userId: "user-a", userType: "cliente" })
+    const actorASnapshot = first.getConnectionSnapshot()
+    first.setActor({ userId: "user-b", userType: "negocio" })
+    const actorBSnapshot = first.getConnectionSnapshot()
+
+    expect(actorBSnapshot.actor).toEqual({ userId: "user-b", userType: "negocio" })
+    expect(actorASnapshot.actor).toEqual({ userId: "user-a", userType: "cliente" })
+    expect(Object.is(actorASnapshot, actorBSnapshot)).toBe(false)
+    expect(Object.is(actorBSnapshot, first.getConnectionSnapshot())).toBe(true)
+    first.stop()
+    second.stop()
+  })
+
+  test("publishes connection errors and clears them on stop", async () => {
+    const harness = createHarness({
+      fetchActorToken: async () => { throw new Error("token failure") },
+    })
+    harness.manager.setActor(actor)
+    const beforeFailure = harness.manager.getConnectionSnapshot()
+
+    await harness.manager.ensureConnected().catch(() => {})
+    const failureSnapshot = harness.manager.getConnectionSnapshot()
+    expect(failureSnapshot.state).toBe("error")
+    expect(failureSnapshot.error).toBe("token failure")
+    expect(Object.is(beforeFailure, failureSnapshot)).toBe(false)
+    expect(Object.is(failureSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+
+    harness.manager.stop()
+    const stoppedSnapshot = harness.manager.getConnectionSnapshot()
+    expect(stoppedSnapshot.state).toBe("stopped")
+    expect(stoppedSnapshot.error).toBeNull()
+    expect(Object.is(failureSnapshot, stoppedSnapshot)).toBe(false)
+    expect(Object.is(stoppedSnapshot, harness.manager.getConnectionSnapshot())).toBe(true)
+  })
+
   test("shares the actor token request and creates one physical socket", async () => {
     let resolveToken: ((result: RealtimeActorTokenResult) => void) | undefined
     const harness = createHarness({

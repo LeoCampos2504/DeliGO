@@ -152,6 +152,13 @@ export class RealtimeManager {
   private stopped = true
   private state: RealtimeConnectionState = "idle"
   private connectionError: string | null = null
+  private connectionSnapshot: RealtimeConnectionSnapshot = Object.freeze({
+    state: "idle",
+    error: null,
+    actor: null,
+    actorEpoch: 0,
+    socketGeneration: 0,
+  })
   private socket: RealtimeSocketLike | null = null
   private socketGeneration = 0
   private leaseCounter = 0
@@ -217,13 +224,7 @@ export class RealtimeManager {
   }
 
   getConnectionSnapshot(): RealtimeConnectionSnapshot {
-    return {
-      state: this.state,
-      error: this.connectionError,
-      actor: this.actor,
-      actorEpoch: this.actorEpoch,
-      socketGeneration: this.socketGeneration,
-    }
+    return this.connectionSnapshot
   }
 
   subscribeState(listener: RealtimeStateListener): () => void {
@@ -235,7 +236,7 @@ export class RealtimeManager {
     if (actorKey(nextActor) === actorKey(this.actor) && !this.stopped) return
 
     this.stop(nextActor ? "actor-change" : "logout")
-    this.actor = nextActor
+    this.actor = nextActor ? { ...nextActor } : null
     this.actorEpoch += 1
     this.stopped = !nextActor
     this.connectionError = null
@@ -441,6 +442,7 @@ export class RealtimeManager {
     if (!this.isCurrentEpoch(epoch)) throw new RealtimeStaleOperationError()
 
     const socketGeneration = ++this.socketGeneration
+    this.emitState()
     this.detachSocket(true)
     const socket = this.dependencies.createSocket(this.dependencies.getSocketUrl(), {
       auth: { token: actorToken.token },
@@ -597,7 +599,10 @@ export class RealtimeManager {
       try {
         await this.reconcileRoom(record, epoch, socketGeneration, true)
       } catch (error) {
-        if (this.isCurrentEpoch(epoch)) this.connectionError = errorMessage(error)
+        if (this.isCurrentEpoch(epoch)) {
+          this.connectionError = errorMessage(error)
+          this.emitState()
+        }
       }
     }))
     if (records.length) await this.requestResync("room-rejoin")
@@ -897,6 +902,28 @@ export class RealtimeManager {
 
   private setState(state: RealtimeConnectionState): void {
     this.state = state
+    this.emitState()
+  }
+
+  private emitState(): void {
+    const currentActor = this.connectionSnapshot.actor
+    const actorChanged = currentActor?.userId !== this.actor?.userId ||
+      currentActor?.userType !== this.actor?.userType
+    if (
+      this.connectionSnapshot.state === this.state &&
+      this.connectionSnapshot.error === this.connectionError &&
+      !actorChanged &&
+      this.connectionSnapshot.actorEpoch === this.actorEpoch &&
+      this.connectionSnapshot.socketGeneration === this.socketGeneration
+    ) return
+
+    this.connectionSnapshot = Object.freeze({
+      state: this.state,
+      error: this.connectionError,
+      actor: this.actor ? Object.freeze({ ...this.actor }) : null,
+      actorEpoch: this.actorEpoch,
+      socketGeneration: this.socketGeneration,
+    })
     for (const listener of this.stateListeners) listener()
   }
 
