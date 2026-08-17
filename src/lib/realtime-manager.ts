@@ -20,6 +20,7 @@ import type {
   RealtimeSocketOptions,
   RealtimeStateListener,
   RealtimeStopReason,
+  RealtimeTrackingLocationInput,
 } from "@/lib/realtime-types"
 
 const DEFAULT_CAPABILITY_TTL_SECONDS = 120
@@ -205,6 +206,7 @@ export class RealtimeManager {
       sendStopTyping: (pedidoId) => this.sendStopTyping(pedidoId),
       markMessagesRead: (pedidoId) => this.markMessagesRead(pedidoId),
       sendLegacyChatMessage: (pedidoId, message) => this.sendLegacyChatMessage(pedidoId, message),
+      sendTrackingLocation: (pedidoId, location) => this.sendTrackingLocation(pedidoId, location),
       registerResync: (handler) => this.registerResync(handler),
       requestResync: (reason) => this.requestResync(reason),
       stop: (reason) => this.stop(reason),
@@ -345,6 +347,17 @@ export class RealtimeManager {
     if (!this.canEmitAuthorizedRoomEvent(normalizedPedidoId, "chat:read")) return false
     try {
       this.socket?.emit("message-sent", { pedidoId: normalizedPedidoId, message })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  sendTrackingLocation(pedidoId: string, location: RealtimeTrackingLocationInput): boolean {
+    const normalizedPedidoId = pedidoId.trim()
+    if (!this.canEmitAuthorizedRoomEvent(normalizedPedidoId, "tracking:publish")) return false
+    try {
+      this.socket?.emit("location-update", { pedidoId: normalizedPedidoId, ...location })
       return true
     } catch {
       return false

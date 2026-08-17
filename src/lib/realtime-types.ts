@@ -78,6 +78,12 @@ export interface RealtimeLocationPayload {
   version?: number | string
 }
 
+export interface RealtimeTrackingLocationInput {
+  lat: number
+  lng: number
+  timestamp: string
+}
+
 export interface RealtimeAuthExpiredPayload {
   code?: "TOKEN_EXPIRED" | string
 }
@@ -179,6 +185,8 @@ export interface RealtimeClient {
   markMessagesRead(pedidoId: string): boolean
   /** Temporary client producer compatibility until Chat becomes server-authoritative. */
   sendLegacyChatMessage(pedidoId: string, message: RealtimeChatMessagePayload): boolean
+  /** Temporary client producer compatibility until repartidor tracking becomes server-authoritative. */
+  sendTrackingLocation(pedidoId: string, location: RealtimeTrackingLocationInput): boolean
   registerResync(handler: RealtimeResyncHandler): () => void
   requestResync(reason: RealtimeResyncReason): Promise<void>
   stop(reason?: RealtimeStopReason): void

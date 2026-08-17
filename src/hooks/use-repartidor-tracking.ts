@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useCallback } from "react"
-import { io, Socket } from "socket.io-client"
-import { authorizeRealtimeRoom, fetchRealtimeToken, getRealtimeSocketUrl } from "@/lib/realtime-client"
+import { useEffect, useRef, useCallback, useMemo } from "react"
+import { useRealtime } from "@/hooks/use-realtime"
+import type { RealtimeRoomLease } from "@/lib/realtime-types"
 
 interface ActiveDelivery {
   id: string
@@ -10,134 +10,124 @@ interface ActiveDelivery {
   repartidorId?: string | null
 }
 
+// Bounded backoff for retrying a failed tracking:publish lease acquisition
+// (e.g. a transient network/authorize blip) without polling on every render.
+// Mirrors RealtimeManager's own capability-refresh retry bounds.
+const LEASE_RETRY_BASE_MS = 1000
+const LEASE_RETRY_MAX_MS = 30000
+
 /**
  * Automatically sends GPS location to the server every 5 seconds
  * for all active deliveries (en_camino) that the repartidor has ACCEPTED.
- * 
+ *
  * KEY: Only shares location for orders where repartidorId is set (accepted).
  * Pending available orders (no repartidorId) are NOT tracked.
- * 
- * Also broadcasts via Socket.IO for real-time client tracking.
+ *
+ * Broadcasts via the shared realtime transport (RealtimeManager) for
+ * real-time client tracking — no socket is owned by this hook.
  *
  * - Uses getCurrentPosition on an interval (battery-friendly)
  * - Pauses when the tab is hidden (document.visibilityState)
  * - Silently handles geolocation errors / denied permissions
- * - Emits location-update via Socket.IO for instant client updates
+ * - Publishes location via a shared tracking:publish room lease per pedido
  */
 export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
+  const { client } = useRealtime()
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const deliveriesRef = useRef<ActiveDelivery[]>(activeDeliveries)
-  const socketRef = useRef<Socket | null>(null)
-  const userIdRef = useRef<string | null>(null)
-  const authorizedDeliveryIdsRef = useRef<Set<string>>(new Set())
+  const leasesRef = useRef<Map<string, RealtimeRoomLease>>(new Map())
 
   // Keep the ref in sync so the interval callback always has fresh data
   useEffect(() => {
     deliveriesRef.current = activeDeliveries
   }, [activeDeliveries])
 
-  // Connect to Socket.IO for real-time location broadcasting
-  // ONLY for accepted deliveries (repartidorId is set)
+  // Stable key for the current set of accepted en_camino delivery ids.
+  // activeDeliveries gets a new array reference on every polling refetch
+  // even when its content is unchanged; keying the lease effect on this
+  // content-derived string (rather than the raw array) avoids re-acquiring
+  // a shared room lease for a pedido that is already held.
+  const enCaminoKey = useMemo(() => {
+    return activeDeliveries
+      .filter((d) => d.estado === "en_camino" && d.repartidorId)
+      .map((d) => d.id)
+      .sort()
+      .join(",")
+  }, [activeDeliveries])
+
+  // Acquire/release shared tracking:publish room leases to match the
+  // current set of accepted deliveries. RealtimeManager owns the socket,
+  // token, and capability — no raw socket is created here.
+  //
+  // A failed acquisition (e.g. a transient network/authorize blip) is
+  // retried with bounded backoff instead of being left dead: this effect
+  // only re-runs when the *set* of accepted delivery ids changes, so
+  // without this retry a failure would never be revisited until an
+  // unrelated delivery is accepted or completed.
   useEffect(() => {
-    const enCamino = activeDeliveries.filter(
-      (d) => d.estado === "en_camino" && d.repartidorId
+    const currentIds = new Set(
+      deliveriesRef.current
+        .filter((d) => d.estado === "en_camino" && d.repartidorId)
+        .map((d) => d.id)
     )
 
-    if (enCamino.length === 0) {
-      // No accepted deliveries — disconnect socket
-      if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
+    for (const [id, lease] of [...leasesRef.current]) {
+      if (!currentIds.has(id)) {
+        lease.release()
+        leasesRef.current.delete(id)
       }
-      return
     }
 
-    // Connect or reuse existing socket
-    if (socketRef.current?.connected) return
-
     let cancelled = false
+    const controller = new AbortController()
+    const retryTimers = new Set<ReturnType<typeof setTimeout>>()
 
-    // Get user info from auth store (lazy import to avoid circular deps)
-    import("@/store/auth-store").then(({ useAuthStore }) => {
-      const user = useAuthStore.getState().user
-      if (!user) return
-      userIdRef.current = user.id
+    const isStillWanted = (id: string) =>
+      deliveriesRef.current.some(
+        (d) => d.id === id && d.estado === "en_camino" && d.repartidorId
+      )
 
-      const connect = async () => {
-        try {
-          const token = await fetchRealtimeToken()
-          if (cancelled) return
-          const socket = io(getRealtimeSocketUrl(), {
-            transports: ["websocket", "polling"],
-            path: "/socket.io",
-            auth: { token },
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            timeout: 10000,
-          })
-
-          const authorizeDelivery = (deliveryId: string) => {
-            void authorizeRealtimeRoom(deliveryId, ["tracking:publish"])
-              .then((capability) => {
-                if (cancelled || !socket.connected) return
-                socket.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
-                  if (ack?.ok) authorizedDeliveryIdsRef.current.add(deliveryId)
-                })
-              })
-              .catch(() => {
-                authorizedDeliveryIdsRef.current.delete(deliveryId)
-              })
+    const acquire = (id: string, attempt: number) => {
+      void client.acquireOrderRoom(id, ["tracking:publish"], { signal: controller.signal })
+        .then((lease) => {
+          if (cancelled || !isStillWanted(id)) {
+            lease.release()
+            return
           }
+          leasesRef.current.set(id, lease)
+        })
+        .catch(() => {
+          if (cancelled || leasesRef.current.has(id) || !isStillWanted(id)) return
+          const delay = Math.min(LEASE_RETRY_MAX_MS, LEASE_RETRY_BASE_MS * 2 ** attempt)
+          const timer = setTimeout(() => {
+            retryTimers.delete(timer)
+            if (cancelled) return
+            acquire(id, attempt + 1)
+          }, delay)
+          retryTimers.add(timer)
+        })
+    }
 
-          socket.on("connect", () => {
-            authorizedDeliveryIdsRef.current.clear()
-            const current = deliveriesRef.current.filter(
-              (d) => d.estado === "en_camino" && d.repartidorId
-            )
-            current.forEach((d) => authorizeDelivery(d.id))
-          })
-
-          socket.on("disconnect", () => {
-            authorizedDeliveryIdsRef.current.clear()
-          })
-
-          socketRef.current = socket
-        } catch {
-          // HTTP GPS persistence remains unchanged in this foundation phase.
-        }
-      }
-
-      void connect()
-    })
+    for (const id of currentIds) {
+      if (leasesRef.current.has(id)) continue
+      acquire(id, 0)
+    }
 
     return () => {
       cancelled = true
-      if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
-      }
-      authorizedDeliveryIdsRef.current.clear()
+      controller.abort()
+      for (const timer of retryTimers) clearTimeout(timer)
+      retryTimers.clear()
     }
-  }, [activeDeliveries])
+  }, [enCaminoKey, client])
 
-  // Join new rooms when accepted deliveries change
+  // Release every held lease on unmount (tab switch, navigation, etc.)
   useEffect(() => {
-    if (!socketRef.current?.connected) return
-    const enCamino = activeDeliveries.filter(
-      (d) => d.estado === "en_camino" && d.repartidorId
-    )
-    enCamino.forEach((d) => {
-      void authorizeRealtimeRoom(d.id, ["tracking:publish"])
-        .then((capability) => {
-          if (!socketRef.current?.connected) return
-          socketRef.current.emit("join-order-room", capability, (ack: { ok?: boolean }) => {
-            if (ack?.ok) authorizedDeliveryIdsRef.current.add(d.id)
-          })
-        })
-        .catch(() => authorizedDeliveryIdsRef.current.delete(d.id))
-    })
-  }, [activeDeliveries])
+    return () => {
+      for (const lease of leasesRef.current.values()) lease.release()
+      leasesRef.current.clear()
+    }
+  }, [client])
 
   const sendLocation = useCallback(async (lat: number, lng: number) => {
     // Only send location for accepted deliveries (repartidorId is set)
@@ -165,18 +155,13 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       })
     )
 
-    // 2. Emit via Socket.IO for real-time client tracking
-    if (socketRef.current?.connected) {
-        deliveries.filter((delivery) => authorizedDeliveryIdsRef.current.has(delivery.id)).forEach((delivery) => {
-          socketRef.current?.emit("location-update", {
-          pedidoId: delivery.id,
-          lat,
-          lng,
-          timestamp,
-        })
+    // 2. Publish via the shared realtime transport for instant client updates
+    deliveries
+      .filter((delivery) => leasesRef.current.has(delivery.id))
+      .forEach((delivery) => {
+        client.sendTrackingLocation(delivery.id, { lat, lng, timestamp })
       })
-    }
-  }, [])
+  }, [client])
 
   const tick = useCallback(() => {
     // Don't send if tab is hidden

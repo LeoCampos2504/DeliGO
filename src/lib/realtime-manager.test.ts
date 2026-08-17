@@ -105,6 +105,7 @@ function createHarness(overrides: Partial<RealtimeManagerDependencies> = {}) {
 }
 
 const actor = { userId: "user-1", userType: "cliente" as const }
+const repartidorActor = { userId: "repartidor-1", userType: "repartidor" as const }
 
 describe("RealtimeManager", () => {
   test("caches snapshots and notifies only when observable state changes", async () => {
@@ -318,6 +319,93 @@ describe("RealtimeManager", () => {
       leido: false,
       fecha: new Date().toISOString(),
       clienteId: "cliente-1",
+    })
+    expect(sent).toBe(false)
+    lease.release()
+    harness.manager.stop()
+  })
+
+  test("tracking:publish command requires the shared room grant and preserves the legacy producer event", async () => {
+    const harness = createHarness()
+    const client = harness.manager.getClient()
+    const location = { lat: -26.18, lng: -58.17, timestamp: new Date().toISOString() }
+
+    harness.manager.setActor(repartidorActor)
+    expect(client.sendTrackingLocation("pedido-tracking-commands", location)).toBe(false)
+    const lease = await client.acquireOrderRoom("pedido-tracking-commands", ["tracking:publish"])
+    const socket = harness.sockets[0]
+
+    expect(client.sendTrackingLocation("pedido-tracking-commands", location)).toBe(true)
+    expect(harness.capabilityCalls).toBe(1)
+    expect(socket.clientEvents).toEqual(["join-order-room", "location-update"])
+
+    lease.release()
+    expect(client.sendTrackingLocation("pedido-tracking-commands", location)).toBe(false)
+    harness.manager.stop()
+  })
+
+  test("tracking:publish is scoped per pedido and does not leak to an unleased room", async () => {
+    const harness = createHarness()
+    const client = harness.manager.getClient()
+    const location = { lat: -26.18, lng: -58.17, timestamp: new Date().toISOString() }
+
+    harness.manager.setActor(repartidorActor)
+    const lease = await client.acquireOrderRoom("pedido-leased", ["tracking:publish"])
+
+    expect(client.sendTrackingLocation("pedido-not-leased", location)).toBe(false)
+    expect(client.sendTrackingLocation("pedido-leased", location)).toBe(true)
+
+    lease.release()
+    harness.manager.stop()
+  })
+
+  test("tracking:publish command rejects a room leased only for a different scope", async () => {
+    const harness = createHarness()
+    const client = harness.manager.getClient()
+    const location = { lat: -26.18, lng: -58.17, timestamp: new Date().toISOString() }
+
+    harness.manager.setActor(repartidorActor)
+    const watchLease = await client.acquireOrderRoom("pedido-watch-only", ["tracking:watch"])
+    expect(client.sendTrackingLocation("pedido-watch-only", location)).toBe(false)
+
+    watchLease.release()
+    harness.manager.stop()
+  })
+
+  test("tracking:publish command fails closed once the transport disconnects", async () => {
+    const harness = createHarness()
+    const client = harness.manager.getClient()
+    const location = { lat: -26.18, lng: -58.17, timestamp: new Date().toISOString() }
+
+    harness.manager.setActor(repartidorActor)
+    const lease = await client.acquireOrderRoom("pedido-disconnect", ["tracking:publish"])
+    expect(client.sendTrackingLocation("pedido-disconnect", location)).toBe(true)
+
+    harness.sockets[0].disconnect()
+    expect(client.sendTrackingLocation("pedido-disconnect", location)).toBe(false)
+
+    lease.release()
+    harness.manager.stop()
+  })
+
+  test("tracking:publish broadcast failure is best effort after HTTP authority succeeds", async () => {
+    const harness = createHarness({
+      createSocket: () => {
+        const socket = new FakeSocket()
+        const emit = socket.emit.bind(socket)
+        socket.emit = (event, ...args) => {
+          if (event === "location-update") throw new Error("transport unavailable")
+          return emit(event, ...args)
+        }
+        return socket
+      },
+    })
+    harness.manager.setActor(repartidorActor)
+    const lease = await harness.manager.getClient().acquireOrderRoom("pedido-tracking-best-effort", ["tracking:publish"])
+    const sent = harness.manager.getClient().sendTrackingLocation("pedido-tracking-best-effort", {
+      lat: -26.18,
+      lng: -58.17,
+      timestamp: new Date().toISOString(),
     })
     expect(sent).toBe(false)
     lease.release()
