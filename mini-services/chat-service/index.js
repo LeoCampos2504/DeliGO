@@ -3,6 +3,7 @@ const { Server } = require("socket.io")
 const {
   INTERNAL_PUBLISH_PATH,
   createInternalPublishHandler,
+  createEventDedupeCache,
 } = require("./internal-publish-handler")
 
 const ALLOWED_USER_TYPES = new Set(["cliente", "negocio", "repartidor"])
@@ -134,6 +135,24 @@ function getAuthorizedRoom(user, pedidoId, requiredScope) {
   return room
 }
 
+// Enumerates, across all connected sockets, those currently holding a
+// non-expired grant for `room` that includes `requiredScope` — the
+// recipient-side counterpart to getAuthorizedRoom's sender-side check, used
+// by the Internal Publish Bridge so a socket physically joined to a pedido
+// room (e.g. a repartidor with only tracking:publish) cannot receive an
+// event it was never granted the scope to read.
+function getAuthorizedRecipientSockets(connectedUsers, room, requiredScope) {
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  const socketIds = []
+  for (const [socketId, recipient] of connectedUsers) {
+    const grant = recipient.roomGrants.get(room)
+    if (!grant || grant.exp <= nowSeconds) continue
+    if (requiredScope && !grant.scopes.has(requiredScope)) continue
+    socketIds.push(socketId)
+  }
+  return socketIds
+}
+
 function removeRoomGrant(user, room) {
   const grant = user.roomGrants.get(room)
   if (!grant) return
@@ -195,6 +214,11 @@ function createChatService(options = {}) {
   const allowedOrigins = getAllowedOrigins()
   const metrics = createMetrics()
   const connectedUsers = new Map()
+  // Shared across the Internal Publish Bridge and the legacy message-sent
+  // relay so both producer paths for the same logical event (keyed by
+  // "<eventType>:<id>") deliver exactly once, regardless of which arrives
+  // first — see the message-sent handler below.
+  const eventDedupe = createEventDedupeCache()
   const startedAt = Date.now()
   let internalPublishHandler
 
@@ -247,7 +271,11 @@ function createChatService(options = {}) {
     allowEIO3: true,
   })
 
-  internalPublishHandler = createInternalPublishHandler({ io })
+  internalPublishHandler = createInternalPublishHandler({
+    io,
+    eventDedupe,
+    getRecipientSockets: (room, requiredScope) => getAuthorizedRecipientSockets(connectedUsers, room, requiredScope),
+  })
 
   io.use(async (socket, next) => {
     try {
@@ -357,13 +385,35 @@ function createChatService(options = {}) {
       const message = sanitizeLegacyMessage(data.message, data.pedidoId, actor)
       if (!message) return
 
+      // Cross-path dedupe with the Internal Publish Bridge: a stale/cached
+      // browser client can still emit this legacy event even after a
+      // server-authoritative chat.message.created publish has already
+      // delivered the same message.id. Sharing the same eventDedupe instance
+      // (and the same logical key format the bridge uses) means whichever
+      // path claims the key first performs the relay, and the other becomes
+      // a silent no-op — while still allowing this legacy path to act as the
+      // realtime fallback if the bridge publish ever fails (its own failure
+      // handling already releases the claim, see internal-publish-handler.js).
+      const dedupeKey = message.id ? "chat.message.created:" + message.id : null
+      if (dedupeKey && !eventDedupe.claim(dedupeKey)) return
+
       const socketsInRoom = io.sockets.adapter.rooms.get(room)
       if (!socketsInRoom) return
-      for (const socketId of socketsInRoom) {
-        if (socketId === socket.id) continue
-        const recipient = connectedUsers.get(socketId)
-        if (!recipient || recipient.actor.userType === "repartidor") continue
-        io.to(socketId).emit("new-message", message)
+      // Same partial-fan-out safeguard as the Internal Publish Bridge (see
+      // internal-publish-handler.js): only release the claim if this relay
+      // delivered to nobody at all, so a mid-loop failure can never cause a
+      // recipient who already received the event to receive it again.
+      let deliveredCount = 0
+      try {
+        for (const socketId of socketsInRoom) {
+          if (socketId === socket.id) continue
+          const recipient = connectedUsers.get(socketId)
+          if (!recipient || recipient.actor.userType === "repartidor") continue
+          io.to(socketId).emit("new-message", message)
+          deliveredCount += 1
+        }
+      } catch {
+        if (dedupeKey && deliveredCount === 0) eventDedupe.release(dedupeKey)
       }
     })
 

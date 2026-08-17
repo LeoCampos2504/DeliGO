@@ -11,9 +11,9 @@ const INTERNAL_RATE_LIMIT_WINDOW_MS = 60 * 1000
 const INTERNAL_EVENT_DEDUPE_TTL_MS = 120 * 1000
 
 const EVENT_MAPPING = {
-  "chat.message.created": "new-message",
-  "chat.messages.read": "messages-read",
-  "tracking.location.updated": "repartidor-location",
+  "chat.message.created": { event: "new-message", requiredRecipientScope: "chat:read" },
+  "chat.messages.read": { event: "messages-read", requiredRecipientScope: "chat:read" },
+  "tracking.location.updated": { event: "repartidor-location", requiredRecipientScope: "tracking:watch" },
 }
 
 function sendJson(res, statusCode, body) {
@@ -117,6 +117,7 @@ function statusForAuth(code) {
 
 function createInternalPublishHandler(options) {
   const io = options.io
+  const getRecipientSockets = options.getRecipientSockets
   const auth = options.auth || createInternalPublishAuth()
   const rateLimiter = options.rateLimiter || createBoundedRateLimiter()
   const eventDedupe = options.eventDedupe || createEventDedupeCache()
@@ -124,6 +125,7 @@ function createInternalPublishHandler(options) {
   const now = options.now || (() => Date.now())
 
   if (!io || typeof io.to !== "function") throw new Error("INTERNAL_IO_REQUIRED")
+  if (typeof getRecipientSockets !== "function") throw new Error("INTERNAL_RECIPIENT_RESOLVER_REQUIRED")
 
   return async function handleInternalPublish(req, res) {
     const startedAt = now()
@@ -188,12 +190,23 @@ function createInternalPublishHandler(options) {
       return
     }
 
-    const socketEvent = EVENT_MAPPING[envelope.type]
+    const mapping = EVENT_MAPPING[envelope.type]
     const room = "pedido:" + envelope.resourceId
+    // deliveredCount tracks progress through the fan-out loop so a
+    // mid-loop synchronous throw can be told apart from a total failure:
+    // releasing the claim on ANY failure (even after some recipients
+    // already got the event) would let a retry — internal or the legacy
+    // fallback — redeliver to those same recipients. The claim is only
+    // released when nothing was actually delivered.
+    let deliveredCount = 0
     try {
-      io.to(room).emit(socketEvent, envelope.payload)
+      const recipientSocketIds = getRecipientSockets(room, mapping.requiredRecipientScope)
+      for (const socketId of recipientSocketIds) {
+        io.to(socketId).emit(mapping.event, envelope.payload)
+        deliveredCount += 1
+      }
     } catch {
-      eventDedupe.release(dedupeKey)
+      if (deliveredCount === 0) eventDedupe.release(dedupeKey)
       console.warn("[Chat] internal_publish_rejected category=emit_failure")
       sendJson(res, 503, { ok: false, error: "Publish unavailable" })
       return
