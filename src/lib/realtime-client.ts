@@ -28,10 +28,6 @@ export async function fetchRealtimeTokenResult(options: { signal?: AbortSignal }
   }
 }
 
-export async function fetchRealtimeToken(options: { signal?: AbortSignal } = {}): Promise<string> {
-  return (await fetchRealtimeTokenResult(options)).token
-}
-
 export async function authorizeRealtimeRoomResult(
   pedidoId: string,
   requestedScopes: RealtimeScope[],
@@ -69,12 +65,4 @@ function realtimeRequestError(message: string, status: number): Error & { status
   const error = new Error(message) as Error & { status: number }
   error.status = status
   return error
-}
-
-export async function authorizeRealtimeRoom(
-  pedidoId: string,
-  requestedScopes: RealtimeScope[],
-  options: { signal?: AbortSignal } = {}
-): Promise<string> {
-  return (await authorizeRealtimeRoomResult(pedidoId, requestedScopes, options)).token
 }

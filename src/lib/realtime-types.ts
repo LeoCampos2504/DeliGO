@@ -84,10 +84,6 @@ export interface RealtimeTrackingLocationInput {
   timestamp: string
 }
 
-export interface RealtimeAuthExpiredPayload {
-  code?: "TOKEN_EXPIRED" | string
-}
-
 export interface RealtimeEventMap {
   "new-message": RealtimeChatMessagePayload
   "messages-read": RealtimeMessagesReadPayload
