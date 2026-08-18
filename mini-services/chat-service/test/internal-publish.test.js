@@ -13,9 +13,11 @@ const {
 const {
   EVENT_MAPPING,
   INTERNAL_EVENT_DEDUPE_TTL_MS,
+  TRACKING_CORRELATION_DEDUPE_TTL_MS,
   createBoundedRateLimiter,
   createEventDedupeCache,
   createInternalPublishHandler,
+  trackingCorrelationKey,
 } = require("../internal-publish-handler")
 const { parseAndValidateEnvelope } = require("../internal-publish-schema")
 
@@ -196,15 +198,19 @@ function validRead(eventId, pedidoId = "pedido-publish-a") {
   }
 }
 
-function validTracking(eventId, pedidoId = "pedido-publish-a") {
+function validTracking(eventId, pedidoId = "pedido-publish-a", lat = -34.6037, lng = -58.3816) {
   return {
     version: 1,
     type: "tracking.location.updated",
     eventId,
     resourceId: pedidoId,
     occurredAt: new Date().toISOString(),
-    payload: { pedidoId, lat: -34.6037, lng: -58.3816, timestamp: new Date().toISOString() },
+    payload: { pedidoId, lat, lng, timestamp: new Date().toISOString() },
   }
+}
+
+function emitLegacyLocation(socket, pedidoId, lat, lng, timestamp) {
+  socket.emit("location-update", { pedidoId, lat, lng, timestamp: timestamp ?? new Date().toISOString() })
 }
 
 before(async () => {
@@ -392,6 +398,30 @@ describe("internal publish auth and schema", () => {
     assert.equal(boundedReplay.claim("replay-c"), false)
     assert.equal(boundedReplay.size(), 2)
   })
+
+  test("tracking correlation key is clock-independent and its dedupe cache expires on the documented bounded TTL", () => {
+    // No sleep of real time — the cache's claim() accepts an explicit `now`,
+    // so the 2000ms TTL boundary is tested deterministically. Demonstrates
+    // TRACKING_CORRELATION_TTL_MS=2000 and the documented bounded-best-effort
+    // semantics: a same-coordinate claim after the TTL is NOT suppressed.
+    assert.equal(TRACKING_CORRELATION_DEDUPE_TTL_MS, 2000)
+    const key = trackingCorrelationKey("pedido-ttl", -34.6037, -58.3816)
+    assert.equal(trackingCorrelationKey("pedido-ttl", -34.6037, -58.3816), key)
+    assert.equal(trackingCorrelationKey("pedido-other", -34.6037, -58.3816) === key, false)
+    // Clock-independent: the formula never embeds any timestamp.
+    assert.equal(key.includes(String(Date.now()).slice(0, 5)), false)
+
+    const correlationCache = createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
+    assert.equal(correlationCache.claim(key, 1000), true)
+    // Still within the TTL window (just before expiry) — a duplicate claim
+    // for the SAME physical GPS sample must still be suppressed.
+    assert.equal(correlationCache.claim(key, 1000 + TRACKING_CORRELATION_DEDUPE_TTL_MS - 1), false)
+    // Past the TTL — the next legitimate ~5s-later GPS tick (even with an
+    // unchanged coordinate for a stationary repartidor) must NOT be falsely
+    // suppressed. This is the documented residual of bounded best-effort
+    // duplicate suppression, not a defect.
+    assert.equal(correlationCache.claim(key, 1000 + TRACKING_CORRELATION_DEDUPE_TTL_MS + 1), true)
+  })
 })
 
 describe("internal publish endpoint", () => {
@@ -533,6 +563,72 @@ describe("internal publish endpoint", () => {
     // the throw at callCount 2) — a retry via either producer path must not
     // be allowed to redeliver to it, so the claim must still be held here.
     assert.equal(sharedDedupe.claim("chat.message.created:mensaje-partial-fanout"), false)
+  })
+
+  test("tracking internal fan-out failure before any delivery releases both the eventDedupe and correlation claims", async () => {
+    const sharedEventDedupe = createEventDedupeCache()
+    const sharedCorrelationDedupe = createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
+    const failingIo = {
+      to() {
+        return {
+          emit() {
+            throw new Error("simulated tracking emit failure")
+          },
+        }
+      },
+    }
+    const handler = createInternalPublishHandler({
+      io: failingIo,
+      eventDedupe: sharedEventDedupe,
+      trackingCorrelationDedupe: sharedCorrelationDedupe,
+      getRecipientSockets: () => ["stub-socket-1"],
+    })
+    const body = validTracking("tracking-zero-delivery-event", "pedido-tracking-zero", -31.5, -68.5)
+    const result = await invokeHandler(handler, body)
+    assert.equal(result.statusCode, 503)
+
+    assert.equal(
+      sharedEventDedupe.claim("tracking.location.updated:tracking-zero-delivery-event"),
+      true
+    )
+    assert.equal(
+      sharedCorrelationDedupe.claim(trackingCorrelationKey("pedido-tracking-zero", -31.5, -68.5)),
+      true
+    )
+  })
+
+  test("tracking internal partial fan-out failure retains both the eventDedupe and correlation claims", async () => {
+    const sharedEventDedupe = createEventDedupeCache()
+    const sharedCorrelationDedupe = createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
+    let callCount = 0
+    const partiallyFailingIo = {
+      to() {
+        return {
+          emit() {
+            callCount += 1
+            if (callCount === 2) throw new Error("simulated tracking partial fan-out failure")
+          },
+        }
+      },
+    }
+    const handler = createInternalPublishHandler({
+      io: partiallyFailingIo,
+      eventDedupe: sharedEventDedupe,
+      trackingCorrelationDedupe: sharedCorrelationDedupe,
+      getRecipientSockets: () => ["stub-socket-1", "stub-socket-2", "stub-socket-3"],
+    })
+    const body = validTracking("tracking-partial-event", "pedido-tracking-partial", -30.2, -67.1)
+    const result = await invokeHandler(handler, body)
+    assert.equal(result.statusCode, 503)
+
+    assert.equal(
+      sharedEventDedupe.claim("tracking.location.updated:tracking-partial-event"),
+      false
+    )
+    assert.equal(
+      sharedCorrelationDedupe.claim(trackingCorrelationKey("pedido-tracking-partial", -30.2, -67.1)),
+      false
+    )
   })
 })
 
@@ -944,6 +1040,376 @@ describe("cross-path dedupe between internal publish and legacy message-sent", (
     })
     const message = await receivedSecond
     assert.equal(message.id, messageId)
+
+    sender.disconnect()
+    recipient.disconnect()
+  })
+})
+
+// Tracking's cross-path semantics are BOUNDED_BEST_EFFORT_DUPLICATE_SUPPRESSION,
+// not exact dedupe (see Tracking Focal Design Correction #2): the shared
+// trackingCorrelationDedupe cache (pedidoId+lat+lng, 2000ms TTL) suppresses
+// the common/fast stale-PWA case, but a legacy emit arriving after the TTL
+// CAN still be delivered — that residual is intentional and tested honestly
+// below rather than asserted away. tracking.location.updated's tracking:watch
+// vs tracking:publish recipient scope filtering is already covered by the
+// "internal publish recipient scope filtering" describe block above.
+describe("cross-path bounded correlation between internal publish and legacy location-update", () => {
+  test("tracking internal-first + immediate legacy relay with the same pedido/lat/lng delivers exactly once", async () => {
+    const pedidoId = "pedido-tracking-crosspath-a"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    let deliveryCount = 0
+    recipient.on("repartidor-location", () => { deliveryCount += 1 })
+
+    const lat = -34.1234
+    const lng = -58.5678
+    const publishResponse = await publish(validTracking("tracking-crosspath-a-event", pedidoId, lat, lng))
+    assert.equal(publishResponse.status, 200)
+    await wait(150)
+
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    await wait(150)
+
+    assert.equal(deliveryCount, 1)
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("tracking cross-path: immediate legacy relay is suppressed even with client clock +30s (key never uses any timestamp)", async () => {
+    const pedidoId = "pedido-tracking-crosspath-b"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    let deliveryCount = 0
+    recipient.on("repartidor-location", () => { deliveryCount += 1 })
+
+    const lat = -33.111
+    const lng = -70.222
+    const publishResponse = await publish(validTracking("tracking-crosspath-b-event", pedidoId, lat, lng))
+    assert.equal(publishResponse.status, 200)
+    await wait(150)
+
+    const skewedTimestamp = new Date(Date.now() + 30_000).toISOString()
+    emitLegacyLocation(sender, pedidoId, lat, lng, skewedTimestamp)
+    await wait(150)
+
+    assert.equal(deliveryCount, 1)
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("tracking cross-path: immediate legacy relay is suppressed even with client clock -30s (key never uses any timestamp)", async () => {
+    const pedidoId = "pedido-tracking-crosspath-c"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    let deliveryCount = 0
+    recipient.on("repartidor-location", () => { deliveryCount += 1 })
+
+    const lat = -33.999
+    const lng = -70.888
+    const publishResponse = await publish(validTracking("tracking-crosspath-c-event", pedidoId, lat, lng))
+    assert.equal(publishResponse.status, 200)
+    await wait(150)
+
+    const skewedTimestamp = new Date(Date.now() - 30_000).toISOString()
+    emitLegacyLocation(sender, pedidoId, lat, lng, skewedTimestamp)
+    await wait(150)
+
+    assert.equal(deliveryCount, 1)
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("tracking correlation does not cross-suppress the same coordinates across different pedidos", async () => {
+    const pedidoA = "pedido-tracking-crosspath-iso-a"
+    const pedidoB = "pedido-tracking-crosspath-iso-b"
+    const { socket: recipientA, ack: ackA } = await joinAuthorizedRoom(pedidoA, "cliente", ["tracking:watch"])
+    assert.equal(ackA.ok, true)
+    const { socket: recipientB, ack: ackB } = await joinAuthorizedRoom(pedidoB, "cliente", ["tracking:watch"])
+    assert.equal(ackB.ok, true)
+
+    const lat = -32.5
+    const lng = -60.5
+    const receivedA = new Promise((resolve) => recipientA.once("repartidor-location", resolve))
+    const receivedB = new Promise((resolve) => recipientB.once("repartidor-location", resolve))
+
+    const responseA = await publish(validTracking("tracking-crosspath-iso-a-event", pedidoA, lat, lng))
+    assert.equal(responseA.status, 200)
+    const responseB = await publish(validTracking("tracking-crosspath-iso-b-event", pedidoB, lat, lng))
+    assert.equal(responseB.status, 200)
+
+    const [msgA, msgB] = await Promise.all([receivedA, receivedB])
+    assert.equal(msgA.pedidoId, pedidoA)
+    assert.equal(msgB.pedidoId, pedidoB)
+    recipientA.disconnect()
+    recipientB.disconnect()
+  })
+
+  test("legacy tracking fan-out failure before any delivery releases the correlation claim so a retry can still relay", async () => {
+    const pedidoId = "pedido-tracking-legacy-zero"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    let deliveryCount = 0
+    recipient.on("repartidor-location", () => { deliveryCount += 1 })
+
+    const originalTo = service.io.to.bind(service.io)
+    let intercepted = false
+    service.io.to = (target) => {
+      if (!intercepted) {
+        intercepted = true
+        return { emit() { throw new Error("simulated live legacy tracking emit failure") } }
+      }
+      return originalTo(target)
+    }
+    try {
+      emitLegacyLocation(sender, pedidoId, -31.1, -64.1)
+      await wait(150)
+    } finally {
+      service.io.to = originalTo
+    }
+    assert.equal(deliveryCount, 0)
+
+    emitLegacyLocation(sender, pedidoId, -31.1, -64.1)
+    await wait(150)
+    assert.equal(deliveryCount, 1)
+
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("legacy tracking partial fan-out failure retains the correlation claim", async () => {
+    const pedidoId = "pedido-tracking-legacy-partial"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipientA, ack: ackA } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"], { sub: "cliente-tracking-partial-a" })
+    assert.equal(ackA.ok, true)
+    const { socket: recipientB, ack: ackB } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"], { sub: "cliente-tracking-partial-b" })
+    assert.equal(ackB.ok, true)
+
+    let delivered = 0
+    recipientA.on("repartidor-location", () => { delivered += 1 })
+    recipientB.on("repartidor-location", () => { delivered += 1 })
+
+    const originalTo = service.io.to.bind(service.io)
+    let callCount = 0
+    service.io.to = (target) => {
+      callCount += 1
+      if (callCount === 2) return { emit() { throw new Error("simulated live legacy tracking partial fan-out failure") } }
+      return originalTo(target)
+    }
+    try {
+      emitLegacyLocation(sender, pedidoId, -31.2, -64.2)
+      await wait(150)
+    } finally {
+      service.io.to = originalTo
+    }
+    // Exactly one of the two recipients got the first (successful) call
+    // before the second call threw.
+    assert.equal(delivered, 1)
+
+    // A retry with the SAME coords must NOT relay again — the claim is
+    // retained precisely because someone already received it.
+    emitLegacyLocation(sender, pedidoId, -31.2, -64.2)
+    await wait(150)
+    assert.equal(delivered, 1)
+
+    sender.disconnect()
+    recipientA.disconnect()
+    recipientB.disconnect()
+  })
+
+  test("an unauthorized legacy location-update does not claim the correlation key", async () => {
+    const pedidoId = "pedido-tracking-crosspath-unauth"
+    const unauthorizedToken = await signedSocketToken("socket-actor", {
+      sub: "repartidor-unauth",
+      userType: "repartidor",
+      scopes: [],
+      sid: "session-unauth",
+      jti: "actor-unauth",
+    })
+    const unauthorizedSocket = await connect({ token: unauthorizedToken })
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    const lat = -29.9
+    const lng = -71.2
+    let received = false
+    recipient.once("repartidor-location", () => { received = true })
+
+    // Never joined the room, so getAuthorizedRoom rejects before the
+    // correlation claim is ever attempted.
+    emitLegacyLocation(unauthorizedSocket, pedidoId, lat, lng)
+    await wait(150)
+    assert.equal(received, false)
+
+    const { socket: authorizedSender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const receivedSecond = new Promise((resolve) => recipient.once("repartidor-location", resolve))
+    emitLegacyLocation(authorizedSender, pedidoId, lat, lng)
+    const message = await receivedSecond
+    assert.equal(message.pedidoId, pedidoId)
+
+    unauthorizedSocket.disconnect()
+    authorizedSender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("an invalid legacy location payload does not claim any correlation key", async () => {
+    const pedidoId = "pedido-tracking-crosspath-invalid"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    const lat = -28.4
+    const lng = -65.7
+    let received = false
+    recipient.once("repartidor-location", () => { received = true })
+
+    // Out-of-range lat fails locationPayload() validation before the
+    // correlation claim is ever attempted.
+    sender.emit("location-update", { pedidoId, lat: 999, lng })
+    await wait(150)
+    assert.equal(received, false)
+
+    const receivedSecond = new Promise((resolve) => recipient.once("repartidor-location", resolve))
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    const message = await receivedSecond
+    assert.equal(message.pedidoId, pedidoId)
+
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("a rate-limited legacy location-update does not claim the correlation key", async () => {
+    const pedidoId = "pedido-tracking-crosspath-ratelimited"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+
+    const lat = -27.3
+    const lng = -63.4
+    let targetDelivered = false
+    recipient.on("repartidor-location", (message) => {
+      if (message.lat === lat && message.lng === lng) targetDelivered = true
+    })
+
+    // Exhausts this socket's own 30/min location rate limiter with distinct
+    // coordinates first, so request #31 (the real coordinate) is rejected by
+    // the rate limiter — the first gate, before locationPayload validation
+    // and before the correlation claim is ever attempted.
+    for (let i = 0; i < 30; i += 1) {
+      emitLegacyLocation(sender, pedidoId, -1 - i, -1 - i)
+    }
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    await wait(200)
+    assert.equal(targetDelivered, false)
+
+    // A second, freshly-connected socket has its own independent rate
+    // limiter budget — if the rate-limited attempt above had poisoned the
+    // correlation key for (lat,lng), this legitimate relay would now be
+    // silently suppressed too.
+    const { socket: secondSender, ack: secondAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(secondAck.ok, true)
+    emitLegacyLocation(secondSender, pedidoId, lat, lng)
+    await wait(150)
+    assert.equal(targetDelivered, true)
+
+    sender.disconnect()
+    secondSender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("tracking internal publish with zero authorized recipients releases the correlation claim so a later watcher can still receive the same sample", async () => {
+    const pedidoId = "pedido-tracking-zero-recipient-internal"
+    const lat = -25.1
+    const lng = -55.2
+
+    // No recipient joined yet — this internal publish attempt itself will
+    // find zero tracking:watch recipients for this room.
+    const first = await publish(validTracking("tracking-zero-recip-internal-a", pedidoId, lat, lng))
+    assert.equal(first.status, 200)
+    assert.equal((await first.json()).published, true)
+
+    // A watcher joins AFTER that zero-recipient attempt, still well within
+    // the 2000ms correlation TTL.
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+    const received = new Promise((resolve) => recipient.once("repartidor-location", resolve))
+
+    // A second internal publish for the SAME sample (different eventId,
+    // same pedido/lat/lng) must NOT be suppressed by a stale correlation
+    // claim left over from the zero-recipient attempt above.
+    const second = await publish(validTracking("tracking-zero-recip-internal-b", pedidoId, lat, lng))
+    assert.equal(second.status, 200)
+    assert.equal((await second.json()).published, true)
+    const message = await received
+    assert.equal(message.pedidoId, pedidoId)
+
+    recipient.disconnect()
+  })
+
+  test("legacy location-update with zero authorized recipients releases the correlation claim so a later watcher can still receive the same sample", async () => {
+    const pedidoId = "pedido-tracking-zero-recipient-legacy"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+
+    const lat = -26.3
+    const lng = -56.4
+    // No recipient joined yet.
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    await wait(150)
+
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+    const received = new Promise((resolve) => recipient.once("repartidor-location", resolve))
+
+    // A second legacy emit for the SAME sample must not be suppressed by a
+    // stale correlation claim left by the zero-recipient attempt above.
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    const message = await received
+    assert.equal(message.pedidoId, pedidoId)
+
+    sender.disconnect()
+    recipient.disconnect()
+  })
+
+  test("a legacy zero-recipient attempt does not suppress a LATER internal publish of the same sample once a watcher joins (closes the zero-recipient cross-path race)", async () => {
+    const pedidoId = "pedido-tracking-zero-recipient-crosspath"
+    const { socket: sender, ack: senderAck } = await joinAuthorizedRoom(pedidoId, "repartidor", ["tracking:publish"])
+    assert.equal(senderAck.ok, true)
+
+    const lat = -27.5
+    const lng = -57.6
+    // Legacy relays first, with zero tracking:watch recipients present yet.
+    emitLegacyLocation(sender, pedidoId, lat, lng)
+    await wait(150)
+
+    const { socket: recipient, ack: recipientAck } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(recipientAck.ok, true)
+    const received = new Promise((resolve) => recipient.once("repartidor-location", resolve))
+
+    // The internal path's later attempt for the SAME sample must reach the
+    // now-present watcher — not be silently deduplicated against the
+    // legacy path's earlier zero-recipient claim.
+    const response = await publish(validTracking("tracking-zero-recip-crosspath-event", pedidoId, lat, lng))
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).published, true)
+    const message = await received
+    assert.equal(message.pedidoId, pedidoId)
 
     sender.disconnect()
     recipient.disconnect()

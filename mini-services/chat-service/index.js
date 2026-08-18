@@ -2,8 +2,10 @@ const { createServer } = require("http")
 const { Server } = require("socket.io")
 const {
   INTERNAL_PUBLISH_PATH,
+  TRACKING_CORRELATION_DEDUPE_TTL_MS,
   createInternalPublishHandler,
   createEventDedupeCache,
+  trackingCorrelationKey,
 } = require("./internal-publish-handler")
 
 const ALLOWED_USER_TYPES = new Set(["cliente", "negocio", "repartidor"])
@@ -219,6 +221,10 @@ function createChatService(options = {}) {
   // "<eventType>:<id>") deliver exactly once, regardless of which arrives
   // first — see the message-sent handler below.
   const eventDedupe = createEventDedupeCache()
+  // Shared with the Internal Publish Bridge (see internal-publish-handler.js)
+  // for bounded best-effort Tracking cross-path correlation — deliberately a
+  // separate instance/TTL from eventDedupe above, never reused for it.
+  const trackingCorrelationDedupe = createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
   const startedAt = Date.now()
   let internalPublishHandler
 
@@ -274,6 +280,7 @@ function createChatService(options = {}) {
   internalPublishHandler = createInternalPublishHandler({
     io,
     eventDedupe,
+    trackingCorrelationDedupe,
     getRecipientSockets: (room, requiredScope) => getAuthorizedRecipientSockets(connectedUsers, room, requiredScope),
   })
 
@@ -452,6 +459,10 @@ function createChatService(options = {}) {
     })
 
     socket.on("location-update", (data) => {
+      // Security gates first, in the same order/shape as before this
+      // migration — none of them may be bypassed to reach the correlation
+      // claim below, so an unauthorized/invalid/rate-limited/wrong-scope
+      // event can never poison the shared correlation key space.
       if (!user.limiters.location.allow()) {
         metrics.rateLimitedEvents += 1
         return
@@ -461,7 +472,35 @@ function createChatService(options = {}) {
       if (!location) return
       const room = getAuthorizedRoom(user, location.pedidoId, "tracking:publish")
       if (!room) return
-      socket.to(room).emit("repartidor-location", location)
+
+      // Stale-PWA compatibility for the server-authoritative Tracking
+      // producer (see route.ts): bounded best-effort correlation shared with
+      // the Internal Publish Bridge, keyed by the physical GPS sample so
+      // whichever path claims pedidoId+lat+lng first performs the relay —
+      // see internal-publish-handler.js for the TTL/key rationale. This is
+      // NOT exact dedupe: a legacy emit arriving after the TTL can still
+      // reach recipients (Tracking Focal Design Correction #2).
+      const correlationKey = trackingCorrelationKey(location.pedidoId, location.lat, location.lng)
+      if (!trackingCorrelationDedupe.claim(correlationKey)) return
+
+      const recipientSocketIds = getAuthorizedRecipientSockets(connectedUsers, room, "tracking:watch")
+      // Same partial-fan-out safeguard as the Internal Publish Bridge: only
+      // release the claim if this relay delivered to nobody at all.
+      let deliveredCount = 0
+      try {
+        for (const socketId of recipientSocketIds) {
+          io.to(socketId).emit("repartidor-location", location)
+          deliveredCount += 1
+        }
+        // Zero authorized recipients (no throw) means nothing was actually
+        // delivered — see internal-publish-handler.js for why releasing the
+        // claim here is safe and avoids suppressing a later, genuinely
+        // useful cross-path delivery once a watcher reconnects within the
+        // TTL (Focal Precommit Review, zero-recipient cross-path race).
+        if (deliveredCount === 0) trackingCorrelationDedupe.release(correlationKey)
+      } catch {
+        if (deliveredCount === 0) trackingCorrelationDedupe.release(correlationKey)
+      }
     })
 
     socket.on("disconnect", (reason) => {

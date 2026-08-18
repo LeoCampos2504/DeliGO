@@ -28,6 +28,13 @@ export const RATE_LIMITS = {
   login: { maxRequests: 10, windowMs: 5 * 60 * 1000 },         // 10 per 5 min
   register: { maxRequests: 3, windowMs: 60 * 60 * 1000 },       // 3 per hour
   chat: { maxRequests: 30, windowMs: 60 * 1000 },               // 30 per min
+  // TRACKING-PRODUCER: POST /api/repartidor/ubicacion, keyed per
+  // repartidorId+pedidoId (not per actor alone) — nominal GPS cadence is a
+  // structurally-bounded 12/min per pedido (5s tick, getCurrentPosition
+  // timeout 4000ms < interval 5000ms, no overlap possible), so 30 leaves a
+  // 2.5x margin without letting one repartidor's concurrent deliveries share
+  // a single too-small budget (see Tracking activation gate corrections).
+  repartidorUbicacion: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 per repartidor+pedido/min
   review: { maxRequests: 3, windowMs: 5 * 60 * 1000 },          // 3 per 5 min
   reviewModerationBusiness: { maxRequests: 5, windowMs: 24 * 60 * 60 * 1000 }, // 5 per negocio/day
   reviewModerationReview: { maxRequests: 1, windowMs: 24 * 60 * 60 * 1000 }, // 1 per negocio+reseña/day

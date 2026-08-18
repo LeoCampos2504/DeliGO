@@ -1,7 +1,10 @@
+import { randomUUID } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { publishRealtimeEvent } from "@/lib/realtime-publish"
 
 interface UpdateUbicacionBody {
   pedidoId: string
@@ -110,7 +113,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 4. Update the pedido with repartidor location
+    // 4. Rate limit — per repartidor+pedido, checked only after full
+    // authorization above so an actor without a real assignment to this
+    // pedido can never consume or poison another repartidor's budget, and
+    // strictly before any DB write below.
+    const rateLimitKey = `${user.id}:${pedidoId}`
+    const rateLimit = checkRateLimit("repartidorUbicacion", rateLimitKey)
+    if (!rateLimit.allowed) {
+      return rateLimitResponse(rateLimit)
+    }
+
+    // 5. Update the pedido with repartidor location
     const now = new Date()
     const updated = await db.pedido.updateMany({
       where: {
@@ -134,12 +147,51 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 5. Return success
+    // 6. Server-authoritative realtime broadcast. DB persistence above is
+    // already the source of truth, so a failed/disabled/timed-out publish
+    // never turns an already-successful update into an HTTP error — the
+    // result is intentionally not inspected (same pattern as Chat's
+    // chat.message.created producer). The legacy `location-update` socket
+    // relay in the Chat service remains untouched as a stale-PWA fallback;
+    // both paths share a short-TTL, clock-independent correlation cache
+    // keyed by pedidoId+lat+lng (bounded best-effort duplicate suppression,
+    // not exact — see Tracking Focal Design Correction #2).
+    //
+    // eventId uses a server-generated UUID rather than the millisecond
+    // timestamp: unlike Chat's chat.message.created (whose eventId is a
+    // DB-generated cuid, unique by construction), this route has no
+    // DB-generated row id to reuse — `pedido.updateMany()` only returns a
+    // count. Two concurrent accepted updates for the SAME pedido (e.g. a
+    // network-layer retry racing the original request) could otherwise
+    // compute `now.getTime()` in the same millisecond and collide on
+    // eventId, which the Internal Publish Bridge's eventDedupe would then
+    // treat as a duplicate retry of the SAME event — silently dropping a
+    // second, genuinely distinct GPS sample from realtime delivery (the DB
+    // write itself is unaffected either way). Generated once per accepted
+    // request, before publishRealtimeEvent is called, so its own internal
+    // retries reuse the same eventId (see Focal Precommit Review, eventId
+    // uniqueness).
+    const timestamp = now.toISOString()
+    await publishRealtimeEvent({
+      version: 1,
+      type: "tracking.location.updated",
+      eventId: `${pedidoId}:${randomUUID()}`,
+      resourceId: pedidoId,
+      occurredAt: timestamp,
+      payload: {
+        pedidoId,
+        lat,
+        lng,
+        timestamp,
+      },
+    })
+
+    // 7. Return success
     return NextResponse.json({
       ok: true,
       repartidorLat: lat,
       repartidorLng: lng,
-      repartidorLastUpdate: now.toISOString(),
+      repartidorLastUpdate: timestamp,
     })
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))

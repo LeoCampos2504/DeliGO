@@ -9,6 +9,30 @@ const INTERNAL_BODY_LIMIT_BYTES = 32 * 1024
 const INTERNAL_RATE_LIMIT_MAX = 600
 const INTERNAL_RATE_LIMIT_WINDOW_MS = 60 * 1000
 const INTERNAL_EVENT_DEDUPE_TTL_MS = 120 * 1000
+// Separate, much shorter TTL cache used only for cross-path Tracking
+// correlation (Internal Publish Bridge vs the legacy location-update socket
+// relay) — see trackingCorrelationKey(). Deliberately NOT the same instance
+// or TTL as eventDedupe above: eventDedupe protects the Internal Publish
+// Bridge's own retries (needs a long TTL, exact server-generated eventId);
+// this cache suppresses a stale-PWA client's redundant relay of the SAME
+// GPS sample the bridge already delivered (needs a short TTL well under the
+// ~5s GPS tick cadence, so a legitimate next tick — even with an unchanged
+// coordinate for a stationary repartidor — is never falsely suppressed).
+// This is bounded best-effort duplicate suppression, not exact dedupe: a
+// legacy emit that arrives after the TTL (slow network, backgrounded tab,
+// clock skew) can still reach recipients — see Tracking Focal Design
+// Correction #2 for the full analysis of why that residual is acceptable.
+const TRACKING_CORRELATION_DEDUPE_TTL_MS = 2000
+
+// Pure, single-definition formula shared by both cross-path producers
+// (Internal Publish handler below, and the legacy location-update handler
+// in index.js) so the key can never drift between the two call sites.
+// Deliberately built ONLY from pedidoId+lat+lng — never any timestamp
+// (client or server) — since client/server clocks are independent and not
+// guaranteed to agree (see Tracking Focal Design Correction #1).
+function trackingCorrelationKey(pedidoId, lat, lng) {
+  return "tracking.correlation:" + pedidoId + ":" + lat + ":" + lng
+}
 
 const EVENT_MAPPING = {
   "chat.message.created": { event: "new-message", requiredRecipientScope: "chat:read" },
@@ -121,6 +145,8 @@ function createInternalPublishHandler(options) {
   const auth = options.auth || createInternalPublishAuth()
   const rateLimiter = options.rateLimiter || createBoundedRateLimiter()
   const eventDedupe = options.eventDedupe || createEventDedupeCache()
+  const trackingCorrelationDedupe =
+    options.trackingCorrelationDedupe || createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
   const maxBodyBytes = options.maxBodyBytes || INTERNAL_BODY_LIMIT_BYTES
   const now = options.now || (() => Date.now())
 
@@ -190,6 +216,28 @@ function createInternalPublishHandler(options) {
       return
     }
 
+    // Tracking-only: bounded best-effort correlation against the legacy
+    // location-update socket relay, keyed by the physical GPS sample
+    // (pedidoId+lat+lng) rather than any client/server timestamp. Checked
+    // after the eventDedupe claim above (which only ever protects this
+    // bridge's own retries) and before fan-out. Other event types never
+    // touch this cache — EVENT_MAPPING has no correlation concept for Chat.
+    let correlationKey = null
+    let correlationClaimed = false
+    if (envelope.type === "tracking.location.updated") {
+      correlationKey = trackingCorrelationKey(envelope.payload.pedidoId, envelope.payload.lat, envelope.payload.lng)
+      if (!trackingCorrelationDedupe.claim(correlationKey, now())) {
+        sendJson(res, 200, {
+          ok: true,
+          deduplicated: true,
+          eventId: envelope.eventId,
+          type: envelope.type,
+        })
+        return
+      }
+      correlationClaimed = true
+    }
+
     const mapping = EVENT_MAPPING[envelope.type]
     const room = "pedido:" + envelope.resourceId
     // deliveredCount tracks progress through the fan-out loop so a
@@ -205,8 +253,21 @@ function createInternalPublishHandler(options) {
         io.to(socketId).emit(mapping.event, envelope.payload)
         deliveredCount += 1
       }
+      // Tracking-only: zero authorized recipients (no throw — nobody is
+      // currently watching) means nothing was actually delivered by this
+      // attempt, so there is nothing for a later duplicate to redeliver to.
+      // Retaining the correlation claim here would only risk suppressing a
+      // LATER, genuinely useful cross-path delivery of the same sample once
+      // a watcher reconnects within the TTL — releasing it costs nothing
+      // (see Focal Precommit Review, zero-recipient cross-path race). This
+      // does not touch eventDedupe — Chat's and Tracking's own Internal
+      // Publish retry-protection semantics are unchanged.
+      if (correlationClaimed && deliveredCount === 0) trackingCorrelationDedupe.release(correlationKey)
     } catch {
-      if (deliveredCount === 0) eventDedupe.release(dedupeKey)
+      if (deliveredCount === 0) {
+        eventDedupe.release(dedupeKey)
+        if (correlationClaimed) trackingCorrelationDedupe.release(correlationKey)
+      }
       console.warn("[Chat] internal_publish_rejected category=emit_failure")
       sendJson(res, 503, { ok: false, error: "Publish unavailable" })
       return
@@ -236,8 +297,10 @@ module.exports = {
   INTERNAL_EVENT_DEDUPE_TTL_MS,
   INTERNAL_PUBLISH_PATH,
   INTERNAL_RATE_LIMIT_MAX,
+  TRACKING_CORRELATION_DEDUPE_TTL_MS,
   createBoundedRateLimiter,
   createEventDedupeCache,
   createInternalPublishHandler,
   readRawBody,
+  trackingCorrelationKey,
 }
