@@ -61,4 +61,98 @@ describe("Shared realtime client Tracking consumer contract", () => {
     expect(source).toContain("setIsTrackingRoomJoined(true)")
     expect(source).toContain("setIsTrackingRoomJoined(false)")
   })
+
+  test("DeliveryTrackingMap preserves the exact fallback/heartbeat poll cadence (never touched by the freshness guard)", () => {
+    const source = trackingMap()
+    expect(source).toContain("const POLL_INTERVAL = 8_000")
+    expect(source).toContain("const SOCKET_POLL_HEARTBEAT = 20_000")
+  })
+
+  test("DeliveryTrackingMap uses the clock-independent tracking-freshness guard (generation/httpSequence + DB-backed server version), never any timestamp/Date comparison", () => {
+    const source = trackingMap()
+    expect(source).toContain('from "@/lib/tracking-freshness"')
+    expect(source).toContain("beginTrackingGeneration")
+    expect(source).toContain("beginTrackingHttpRequest")
+    expect(source).toContain("isTrackingHttpResponseSuperseded")
+    expect(source).toContain("applyTrackingServerVersion")
+    expect(source).toContain("isTrustedTrackingServerVersion")
+    expect(source).toContain("canUntrustedTrackingSourceOverridePosition")
+    expect(source).toContain("const freshnessRef = useRef(createTrackingFreshnessTracker())")
+  })
+
+  test("the freshness generation is bumped on every pedido switch and every open/close transition, before any fetch or state reset", () => {
+    const source = trackingMap()
+    const generationIndex = source.indexOf("beginTrackingGeneration(freshnessRef.current)")
+    const resetIndex = source.indexOf("setTrackingData(null)", generationIndex)
+    const fetchCallIndex = source.indexOf("fetchTracking()", generationIndex)
+    expect(generationIndex).toBeGreaterThan(-1)
+    expect(resetIndex).toBeGreaterThan(generationIndex)
+    expect(fetchCallIndex).toBeGreaterThan(resetIndex)
+    expect(source).toContain("}, [open, pedidoId])")
+  })
+
+  test("every realtime position write validates and applies through the server version authority before ever touching state", () => {
+    const source = trackingMap()
+    const subscribeIndex = source.indexOf('client.subscribe("repartidor-location"')
+    const trustedIndex = source.indexOf("isTrustedTrackingServerVersion(data.version)", subscribeIndex)
+    const applyIndex = source.indexOf("shouldApplyPosition", subscribeIndex)
+    const setTrackingDataIndex = source.indexOf("setTrackingData((prev) => {", subscribeIndex)
+    expect(subscribeIndex).toBeGreaterThan(-1)
+    expect(trustedIndex).toBeGreaterThan(subscribeIndex)
+    expect(applyIndex).toBeGreaterThan(trustedIndex)
+    expect(applyIndex).toBeLessThan(setTrackingDataIndex)
+    expect(source).toContain("if (!shouldApplyPosition) return")
+  })
+
+  test("a legacy (no trusted version) realtime event only moves the position while no server version has ever been observed", () => {
+    const source = trackingMap()
+    expect(source).toContain("canUntrustedTrackingSourceOverridePosition(freshnessRef.current)")
+    expect(source).toContain("applyTrackingServerVersion(freshnessRef.current, trustedVersion)")
+  })
+
+  test("realtime updates remain filtered to the currently-authorized pedido before any freshness bookkeeping runs (cross-pedido isolation)", () => {
+    const source = trackingMap()
+    const subscribeIndex = source.indexOf('client.subscribe("repartidor-location"')
+    const filterIndex = source.indexOf("if (data.pedidoId !== pedidoId) return", subscribeIndex)
+    const trustedIndex = source.indexOf("isTrustedTrackingServerVersion(data.version)", subscribeIndex)
+    expect(filterIndex).toBeGreaterThan(subscribeIndex)
+    expect(trustedIndex).toBeGreaterThan(filterIndex)
+    // The lease/subscription effect itself is re-run (unsubscribe + resubscribe)
+    // on every pedidoId change, so a stale handler from a previous pedido can
+    // never still be registered when a cross-pedido event would arrive.
+    expect(source).toContain('}, [open, pedidoId, client])')
+  })
+
+  test("fetchTracking never applies a superseded response, and never overwrites a fresher server-versioned position without preserving HTTP-only fields", () => {
+    const source = trackingMap()
+    expect(source).toContain("if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return")
+    expect(source).toContain("isTrustedTrackingServerVersion(data.version)")
+    expect(source).toContain("applyTrackingServerVersion(freshnessRef.current, trustedVersion)")
+    expect(source).toContain("if (!shouldApplyPosition && prev)")
+    expect(source).toContain("repartidorLat: prev.repartidorLat")
+    expect(source).toContain("repartidorLng: prev.repartidorLng")
+    expect(source).toContain("repartidorLastUpdate: prev.repartidorLastUpdate")
+  })
+
+  test("the server version authority is never derived from any timestamp, Date, or client clock value", () => {
+    const source = trackingMap()
+    expect(source).not.toContain("Date.now()")
+    expect(source).not.toMatch(/applyTrackingServerVersion\([^)]*timestamp/i)
+    expect(source).not.toMatch(/canUntrustedTrackingSourceOverridePosition\([^)]*timestamp/i)
+  })
+
+  test("DB Migration / Precommit fix: an unversioned/invalid HTTP response can never override a known server version — it does not unconditionally apply", () => {
+    const source = trackingMap()
+    const fetchTrackingIndex = source.indexOf("const fetchTracking = useCallback")
+    const trustedVersionIndex = source.indexOf("const trustedVersion = isTrustedTrackingServerVersion(data.version)", fetchTrackingIndex)
+    const shouldApplyIndex = source.indexOf("const shouldApplyPosition = trustedVersion === null", fetchTrackingIndex)
+    expect(fetchTrackingIndex).toBeGreaterThan(-1)
+    expect(trustedVersionIndex).toBeGreaterThan(fetchTrackingIndex)
+    expect(shouldApplyIndex).toBeGreaterThan(trustedVersionIndex)
+    // The bug this guards against: `trustedVersion === null ? true : ...`
+    // (always apply when unversioned) must never reappear.
+    const shouldApplyBlock = source.slice(shouldApplyIndex, shouldApplyIndex + 200)
+    expect(shouldApplyBlock).not.toMatch(/trustedVersion === null\s*\?\s*true/)
+    expect(shouldApplyBlock).toMatch(/trustedVersion === null\s*\?\s*canUntrustedTrackingSourceOverridePosition\(freshnessRef\.current\)/)
+  })
 })

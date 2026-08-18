@@ -3,6 +3,15 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import L from "leaflet"
 import { useRealtime } from "@/hooks/use-realtime"
+import {
+  applyTrackingServerVersion,
+  beginTrackingGeneration,
+  beginTrackingHttpRequest,
+  canUntrustedTrackingSourceOverridePosition,
+  createTrackingFreshnessTracker,
+  isTrackingHttpResponseSuperseded,
+  isTrustedTrackingServerVersion,
+} from "@/lib/tracking-freshness"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -215,6 +224,10 @@ export function DeliveryTrackingMap({
   const destinoMarkerRef = useRef<L.Marker | null>(null)
   const origenMarkerRef = useRef<L.Marker | null>(null)
   const userInteractedRef = useRef(false)
+  // Clock-independent freshness/causality tracker — see src/lib/tracking-freshness.ts.
+  // Guards against slow-HTTP-overwrites-newer-realtime, HTTP-vs-HTTP
+  // out-of-order resolution, pedido-switch, and close/reopen races.
+  const freshnessRef = useRef(createTrackingFreshnessTracker())
   const { client, snapshot } = useRealtime()
 
   const [trackingData, setTrackingData] = useState<TrackingData | null>(null)
@@ -267,14 +280,17 @@ export function DeliveryTrackingMap({
   // Fetch tracking data (HTTP fallback)
   const fetchTracking = useCallback(async () => {
     if (!open) return
+    const ticket = beginTrackingHttpRequest(freshnessRef.current)
     setIsLoading(true)
     setError(null)
     try {
       const res = await fetch(`/api/pedidos/${pedidoId}/tracking`)
+      if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
       if (!res.ok) {
         throw new Error("Error al obtener ubicación")
       }
       const data = await res.json()
+      if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
       if (!data.trackable) {
         setTrackingData(null)
         if (data.trackingDisabled) {
@@ -294,7 +310,7 @@ export function DeliveryTrackingMap({
       const validApiNegocioLat = typeof apiNegocioLat === 'number' && isFinite(apiNegocioLat) ? apiNegocioLat : null
       const validApiNegocioLng = typeof apiNegocioLng === 'number' && isFinite(apiNegocioLng) ? apiNegocioLng : null
 
-      setTrackingData({
+      const fetchedData: TrackingData = {
         trackable: true,
         repartidorLat: lat,
         repartidorLng: lng,
@@ -308,11 +324,42 @@ export function DeliveryTrackingMap({
         negocioLogoUrl: data.negocioLogoUrl || logoUrl || null,
         negocioColorPrincipal: data.negocioColorPrincipal || colorPrincipal || null,
         estado: data.estado || "en_camino",
+      }
+
+      // The HTTP tracking response always carries the same DB-backed
+      // `version` authority as realtime (Pedido.locationRevision). An
+      // untrusted/missing value (mid-rollout mismatch, corrupted response)
+      // never advances the tracked authority — but it may only apply to
+      // POSITION while no trusted server version has been observed yet.
+      // Once one has, an unversioned response must never be allowed to
+      // regress a known-fresher position (same rule as the legacy realtime
+      // policy below) — this is what actually closes the mixed-version
+      // deploy window, not a blanket "always apply" fallback.
+      const trustedVersion = isTrustedTrackingServerVersion(data.version) ? data.version : null
+      const shouldApplyPosition = trustedVersion === null
+        ? canUntrustedTrackingSourceOverridePosition(freshnessRef.current)
+        : applyTrackingServerVersion(freshnessRef.current, trustedVersion)
+
+      setTrackingData((prev) => {
+        if (!shouldApplyPosition && prev) {
+          // A same-or-newer server version already reflected in `prev`
+          // (via an earlier realtime delivery) than this response's own —
+          // keep the position, but every HTTP-only field (estado,
+          // trackingDisabled, negocio metadata, ...) still applies.
+          return {
+            ...fetchedData,
+            repartidorLat: prev.repartidorLat,
+            repartidorLng: prev.repartidorLng,
+            repartidorLastUpdate: prev.repartidorLastUpdate,
+          }
+        }
+        return fetchedData
       })
     } catch {
+      if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
       setError("No se pudo obtener la ubicación del repartidor")
     } finally {
-      setIsLoading(false)
+      if (!isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) setIsLoading(false)
     }
   }, [open, pedidoId, validDestinoLat, validDestinoLng, destinoDireccion, origenNombre, logoUrl, colorPrincipal])
 
@@ -332,11 +379,39 @@ export function DeliveryTrackingMap({
       const lng = data.lng
       if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
 
+      // Trusted server version (route.ts's server-authoritative producer)
+      // is the sole ordering authority for realtime-vs-realtime and
+      // HTTP-vs-realtime freshness. A legacy stale-PWA relay never carries
+      // one at all — it may only move the position while no trusted server
+      // version has ever been observed yet for this pedido/lifecycle.
+      const trustedVersion = isTrustedTrackingServerVersion(data.version) ? data.version : null
+      const shouldApplyPosition = trustedVersion === null
+        ? canUntrustedTrackingSourceOverridePosition(freshnessRef.current)
+        : applyTrackingServerVersion(freshnessRef.current, trustedVersion)
+      if (!shouldApplyPosition) return
+
       setTrackingData((prev) => {
         if (prev) {
           return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
         }
-        return prev
+        // No prior HTTP snapshot yet (e.g. realtime beat the initial fetch)
+        // — build a full record from known props rather than silently
+        // dropping the first live position update.
+        return {
+          trackable: true,
+          repartidorLat: lat,
+          repartidorLng: lng,
+          repartidorLastUpdate: data.timestamp,
+          destinoLat: validDestinoLat,
+          destinoLng: validDestinoLng,
+          destinoDireccion: destinoDireccion || "",
+          negocioLat: validOrigenLat,
+          negocioLng: validOrigenLng,
+          negocioNombre: origenNombre || null,
+          negocioLogoUrl: logoUrl || null,
+          negocioColorPrincipal: colorPrincipal || null,
+          estado: "en_camino",
+        }
       })
     })
 
@@ -362,17 +437,22 @@ export function DeliveryTrackingMap({
     }
   }, [open, pedidoId, client])
 
-  // Initial fetch when opened
+  // Initial fetch when opened, and on every pedido switch while open.
+  // Bumping the freshness generation here — before any state reset or fetch
+  // — invalidates every in-flight HTTP request from the previous pedido/open
+  // session so it can never land on top of the new one (close/reopen and
+  // pedido-switch races).
   useEffect(() => {
+    beginTrackingGeneration(freshnessRef.current)
+    setTrackingData(null)
     if (open) {
       userInteractedRef.current = false
       fetchTracking()
     } else {
-      setTrackingData(null)
       setError(null)
       setIsMapReady(false)
     }
-  }, [open])
+  }, [open, pedidoId])
 
   // Polling fallback (only when Socket.IO is not connected)
   useEffect(() => {
