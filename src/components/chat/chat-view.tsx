@@ -350,13 +350,14 @@ export function ChatView({ pedidoId, onBack }: ChatViewProps) {
         })
       }
 
-      // Add message to local state
+      // Add message to local state. Realtime delivery is now server-authoritative
+      // (the route publishes chat.message.created after persisting) — this local
+      // add is what makes the sender's own tab show the message immediately,
+      // and stays safe even if the server's realtime echo also reaches this same
+      // tab, since addMessage is idempotent by message.id.
       if (data.mensaje) {
         addMessage(pedidoId, data.mensaje)
         updateConversationLastMessage(pedidoId, data.mensaje)
-
-        // Legacy producer compatibility: persistence remains HTTP in Slice B.
-        client.sendLegacyChatMessage(pedidoId, data.mensaje)
       }
 
       setMessageText("")

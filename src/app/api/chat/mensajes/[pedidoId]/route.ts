@@ -6,6 +6,7 @@ import { createNotification, chatMessageNotification } from "@/lib/push"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { publishRealtimeEvent } from "@/lib/realtime-publish"
 
 // Phone number filtering regex (Argentine phone patterns)
 const PHONE_PATTERN = /(?:(?:\+?54|0)?(?:11|[2-9]\d{2,4})[\s\-]?\d{4,}[\s\-]?\d{0,4})|(?:whatsapp\.com|wa\.me|\/send\?phone)/gi
@@ -341,8 +342,22 @@ export async function POST(
       },
     })
 
-    // Note: Real-time broadcast is handled by the client via Socket.IO
-    // After this API returns success, the client emits 'message-sent' event
+    // Server-authoritative realtime broadcast: the message is already
+    // persisted at this point, so a publish failure/timeout never turns an
+    // already-successful send into an HTTP error (see publishRealtimeEvent's
+    // typed, non-throwing result — its outcome is intentionally not
+    // inspected below). The legacy `message-sent` relay in the Chat service
+    // remains untouched as a fallback for stale PWAs/tabs still running the
+    // browser-producer code path; both paths share the same dedupe key
+    // (`chat.message.created:<mensaje.id>`), so at most one delivers.
+    await publishRealtimeEvent({
+      version: 1,
+      type: "chat.message.created",
+      eventId: mensaje.id,
+      resourceId: pedidoId,
+      occurredAt: mensaje.fecha.toISOString(),
+      payload: { ...mensaje, remitente, fecha: mensaje.fecha.toISOString() },
+    })
 
     // Send push notification to the other party
     try {

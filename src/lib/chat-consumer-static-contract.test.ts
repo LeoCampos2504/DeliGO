@@ -45,12 +45,17 @@ describe("Shared realtime Chat consumer contract", () => {
     expect(source).toContain('from "@/hooks/use-realtime"')
     expect(source).toContain("client.sendTyping(pedidoId)")
     expect(source).toContain("client.sendStopTyping(pedidoId)")
-    expect(source).toContain("client.sendLegacyChatMessage(pedidoId, data.mensaje)")
     expect(source).toContain("const isCurrentActor = useCallback")
     expect(source).toContain("controller.abort()")
     expect(source).toContain("{ signal: controller.signal }")
     expect(source).toContain('method: "POST"')
     expect(source).toContain("/api/chat/mensajes/${pedidoId}")
+  })
+
+  test("ChatView no longer productively drives the legacy chat.message.created producer (P2: server-authoritative)", () => {
+    const source = chatView()
+    expect(source).not.toContain("sendLegacyChatMessage")
+    expect(source).toContain("addMessage(pedidoId, data.mensaje)")
   })
 
   test("ChatProvider resets actor-sensitive Chat state on actor transitions", () => {
