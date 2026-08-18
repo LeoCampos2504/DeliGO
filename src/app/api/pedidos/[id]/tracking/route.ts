@@ -9,6 +9,12 @@ interface TrackingResponse {
   repartidorLat?: number
   repartidorLng?: number
   repartidorLastUpdate?: string
+  // Same DB-backed, monotonic-per-pedido ordering authority as the
+  // `tracking.location.updated` realtime payload's `version` field (see
+  // Pedido.locationRevision, Tracking Latest-Wins Focal Design Correction
+  // #2) — kept under this shared wire name so the consumer can compare an
+  // HTTP snapshot and a realtime event against the same authority.
+  version?: number
   destinoLat?: number | null
   destinoLng?: number | null
   destinoDireccion?: string | null
@@ -95,6 +101,7 @@ export async function GET(
       repartidorLastUpdate: pedido.repartidorLastUpdate
         ? pedido.repartidorLastUpdate.toISOString()
         : undefined,
+      version: pedido.locationRevision,
       destinoLat: pedido.lat,
       destinoLng: pedido.lng,
       destinoDireccion: pedido.direccion ?? null,

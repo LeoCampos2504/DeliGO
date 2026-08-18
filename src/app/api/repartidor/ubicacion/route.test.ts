@@ -14,6 +14,20 @@
 // of this test file), every test uses a freshly generated, never-reused
 // repartidorId+pedidoId pair (see nextIds()) so tests can never contaminate
 // each other's budget or depend on execution order.
+//
+// Focal Realtime Ordering Implementation: the route's write moved from
+// `db.pedido.updateMany` to a parameterized `db.$queryRaw` tagged-template
+// `UPDATE ... RETURNING` (see route.ts §5-6) so it can atomically advance
+// Pedido.locationRevision alongside the coordinate write. `$queryRaw` is
+// invoked with JS's native tagged-template calling convention — the mock
+// below receives it exactly as `(strings: TemplateStringsArray, ...values)`,
+// the same way the real `db.$queryRaw` would. The mock's default
+// implementation simulates a real atomic per-pedido increment (a
+// `Map<pedidoId, number>` counter) so most tests get realistic, internally
+// consistent revision values without manually specifying them; it does NOT
+// and cannot prove real Postgres row-locking/atomicity — that is out of
+// scope for this LOCAL-implementation task and is explicitly deferred (see
+// REAL_DB_VERSION_CONCURRENCY_RUNTIME_REQUIRED in CODEX_REPORT.md).
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { RATE_LIMITS } from "@/lib/rate-limit"
@@ -37,9 +51,12 @@ let pedidoRecord: {
 } | null
 let asociacionRecord: { repartidorId: string; negocioId: string } | null
 let sessionUser: { id: string; type: string } | null
-let updateManyCount: number
-let updateManyThrows: Error | null
-let updateManyCalls: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }>
+
+type QueryRawRow = { repartidorLat: number; repartidorLng: number; repartidorLastUpdate: Date; locationRevision: number }
+let queryRawCalls: Array<{ text: string; values: unknown[] }>
+let queryRawThrows: Error | null
+let queryRawRowOverride: QueryRawRow[] | null // null = use the default realistic per-pedido-increment simulation
+let locationRevisionByPedido: Map<string, number>
 let publishCalls: Array<Record<string, unknown>>
 let publishImpl: (event: Record<string, unknown>) => Promise<unknown>
 
@@ -50,14 +67,21 @@ mock.module("@/lib/db", () => ({
     },
     pedido: {
       findUnique: async () => pedidoRecord,
-      updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
-        updateManyCalls.push({ where, data })
-        if (updateManyThrows) throw updateManyThrows
-        return { count: updateManyCount }
-      },
     },
     repartidorNegocio: {
       findUnique: async () => asociacionRecord,
+    },
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join("?")
+      queryRawCalls.push({ text, values })
+      if (queryRawThrows) throw queryRawThrows
+      if (queryRawRowOverride !== null) return queryRawRowOverride
+      const [lat, lng, now, pedidoId] = values as [number, number, Date, string, string, string]
+      const current = locationRevisionByPedido.get(pedidoId) ?? 0
+      const next = current + 1
+      locationRevisionByPedido.set(pedidoId, next)
+      const row: QueryRawRow = { repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: now, locationRevision: next }
+      return [row]
     },
   },
 }))
@@ -109,15 +133,16 @@ function callRoute(pedidoId: string, body?: Record<string, unknown>) {
 }
 
 beforeEach(() => {
-  updateManyCount = 1
-  updateManyThrows = null
-  updateManyCalls = []
+  queryRawCalls = []
+  queryRawThrows = null
+  queryRawRowOverride = null
+  locationRevisionByPedido = new Map()
   publishCalls = []
   publishImpl = async (event) => ({ status: "success", eventId: event.eventId, attempts: 1, httpStatus: 200 })
 })
 
 describe("POST /api/repartidor/ubicacion — server-authoritative Tracking producer", () => {
-  test("A: successful POST persists the location and publishes tracking.location.updated exactly once with the exact envelope", async () => {
+  test("A: successful POST persists the location, atomically advances locationRevision, and publishes tracking.location.updated exactly once with the exact envelope", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })
 
@@ -129,18 +154,23 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     expect(body.repartidorLat).toBe(-34.6)
     expect(body.repartidorLng).toBe(-58.4)
     expect(typeof body.repartidorLastUpdate).toBe("string")
+    expect(body.locationRevision).toBe(1) // first accepted update for a fresh pedido
 
-    expect(updateManyCalls.length).toBe(1)
-    expect(updateManyCalls[0].where).toEqual({
-      id: pedidoId,
-      negocioId: "negocio-1",
-      repartidorId,
-      estado: "en_camino",
-      metodoEntrega: "domicilio",
-    })
-    expect(updateManyCalls[0].data.repartidorLat).toBe(-34.6)
-    expect(updateManyCalls[0].data.repartidorLng).toBe(-58.4)
-    const dbTimestamp = (updateManyCalls[0].data.repartidorLastUpdate as Date).toISOString()
+    expect(queryRawCalls.length).toBe(1)
+    const call = queryRawCalls[0]
+    // Raw SQL safety: exact bound values, in interpolation order, and the
+    // hardcoded state predicates remain present as literal SQL text (never
+    // interpolated from the request) — see route.ts §9-10.
+    expect(call.values).toEqual([-34.6, -58.4, call.values[2], pedidoId, "negocio-1", repartidorId])
+    expect(call.text).toContain('UPDATE "pedidos"')
+    expect(call.text).toContain('"locationRevision" = "locationRevision" + 1')
+    expect(call.text).toContain("'en_camino'")
+    expect(call.text).toContain("'domicilio'")
+    expect(call.text).toContain("RETURNING")
+    expect(call.text).not.toContain("DROP")
+    expect(call.text).not.toContain("DELETE")
+
+    const dbTimestamp = (call.values[2] as Date).toISOString()
     expect(dbTimestamp).toBe(body.repartidorLastUpdate)
 
     expect(publishCalls.length).toBe(1)
@@ -152,7 +182,7 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
       occurredAt: string
       payload: Record<string, unknown>
     }
-    expect(event.version).toBe(1)
+    expect(event.version).toBe(1) // Internal Publish envelope schema version — unrelated to locationRevision
     expect(event.type).toBe("tracking.location.updated")
     expect(event.resourceId).toBe(pedidoId)
     // TRACKING_SINGLE_SERVER_TIMESTAMP_PER_ACCEPTED_UPDATE: the same server
@@ -160,23 +190,57 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     // payload timestamp — verified by cross-referencing them against one
     // another rather than mocking Date globally. eventId itself is a
     // server-generated UUID (see Focal Precommit Review, eventId
-    // uniqueness) — NOT derived from the timestamp, precisely so two
-    // concurrent accepted updates for the same pedido in the same
-    // millisecond can never collide (see the dedicated test below).
+    // uniqueness) — NOT derived from the timestamp or from locationRevision
+    // (which is only unique per pedido, not globally).
     expect(event.occurredAt).toBe(body.repartidorLastUpdate)
     expect(event.eventId.startsWith(`${pedidoId}:`)).toBe(true)
     const uuidPart = event.eventId.slice(`${pedidoId}:`.length)
     expect(uuidPart).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    // TRACKING_VERSION_AUTHORITY=DB: payload.version is exactly the value
+    // RETURNING gave back — never recomputed from Date.now/eventId/a
+    // request counter.
     expect(event.payload).toEqual({
       pedidoId,
       lat: -34.6,
       lng: -58.4,
       timestamp: body.repartidorLastUpdate,
+      version: 1,
     })
-    expect(Object.keys(event.payload).sort()).toEqual(["pedidoId", "lat", "lng", "timestamp"].sort())
+    expect(event.payload.version).toBe(body.locationRevision)
+    expect(Object.keys(event.payload).sort()).toEqual(["lat", "lng", "pedidoId", "timestamp", "version"])
   })
 
-  test("eventId uniqueness: two concurrent accepted updates for the SAME pedido at the SAME frozen millisecond produce DISTINCT eventIds", async () => {
+  test("locationRevision strictly advances across successive accepted updates for the same pedido", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+
+    const res1 = await callRoute(pedidoId, { lat: -1, lng: -1 })
+    const res2 = await callRoute(pedidoId, { lat: -2, lng: -2 })
+    const res3 = await callRoute(pedidoId, { lat: -3, lng: -3 })
+
+    expect((await res1.json()).locationRevision).toBe(1)
+    expect((await res2.json()).locationRevision).toBe(2)
+    expect((await res3.json()).locationRevision).toBe(3)
+    expect((publishCalls[0].payload as Record<string, unknown>).version).toBe(1)
+    expect((publishCalls[1].payload as Record<string, unknown>).version).toBe(2)
+    expect((publishCalls[2].payload as Record<string, unknown>).version).toBe(3)
+  })
+
+  test("locationRevision is per-pedido — two different pedidos both start at 1, independently", async () => {
+    const { repartidorId } = nextIds()
+    const pedidoA = `${repartidorId}-pedido-a`
+    const pedidoB = `${repartidorId}-pedido-b`
+
+    setActor({ repartidorId, pedidoId: pedidoA })
+    const resA = await callRoute(pedidoA, { lat: -1, lng: -1 })
+    expect((await resA.json()).locationRevision).toBe(1)
+
+    setActor({ repartidorId, pedidoId: pedidoB })
+    const resB = await callRoute(pedidoB, { lat: -2, lng: -2 })
+    expect((await resB.json()).locationRevision).toBe(1)
+  })
+
+  test("eventId uniqueness: two concurrent accepted updates for the SAME pedido at the SAME frozen millisecond produce DISTINCT eventIds and DISTINCT locationRevisions", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })
 
@@ -185,7 +249,8 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     // forced through the exact millisecond collision scenario described in
     // the Focal Precommit Review — this is the scenario that WOULD have
     // produced two identical `${pedidoId}:${now.getTime()}` eventIds under
-    // the previous timestamp-based formula.
+    // the previous timestamp-based formula, and is exactly why eventId is a
+    // UUID and payload.version comes from the DB, never from wall-clock time.
     const RealDate = Date
     const FROZEN_MS = RealDate.now()
     class FrozenDate extends RealDate {
@@ -224,6 +289,16 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     expect(eventIdA).not.toBe(eventIdB)
     expect(eventIdA.startsWith(`${pedidoId}:`)).toBe(true)
     expect(eventIdB.startsWith(`${pedidoId}:`)).toBe(true)
+    // POSTGRES_ATOMIC_VERSION_STRUCTURAL_REVIEW: this mock cannot prove real
+    // row-level locking — it only proves the ROUTE reads whatever RETURNING
+    // gives it, without ever recomputing a version itself. The two
+    // simulated values below happen to be distinct because the mock
+    // increments a per-pedido counter synchronously per call (JS is
+    // single-threaded); the REAL guarantee comes from Postgres's own
+    // row-level UPDATE serialization (see CODEX_REPORT.md,
+    // REAL_DB_VERSION_CONCURRENCY_RUNTIME_REQUIRED=SI).
+    const [versionA, versionB] = publishCalls.map((event) => (event.payload as Record<string, unknown>).version)
+    expect(versionA).not.toBe(versionB)
   })
 
   test("B: a publish failure never turns an already-persisted location update into an HTTP error", async () => {
@@ -235,6 +310,7 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
+    expect(body.locationRevision).toBe(1)
     expect(publishCalls.length).toBe(1)
   })
 
@@ -250,25 +326,39 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     expect(publishCalls.length).toBe(1)
   })
 
-  test("C: a DB updateMany failure preserves the existing error response and skips publish entirely", async () => {
+  test("C: a DB write failure preserves the existing error response and skips publish entirely", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })
-    updateManyThrows = new Error("simulated DB failure")
+    queryRawThrows = new Error("simulated DB failure")
 
     const res = await callRoute(pedidoId)
     expect(res.status).toBe(500)
     expect(publishCalls.length).toBe(0)
   })
 
-  test("zero updated rows: preserves the existing 403 and never publishes", async () => {
+  test("zero returned rows: preserves the existing 403 and never publishes", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })
-    updateManyCount = 0
+    queryRawRowOverride = []
 
     const res = await callRoute(pedidoId)
     const body = await res.json()
     expect(res.status).toBe(403)
     expect(body.error).toBe("No estas asignado a este pedido")
+    expect(publishCalls.length).toBe(0)
+  })
+
+  test("LOCATION_WRITE_AND_REVISION_ATOMIC defensive fail-closed: more than one returned row (structurally impossible since id is the primary key) is a 500, never a publish", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const now = new Date()
+    queryRawRowOverride = [
+      { repartidorLat: -1, repartidorLng: -1, repartidorLastUpdate: now, locationRevision: 1 },
+      { repartidorLat: -2, repartidorLng: -2, repartidorLastUpdate: now, locationRevision: 2 },
+    ]
+
+    const res = await callRoute(pedidoId)
+    expect(res.status).toBe(500)
     expect(publishCalls.length).toBe(0)
   })
 
@@ -300,7 +390,7 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     await Promise.resolve()
     expect(settled).toBe(false)
     expect(publishCalls.length).toBe(1)
-    expect(updateManyCalls.length).toBe(1)
+    expect(queryRawCalls.length).toBe(1)
 
     resolvePublish({ status: "success", eventId: (publishCalls[0] as { eventId: string }).eventId, attempts: 1, httpStatus: 200 })
     const res = await responsePromise
@@ -314,19 +404,19 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
       setActor({ repartidorId, pedidoId })
 
       for (let i = 0; i < 30; i += 1) {
-        const dbBefore = updateManyCalls.length
+        const dbBefore = queryRawCalls.length
         const publishBefore = publishCalls.length
         const res = await callRoute(pedidoId, { lat: -1 - i, lng: -1 - i })
         expect(res.status).toBe(200)
-        expect(updateManyCalls.length).toBe(dbBefore + 1)
+        expect(queryRawCalls.length).toBe(dbBefore + 1)
         expect(publishCalls.length).toBe(publishBefore + 1)
       }
 
-      const dbBefore31 = updateManyCalls.length
+      const dbBefore31 = queryRawCalls.length
       const publishBefore31 = publishCalls.length
       const res31 = await callRoute(pedidoId, { lat: -30, lng: -30 })
       expect(res31.status).toBe(429)
-      expect(updateManyCalls.length).toBe(dbBefore31)
+      expect(queryRawCalls.length).toBe(dbBefore31)
       expect(publishCalls.length).toBe(publishBefore31)
     })
 
@@ -401,7 +491,7 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
         const res = await callRoute(pedidoId, { lat: -1 - i, lng: -1 - i })
         expect(res.status).toBe(403)
       }
-      expect(updateManyCalls.length).toBe(0)
+      expect(queryRawCalls.length).toBe(0)
       expect(publishCalls.length).toBe(0)
 
       // Now make the pedido genuinely assigned — the SAME key must still
@@ -434,7 +524,7 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
       // `return`s before the rate-limit call). Verified here by the only
       // observable proxy available without an exported store-peek helper:
       // zero downstream side effects past the 401.
-      expect(updateManyCalls.length).toBe(0)
+      expect(queryRawCalls.length).toBe(0)
       expect(publishCalls.length).toBe(0)
     })
 

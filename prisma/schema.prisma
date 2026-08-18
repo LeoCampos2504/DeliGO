@@ -407,6 +407,13 @@ model Pedido {
   repartidorLat        Float?
   repartidorLng        Float?
   repartidorLastUpdate DateTime?
+  // Autoridad de orden monotónica, DB-backed, por pedido — incrementada
+  // atómicamente junto con la escritura de ubicación aceptada (ver
+  // POST /api/repartidor/ubicacion). Nunca se deriva del reloj de pared;
+  // es la única fuente de verdad para decidir si un evento realtime o una
+  // respuesta HTTP de tracking representa un estado más nuevo que el ya
+  // mostrado (Tracking Latest-Wins Focal Design Correction #2).
+  locationRevision     Int       @default(0)
 
   // Pago
   metodoPago String  @default("efectivo") // efectivo, transferencia

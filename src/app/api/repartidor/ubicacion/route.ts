@@ -123,29 +123,52 @@ export async function POST(req: NextRequest) {
       return rateLimitResponse(rateLimit)
     }
 
-    // 5. Update the pedido with repartidor location
+    // 5. Update the pedido with repartidor location AND atomically advance
+    // its location-ordering authority in the same statement. `updateMany`
+    // cannot RETURN the row it just wrote, so this uses a parameterized raw
+    // query instead — the defensive compound WHERE below is identical to
+    // the `updateMany` it replaces (same re-authorization-at-write-time
+    // guarantee), and the tagged template parameterizes every value, never
+    // string concatenation (same discipline as the existing atomic
+    // upsert-with-RETURNING in src/lib/auth-login-throttle.ts). Physical
+    // table/column names re-derived from the generated migration
+    // (prisma/migrations/20260818000000_add_tracking_location_revision) —
+    // `Pedido` maps to `"pedidos"`, no field-level @map on this model.
     const now = new Date()
-    const updated = await db.pedido.updateMany({
-      where: {
-        id: pedidoId,
-        negocioId: pedido.negocioId,
-        repartidorId: user.id,
-        estado: "en_camino",
-        metodoEntrega: "domicilio",
-      },
-      data: {
-        repartidorLat: lat,
-        repartidorLng: lng,
-        repartidorLastUpdate: now,
-      },
-    })
+    const rows = await db.$queryRaw<
+      { repartidorLat: number; repartidorLng: number; repartidorLastUpdate: Date; locationRevision: number }[]
+    >`
+      UPDATE "pedidos"
+      SET "repartidorLat" = ${lat},
+          "repartidorLng" = ${lng},
+          "repartidorLastUpdate" = ${now},
+          "locationRevision" = "locationRevision" + 1
+      WHERE "id" = ${pedidoId}
+        AND "negocioId" = ${pedido.negocioId}
+        AND "repartidorId" = ${user.id}
+        AND "estado" = 'en_camino'
+        AND "metodoEntrega" = 'domicilio'
+      RETURNING "repartidorLat", "repartidorLng", "repartidorLastUpdate", "locationRevision"
+    `
 
-    if (updated.count === 0) {
+    if (rows.length === 0) {
       return NextResponse.json(
         { error: "No estas asignado a este pedido" },
         { status: 403 }
       )
     }
+
+    // `id` is the primary key, so more than one matched row is structurally
+    // impossible — fail closed rather than guess which row is authoritative.
+    if (rows.length > 1) {
+      console.error("Error updating repartidor ubicacion:", safeErrorForLog(new Error("LOCATION_REVISION_MULTI_ROW_MATCH")))
+      return NextResponse.json(
+        { error: "Error al actualizar ubicación" },
+        { status: 500 }
+      )
+    }
+
+    const locationRevision = rows[0].locationRevision
 
     // 6. Server-authoritative realtime broadcast. DB persistence above is
     // already the source of truth, so a failed/disabled/timed-out publish
@@ -160,8 +183,11 @@ export async function POST(req: NextRequest) {
     // eventId uses a server-generated UUID rather than the millisecond
     // timestamp: unlike Chat's chat.message.created (whose eventId is a
     // DB-generated cuid, unique by construction), this route has no
-    // DB-generated row id to reuse — `pedido.updateMany()` only returns a
-    // count. Two concurrent accepted updates for the SAME pedido (e.g. a
+    // globally-unique DB-generated value to reuse for that purpose —
+    // `locationRevision` is only unique PER PEDIDO, so reusing it directly
+    // as (part of) eventId could collide across different pedidos whose
+    // counters happen to reach the same value. Two concurrent accepted
+    // updates for the SAME pedido (e.g. a
     // network-layer retry racing the original request) could otherwise
     // compute `now.getTime()` in the same millisecond and collide on
     // eventId, which the Internal Publish Bridge's eventDedupe would then
@@ -171,6 +197,15 @@ export async function POST(req: NextRequest) {
     // request, before publishRealtimeEvent is called, so its own internal
     // retries reuse the same eventId (see Focal Precommit Review, eventId
     // uniqueness).
+    //
+    // payload.version carries the DB-returned `locationRevision` — the
+    // atomic ordering authority for realtime-vs-realtime and HTTP-vs-realtime
+    // freshness (Tracking Latest-Wins Focal Design Correction #2). It is
+    // never recomputed here: `locationRevision` above came directly from the
+    // RETURNING clause of the same statement that persisted this exact
+    // accepted state, so it is guaranteed to correspond to these exact
+    // coordinates. The envelope's own `version: 1` field (below) is the
+    // unrelated Internal Publish schema/envelope version and is untouched.
     const timestamp = now.toISOString()
     await publishRealtimeEvent({
       version: 1,
@@ -183,6 +218,7 @@ export async function POST(req: NextRequest) {
         lat,
         lng,
         timestamp,
+        version: locationRevision,
       },
     })
 
@@ -192,6 +228,7 @@ export async function POST(req: NextRequest) {
       repartidorLat: lat,
       repartidorLng: lng,
       repartidorLastUpdate: timestamp,
+      locationRevision,
     })
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
