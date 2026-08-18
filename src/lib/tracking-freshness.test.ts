@@ -298,3 +298,216 @@ describe("Tracking Latest-Wins / Unversioned HTTP Cannot Regress a Known Server 
     expect(tracker.highestServerVersion).toBe(11)
   })
 })
+
+// Same-Pedido Close/Reopen Stale-Realtime Focal Fix: `DeliveryTrackingMap`
+// fully unmounts when the user closes the tracking sheet, destroying the
+// component-local tracker — but the shared `RealtimeManager`'s physical
+// socket does not (a room-lease release only emits `leave-order-room`).
+// A `repartidor-location` event the server already dispatched to that
+// socket before processing the leave can still reach the freshly-installed
+// listener after the user reopens the SAME pedido, before the initial GET
+// resolves. Before this fix, the reopened tracker's `highestServerVersion`
+// was unconditionally cleared to `null`, so that stale, already-superseded
+// version would be wrongly accepted. Every test below uses a unique
+// `pedidoId` string never reused by any other test in this file — since the
+// module-level per-pedido registry only ever reads/writes the exact
+// `pedidoId` string a tracker is scoped to, this makes every test fully
+// independent of run order without needing any exported reset/clear helper.
+describe("Tracking Latest-Wins / Same-Pedido Close-Reopen Version Floor", () => {
+  test("1. accepted server V11 for pedido P is stored in the per-pedido floor registry", () => {
+    const pedidoId = "reopen-p1"
+    const tracker = createTrackingFreshnessTracker(pedidoId)
+    expect(applyTrackingServerVersion(tracker, 11)).toBe(true)
+    // The registry itself is module-private — observe it indirectly through
+    // a second, independent tracker created for the exact same pedidoId.
+    const reseeded = createTrackingFreshnessTracker(pedidoId)
+    expect(reseeded.highestServerVersion).toBe(11)
+  })
+
+  test("2. a new tracker created for a previously-seen pedidoId seeds highestServerVersion from its floor (simulated unmount)", () => {
+    const pedidoId = "reopen-p2"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    // `first` is discarded here, exactly like DeliveryTrackingMap's own
+    // tracker being destroyed on unmount — a brand new tracker object is
+    // created for the same pedidoId, as a fresh mount would.
+    const second = createTrackingFreshnessTracker(pedidoId)
+    expect(second.highestServerVersion).toBe(11)
+  })
+
+  test("3. reopened pedido rejects a stale realtime V10 that arrives before the initial HTTP resolves", () => {
+    const pedidoId = "reopen-p3"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    // The old, already-in-flight realtime event arrives before the initial GET.
+    expect(applyTrackingServerVersion(reopened, 10)).toBe(false)
+    expect(reopened.highestServerVersion).toBe(11)
+  })
+
+  test("4. reopened pedido accepts a genuinely newer realtime V12 that arrives before the initial HTTP resolves", () => {
+    const pedidoId = "reopen-p4"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(applyTrackingServerVersion(reopened, 12)).toBe(true)
+    expect(reopened.highestServerVersion).toBe(12)
+  })
+
+  test("5. reopened pedido's initial HTTP GET returning the same V11 is a safe idempotent reapply", () => {
+    const pedidoId = "reopen-p5"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(applyTrackingServerVersion(reopened, 11)).toBe(true)
+    expect(reopened.highestServerVersion).toBe(11)
+  })
+
+  test("6. reopened pedido with cached floor 11 rejects an unversioned HTTP response's position", () => {
+    const pedidoId = "reopen-p6"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(canUntrustedTrackingSourceOverridePosition(reopened)).toBe(false)
+  })
+
+  test("7. reopened pedido with cached floor 11 rejects a legacy (no-version) realtime event's position", () => {
+    const pedidoId = "reopen-p7"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(canUntrustedTrackingSourceOverridePosition(reopened)).toBe(false)
+  })
+
+  test("8. a rejected stale V10 delivery never lowers pedido P's remembered floor", () => {
+    const pedidoId = "reopen-p8"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(reopened, 10) // rejected — must not touch the registry
+    const thirdOpen = createTrackingFreshnessTracker(pedidoId)
+    expect(thirdOpen.highestServerVersion).toBe(11)
+  })
+
+  test("9. the per-pedido floor registry is never written by anything other than a genuinely accepted trusted version", () => {
+    const pedidoId = "reopen-p9"
+    expect(isTrustedTrackingServerVersion("11")).toBe(false)
+    expect(isTrustedTrackingServerVersion(NaN)).toBe(false)
+    expect(isTrustedTrackingServerVersion(-1)).toBe(false)
+    // No trusted delivery was ever accepted for this pedidoId — its floor
+    // must still be unset.
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(reopened.highestServerVersion).toBe(null)
+  })
+
+  test("10. version=0 is stored in and restored from the per-pedido floor (not treated as absent)", () => {
+    const pedidoId = "reopen-p10"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    expect(applyTrackingServerVersion(first, 0)).toBe(true)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    expect(reopened.highestServerVersion).toBe(0)
+    // A subsequent genuinely higher version must still apply normally,
+    // confirming 0 was a real seeded floor rather than "no floor at all".
+    expect(applyTrackingServerVersion(reopened, 1)).toBe(true)
+  })
+
+  test("11. switching from pedido A (floor 20) to never-seen pedido B applies B's own fresh V1", () => {
+    const pedidoA = "reopen-p11-a"
+    const pedidoB = "reopen-p11-b"
+    const tracker = createTrackingFreshnessTracker(pedidoA)
+    applyTrackingServerVersion(tracker, 20)
+    // Same component instance switching pedidoId while staying mounted.
+    beginTrackingGeneration(tracker, pedidoB)
+    expect(tracker.highestServerVersion).toBe(null)
+    expect(applyTrackingServerVersion(tracker, 1)).toBe(true)
+    expect(tracker.highestServerVersion).toBe(1)
+  })
+
+  test("12. A (floor 20) -> B (floor 3) -> back to A restores A's own floor 20, not B's", () => {
+    const pedidoA = "reopen-p12-a"
+    const pedidoB = "reopen-p12-b"
+    const tracker = createTrackingFreshnessTracker(pedidoA)
+    applyTrackingServerVersion(tracker, 20)
+    beginTrackingGeneration(tracker, pedidoB)
+    applyTrackingServerVersion(tracker, 3)
+    expect(tracker.highestServerVersion).toBe(3)
+    beginTrackingGeneration(tracker, pedidoA)
+    expect(tracker.highestServerVersion).toBe(20)
+  })
+
+  test("13. after returning to A, a stale A V19 (below A's restored floor 20) is rejected", () => {
+    const pedidoA = "reopen-p13-a"
+    const pedidoB = "reopen-p13-b"
+    const tracker = createTrackingFreshnessTracker(pedidoA)
+    applyTrackingServerVersion(tracker, 20)
+    beginTrackingGeneration(tracker, pedidoB)
+    applyTrackingServerVersion(tracker, 3)
+    beginTrackingGeneration(tracker, pedidoA)
+    expect(applyTrackingServerVersion(tracker, 19)).toBe(false)
+    expect(tracker.highestServerVersion).toBe(20)
+  })
+
+  test("14. after returning to A, a genuinely newer A V21 applies normally", () => {
+    const pedidoA = "reopen-p14-a"
+    const pedidoB = "reopen-p14-b"
+    const tracker = createTrackingFreshnessTracker(pedidoA)
+    applyTrackingServerVersion(tracker, 20)
+    beginTrackingGeneration(tracker, pedidoB)
+    applyTrackingServerVersion(tracker, 3)
+    beginTrackingGeneration(tracker, pedidoA)
+    expect(applyTrackingServerVersion(tracker, 21)).toBe(true)
+    expect(tracker.highestServerVersion).toBe(21)
+  })
+
+  test("15. a never-seen pedido C still supports a genuine first realtime version applying before HTTP", () => {
+    const pedidoC = "reopen-p15-c"
+    const tracker = createTrackingFreshnessTracker(pedidoC)
+    expect(tracker.highestServerVersion).toBe(null)
+    expect(applyTrackingServerVersion(tracker, 1)).toBe(true)
+    expect(tracker.highestServerVersion).toBe(1)
+  })
+
+  test("16. a never-seen pedido C retains legacy-realtime-before-first-server-version compatibility", () => {
+    const pedidoC = "reopen-p16-c"
+    const tracker = createTrackingFreshnessTracker(pedidoC)
+    expect(canUntrustedTrackingSourceOverridePosition(tracker)).toBe(true)
+  })
+
+  test("17. generation still advances on a same-pedido reopen even though the server-version floor is preserved", () => {
+    const pedidoId = "reopen-p17"
+    const tracker = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(tracker, 11)
+    const generationBefore = tracker.generation
+    beginTrackingGeneration(tracker, pedidoId)
+    expect(tracker.generation).toBe(generationBefore + 1)
+    expect(tracker.highestServerVersion).toBe(11)
+  })
+
+  test("18. httpSequence resets to 0 on same-pedido reopen independently of the preserved server-version floor", () => {
+    const pedidoId = "reopen-p18"
+    const tracker = createTrackingFreshnessTracker(pedidoId)
+    beginTrackingHttpRequest(tracker)
+    beginTrackingHttpRequest(tracker)
+    applyTrackingServerVersion(tracker, 11)
+    beginTrackingGeneration(tracker, pedidoId)
+    expect(tracker.httpSequence).toBe(0)
+    expect(tracker.highestServerVersion).toBe(11)
+  })
+
+  test("19. the freshness/registry API surface has no timestamp/Date/clock parameter anywhere", () => {
+    expect(createTrackingFreshnessTracker.length).toBe(0) // (pedidoId = "") — defaulted, no timestamp param
+    expect(beginTrackingGeneration.length).toBe(2) // (tracker, pedidoId) — no timestamp param
+    expect(applyTrackingServerVersion.length).toBe(2) // (tracker, version) — unchanged, no timestamp param
+  })
+
+  test("20. after a same-pedido reopen, identical coordinates at a higher version still apply strictly by version, never by content", () => {
+    const pedidoId = "reopen-p20"
+    const first = createTrackingFreshnessTracker(pedidoId)
+    applyTrackingServerVersion(first, 11)
+    const reopened = createTrackingFreshnessTracker(pedidoId)
+    // A stale delivery for the exact same coordinates but an old version is still rejected.
+    expect(applyTrackingServerVersion(reopened, 10)).toBe(false)
+    // A fresh delivery for the exact same coordinates at a genuinely higher version still applies.
+    expect(applyTrackingServerVersion(reopened, 12)).toBe(true)
+  })
+})

@@ -45,11 +45,60 @@
 // Tracking Latest-Wins / Freshness Race design notes in CODEX_REPORT.md for
 // why a "highest timestamp wins" policy is unsafe (the legacy stale-PWA
 // producer path's timestamp is client-controlled).
+//
+// SAME-PEDIDO CLOSE/REOPEN STALE-REALTIME FOCAL FIX: a full generation reset
+// (`highestServerVersion = null`) is correct — even required — on a genuine
+// pedido switch, but was, before this fix, ALSO applied unconditionally on a
+// same-pedido close/reopen. `DeliveryTrackingMap` fully unmounts on close
+// (its sole call site conditionally renders it), so the component-local
+// tracker is destroyed — but `RealtimeManager`'s physical Socket.IO
+// connection is not (a room-lease release only emits `leave-order-room`; see
+// `realtime-manager.ts`'s `leaveRoom`). A `repartidor-location` event the
+// server already dispatched to that socket before processing the leave can
+// still arrive after a fresh subscription is installed on reopen — and with
+// `highestServerVersion` wiped back to `null`, that stale, already-superseded
+// version would be accepted as if no fresher server state had ever been seen
+// for this pedido, temporarily regressing the displayed position.
+//
+// The fix: `Pedido.locationRevision` is a DB-backed, per-pedido monotonic
+// fact about the ORDER itself, not about any particular component instance
+// or viewer — so the highest trusted version ever observed for a given
+// pedidoId is remembered in a module-level registry (`pedidoVersionFloors`,
+// below), independent of any single tracker's lifetime. A same-pedido
+// reopen seeds the new tracker from that remembered floor instead of `null`,
+// so a stale lower version is correctly rejected by the SAME comparison
+// `applyTrackingServerVersion` already performs — no new comparison logic,
+// no timestamp, no wire/protocol change. A genuine pedido switch still
+// resets to that OTHER pedido's own floor (`null` if never seen), so pedido
+// A's version can never leak into pedido B — see `beginTrackingGeneration`.
+// The registry holds only `pedidoId -> integer version`; it is never read or
+// written from anywhere except this module, is scoped to the browser
+// module's own lifetime (never persisted), and cannot be lowered.
+const pedidoVersionFloors = new Map<string, number>()
+
+function getPedidoVersionFloor(pedidoId: string): number | null {
+  if (!pedidoId) return null
+  const floor = pedidoVersionFloors.get(pedidoId)
+  return floor === undefined ? null : floor
+}
+
+// Monotonic by construction — a lower or equal value is simply ignored,
+// exactly like `applyTrackingServerVersion`'s own tracker-local comparison.
+function raisePedidoVersionFloor(pedidoId: string, version: number): void {
+  if (!pedidoId) return
+  const current = pedidoVersionFloors.get(pedidoId)
+  if (current === undefined || version > current) pedidoVersionFloors.set(pedidoId, version)
+}
 
 export interface TrackingFreshnessTracker {
   generation: number
   httpSequence: number
   highestServerVersion: number | null
+  // "" means this tracker is not associated with any specific pedido (the
+  // legacy/unscoped shape every pre-existing caller and test uses) — the
+  // per-pedido registry above is never read or written for such a tracker,
+  // so its behavior is byte-for-byte identical to before this fix.
+  pedidoId: string
 }
 
 export interface TrackingHttpRequestTicket {
@@ -57,18 +106,40 @@ export interface TrackingHttpRequestTicket {
   sequence: number
 }
 
-export function createTrackingFreshnessTracker(): TrackingFreshnessTracker {
-  return { generation: 0, httpSequence: 0, highestServerVersion: null }
+// `pedidoId` is optional so every pre-existing (pedido-agnostic) caller and
+// test keeps working unchanged: omitting it produces the exact same
+// `{generation:0, httpSequence:0, highestServerVersion:null}` shape as
+// before. Passing the real pedidoId seeds `highestServerVersion` from that
+// pedido's remembered floor (`null` if never observed in this tab) instead
+// of always starting at `null` — the core of the same-pedido reopen fix.
+export function createTrackingFreshnessTracker(pedidoId: string = ""): TrackingFreshnessTracker {
+  return { generation: 0, httpSequence: 0, highestServerVersion: getPedidoVersionFloor(pedidoId), pedidoId }
 }
 
 // Call once whenever the tracked pedido or the open/closed lifecycle
-// changes. Resets the per-generation counters — including the server
-// version authority — so an old in-flight request or a version observed for
-// a previous pedido/session can never leak into the new one.
-export function beginTrackingGeneration(tracker: TrackingFreshnessTracker): void {
+// changes. Always resets the per-generation HTTP-lifecycle counters — an old
+// in-flight HTTP request can never land on top of a new lifecycle either
+// way. The server-version authority's reset behavior depends on whether a
+// `pedidoId` is passed:
+//   - omitted (legacy/unscoped call, matching every pre-existing test):
+//     `highestServerVersion` is unconditionally cleared to `null`, exactly
+//     as before this fix.
+//   - provided: `highestServerVersion` is reseeded from that EXACT pedido's
+//     remembered floor (`null` if never observed) rather than blindly
+//     cleared — a same-pedido reopen recovers its own last-known floor
+//     (closing the stale-realtime race), while a genuine switch to a
+//     different pedidoId still starts from that other pedido's own floor
+//     (`null` for a never-seen one), so one pedido's version can never leak
+//     into another's.
+export function beginTrackingGeneration(tracker: TrackingFreshnessTracker, pedidoId?: string): void {
   tracker.generation += 1
   tracker.httpSequence = 0
-  tracker.highestServerVersion = null
+  if (pedidoId === undefined) {
+    tracker.highestServerVersion = null
+    return
+  }
+  tracker.pedidoId = pedidoId
+  tracker.highestServerVersion = getPedidoVersionFloor(pedidoId)
 }
 
 // Call synchronously right before dispatching an HTTP tracking request.
@@ -110,13 +181,23 @@ export function isTrustedTrackingServerVersion(value: unknown): value is number 
 // branch. HTTP-only fields (estado, trackingDisabled, negocio metadata, …)
 // are never gated by this — callers apply those unconditionally regardless
 // of this function's return value, exactly as before.
+//
+// Whenever this tracker is pedido-scoped (`tracker.pedidoId` non-empty) and
+// the version genuinely advances the tracker's own highest, it also raises
+// that pedido's remembered floor in the module-level registry — the write
+// side of the same-pedido reopen fix (see the module header comment). A
+// tracker with no pedidoId (every pre-existing caller/test) never touches
+// the registry, so its behavior is unchanged.
 export function applyTrackingServerVersion(
   tracker: TrackingFreshnessTracker,
   version: number,
 ): boolean {
   const highest = tracker.highestServerVersion
   if (highest !== null && version < highest) return false
-  if (highest === null || version > highest) tracker.highestServerVersion = version
+  if (highest === null || version > highest) {
+    tracker.highestServerVersion = version
+    raisePedidoVersionFloor(tracker.pedidoId, version)
+  }
   return true
 }
 

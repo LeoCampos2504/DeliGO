@@ -77,12 +77,12 @@ describe("Shared realtime client Tracking consumer contract", () => {
     expect(source).toContain("applyTrackingServerVersion")
     expect(source).toContain("isTrustedTrackingServerVersion")
     expect(source).toContain("canUntrustedTrackingSourceOverridePosition")
-    expect(source).toContain("const freshnessRef = useRef(createTrackingFreshnessTracker())")
+    expect(source).toContain("const freshnessRef = useRef(createTrackingFreshnessTracker(pedidoId))")
   })
 
   test("the freshness generation is bumped on every pedido switch and every open/close transition, before any fetch or state reset", () => {
     const source = trackingMap()
-    const generationIndex = source.indexOf("beginTrackingGeneration(freshnessRef.current)")
+    const generationIndex = source.indexOf("beginTrackingGeneration(freshnessRef.current, pedidoId)")
     const resetIndex = source.indexOf("setTrackingData(null)", generationIndex)
     const fetchCallIndex = source.indexOf("fetchTracking()", generationIndex)
     expect(generationIndex).toBeGreaterThan(-1)
@@ -154,5 +154,34 @@ describe("Shared realtime client Tracking consumer contract", () => {
     const shouldApplyBlock = source.slice(shouldApplyIndex, shouldApplyIndex + 200)
     expect(shouldApplyBlock).not.toMatch(/trustedVersion === null\s*\?\s*true/)
     expect(shouldApplyBlock).toMatch(/trustedVersion === null\s*\?\s*canUntrustedTrackingSourceOverridePosition\(freshnessRef\.current\)/)
+  })
+
+  test("Same-Pedido Close/Reopen Focal Fix: the freshness tracker is created with the current pedido identity, not pedido-agnostic", () => {
+    const source = trackingMap()
+    expect(source).toContain("const freshnessRef = useRef(createTrackingFreshnessTracker(pedidoId))")
+  })
+
+  test("Same-Pedido Close/Reopen Focal Fix: every generation reset passes the current pedidoId through, so a same-pedido reopen recovers its own floor instead of blindly erasing it", () => {
+    const source = trackingMap()
+    expect(source).toContain("beginTrackingGeneration(freshnessRef.current, pedidoId)")
+    // The old pedido-agnostic call (which unconditionally wiped the server
+    // version floor on every reopen, not just on a genuine pedido switch)
+    // must never reappear.
+    expect(source).not.toContain("beginTrackingGeneration(freshnessRef.current)")
+  })
+
+  test("Same-Pedido Close/Reopen Focal Fix: pedido identity is threaded through the exact same effect that already resets the HTTP lifecycle on every open/pedidoId transition", () => {
+    const source = trackingMap()
+    const effectIndex = source.indexOf("beginTrackingGeneration(freshnessRef.current, pedidoId)")
+    const depsIndex = source.indexOf("}, [open, pedidoId])", effectIndex)
+    expect(effectIndex).toBeGreaterThan(-1)
+    expect(depsIndex).toBeGreaterThan(effectIndex)
+  })
+
+  test("DeliveryTrackingMap never persists any freshness/version state outside browser memory", () => {
+    const source = trackingMap()
+    for (const forbidden of ["localStorage", "sessionStorage", "indexedDB", "document.cookie"]) {
+      expect(source).not.toContain(forbidden)
+    }
   })
 })

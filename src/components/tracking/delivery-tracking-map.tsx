@@ -226,8 +226,11 @@ export function DeliveryTrackingMap({
   const userInteractedRef = useRef(false)
   // Clock-independent freshness/causality tracker — see src/lib/tracking-freshness.ts.
   // Guards against slow-HTTP-overwrites-newer-realtime, HTTP-vs-HTTP
-  // out-of-order resolution, pedido-switch, and close/reopen races.
-  const freshnessRef = useRef(createTrackingFreshnessTracker())
+  // out-of-order resolution, pedido-switch, and same-pedido close/reopen
+  // races. Seeded with `pedidoId` so a same-pedido remount recovers this
+  // exact order's last-known server-version floor instead of starting blind
+  // (Same-Pedido Close/Reopen Stale-Realtime Focal Fix).
+  const freshnessRef = useRef(createTrackingFreshnessTracker(pedidoId))
   const { client, snapshot } = useRealtime()
 
   const [trackingData, setTrackingData] = useState<TrackingData | null>(null)
@@ -441,9 +444,13 @@ export function DeliveryTrackingMap({
   // Bumping the freshness generation here — before any state reset or fetch
   // — invalidates every in-flight HTTP request from the previous pedido/open
   // session so it can never land on top of the new one (close/reopen and
-  // pedido-switch races).
+  // pedido-switch races). Passing `pedidoId` reseeds the server-version
+  // authority from THIS exact pedido's own remembered floor rather than
+  // blindly clearing it — recovering a same-pedido reopen's last-known
+  // version (Same-Pedido Close/Reopen Stale-Realtime Focal Fix) while a
+  // genuine pedido switch still starts from the new pedido's own floor.
   useEffect(() => {
-    beginTrackingGeneration(freshnessRef.current)
+    beginTrackingGeneration(freshnessRef.current, pedidoId)
     setTrackingData(null)
     if (open) {
       userInteractedRef.current = false
