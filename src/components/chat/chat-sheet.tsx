@@ -9,6 +9,16 @@ import { ChatView } from "./chat-view"
 import { MessageCircle, Loader2, WifiOff, RefreshCw } from "lucide-react"
 import { SheetDescription } from "@/components/ui/sheet"
 import { useRealtime } from "@/hooks/use-realtime"
+import {
+  applyForegroundEpisodeEvent,
+  createForegroundEpisodeState,
+  selectConversationsPollInterval,
+  shouldResyncTriggerChatCatchup,
+} from "@/lib/chat-polling"
+
+function isDocumentVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState === "visible"
+}
 
 export function ChatSheet() {
   const {
@@ -20,6 +30,8 @@ export function ChatSheet() {
     removeTypingUser,
     conversations,
     setConversations,
+    setArchivedConversations,
+    setLoadingConversations,
     setUnreadCount,
     updateConversationUnread,
     updateConversationLastMessage,
@@ -31,6 +43,15 @@ export function ChatSheet() {
   const conversationsRef = useRef(conversations)
   const activePedidoIdRef = useRef(activePedidoId)
   const [retryNonce, setRetryNonce] = useState(0)
+  const [documentVisible, setDocumentVisible] = useState(isDocumentVisible)
+
+  // sole GET /api/chat/conversaciones production owner for the Chat UI —
+  // one response is authoritative for both conversations and archived
+  // (see src/lib/chat-polling.ts and the focal design correction).
+  const isListView = isSheetOpen && activePedidoId === null
+  const conversationsFetchingRef = useRef(false)
+  const conversationsAbortRef = useRef<AbortController | null>(null)
+  const hasLoadedConversationsRef = useRef(false)
 
   const isConnected = snapshot.state === "connected"
   const isConnecting = snapshot.state === "connecting" ||
@@ -126,56 +147,120 @@ export function ChatSheet() {
     }
   }, [activePedidoId, client, isSheetOpen, retryNonce, user?.id, user?.type])
 
-  // Load conversations when sheet opens
-  const loadConversations = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/chat/conversaciones", { signal })
-      if (!res.ok) return
-      const data = await res.json()
-      if (signal?.aborted) return
-      setConversations(data.conversations || [])
-    } catch {
-      // silently fail
-    }
-  }, [setConversations])
-
-  // Load unread count
-  const loadUnreadCount = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch("/api/chat/no-leidos", { signal })
-      if (!res.ok) return
-      const data = await res.json()
-      if (signal?.aborted) return
-      setUnreadCount(data.noLeidos || 0)
-    } catch {
-      // silently fail
-    }
-  }, [setUnreadCount])
-
+  // Track tab visibility, drives the recurring-interval decision and the
+  // foreground-episode coalescing below.
   useEffect(() => {
-    if (isSheetOpen && user?.type !== "repartidor") {
-      const controller = new AbortController()
-      void loadConversations(controller.signal)
-      void loadUnreadCount(controller.signal)
-      return () => controller.abort()
-    }
-  }, [isSheetOpen, loadConversations, loadUnreadCount, user?.id, user?.type])
+    const onVisibilityChange = () => setDocumentVisible(isDocumentVisible())
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange)
+  }, [])
 
-  // Refresh conversations periodically while sheet is open
-  useEffect(() => {
-    if (!isSheetOpen || user?.type === "repartidor") return
-
+  // Single-flight-guarded /api/chat/conversaciones fetch. One HTTP response
+  // is authoritative for both conversations and archived — see
+  // ConversationList, which is now presentation/store-only.
+  const loadConversations = useCallback(async () => {
+    if (conversationsFetchingRef.current) return
+    conversationsFetchingRef.current = true
+    const isFirstLoad = !hasLoadedConversationsRef.current
+    hasLoadedConversationsRef.current = true
+    if (isFirstLoad) setLoadingConversations(true)
     const controller = new AbortController()
-    const interval = setInterval(() => {
-      void loadConversations(controller.signal)
-      void loadUnreadCount(controller.signal)
-    }, 10000)
-
-    return () => {
-      clearInterval(interval)
-      controller.abort()
+    conversationsAbortRef.current = controller
+    try {
+      const res = await fetch("/api/chat/conversaciones", { signal: controller.signal })
+      if (controller.signal.aborted || !res.ok) return
+      const data = await res.json()
+      if (controller.signal.aborted) return
+      setConversations(data.conversations || [])
+      setArchivedConversations(data.archived || [])
+    } catch {
+      // silently fail
+    } finally {
+      // Release ownership only if this request is still the one being
+      // tracked — same rationale as ChatFab's fetchUnread. A stale/
+      // superseded request's finally must never clear a newer request's
+      // guard or its loading-spinner lifecycle.
+      if (conversationsAbortRef.current === controller) {
+        conversationsAbortRef.current = null
+        conversationsFetchingRef.current = false
+        if (isFirstLoad) setLoadingConversations(false)
+      }
     }
-  }, [isSheetOpen, loadConversations, loadUnreadCount, user?.id, user?.type])
+  }, [setArchivedConversations, setConversations, setLoadingConversations])
+
+  // Teardown on actor change / capability loss: abort any in-flight request
+  // and reset the single-flight guard and first-load flag so a stale
+  // response can never set the next actor's conversations, and the next
+  // actor gets a fresh loading indicator.
+  useEffect(() => {
+    return () => {
+      conversationsAbortRef.current?.abort()
+      conversationsAbortRef.current = null
+      conversationsFetchingRef.current = false
+      hasLoadedConversationsRef.current = false
+    }
+  }, [user?.id, user?.type])
+
+  // Immediate catch-up on entering list view — covers BOTH a fresh sheet
+  // open into the list AND returning from ChatView to the list (one
+  // state-transition mechanism represents both; see the focal design
+  // correction). Keyed only to isSheetOpen/activePedidoId, independent of
+  // documentVisible: both transitions only ever happen as a direct result
+  // of user interaction, which cannot occur on a hidden tab.
+  const wasListViewRef = useRef(isListView)
+  useEffect(() => {
+    if (user?.type === "repartidor") return
+    if (isListView && !wasListViewRef.current) void loadConversations()
+    wasListViewRef.current = isListView
+  }, [isListView, loadConversations, user?.type])
+
+  // Recurring timer while the list is the visible, relevant view. Fully
+  // suspended (no timer at all) whenever a specific conversation is active,
+  // the sheet is closed, or the tab is hidden.
+  useEffect(() => {
+    if (user?.type === "repartidor") return
+    const intervalMs = selectConversationsPollInterval({ isSheetOpen, activePedidoId, documentVisible })
+    if (intervalMs === null) return
+    const interval = setInterval(() => void loadConversations(), intervalMs)
+    return () => clearInterval(interval)
+  }, [isSheetOpen, activePedidoId, documentVisible, loadConversations, user?.type])
+
+  // Foreground-episode coalescing, scoped to "list is currently the active
+  // view." This is orthogonal to the entry-transition effect above (which
+  // never reacts to visibility) — it covers the case where the list was
+  // already showing the whole time and the tab itself was backgrounded and
+  // came back (including the OS focus-without-visibilitychange edge case).
+  useEffect(() => {
+    if (user?.type === "repartidor" || !isListView) return
+    const episode = createForegroundEpisodeState(isDocumentVisible())
+    const handle = (event: "blur" | "hidden" | "visible" | "focus") => {
+      const result = applyForegroundEpisodeEvent(episode, event, isDocumentVisible())
+      if (result.shouldCatchup) void loadConversations()
+    }
+    const onVisibilityChange = () => handle(document.visibilityState === "visible" ? "visible" : "hidden")
+    const onBlur = () => handle("blur")
+    const onFocus = () => handle("focus")
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("blur", onBlur)
+    window.addEventListener("focus", onFocus)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("blur", onBlur)
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [isListView, loadConversations, user?.type])
+
+  // Realtime resync catch-up, filtered by shouldResyncTriggerChatCatchup
+  // ("foreground" excluded — the listener above already owns that case) AND
+  // additionally gated on "list is currently the active view": a resync
+  // while an active conversation is showing must not fetch conversations.
+  useEffect(() => {
+    if (user?.type === "repartidor") return
+    return client.registerResync((reason) => {
+      if (!shouldResyncTriggerChatCatchup(reason)) return
+      if (isSheetOpen && activePedidoId === null && isDocumentVisible()) void loadConversations()
+    })
+  }, [activePedidoId, client, isSheetOpen, loadConversations, user?.type])
 
   // Retry connection manually
   const handleRetryConnection = useCallback(() => {

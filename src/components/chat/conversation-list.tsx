@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Clock, Bike, CreditCard, Store, User, Loader2, ChevronDown, ChevronUp, Archive } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Badge } from "@/components/ui/badge"
@@ -9,38 +9,19 @@ import { useAuthStore } from "@/store/auth-store"
 import { cn, formatPrice } from "@/lib/utils"
 import { timeAgo } from "@/lib/utils"
 
+// Presentation/store-only: zero network fetches. ChatSheet is the sole
+// GET /api/chat/conversaciones owner — see chat-sheet.tsx and
+// src/lib/chat-polling.ts for the polling cadence this list's data depends on.
 export function ConversationList() {
   const {
     conversations,
     archivedConversations,
     isLoadingConversations,
     openConversation,
-    setLoadingConversations,
-    setConversations,
-    setArchivedConversations,
   } = useChatStore()
 
   const user = useAuthStore((s) => s.user)
   const [showArchived, setShowArchived] = useState(false)
-
-  // Load conversations
-  useEffect(() => {
-    const load = async () => {
-      setLoadingConversations(true)
-      try {
-        const res = await fetch("/api/chat/conversaciones")
-        if (!res.ok) return
-        const data = await res.json()
-        setConversations(data.conversations || [])
-        setArchivedConversations(data.archived || [])
-      } catch {
-        // silently fail
-      } finally {
-        setLoadingConversations(false)
-      }
-    }
-    load()
-  }, [setLoadingConversations, setConversations, setArchivedConversations])
 
   if (isLoadingConversations) {
     return (
