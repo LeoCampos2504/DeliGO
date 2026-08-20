@@ -404,15 +404,20 @@ function createChatService(options = {}) {
       const dedupeKey = message.id ? "chat.message.created:" + message.id : null
       if (dedupeKey && !eventDedupe.claim(dedupeKey)) return
 
-      const socketsInRoom = io.sockets.adapter.rooms.get(room)
-      if (!socketsInRoom) return
+      // Recipient-scope filtering (Capability Revocation Hardening REV1_B):
+      // physical room membership alone is not receive authority — a socket
+      // that lost chat:read but still holds a grant for another scope on
+      // this same physical room (e.g. tracking:watch) must not receive
+      // message content. Reuses the same helper already relied on by the
+      // Internal Publish Bridge and the location-update relay below.
+      const recipientSocketIds = getAuthorizedRecipientSockets(connectedUsers, room, "chat:read")
       // Same partial-fan-out safeguard as the Internal Publish Bridge (see
       // internal-publish-handler.js): only release the claim if this relay
       // delivered to nobody at all, so a mid-loop failure can never cause a
       // recipient who already received the event to receive it again.
       let deliveredCount = 0
       try {
-        for (const socketId of socketsInRoom) {
+        for (const socketId of recipientSocketIds) {
           if (socketId === socket.id) continue
           const recipient = connectedUsers.get(socketId)
           if (!recipient || recipient.actor.userType === "repartidor") continue
@@ -432,30 +437,45 @@ function createChatService(options = {}) {
       if (typeof pedidoId !== "string") return
       const room = getAuthorizedRoom(user, pedidoId, "chat:typing")
       if (!room) return
-      socket.to(room).emit("user-typing", {
+      const payload = {
         pedidoId,
         userId: actor.userId,
         userType: actor.userType,
         userName: "Usuario",
-      })
+      }
+      // Recipient-scope filtering (REV1_B) — see message-sent above.
+      for (const socketId of getAuthorizedRecipientSockets(connectedUsers, room, "chat:typing")) {
+        if (socketId === socket.id) continue
+        io.to(socketId).emit("user-typing", payload)
+      }
     })
 
     socket.on("stop-typing", (pedidoId) => {
       if (typeof pedidoId !== "string") return
       const room = getAuthorizedRoom(user, pedidoId, "chat:typing")
       if (!room) return
-      socket.to(room).emit("user-stop-typing", { pedidoId, userId: actor.userId })
+      const payload = { pedidoId, userId: actor.userId }
+      // Recipient-scope filtering (REV1_B) — see message-sent above.
+      for (const socketId of getAuthorizedRecipientSockets(connectedUsers, room, "chat:typing")) {
+        if (socketId === socket.id) continue
+        io.to(socketId).emit("user-stop-typing", payload)
+      }
     })
 
     socket.on("mark-read", (pedidoId) => {
       if (typeof pedidoId !== "string") return
       const room = getAuthorizedRoom(user, pedidoId, "chat:read")
       if (!room) return
-      socket.to(room).emit("messages-read", {
+      const payload = {
         pedidoId,
         readBy: actor.userId,
         userType: actor.userType,
-      })
+      }
+      // Recipient-scope filtering (REV1_B) — see message-sent above.
+      for (const socketId of getAuthorizedRecipientSockets(connectedUsers, room, "chat:read")) {
+        if (socketId === socket.id) continue
+        io.to(socketId).emit("messages-read", payload)
+      }
     })
 
     socket.on("location-update", (data) => {
