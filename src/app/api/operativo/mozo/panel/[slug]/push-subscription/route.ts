@@ -86,15 +86,25 @@ function parsePushSubscription(value: unknown): PushSubscriptionInput | null {
   }
 }
 
+// Logout-B1: `matchSubscription`, cuando se pasa, exige coincidencia exacta
+// contra el valor ya almacenado antes de limpiar — nunca un blind clear.
+// Omitido (POST) el filtro no se agrega, comportamiento sin cambios.
+function parseUnsubscribeSubscription(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null
+  return value
+}
+
 async function updateEmpleadoSubscription({
   empleadoId,
   negocioId,
   cuentaOperativaId,
+  matchSubscription,
   pushSubscription,
 }: {
   empleadoId: string
   negocioId: string
   cuentaOperativaId: string
+  matchSubscription?: string
   pushSubscription: string | null
 }) {
   return db.empleado.updateMany({
@@ -105,6 +115,7 @@ async function updateEmpleadoSubscription({
       areaOperativa: "mozo",
       activo: true,
       eliminado: false,
+      ...(matchSubscription !== undefined ? { pushSubscription: matchSubscription } : {}),
     },
     data: { pushSubscription },
   })
@@ -219,26 +230,32 @@ export async function DELETE(
     const auth = await resolveOperativoMozoForSlug(req, slug)
     if (!auth.ok) return authErrorResponse(auth)
 
-    const result = await updateEmpleadoSubscription({
-      empleadoId: auth.empleado.id,
-      negocioId: auth.negocio.id,
-      cuentaOperativaId: auth.cuenta.id,
-      pushSubscription: null,
-    })
-
-    if (result.count !== 1) {
+    const body = await req.json().catch(() => ({}))
+    const subscription = parseUnsubscribeSubscription((body as { subscription?: unknown }).subscription)
+    if (!subscription) {
       return noStore(
         NextResponse.json(
-          { ok: false, error: "Acceso no disponible" },
-          { status: 403 }
+          { ok: false, error: "subscription es obligatorio" },
+          { status: 400 }
         )
       )
     }
 
+    // Logout-B1: coincidencia exacta contra el endpoint almacenado — si otro
+    // dispositivo de esta misma cuenta es el dueño actual, no se toca nada
+    // (removed:false, no es un error de autorizacion).
+    const result = await updateEmpleadoSubscription({
+      empleadoId: auth.empleado.id,
+      negocioId: auth.negocio.id,
+      cuentaOperativaId: auth.cuenta.id,
+      matchSubscription: subscription,
+      pushSubscription: null,
+    })
+
     return noStore(
       NextResponse.json({
         ok: true,
-        subscribed: false,
+        removed: result.count > 0,
       })
     )
   } catch (error) {
