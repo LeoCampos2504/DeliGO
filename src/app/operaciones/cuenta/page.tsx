@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Logo } from "@/components/shared/logo"
 import { toast } from "sonner"
+import { performOperativeLogout } from "@/lib/operativo-logout"
 
 // ============================================
 // DeliGO Operaciones — Mi cuenta (Bugfix-5C)
@@ -107,7 +108,7 @@ function CuentaContent() {
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch("/api/operativo/logout", { method: "POST", cache: "no-store" })
+      await performOperativeLogout()
     } finally {
       router.replace("/operaciones/ingresar")
     }

@@ -40,6 +40,7 @@ import { Logo } from "@/components/shared/logo"
 import { useInstallPrompt } from "@/hooks/use-install-prompt"
 import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
 import { urlBase64ToUint8Array } from "@/lib/push-subscription-key"
+import { getCurrentOperativePushSubscription, performOperativeLogout } from "@/lib/operativo-logout"
 import { cn, formatPrice } from "@/lib/utils"
 
 interface MesaOperativa {
@@ -689,9 +690,18 @@ export default function MozoSalonPanelPage() {
 
     try {
       setPushState("activating")
+      // Logout-B1: O1 exige coincidencia exacta contra el endpoint almacenado —
+      // sin la suscripcion capturada de este navegador no se envia el DELETE.
+      const subscription = await getCurrentOperativePushSubscription()
+      if (!subscription) {
+        throw new Error("No pudimos identificar la suscripcion de este dispositivo")
+      }
+
       const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
         cache: "no-store",
+        body: JSON.stringify({ subscription }),
       })
       const data = await res.json().catch(() => ({}))
 
@@ -934,10 +944,7 @@ export default function MozoSalonPanelPage() {
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch("/api/operativo/logout", {
-        method: "POST",
-        cache: "no-store",
-      })
+      await performOperativeLogout()
     } finally {
       setLoggingOut(false)
       router.replace(nav.loginHref)

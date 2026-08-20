@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
 import { urlBase64ToUint8Array } from "@/lib/push-subscription-key"
+import { getCurrentOperativePushSubscription } from "@/lib/operativo-logout"
 
 export type OperativoSalonPushState =
   | "checking"
@@ -177,7 +178,19 @@ export function useOperativoSalonPush(slug: string) {
 
     try {
       setState("activating")
-      const res = await fetch(endpoint, { method: "DELETE", cache: "no-store" })
+      // Logout-B1: O1 exige coincidencia exacta contra el endpoint almacenado —
+      // sin la suscripcion capturada de este navegador no se envia el DELETE.
+      const subscription = await getCurrentOperativePushSubscription()
+      if (!subscription) {
+        throw new Error("No pudimos identificar la suscripcion de este dispositivo")
+      }
+
+      const res = await fetch(endpoint, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ subscription }),
+      })
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {

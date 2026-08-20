@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
+import { performOperativeLogout } from "@/lib/operativo-logout"
 
 interface CuentaOperativa {
   id: string
@@ -286,10 +287,7 @@ export default function MozoPanelPage() {
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch("/api/operativo/logout", {
-        method: "POST",
-        cache: "no-store",
-      })
+      await performOperativeLogout()
     } finally {
       setState({ status: "no-session" })
       setLoggingOut(false)
