@@ -8,6 +8,31 @@ import {
 
 const session = { userId: "cliente-a", userType: "cliente" as const, sessionId: "session-a" }
 
+function decodeSignature(token: string): Buffer {
+  const signature = token.split(".")[2]
+  return Buffer.from(signature, "base64url")
+}
+
+// Test-only deterministic JWT signature tamper: changes the FIRST
+// character of the signature segment, which always carries 6 fully
+// meaningful bits. This is unlike the LAST character of a 32-byte HS256
+// signature, whose 2 low bits are unused base64url padding — mutating
+// that position can, for roughly 1 in 16 signatures, produce a
+// different token string that still decodes to the SAME signature
+// bytes, making verification pass and the test flake. Mutating the
+// first character instead guarantees a different decoded byte on every
+// call, deterministically, on the first attempt.
+function tamperJwtSignature(token: string): string {
+  const parts = token.split(".")
+  if (parts.length !== 3) throw new Error("Expected a 3-segment JWT")
+  const [header, payload, signature] = parts
+  if (signature.length === 0) throw new Error("Expected a non-empty JWT signature")
+  const first = signature[0]
+  const replacement = first === "A" ? "B" : "A"
+  const tamperedSignature = replacement + signature.slice(1)
+  return `${header}.${payload}.${tamperedSignature}`
+}
+
 beforeEach(() => {
   process.env.REALTIME_SOCKET_TOKEN_SECRET = "test-only-realtime-secret-01234567890123456789"
   process.env.REALTIME_KEY_ID = "testing-key"
@@ -27,7 +52,12 @@ describe("realtime signed credentials", () => {
 
   test("rejects tampered and expired actor tokens", async () => {
     const token = await issueSocketActorToken(session)
-    const tampered = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`
+    const tampered = tamperJwtSignature(token)
+    expect(tampered).not.toBe(token)
+    const originalSignatureBytes = decodeSignature(token)
+    const tamperedSignatureBytes = decodeSignature(tampered)
+    expect(tamperedSignatureBytes.length).toBe(originalSignatureBytes.length)
+    expect(tamperedSignatureBytes.equals(originalSignatureBytes)).toBe(false)
     await expect(verifySocketActorToken(tampered)).rejects.toThrow()
 
     const expired = await issueSocketActorToken({ ...session, expiresIn: -1 })
@@ -46,5 +76,13 @@ describe("realtime signed credentials", () => {
     expect(claims.pedidoId).toBe("pedido-a")
     expect(claims.scopes).toEqual(["chat:read", "chat:typing"])
     expect(claims.exp! - claims.iat!).toBe(120)
+
+    const tamperedCapability = tamperJwtSignature(token)
+    expect(tamperedCapability).not.toBe(token)
+    const originalSignatureBytes = decodeSignature(token)
+    const tamperedSignatureBytes = decodeSignature(tamperedCapability)
+    expect(tamperedSignatureBytes.length).toBe(originalSignatureBytes.length)
+    expect(tamperedSignatureBytes.equals(originalSignatureBytes)).toBe(false)
+    await expect(verifyRoomCapability(tamperedCapability)).rejects.toThrow()
   })
 })
