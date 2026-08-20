@@ -8,6 +8,7 @@ const chatView = () => readFileSync(fromSrc("components/chat/chat-view.tsx"), "u
 const chatProvider = () => readFileSync(fromSrc("providers/chat-provider.tsx"), "utf8")
 const chatFab = () => readFileSync(fromSrc("components/chat/chat-fab.tsx"), "utf8")
 const conversationList = () => readFileSync(fromSrc("components/chat/conversation-list.tsx"), "utf8")
+const chatHistoryResync = () => readFileSync(fromSrc("lib/chat-history-resync.ts"), "utf8")
 
 describe("Shared realtime Chat consumer contract", () => {
   test("ChatSheet uses the shared provider, leases both Chat scopes and subscribes through the registry", () => {
@@ -187,5 +188,111 @@ describe("Chat polling B2 — cadence ownership and UI-state-only gating contrac
   test("ChatSheet's existing room-lease effect is unchanged by the polling rework", () => {
     const source = chatSheet()
     expect(source).toContain('client.acquireOrderRoom(activePedidoId, ["chat:read", "chat:typing"], { signal: controller.signal })')
+  })
+})
+
+// SHARED REALTIME — CHAT ACTIVE-MESSAGE RESYNC — V6 LOCAL IMPLEMENTATION
+// FINAL: source-level contract for the active-message history recovery
+// design (see CODEX_REPORT.md for the full multi-correction rationale).
+describe("Chat active-message resync V6 — exact contract", () => {
+  test("no raw Socket.IO, direct realtime token/capability, or Internal Publish access anywhere in Chat", () => {
+    const source = `${chatSheet()}\n${chatView()}\n${chatHistoryResync()}`
+    for (const forbidden of [
+      "socket.io-client",
+      "socketRef",
+      "getSocket",
+      "socket.on",
+      "socket.off",
+      "socket.emit",
+      "io(",
+      "authorizeRealtimeRoom",
+      "fetchRealtimeToken",
+      "/internal/realtime/publish",
+      "REALTIME_INTERNAL_PUBLISH_SECRET",
+      "REALTIME_INTERNAL_SERVICE_URL",
+    ]) {
+      expect(source).not.toContain(forbidden)
+    }
+  })
+
+  test("no manager (RealtimeManager) domain mutation — chat-history-resync.ts never imports it", () => {
+    expect(chatHistoryResync()).not.toContain('from "@/lib/realtime-manager"')
+    expect(chatHistoryResync()).not.toContain("new RealtimeManager")
+  })
+
+  test("the pure helper never touches fetch/cookies/React itself (only documents that boundary in comments)", () => {
+    const source = chatHistoryResync()
+    // No client-component directive, no React import, no literal fetch()
+    // call, no cookie access — the module only owns injectable-timer
+    // deadline plumbing; the real fetch() call is supplied by the caller
+    // (ChatView) via the `operation` callback parameter.
+    expect(source).not.toContain('"use client"')
+    expect(source).not.toContain('from "react"')
+    expect(source).not.toContain("document.cookie")
+    expect(source).not.toContain("req.cookies")
+  })
+
+  test("history safety interval is exactly 90000ms and the request deadline is exactly 10000ms", () => {
+    const source = chatHistoryResync()
+    expect(source).toContain("ACTIVE_HISTORY_SAFETY_INTERVAL_MS = 90_000")
+    expect(source).toContain("ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS = 10_000")
+    expect(chatView()).toContain("ACTIVE_HISTORY_SAFETY_INTERVAL_MS")
+    expect(chatView()).toContain("ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS")
+  })
+
+  test("ChatView uses the shared chat-history-resync helper for coordination and reconciliation", () => {
+    const source = chatView()
+    expect(source).toContain('from "@/lib/chat-history-resync"')
+    expect(source).toContain("reconcileHistoryMessages")
+    expect(source).toContain("runHistoryRequestWithDeadline")
+  })
+
+  test("the exact Chat room coverage token is published only by ChatSheet and consumed only by ChatView", () => {
+    expect(chatSheet()).toContain("setCoverageToken(createCoverageToken(")
+    expect(chatView()).toContain("coverageToken")
+    expect(chatSheet()).toContain("coverageToken={coverageToken}")
+  })
+
+  test("the manager resync handler is registered as a plain (non-async) VOID callback — never awaiting history HTTP", () => {
+    const source = chatView()
+    const registerIndex = source.indexOf("client.registerResync((reason) => {")
+    expect(registerIndex).toBeGreaterThan(-1)
+    // Exact-shape check: a plain arrow function, not `async (reason) =>`,
+    // proves the manager's requestResync() Promise.allSettled never awaits
+    // Chat's own history fetch/reconciliation chain.
+    expect(source).not.toContain("client.registerResync(async")
+    expect(source).not.toContain("await triggerHistoryFetch")
+    expect(source).not.toContain("return triggerHistoryFetch")
+  })
+
+  test("initial-connect and reauth are denied history triggers; online is retained; room-rejoin is coverage-gated", () => {
+    const source = chatHistoryResync()
+    expect(source).toContain('case "online":\n      return true')
+    expect(source).toContain('case "room-rejoin":\n      return hasExactCoverage')
+    expect(source).toContain('case "initial-connect":')
+    expect(source).toContain('case "reauth":')
+  })
+
+  test("ChatView filters the manager resync callback through isHistoryResyncReasonAllowed, gated by the exact-coverage ref", () => {
+    const source = chatView()
+    expect(source).toContain("isHistoryResyncReasonAllowed(reason, hasExactCoverageForCurrentLifecycleRef.current)")
+  })
+
+  test("no active /conversaciones polling is restored inside ChatView, and no new /no-leidos owner is introduced", () => {
+    const source = chatView()
+    expect(source).not.toContain('fetch("/api/chat/conversaciones"')
+    expect(source).not.toContain('fetch("/api/chat/no-leidos"')
+  })
+
+  test("no coverage-token/auth/capability state is persisted to localStorage/sessionStorage anywhere in Chat", () => {
+    const source = `${chatSheet()}\n${chatView()}\n${chatHistoryResync()}`
+    expect(source).not.toContain("localStorage")
+    expect(source).not.toContain("sessionStorage")
+  })
+
+  test("the active-message history GET carries its own AbortController identity, distinct from the room-lease controller", () => {
+    const source = chatView()
+    expect(source).toContain("coordinatorRef")
+    expect(source).toContain("new AbortController()")
   })
 })

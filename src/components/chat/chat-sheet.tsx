@@ -15,6 +15,7 @@ import {
   selectConversationsPollInterval,
   shouldResyncTriggerChatCatchup,
 } from "@/lib/chat-polling"
+import { createCoverageToken, type ChatRoomCoverageToken } from "@/lib/chat-history-resync"
 
 function isDocumentVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible"
@@ -44,6 +45,15 @@ export function ChatSheet() {
   const activePedidoIdRef = useRef(activePedidoId)
   const [retryNonce, setRetryNonce] = useState(0)
   const [documentVisible, setDocumentVisible] = useState(isDocumentVisible)
+
+  // Exact Chat room coverage token (V6 Model B) — published ONLY from a
+  // CURRENT, non-cancelled acquireOrderRoom success below. Correlation
+  // metadata only: never authorization, never persisted, never sent to the
+  // server. See CODEX_REPORT.md, "SHARED REALTIME — CHAT ACTIVE-MESSAGE
+  // RESYNC — V6 LOCAL IMPLEMENTATION FINAL".
+  const actorKey = user ? `${user.type}:${user.id}` : null
+  const [coverageToken, setCoverageToken] = useState<ChatRoomCoverageToken | null>(null)
+  const coverageGenerationRef = useRef(0)
 
   // sole GET /api/chat/conversaciones production owner for the Chat UI —
   // one response is authoritative for both conversations and archived
@@ -135,6 +145,16 @@ export function ChatSheet() {
         }
         lease = nextLease
         client.markMessagesRead(activePedidoId)
+        // Exact Chat room coverage: publish a fresh token ONLY for this
+        // still-current acquire success — covers first join, manual retry
+        // (retryNonce), pedido reopen, and actor switch, each as a
+        // distinguishable fresh generation. A late/cancelled invocation's
+        // success (including a StrictMode-superseded first mount) never
+        // reaches here, since `cancelled` already returned above.
+        if (actorKey) {
+          coverageGenerationRef.current += 1
+          setCoverageToken(createCoverageToken(actorKey, activePedidoId, coverageGenerationRef.current))
+        }
       })
       .catch(() => {
         // HTTP polling and GET message authorization remain the fallback in this phase.
@@ -145,7 +165,7 @@ export function ChatSheet() {
       controller.abort()
       lease?.release()
     }
-  }, [activePedidoId, client, isSheetOpen, retryNonce, user?.id, user?.type])
+  }, [actorKey, activePedidoId, client, isSheetOpen, retryNonce, user?.id, user?.type])
 
   // Track tab visibility, drives the recurring-interval decision and the
   // foreground-episode coalescing below.
@@ -281,6 +301,7 @@ export function ChatSheet() {
           <ChatView
             pedidoId={activePedidoId}
             onBack={() => useChatStore.getState().closeConversation()}
+            coverageToken={coverageToken}
           />
         ) : (
           <div className="flex flex-col h-full">

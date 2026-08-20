@@ -31,6 +31,28 @@ import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { PdfViewerModal } from "./pdf-viewer-modal"
 import { useRealtime } from "@/hooks/use-realtime"
+import { applyForegroundEpisodeEvent, createForegroundEpisodeState } from "@/lib/chat-polling"
+import {
+  ACTIVE_HISTORY_SAFETY_INTERVAL_MS,
+  ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS,
+  buildLocalIdSet,
+  buildLocalIndexMap,
+  createHistoryCoordinatorState,
+  isFreshCoverageSignal,
+  isHistoryResyncReasonAllowed,
+  reconcileHistoryMessages,
+  resetHistoryCoordinatorState,
+  resolveCoverageBaseline,
+  runHistoryRequestWithDeadline,
+  settleHistoryFetch,
+  triggerSafetyIntervalTick,
+  triggerSemanticHistoryFetch,
+  type ChatRoomCoverageToken,
+} from "@/lib/chat-history-resync"
+
+function isDocumentVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState === "visible"
+}
 
 // ============================================
 // Types
@@ -38,6 +60,7 @@ import { useRealtime } from "@/hooks/use-realtime"
 interface ChatViewProps {
   pedidoId: string
   onBack: () => void
+  coverageToken: ChatRoomCoverageToken | null
 }
 
 interface PendingAttachment {
@@ -58,7 +81,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024     // 5MB
 // ============================================
 // Main ChatView Component
 // ============================================
-export function ChatView({ pedidoId, onBack }: ChatViewProps) {
+export function ChatView({ pedidoId, onBack, coverageToken }: ChatViewProps) {
   const {
     messages,
     pedidoInfo,
@@ -102,6 +125,35 @@ export function ChatView({ pedidoId, onBack }: ChatViewProps) {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isAtBottomRef = useRef(true)
 
+  // Active-message resync (V6): one semantic single-flight + queued
+  // post-flight catch-up coordinator per current ChatView lifecycle. The
+  // AbortController created for each history request IS this coordinator's
+  // opaque request-identity token — see chat-history-resync.ts.
+  const coordinatorRef = useRef(createHistoryCoordinatorState<AbortController>())
+  // True only after this lifecycle has observed its first fresh, matching
+  // exact Chat room coverage token — gates whether the manager's
+  // (imprecise) `room-rejoin` may trigger a catch-up. Reset on every fresh
+  // pedido/actor lifecycle.
+  const hasExactCoverageForCurrentLifecycleRef = useRef(false)
+  // `undefined` = no observation yet this lifecycle (baseline not seeded);
+  // `null` = seeded, but no matching token was present; a number = the
+  // last generation this lifecycle has already consumed as its baseline
+  // or as a genuine fresh signal.
+  const lastSeenCoverageGenerationRef = useRef<number | null | undefined>(undefined)
+  // True once ANY successful reconciliation has landed for this lifecycle
+  // — distinguishes "still establishing initial authority" (primary
+  // loading indicator, deferred error finalization) from "background
+  // catch-up" (silent, never disturbs the UI) for every subsequent
+  // request in the same lifecycle.
+  const hasCompletedInitialLoadRef = useRef(false)
+  // Live mirror of the current pedido's message array, read at the exact
+  // moment each request starts/settles — never a stale closure over
+  // `currentMessages`, and never a fetch-effect dependency (a new realtime
+  // message must not itself recreate the fetch/timer machinery).
+  const messagesRef = useRef<ChatMessage[]>(messages[pedidoId] || [])
+
+  const [documentVisible, setDocumentVisible] = useState(isDocumentVisible)
+
   const currentMessages = messages[pedidoId] || []
   const currentPedidoInfo = pedidoInfo[pedidoId]
   const currentTyping = typingUsers[pedidoId] || []
@@ -113,38 +165,191 @@ export function ChatView({ pedidoId, onBack }: ChatViewProps) {
       ? "vendedor"
       : "repartidor"
 
-  // Load messages
+  // Live mirror of the current pedido's messages, kept in sync but never
+  // used as a fetch-effect dependency (see messagesRef declaration above).
   useEffect(() => {
-    const controller = new AbortController()
-    let cancelled = false
-    const loadMessages = async () => {
-      setLoadingMessages(pedidoId, true)
-      try {
-        const res = await fetch(`/api/chat/mensajes/${pedidoId}`, { signal: controller.signal })
-        if (cancelled) return
-        if (!res.ok) {
-          toast.error("Error al cargar mensajes")
-          return
+    messagesRef.current = currentMessages
+  }, [currentMessages])
+
+  // Track tab visibility — drives the 90s active-visible safety cadence
+  // and the foreground-episode coalescing below. Mirrors ChatSheet's own
+  // identical pattern for /api/chat/conversaciones.
+  useEffect(() => {
+    const onVisibilityChange = () => setDocumentVisible(isDocumentVisible())
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange)
+  }, [])
+
+  // Executes one history GET under the frozen 10s application-level
+  // deadline, reconciles a successful response (V3/ORDER3_A), and hands
+  // the settlement to the coordinator — which may launch exactly one
+  // queued follow-up. `isPartOfInitialAuthority` governs UI visibility
+  // only (primary loading indicator, deferred error finalization); it
+  // never affects liveness/single-flight semantics, which are TO1-uniform
+  // regardless of success, ordinary failure, or timeout.
+  const runFetchFor = useCallback(
+    async (controller: AbortController, isPartOfInitialAuthority: boolean) => {
+      const requestStartIds = buildLocalIdSet(messagesRef.current)
+      const previousLocalIndexMap = buildLocalIndexMap(messagesRef.current)
+
+      if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, true)
+
+      const result = await runHistoryRequestWithDeadline(
+        controller,
+        ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS,
+        async () => {
+          const res = await fetch(`/api/chat/mensajes/${pedidoId}`, { signal: controller.signal })
+          if (!res.ok) throw new Error("history-http-error")
+          return (await res.json()) as { mensajes?: ChatMessage[]; pedido?: PedidoInfo }
+        },
+      )
+
+      const nextController = new AbortController()
+      const { state, action } = settleHistoryFetch(coordinatorRef.current, controller, nextController)
+      coordinatorRef.current = state
+
+      // Stale: lifecycle teardown already invalidated this request, or a
+      // newer request already superseded it. No store/UI mutation — the
+      // classic "old finally must never mutate a newer lifecycle" guard.
+      if (action.type !== "stale") {
+        if (result.ok) {
+          const reconciled = reconcileHistoryMessages({
+            serverMessages: result.value.mensajes || [],
+            requestStartIds,
+            previousLocalIndexMap,
+            liveLocalMessages: messagesRef.current,
+          })
+          setMessages(pedidoId, reconciled)
+          if (result.value.pedido) setPedidoInfo(pedidoId, result.value.pedido)
+          updateConversationUnread(pedidoId, 0)
+          hasCompletedInitialLoadRef.current = true
+          if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, false)
+        } else if (isPartOfInitialAuthority) {
+          if (action.type === "start") {
+            // A follow-up is about to run as a continuation of initial
+            // load authority — keep loading, no error toast yet, so a
+            // transient failure/timeout immediately healed by the next
+            // attempt never flashes an error to the user.
+          } else {
+            setLoadingMessages(pedidoId, false)
+            toast.error("Error al cargar mensajes")
+          }
         }
-        const data = await res.json()
-        if (cancelled) return
-        setMessages(pedidoId, data.mensajes || [])
-        setPedidoInfo(pedidoId, data.pedido)
-        updateConversationUnread(pedidoId, 0)
-      } catch {
-        if (cancelled) return
-        toast.error("Error al cargar mensajes")
-      } finally {
-        if (!cancelled) setLoadingMessages(pedidoId, false)
+        // Background (non-initial) failures are fully silent: no loading
+        // indicator touch, no toast, no spam under persistent failure —
+        // existing messages remain untouched and future attempts (90s
+        // safety tick, next semantic signal) remain available.
       }
-    }
-    void loadMessages()
+
+      if (action.type === "start") {
+        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current)
+      }
+    },
+    [pedidoId, setLoadingMessages, setMessages, setPedidoInfo, updateConversationUnread],
+  )
+
+  // Single entry point for every non-mount history trigger: an allowed
+  // manager resync reason, the exact ChatSheet coverage signal, the local
+  // foreground episode, or the 90s safety tick. Always synchronous/void —
+  // the manager's resync handler must never await Chat's history HTTP.
+  const triggerHistoryFetch = useCallback(
+    (kind: "semantic" | "safety") => {
+      const nextController = new AbortController()
+      const { state, action } =
+        kind === "semantic"
+          ? triggerSemanticHistoryFetch(coordinatorRef.current, nextController)
+          : triggerSafetyIntervalTick(coordinatorRef.current, nextController)
+      coordinatorRef.current = state
+      if (action.type === "start") {
+        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current)
+      }
+    },
+    [runFetchFor],
+  )
+
+  // Lifecycle-scoped coordinator: resets all per-lifecycle state, performs
+  // the immediate mount GET (never waits for socket/room coverage), and
+  // registers the manager resync handler (VOID — fire-and-forget). This
+  // reset deliberately lives inside the effect body itself (keyed on
+  // `pedidoId`/actor identity), NOT only in a fresh useRef initializer:
+  // ChatSheet has no `key` on <ChatView>, and chat-provider.tsx's
+  // useChatDeepLink can call openConversation(B) — via a focus/
+  // visibilitychange-triggered notification deep link — while ChatView is
+  // already showing a DIFFERENT pedido A, producing a direct A->B prop
+  // update on the SAME component instance rather than an unmount/remount.
+  // Resetting here, not only on mount, is what keeps that path correct.
+  useEffect(() => {
+    coordinatorRef.current = resetHistoryCoordinatorState()
+    hasExactCoverageForCurrentLifecycleRef.current = false
+    lastSeenCoverageGenerationRef.current = undefined
+    hasCompletedInitialLoadRef.current = false
+
+    triggerHistoryFetch("semantic")
+
+    const unregisterResync = client.registerResync((reason) => {
+      if (isHistoryResyncReasonAllowed(reason, hasExactCoverageForCurrentLifecycleRef.current)) {
+        triggerHistoryFetch("semantic")
+      }
+    })
+
     return () => {
-      cancelled = true
-      controller.abort()
+      const controller = coordinatorRef.current.currentToken
+      if (controller) controller.abort()
+      coordinatorRef.current = resetHistoryCoordinatorState()
+      unregisterResync()
       if (isCurrentActor()) setLoadingMessages(pedidoId, false)
     }
-  }, [isCurrentActor, pedidoId, setMessages, setPedidoInfo, setLoadingMessages, updateConversationUnread])
+  }, [client, isCurrentActor, pedidoId, setLoadingMessages, triggerHistoryFetch])
+
+  // Exact Chat room coverage token consumption. A token already held by
+  // ChatSheet when this lifecycle mounts is seeded as a baseline only —
+  // never treated as a fresh event merely because the initial prop is
+  // non-null. Only a LATER generation change, matching this lifecycle's
+  // own actor+pedido identity, is fresh and triggers exactly one catch-up.
+  useEffect(() => {
+    if (!actorKey) return
+    if (lastSeenCoverageGenerationRef.current === undefined) {
+      lastSeenCoverageGenerationRef.current = resolveCoverageBaseline(coverageToken, actorKey, pedidoId)
+      return
+    }
+    if (coverageToken && isFreshCoverageSignal(coverageToken, actorKey, pedidoId, lastSeenCoverageGenerationRef.current)) {
+      lastSeenCoverageGenerationRef.current = coverageToken.generation
+      hasExactCoverageForCurrentLifecycleRef.current = true
+      triggerHistoryFetch("semantic")
+    }
+  }, [actorKey, coverageToken, pedidoId, triggerHistoryFetch])
+
+  // 90s active-visible full-history safety poll (TIMER_A: fixed cadence,
+  // tick silently skipped — never queued — while a request is already in
+  // flight). Fully suspended (no timer at all) while the tab is hidden.
+  useEffect(() => {
+    if (!documentVisible) return
+    const interval = setInterval(() => triggerHistoryFetch("safety"), ACTIVE_HISTORY_SAFETY_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [documentVisible, pedidoId, triggerHistoryFetch])
+
+  // Local foreground-episode catch-up — the manager's own `"foreground"`
+  // resync reason is deliberately denied (see isHistoryResyncReasonAllowed);
+  // Chat owns this transition directly, coalescing a hidden/blur episode
+  // and the following visible/focus event into exactly one catch-up.
+  useEffect(() => {
+    const episode = createForegroundEpisodeState(isDocumentVisible())
+    const handle = (event: "blur" | "hidden" | "visible" | "focus") => {
+      const result = applyForegroundEpisodeEvent(episode, event, isDocumentVisible())
+      if (result.shouldCatchup) triggerHistoryFetch("semantic")
+    }
+    const onVisibilityChange = () => handle(document.visibilityState === "visible" ? "visible" : "hidden")
+    const onBlur = () => handle("blur")
+    const onFocus = () => handle("focus")
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("blur", onBlur)
+    window.addEventListener("focus", onFocus)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("blur", onBlur)
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [pedidoId, triggerHistoryFetch])
 
   // Auto-scroll to bottom
   useEffect(() => {
