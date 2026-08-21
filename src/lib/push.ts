@@ -495,7 +495,8 @@ export function newReviewNotification(
 export function chatMessageNotification(
   pedidoId: string,
   senderName: string,
-  messagePreview: string
+  messagePreview: string,
+  messageId?: string
 ): PushNotificationPayload {
   return {
     title: `Mensaje de ${senderName}`,
@@ -504,6 +505,7 @@ export function chatMessageNotification(
     data: {
       type: "chat",
       pedidoId,
+      ...(messageId ? { messageId } : {}),
     },
   }
 }

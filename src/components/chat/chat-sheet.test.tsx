@@ -93,3 +93,107 @@ describe("ChatSheet — exact Chat room coverage token publication", () => {
     expect(chatSheetSource()).not.toContain("client.ensureConnected()")
   })
 })
+
+// D2 — Foreground Push / Socket Dedupe. No DOM rendering dependency is
+// introduced here either — same source-level assertion strategy as above.
+// The pure eligibility/geometry predicates are exhaustively unit-tested in
+// src/lib/chat-push-presentation.test.ts, and the commit/consumption logic
+// in src/hooks/use-chat-message-presentation-commit.test.ts; this file
+// verifies ChatSheet actually creates and threads the candidate correctly.
+describe("ChatSheet — D2 presentation-candidate creation and threading", () => {
+  test("imports evaluateReceiptEligibility from the pure presentation-predicates module", () => {
+    const source = chatSheetSource()
+    expect(source).toContain('from "@/lib/chat-push-presentation"')
+    expect(source).toContain("evaluateReceiptEligibility")
+  })
+
+  test("candidate creation lives inside the new-message handler, after the existing unread-bump block", () => {
+    const source = chatSheetSource()
+    const unreadBlockIndex = source.indexOf("updateConversationUnread(message.pedidoId, conv.unreadCount + 1)")
+    const eligibilityCallIndex = source.indexOf("evaluateReceiptEligibility({")
+    const setCandidateIndex = source.indexOf("setPresentationCandidate({")
+    expect(unreadBlockIndex).toBeGreaterThan(-1)
+    expect(eligibilityCallIndex).toBeGreaterThan(-1)
+    expect(setCandidateIndex).toBeGreaterThan(-1)
+    expect(eligibilityCallIndex).toBeGreaterThan(unreadBlockIndex)
+    expect(setCandidateIndex).toBeGreaterThan(eligibilityCallIndex)
+  })
+
+  test("history/catch-up loading never creates a presentation candidate — setPresentationCandidate appears exactly once, inside new-message only", () => {
+    const source = chatSheetSource()
+    const matches = source.match(/setPresentationCandidate\(/g)
+    expect(matches?.length).toBe(1)
+  })
+
+  test("candidate shape carries exactly the frozen fields: messageId, pedidoId, actorKey, generation, episodeGeneration", () => {
+    const source = chatSheetSource()
+    const start = source.indexOf("setPresentationCandidate({")
+    const block = source.slice(start, start + 260)
+    for (const field of ["messageId: message.id", "pedidoId: message.pedidoId", "actorKey,", "generation: presentationGenerationRef.current", "episodeGeneration: presentationEpisodeGenerationRef.current"]) {
+      expect(block).toContain(field)
+    }
+  })
+
+  test("candidate generation is single-slot and monotonic via a dedicated ref, never an array/queue", () => {
+    const source = chatSheetSource()
+    expect(source).toContain("presentationGenerationRef.current += 1")
+    expect(source).toContain("useState<ChatMessagePresentationCandidate | null>(null)")
+    for (const forbidden of ["presentationCandidates", "candidateQueue", "candidates.push"]) {
+      expect(source).not.toContain(forbidden)
+    }
+  })
+
+  test("episode key/generation refs exist and are keyed on isSheetOpen, activePedidoId, actorKey", () => {
+    const source = chatSheetSource()
+    expect(source).toContain("presentationEpisodeGenerationRef")
+    expect(source).toContain("presentationEpisodeKeyRef")
+    expect(source).toContain('`${String(isSheetOpen)}:${activePedidoId ?? ""}:${actorKey ?? ""}`')
+  })
+
+  test("episode publication uses useLayoutEffect, not useEffect, and is commit-synchronous", () => {
+    const source = chatSheetSource()
+    const keyLineIndex = source.indexOf('const key = `${String(isSheetOpen)}:${activePedidoId ?? ""}:${actorKey ?? ""}`')
+    expect(keyLineIndex).toBeGreaterThan(-1)
+    const precedingSlice = source.slice(Math.max(0, keyLineIndex - 200), keyLineIndex)
+    expect(precedingSlice).toContain("useLayoutEffect(() => {")
+  })
+
+  test("the very first render only seeds the episode key baseline — it never increments the generation", () => {
+    const source = chatSheetSource()
+    const layoutEffectStart = source.indexOf('const key = `${String(isSheetOpen)}:${activePedidoId ?? ""}:${actorKey ?? ""}`')
+    const block = source.slice(layoutEffectStart, layoutEffectStart + 400)
+    expect(block).toContain("presentationEpisodeKeyRef.current === null")
+    expect(block).toContain("presentationEpisodeKeyRef.current = key\n      return")
+  })
+
+  test("ChatView receives presentationCandidate and currentEpisodeGeneration as typed props", () => {
+    const source = chatSheetSource()
+    expect(source).toContain("presentationCandidate={presentationCandidate}")
+    expect(source).toContain("currentEpisodeGeneration={presentationEpisodeGenerationRef.current}")
+  })
+
+  test("ChatSheet never talks to the Service Worker directly — no postMessage, no navigator.serviceWorker", () => {
+    const source = chatSheetSource()
+    expect(source).not.toContain("postMessage")
+    expect(source).not.toContain("navigator.serviceWorker")
+    expect(source).not.toContain("notifyServiceWorkerMessagePresented")
+  })
+
+  test("ChatSheet never mutates read-receipt/unread state as part of candidate creation — the existing unread block is untouched", () => {
+    const source = chatSheetSource()
+    expect(source).toContain(
+      "if (message.remitente !== getRemitenteForUserType(user.type)) {\n" +
+        "          const conv = conversationsRef.current.find((conversation) => conversation.pedidoId === message.pedidoId)\n" +
+        "          if (conv && activePedidoIdRef.current !== message.pedidoId) {\n" +
+        "            updateConversationUnread(message.pedidoId, conv.unreadCount + 1)\n" +
+        "          }\n" +
+        "        }",
+    )
+  })
+
+  test("isSheetOpenRef mirrors isSheetOpen, matching the existing activePedidoIdRef mirror pattern", () => {
+    const source = chatSheetSource()
+    expect(source).toContain("const isSheetOpenRef = useRef(isSheetOpen)")
+    expect(source).toContain("isSheetOpenRef.current = isSheetOpen")
+  })
+})

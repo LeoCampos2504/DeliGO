@@ -49,6 +49,10 @@ import {
   triggerSemanticHistoryFetch,
   type ChatRoomCoverageToken,
 } from "@/lib/chat-history-resync"
+import {
+  useChatMessagePresentationCommit,
+  type ChatMessagePresentationCandidate,
+} from "@/hooks/use-chat-message-presentation-commit"
 
 function isDocumentVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible"
@@ -61,6 +65,8 @@ interface ChatViewProps {
   pedidoId: string
   onBack: () => void
   coverageToken: ChatRoomCoverageToken | null
+  presentationCandidate: ChatMessagePresentationCandidate | null
+  currentEpisodeGeneration: number
 }
 
 interface PendingAttachment {
@@ -81,13 +87,20 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024     // 5MB
 // ============================================
 // Main ChatView Component
 // ============================================
-export function ChatView({ pedidoId, onBack, coverageToken }: ChatViewProps) {
+export function ChatView({
+  pedidoId,
+  onBack,
+  coverageToken,
+  presentationCandidate,
+  currentEpisodeGeneration,
+}: ChatViewProps) {
   const {
     messages,
     pedidoInfo,
     typingUsers,
     isLoadingMessages,
     isSending,
+    isSheetOpen,
     setMessages,
     addMessage,
     setPedidoInfo,
@@ -328,6 +341,30 @@ export function ChatView({ pedidoId, onBack, coverageToken }: ChatViewProps) {
     return () => clearInterval(interval)
   }, [documentVisible, pedidoId, triggerHistoryFetch])
 
+  // D2 — Foreground Push / Socket Dedupe. Owns the sole decision of whether
+  // a committed candidate has genuinely been presented to the user; see
+  // use-chat-message-presentation-commit.ts for the frozen K2/L2/P4B model.
+  // Declared here (before the foreground-episode effect below, which reads
+  // invalidatePendingPresentationRef) so the read-before-use isn't purely a
+  // closure-timing argument — it's also true in source order.
+  const { notifyContainerScrolled, invalidatePendingPresentation } = useChatMessagePresentationCommit({
+    presentationCandidate,
+    currentEpisodeGeneration,
+    currentMessages,
+    pedidoId,
+    actorKey: actorKey ?? "",
+    isSheetOpen,
+    messagesContainerRef,
+  })
+  // Read live from the foreground-episode effect below without adding it to
+  // that effect's dependency array — this callback's identity changes on
+  // every new candidate, and re-running that effect would reset its
+  // hidden/blur coalescing state mid-episode.
+  const invalidatePendingPresentationRef = useRef(invalidatePendingPresentation)
+  useEffect(() => {
+    invalidatePendingPresentationRef.current = invalidatePendingPresentation
+  }, [invalidatePendingPresentation])
+
   // Local foreground-episode catch-up — the manager's own `"foreground"`
   // resync reason is deliberately denied (see isHistoryResyncReasonAllowed);
   // Chat owns this transition directly, coalescing a hidden/blur episode
@@ -335,6 +372,7 @@ export function ChatView({ pedidoId, onBack, coverageToken }: ChatViewProps) {
   useEffect(() => {
     const episode = createForegroundEpisodeState(isDocumentVisible())
     const handle = (event: "blur" | "hidden" | "visible" | "focus") => {
+      if (event === "hidden" || event === "blur") invalidatePendingPresentationRef.current()
       const result = applyForegroundEpisodeEvent(episode, event, isDocumentVisible())
       if (result.shouldCatchup) triggerHistoryFetch("semantic")
     }
@@ -364,7 +402,12 @@ export function ChatView({ pedidoId, onBack, coverageToken }: ChatViewProps) {
     const el = e.currentTarget
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
     isAtBottomRef.current = atBottom
-  }, [])
+    notifyContainerScrolled({
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+      clientHeight: el.clientHeight,
+    })
+  }, [notifyContainerScrolled])
 
   // Upload file to Cloudinary
   const uploadFileToCloudinary = useCallback(

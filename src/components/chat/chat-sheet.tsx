@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useCallback, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from "react"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
@@ -16,6 +16,8 @@ import {
   shouldResyncTriggerChatCatchup,
 } from "@/lib/chat-polling"
 import { createCoverageToken, type ChatRoomCoverageToken } from "@/lib/chat-history-resync"
+import { evaluateReceiptEligibility } from "@/lib/chat-push-presentation"
+import type { ChatMessagePresentationCandidate } from "@/hooks/use-chat-message-presentation-commit"
 
 function isDocumentVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible"
@@ -55,6 +57,28 @@ export function ChatSheet() {
   const [coverageToken, setCoverageToken] = useState<ChatRoomCoverageToken | null>(null)
   const coverageGenerationRef = useRef(0)
 
+  // D2 — Foreground Push / Socket Dedupe. `presentationCandidate` is a
+  // single-slot, newest-replaces-oldest pending "the user may have just
+  // seen this message" signal, created only at receipt time (never for
+  // history loads) and consumed by ChatView's presentation-commit hook.
+  // `isSheetOpenRef` mirrors the same pattern as `activePedidoIdRef` above:
+  // the realtime-subscription effect below is keyed only on user id/type,
+  // so its `new-message` closure would otherwise read a stale `isSheetOpen`.
+  const isSheetOpenRef = useRef(isSheetOpen)
+  const [presentationCandidate, setPresentationCandidate] =
+    useState<ChatMessagePresentationCandidate | null>(null)
+  const presentationGenerationRef = useRef(0)
+  // Episode generation: increments only on a genuine pedido/actor/sheet
+  // transition (see the layout effect below), never on unrelated
+  // re-renders. Deliberately a ref, not state — a same-commit transition's
+  // props to ChatView must still observe the PRE-increment value for that
+  // one render (the increment lands in a later layout effect within the
+  // same commit and cannot retroactively rewrite already-passed props);
+  // this is why candidate eligibility also compares direct pedido/actor/
+  // sheet fields rather than relying on episode equality alone.
+  const presentationEpisodeGenerationRef = useRef(0)
+  const presentationEpisodeKeyRef = useRef<string | null>(null)
+
   // sole GET /api/chat/conversaciones production owner for the Chat UI —
   // one response is authoritative for both conversations and archived
   // (see src/lib/chat-polling.ts and the focal design correction).
@@ -72,6 +96,28 @@ export function ChatSheet() {
     conversationsRef.current = conversations
     activePedidoIdRef.current = activePedidoId
   }, [activePedidoId, conversations])
+
+  useEffect(() => {
+    isSheetOpenRef.current = isSheetOpen
+  }, [isSheetOpen])
+
+  // D2 — episode generation: a monotonic counter bumped once per genuine
+  // (pedido, actor, sheet-open) transition. `useLayoutEffect` (not
+  // `useEffect`) so the bump is commit-synchronous and ordered before any
+  // subsequent browser event the presentation-commit hook might react to.
+  // The very first render only establishes the baseline key — it must
+  // never count as a "transition" (there is nothing to invalidate yet).
+  useLayoutEffect(() => {
+    const key = `${String(isSheetOpen)}:${activePedidoId ?? ""}:${actorKey ?? ""}`
+    if (presentationEpisodeKeyRef.current === null) {
+      presentationEpisodeKeyRef.current = key
+      return
+    }
+    if (presentationEpisodeKeyRef.current !== key) {
+      presentationEpisodeKeyRef.current = key
+      presentationEpisodeGenerationRef.current += 1
+    }
+  }, [isSheetOpen, activePedidoId, actorKey])
 
   // Shared subscription registry: Chat owns no physical socket or raw listener.
   useEffect(() => {
@@ -93,6 +139,28 @@ export function ChatSheet() {
           if (conv && activePedidoIdRef.current !== message.pedidoId) {
             updateConversationUnread(message.pedidoId, conv.unreadCount + 1)
           }
+        }
+
+        if (
+          actorKey &&
+          message.id &&
+          evaluateReceiptEligibility({
+            isOwnMessage: message.remitente === getRemitenteForUserType(user.type),
+            isSheetOpen: isSheetOpenRef.current,
+            messagePedidoId: message.pedidoId,
+            activePedidoId: activePedidoIdRef.current,
+            isDocumentVisible: isDocumentVisible(),
+            isDocumentFocused: document.hasFocus(),
+          })
+        ) {
+          presentationGenerationRef.current += 1
+          setPresentationCandidate({
+            messageId: message.id,
+            pedidoId: message.pedidoId,
+            actorKey,
+            generation: presentationGenerationRef.current,
+            episodeGeneration: presentationEpisodeGenerationRef.current,
+          })
         }
       }),
       client.subscribe("user-typing", (data) => {
@@ -302,6 +370,8 @@ export function ChatSheet() {
             pedidoId={activePedidoId}
             onBack={() => useChatStore.getState().closeConversation()}
             coverageToken={coverageToken}
+            presentationCandidate={presentationCandidate}
+            currentEpisodeGeneration={presentationEpisodeGenerationRef.current}
           />
         ) : (
           <div className="flex flex-col h-full">

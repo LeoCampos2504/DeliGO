@@ -318,7 +318,58 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+  if (event.data && event.data.type === "CHAT_MESSAGE_PRESENTED") {
+    recordPresentedChatMessage(event.data.messageId);
+  }
 });
+
+// ============================================
+// D2 — Foreground Push / Socket Dedupe
+// ============================================
+// Cuando un mensaje de Chat ya se le mostró al usuario en tiempo real (vía
+// socket, con la conversación efectivamente foreground), el cliente avisa acá
+// vía postMessage para que la Push de OS redundante para ese mismo mensaje se
+// suprima. Fail-open por diseño: cualquier duda (falta de entrada, entrada
+// vencida, registro corrupto/reiniciado, tipo != chat) hace que la Push se
+// MUESTRE igual — una notificación duplicada es aceptable, una perdida no.
+const CHAT_PRESENTED_TTL_MS = 45000;
+const CHAT_PRESENTED_MAX_ENTRIES = 200;
+// messageId -> expiresAt (epoch ms). Vive solo en memoria del SW: un reinicio
+// del SW lo vacía por completo, lo cual es intencional (fail-open).
+const presentedChatMessages = new Map();
+
+function recordPresentedChatMessage(messageId) {
+  if (typeof messageId !== "string" || messageId.length === 0) return;
+  const now = Date.now();
+  // Purga oportunista de vencidos antes de insertar, para no acumular basura.
+  for (const [id, expiresAt] of presentedChatMessages) {
+    if (expiresAt <= now) presentedChatMessages.delete(id);
+  }
+  if (
+    presentedChatMessages.size >= CHAT_PRESENTED_MAX_ENTRIES &&
+    !presentedChatMessages.has(messageId)
+  ) {
+    // Eviction determinística del más viejo (primera clave insertada, según
+    // el orden de iteración garantizado de Map).
+    const oldestKey = presentedChatMessages.keys().next().value;
+    if (oldestKey !== undefined) presentedChatMessages.delete(oldestKey);
+  }
+  presentedChatMessages.set(messageId, now + CHAT_PRESENTED_TTL_MS);
+}
+
+// true SOLO si hay una entrada válida y no vencida para este messageId.
+// Cualquier otro caso (falta el id, tipo distinto de chat, no hay entrada,
+// entrada vencida) devuelve false — es decir, "mostrar la Push".
+function wasChatMessageAlreadyPresented(messageId) {
+  if (typeof messageId !== "string" || messageId.length === 0) return false;
+  const expiresAt = presentedChatMessages.get(messageId);
+  if (expiresAt === undefined) return false;
+  if (expiresAt <= Date.now()) {
+    presentedChatMessages.delete(messageId);
+    return false;
+  }
+  return true;
+}
 
 // Push notification event
 self.addEventListener("push", (event) => {
@@ -373,6 +424,17 @@ self.addEventListener("push", (event) => {
       actions: data.actions || [],
       requireInteraction: data.requireInteraction || false,
     };
+
+    // D2 — solo para Chat, y solo si el messageId real fue marcado como
+    // efectivamente presentado en foreground: cualquier otro caso (tipo
+    // distinto, sin messageId, entrada vencida/ausente) sigue mostrando la
+    // Push normalmente (fail-open).
+    if (
+      notifType === "chat" &&
+      wasChatMessageAlreadyPresented(data.data?.messageId)
+    ) {
+      return;
+    }
 
     event.waitUntil(self.registration.showNotification(title, options));
   } catch {

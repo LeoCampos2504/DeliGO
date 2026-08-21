@@ -374,7 +374,7 @@ export async function POST(
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
         })
-        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview)
+        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview, mensaje.id)
         await createNotification({
           userId: pedido.negocioId,
           userType: "negocio",
@@ -397,7 +397,7 @@ export async function POST(
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview)
+        const chatPayload = chatMessageNotification(pedidoId, senderName, messagePreview, mensaje.id)
         await createNotification({
           userId: pedido.clienteId,
           userType: "cliente",
