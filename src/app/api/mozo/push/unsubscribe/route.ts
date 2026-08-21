@@ -4,6 +4,15 @@ import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
+// Ownership-B2: `subscription`, cuando se pasa, exige coincidencia EXACTA
+// contra el valor ya almacenado antes de limpiar — nunca un blind clear por
+// sólo empleado.id. Mismo patrón ya certificado en /api/push/unsubscribe y en
+// /api/operativo/{mozo,salon}/panel/[slug]/push-subscription DELETE.
+function parseUnsubscribeSubscription(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null
+  return value
+}
+
 // POST /api/mozo/push/unsubscribe - Remove push subscription for a mozo
 export async function POST(req: NextRequest) {
   try {
@@ -36,12 +45,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Token de mozo invalido" }, { status: 401 })
     }
 
-    await db.empleado.update({
-      where: { id: empleado.id },
+    const subscription = parseUnsubscribeSubscription((body as { subscription?: unknown }).subscription)
+    if (!subscription) {
+      return NextResponse.json(
+        { error: "subscription es obligatorio" },
+        { status: 400 }
+      )
+    }
+
+    // Ownership-B2: coincidencia exacta contra la subscription almacenada —
+    // si otro dispositivo de este mismo mozoToken es hoy el dueño real, no
+    // se toca nada (removed:false, no es un error de autorización).
+    const result = await db.empleado.updateMany({
+      where: { id: empleado.id, pushSubscription: subscription },
       data: { pushSubscription: null },
     })
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, removed: result.count > 0 })
   } catch (error) {
     console.error("Error removing mozo push subscription:", safeErrorForLog(error))
     return NextResponse.json(

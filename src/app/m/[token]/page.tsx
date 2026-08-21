@@ -269,13 +269,19 @@ export default function MozoPage() {
     try {
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.getSubscription()
+      // Ownership-B2: serializar la subscription ANTES de retirarla
+      // físicamente — el servidor exige el valor exacto para hacer un clear
+      // ownership-matched (nunca un blind clear por sólo mozoToken).
+      const subscriptionJson = subscription ? JSON.stringify(subscription) : null
       if (subscription) await subscription.unsubscribe()
 
-      await fetch("/api/mozo/push/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mozoToken: token }),
-      })
+      if (subscriptionJson) {
+        await fetch("/api/mozo/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mozoToken: token, subscription: subscriptionJson }),
+        })
+      }
 
       setIsPushSubscribed(false)
       setMozoInfo(prev => prev ? { ...prev, hasPushSubscription: false } : prev)
