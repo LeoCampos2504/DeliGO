@@ -6,8 +6,68 @@ const { parseAndValidateEnvelope } = require("./internal-publish-schema")
 
 const INTERNAL_PUBLISH_PATH = "/internal/realtime/publish"
 const INTERNAL_BODY_LIMIT_BYTES = 32 * 1024
-const INTERNAL_RATE_LIMIT_MAX = 600
+// Shared sliding-window duration for every limiter below (emergency + both
+// per-family budgets) — only the per-bucket MAX differs. Hardcoded per
+// P2-T03 Stage 2 §8 (window override is not exposed via env; only the three
+// max thresholds are).
 const INTERNAL_RATE_LIMIT_WINDOW_MS = 60 * 1000
+
+// P2-T03 Stage 1 found a single 600/min bucket shared by every event type,
+// which let Tracking and Chat starve each other's realtime delivery under
+// legitimate load (F-P0-01). Stage 2 replaces it with two isolated
+// per-family budgets sized from the Stage 1 capacity model, PLUS a mandatory
+// (not optional — Stage 1 called it optional, Stage 2 hardened it because
+// family selection now happens AFTER schema parsing, which would otherwise
+// let an authenticated-but-malformed envelope bypass every rate budget)
+// global emergency ceiling that runs BEFORE schema parsing, in the exact
+// spot the old shared limiter used to run, so such a request still hits a
+// bound before any family can even be selected.
+//
+// DEFAULT_TRACKING_RATE_LIMIT_MAX=1800: 3x the old shared ceiling. At the
+// current re-derived normal cadence of 12 publishes/min per eligible
+// delivery (src/hooks/use-repartidor-tracking.ts, unchanged by P2-T01),
+// this clears the Stage 1 capacity-table failure point of 720/min (20
+// couriers x3 simultaneous deliveries) with ~2.5x headroom, and the 30
+// couriers x3 scenario (1080/min) with ~1.67x headroom.
+const DEFAULT_TRACKING_RATE_LIMIT_MAX = 1800
+// DEFAULT_CHAT_RATE_LIMIT_MAX=600: the former shared ceiling, now Chat's own
+// exclusive bucket instead of a number shared (and contested) with
+// Tracking. Chat's own upstream per-actor limiter is already 30/min per
+// (ip,userId) (src/lib/rate-limit.ts), so 600/min supports 20 simultaneous
+// senders each saturating their own upstream maximum — isolation from
+// Tracking is what fixes the starvation, not a need to raise this number.
+const DEFAULT_CHAT_RATE_LIMIT_MAX = 600
+// DEFAULT_EMERGENCY_RATE_LIMIT_MAX=3000: strictly above
+// DEFAULT_TRACKING_RATE_LIMIT_MAX + DEFAULT_CHAT_RATE_LIMIT_MAX (2400), so
+// fully valid traffic that already respects both family budgets can never
+// be bottlenecked by this ceiling first — it exists only as a bound on
+// total authenticated request work per process (defense-in-depth against
+// internal loops/bugs/a compromised secret, or authenticated-but-malformed
+// envelopes that consume this budget without ever reaching a family — see
+// resolveEmergencyRateLimitMax()'s invariant enforcement below).
+const DEFAULT_EMERGENCY_RATE_LIMIT_MAX = 3000
+// P2-T03 Stage 3 focal correction: the invariant "the emergency ceiling can
+// never become the bottleneck for traffic that already respects both family
+// budgets" must hold STRICTLY (with real margin), not just as an equality,
+// for every valid configuration — not only for the hardcoded defaults above.
+// resolveEmergencyRateLimitMax() originally clamped only up to familySum
+// itself, which meant a family override combination whose sum exceeded
+// DEFAULT_EMERGENCY_RATE_LIMIT_MAX (e.g. trackingMax=2400, chatMax=600)
+// silently collapsed the emergency ceiling to exactly familySum — zero
+// headroom left for authenticated-but-malformed/pre-schema traffic, even
+// though fully valid family-respecting traffic would already be right at
+// the ceiling. MIN_EMERGENCY_HEADROOM restores the same 600/min margin the
+// hardcoded defaults already have (3000 - 1800 - 600 = 600) as an explicit,
+// always-enforced floor: engineering headroom for this already-selected
+// design, not a business/SLA capacity target, and not something a human
+// decision is needed for.
+const INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM = 600
+// Sane upper bound for any of the three optional env overrides below — large
+// enough to never constrain a legitimate production value, small enough that
+// a malformed/absurd env value (e.g. an accidentally-pasted timestamp) can
+// never be mistaken for an intentional configuration.
+const INTERNAL_RATE_LIMIT_ENV_MAX_BOUND = 1_000_000
+
 const INTERNAL_EVENT_DEDUPE_TTL_MS = 120 * 1000
 // Separate, much shorter TTL cache used only for cross-path Tracking
 // correlation (Internal Publish Bridge vs the legacy location-update socket
@@ -40,6 +100,83 @@ const EVENT_MAPPING = {
   "tracking.location.updated": { event: "repartidor-location", requiredRecipientScope: "tracking:watch" },
 }
 
+// Rate-limit family for each accepted event type — deliberately every key in
+// EVENT_MAPPING must resolve to a family here (checked defensively at
+// request time in handleInternalPublish; see the "unresolved_family"
+// fail-closed branch), so a future new EVENT_MAPPING entry added without a
+// matching family never becomes an unbounded/no-limit event type by
+// omission. chat.messages.read has no productive publisher anywhere in the
+// app today (P2-T03 Stage 1 §PRODUCER_INVENTORY) but is still bound to the
+// "chat" family so its dormant capacity can never bypass rate limiting if a
+// producer is added later.
+const EVENT_TYPE_FAMILY = {
+  "chat.message.created": "chat",
+  "chat.messages.read": "chat",
+  "tracking.location.updated": "tracking",
+}
+
+// Validates an optional numeric env override for one of the three internal
+// publish rate limits: must be a finite positive integer within a sane
+// bound, otherwise the caller's hardcoded fallback is used untouched. Never
+// turns a missing/malformed/zero/negative/absurd value into "disabled" or
+// "unlimited" — always resolves to a concrete, safe positive integer.
+function parsePositiveIntEnv(rawValue, fallback, maxBound = INTERNAL_RATE_LIMIT_ENV_MAX_BOUND) {
+  if (rawValue === undefined || rawValue === null || rawValue === "") return fallback
+  const parsed = Number(rawValue)
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0 || parsed > maxBound) {
+    return fallback
+  }
+  return parsed
+}
+
+// Resolves the two per-family maxima from their optional env overrides (see
+// P2-T03 Stage 2 §8/§10 — non-secret, no new Railway variable required for
+// default behavior; these are only read if present).
+function resolveFamilyRateLimitMax() {
+  return {
+    tracking: parsePositiveIntEnv(
+      process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX,
+      DEFAULT_TRACKING_RATE_LIMIT_MAX
+    ),
+    chat: parsePositiveIntEnv(process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX, DEFAULT_CHAT_RATE_LIMIT_MAX),
+  }
+}
+
+// Config invariant (P2-T03 Stage 2 §22, corrected in Stage 3 §7): the
+// emergency ceiling must never be the bottleneck for traffic that already
+// respects both family budgets, so it is clamped UP (never down) to at
+// least familySum + INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM whenever the
+// env-provided-or-hardcoded-default candidate would otherwise violate that
+// guarantee — whether because the emergency override itself is missing/
+// invalid (falls back to DEFAULT_EMERGENCY_RATE_LIMIT_MAX) or because an
+// operator raised one or both family maxima via env past what the emergency
+// default alone could cover. Stage 2's original version clamped only to
+// `familySum` (no added margin), which meant a family-sum-exceeds-3000
+// configuration collapsed the ceiling to exact equality with familySum —
+// zero headroom for authenticated-but-malformed/pre-schema traffic. This
+// never throws/crashes the service for a malformed optional tuning value —
+// there is always a safe, concrete fallback.
+function resolveEmergencyRateLimitMax(familySum) {
+  const candidate = parsePositiveIntEnv(
+    process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX,
+    DEFAULT_EMERGENCY_RATE_LIMIT_MAX
+  )
+  return Math.max(candidate, familySum + INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM)
+}
+
+// Single immutable resolution of all three thresholds, computed once (see
+// createInternalPublishHandler) rather than re-read per request.
+function resolveInternalPublishRateLimitConfig() {
+  const family = resolveFamilyRateLimitMax()
+  const emergency = resolveEmergencyRateLimitMax(family.tracking + family.chat)
+  return {
+    emergencyMax: emergency,
+    chatMax: family.chat,
+    trackingMax: family.tracking,
+    windowMs: INTERNAL_RATE_LIMIT_WINDOW_MS,
+  }
+}
+
 function sendJson(res, statusCode, body) {
   const serialized = JSON.stringify(body)
   res.writeHead(statusCode, {
@@ -49,7 +186,12 @@ function sendJson(res, statusCode, body) {
   res.end(serialized)
 }
 
-function createBoundedRateLimiter(maxEvents = INTERNAL_RATE_LIMIT_MAX, windowMs = INTERNAL_RATE_LIMIT_WINDOW_MS) {
+// Generic reusable sliding-window-log limiter factory — shared by the
+// emergency ceiling and both per-family budgets (P2-T03 Stage 2). The
+// defaults below exist only so a bare createBoundedRateLimiter() call never
+// throws; every real call site in this file (and in tests) passes explicit
+// values, since "the" internal rate limit is no longer a single number.
+function createBoundedRateLimiter(maxEvents = DEFAULT_EMERGENCY_RATE_LIMIT_MAX, windowMs = INTERNAL_RATE_LIMIT_WINDOW_MS) {
   const timestamps = []
 
   return {
@@ -143,7 +285,22 @@ function createInternalPublishHandler(options) {
   const io = options.io
   const getRecipientSockets = options.getRecipientSockets
   const auth = options.auth || createInternalPublishAuth()
-  const rateLimiter = options.rateLimiter || createBoundedRateLimiter()
+  // Three isolated, process-local limiters (one instance each per process —
+  // never re-created per request): a global emergency ceiling that runs
+  // BEFORE schema parsing (so it also bounds authenticated-but-malformed
+  // requests), and two per-family budgets that run AFTER schema parsing
+  // (once envelope.type — and therefore the family — is known). Tests may
+  // inject any of the three directly (e.g. createBoundedRateLimiter(2,
+  // 60000)) to exercise 429 behavior with a handful of requests instead of
+  // thousands — see P2-T03 Stage 2 §14.
+  const rateLimitConfig = resolveInternalPublishRateLimitConfig()
+  const emergencyLimiter =
+    options.emergencyLimiter || createBoundedRateLimiter(rateLimitConfig.emergencyMax, rateLimitConfig.windowMs)
+  const chatLimiter =
+    options.chatLimiter || createBoundedRateLimiter(rateLimitConfig.chatMax, rateLimitConfig.windowMs)
+  const trackingLimiter =
+    options.trackingLimiter || createBoundedRateLimiter(rateLimitConfig.trackingMax, rateLimitConfig.windowMs)
+  const familyLimiters = { chat: chatLimiter, tracking: trackingLimiter }
   const eventDedupe = options.eventDedupe || createEventDedupeCache()
   const trackingCorrelationDedupe =
     options.trackingCorrelationDedupe || createEventDedupeCache(TRACKING_CORRELATION_DEDUPE_TTL_MS)
@@ -189,8 +346,15 @@ function createInternalPublishHandler(options) {
       return
     }
 
-    if (!rateLimiter.allow(now())) {
-      console.warn("[Chat] internal_publish_rejected category=rate_limited")
+    // Global emergency ceiling — runs BEFORE schema parsing, in the exact
+    // spot the old single shared limiter used to run (P2-T03 Stage 2 §4/§17):
+    // an authenticated request still hits a bound here even if its envelope
+    // turns out to be malformed and never resolves to a family below. Only
+    // an authenticated request reaches this point (auth.verify() above threw
+    // first for anything else), so this can never be starved by
+    // unauthenticated traffic.
+    if (!emergencyLimiter.allow(now())) {
+      console.warn("[Chat] internal_publish_rejected category=rate_limited bucket=emergency")
       sendJson(res, 429, { ok: false, error: "Rate limited" })
       return
     }
@@ -202,6 +366,25 @@ function createInternalPublishHandler(options) {
       const code = typeof error?.code === "string" ? error.code : "SCHEMA_INVALID"
       console.warn("[Chat] internal_publish_rejected category=" + code)
       sendJson(res, 400, { ok: false, error: "Invalid publish envelope" })
+      return
+    }
+
+    // Per-family budget — only reachable once the envelope is known-valid,
+    // so envelope.type is guaranteed to be one of EVENT_MAPPING's keys.
+    // EVENT_TYPE_FAMILY is expected to cover that same key set exactly; the
+    // undefined branch below is a defensive fail-closed guard against that
+    // invariant ever drifting (e.g. a new EVENT_MAPPING entry added without
+    // a matching family), not a case reachable via any currently-valid
+    // schema input.
+    const family = EVENT_TYPE_FAMILY[envelope.type]
+    if (!family || !familyLimiters[family]) {
+      console.warn("[Chat] internal_publish_rejected category=unresolved_family")
+      sendJson(res, 500, { ok: false, error: "Internal error" })
+      return
+    }
+    if (!familyLimiters[family].allow(now())) {
+      console.warn("[Chat] internal_publish_rejected category=rate_limited bucket=" + family)
+      sendJson(res, 429, { ok: false, error: "Rate limited" })
       return
     }
 
@@ -292,15 +475,22 @@ function createInternalPublishHandler(options) {
 }
 
 module.exports = {
+  DEFAULT_CHAT_RATE_LIMIT_MAX,
+  DEFAULT_EMERGENCY_RATE_LIMIT_MAX,
+  DEFAULT_TRACKING_RATE_LIMIT_MAX,
   EVENT_MAPPING,
+  EVENT_TYPE_FAMILY,
   INTERNAL_BODY_LIMIT_BYTES,
   INTERNAL_EVENT_DEDUPE_TTL_MS,
+  INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM,
   INTERNAL_PUBLISH_PATH,
-  INTERNAL_RATE_LIMIT_MAX,
   TRACKING_CORRELATION_DEDUPE_TTL_MS,
   createBoundedRateLimiter,
   createEventDedupeCache,
   createInternalPublishHandler,
+  parsePositiveIntEnv,
   readRawBody,
+  resolveEmergencyRateLimitMax,
+  resolveFamilyRateLimitMax,
   trackingCorrelationKey,
 }

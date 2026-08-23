@@ -11,12 +11,20 @@ const {
   createReplayCache,
 } = require("../internal-publish-auth")
 const {
+  DEFAULT_CHAT_RATE_LIMIT_MAX,
+  DEFAULT_EMERGENCY_RATE_LIMIT_MAX,
+  DEFAULT_TRACKING_RATE_LIMIT_MAX,
   EVENT_MAPPING,
+  EVENT_TYPE_FAMILY,
   INTERNAL_EVENT_DEDUPE_TTL_MS,
+  INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM,
   TRACKING_CORRELATION_DEDUPE_TTL_MS,
   createBoundedRateLimiter,
   createEventDedupeCache,
   createInternalPublishHandler,
+  parsePositiveIntEnv,
+  resolveEmergencyRateLimitMax,
+  resolveFamilyRateLimitMax,
   trackingCorrelationKey,
 } = require("../internal-publish-handler")
 const { parseAndValidateEnvelope } = require("../internal-publish-schema")
@@ -96,9 +104,9 @@ async function publish(body, overrides = {}) {
   })
 }
 
-async function invokeHandler(handler, body) {
+async function invokeHandler(handler, body, headerOverrides = {}) {
   const rawBody = typeof body === "string" ? body : JSON.stringify(body)
-  const requestHeaders = signedHeaders(rawBody)
+  const requestHeaders = { ...signedHeaders(rawBody), ...headerOverrides }
   const request = Readable.from([Buffer.from(rawBody)])
   request.headers = Object.fromEntries(
     Object.entries({ ...requestHeaders, "Content-Type": "application/json" }).map(([key, value]) => [
@@ -629,6 +637,360 @@ describe("internal publish endpoint", () => {
       sharedCorrelationDedupe.claim(trackingCorrelationKey("pedido-tracking-partial", -30.2, -67.1)),
       false
     )
+  })
+})
+
+// P2-T03 Stage 2: per-family (chat/tracking) rate-limit budgets + a mandatory
+// global emergency ceiling that runs before schema parsing. Every test below
+// constructs its own handler with tiny injected limiters
+// (createBoundedRateLimiter(N, windowMs)) so 429 behavior is exercised with
+// a handful of requests instead of the production defaults (1800/600/3000) —
+// see P2-T03 Stage 2 §14. A no-op io stub (never throws, no real sockets) is
+// used throughout since these tests are about admission control, not fan-out.
+describe("internal publish rate-limit families (P2-T03 Stage 2)", () => {
+  const noopIo = { to: () => ({ emit() {} }) }
+  const noRecipients = () => []
+
+  test("P2T03-01 repeated invalid auth never consumes the emergency or family budgets", async () => {
+    const emergencyLimiter = createBoundedRateLimiter(1, 60_000)
+    const trackingLimiter = createBoundedRateLimiter(1, 60_000)
+    const chatLimiter = createBoundedRateLimiter(1, 60_000)
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter,
+      trackingLimiter,
+      chatLimiter,
+    })
+
+    for (let i = 0; i < 5; i += 1) {
+      const body = validTracking("bad-auth-" + i)
+      const rejected = await invokeHandler(handler, body, { "X-DeliGO-Signature": "0".repeat(64) })
+      assert.equal(rejected.statusCode, 401)
+    }
+
+    // Directly confirm none of the three limiters were ever touched — not
+    // just inferred from a later 200.
+    assert.equal(emergencyLimiter.size(), 0)
+    assert.equal(trackingLimiter.size(), 0)
+    assert.equal(chatLimiter.size(), 0)
+
+    const validAfter = await invokeHandler(handler, validTracking("after-bad-auth"))
+    assert.equal(validAfter.statusCode, 200)
+  })
+
+  test("P2T03-04/05/06 tracking exhausting its family budget does not affect chat, and vice versa", async () => {
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+      trackingLimiter: createBoundedRateLimiter(1, 60_000),
+      chatLimiter: createBoundedRateLimiter(1, 60_000),
+    })
+
+    const firstTracking = await invokeHandler(handler, validTracking("family-tracking-1"))
+    assert.equal(firstTracking.statusCode, 200)
+    const secondTracking = await invokeHandler(handler, validTracking("family-tracking-2"))
+    assert.equal(secondTracking.statusCode, 429)
+
+    // Chat's own budget is untouched by tracking's exhaustion.
+    const firstChat = await invokeHandler(handler, validMessage("family-chat-1"))
+    assert.equal(firstChat.statusCode, 200)
+    const secondChat = await invokeHandler(handler, validMessage("family-chat-2"))
+    assert.equal(secondChat.statusCode, 429)
+
+    // Chat's exhaustion (just above) does not retroactively affect tracking —
+    // tracking was already saturated on its own, confirmed independently.
+  })
+
+  test("P2T03-07 the emergency ceiling applies across families, independent of family budgets", async () => {
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(1, 60_000),
+      trackingLimiter: createBoundedRateLimiter(10, 60_000),
+      chatLimiter: createBoundedRateLimiter(10, 60_000),
+    })
+
+    const first = await invokeHandler(handler, validMessage("emergency-1"))
+    assert.equal(first.statusCode, 200)
+
+    // A different family, well within ITS OWN budget, still gets rejected
+    // because the shared emergency ceiling (not either family budget) is
+    // exhausted.
+    const second = await invokeHandler(handler, validTracking("emergency-2"))
+    assert.equal(second.statusCode, 429)
+  })
+
+  test("P2T03-08 a family budget resets once the sliding window elapses", async () => {
+    let currentTime = 1_000_000
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      now: () => currentTime,
+      emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+      trackingLimiter: createBoundedRateLimiter(1, 60_000),
+      chatLimiter: createBoundedRateLimiter(10, 60_000),
+    })
+
+    const first = await invokeHandler(handler, validTracking("window-1"))
+    assert.equal(first.statusCode, 200)
+    const second = await invokeHandler(handler, validTracking("window-2"))
+    assert.equal(second.statusCode, 429)
+
+    currentTime += 60_001
+    const third = await invokeHandler(handler, validTracking("window-3"))
+    assert.equal(third.statusCode, 200)
+  })
+
+  test("P2T03-09 rate-limit rejection logs identify the correct bucket without leaking payload/resource data", async () => {
+    const originalWarn = console.warn
+    const logs = []
+    console.warn = (...args) => {
+      logs.push(args.join(" "))
+    }
+    try {
+      const handler = createInternalPublishHandler({
+        io: noopIo,
+        getRecipientSockets: noRecipients,
+        emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+        trackingLimiter: createBoundedRateLimiter(1, 60_000),
+        chatLimiter: createBoundedRateLimiter(10, 60_000),
+      })
+      const pedidoId = "pedido-log-sensitive-check"
+      const lat = -34.1111
+      const lng = -58.2222
+
+      await invokeHandler(handler, validTracking("log-check-1", pedidoId, lat, lng))
+      await invokeHandler(handler, validTracking("log-check-2", pedidoId, lat, lng))
+
+      const rateLimitLogs = logs.filter((line) => line.includes("category=rate_limited"))
+      assert.ok(rateLimitLogs.length >= 1)
+      for (const line of rateLimitLogs) {
+        assert.ok(line.includes("bucket=tracking"))
+        assert.ok(!line.includes(pedidoId))
+        assert.ok(!line.includes(String(lat)))
+        assert.ok(!line.includes(String(lng)))
+      }
+    } finally {
+      console.warn = originalWarn
+    }
+  })
+
+  test("P2T03-14 valid auth + malformed envelope consumes the emergency budget but not any family budget", async () => {
+    const trackingLimiter = createBoundedRateLimiter(5, 60_000)
+    const chatLimiter = createBoundedRateLimiter(5, 60_000)
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(1, 60_000),
+      trackingLimiter,
+      chatLimiter,
+    })
+
+    const malformed = await invokeHandler(handler, {
+      version: 1,
+      type: "arbitrary.broadcast",
+      eventId: "malformed-event",
+      resourceId: "pedido-malformed",
+      occurredAt: new Date().toISOString(),
+      payload: {},
+    })
+    assert.equal(malformed.statusCode, 400)
+
+    // Family limiters were never reached — confirmed directly, not inferred.
+    assert.equal(trackingLimiter.size(), 0)
+    assert.equal(chatLimiter.size(), 0)
+
+    // The emergency budget (max 1) was consumed by the malformed request
+    // alone — a subsequent, perfectly valid request is now rejected by it.
+    const validAfter = await invokeHandler(handler, validTracking("after-malformed"))
+    assert.equal(validAfter.statusCode, 429)
+  })
+
+  test("P2T03-15 chat.messages.read consumes the chat family budget, independent from tracking", async () => {
+    assert.equal(EVENT_TYPE_FAMILY["chat.messages.read"], "chat")
+
+    const chatLimiter = createBoundedRateLimiter(1, 60_000)
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+      trackingLimiter: createBoundedRateLimiter(10, 60_000),
+      chatLimiter,
+    })
+
+    const first = await invokeHandler(handler, validRead("read-family-1"))
+    assert.equal(first.statusCode, 200)
+    const second = await invokeHandler(handler, validRead("read-family-2"))
+    assert.equal(second.statusCode, 429)
+
+    // Tracking is untouched by chat.messages.read consuming the chat budget.
+    const trackingStillFine = await invokeHandler(handler, validTracking("read-family-tracking"))
+    assert.equal(trackingStillFine.statusCode, 200)
+  })
+
+  test("P2T03-16 invalid/missing/zero/negative/absurd env overrides fall back to safe hardcoded defaults", () => {
+    assert.equal(parsePositiveIntEnv(undefined, 42), 42)
+    assert.equal(parsePositiveIntEnv(null, 42), 42)
+    assert.equal(parsePositiveIntEnv("", 42), 42)
+    assert.equal(parsePositiveIntEnv("not-a-number", 42), 42)
+    assert.equal(parsePositiveIntEnv("0", 42), 42)
+    assert.equal(parsePositiveIntEnv("-5", 42), 42)
+    assert.equal(parsePositiveIntEnv("3.5", 42), 42)
+    assert.equal(parsePositiveIntEnv("Infinity", 42), 42)
+    assert.equal(parsePositiveIntEnv("NaN", 42), 42)
+    assert.equal(parsePositiveIntEnv(String(2_000_000), 42), 42) // above the sane upper bound
+    assert.equal(parsePositiveIntEnv("100", 42), 100)
+
+    const previousTracking = process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+    const previousChat = process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+    try {
+      process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX = "not-a-number"
+      process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX = "-1"
+      const resolved = resolveFamilyRateLimitMax()
+      assert.equal(resolved.tracking, DEFAULT_TRACKING_RATE_LIMIT_MAX)
+      assert.equal(resolved.chat, DEFAULT_CHAT_RATE_LIMIT_MAX)
+    } finally {
+      if (previousTracking === undefined) delete process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+      else process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX = previousTracking
+      if (previousChat === undefined) delete process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+      else process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX = previousChat
+    }
+  })
+
+  test("P2T03-17 the emergency ceiling is clamped up to at least familySum + MIN_HEADROOM, never down to bare equality", () => {
+    // Stage 3 focal correction: the pre-correction version clamped only to
+    // `familySum` (bare equality, zero headroom) — this asserts the
+    // corrected behavior retains the same 600/min margin the hardcoded
+    // defaults already have, for every family-sum value, not just 2400.
+    assert.equal(INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM, 600)
+    assert.equal(resolveEmergencyRateLimitMax(2400), DEFAULT_EMERGENCY_RATE_LIMIT_MAX) // 2400+600=3000
+    assert.equal(resolveEmergencyRateLimitMax(5000), 5000 + INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM) // 5600, not 5000
+
+    const previous = process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX
+    try {
+      process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX = "100"
+      // A configured override far below the family sum must not be honored
+      // as-is — it is clamped up so the emergency ceiling always retains the
+      // headroom margin above the family sum, never merely equals it.
+      assert.equal(resolveEmergencyRateLimitMax(2400), 2400 + INTERNAL_PUBLISH_EMERGENCY_MIN_HEADROOM) // 3000
+    } finally {
+      if (previous === undefined) delete process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX
+      else process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX = previous
+    }
+  })
+
+  test("P2T03-17b custom family overrides (tracking=2400, chat=600) retain the 600/min headroom end-to-end", () => {
+    // Exact example from P2-T03 Stage 3 §7/§24: an operator raising the
+    // tracking family budget via env past the hardcoded emergency default
+    // must still end up with emergency = familySum + 600, not familySum.
+    const previousTracking = process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+    const previousChat = process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+    const previousEmergency = process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX
+    try {
+      process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX = "2400"
+      process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX = "600"
+      process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX = "3000"
+      const family = resolveFamilyRateLimitMax()
+      assert.equal(family.tracking, 2400)
+      assert.equal(family.chat, 600)
+      assert.equal(resolveEmergencyRateLimitMax(family.tracking + family.chat), 3600)
+    } finally {
+      if (previousTracking === undefined) delete process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+      else process.env.TRACKING_INTERNAL_PUBLISH_RATE_LIMIT_MAX = previousTracking
+      if (previousChat === undefined) delete process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX
+      else process.env.CHAT_INTERNAL_PUBLISH_RATE_LIMIT_MAX = previousChat
+      if (previousEmergency === undefined) delete process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX
+      else process.env.INTERNAL_PUBLISH_EMERGENCY_RATE_LIMIT_MAX = previousEmergency
+    }
+  })
+
+  test("P2T03-19 a family-rejected request still consumes the emergency budget, but not the other family's bucket", async () => {
+    const emergencyLimiter = createBoundedRateLimiter(10, 60_000)
+    const trackingLimiter = createBoundedRateLimiter(1, 60_000)
+    const chatLimiter = createBoundedRateLimiter(3, 60_000)
+    const handler = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter,
+      trackingLimiter,
+      chatLimiter,
+    })
+
+    const firstTracking = await invokeHandler(handler, validTracking("family-reject-1"))
+    assert.equal(firstTracking.statusCode, 200)
+    assert.equal(emergencyLimiter.size(), 1)
+
+    // Tracking's family budget (max 1) is now exhausted — this request is
+    // rejected by the FAMILY limiter (not the emergency one, which still has
+    // 9/10 remaining), but it was already authenticated and past schema
+    // parsing, so it still consumed one more unit of the emergency budget.
+    const secondTracking = await invokeHandler(handler, validTracking("family-reject-2"))
+    assert.equal(secondTracking.statusCode, 429)
+    assert.equal(emergencyLimiter.size(), 2)
+    // Tracking's own bounded limiter never exceeds its configured max.
+    assert.equal(trackingLimiter.size(), 1)
+    // Chat's bucket is completely untouched by tracking's family rejection.
+    assert.equal(chatLimiter.size(), 0)
+
+    // Chat can still publish — its own family budget is intact, and the
+    // emergency ceiling still has ample headroom (8/10 remaining).
+    const chatStillWorks = await invokeHandler(handler, validMessage("family-reject-chat"))
+    assert.equal(chatStillWorks.statusCode, 200)
+    assert.equal(chatLimiter.size(), 1)
+    assert.equal(emergencyLimiter.size(), 3)
+  })
+
+  test("P2T03-13 two independently-constructed handlers never share limiter state", async () => {
+    const handlerA = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+      trackingLimiter: createBoundedRateLimiter(1, 60_000),
+      chatLimiter: createBoundedRateLimiter(10, 60_000),
+    })
+    const handlerB = createInternalPublishHandler({
+      io: noopIo,
+      getRecipientSockets: noRecipients,
+      emergencyLimiter: createBoundedRateLimiter(10, 60_000),
+      trackingLimiter: createBoundedRateLimiter(1, 60_000),
+      chatLimiter: createBoundedRateLimiter(10, 60_000),
+    })
+
+    const firstA = await invokeHandler(handlerA, validTracking("multi-handler-a-1"))
+    assert.equal(firstA.statusCode, 200)
+    const secondA = await invokeHandler(handlerA, validTracking("multi-handler-a-2"))
+    assert.equal(secondA.statusCode, 429)
+
+    // Handler B was constructed independently (as two real service
+    // processes would be) — its own tracking budget is completely unaffected
+    // by handler A's exhaustion.
+    const firstB = await invokeHandler(handlerB, validTracking("multi-handler-b-1"))
+    assert.equal(firstB.statusCode, 200)
+  })
+
+  test("P2T03-11 the default tracking family budget covers the Stage 1 capacity-table scenarios with margin", () => {
+    // Re-derived cadence (Stage 1 §TRACKING_RATE_MODEL, unchanged by P2-T01):
+    // 12 publishes/min per eligible delivery stream.
+    const normalPublishesPerMinutePerStream = 12
+    const twentyCouriersThreeDeliveries = 20 * 3 * normalPublishesPerMinutePerStream
+    const thirtyCouriersThreeDeliveries = 30 * 3 * normalPublishesPerMinutePerStream
+    assert.equal(twentyCouriersThreeDeliveries, 720)
+    assert.equal(thirtyCouriersThreeDeliveries, 1080)
+    // Both scenarios — the Stage 1 capacity table's known failure points
+    // against the OLD shared 600/min bucket — must sit strictly under the
+    // dedicated tracking family default with real engineering margin.
+    assert.ok(twentyCouriersThreeDeliveries < DEFAULT_TRACKING_RATE_LIMIT_MAX)
+    assert.ok(thirtyCouriersThreeDeliveries < DEFAULT_TRACKING_RATE_LIMIT_MAX)
+    assert.ok(DEFAULT_TRACKING_RATE_LIMIT_MAX / twentyCouriersThreeDeliveries >= 2)
+  })
+
+  test("P2T03-18 every accepted event type resolves to a known rate-limit family", () => {
+    for (const type of Object.keys(EVENT_MAPPING)) {
+      assert.ok(EVENT_TYPE_FAMILY[type], "missing family mapping for " + type)
+    }
+    assert.deepEqual(new Set(Object.keys(EVENT_TYPE_FAMILY)), new Set(Object.keys(EVENT_MAPPING)))
   })
 })
 
