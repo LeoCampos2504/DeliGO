@@ -27,8 +27,39 @@ export interface RealtimeOrderSnapshot {
   repartidorId: string | null
   estado: string
   metodoEntrega: string
+  // Flag VIVO del Negocio en el momento de esta autorización (no del pedido).
   seguimientoDeliveryActivo: boolean
+  // Snapshot INMUTABLE tomado en el momento de crear este Pedido
+  // (Pedido.seguimientoDeliveryHabilitado). Ver isTrackingCoreEligible.
+  seguimientoDeliveryHabilitado: boolean
   repartidorAssociationValid?: boolean
+}
+
+export interface TrackingCoreOrderInput {
+  estado: string
+  metodoEntrega: string
+  seguimientoDeliveryHabilitado: boolean
+}
+
+export interface TrackingCoreNegocioInput {
+  seguimientoDeliveryActivo: boolean
+}
+
+// Única definición de "¿corresponde producir/mostrar tracking para este
+// pedido, en este instante?" — sin identidad de actor, sin Prisma, sin DB,
+// sin efectos secundarios (P2-T01 Stage 1 / Stage 1B). Todo call site que
+// necesite esta pregunta debe llamar a esta función, nunca reimplementar la
+// expresión manualmente.
+export function isTrackingCoreEligible(
+  order: TrackingCoreOrderInput,
+  negocio: TrackingCoreNegocioInput
+): boolean {
+  return (
+    order.estado === ACTIVE_TRACKING_STATE &&
+    order.metodoEntrega === "domicilio" &&
+    order.seguimientoDeliveryHabilitado === true &&
+    negocio.seguimientoDeliveryActivo === true
+  )
 }
 
 export type RealtimePolicyResult =
@@ -70,7 +101,14 @@ export function authorizeRealtimeOrder(
 
   const trackingOrderIsActive =
     order.estado === ACTIVE_TRACKING_STATE && order.metodoEntrega === "domicilio"
-  const trackingEnabled = order.seguimientoDeliveryActivo === true
+  const trackingEnabled = isTrackingCoreEligible(
+    {
+      estado: order.estado,
+      metodoEntrega: order.metodoEntrega,
+      seguimientoDeliveryHabilitado: order.seguimientoDeliveryHabilitado,
+    },
+    { seguimientoDeliveryActivo: order.seguimientoDeliveryActivo }
+  )
 
   if (actor.userType === "cliente" && order.clienteId === actor.userId) {
     if (!trackingOrderIsActive) {

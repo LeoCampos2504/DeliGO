@@ -1456,6 +1456,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       lng: finalLng,
       negocioLat: negocio.lat,
       negocioLng: negocio.lng,
+      // Snapshot inmutable (P2-T01): sólo domicilio puede ser elegible, y
+      // sólo si el negocio ya cargado (misma lectura, sin query extra) tenía
+      // tracking activo en este instante. Activar el negocio después nunca
+      // cambia este valor (DECISION-TRACK-01).
+      seguimientoDeliveryHabilitado:
+        pedidoInput.metodoEntrega === "domicilio" &&
+        negocio.seguimientoDeliveryActivo === true,
       mesaId: isMesaOrder ? mesaId : null,
       mesaNumero: isMesaOrder ? mesaNumero : null,
       empleadoId,

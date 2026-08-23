@@ -18,6 +18,7 @@ let pedidoRecord: {
   id: string
   clienteId: string | null
   estado: string
+  metodoEntrega: string
   repartidorLat: number | null
   repartidorLng: number | null
   negocioId: string
@@ -28,6 +29,7 @@ let pedidoRecord: {
   negocioLat: number | null
   negocioLng: number | null
   locationRevision: number
+  seguimientoDeliveryHabilitado: boolean
 } | null
 let negocioRecord: {
   lat: number | null
@@ -65,6 +67,7 @@ function setAuthorizedScene(overrides: Partial<NonNullable<typeof pedidoRecord>>
     id: "pedido-1",
     clienteId: "cliente-1",
     estado: "en_camino",
+    metodoEntrega: "domicilio",
     repartidorLat: -34.6,
     repartidorLng: -58.4,
     negocioId: "negocio-1",
@@ -75,6 +78,7 @@ function setAuthorizedScene(overrides: Partial<NonNullable<typeof pedidoRecord>>
     negocioLat: null,
     negocioLng: null,
     locationRevision: 0,
+    seguimientoDeliveryHabilitado: true,
     ...overrides,
   }
   negocioRecord = {
@@ -167,5 +171,35 @@ describe("GET /api/pedidos/[id]/tracking — server version authority", () => {
     expect(body.trackable).toBe(false)
     expect(body.trackingDisabled).toBe(true)
     expect("version" in body).toBe(false)
+  })
+
+  test("P2T01-04: pedido snapshot false, negocio currently active — same fail-closed shape as a live-disabled negocio (isTrackingCoreEligible via realtime-policy)", async () => {
+    setAuthorizedScene({ seguimientoDeliveryHabilitado: false })
+    negocioRecord = { ...negocioRecord!, seguimientoDeliveryActivo: true }
+    const res = await callRoute("pedido-1")
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.trackable).toBe(false)
+    expect(body.trackingDisabled).toBe(true)
+    expect("version" in body).toBe(false)
+  })
+
+  test("P2T01-12 positive path: snapshot true AND negocio active — trackable", async () => {
+    setAuthorizedScene({ seguimientoDeliveryHabilitado: true })
+    negocioRecord = { ...negocioRecord!, seguimientoDeliveryActivo: true }
+    const res = await callRoute("pedido-1")
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.trackable).toBe(true)
+  })
+
+  test("P2T01-20: non-domicilio pedido never trackable even with both flags true (defensive — this route is only ever reached for domicilio orders in practice)", async () => {
+    setAuthorizedScene({ seguimientoDeliveryHabilitado: false, metodoEntrega: "retiro" })
+    negocioRecord = { ...negocioRecord!, seguimientoDeliveryActivo: true }
+    const res = await callRoute("pedido-1")
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.trackable).toBe(false)
+    expect(body.trackingDisabled).toBe(true)
   })
 })

@@ -68,6 +68,10 @@ interface PedidoDelivery {
   repartidorId: string | null
   repartidorNombre: string | null
   repartidorAceptaFecha: string | null
+  // P2-T01: eligibilidad de tracking resuelta server-side con la misma
+  // política central que usan GET tracking y realtime authorize
+  // (isTrackingCoreEligible) — nunca reimplementada acá.
+  trackingEligibleNow?: boolean
   clienteConfirmaRecibido: boolean
   clienteConfirmaFecha: string | null
   fecha: string
@@ -152,7 +156,7 @@ export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
           </span>
           <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            Compartiendo ubicación con el cliente
+            Seguimiento en vivo habilitado
           </span>
         </div>
       )}

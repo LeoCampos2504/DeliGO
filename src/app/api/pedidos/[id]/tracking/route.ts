@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { isTrackingCoreEligible } from "@/lib/realtime-policy"
 
 interface TrackingResponse {
   trackable: boolean
@@ -83,8 +84,19 @@ export async function GET(
       select: { lat: true, lng: true, logoUrl: true, colorPrincipal: true, seguimientoDeliveryActivo: true },
     })
 
-    // 6. Check if the negocio has disabled real-time tracking
-    if (negocio && !negocio.seguimientoDeliveryActivo) {
+    // 6. Core tracking eligibility (same shared semantic as realtime
+    // authorize and the repartidor's "mios" payload — P2-T01). Fail-closed
+    // shape regardless of WHICH condition failed (immutable snapshot vs.
+    // live business flag): the client never learns which one it was.
+    const coreEligible = isTrackingCoreEligible(
+      {
+        estado: pedido.estado,
+        metodoEntrega: pedido.metodoEntrega,
+        seguimientoDeliveryHabilitado: pedido.seguimientoDeliveryHabilitado,
+      },
+      { seguimientoDeliveryActivo: negocio?.seguimientoDeliveryActivo === true }
+    )
+    if (!coreEligible) {
       const response: TrackingResponse = { trackable: false, trackingDisabled: true }
       return NextResponse.json(response)
     }

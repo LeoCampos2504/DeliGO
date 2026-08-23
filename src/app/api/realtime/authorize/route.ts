@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         repartidorId: true,
         estado: true,
         metodoEntrega: true,
+        seguimientoDeliveryHabilitado: true,
         negocio: { select: { seguimientoDeliveryActivo: true } },
       },
     })
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
       estado: pedido.estado,
       metodoEntrega: pedido.metodoEntrega,
       seguimientoDeliveryActivo: pedido.negocio?.seguimientoDeliveryActivo === true,
+      seguimientoDeliveryHabilitado: pedido.seguimientoDeliveryHabilitado === true,
       repartidorAssociationValid,
     }
     const policy = authorizeRealtimeOrder(actor, order, requestedScopes)

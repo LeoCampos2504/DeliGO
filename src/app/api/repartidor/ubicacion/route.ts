@@ -63,9 +63,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 3. Find the pedido and validate
+    // 3. Find the pedido and validate. `negocio.seguimientoDeliveryActivo`
+    // is included via the relation so gate 11 below needs no extra query
+    // (P2-T01 section 20) — this is a plain, unlocked read used only for an
+    // early informative reject; the real enforcement is the atomic write's
+    // own FOR SHARE re-check (step 13 / MODEL-LOCK-A).
     const pedido = await db.pedido.findUnique({
       where: { id: pedidoId },
+      include: { negocio: { select: { seguimientoDeliveryActivo: true } } },
     })
 
     if (!pedido) {
@@ -113,6 +118,22 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // 3b. Tracking eligibility gate (P2-T01 section 20, gate 11) — early,
+    // informative reject BEFORE consuming any rate-limit budget or touching
+    // the DB for a write. Both conditions come from the single read above:
+    // the immutable per-pedido snapshot AND the negocio's live flag. This
+    // check is not itself the TOCTOU-closing guarantee (a disable landing
+    // between this read and the atomic write below is still possible) — the
+    // atomic write's own FOR SHARE re-check is what actually closes that
+    // race (Stage 1B); this gate only avoids unnecessary work for the
+    // common, non-racing case.
+    if (pedido.seguimientoDeliveryHabilitado !== true || pedido.negocio?.seguimientoDeliveryActivo !== true) {
+      return NextResponse.json(
+        { error: "El seguimiento de ubicación no está habilitado para este pedido" },
+        { status: 400 }
+      )
+    }
+
     // 4. Rate limit — per repartidor+pedido, checked only after full
     // authorization above so an actor without a real assignment to this
     // pedido can never consume or poison another repartidor's budget, and
@@ -124,31 +145,64 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Update the pedido with repartidor location AND atomically advance
-    // its location-ordering authority in the same statement. `updateMany`
-    // cannot RETURN the row it just wrote, so this uses a parameterized raw
-    // query instead — the defensive compound WHERE below is identical to
-    // the `updateMany` it replaces (same re-authorization-at-write-time
-    // guarantee), and the tagged template parameterizes every value, never
-    // string concatenation (same discipline as the existing atomic
+    // its location-ordering authority in the same statement, using a
+    // locking CTE (MODEL-LOCK-A, P2-T01 Stage 1B). `updateMany` cannot
+    // RETURN the row it just wrote, so this uses a parameterized raw query
+    // instead — the tagged template parameterizes every value, never string
+    // concatenation (same discipline as the existing atomic
     // upsert-with-RETURNING in src/lib/auth-login-throttle.ts). Physical
-    // table/column names re-derived from the generated migration
-    // (prisma/migrations/20260818000000_add_tracking_location_revision) —
-    // `Pedido` maps to `"pedidos"`, no field-level @map on this model.
+    // table/column names re-derived from the generated migrations
+    // (20260818000000_add_tracking_location_revision,
+    // 20260823165013_add_pedido_tracking_snapshot) — `Pedido` maps to
+    // `"pedidos"`, `Negocio` maps to `"negocios"`, neither has field-level
+    // @map on the columns used here.
+    //
+    // Why FOR SHARE and not the plain EXISTS this route used before Stage
+    // 1B: under READ COMMITTED, a plain `EXISTS (SELECT ... FROM negocios)`
+    // subquery takes its snapshot once and is NEVER re-checked by Postgres's
+    // EvalPlanQual — that mechanism only re-validates the row the statement
+    // is actually UPDATEing (pedidos), never a read-only subquery against an
+    // unlocked, different table. So a location write could legitimately
+    // commit AFTER a concurrent disable's commit while still reading the
+    // pre-disable `true`, silently violating the "no write survives a
+    // disable" guarantee (Stage 1's original TOCTOU claim, later
+    // invalidated). Taking `FOR SHARE` on the matching negocios row instead
+    // forces real lock contention with the ordinary `UPDATE negocios SET
+    // seguimientoDeliveryActivo=false ...` in
+    // src/app/api/negocio/config/route.ts (an ordinary UPDATE takes the
+    // implicit, stronger FOR NO KEY UPDATE lock, which conflicts with FOR
+    // SHARE) — whichever statement's row lock commits first is the one that
+    // is observed by the other, so exactly one of "this location persists"
+    // or "this pedido sees the disable" is true, never neither/both. Both
+    // this SELECT...FOR SHARE and the pedidos UPDATE happen in the SAME
+    // statement (one round trip, no explicit transaction needed) and always
+    // acquire locks in the same order (negocios before pedidos) with the
+    // config route never touching pedidos at all — so this can never
+    // deadlock against a concurrent disable.
     const now = new Date()
     const rows = await db.$queryRaw<
       { repartidorLat: number; repartidorLng: number; repartidorLastUpdate: Date; locationRevision: number }[]
     >`
+      WITH eligible_business AS (
+        SELECT "id"
+        FROM "negocios"
+        WHERE "id" = ${pedido.negocioId}
+          AND "seguimientoDeliveryActivo" = true
+        FOR SHARE
+      )
       UPDATE "pedidos"
       SET "repartidorLat" = ${lat},
           "repartidorLng" = ${lng},
           "repartidorLastUpdate" = ${now},
           "locationRevision" = "locationRevision" + 1
-      WHERE "id" = ${pedidoId}
-        AND "negocioId" = ${pedido.negocioId}
-        AND "repartidorId" = ${user.id}
-        AND "estado" = 'en_camino'
-        AND "metodoEntrega" = 'domicilio'
-      RETURNING "repartidorLat", "repartidorLng", "repartidorLastUpdate", "locationRevision"
+      FROM eligible_business
+      WHERE "pedidos"."id" = ${pedidoId}
+        AND "pedidos"."negocioId" = eligible_business."id"
+        AND "pedidos"."repartidorId" = ${user.id}
+        AND "pedidos"."estado" = 'en_camino'
+        AND "pedidos"."metodoEntrega" = 'domicilio'
+        AND "pedidos"."seguimientoDeliveryHabilitado" = true
+      RETURNING "pedidos"."repartidorLat", "pedidos"."repartidorLng", "pedidos"."repartidorLastUpdate", "pedidos"."locationRevision"
     `
 
     if (rows.length === 0) {

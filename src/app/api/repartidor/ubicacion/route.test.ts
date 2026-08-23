@@ -26,8 +26,17 @@
 // `Map<pedidoId, number>` counter) so most tests get realistic, internally
 // consistent revision values without manually specifying them; it does NOT
 // and cannot prove real Postgres row-locking/atomicity — that is out of
-// scope for this LOCAL-implementation task and is explicitly deferred (see
-// REAL_DB_VERSION_CONCURRENCY_RUNTIME_REQUIRED in CODEX_REPORT.md).
+// scope for this LOCAL-implementation task and is explicitly deferred to the
+// real-Postgres concurrency suite (see route.concurrency.integration.test.ts
+// and REAL_DB_VERSION_CONCURRENCY_RUNTIME_REQUIRED in CODEX_REPORT.md).
+//
+// P2-T01 Stage 1B: the write became a locking CTE (MODEL-LOCK-A) — `WITH
+// eligible_business AS (SELECT ... FROM negocios ... FOR SHARE) UPDATE
+// pedidos ... FROM eligible_business ...` — so the bound parameter order is
+// now [pedido.negocioId, lat, lng, now, pedidoId, repartidorId] (the CTE's
+// own WHERE binds first, since it appears first in the tagged template).
+// This mock still cannot prove the FOR SHARE row-lock semantics itself —
+// that is exactly what the separate real-Postgres concurrency suite proves.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { RATE_LIMITS } from "@/lib/rate-limit"
@@ -48,6 +57,8 @@ let pedidoRecord: {
   repartidorId: string
   estado: string
   metodoEntrega: string
+  seguimientoDeliveryHabilitado: boolean
+  negocio: { seguimientoDeliveryActivo: boolean } | null
 } | null
 let asociacionRecord: { repartidorId: string; negocioId: string } | null
 let sessionUser: { id: string; type: string } | null
@@ -76,7 +87,7 @@ mock.module("@/lib/db", () => ({
       queryRawCalls.push({ text, values })
       if (queryRawThrows) throw queryRawThrows
       if (queryRawRowOverride !== null) return queryRawRowOverride
-      const [lat, lng, now, pedidoId] = values as [number, number, Date, string, string, string]
+      const [, lat, lng, now, pedidoId] = values as [string, number, number, Date, string, string]
       const current = locationRevisionByPedido.get(pedidoId) ?? 0
       const next = current + 1
       locationRevisionByPedido.set(pedidoId, next)
@@ -112,6 +123,8 @@ function setActor({ repartidorId, pedidoId }: { repartidorId: string; pedidoId: 
     repartidorId,
     estado: "en_camino",
     metodoEntrega: "domicilio",
+    seguimientoDeliveryHabilitado: true,
+    negocio: { seguimientoDeliveryActivo: true },
   }
   asociacionRecord = { repartidorId, negocioId: "negocio-1" }
   sessionUser = { id: repartidorId, type: "repartidor" }
@@ -158,19 +171,22 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
 
     expect(queryRawCalls.length).toBe(1)
     const call = queryRawCalls[0]
-    // Raw SQL safety: exact bound values, in interpolation order, and the
-    // hardcoded state predicates remain present as literal SQL text (never
-    // interpolated from the request) — see route.ts §9-10.
-    expect(call.values).toEqual([-34.6, -58.4, call.values[2], pedidoId, "negocio-1", repartidorId])
+    // Raw SQL safety: exact bound values, in interpolation order (CTE WHERE
+    // binds first, then SET, then UPDATE WHERE), and the hardcoded state
+    // predicates remain present as literal SQL text (never interpolated
+    // from the request) — see route.ts §5, MODEL-LOCK-A.
+    expect(call.values).toEqual(["negocio-1", -34.6, -58.4, call.values[3], pedidoId, repartidorId])
+    expect(call.text).toContain("FOR SHARE")
     expect(call.text).toContain('UPDATE "pedidos"')
     expect(call.text).toContain('"locationRevision" = "locationRevision" + 1')
     expect(call.text).toContain("'en_camino'")
     expect(call.text).toContain("'domicilio'")
+    expect(call.text).toContain('"seguimientoDeliveryHabilitado" = true')
     expect(call.text).toContain("RETURNING")
     expect(call.text).not.toContain("DROP")
     expect(call.text).not.toContain("DELETE")
 
-    const dbTimestamp = (call.values[2] as Date).toISOString()
+    const dbTimestamp = (call.values[3] as Date).toISOString()
     expect(dbTimestamp).toBe(body.repartidorLastUpdate)
 
     expect(publishCalls.length).toBe(1)
@@ -396,6 +412,59 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     const res = await responsePromise
     expect(settled).toBe(true)
     expect(res.status).toBe(200)
+  })
+
+  describe("P2-T01 — tracking eligibility gate (section 20, gate 11)", () => {
+    test("P2T01-07: snapshot false (pedido.seguimientoDeliveryHabilitado=false), negocio currently active — fail-closed 400, no DB write, no publish, no rate-limit consumption", async () => {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      pedidoRecord = { ...pedidoRecord!, seguimientoDeliveryHabilitado: false, negocio: { seguimientoDeliveryActivo: true } }
+
+      const res = await callRoute(pedidoId)
+      expect(res.status).toBe(400)
+      expect(queryRawCalls.length).toBe(0)
+      expect(publishCalls.length).toBe(0)
+
+      // Budget untouched: a subsequent request with the SAME key, once
+      // eligible, still has its full 30-request window.
+      pedidoRecord = { ...pedidoRecord!, seguimientoDeliveryHabilitado: true }
+      for (let i = 0; i < 30; i += 1) {
+        const ok = await callRoute(pedidoId, { lat: -1 - i, lng: -1 - i })
+        expect(ok.status).toBe(200)
+      }
+    })
+
+    test("P2T01-08: snapshot true, negocio currently disabled (live flag false) — fail-closed 400, no DB write, no publish", async () => {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      pedidoRecord = { ...pedidoRecord!, seguimientoDeliveryHabilitado: true, negocio: { seguimientoDeliveryActivo: false } }
+
+      const res = await callRoute(pedidoId)
+      expect(res.status).toBe(400)
+      expect(queryRawCalls.length).toBe(0)
+      expect(publishCalls.length).toBe(0)
+    })
+
+    test("P2T01-12: snapshot true AND negocio active — positive path, 200, DB write, publish", async () => {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      pedidoRecord = { ...pedidoRecord!, seguimientoDeliveryHabilitado: true, negocio: { seguimientoDeliveryActivo: true } }
+
+      const res = await callRoute(pedidoId)
+      expect(res.status).toBe(200)
+      expect(queryRawCalls.length).toBe(1)
+      expect(publishCalls.length).toBe(1)
+    })
+
+    test("null negocio relation (defensive) is treated as ineligible, never as truthy", async () => {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      pedidoRecord = { ...pedidoRecord!, seguimientoDeliveryHabilitado: true, negocio: null }
+
+      const res = await callRoute(pedidoId)
+      expect(res.status).toBe(400)
+      expect(queryRawCalls.length).toBe(0)
+    })
   })
 
   describe("real rate limit — src/lib/rate-limit.ts's repartidorUbicacion config, not a mock", () => {

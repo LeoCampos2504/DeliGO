@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { isTrackingCoreEligible } from "@/lib/realtime-policy"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -96,6 +97,7 @@ export async function GET(req: NextRequest) {
             slug: true,
             logoUrl: true,
             colorPrincipal: true,
+            seguimientoDeliveryActivo: true,
           },
         },
       },
@@ -105,20 +107,50 @@ export async function GET(req: NextRequest) {
     // Bugfix-1 [12]: `notas` es la nota del cliente dirigida al negocio —
     // el repartidor no debe recibirla (solo necesita dirección/referencia
     // para encontrar el domicilio, que se mantienen en la respuesta).
-    const pedidosParsed = pedidos.map(({ clienteTelefono, notas, ...p }) => ({
-      ...p,
-      items: p.items.map((item) => ({
-        ...item,
-        agregados: safeParseJSON(item.agregados, []),
-        secciones: safeParseJSON(item.secciones, {}),
-        seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
-        ingredientes: safeParseJSON(item.ingredientes, []),
-        // P1-A.2A-ii: contrato plano estable — deliveries-tab.tsx no renderiza este campo
-        // hoy, pero el endpoint no debe propagar un objeto crudo bajo un tipo históricamente
-        // documentado como texto.
-        ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
-      })),
-    }))
+    // P2-T01: se deriva `trackingEligibleNow` server-side con la misma
+    // política central (isTrackingCoreEligible) que usan GET tracking y
+    // realtime authorize, y se retiran AMBOS flags crudos (el vivo del
+    // negocio y el snapshot inmutable del propio pedido) del payload — el
+    // browser recibe únicamente el booleano ya resuelto, nunca los dos
+    // flags por separado para reimplementar la regla (Stage 3 precommit
+    // review: el snapshot crudo seguía viajando vía el spread `...p` pese a
+    // que el flag vivo del negocio ya estaba correctamente retirado —
+    // corregido acá).
+    const pedidosParsed = pedidos.map(({ clienteTelefono, notas, negocio, seguimientoDeliveryHabilitado, ...p }) => {
+      const trackingEligibleNow = isTrackingCoreEligible(
+        {
+          estado: p.estado,
+          metodoEntrega: p.metodoEntrega,
+          seguimientoDeliveryHabilitado,
+        },
+        { seguimientoDeliveryActivo: negocio?.seguimientoDeliveryActivo === true }
+      )
+
+      return {
+        ...p,
+        negocio: negocio
+          ? {
+              id: negocio.id,
+              nombre: negocio.nombre,
+              slug: negocio.slug,
+              logoUrl: negocio.logoUrl,
+              colorPrincipal: negocio.colorPrincipal,
+            }
+          : negocio,
+        trackingEligibleNow,
+        items: p.items.map((item) => ({
+          ...item,
+          agregados: safeParseJSON(item.agregados, []),
+          secciones: safeParseJSON(item.secciones, {}),
+          seccionesPrecios: safeParseJSON(item.seccionesPrecios, {}),
+          ingredientes: safeParseJSON(item.ingredientes, []),
+          // P1-A.2A-ii: contrato plano estable — deliveries-tab.tsx no renderiza este campo
+          // hoy, pero el endpoint no debe propagar un objeto crudo bajo un tipo históricamente
+          // documentado como texto.
+          ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
+        })),
+      }
+    })
 
     // Separate into categories for the frontend
     const disponibles = pedidosParsed.filter((p: any) => !p.repartidorId)

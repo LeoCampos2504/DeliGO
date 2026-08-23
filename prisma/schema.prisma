@@ -414,6 +414,14 @@ model Pedido {
   // respuesta HTTP de tracking representa un estado más nuevo que el ya
   // mostrado (Tracking Latest-Wins Focal Design Correction #2).
   locationRevision     Int       @default(0)
+  // Snapshot inmutable de Negocio.seguimientoDeliveryActivo tomado en el
+  // momento de crear el Pedido (P2-T01). NO refleja el estado vivo del
+  // negocio, ni permiso GPS del repartidor, ni presencia del cliente — sólo
+  // si el tracking estaba habilitado por el negocio cuando este pedido nació.
+  // false para todo pedido no-domicilio. Sin backfill: pedidos existentes
+  // quedan en false (fail-closed) — ver
+  // prisma/migrations/*_add_pedido_tracking_snapshot.
+  seguimientoDeliveryHabilitado Boolean @default(false)
 
   // Pago
   metodoPago String  @default("efectivo") // efectivo, transferencia

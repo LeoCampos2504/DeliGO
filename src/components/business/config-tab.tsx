@@ -624,7 +624,10 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
               <div>
                 <p className="text-sm font-semibold">Seguimiento en tiempo real</p>
-                <p className="text-xs text-muted-foreground">Los clientes podrán ver al repartidor en el mapa</p>
+                <p className="text-xs text-muted-foreground">
+                  Los clientes podrán ver al repartidor en el mapa. Se aplica a los pedidos que
+                  inicien después de activarlo, no a los que ya están en camino.
+                </p>
               </div>
               <Switch
                 checked={mergedDelivery.seguimientoDeliveryActivo ?? true}
