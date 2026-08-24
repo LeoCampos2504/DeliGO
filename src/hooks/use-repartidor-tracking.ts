@@ -27,6 +27,16 @@ const WATCH_OPTIONS_MAXIMUM_AGE_MS = 3000
 const WATCH_OPTIONS_TIMEOUT_MS = 4000
 const MIN_SEND_INTERVAL_MS = 5000
 const STATIONARY_HEARTBEAT_MS = 60000
+// P2-T02 Stage 6J: ventana del watchdog de liveness del watcher físico — 25%
+// de margen sobre un ciclo normal de heartbeat, nunca un intervalo corto ni
+// arbitrario. Ver FOREGROUND_WATCHDOG_WINDOW_MS más abajo para el porqué.
+const FOREGROUND_WATCHDOG_WINDOW_MS = STATIONARY_HEARTBEAT_MS + STATIONARY_HEARTBEAT_MS / 4
+// P2-T02 Stage 6J: margen para que una señal tardía de la MISMA ola de
+// resume (p.ej. un pageshow persisted que llega después de que
+// visibilitychange ya disparó y completó la recuperación) no dispare una
+// segunda recuperación redundante — derivado del propio timeout por intento
+// del watch, nunca un número arbitrario.
+const FOREGROUND_RECOVERY_DEDUPE_WINDOW_MS = WATCH_OPTIONS_TIMEOUT_MS * 2
 
 interface DeliveryTrackingState {
   // Última posición efectivamente confirmada por el servidor (2xx) para
@@ -117,6 +127,43 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // comparten la misma promesa en vuelo en vez de disparar múltiples
   // llamadas físicas al sensor GPS.
   const freshSamplePromiseRef = useRef<Promise<TrackingLocationSample | null> | null>(null)
+  // P2-T02 Stage 6I (FINDING_P2T02_STAGE6H_01): true entre una transición
+  // oculta real (visibilitychange a "hidden", o una restauración bfcache
+  // vía pageshow con persisted=true) y la primera señal de foreground que
+  // la procese — permite forzar un reinicio duro del watcher exactamente
+  // una vez por retorno real a primer plano, sin churnear ante un `focus`
+  // incidental sobre una página que nunca estuvo oculta.
+  const pendingForegroundRecoveryRef = useRef(false)
+  // P2-T02 Stage 6J: timestamp del último callback físico real del sensor
+  // GPS (watchPosition success/error, o getCurrentPosition success/error) —
+  // la única evidencia de que el watcher sigue vivo, independiente de
+  // watchIdRef (que sólo prueba que alguna vez se registró un watch, nunca
+  // que siga entregando callbacks). Nunca se deriva de un envío HTTP exitoso
+  // por sí solo — un POST puede seguir usando un sample reutilizado sin que
+  // haya habido ningún callback físico nuevo.
+  const lastProducerActivityAtRef = useRef<number | null>(null)
+  // Watchdog de liveness — ver scheduleWatchdog/checkWatchdog. Justificado
+  // por un gap real: si el manejador de "hidden" nunca llega a ejecutarse
+  // (el SO puede congelar la página entera sin disparar ningún evento),
+  // pendingForegroundRecoveryRef nunca se marca true, y ninguna señal de
+  // foreground posterior fuerza un reinicio — el multi-señal por sí solo no
+  // garantiza recuperación en ese caso. El watchdog es la única red de
+  // seguridad independiente de que alguna señal de lifecycle se haya
+  // disparado (P2-T02 Stage 6J, revisión de FINDING_P2T02_STAGE6H_01).
+  const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // P2-T02 Stage 6J: a diferencia de un setTimeout (cancelable vía
+  // clearWatchdog/clearTimeout), un queueMicrotask ya programado no puede
+  // cancelarse — si una señal de foreground lo programa y el hook se
+  // desmonta antes de que corra, la revisión igual se ejecutaría con
+  // deliveriesRef.current obsoleto (nunca se limpia al desmontar) y podría
+  // crear un watchPosition nuevo después del teardown. Este flag es la
+  // única guarda contra eso — se consulta al inicio de esa revisión tardía.
+  const isMountedRef = useRef(true)
+  // P2-T02 Stage 6J: timestamp de la última vez que performForcedRecovery
+  // efectivamente corrió — permite que una señal tardía de pageshow
+  // persisted, perteneciente a la MISMA ola de resume que ya se atendió,
+  // no fuerce una segunda recuperación redundante (ver handlePageShow).
+  const recoveryCompletedAtRef = useRef<number | null>(null)
 
   function getOrCreateDeliveryState(id: string): DeliveryTrackingState {
     let state = deliveryStateRef.current.get(id)
@@ -179,7 +226,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // watcher, sólo lo detiene cuando corresponde.
   function stopWatcherIfNoneEligible() {
     const anyEligible = deliveriesRef.current.some((d) => isCoreEligible(d, knownIneligibleRef.current))
-    if (!anyEligible) stopWatcher()
+    if (!anyEligible) {
+      stopWatcher()
+      clearWatchdog()
+    }
   }
 
   function startWatcherIfNeeded() {
@@ -201,13 +251,84 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     )
   }
 
+  // Reinicio duro compartido por toda señal de recuperación de foreground
+  // (multi-señal o watchdog) — nunca confía en que el watch previo siga
+  // vivo, y produce un envío de recuperación fresco por cada entrega
+  // elegible bajo la generación NUEVA (P2-T02 Stage 6I/6J,
+  // FINDING_P2T02_STAGE6H_01).
+  function performForcedRecovery(eligibleNow: ActiveDelivery[]) {
+    stopWatcher()
+    startWatcherIfNeeded()
+    recoveryCompletedAtRef.current = Date.now()
+    const generation = watchGenerationRef.current
+    for (const delivery of eligibleNow) {
+      void ensureForegroundRecoverySendForDelivery(delivery.id, generation)
+    }
+  }
+
+  function clearWatchdog() {
+    if (watchdogTimerRef.current !== null) {
+      clearTimeout(watchdogTimerRef.current)
+      watchdogTimerRef.current = null
+    }
+  }
+
+  // Arma (o rearma) el único timer del watchdog — nunca se acumulan varios
+  // (MAX_FOREGROUND_WATCHDOG_TIMERS=1). No hace ninguna llamada física al
+  // GPS por sí mismo — sólo programa una revisión futura de si hubo
+  // evidencia de actividad real del watcher durante la ventana.
+  function scheduleWatchdog() {
+    clearWatchdog()
+    if (document.visibilityState !== "visible") return
+    const hasEligible = deliveriesRef.current.some((d) => isCoreEligible(d, knownIneligibleRef.current))
+    if (!hasEligible) return
+    const generation = watchGenerationRef.current
+    watchdogTimerRef.current = setTimeout(() => checkWatchdog(generation), FOREGROUND_WATCHDOG_WINDOW_MS)
+  }
+
+  // Única red de seguridad independiente de que cualquier señal de
+  // lifecycle (visibilitychange/focus/pageshow) se haya disparado alguna
+  // vez — ver el comentario de watchdogTimerRef. Nunca hace polling de
+  // ubicación: si hay evidencia real de actividad reciente, sólo reprograma
+  // la próxima revisión; si no la hay, dispara EXACTAMENTE un intento de
+  // recuperación (reutilizando performForcedRecovery) y vuelve a
+  // reprogramarse para una ventana completa nueva — nunca un retry
+  // inmediato ni un storm.
+  function checkWatchdog(generation: number) {
+    watchdogTimerRef.current = null
+    if (generation !== watchGenerationRef.current) return
+    if (document.visibilityState !== "visible") return
+    const eligibleNow = deliveriesRef.current.filter((d) => isCoreEligible(d, knownIneligibleRef.current))
+    if (eligibleNow.length === 0) return
+
+    const now = Date.now()
+    const activity = lastProducerActivityAtRef.current
+    if (activity !== null && now - activity < FOREGROUND_WATCHDOG_WINDOW_MS) {
+      scheduleWatchdog()
+      return
+    }
+
+    performForcedRecovery(eligibleNow)
+    scheduleWatchdog()
+  }
+
+  // Único punto que actualiza la evidencia de liveness del watchdog — un
+  // callback físico real del sensor GPS, sea éxito o error, prueba que el
+  // watcher (o la adquisición puntual) sigue efectivamente vivo, algo que
+  // watchIdRef nunca puede garantizar por sí solo.
+  function markProducerActivity() {
+    lastProducerActivityAtRef.current = Date.now()
+  }
+
   function handleWatchSuccess(generation: number, position: GeolocationPosition) {
     if (generation !== watchGenerationRef.current) return // callback obsoleto de un watcher ya reemplazado
+    markProducerActivity()
     observeSample(buildSampleFromPosition(position))
   }
 
   function handleWatchError(generation: number, error: GeolocationPositionError) {
     if (generation !== watchGenerationRef.current) return
+    markProducerActivity()
     if (error.code === error.PERMISSION_DENIED) {
       // Fatal — nunca reintentar automáticamente (evita cualquier storm de
       // prompts). Sólo un futuro cambio de elegibilidad/visibilidad, o que
@@ -393,6 +514,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       }
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          markProducerActivity()
           if (generation !== watchGenerationRef.current) {
             resolve(null)
             return
@@ -407,7 +529,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
           }
           resolve(latestObservedSampleRef.current)
         },
-        () => resolve(null),
+        () => {
+          markProducerActivity()
+          resolve(null)
+        },
         {
           enableHighAccuracy: WATCH_OPTIONS_ENABLE_HIGH_ACCURACY,
           timeout: WATCH_OPTIONS_TIMEOUT_MS,
@@ -443,6 +568,35 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
     if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
     if (!fresh || !isSampleFresh(fresh, Date.now())) return // sin sample fresco disponible — el próximo callback normal del watcher lo cubrirá
+    void sendLocationForDelivery(deliveryId, fresh)
+  }
+
+  // Envío de recuperación tras un reinicio forzado del watcher en
+  // foreground (P2-T02 Stage 6I, FINDING_P2T02_STAGE6H_01) — a diferencia
+  // de ensureInitialSendForDelivery, NO se aborta sólo porque la entrega ya
+  // tenga un lastSentSample previo: ese sample es exactamente lo que un
+  // ciclo background/foreground real puede haber vuelto obsoleto sin que
+  // el código lo sepa (Android físico: 9+ minutos de silencio tras Home→
+  // Recientes, con permiso/elegibilidad intactos, sólo recuperado por una
+  // recarga completa). Nunca aplica el filtro de movimiento — igual que el
+  // resto de los call-sites que invocan sendLocationForDelivery
+  // directamente — el Repartidor puede seguir físicamente quieto y aun así
+  // debe producirse este envío.
+  async function ensureForegroundRecoverySendForDelivery(deliveryId: string, generation: number) {
+    const now = Date.now()
+    if (isSampleFresh(latestObservedSampleRef.current, now)) {
+      if (generation !== watchGenerationRef.current) return
+      const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
+      if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
+      void sendLocationForDelivery(deliveryId, latestObservedSampleRef.current as TrackingLocationSample)
+      return
+    }
+
+    const fresh = await ensureFreshSample()
+    if (generation !== watchGenerationRef.current) return
+    const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
+    if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
+    if (!fresh || !isSampleFresh(fresh, Date.now())) return
     void sendLocationForDelivery(deliveryId, fresh)
   }
 
@@ -537,8 +691,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
     if (eligibleNow.length > 0) {
       startWatcherIfNeeded()
+      scheduleWatchdog()
     } else {
       stopWatcher()
+      clearWatchdog()
     }
   }, [activeDeliveries])
 
@@ -547,38 +703,141 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // heartbeat según su lastSuccessfulSendAt REAL (nunca resetear el
   // conteo a 0 sólo porque la pestaña volvió a mostrarse).
   // BACKGROUND_TRACKING_GUARANTEED=NO.
+  //
+  // P2-T02 Stage 6I (FINDING_P2T02_STAGE6H_01): un Android físico real
+  // demostró que depender EXCLUSIVAMENTE de `visibilitychange` para decidir
+  // cuándo el productor debe recuperarse no alcanza — la app quedó 9+
+  // minutos sin producir ninguna ubicación tras un ciclo background (Home)
+  // → foreground (Recientes) real, con permiso y elegibilidad intactos
+  // todo el tiempo, hasta que una recarga completa la recuperó. `focus` y
+  // `pageshow` se agregan como señales corroborantes/redundantes de "la
+  // página volvió a primer plano" — y, crucialmente, un `watchIdRef` local
+  // ya no se asume funcional sólo por existir: toda señal de foreground que
+  // siga a una transición oculta real fuerza un reinicio duro del watcher
+  // (stopWatcher + startWatcherIfNeeded) más un envío de recuperación
+  // fresco, en vez de confiar en que el watch previo sigue vivo.
+  // `pendingForegroundRecoveryRef` coalesce varias señales casi simultáneas
+  // (visibilitychange + focus + pageshow del mismo "retorno") en
+  // exactamente una ola de recuperación, y evita que un `focus` incidental
+  // sobre una página que nunca estuvo oculta genere churn.
   useEffect(() => {
+    // Coalescing: visibilitychange + focus + pageshow pueden llegar en la
+    // misma ráfaga síncrona de un único "retorno a foreground" real (P2-T02
+    // Stage 6I §18-19) — procesar cada uno inmediatamente duplicaría el
+    // reinicio duro del watcher. En vez de eso, cada señal sólo actualiza
+    // estado (incluida `pendingForegroundRecoveryRef`) y programa UNA
+    // revisión en el próximo microtask; si ya hay una programada para este
+    // tick, las señales siguientes no agregan una segunda — la revisión
+    // real corre una sola vez, después de que TODAS las señales síncronas
+    // del burst ya mutaron el estado que va a leer.
+    let recoveryCheckScheduled = false
+
+    function handleForegroundSignal() {
+      if (document.visibilityState !== "visible") return
+      const eligibleNow = deliveriesRef.current.filter((d) => isCoreEligible(d, knownIneligibleRef.current))
+      if (eligibleNow.length === 0) return
+
+      const forceRecovery = pendingForegroundRecoveryRef.current
+      pendingForegroundRecoveryRef.current = false
+
+      if (forceRecovery) {
+        // Un watchId local no puede asumirse funcional sólo por existir
+        // tras una transición oculta real — reiniciar duro en vez de
+        // confiar en el guard "ya hay uno" de startWatcherIfNeeded().
+        performForcedRecovery(eligibleNow)
+      } else {
+        // Señal de foreground incidental sobre una página que ya estaba
+        // sana (nunca pasó por oculta desde la última recuperación) — sólo
+        // asegurar que el watcher siga activo, sin forzar reinicio ni un
+        // reenvío nuevo (evita churn en uso normal).
+        startWatcherIfNeeded()
+      }
+
+      for (const delivery of eligibleNow) {
+        const state = deliveryStateRef.current.get(delivery.id)
+        if (state && state.heartbeatTimerId === null && state.lastSuccessfulSendAt !== null) {
+          const remaining = Math.max(0, STATIONARY_HEARTBEAT_MS - (Date.now() - state.lastSuccessfulSendAt))
+          scheduleHeartbeat(delivery.id, remaining)
+        }
+      }
+
+      // Toda señal de foreground procesada (forzada o incidental) confirma
+      // que seguimos visibles/elegibles — rearmar el watchdog desde acá,
+      // nunca dejarlo huérfano de una generación vieja.
+      scheduleWatchdog()
+    }
+
+    function scheduleForegroundCheck() {
+      if (recoveryCheckScheduled) return
+      recoveryCheckScheduled = true
+      queueMicrotask(() => {
+        recoveryCheckScheduled = false
+        // A diferencia de un setTimeout, este microtask ya no puede
+        // cancelarse una vez programado — si el hook se desmontó mientras
+        // esperaba, nunca debe actuar sobre refs potencialmente obsoletas.
+        if (!isMountedRef.current) return
+        handleForegroundSignal()
+      })
+    }
+
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") {
-        const eligibleNow = deliveriesRef.current.filter((d) => isCoreEligible(d, knownIneligibleRef.current))
-        if (eligibleNow.length === 0) return
-        startWatcherIfNeeded()
-        for (const delivery of eligibleNow) {
-          const state = deliveryStateRef.current.get(delivery.id)
-          if (state && state.heartbeatTimerId === null && state.lastSuccessfulSendAt !== null) {
-            const remaining = Math.max(0, STATIONARY_HEARTBEAT_MS - (Date.now() - state.lastSuccessfulSendAt))
-            scheduleHeartbeat(delivery.id, remaining)
-          }
-        }
+        scheduleForegroundCheck()
         return
       }
 
       stopWatcher()
+      pendingForegroundRecoveryRef.current = true
+      clearWatchdog() // cero timers activos mientras oculto (OPTION-V2) — el watchdog también cuenta.
       for (const id of [...deliveryStateRef.current.keys()]) {
         clearDeliveryTimers(id)
       }
     }
 
+    function handleWindowFocus() {
+      scheduleForegroundCheck()
+    }
+
+    function handlePageShow(event: PageTransitionEvent) {
+      // Una restauración real desde bfcache (persisted===true) puede no
+      // haber pasado por nuestro propio manejador de "hidden" — tratarla
+      // como una transición oculta real, salvo que ya sepamos que una
+      // recuperación forzada acaba de correr hace muy poco (misma ola de
+      // resume, sólo llegando tarde) — si no, un pageshow persisted que
+      // sigue a una recuperación ya exitosa dispararía una segunda
+      // redundante (P2-T02 Stage 6J).
+      if (event.persisted) {
+        const recoveredRecently =
+          recoveryCompletedAtRef.current !== null &&
+          Date.now() - recoveryCompletedAtRef.current < FOREGROUND_RECOVERY_DEDUPE_WINDOW_MS
+        if (!recoveredRecently) pendingForegroundRecoveryRef.current = true
+      }
+      scheduleForegroundCheck()
+    }
+
     document.addEventListener("visibilitychange", handleVisibilityChange)
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", handleWindowFocus)
+    window.addEventListener("pageshow", handlePageShow)
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", handleWindowFocus)
+      window.removeEventListener("pageshow", handlePageShow)
+    }
   }, [])
 
   // Teardown completo al desmontar (o en el cleanup de un remount de React
   // Strict Mode) — garantiza que un segundo mount siempre arranca desde un
   // watcher/estado limpio, nunca coexistiendo con el del mount anterior.
   useEffect(() => {
+    // Strict Mode simula unmount+remount reutilizando los MISMOS refs (no
+    // los recrea) — reafirmar `true` acá en cada montaje real/simulado es
+    // lo que evita que el segundo mount quede permanentemente "desmontado"
+    // a los ojos de scheduleForegroundCheck's microtask guard.
+    isMountedRef.current = true
     return () => {
+      isMountedRef.current = false
       stopWatcher()
+      clearWatchdog()
       for (const id of [...deliveryStateRef.current.keys()]) {
         cleanupDeliveryState(id)
       }

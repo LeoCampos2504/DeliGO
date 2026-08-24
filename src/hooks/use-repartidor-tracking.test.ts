@@ -67,15 +67,25 @@ const realClearTimeout = globalThis.clearTimeout
 // Distinguishes the explicit pending-send scheduler's timer (always
 // <= MIN_SEND_INTERVAL_MS=5000) from the stationary heartbeat's timer
 // (STATIONARY_HEARTBEAT_MS=60000, or a shorter "remaining" on foreground
-// recovery) purely by the delay it was scheduled with — the hook itself has
+// recovery) and the P2-T02 Stage 6J foreground-watchdog timer (a fixed
+// FOREGROUND_WATCHDOG_WINDOW_MS=75000 — must match the hook's own constant
+// exactly) purely by the delay it was scheduled with — the hook itself has
 // no test-only tagging, this is inferred the same way an outside observer
 // (a real browser's timer queue) would have to.
+const FOREGROUND_WATCHDOG_WINDOW_MS = 75000
+
 function pendingSendTimerCount(): number {
   return fakeTimers.filter((t) => !t.cleared && !t.fired && t.delay <= 5000).length
 }
 
 function heartbeatTimerCount(): number {
-  return fakeTimers.filter((t) => !t.cleared && !t.fired && t.delay > 5000).length
+  return fakeTimers.filter(
+    (t) => !t.cleared && !t.fired && t.delay > 5000 && t.delay !== FOREGROUND_WATCHDOG_WINDOW_MS
+  ).length
+}
+
+function watchdogTimerCount(): number {
+  return fakeTimers.filter((t) => !t.cleared && !t.fired && t.delay === FOREGROUND_WATCHDOG_WINDOW_MS).length
 }
 
 // Advances the mocked clock by `ms` and fires (in fireAt order, draining any
@@ -676,7 +686,7 @@ describe("T22-T23 — visibility lifecycle", () => {
     expect(activeWatchCount()).toBe(0)
   })
 
-  test("T23: returning to visible restarts the watcher", () => {
+  test("T23: returning to visible restarts the watcher", async () => {
     controller = createController()
     controller.render([delivery("p1")])
 
@@ -686,9 +696,10 @@ describe("T22-T23 — visibility lifecycle", () => {
     })
     expect(activeWatchCount()).toBe(0)
 
-    act(() => {
+    await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
+      await Promise.resolve() // flush the coalesced foreground-recovery microtask
     })
     expect(watchPositionMock).toHaveBeenCalledTimes(2)
     expect(activeWatchCount()).toBe(1)
@@ -921,7 +932,7 @@ describe("T32-T34 — heartbeat truthfulness", () => {
 // T35-T36 — foreground/re-enable staleness (P2-T02 Stage 1B corrections)
 // ============================================
 describe("T35-T36 — foreground and re-enable staleness", () => {
-  test("T35: after being hidden past the freshness window, becoming visible never sends the old sample directly", async () => {
+  test("T35: after being hidden past the freshness window, becoming visible never sends the old sample directly — it requires a fresh recovery acquisition", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -934,13 +945,19 @@ describe("T35-T36 — foreground and re-enable staleness", () => {
     })
     advanceTime(120000) // well past SAMPLE_REUSE_MAX_AGE_MS
 
-    act(() => {
+    await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
+      await Promise.resolve() // flush the coalesced foreground-recovery microtask
     })
-    // Restarting the watcher never sends anything by itself — only a fresh
-    // watch callback (or heartbeat's own fresh acquisition path) can.
+    // The forced foreground recovery (P2-T02 Stage 6I, FINDING_P2T02_STAGE6H_01)
+    // never sends the old cached sample directly — it must wait for a
+    // genuinely fresh acquisition.
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   test("T36: re-enabling after the cached sample went stale requires a fresh sample before the initial send", async () => {
@@ -1204,9 +1221,10 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     })
     expect(activeWatchCount()).toBe(0) // hidden always clears the physical watch
 
-    act(() => {
+    await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
+      await Promise.resolve() // flush the coalesced foreground-recovery microtask
     })
 
     // The delivery is still core-eligible — a POST in flight is NOT
@@ -1395,17 +1413,20 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
-    act(() => {
+    await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
+      await Promise.resolve() // flush the coalesced foreground-recovery microtask
     })
     const watchIdGen2 = lastWatchId()
     expect(watchIdGen2).not.toBe(watchIdGen1)
 
-    // Becoming visible again rearms the heartbeat for essentially "now"
-    // (its full window had already elapsed while hidden) — firing it must
-    // start a BRAND NEW physical acquisition under generation 2, never
-    // remain blocked on generation 1's still-unresolved promise.
+    // Becoming visible forces a recovery (P2-T02 Stage 6I) that itself
+    // starts a BRAND NEW physical acquisition under generation 2 — never
+    // remaining blocked on generation 1's still-unresolved promise. The
+    // heartbeat rearm (for essentially "now", since its full window had
+    // already elapsed while hidden) shares that same single-flight instead
+    // of starting a third physical call.
     advanceTime(100)
     expect(getCurrentPositionMock).toHaveBeenCalledTimes(2)
   })
@@ -1459,5 +1480,649 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     // own.
     expect(fetchMock).toHaveBeenCalledTimes(14) // 1 initial + 13 movement-driven
     expect(getCurrentPositionMock).toHaveBeenCalledTimes(0) // never needed a fresh one-shot
+  })
+})
+
+// ============================================
+// FG01-FG12 — Stage 6I: robust foreground-recovery model
+// (FINDING_P2T02_STAGE6H_01 — a real Android device left the producer dead
+// for 9+ minutes after a Home->Recientes background/foreground cycle,
+// despite permission/eligibility staying intact; only a full reload
+// recovered it)
+// ============================================
+function goHidden() {
+  act(() => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+  })
+}
+
+// Foreground signals are coalesced onto a microtask (P2-T02 Stage 6I §18-19)
+// — every helper that fires one must flush that microtask before the test
+// inspects its effects.
+async function goVisible() {
+  await act(async () => {
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await Promise.resolve()
+  })
+}
+
+async function fireWindowFocus() {
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"))
+    await Promise.resolve()
+  })
+}
+
+async function firePersistedPageshow() {
+  await act(async () => {
+    const e = new Event("pageshow")
+    Object.defineProperty(e, "persisted", { value: true, configurable: true })
+    window.dispatchEvent(e)
+    await Promise.resolve()
+  })
+}
+
+describe("FG01-FG12 — robust foreground-recovery model", () => {
+  test("FG01: hidden -> visible via visibilitychange forces exactly one recovery wave with exactly one new watch", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    expect(activeWatchCount()).toBe(0)
+
+    advanceTime(6000) // well past SAMPLE_REUSE_MAX_AGE_MS while hidden
+    await goVisible()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one new watch (hard restart)
+    expect(activeWatchCount()).toBe(1)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // exactly one recovery fresh-acquisition attempt
+  })
+
+  test("FG02: focus alone recovers even if the visibilitychange 'visible' event never fires", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    expect(activeWatchCount()).toBe(0)
+    advanceTime(6000)
+
+    // document.visibilityState already reports "visible" but the
+    // visibilitychange event itself never fires — only `focus` does.
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    })
+    await fireWindowFocus()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(2)
+    expect(activeWatchCount()).toBe(1)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+  })
+
+  test("FG03: a persisted pageshow (bfcache restore) forces recovery even without a prior visibilitychange hidden event", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+
+    advanceTime(6000) // never went hidden through our own handler
+
+    await firePersistedPageshow()
+
+    expect(clearWatchMock).toHaveBeenCalledTimes(1) // the still-registered old watch is discarded
+    expect(watchPositionMock).toHaveBeenCalledTimes(2)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+  })
+
+  test("FG04: visibilitychange + focus + pageshow firing together in a burst collapse into exactly one recovery wave", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+      window.dispatchEvent(new Event("focus"))
+      const e = new Event("pageshow")
+      Object.defineProperty(e, "persisted", { value: true, configurable: true })
+      window.dispatchEvent(e)
+      await Promise.resolve() // flush the single coalesced foreground-recovery microtask
+    })
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one new watch, not three
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // exactly one recovery fresh-acquisition
+  })
+
+  test("FG05: a watchId that belonged to a suspended generation is discarded, never left coexisting with the new one", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const oldWatchId = lastWatchId()
+    await sendInitialAndResolve("p1", oldWatchId, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+
+    const newWatchId = lastWatchId()
+    expect(newWatchId).not.toBe(oldWatchId)
+    expect(activeWatchCount()).toBe(1) // never two concurrent watches
+    expect(watchRegistrations.get(oldWatchId)).toBeUndefined() // cleared from the registry by clearWatch
+  })
+
+  test("FG06: after being hidden past the freshness window, recovery never sends the old cached sample directly — it must wait for a fresh acquisition", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // still just the original — recovery send not sent yet
+
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // only now, with a genuinely fresh sample
+  })
+
+  test("FG07: a stationary repartidor (identical coordinates) still gets a recovery send — no movement threshold applies to foreground recovery", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+
+    // Identical coordinates to the pre-hidden send — would normally be
+    // suppressed as non-significant movement, but recovery bypasses that.
+    await resolveNextFreshAcquisitionAsync(-34.6, -58.4, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  test("FG08: a successful recovery send rearms the heartbeat for a full new window", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    await resolveNextFetch(200)
+    expect(heartbeatTimerCount()).toBe(1)
+  })
+
+  test("FG09: a foreground signal with zero eligible deliveries produces zero watch/fresh-acquisition/POST activity", async () => {
+    controller = createController()
+    controller.render([delivery("p1", { trackingEligibleNow: false })])
+    expect(watchPositionMock).toHaveBeenCalledTimes(0)
+
+    goHidden()
+    await goVisible()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(0)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(0)
+  })
+
+  test("FG10: an incidental focus event on a page that was never hidden never churns the watcher", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+
+    await fireWindowFocus()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(1) // no new watch
+    expect(clearWatchMock).toHaveBeenCalledTimes(0) // no restart at all
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0) // no forced recovery send
+  })
+
+  test("FG11: a recovery one-shot racing a newer watch callback never produces a duplicate send — the newer sample wins", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+    const newWatchId = lastWatchId()
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+    const acquisitionStartedAt = mockNowMs
+
+    // A newer watch callback lands BEFORE the recovery one-shot resolves —
+    // significant movement vs. the pre-hidden baseline, sent immediately.
+    advanceTime(500)
+    fireWatchSuccess(newWatchId, -1, -1, 5)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // The one-shot now resolves with an OLDER timestamp than the watch
+    // callback that already landed.
+    const calls = getCurrentPositionMock.mock.calls
+    const [success] = calls[calls.length - 1] as [(pos: unknown) => void, (err: unknown) => void]
+    await act(async () => {
+      success({ coords: { latitude: -34.6, longitude: -58.4, accuracy: 5 }, timestamp: acquisitionStartedAt })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // Exactly one recovery-driven send (the watch-triggered one) — the
+    // stale one-shot result never produces a duplicate.
+    expect(fetchCallCountFor("p1")).toBe(2) // initial(1) + the watch-triggered recovery send(2)
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, { body: string }]
+    const body = JSON.parse(lastCall[1].body) as { lat: number }
+    expect(body.lat).toBe(-1)
+  })
+
+  test("FG12: going hidden again while a recovery fresh-acquisition is in flight discards it — no POST, no revived timers", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // recovery one-shot in flight
+
+    // Hidden again before the recovery one-shot resolves.
+    goHidden()
+    expect(heartbeatTimerCount()).toBe(0)
+    expect(pendingSendTimerCount()).toBe(0)
+
+    // The stale one-shot now resolves.
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchCallCountFor("p1")).toBe(1) // still just the original send — no revival
+    expect(heartbeatTimerCount()).toBe(0)
+  })
+})
+
+// ============================================
+// J01-J16 — Stage 6J: adversarial pre-commit concurrency/lifecycle review
+// of the Stage 6I foreground-recovery model, plus the watchdog added in
+// this stage (justified by MISSED_HIDDEN_SIGNAL_DEAD_STATE_POSSIBLE=SI: if
+// the hidden handler itself never runs — a real possibility if the OS
+// freezes the page without dispatching any event — the multi-signal design
+// alone provides zero protection, since pendingForegroundRecoveryRef would
+// never be armed)
+// ============================================
+describe("J01-J16 — adversarial foreground-recovery pre-commit review", () => {
+  test("J01: hidden processed, but the 'visible' visibilitychange event is lost — focus alone still recovers exactly once", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+
+    // The "visible" visibilitychange event is lost — only focus fires.
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    })
+    await fireWindowFocus()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(2)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+  })
+
+  test("J02: visibilitychange and focus arriving in separate macrotasks for the same resume never duplicate the forced recovery", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+
+    await goVisible() // own macrotask — consumes the pending flag
+    expect(watchPositionMock).toHaveBeenCalledTimes(2)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+
+    await fireWindowFocus() // separate macrotask, same resume — flag already consumed
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // no duplicate forced recovery
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // no duplicate fresh acquisition
+  })
+
+  test("J03: a persisted pageshow arriving after recovery already completed for the same resume wave does not force a second recovery", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible() // recovery #1
+    expect(watchPositionMock).toHaveBeenCalledTimes(2)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+
+    // A late pageshow(persisted) for the same resume — well within the
+    // dedupe window.
+    await firePersistedPageshow()
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // no second recovery
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // no second fresh acquisition
+  })
+
+  test("J04: with no hidden handler ever processed and a silently zombied watch, an incidental focus alone cannot recover — the watchdog eventually does", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+
+    // Simulate the watch subscription silently dying WITHOUT any hidden
+    // event ever firing — the exact real Android scenario Stage 6H
+    // observed. No more watch callbacks arrive from here on.
+    await fireWindowFocus() // incidental — the hook has no reason to suspect a suspend happened
+
+    // The multi-signal design alone correctly does NOT force anything here
+    // — nothing told it a suspend happened, and forcing on every incidental
+    // focus would churn on healthy pages.
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+
+    // Only the watchdog, bounded and independent of any lifecycle signal,
+    // eventually notices the silence and forces exactly one recovery. On
+    // the way there, the stationary heartbeat (due at 60s) also honestly
+    // tries and fails to get a fresh sample on its own (T45 bounded-retry
+    // behavior) — that attempt never resolves and so never counts as
+    // "activity", which is exactly why the watchdog is still needed at 75s.
+    advanceTime(75000)
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one NEW watch — only from the watchdog's forced restart
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(2) // heartbeat's own failed attempt(1) + the watchdog's(2)
+  })
+
+  test("J05: a foreground-recovery microtask still pending when the hook unmounts never mutates anything afterward", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+
+    // Schedule the recovery microtask (visible fires) but unmount BEFORE it
+    // gets a chance to run.
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    controller.unmount()
+    controller = null
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(1) // never restarted after unmount
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0) // no recovery fresh acquisition after unmount
+    expect(fetchMock).toHaveBeenCalledTimes(1) // just the original initial send
+  })
+
+  test("J06: a foreground-recovery microtask still pending when the page goes hidden again never restarts the watcher", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange")) // schedules the recovery microtask
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true }) // hidden again before the microtask runs
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(1) // never restarted
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+  })
+
+  test("J07: two eligible deliveries resuming together produce exactly one physical watch and share a single fresh acquisition", async () => {
+    controller = createController()
+    controller.render([delivery("A"), delivery("B")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("A", watchId1, -34.6, -58.4, 5)
+    await sendInitialAndResolve("B", watchId1, -34.6, -58.4, 5)
+    expect(watchPositionMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one new physical watch
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // shared single-flight fresh acquisition
+
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchCallCountFor("A")).toBe(2)
+    expect(fetchCallCountFor("B")).toBe(2)
+  })
+
+  test("J08: a pre-background POST resolving late during an active foreground recovery does not create stale timers or overwrite the newer recovery sample", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    fireWatchSuccess(watchId1, -34.6, -58.4, 5) // starts a POST -> postInFlight=true, never resolved yet
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // The mount's own leftover one-shot (from ensureInitialSendForDelivery,
+    // superseded by the watch-triggered send above) is irrelevant here.
+    getCurrentPositionMock.mockClear()
+
+    goHidden() // stopWatcher, pendingForegroundRecoveryRef=true — the in-flight POST is untouched
+    advanceTime(6000)
+    await goVisible() // forces recovery: new watch, new generation, recovery fresh-acquisition begins
+
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+
+    // The recovery's fresh acquisition resolves and attempts a send — but
+    // the pre-background POST is still in flight for this delivery
+    // (single-flight), so it must be queued, never a second concurrent
+    // POST.
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // still just the original, in-flight
+
+    // The pre-background POST now finally resolves successfully.
+    await resolveNextFetch(200)
+    // Must not have been treated as ineligible, no stale timers revived
+    // from the old generation, and the queued recovery sample (newer) gets
+    // its own turn, respecting MIN_SEND_INTERVAL_MS.
+    expect(pendingSendTimerCount()).toBe(1)
+    advanceTime(5000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  test("J09: a known-ineligible delivery is never recovered by focus/pageshow alone — only a fresh eligible mios can", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    fireWatchSuccess(watchId1, -34.6, -58.4, 5)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await resolveNextFetch(403) // fails -> knownIneligible, watcher stops (no eligible deliveries left)
+    expect(activeWatchCount()).toBe(0)
+    // The mount's own leftover one-shot is irrelevant here.
+    getCurrentPositionMock.mockClear()
+
+    // Foreground signals fire, but "p1" is still knownIneligible — nothing
+    // should happen (zero eligible -> zero watch/GPS/POST activity).
+    await goVisible()
+    await fireWindowFocus()
+    await firePersistedPageshow()
+
+    expect(watchPositionMock).toHaveBeenCalledTimes(1) // never restarted for the ineligible delivery
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+    expect(fetchCallCountFor("p1")).toBe(1) // just the failed attempt
+  })
+
+  test("J10: a short background (<=5s) still lets recovery reuse the still-fresh cached sample directly, per the frozen Stage 1B contract", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    advanceTime(2000) // well within SAMPLE_REUSE_MAX_AGE_MS=5000
+    await goVisible()
+
+    // The cached sample is still fresh — recovery must reuse it directly,
+    // with no fresh one-shot acquisition needed.
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2) // sent immediately using the cached sample
+  })
+
+  test("J11: a long background (>5s) always requires a fresh acquisition before any recovery send — never the stale cached sample", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    goHidden()
+    advanceTime(10000) // well past SAMPLE_REUSE_MAX_AGE_MS
+    await goVisible()
+
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // not sent yet — waiting for the fresh acquisition
+
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  test("J12: a successful recovery send leaves exactly one heartbeat timer and becomes the new movement baseline", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    goHidden()
+    advanceTime(6000)
+    await goVisible()
+    const newWatchId = lastWatchId()
+    await resolveNextFreshAcquisitionAsync(-1, -1, 5)
+    await resolveNextFetch(200)
+
+    expect(heartbeatTimerCount()).toBe(1)
+
+    // The recovery sample is the new baseline — an identical-to-recovery
+    // subsequent watch callback must be judged as non-significant (i.e.,
+    // suppressed), proving lastSentSample really updated to it.
+    fireWatchSuccess(newWatchId, -1, -1, 5)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchCallCountFor("p1")).toBe(2) // still 2 — the identical follow-up was correctly suppressed as non-movement
+  })
+
+  test("J13: the watchdog performs exactly one recovery attempt per window when no activity is observed, never an immediate retry storm", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    // No further activity at all — the watchdog is the only thing still
+    // ticking (the stationary heartbeat, due at 60s, also honestly tries
+    // and fails on its own — T45 bounded-retry — contributing one attempt
+    // that never resolves and so never counts as "activity").
+    advanceTime(75000) // first watchdog window elapses
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one forced recovery — only from the watchdog
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(2) // heartbeat's own failed attempt(1) + the watchdog's(2)
+
+    // Immediately after, no second attempt without a full new window.
+    advanceTime(30000)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(2) // no storm
+  })
+
+  test("J14: the watchdog never triggers while the watcher is genuinely healthy (regular heartbeat activity resets its liveness evidence)", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+
+    // A normal heartbeat cycle produces real watch activity well before the
+    // watchdog's own (much longer) window would elapse.
+    advanceTime(60000) // heartbeat due
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // heartbeat's own fresh acquisition
+    await resolveNextFreshAcquisitionAsync(-34.6, -58.4, 5)
+    await resolveNextFetch(200)
+
+    getCurrentPositionMock.mockClear()
+    watchPositionMock.mockClear()
+
+    // Reaches exactly the original watchdog window from mount (75000ms),
+    // but activity was refreshed by the heartbeat above — no forced
+    // recovery should occur.
+    advanceTime(15000) // total elapsed since mount: 75000ms
+    expect(watchPositionMock).toHaveBeenCalledTimes(0)
+    expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
+  })
+
+  test("J15: the watchdog timer is cleared on hidden and on unmount — never fires afterward", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchdogTimerCount()).toBe(1)
+
+    goHidden()
+    expect(watchdogTimerCount()).toBe(0)
+
+    advanceTime(6000)
+    await goVisible()
+    expect(watchdogTimerCount()).toBe(1)
+
+    controller.unmount()
+    controller = null
+    expect(watchdogTimerCount()).toBe(0)
+
+    // Advancing well past any watchdog window after unmount must never
+    // produce runaway activity.
+    advanceTime(200000)
+    expect(watchPositionMock.mock.calls.length).toBeLessThanOrEqual(2)
+  })
+
+  test("J16: repeated foreground signals never accumulate more than one watchdog timer", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId1 = lastWatchId()
+    await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
+    expect(watchdogTimerCount()).toBe(1)
+
+    await fireWindowFocus()
+    expect(watchdogTimerCount()).toBe(1)
+
+    await fireWindowFocus()
+    expect(watchdogTimerCount()).toBe(1)
   })
 })
