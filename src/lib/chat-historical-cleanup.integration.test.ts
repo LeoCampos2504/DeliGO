@@ -418,3 +418,117 @@ describe("CHAT-HISTORICAL-ATTACHMENT-RETRY-1 — privacidad: un job pendiente no
     expect(JSON.stringify(body)).not.toContain(target.identifier)
   })
 })
+
+// ============================================
+// P2-T04 STAGE 2 — MODEL_R chatRevision invalidation, real PostgreSQL.
+// Covers R-MUT-03 (attachment metadata clear) and R-MUT-04 (hard delete).
+// ============================================
+describe("P2-T04 MODEL_R — chatRevision invalidation on cleanup mutations (real PostgreSQL)", () => {
+  test("A: attachment metadata clear (Step 2) bumps chatRevision for the affected pedido", async () => {
+    if (!secret) return
+
+    const negocio = await ensureNegocio("revision-attachment")
+    const pedido = await ensurePedido(negocio.id, "revision-attachment")
+    const target = await writeLocalFixtureFile(pedido.id, "revision.jpg")
+
+    const before = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+
+    await db.chatMensaje.create({
+      data: {
+        pedidoId: pedido.id,
+        remitente: "vendedor",
+        clienteId: null,
+        texto: "TEST_REVISION_ATTACHMENT",
+        imagenUrl: target.url,
+        archivoUrl: null,
+        fecha: oldFecha(),
+      },
+    })
+
+    const res = await getChatCleanup(reqCleanup())
+    expect(res.status).toBe(200)
+
+    const after = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect(after?.chatRevision ?? 0).toBeGreaterThan(before?.chatRevision ?? 0)
+  })
+
+  test("B: hard delete of an empty old message (Step 4) bumps chatRevision for the affected pedido", async () => {
+    const negocio = await ensureNegocio("revision-harddelete")
+    const pedido = await ensurePedido(negocio.id, "revision-harddelete")
+
+    const before = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+
+    const mensaje = await db.chatMensaje.create({
+      data: {
+        pedidoId: pedido.id,
+        remitente: "vendedor",
+        clienteId: null,
+        texto: "",
+        imagenUrl: null,
+        archivoUrl: null,
+        fecha: oldFecha(),
+      },
+    })
+
+    const res = await getChatCleanup(reqCleanup())
+    expect(res.status).toBe(200)
+
+    expect(await db.chatMensaje.findUnique({ where: { id: mensaje.id } })).toBeNull()
+
+    const after = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect(after?.chatRevision ?? 0).toBeGreaterThan(before?.chatRevision ?? 0)
+  })
+
+  test("C: a cleanup run with zero affected rows for an UNRELATED pedido never bumps its chatRevision", async () => {
+    const negocio = await ensureNegocio("revision-unaffected")
+    const pedido = await ensurePedido(negocio.id, "revision-unaffected")
+
+    const before = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+
+    // A recent (not old enough), non-empty message — never a Step 2 or Step
+    // 4 target, so this pedido's chatRevision must stay untouched.
+    await db.chatMensaje.create({
+      data: {
+        pedidoId: pedido.id,
+        remitente: "vendedor",
+        clienteId: null,
+        texto: "TEST_REVISION_UNAFFECTED_RECENT",
+        imagenUrl: null,
+        archivoUrl: null,
+      },
+    })
+
+    const res = await getChatCleanup(reqCleanup())
+    expect(res.status).toBe(200)
+
+    const after = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect(after?.chatRevision).toBe(before?.chatRevision ?? 0)
+  })
+
+  test("D: the affected-pedido bump set has no false negative — every pedido with a Step 4-deleted row is bumped, even across multiple pedidos in one run", async () => {
+    const negocio = await ensureNegocio("revision-multi")
+    const pedidoA = await ensurePedido(negocio.id, "revision-multi-a")
+    const pedidoB = await ensurePedido(negocio.id, "revision-multi-b")
+
+    const beforeA = await db.pedido.findUnique({ where: { id: pedidoA.id }, select: { chatRevision: true } })
+    const beforeB = await db.pedido.findUnique({ where: { id: pedidoB.id }, select: { chatRevision: true } })
+
+    const msgA = await db.chatMensaje.create({
+      data: { pedidoId: pedidoA.id, remitente: "vendedor", clienteId: null, texto: "", imagenUrl: null, archivoUrl: null, fecha: oldFecha() },
+    })
+    const msgB = await db.chatMensaje.create({
+      data: { pedidoId: pedidoB.id, remitente: "vendedor", clienteId: null, texto: "", imagenUrl: null, archivoUrl: null, fecha: oldFecha() },
+    })
+
+    const res = await getChatCleanup(reqCleanup())
+    expect(res.status).toBe(200)
+
+    expect(await db.chatMensaje.findUnique({ where: { id: msgA.id } })).toBeNull()
+    expect(await db.chatMensaje.findUnique({ where: { id: msgB.id } })).toBeNull()
+
+    const afterA = await db.pedido.findUnique({ where: { id: pedidoA.id }, select: { chatRevision: true } })
+    const afterB = await db.pedido.findUnique({ where: { id: pedidoB.id }, select: { chatRevision: true } })
+    expect(afterA?.chatRevision ?? 0).toBeGreaterThan(beforeA?.chatRevision ?? 0)
+    expect(afterB?.chatRevision ?? 0).toBeGreaterThan(beforeB?.chatRevision ?? 0)
+  })
+})

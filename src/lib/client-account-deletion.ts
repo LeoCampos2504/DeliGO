@@ -66,9 +66,21 @@ export async function deleteClientAccountInTransaction(
   tx: Prisma.TransactionClient,
   clienteId: string,
 ) {
+  // P2-T04 MODEL_S1 (certificado contra PostgreSQL real en Stage 1E): lock
+  // explícito y temprano sobre la fila Cliente, ANTES de cualquier otra
+  // lectura/escritura de esta transacción. Cierra la raza donde un mensaje
+  // de Chat del propio Cliente se crea concurrentemente entre el
+  // saneamiento de más abajo y el `cliente.delete` final — cualquier INSERT
+  // de ChatMensaje que referencie a este Cliente vía FK adquiere
+  // implícitamente un lock `FOR KEY SHARE` sobre esta misma fila, que
+  // conflictúa con este `FOR UPDATE`. Bajo SERIALIZABLE, el primer intento
+  // puede no ver una fila creada mientras esperaba el lock (snapshot ya
+  // fija) y Postgres aborta ese intento con P2034 — el retry completo de
+  // `retryClientAccountDeletion` (sin cambios) toma una snapshot nueva que
+  // sí la ve y sanea. Nunca `$queryRawUnsafe`: tagged template parametrizado.
+  await tx.$queryRaw`SELECT id FROM clientes WHERE id = ${clienteId} FOR UPDATE`
+
   // Bloquea la eliminación mientras exista al menos un pedido no terminal.
-  // Debe ser la primera operación: nada se escribe todavía, así que un
-  // rechazo acá no deja mutaciones parciales por revertir.
   const pedidoActivo = await tx.pedido.findFirst({
     where: {
       clienteId,
@@ -149,7 +161,11 @@ export async function deleteClientAccountInTransaction(
   // "cliente" — nunca "vendedor", que pertenece a Negocio/PyR y no se toca
   // jamás por esta eliminación). La fila se preserva siempre: nunca
   // `deleteMany`, para no romper cronología/hilos del lado Negocio.
-  await tx.chatMensaje.updateMany({
+  // updateManyAndReturn (en vez de updateMany + un preselect separado):
+  // el conjunto de `pedidoId` afectados para el bump de revision de abajo
+  // sale EXACTAMENTE de las filas que esta sentencia realmente mutó, nunca
+  // de una lectura previa que podría divergir bajo concurrencia.
+  const sanitizedClientMessages = await tx.chatMensaje.updateManyAndReturn({
     where: { clienteId, remitente: "cliente" },
     data: {
       clienteId: null,
@@ -159,7 +175,24 @@ export async function deleteClientAccountInTransaction(
       archivoNombre: null,
       archivoTipo: null,
     },
+    select: { pedidoId: true },
   })
+
+  // Invalida chatRevision de cada pedido cuyo historial visible cambió por
+  // el saneamiento de arriba — nunca de más (no se bumpea un pedido sin
+  // filas realmente saneadas), nunca de menos (bajo el lock temprano de
+  // arriba, ningún mensaje del Cliente puede escapar de este conjunto).
+  // Orden determinístico (ascendente) para reducir el riesgo de deadlock
+  // por lock-order inverso frente a otras transactions que también
+  // bumpeen múltiples pedidos.
+  const affectedPedidoIds = [...new Set(sanitizedClientMessages.map((m) => m.pedidoId))].sort()
+  for (const affectedPedidoId of affectedPedidoIds) {
+    await tx.pedido.update({
+      where: { id: affectedPedidoId },
+      data: { chatRevision: { increment: 1 } },
+    })
+  }
+
   // Red de seguridad: desvincula `clienteId` de cualquier fila legacy
   // inconsistente que lo tuviera sin `remitente="cliente"` (nunca debería
   // existir según los escritores actuales, auditado en 19-B0.2D0), sin

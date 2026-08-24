@@ -35,9 +35,11 @@ import { applyForegroundEpisodeEvent, createForegroundEpisodeState } from "@/lib
 import {
   ACTIVE_HISTORY_SAFETY_INTERVAL_MS,
   ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS,
+  buildHistoryRequestQuery,
   buildLocalIdSet,
   buildLocalIndexMap,
   createHistoryCoordinatorState,
+  evaluateHistoryResponse,
   isFreshCoverageSignal,
   isHistoryResyncReasonAllowed,
   reconcileHistoryMessages,
@@ -164,6 +166,13 @@ export function ChatView({
   // `currentMessages`, and never a fetch-effect dependency (a new realtime
   // message must not itself recreate the fetch/timer machinery).
   const messagesRef = useRef<ChatMessage[]>(messages[pedidoId] || [])
+  // P2-T04 MODEL_R: the last `chatRevision` this lifecycle has confirmed via
+  // a successful FULL authoritative reconciliation — `undefined` until the
+  // first one lands. Purely in-memory for this component instance, never
+  // persisted anywhere, never advanced by realtime or by this tab's own
+  // local POST (see KNOWN_REVISION_ADVANCES_* markers, CODEX_REPORT.md
+  // P2-T04 Stage 2) — only ever read/written here.
+  const knownHistoryRevisionRef = useRef<number | undefined>(undefined)
 
   const [documentVisible, setDocumentVisible] = useState(isDocumentVisible)
 
@@ -201,19 +210,32 @@ export function ChatView({
   // never affects liveness/single-flight semantics, which are TO1-uniform
   // regardless of success, ordinary failure, or timeout.
   const runFetchFor = useCallback(
-    async (controller: AbortController, isPartOfInitialAuthority: boolean) => {
+    async (controller: AbortController, isPartOfInitialAuthority: boolean, kind: "semantic" | "safety") => {
       const requestStartIds = buildLocalIdSet(messagesRef.current)
       const previousLocalIndexMap = buildLocalIndexMap(messagesRef.current)
 
       if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, true)
 
+      // P2-T04 MODEL_R: `mode=safety` is sent ONLY for safety-tick requests
+      // — semantic requests never send it (server always treats a request
+      // without it as full, which also gives old-server rolling
+      // compatibility for free). `knownRevision` is included only once this
+      // lifecycle actually knows one — never invented as 0.
+      const sentKnownRevision = kind === "safety" ? knownHistoryRevisionRef.current : undefined
+      const query = buildHistoryRequestQuery({ kind, knownRevision: sentKnownRevision })
+
       const result = await runHistoryRequestWithDeadline(
         controller,
         ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS,
         async () => {
-          const res = await fetch(`/api/chat/mensajes/${pedidoId}`, { signal: controller.signal })
+          const res = await fetch(`/api/chat/mensajes/${pedidoId}${query}`, { signal: controller.signal })
           if (!res.ok) throw new Error("history-http-error")
-          return (await res.json()) as { mensajes?: ChatMessage[]; pedido?: PedidoInfo }
+          return (await res.json()) as {
+            mensajes?: ChatMessage[]
+            pedido?: PedidoInfo
+            unchanged?: boolean
+            historyRevision?: number
+          }
         },
       )
 
@@ -221,22 +243,52 @@ export function ChatView({
       const { state, action } = settleHistoryFetch(coordinatorRef.current, controller, nextController)
       coordinatorRef.current = state
 
+      // Section 36/CODEX_REPORT.md P2-T04 Stage 2: `evaluateHistoryResponse`
+      // (pure, unit-tested against the full equality/mismatch/malformed
+      // matrix in chat-history-resync.test.ts) decides trust — never on the
+      // mere presence of `unchanged`. A "force-full-refetch" outcome is
+      // non-conclusive (its `mensajes` cannot be trusted as a real
+      // snapshot) and triggers exactly one corrective full re-fetch
+      // afterward — self-terminating, since a semantic request server-side
+      // is always full and can never itself come back claiming `unchanged`.
+      let forceFullRefetch = false
+
       // Stale: lifecycle teardown already invalidated this request, or a
       // newer request already superseded it. No store/UI mutation — the
       // classic "old finally must never mutate a newer lifecycle" guard.
       if (action.type !== "stale") {
         if (result.ok) {
-          const reconciled = reconcileHistoryMessages({
-            serverMessages: result.value.mensajes || [],
-            requestStartIds,
-            previousLocalIndexMap,
-            liveLocalMessages: messagesRef.current,
-          })
-          setMessages(pedidoId, reconciled)
-          if (result.value.pedido) setPedidoInfo(pedidoId, result.value.pedido)
-          updateConversationUnread(pedidoId, 0)
-          hasCompletedInitialLoadRef.current = true
-          if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, false)
+          const data = result.value
+          const evaluation = evaluateHistoryResponse(sentKnownRevision, data)
+
+          if (evaluation.outcome === "force-full-refetch") {
+            forceFullRefetch = true
+            if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, false)
+          } else if (evaluation.outcome === "unchanged") {
+            // Genuine no-op: no reconcile, no store write, no render, no
+            // known-revision change (it already equals what we confirmed).
+            if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, false)
+          } else {
+            // FULL authoritative response — reused for both an explicit
+            // safety mismatch and every semantic response, and (rolling
+            // compatibility) for an old server that never sets `unchanged`
+            // at all — the exact same, unmodified V6 reconciler either way.
+            const reconciled = reconcileHistoryMessages({
+              serverMessages: data.mensajes || [],
+              requestStartIds,
+              previousLocalIndexMap,
+              liveLocalMessages: messagesRef.current,
+            })
+            setMessages(pedidoId, reconciled)
+            if (data.pedido) setPedidoInfo(pedidoId, data.pedido)
+            updateConversationUnread(pedidoId, 0)
+            hasCompletedInitialLoadRef.current = true
+            // Advance known revision ONLY after a successful FULL
+            // reconciliation just landed — never from realtime, never from
+            // a local POST echo, never from an untrusted/malformed response.
+            if (evaluation.historyRevision !== undefined) knownHistoryRevisionRef.current = evaluation.historyRevision
+            if (isPartOfInitialAuthority) setLoadingMessages(pedidoId, false)
+          }
         } else if (isPartOfInitialAuthority) {
           if (action.type === "start") {
             // A follow-up is about to run as a continuation of initial
@@ -255,7 +307,17 @@ export function ChatView({
       }
 
       if (action.type === "start") {
-        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current)
+        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current, "semantic")
+      } else if (forceFullRefetch) {
+        const correctiveController = new AbortController()
+        const { state: correctiveState, action: correctiveAction } = triggerSemanticHistoryFetch(
+          coordinatorRef.current,
+          correctiveController,
+        )
+        coordinatorRef.current = correctiveState
+        if (correctiveAction.type === "start") {
+          void runFetchFor(correctiveAction.token, !hasCompletedInitialLoadRef.current, "semantic")
+        }
       }
     },
     [pedidoId, setLoadingMessages, setMessages, setPedidoInfo, updateConversationUnread],
@@ -274,7 +336,7 @@ export function ChatView({
           : triggerSafetyIntervalTick(coordinatorRef.current, nextController)
       coordinatorRef.current = state
       if (action.type === "start") {
-        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current)
+        void runFetchFor(action.token, !hasCompletedInitialLoadRef.current, kind)
       }
     },
     [runFetchFor],
@@ -296,6 +358,10 @@ export function ChatView({
     hasExactCoverageForCurrentLifecycleRef.current = false
     lastSeenCoverageGenerationRef.current = undefined
     hasCompletedInitialLoadRef.current = false
+    // P2-T04: known revision never survives an actor/pedido/remount switch
+    // — undefined again until the mount fetch below lands its first FULL
+    // reconciliation.
+    knownHistoryRevisionRef.current = undefined
 
     triggerHistoryFetch("semantic")
 

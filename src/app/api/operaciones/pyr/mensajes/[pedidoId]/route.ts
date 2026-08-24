@@ -143,12 +143,23 @@ export async function GET(
     // Marcar como leídos SOLO los mensajes de cliente realmente devueltos (por `id`), para no
     // marcar mensajes llegados después del findMany que aún no se mostraron. Best-effort: un
     // fallo no impide mostrar la conversación.
+    // P2-T04 Stage 3B (R-MUT-07): atómico con el bump de Pedido.chatRevision — sólo si
+    // count>0 — para que el mismo invariant de MODEL_R que ya rige el mark-read del chat
+    // principal (`/api/chat/mensajes/[pedidoId]`) también cubra este canal.
     const clienteMsgIds = mensajes.filter((m) => m.remitente === "cliente").map((m) => m.id)
     if (clienteMsgIds.length > 0) {
       try {
-        await db.chatMensaje.updateMany({
-          where: { id: { in: clienteMsgIds }, pedidoId, remitente: "cliente", leido: false },
-          data: { leido: true },
+        await db.$transaction(async (tx) => {
+          const result = await tx.chatMensaje.updateMany({
+            where: { id: { in: clienteMsgIds }, pedidoId, remitente: "cliente", leido: false },
+            data: { leido: true },
+          })
+          if (result.count > 0) {
+            await tx.pedido.update({
+              where: { id: pedidoId },
+              data: { chatRevision: { increment: 1 } },
+            })
+          }
         })
       } catch {
         console.error("[OperacionesPyR] Falló al marcar mensajes como leídos")
@@ -248,6 +259,13 @@ export async function POST(
           clienteId: null,
         },
         select: { id: true },
+      })
+      // P2-T04 Stage 3B (R-MUT-06): mismo lock/transacción que ya crea el mensaje — si el
+      // create falla, el bump nunca corre; si el bump fallara, Postgres revierte el create
+      // también (misma transacción).
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { chatRevision: { increment: 1 } },
       })
       return { mensajeId: mensaje.id, clienteId: locked[0].clienteId, negocioNombre: locked[0].negocioNombre }
     })

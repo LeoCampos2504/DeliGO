@@ -230,6 +230,13 @@ export async function POST(
         },
         select: { id: true },
       })
+      // P2-T04 Stage 3B (R-MUT-06): mismo lock/transacción que ya crea el mensaje — si el
+      // create falla, el bump nunca corre; si el bump fallara, Postgres revierte el create
+      // también (misma transacción).
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { chatRevision: { increment: 1 } },
+      })
       return { mensajeId: mensaje.id, clienteId: locked[0].clienteId, negocioNombre: locked[0].negocioNombre }
     })
 

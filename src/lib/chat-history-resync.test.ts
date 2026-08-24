@@ -7,10 +7,12 @@ import {
   ACTIVE_HISTORY_CONFIGURED_SAFETY_CADENCE_SECONDS,
   ACTIVE_HISTORY_SAFETY_ATTEMPT_START_BOUND_SECONDS,
   ACTIVE_HISTORY_FIRST_SUCCESSFUL_SAFETY_ATTEMPT_RECOVERY_BOUND_SECONDS,
+  buildHistoryRequestQuery,
   buildLocalIdSet,
   buildLocalIndexMap,
   createCoverageToken,
   createHistoryCoordinatorState,
+  evaluateHistoryResponse,
   isFreshCoverageSignal,
   isHistoryResyncReasonAllowed,
   reconcileHistoryMessages,
@@ -719,5 +721,90 @@ describe("runHistoryRequestWithDeadline — deterministic 10s liveness deadline"
     const staleSettle = settleHistoryFetch(freshLifecycle, 1, 101)
     expect(staleSettle.action).toEqual({ type: "stale" })
     expect(staleSettle.state.currentToken).toBe(100) // new lifecycle's own request untouched
+  })
+})
+
+// ============================================
+// P2-T04 MODEL_R — request shaping + response evaluation (pure)
+// ============================================
+describe("buildHistoryRequestQuery — P2-T04 MODEL_R", () => {
+  test("semantic never sends mode=safety, regardless of knownRevision", () => {
+    expect(buildHistoryRequestQuery({ kind: "semantic", knownRevision: undefined })).toBe("")
+    expect(buildHistoryRequestQuery({ kind: "semantic", knownRevision: 7 })).toBe("")
+  })
+
+  test("safety with no known revision sends mode=safety WITHOUT inventing knownRevision=0", () => {
+    expect(buildHistoryRequestQuery({ kind: "safety", knownRevision: undefined })).toBe("?mode=safety")
+  })
+
+  test("safety with a known revision sends both params", () => {
+    expect(buildHistoryRequestQuery({ kind: "safety", knownRevision: 0 })).toBe("?mode=safety&knownRevision=0")
+    expect(buildHistoryRequestQuery({ kind: "safety", knownRevision: 42 })).toBe("?mode=safety&knownRevision=42")
+  })
+})
+
+describe("evaluateHistoryResponse — P2-T04 MODEL_R (P2T04B-R matrix)", () => {
+  test("P2T04B-R01: equal revision (server unchanged:true, echo matches sent) -> outcome unchanged", () => {
+    const result = evaluateHistoryResponse(5, { unchanged: true, historyRevision: 5, mensajes: [] })
+    expect(result).toEqual({ outcome: "unchanged" })
+  })
+
+  test("P2T04B-R02: missed create surfaces as a revision mismatch -> full, adopts the new revision", () => {
+    const result = evaluateHistoryResponse(5, {
+      unchanged: false,
+      historyRevision: 6,
+      mensajes: [msg("missed", "2024-01-01T10:00:00.000Z")],
+    })
+    expect(result).toEqual({ outcome: "full", historyRevision: 6 })
+  })
+
+  test("P2T04B-R08: a mismatch full response's mensajes feed the EXISTING (unmodified) reconciler via the caller — this function only decides trust/outcome", () => {
+    const response = { unchanged: false, historyRevision: 9, mensajes: [msg("a", "2024-01-01T10:00:00.000Z")] }
+    const result = evaluateHistoryResponse(3, response)
+    expect(result.outcome).toBe("full")
+    // The evaluation never mutates/filters `mensajes` itself — reconciliation
+    // is entirely the caller's responsibility (reconcileHistoryMessages).
+  })
+
+  test("P2T04B-R09: a genuinely unchanged outcome never carries reconcilable content — caller must perform 0 setMessages", () => {
+    const result = evaluateHistoryResponse(5, { unchanged: true, historyRevision: 5, mensajes: [] })
+    expect(result.outcome).toBe("unchanged")
+  })
+
+  test("no sent knownRevision (first-ever safety tick edge case) never trusts an unchanged claim", () => {
+    const result = evaluateHistoryResponse(undefined, { unchanged: true, historyRevision: 5, mensajes: [] })
+    expect(result.outcome).toBe("force-full-refetch")
+  })
+
+  test("unchanged:true with a MISMATCHED echoed revision is never trusted -> force-full-refetch, not reconciled", () => {
+    const result = evaluateHistoryResponse(5, { unchanged: true, historyRevision: 6, mensajes: [] })
+    expect(result).toEqual({ outcome: "force-full-refetch" })
+  })
+
+  test("unchanged:true with a missing/non-numeric historyRevision is never trusted -> force-full-refetch", () => {
+    expect(evaluateHistoryResponse(5, { unchanged: true, mensajes: [] }).outcome).toBe("force-full-refetch")
+    expect(evaluateHistoryResponse(5, { unchanged: true, historyRevision: undefined, mensajes: [] }).outcome).toBe(
+      "force-full-refetch",
+    )
+  })
+
+  test("semantic response (unchanged omitted entirely, as the real server always does) -> full, adopts revision", () => {
+    const result = evaluateHistoryResponse(undefined, { historyRevision: 12, mensajes: [msg("a", "2024-01-01T10:00:00.000Z")] })
+    expect(result).toEqual({ outcome: "full", historyRevision: 12 })
+  })
+
+  test("old-server rolling compatibility: full shape with no historyRevision at all -> full, does not invent a revision", () => {
+    const result = evaluateHistoryResponse(5, { mensajes: [msg("a", "2024-01-01T10:00:00.000Z")], pedido: undefined })
+    expect(result).toEqual({ outcome: "full", historyRevision: undefined })
+  })
+
+  test("explicit unchanged:false with valid revision -> full, adopts the new revision even if numerically equal to what was sent", () => {
+    const result = evaluateHistoryResponse(5, { unchanged: false, historyRevision: 5, mensajes: [] })
+    expect(result).toEqual({ outcome: "full", historyRevision: 5 })
+  })
+
+  test("duplicate/late response carrying the SAME already-known revision twice never causes a double-advance issue for the caller — evaluation is a pure function of its inputs, idempotent", () => {
+    const response = { unchanged: true, historyRevision: 5, mensajes: [] }
+    expect(evaluateHistoryResponse(5, response)).toEqual(evaluateHistoryResponse(5, response))
   })
 })

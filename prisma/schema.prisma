@@ -423,6 +423,15 @@ model Pedido {
   // prisma/migrations/*_add_pedido_tracking_snapshot.
   seguimientoDeliveryHabilitado Boolean @default(false)
 
+  // Epoch monotónico server-authoritative del historial de Chat visible de
+  // este pedido (P2-T04, MODEL_R) — incrementado por cualquier mutación que
+  // cambie lo que un cliente/negocio vería en un fetch completo (mensaje
+  // nuevo, mark-read, saneamiento por eliminación de cuenta, cleanup por
+  // antigüedad). NO es un conteo de mensajes ni incrementa una vez por fila.
+  // Usado por la safety probe de Chat para evitar un fetch completo cuando
+  // nada cambió — ver src/lib/chat-history-resync.ts.
+  chatRevision Int @default(0)
+
   // Pago
   metodoPago String  @default("efectivo") // efectivo, transferencia
   notas      String?
@@ -496,6 +505,7 @@ model ChatMensaje {
   cliente   Cliente? @relation(fields: [clienteId], references: [id])
   clienteId String?
 
+  @@index([pedidoId, fecha])
   @@map("chat_mensajes")
 }
 

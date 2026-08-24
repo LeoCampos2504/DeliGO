@@ -16,6 +16,47 @@ import {
 } from "./client-account-deletion"
 import { DELETED_CLIENT_CHAT_MESSAGE_TEXT } from "./chat-attachment-deletion"
 
+type Call = { model: string; operation: string; args?: unknown }
+
+// P2-T04 MODEL_S1: the early Cliente row lock is now the literal first
+// operation of every transaction — tracked here as a top-level "cliente.
+// $queryRaw" call, distinct from any model-namespaced operation. Every mock
+// `tx` below must expose `$queryRaw` as a tagged-template function.
+function queryRawMock(calls: Call[]) {
+  return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    calls.push({ model: "cliente", operation: "$queryRaw", args: { strings: [...strings], values } })
+    return [] as Array<{ id: string }>
+  }
+}
+
+// Shared `pedido` mock: the guard (`findFirst`), the pedidoId capture
+// (`findMany`), the PII sanitizer (`updateMany`), and — new in P2-T04 —
+// `update`, used exactly once per distinct pedido whose Chat history was
+// actually sanitized (chatRevision increment).
+function pedidoMock(
+  calls: Call[],
+  opts: { findFirstResult?: { id: string } | null; findManyResult?: Array<{ id: string }> } = {},
+) {
+  return {
+    findFirst: async (args?: unknown) => {
+      calls.push({ model: "pedido", operation: "findFirst", args })
+      return opts.findFirstResult ?? null
+    },
+    findMany: async (args?: unknown) => {
+      calls.push({ model: "pedido", operation: "findMany", args })
+      return opts.findManyResult ?? []
+    },
+    updateMany: async (args?: unknown) => {
+      calls.push({ model: "pedido", operation: "updateMany", args })
+      return { count: 1 }
+    },
+    update: async (args?: unknown) => {
+      calls.push({ model: "pedido", operation: "update", args })
+      return { id: (args as { where: { id: string } }).where.id }
+    },
+  }
+}
+
 // Mock base compartido de `tx` para los describe blocks B0/B0.2B0/B0.2B1/C/D1
 // preexistentes: ninguno de esos tests ejercita mensajes con adjunto, así
 // que `chatMensaje.findMany` siempre resuelve `[]` y
@@ -24,13 +65,20 @@ import { DELETED_CLIENT_CHAT_MESSAGE_TEXT } from "./chat-attachment-deletion"
 // 19-B0.2E1: se agregan `notificacion.deleteMany`/`updateMany` (uno por cada
 // tipo en NOTIFICATION_TYPES_WITH_CLIENT_PII) y `clienteBloqueado.updateMany`
 // — ninguno de esos tests preexistentes verifica su contenido, sólo necesitan
-// no lanzar.
-function baseChatMocks(calls: Array<{ model: string; operation: string; args?: unknown }>) {
+// no lanzar. P2-T04: `chatMensaje.updateManyAndReturn` reemplaza el primer
+// `updateMany` de contenido (el segundo, de "red de seguridad", sigue siendo
+// `updateMany`) — por defecto resuelve `[]` (ningún mensaje sanitizado, por
+// lo tanto cero bumps de `pedido.update`), configurable vía `sanitizedResult`.
+function baseChatMocks(calls: Call[], opts: { sanitizedResult?: Array<{ id: string; pedidoId: string }> } = {}) {
   return {
     chatMensaje: {
       findMany: async (args?: unknown) => {
         calls.push({ model: "chatMensaje", operation: "findMany", args })
         return []
+      },
+      updateManyAndReturn: async (args?: unknown) => {
+        calls.push({ model: "chatMensaje", operation: "updateManyAndReturn", args })
+        return opts.sanitizedResult ?? []
       },
       updateMany: async (args?: unknown) => {
         calls.push({ model: "chatMensaje", operation: "updateMany", args })
@@ -104,28 +152,33 @@ describe("19-B0.1 — schema y migración estáticos", () => {
     expect(migration).not.toContain("pedidoId")
     expect(migration).not.toContain("estadoModeracion")
   })
+
+  test("P2-T04: chatRevision es aditivo (Int @default(0)) y el índice de historial existe", () => {
+    expect(schema).toContain("chatRevision Int @default(0)")
+    expect(schema).toContain("@@index([pedidoId, fecha])")
+    const p2t04Migration = read(
+      "prisma/migrations/20260823180000_add_chat_revision_and_history_index/migration.sql",
+    )
+    expect(p2t04Migration).toContain('ALTER TABLE "pedidos" ADD COLUMN     "chatRevision" INTEGER NOT NULL DEFAULT 0')
+    expect(p2t04Migration).toContain('CREATE INDEX "chat_mensajes_pedidoId_fecha_idx" ON "chat_mensajes"("pedidoId", "fecha")')
+    expect(p2t04Migration).not.toMatch(/DROP\s+TABLE/i)
+    expect(p2t04Migration).not.toMatch(/\bDELETE\s+FROM\b/i)
+    expect(p2t04Migration).not.toMatch(/\bTRUNCATE\b/i)
+    expect(p2t04Migration).not.toMatch(/\bUPDATE\s+"/i)
+  })
 })
 
 describe("19-B0.1 — core de eliminación de cuenta", () => {
   test("anonimiza reseñas antes de desvincular y borrar la cuenta", async () => {
-    const calls: Array<{ model: string; operation: string; args: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: {
-        findFirst: async (args: unknown) => {
-          calls.push({ model: "pedido", operation: "findFirst", args })
-          return null
-        },
-        findMany: async () => {
-          calls.push({ model: "pedido", operation: "findMany", args: undefined })
-          return []
-        },
-        updateMany: operation("pedido", "updateMany"),
-      },
+      pedido: pedidoMock(calls),
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       denuncia: { updateMany: operation("denuncia", "updateMany") },
@@ -137,12 +190,13 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
     await deleteClientAccountInTransaction(tx, "cliente-test")
 
     expect(calls.map(({ model, operation }) => `${model}.${operation}`)).toEqual([
+      "cliente.$queryRaw",
       "pedido.findFirst",
       "pedido.findMany",
       "resena.updateMany",
       "pedido.updateMany",
       "chatMensaje.findMany",
-      "chatMensaje.updateMany",
+      "chatMensaje.updateManyAndReturn",
       "chatMensaje.updateMany",
       "notificacion.deleteMany",
       "notificacion.updateMany",
@@ -159,15 +213,15 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
       "direccion.deleteMany",
       "cliente.delete",
     ])
-    expect(calls[0].args).toEqual({
+    expect(calls[1].args).toEqual({
       where: { clienteId: "cliente-test", estado: { notIn: ["entregado", "cancelado"] } },
       select: { id: true },
     })
-    expect(calls[2].args).toEqual({
+    expect(calls[3].args).toEqual({
       where: { clienteId: "cliente-test" },
       data: { clienteId: null, clienteNombre: ANONYMIZED_REVIEW_CLIENT_NAME },
     })
-    expect(calls[3].args).toEqual({
+    expect(calls[4].args).toEqual({
       where: { clienteId: "cliente-test" },
       data: {
         clienteId: null,
@@ -215,9 +269,10 @@ describe("19-B0.1 — core de eliminación de cuenta", () => {
   test("clasifica P2025 solo en el delete final y no lo reintenta", async () => {
     const operation = async () => ({ count: 1 })
     const tx = {
+      $queryRaw: queryRawMock([]),
       resena: { updateMany: operation },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation },
-      chatMensaje: { findMany: async () => [], updateMany: operation },
+      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation, update: operation },
+      chatMensaje: { findMany: async () => [], updateManyAndReturn: async () => [], updateMany: operation },
       chatAttachmentDeletionJob: { createMany: operation },
       notificacion: { deleteMany: operation, updateMany: operation },
       clienteBloqueado: { updateMany: operation },
@@ -287,12 +342,13 @@ describe("19-B0.2B0 — terminalidad de Pedido para el guard de eliminación", (
 
 describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activos (mock)", () => {
   function txWithPedidoLookup(findFirstResult: { id: string } | null) {
-    const calls: Array<{ model: string; operation: string }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async () => {
       calls.push({ model, operation: name })
       return { count: 0 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
       pedido: {
         findFirst: async () => {
@@ -304,6 +360,7 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
           return []
         },
         updateMany: operation("pedido", "updateMany"),
+        update: operation("pedido", "update"),
       },
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
@@ -315,24 +372,28 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
     return { tx, calls }
   }
 
-  test("si existe un pedido activo, rechaza con ClientHasActiveOrdersError sin escribir nada", async () => {
+  test("si existe un pedido activo, rechaza con ClientHasActiveOrdersError después de adquirir el lock, sin escribir nada", async () => {
     const { tx, calls } = txWithPedidoLookup({ id: "pedido-activo" })
     await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
       ClientHasActiveOrdersError,
     )
-    expect(calls).toEqual([{ model: "pedido", operation: "findFirst" }])
+    expect(calls).toEqual([
+      { model: "cliente", operation: "$queryRaw", args: expect.anything() },
+      { model: "pedido", operation: "findFirst" },
+    ])
   })
 
   test("sin pedidos activos, procede con la secuencia completa de eliminación", async () => {
     const { tx, calls } = txWithPedidoLookup(null)
     await deleteClientAccountInTransaction(tx, "cliente-test")
     expect(calls.map(({ model, operation }) => `${model}.${operation}`)).toEqual([
+      "cliente.$queryRaw",
       "pedido.findFirst",
       "pedido.findMany",
       "resena.updateMany",
       "pedido.updateMany",
       "chatMensaje.findMany",
-      "chatMensaje.updateMany",
+      "chatMensaje.updateManyAndReturn",
       "chatMensaje.updateMany",
       "notificacion.deleteMany",
       "notificacion.updateMany",
@@ -354,14 +415,15 @@ describe("19-B0.2B0 — deleteClientAccountInTransaction: guard de pedidos activ
 
 describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de PasswordResetToken (mock)", () => {
   test("pedido.updateMany sanitiza exactamente los campos estructurados de PII, preservando el resto", async () => {
-    const calls: Array<{ model: string; operation: string; args: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       denuncia: { updateMany: operation("denuncia", "updateMany") },
@@ -402,18 +464,20 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       "deudaAcumulada",
       "canceladoMotivo",
       "items",
+      "chatRevision",
     ]) {
       expect(dataKeys).not.toContain(untouched)
     }
   })
 
   test("passwordResetToken.deleteMany se acota a userId + userType cliente, ocurre después del guard y antes de cliente.delete", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
       pedido: {
         findFirst: async (args?: unknown) => {
@@ -422,6 +486,7 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
         },
         findMany: async () => [],
         updateMany: operation("pedido", "updateMany"),
+        update: operation("pedido", "update"),
       },
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
@@ -434,7 +499,8 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
     await deleteClientAccountInTransaction(tx, "cliente-test")
 
     const order = calls.map((c) => `${c.model}.${c.operation}`)
-    expect(order.indexOf("pedido.findFirst")).toBe(0)
+    expect(order.indexOf("cliente.$queryRaw")).toBe(0)
+    expect(order.indexOf("pedido.findFirst")).toBe(1)
     expect(order.indexOf("passwordResetToken.deleteMany")).toBeGreaterThan(order.indexOf("pedido.findFirst"))
     expect(order.indexOf("passwordResetToken.deleteMany")).toBeLessThan(order.indexOf("cliente.delete"))
 
@@ -449,10 +515,15 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: async () => {
+        calls.push("cliente.$queryRaw")
+        return []
+      },
       resena: { updateMany: operation("resena.updateMany") },
-      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany"), update: operation("pedido.update") },
       chatMensaje: {
         findMany: operation("chatMensaje.findMany"),
+        updateManyAndReturn: operation("chatMensaje.updateManyAndReturn"),
         updateMany: operation("chatMensaje.updateMany"),
       },
       chatAttachmentDeletionJob: { createMany: operation("chatAttachmentDeletionJob.createMany") },
@@ -466,20 +537,23 @@ describe("19-B0.2B1 — anonimización estructurada de Pedido + cleanup de Passw
     await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
       ClientHasActiveOrdersError,
     )
-    expect(calls).toEqual([])
+    // El lock temprano ya corrió (es la primera operación, antes del
+    // guard) — pero nada más se ejecutó.
+    expect(calls).toEqual(["cliente.$queryRaw"])
   })
 })
 
 describe("19-B0.2C — Denuncia: pseudonimización + FK SetNull (mock)", () => {
   test("denuncia.updateMany pseudonimiza clienteId/clienteNombre, después de passwordResetToken y antes de favorito/cliente.delete", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       denuncia: { updateMany: operation("denuncia", "updateMany") },
@@ -509,10 +583,15 @@ describe("19-B0.2C — Denuncia: pseudonimización + FK SetNull (mock)", () => {
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: async () => {
+        calls.push("cliente.$queryRaw")
+        return []
+      },
       resena: { updateMany: operation("resena.updateMany") },
-      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany"), update: operation("pedido.update") },
       chatMensaje: {
         findMany: operation("chatMensaje.findMany"),
+        updateManyAndReturn: operation("chatMensaje.updateManyAndReturn"),
         updateMany: operation("chatMensaje.updateMany"),
       },
       chatAttachmentDeletionJob: { createMany: operation("chatAttachmentDeletionJob.createMany") },
@@ -526,7 +605,7 @@ describe("19-B0.2C — Denuncia: pseudonimización + FK SetNull (mock)", () => {
     await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
       ClientHasActiveOrdersError,
     )
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["cliente.$queryRaw"])
   })
 
   test("schema y migración: FK de Denuncia pasa de Cascade a SetNull, columna nullable, sin tocar datos", () => {
@@ -550,14 +629,15 @@ describe("19-B0.2C — Denuncia: pseudonimización + FK SetNull (mock)", () => {
 
 describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => {
   test("pedido.updateMany incluye notas:null junto al resto de campos B1", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       ...baseChatMocks(calls),
       passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
       denuncia: { updateMany: operation("denuncia", "updateMany") },
@@ -572,18 +652,23 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
     expect((pedidoUpdate?.args as { data: Record<string, unknown> }).data.notas).toBeNull()
   })
 
-  test("chatMensaje.updateMany de contenido se acota a clienteId + remitente='cliente', con el sentinel exacto", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+  test("chatMensaje.updateManyAndReturn de contenido se acota a clienteId + remitente='cliente', con el sentinel exacto y select pedidoId", async () => {
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       chatMensaje: {
         findMany: async (args?: unknown) => {
           calls.push({ model: "chatMensaje", operation: "findMany", args })
+          return []
+        },
+        updateManyAndReturn: async (args?: unknown) => {
+          calls.push({ model: "chatMensaje", operation: "updateManyAndReturn", args })
           return []
         },
         updateMany: operation("chatMensaje", "updateMany"),
@@ -600,11 +685,12 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
 
     await deleteClientAccountInTransaction(tx, "cliente-test")
 
+    const chatSanitize = calls.find((c) => c.model === "chatMensaje" && c.operation === "updateManyAndReturn")
     const chatUpdates = calls.filter((c) => c.model === "chatMensaje" && c.operation === "updateMany")
-    expect(chatUpdates).toHaveLength(2)
+    expect(chatUpdates).toHaveLength(1)
 
-    // Primer updateMany: sanitiza contenido, sólo remitente="cliente".
-    expect(chatUpdates[0].args).toEqual({
+    // Sanitiza contenido, sólo remitente="cliente" — vía updateManyAndReturn.
+    expect(chatSanitize?.args).toEqual({
       where: { clienteId: "cliente-test", remitente: "cliente" },
       data: {
         clienteId: null,
@@ -614,29 +700,35 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
         archivoNombre: null,
         archivoTipo: null,
       },
+      select: { pedidoId: true },
     })
     expect(DELETED_CLIENT_CHAT_MESSAGE_TEXT).toBe("Mensaje no disponible")
 
-    // Segundo updateMany: red de seguridad, sólo desvincula clienteId, NUNCA
-    // toca texto/adjuntos — filtro complementario (remitente != "cliente").
-    expect(chatUpdates[1].args).toEqual({
+    // El segundo updateMany (red de seguridad) sigue siendo updateMany
+    // simple, nunca toca texto/adjuntos — filtro complementario.
+    expect(chatUpdates[0].args).toEqual({
       where: { clienteId: "cliente-test", NOT: { remitente: "cliente" } },
       data: { clienteId: null },
     })
   })
 
   test("el findMany de attachments se filtra por clienteId + remitente='cliente' + algún adjunto no nulo, y ocurre antes de sanitizar", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       chatMensaje: {
         findMany: async (args?: unknown) => {
           calls.push({ model: "chatMensaje", operation: "findMany", args })
+          return []
+        },
+        updateManyAndReturn: async (args?: unknown) => {
+          calls.push({ model: "chatMensaje", operation: "updateManyAndReturn", args })
           return []
         },
         updateMany: operation("chatMensaje", "updateMany"),
@@ -665,20 +757,21 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
 
     const order = calls.map((c) => `${c.model}.${c.operation}`)
     const findManyIdx = order.indexOf("chatMensaje.findMany")
-    const firstUpdateIdx = order.indexOf("chatMensaje.updateMany")
+    const sanitizeIdx = order.indexOf("chatMensaje.updateManyAndReturn")
     expect(findManyIdx).toBeGreaterThanOrEqual(0)
-    expect(findManyIdx).toBeLessThan(firstUpdateIdx)
+    expect(findManyIdx).toBeLessThan(sanitizeIdx)
   })
 
   test("con mensajes de Cliente con adjunto, se encolan jobs en chatAttachmentDeletionJob.createMany dentro de la misma tx", async () => {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
-      pedido: { findFirst: async () => null, findMany: async () => [], updateMany: operation("pedido", "updateMany") },
+      pedido: pedidoMock(calls),
       chatMensaje: {
         findMany: async (args?: unknown) => {
           calls.push({ model: "chatMensaje", operation: "findMany", args })
@@ -690,6 +783,10 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
               archivoUrl: null,
             },
           ]
+        },
+        updateManyAndReturn: async (args?: unknown) => {
+          calls.push({ model: "chatMensaje", operation: "updateManyAndReturn", args })
+          return []
         },
         updateMany: operation("chatMensaje", "updateMany"),
       },
@@ -713,9 +810,9 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
 
     const order = calls.map((c) => `${c.model}.${c.operation}`)
     const jobIdx = order.indexOf("chatAttachmentDeletionJob.createMany")
-    const firstChatUpdateIdx = order.indexOf("chatMensaje.updateMany")
+    const sanitizeIdx = order.indexOf("chatMensaje.updateManyAndReturn")
     expect(jobIdx).toBeGreaterThan(order.indexOf("chatMensaje.findMany"))
-    expect(jobIdx).toBeLessThan(firstChatUpdateIdx)
+    expect(jobIdx).toBeLessThan(sanitizeIdx)
   })
 
   test("si el guard bloquea por pedido activo, ni chatMensaje.findMany ni el outbox ni notas se ejecutan", async () => {
@@ -725,10 +822,15 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: async () => {
+        calls.push("cliente.$queryRaw")
+        return []
+      },
       resena: { updateMany: operation("resena.updateMany") },
-      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), updateMany: operation("pedido.updateMany"), update: operation("pedido.update") },
       chatMensaje: {
         findMany: operation("chatMensaje.findMany"),
+        updateManyAndReturn: operation("chatMensaje.updateManyAndReturn"),
         updateMany: operation("chatMensaje.updateMany"),
       },
       chatAttachmentDeletionJob: { createMany: operation("chatAttachmentDeletionJob.createMany") },
@@ -742,7 +844,7 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
     await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
       ClientHasActiveOrdersError,
     )
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["cliente.$queryRaw"])
   })
 
   test("schema y migración: tabla outbox nueva, sin FK a Cliente/ChatMensaje, dedupe por provider+resourceType+identifier", () => {
@@ -773,12 +875,13 @@ describe("19-B0.2D1 — Chat + Pedido.notas + outbox de adjuntos (mock)", () => 
 
 describe("19-B0.2E1 — Notificacion (propias + terceros) + ClienteBloqueado (mock)", () => {
   function fullMockTx(pedidoFindManyResult: Array<{ id: string }> = []) {
-    const calls: Array<{ model: string; operation: string; args?: unknown }> = []
+    const calls: Call[] = []
     const operation = (model: string, name: string) => async (args?: unknown) => {
       calls.push({ model, operation: name, args })
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: queryRawMock(calls),
       resena: { updateMany: operation("resena", "updateMany") },
       pedido: {
         findFirst: async () => null,
@@ -787,10 +890,15 @@ describe("19-B0.2E1 — Notificacion (propias + terceros) + ClienteBloqueado (mo
           return pedidoFindManyResult
         },
         updateMany: operation("pedido", "updateMany"),
+        update: operation("pedido", "update"),
       },
       chatMensaje: {
         findMany: async (args?: unknown) => {
           calls.push({ model: "chatMensaje", operation: "findMany", args })
+          return []
+        },
+        updateManyAndReturn: async (args?: unknown) => {
+          calls.push({ model: "chatMensaje", operation: "updateManyAndReturn", args })
           return []
         },
         updateMany: operation("chatMensaje", "updateMany"),
@@ -906,10 +1014,15 @@ describe("19-B0.2E1 — Notificacion (propias + terceros) + ClienteBloqueado (mo
       return { count: 1 }
     }
     const tx = {
+      $queryRaw: async () => {
+        calls.push("cliente.$queryRaw")
+        return []
+      },
       resena: { updateMany: operation("resena.updateMany") },
-      pedido: { findFirst: async () => ({ id: "pedido-activo" }), findMany: operation("pedido.findMany"), updateMany: operation("pedido.updateMany") },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), findMany: operation("pedido.findMany"), updateMany: operation("pedido.updateMany"), update: operation("pedido.update") },
       chatMensaje: {
         findMany: operation("chatMensaje.findMany"),
+        updateManyAndReturn: operation("chatMensaje.updateManyAndReturn"),
         updateMany: operation("chatMensaje.updateMany"),
       },
       chatAttachmentDeletionJob: { createMany: operation("chatAttachmentDeletionJob.createMany") },
@@ -925,7 +1038,7 @@ describe("19-B0.2E1 — Notificacion (propias + terceros) + ClienteBloqueado (mo
     await expect(deleteClientAccountInTransaction(tx, "cliente-test")).rejects.toBeInstanceOf(
       ClientHasActiveOrdersError,
     )
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["cliente.$queryRaw"])
   })
 
   test("schema: sourceClienteId es String? sin FK, con índice propio", () => {
@@ -975,5 +1088,140 @@ describe("19-B0.2E1 — Notificacion (propias + terceros) + ClienteBloqueado (mo
     const chatRoute = read("src/app/api/chat/mensajes/[pedidoId]/route.ts")
     const negocioToClienteBranch = chatRoute.slice(chatRoute.indexOf('userType === "negocio" && pedido.clienteId'))
     expect(negocioToClienteBranch.slice(0, 600)).not.toContain("sourceClienteId")
+  })
+})
+
+// ============================================
+// P2-T04 STAGE 2 — MODEL_S1: early Cliente lock + updateManyAndReturn +
+// exact chatRevision bump. See CODEX_REPORT.md Stage 1D/1E/2 for the full
+// design + PostgreSQL-certified rationale.
+// ============================================
+describe("P2-T04 MODEL_S1 — early Cliente lock", () => {
+  test("ACCOUNT_DELETION_EARLY_CLIENT_LOCK_IMPLEMENTED: $queryRaw is literally the first tx operation, every attempt", async () => {
+    const calls: Call[] = []
+    const operation = (model: string, name: string) => async () => {
+      calls.push({ model, operation: name })
+      return { count: 1 }
+    }
+    const tx = {
+      $queryRaw: queryRawMock(calls),
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: pedidoMock(calls),
+      ...baseChatMocks(calls),
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    expect(calls[0]).toEqual({ model: "cliente", operation: "$queryRaw", args: expect.anything() })
+  })
+
+  test("ACCOUNT_DELETION_EARLY_LOCK_QUERY_SAFE: tagged-template parametrized — the clienteId value never appears inlined in the SQL text", async () => {
+    const calls: Array<{ strings: string[]; values: unknown[] }> = []
+    const clienteId = "cliente-secret-id-xyz"
+    const tx = {
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push({ strings: [...strings], values })
+        return []
+      },
+      resena: { updateMany: async () => ({ count: 0 }) },
+      pedido: { findFirst: async () => ({ id: "pedido-activo" }), findMany: async () => [], updateMany: async () => ({ count: 0 }), update: async () => ({}) },
+      chatMensaje: { findMany: async () => [], updateManyAndReturn: async () => [], updateMany: async () => ({ count: 0 }) },
+      chatAttachmentDeletionJob: { createMany: async () => ({ count: 0 }) },
+      notificacion: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+      clienteBloqueado: { updateMany: async () => ({ count: 0 }) },
+      passwordResetToken: { deleteMany: async () => ({ count: 0 }) },
+      denuncia: { updateMany: async () => ({ count: 0 }) },
+      favorito: { deleteMany: async () => ({ count: 0 }) },
+      direccion: { deleteMany: async () => ({ count: 0 }) },
+      cliente: { delete: async () => ({}) },
+    } as unknown as Prisma.TransactionClient
+
+    await expect(deleteClientAccountInTransaction(tx, clienteId)).rejects.toBeInstanceOf(ClientHasActiveOrdersError)
+    expect(calls).toHaveLength(1)
+    // The raw clienteId value travels as a bound parameter (`values`), never
+    // concatenated into the SQL text fragments (`strings`) themselves.
+    expect(calls[0].values).toEqual([clienteId])
+    expect(calls[0].strings.join("")).not.toContain(clienteId)
+    expect(calls[0].strings.join(" ")).toContain("FOR UPDATE")
+    expect(calls[0].strings.join(" ")).toContain("SELECT")
+  })
+})
+
+describe("P2-T04 MODEL_S1 — sanitizer set + exact chatRevision bump", () => {
+  function txForRevisionBump(sanitizedResult: Array<{ id: string; pedidoId: string }>) {
+    const calls: Call[] = []
+    const operation = (model: string, name: string) => async (args?: unknown) => {
+      calls.push({ model, operation: name, args })
+      return { count: 1 }
+    }
+    const tx = {
+      $queryRaw: queryRawMock(calls),
+      resena: { updateMany: operation("resena", "updateMany") },
+      pedido: pedidoMock(calls),
+      ...baseChatMocks(calls, { sanitizedResult }),
+      passwordResetToken: { deleteMany: operation("passwordResetToken", "deleteMany") },
+      denuncia: { updateMany: operation("denuncia", "updateMany") },
+      favorito: { deleteMany: operation("favorito", "deleteMany") },
+      direccion: { deleteMany: operation("direccion", "deleteMany") },
+      cliente: { delete: operation("cliente", "delete") },
+    } as unknown as Prisma.TransactionClient
+    return { tx, calls }
+  }
+
+  test("ACCOUNT_DELETION_SANITIZER_USES_UPDATE_MANY_AND_RETURN + P2T04C-11: zero sanitized rows -> zero pedido.update revision bumps", async () => {
+    const { tx, calls } = txForRevisionBump([])
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    const bumps = calls.filter((c) => c.model === "pedido" && c.operation === "update")
+    expect(bumps).toHaveLength(0)
+  })
+
+  test("P2T04C-10 (single pedido): one sanitized row bumps its pedido's chatRevision by exactly 1", async () => {
+    const { tx, calls } = txForRevisionBump([{ id: "msg-1", pedidoId: "pedido-a" }])
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    const bumps = calls.filter((c) => c.model === "pedido" && c.operation === "update")
+    expect(bumps).toHaveLength(1)
+    expect(bumps[0].args).toEqual({ where: { id: "pedido-a" }, data: { chatRevision: { increment: 1 } } })
+  })
+
+  test("ACCOUNT_DELETION_REVISION_SET_FROM_ACTUALLY_SANITIZED_ROWS: multiple sanitized rows in the SAME pedido dedupe to exactly ONE bump", async () => {
+    const { tx, calls } = txForRevisionBump([
+      { id: "msg-1", pedidoId: "pedido-a" },
+      { id: "msg-2", pedidoId: "pedido-a" },
+      { id: "msg-3", pedidoId: "pedido-a" },
+    ])
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    const bumps = calls.filter((c) => c.model === "pedido" && c.operation === "update")
+    expect(bumps).toHaveLength(1)
+    expect(bumps[0].args).toEqual({ where: { id: "pedido-a" }, data: { chatRevision: { increment: 1 } } })
+  })
+
+  test("multiple distinct affected pedidos each get exactly one bump, in deterministic ascending order", async () => {
+    const { tx, calls } = txForRevisionBump([
+      { id: "msg-1", pedidoId: "pedido-c" },
+      { id: "msg-2", pedidoId: "pedido-a" },
+      { id: "msg-3", pedidoId: "pedido-b" },
+      { id: "msg-4", pedidoId: "pedido-a" },
+    ])
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    const bumps = calls.filter((c) => c.model === "pedido" && c.operation === "update")
+    expect(bumps.map((b) => (b.args as { where: { id: string } }).where.id)).toEqual(["pedido-a", "pedido-b", "pedido-c"])
+    for (const bump of bumps) {
+      expect((bump.args as { data: unknown }).data).toEqual({ chatRevision: { increment: 1 } })
+    }
+  })
+
+  test("revision bumps occur after the sanitizer and before the legacy safety-net updateMany", async () => {
+    const { tx, calls } = txForRevisionBump([{ id: "msg-1", pedidoId: "pedido-a" }])
+    await deleteClientAccountInTransaction(tx, "cliente-test")
+    const order = calls.map((c) => `${c.model}.${c.operation}`)
+    const sanitizeIdx = order.indexOf("chatMensaje.updateManyAndReturn")
+    const bumpIdx = order.indexOf("pedido.update")
+    const legacyIdx = order.indexOf("chatMensaje.updateMany")
+    expect(sanitizeIdx).toBeLessThan(bumpIdx)
+    expect(bumpIdx).toBeLessThan(legacyIdx)
   })
 })

@@ -409,4 +409,75 @@ export function reconcileHistoryMessages(input: ReconcileHistoryInput): ChatMess
   return result
 }
 
+// ============================================
+// P2-T04 MODEL_R — pure request-shaping / response-evaluation helpers for
+// the server-authoritative chatRevision safety probe. Never calls fetch()
+// itself (ChatView owns the real HTTP call, exactly like the rest of this
+// module) — these are pure functions of their explicit inputs, so the full
+// P2T04B-R equality/mismatch/malformed-response matrix is testable without
+// any DOM, store, or network dependency. The V6 reconciler above
+// (`reconcileHistoryMessages`) is reused UNCHANGED for every FULL outcome —
+// this section never reimplements or branches its logic.
+// ============================================
+
+export interface HistoryRequestMode {
+  readonly kind: "semantic" | "safety"
+  // The last chatRevision this lifecycle has confirmed, or `undefined` if
+  // none is known yet — never invented as 0. Ignored entirely for
+  // "semantic" (semantic requests never send `mode=safety` at all).
+  readonly knownRevision: number | undefined
+}
+
+// Builds the exact query string to append to `/api/chat/mensajes/<id>`.
+// Semantic requests always get "" (no `mode` param at all) — this is also
+// what gives old-server rolling compatibility for free: a request with no
+// safety params can only ever receive that server's plain full shape.
+export function buildHistoryRequestQuery(mode: HistoryRequestMode): string {
+  if (mode.kind !== "safety") return ""
+  return `?mode=safety${mode.knownRevision !== undefined ? `&knownRevision=${mode.knownRevision}` : ""}`
+}
+
+export interface HistoryResponseLike {
+  readonly unchanged?: boolean
+  readonly historyRevision?: number
+  readonly mensajes?: readonly ChatMessage[]
+  readonly pedido?: PedidoInfo
+}
+
+export type HistoryResponseEvaluation =
+  // Genuine no-op: response's `unchanged: true` was verified against the
+  // exact `knownRevision` this request sent — no reconcile, no store
+  // write, no known-revision change.
+  | { outcome: "unchanged" }
+  // The response claimed `unchanged: true` but its `historyRevision` is
+  // missing, not a number, or does not match what THIS request sent —
+  // never trusted, never reconciled against (its `mensajes` cannot be
+  // trusted as a real snapshot either). The caller must treat this as
+  // non-conclusive and issue exactly one corrective full re-fetch —
+  // self-terminating, since a semantic request can never itself come back
+  // claiming `unchanged` server-side.
+  | { outcome: "force-full-refetch" }
+  // A full authoritative snapshot — an explicit safety mismatch, any
+  // semantic response, or (rolling compatibility) an old server that never
+  // sets `unchanged` at all. `historyRevision` is the value to adopt as
+  // the new known revision (only if it validated as a number) — `undefined`
+  // means don't advance it.
+  | { outcome: "full"; historyRevision: number | undefined }
+
+export function evaluateHistoryResponse(
+  sentKnownRevision: number | undefined,
+  response: HistoryResponseLike,
+): HistoryResponseEvaluation {
+  const revisionEchoValid = typeof response.historyRevision === "number"
+  const isTrustedUnchanged =
+    response.unchanged === true &&
+    revisionEchoValid &&
+    sentKnownRevision !== undefined &&
+    response.historyRevision === sentKnownRevision
+
+  if (response.unchanged === true && !isTrustedUnchanged) return { outcome: "force-full-refetch" }
+  if (isTrustedUnchanged) return { outcome: "unchanged" }
+  return { outcome: "full", historyRevision: revisionEchoValid ? response.historyRevision : undefined }
+}
+
 export type { ChatMessage, PedidoInfo }

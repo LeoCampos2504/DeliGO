@@ -43,14 +43,26 @@ function validateArchivoNombre(value: unknown): { ok: true; value: string } | { 
   return { ok: true, value: trimmed.slice(0, 120) }
 }
 
-// Verify user has access to this pedido's chat
+type ChatAccessPedido = {
+  id: string
+  clienteId: string | null
+  negocioId: string
+  estado: string
+  metodoEntrega: string
+  chatRevision: number
+}
+
+// Verify user has access to this pedido's chat. Also returns the same
+// Pedido read used for the access check — P2-T04 (MODEL_R) reuses its
+// `chatRevision` field directly for GET's safety probe instead of a second,
+// dedicated query (see SAFETY_UNCHANGED_TOUCHES_CHAT_MENSAJES=NO).
 async function verifyChatAccess(
   userId: string,
   userType: string,
   pedidoId: string
-): Promise<{ access: boolean; reason?: string }> {
+): Promise<{ access: boolean; reason?: string; pedido: ChatAccessPedido | null }> {
   if (userType !== "cliente" && userType !== "negocio") {
-    return { access: false, reason: "Sin acceso a este chat" }
+    return { access: false, reason: "Sin acceso a este chat", pedido: null }
   }
 
   const pedido = await db.pedido.findUnique({
@@ -61,23 +73,74 @@ async function verifyChatAccess(
       negocioId: true,
       estado: true,
       metodoEntrega: true,
+      chatRevision: true,
     },
   })
 
-  if (!pedido) return { access: false, reason: "Pedido no encontrado" }
+  if (!pedido) return { access: false, reason: "Pedido no encontrado", pedido: null }
 
   // Mesa orders (invitados) don't have chat
   if (pedido.metodoEntrega === "mesa") {
-    return { access: false, reason: "Los pedidos de mesa no tienen chat" }
+    return { access: false, reason: "Los pedidos de mesa no tienen chat", pedido: null }
   }
 
   if (userType === "cliente") {
-    return { access: pedido.clienteId === userId }
+    return { access: pedido.clienteId === userId, pedido }
   } else if (userType === "negocio") {
-    return { access: pedido.negocioId === userId }
+    return { access: pedido.negocioId === userId, pedido }
   }
 
-  return { access: false }
+  return { access: false, pedido: null }
+}
+
+// P2-T04 MODEL_R: `knownRevision` is untrusted client input — never used as
+// a cursor, a WHERE clause, or an authority of any kind, only ever compared
+// by strict equality against the server-authoritative `chatRevision`. Only
+// an exact non-negative integer within Postgres's `integer` (int4) range is
+// "comparable" — anything else (missing, empty, NaN, decimal, negative,
+// out-of-range) must fail closed to a FULL response, never to
+// `unchanged: true`. A syntactically valid but merely stale/newer value
+// (greater than current) is not rejected here — it simply will not match
+// the equality check below and falls through to the same FULL path.
+const POSTGRES_INT4_MAX = 2_147_483_647
+
+function parseKnownRevision(raw: string | null): number | null {
+  if (raw === null) return null
+  if (!/^\d+$/.test(raw)) return null
+  const parsed = Number(raw)
+  if (!Number.isSafeInteger(parsed)) return null
+  if (parsed < 0 || parsed > POSTGRES_INT4_MAX) return null
+  return parsed
+}
+
+const CHAT_MENSAJE_INFO_SELECT = {
+  id: true,
+  pedidoId: true,
+  remitente: true,
+  texto: true,
+  imagenUrl: true,
+  archivoUrl: true,
+  archivoNombre: true,
+  archivoTipo: true,
+  leido: true,
+  fecha: true,
+  clienteId: true,
+} as const
+
+async function loadFullPedidoInfo(pedidoId: string) {
+  return db.pedido.findUnique({
+    where: { id: pedidoId },
+    select: {
+      id: true,
+      negocioNombre: true,
+      negocioSlug: true,
+      clienteNombre: true,
+      estado: true,
+      total: true,
+      metodoEntrega: true,
+      metodoPago: true,
+    },
+  })
 }
 
 // GET /api/chat/mensajes/[pedidoId] — Fetch messages for an order chat
@@ -99,80 +162,125 @@ export async function GET(
 
     const { userId, userType } = session
 
-    // Verify access
-    const { access, reason } = await verifyChatAccess(userId, userType, pedidoId)
-    if (!access) {
+    // Verify access — this single Pedido read also carries the
+    // server-authoritative chatRevision (P2-T04 MODEL_R): no extra query is
+    // issued just to read it.
+    const { access, reason, pedido: accessPedido } = await verifyChatAccess(userId, userType, pedidoId)
+    if (!access || !accessPedido) {
       return NextResponse.json({ error: reason || "Sin acceso a este chat" }, { status: 403 })
     }
 
-    // Get pedido info
-    const pedido = await db.pedido.findUnique({
-      where: { id: pedidoId },
-      select: {
-        id: true,
-        negocioNombre: true,
-        negocioSlug: true,
-        clienteNombre: true,
-        estado: true,
-        total: true,
-        metodoEntrega: true,
-        metodoPago: true,
-      },
-    })
+    // P2-T04 MODEL_R: explicit `mode=safety` is the ONLY safety signal —
+    // exact match, never inferred from the mere presence of knownRevision.
+    // Any other request (including one with no `mode` param at all — old
+    // clients, or ChatView's own semantic triggers) is SEMANTIC and always
+    // gets the full authoritative snapshot below.
+    const isSafetyRequest = req.nextUrl.searchParams.get("mode") === "safety"
+    // Captured HERE — from the access-check read, before any history SELECT
+    // and before any mark-read mutation — so it can only ever UNDERSTATE the
+    // coverage of the snapshot this response ends up returning (safe: causes
+    // one redundant future full fetch), never OVERSTATE it (which could hide
+    // a real mutation behind a false `unchanged: true`).
+    const responseCoverageRevision = accessPedido.chatRevision
 
-    if (!pedido) {
+    if (isSafetyRequest) {
+      const knownRevision = parseKnownRevision(req.nextUrl.searchParams.get("knownRevision"))
+      if (knownRevision !== null && knownRevision === responseCoverageRevision) {
+        // Equality fast path: zero ChatMensaje queries, zero mark-read,
+        // zero realtime, zero additional Pedido read.
+        return NextResponse.json({
+          unchanged: true,
+          historyRevision: responseCoverageRevision,
+          mensajes: [],
+        })
+      }
+
+      // Mismatch, or knownRevision missing/invalid/incomparable — fail-safe
+      // to a FULL authoritative snapshot. Never mark-read on a safety path.
+      const pedidoInfo = await loadFullPedidoInfo(pedidoId)
+      if (!pedidoInfo) {
+        return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
+      }
+      const mensajesRaw = await db.chatMensaje.findMany({
+        where: { pedidoId },
+        orderBy: { fecha: "asc" },
+        select: CHAT_MENSAJE_INFO_SELECT,
+      })
+      const mensajes = mensajesRaw.map(sanitizeDeletedClientChatMessageForRead)
+
+      return NextResponse.json({
+        unchanged: false,
+        historyRevision: responseCoverageRevision,
+        mensajes,
+        pedido: {
+          id: pedidoInfo.id,
+          negocioNombre: pedidoInfo.negocioNombre,
+          negocioSlug: pedidoInfo.negocioSlug,
+          clienteNombre: pedidoInfo.clienteNombre,
+          estado: pedidoInfo.estado,
+          total: pedidoInfo.total,
+          metodoEntrega: pedidoInfo.metodoEntrega,
+          metodoPago: pedidoInfo.metodoPago,
+        },
+      })
+    }
+
+    // Semantic — always full, unconditionally (mount, coverage-token,
+    // online, room-rejoin post-coverage, local foreground, and every old
+    // client that never sends `mode=safety` at all).
+    const pedidoInfo = await loadFullPedidoInfo(pedidoId)
+    if (!pedidoInfo) {
       return NextResponse.json({ error: "Pedido no encontrado" }, { status: 404 })
     }
 
-    // Get messages
     const mensajesRaw = await db.chatMensaje.findMany({
       where: { pedidoId },
       orderBy: { fecha: "asc" },
-      select: {
-        id: true,
-        pedidoId: true,
-        remitente: true,
-        texto: true,
-        imagenUrl: true,
-        archivoUrl: true,
-        archivoNombre: true,
-        archivoTipo: true,
-        leido: true,
-        fecha: true,
-        clienteId: true,
-      },
+      select: CHAT_MENSAJE_INFO_SELECT,
     })
     // Defensa en profundidad (19-B0.2D1): enmascara cualquier mensaje de
     // Cliente ya eliminado que aún conserve contenido sin sanitizar (p. ej.
     // cuentas eliminadas antes de que esta sanitización existiera).
     const mensajes = mensajesRaw.map(sanitizeDeletedClientChatMessageForRead)
 
-    // Mark messages from other parties as read
+    // Mark messages from other parties as read — semantic only, never on a
+    // safety path. P2-T04: atomic with the chatRevision bump, and ONLY
+    // bumped when something actually changed (updateMany.count > 0) — a
+    // no-op mark-read (nothing was unread) must never advance the revision.
     const otherRemitentes =
       userType === "cliente"
         ? ["vendedor"]
         : ["cliente"]
 
-    await db.chatMensaje.updateMany({
-      where: {
-        pedidoId,
-        remitente: { in: otherRemitentes },
-        leido: false,
-      },
-      data: { leido: true },
+    await db.$transaction(async (tx) => {
+      const markReadResult = await tx.chatMensaje.updateMany({
+        where: {
+          pedidoId,
+          remitente: { in: otherRemitentes },
+          leido: false,
+        },
+        data: { leido: true },
+      })
+      if (markReadResult.count > 0) {
+        await tx.pedido.update({
+          where: { id: pedidoId },
+          data: { chatRevision: { increment: 1 } },
+        })
+      }
     })
 
     return NextResponse.json({
       mensajes,
+      historyRevision: responseCoverageRevision,
       pedido: {
-        id: pedido.id,
-        negocioNombre: pedido.negocioNombre,
-        negocioSlug: pedido.negocioSlug,
-        clienteNombre: pedido.clienteNombre,
-        estado: pedido.estado,
-        total: pedido.total,
-        metodoEntrega: pedido.metodoEntrega,
-        metodoPago: pedido.metodoPago,
+        id: pedidoInfo.id,
+        negocioNombre: pedidoInfo.negocioNombre,
+        negocioSlug: pedidoInfo.negocioSlug,
+        clienteNombre: pedidoInfo.clienteNombre,
+        estado: pedidoInfo.estado,
+        total: pedidoInfo.total,
+        metodoEntrega: pedidoInfo.metodoEntrega,
+        metodoPago: pedidoInfo.metodoPago,
       },
     })
   } catch (error) {
@@ -313,33 +421,45 @@ export async function POST(
     // Determine remitente
     const remitente = userType === "cliente" ? "cliente" : "vendedor"
 
-    // Create message
-    const mensaje = await db.chatMensaje.create({
-      data: {
-        pedidoId,
-        remitente,
-        texto: texto || "",
-        imagenUrl: imagenUrl || null,
-        archivoUrl: archivoUrl || null,
-        archivoNombre: archivoNombre || null,
-        archivoTipo: archivoTipo || null,
-        leido: false,
-        fecha: new Date(),
-        clienteId: userType === "cliente" ? userId : null,
-      },
-      select: {
-        id: true,
-        pedidoId: true,
-        remitente: true,
-        texto: true,
-        imagenUrl: true,
-        archivoUrl: true,
-        archivoNombre: true,
-        archivoTipo: true,
-        leido: true,
-        fecha: true,
-        clienteId: true,
-      },
+    // Create message + bump chatRevision atomically (P2-T04 MODEL_R,
+    // R-MUT-01): if the create fails, the revision never advances; if the
+    // increment fails, the message never persists — same transaction, same
+    // commit. Never added to the realtime payload (see
+    // CHAT_REALTIME_REVISION_PAYLOAD_CHANGED=NO) — publish/push below are
+    // unchanged and still run strictly after this commits.
+    const mensaje = await db.$transaction(async (tx) => {
+      const created = await tx.chatMensaje.create({
+        data: {
+          pedidoId,
+          remitente,
+          texto: texto || "",
+          imagenUrl: imagenUrl || null,
+          archivoUrl: archivoUrl || null,
+          archivoNombre: archivoNombre || null,
+          archivoTipo: archivoTipo || null,
+          leido: false,
+          fecha: new Date(),
+          clienteId: userType === "cliente" ? userId : null,
+        },
+        select: {
+          id: true,
+          pedidoId: true,
+          remitente: true,
+          texto: true,
+          imagenUrl: true,
+          archivoUrl: true,
+          archivoNombre: true,
+          archivoTipo: true,
+          leido: true,
+          fecha: true,
+          clienteId: true,
+        },
+      })
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { chatRevision: { increment: 1 } },
+      })
+      return created
     })
 
     // Server-authoritative realtime broadcast: the message is already

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import {
   processPendingChatAttachmentDeletions,
@@ -40,6 +41,24 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // ============================================
 
 const CLEANUP_DAYS = 10
+
+// P2-T04 MODEL_R: dedupe + deterministic ascending order before issuing
+// multiple `Pedido.chatRevision` bumps in the same transaction — same
+// pattern as `deleteClientAccountInTransaction` (src/lib/client-account-deletion.ts),
+// reducing lock-order-inversion deadlock risk against other transactions
+// that also bump multiple pedidos.
+async function bumpChatRevisionForPedidos(
+  tx: Prisma.TransactionClient,
+  pedidoIds: readonly string[]
+) {
+  const distinctSorted = [...new Set(pedidoIds)].sort()
+  for (const pedidoId of distinctSorted) {
+    await tx.pedido.update({
+      where: { id: pedidoId },
+      data: { chatRevision: { increment: 1 } },
+    })
+  }
+}
 
 // Shared cleanup logic — works with both GET and POST
 async function runCleanup(req: NextRequest) {
@@ -107,6 +126,14 @@ async function runCleanup(req: NextRequest) {
     // `imagenUrl`/`archivoUrl` (la única fuente para reconstruir el
     // identifier) deje de existir. Nunca se llama a Cloudinary/filesystem
     // dentro de esta transacción — sólo operaciones DB.
+    //
+    // P2-T04 MODEL_R (R-MUT-03): bumpea chatRevision de cada pedido
+    // realmente afectado — el conjunto sale de `oldMessages` (el mismo
+    // preselect de arriba, ya restringido por id en el updateMany de
+    // abajo), nunca de una query separada. Si una fila desapareciera entre
+    // el preselect y este updateMany, el bump sería a lo sumo un
+    // superconjunto seguro (CLEANUP_ATTACHMENT_REVISION_SET=EXACT_OR_SUPERSET_SAFE)
+    // — nunca un falso negativo.
     // ─────────────────────────────────────────────
     let queuedTargets = 0
     if (oldMessages.length > 0) {
@@ -123,6 +150,7 @@ async function runCleanup(req: NextRequest) {
             archivoTipo: null,
           },
         })
+        await bumpChatRevisionForPedidos(tx, oldMessages.map((msg) => msg.pedidoId))
       })
       console.log(`[Chat Cleanup] Cleared URLs for ${oldMessages.length} messages`)
     }
@@ -142,16 +170,39 @@ async function runCleanup(req: NextRequest) {
     // ─────────────────────────────────────────────
     // Step 4: Delete messages with no content at all (text + files all null) older than cutoff
     // NOTE: texto is NOT nullable (has @default("")), so we only check for empty string ""
+    //
+    // P2-T04 MODEL_R (R-MUT-04): preselect id+pedidoId FIRST, then delete
+    // restricted to EXACTLY those ids (never a broad re-evaluated
+    // predicate), then bump chatRevision for the distinct pedidos of the
+    // preselected set — all inside one transaction. A row that disappears
+    // between the preselect and the delete only causes a harmless
+    // over-bump (its pedido was already going to be bumped by another row,
+    // or the bump is simply for a set of ids that is a safe superset of
+    // what actually got deleted) — never a false negative
+    // (CLEANUP_DELETE_FALSE_NEGATIVE_REVISION_POSSIBLE=NO): the delete
+    // itself can only ever be a SUBSET of the preselected ids.
     // ─────────────────────────────────────────────
-    const deletedEmpty = await db.chatMensaje.deleteMany({
+    const emptyMessageTargets = await db.chatMensaje.findMany({
       where: {
         fecha: { lt: cutoff },
         texto: "",
         imagenUrl: null,
         archivoUrl: null,
       },
+      select: { id: true, pedidoId: true },
     })
-    console.log(`[Chat Cleanup] Deleted ${deletedEmpty.count} empty messages`)
+
+    let deletedEmptyCount = 0
+    if (emptyMessageTargets.length > 0) {
+      await db.$transaction(async (tx) => {
+        const result = await tx.chatMensaje.deleteMany({
+          where: { id: { in: emptyMessageTargets.map((msg) => msg.id) } },
+        })
+        deletedEmptyCount = result.count
+        await bumpChatRevisionForPedidos(tx, emptyMessageTargets.map((msg) => msg.pedidoId))
+      })
+    }
+    console.log(`[Chat Cleanup] Deleted ${deletedEmptyCount} empty messages`)
 
     return NextResponse.json({
       success: true,
@@ -160,7 +211,7 @@ async function runCleanup(req: NextRequest) {
       messagesProcessed: oldMessages.length,
       filesDeleted: deletedFiles,
       filesFailed: failedFiles,
-      emptyMessagesDeleted: deletedEmpty.count,
+      emptyMessagesDeleted: deletedEmptyCount,
     })
   } catch (error) {
     // Log the full error so it shows up in Railway logs

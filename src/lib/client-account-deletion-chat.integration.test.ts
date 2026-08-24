@@ -19,12 +19,13 @@ import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { DELETE as deleteCuenta } from "@/app/api/cliente/cuenta/route"
-import { GET as getChatMensajes } from "@/app/api/chat/mensajes/[pedidoId]/route"
+import { GET as getChatMensajes, POST as postChatMensaje } from "@/app/api/chat/mensajes/[pedidoId]/route"
 import { GET as getChatCleanup } from "@/app/api/chat/cleanup/route"
 import {
   DELETED_CLIENT_CHAT_MESSAGE_TEXT,
   processPendingChatAttachmentDeletions,
 } from "@/lib/chat-attachment-deletion"
+import { deleteClientAccount } from "@/lib/client-account-deletion"
 
 setDefaultTimeout(60_000)
 
@@ -121,6 +122,14 @@ async function cookieForNegocio(negocioId: string) {
 function reqGetMensajes(pedidoId: string, cookie: string) {
   return new NextRequest(`http://localhost/api/chat/mensajes/${pedidoId}`, {
     headers: { cookie },
+  })
+}
+
+function reqPostMensaje(pedidoId: string, cookie: string, body: Record<string, unknown>) {
+  return new NextRequest(`http://localhost/api/chat/mensajes/${pedidoId}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify(body),
   })
 }
 
@@ -532,5 +541,148 @@ describe("19-B0.2D1 — /api/chat/cleanup procesa también la outbox (mismo secr
     })
     const res = await getChatCleanup(req)
     expect([403, 404]).toContain(res.status)
+  })
+})
+
+// ============================================
+// P2-T04 STAGE 2 — MODEL_S1 product-level PostgreSQL proof. Stage 1E
+// proved the model against a throwaway reproduction script outside the
+// repo; this exercises the REAL `deleteClientAccount` from
+// src/lib/client-account-deletion.ts (no reproduction, no test hooks in
+// product code) against real PostgreSQL TESTING.
+// ============================================
+describe("P2-T04 MODEL_S1 — deleteClientAccount product-level concurrency proof (real PostgreSQL)", () => {
+  test("a Chat message created concurrently with account deletion always ends sanitized, zero real text, chatRevision bumped", async () => {
+    const negocio = await ensureNegocio(`s1-${randomUUID()}`)
+    const cliente = await ensureCliente(`s1-${randomUUID()}`)
+    const pedido = await ensurePedido({ clienteId: cliente.id, negocioId: negocio.id, estado: "entregado" })
+
+    const sentinel = "TEST_P2T04E_REAL_TEXT_MUST_NOT_SURVIVE"
+    let createdMessageId = ""
+    let releasePost!: () => void
+    const postBarrier = new Promise<void>((resolve) => {
+      releasePost = resolve
+    })
+
+    // T_POST: a real interactive transaction that creates the Cliente's own
+    // message and stays deliberately uncommitted until released — the same
+    // "held open" shape Stage 1E used, but here running concurrently
+    // against the REAL product deletion below (not a hand-rolled model).
+    const postTxPromise = db.$transaction(
+      async (tx) => {
+        const created = await tx.chatMensaje.create({
+          data: { pedidoId: pedido.id, remitente: "cliente", clienteId: cliente.id, texto: sentinel },
+        })
+        createdMessageId = created.id
+        await postBarrier
+      },
+      { timeout: 30_000, maxWait: 30_000 },
+    )
+
+    const createDeadline = Date.now() + 5000
+    while (!createdMessageId && Date.now() < createDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(createdMessageId).not.toBe("")
+
+    const pedidoBefore = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+
+    // T_DELETE: the REAL product function, started concurrently — it will
+    // block on its own early Cliente `FOR UPDATE` lock until T_POST above
+    // releases. The 300ms pause is a bounded scheduling courtesy, not a
+    // correctness dependency: every assertion below holds regardless of
+    // the exact interleaving or of which retry attempt finally sanitizes.
+    const deletePromise = deleteClientAccount(cliente.id)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    releasePost()
+    await postTxPromise
+    await deletePromise
+
+    const messageAfter = await db.chatMensaje.findUnique({ where: { id: createdMessageId } })
+    expect(messageAfter).not.toBeNull()
+    expect(messageAfter?.clienteId).toBeNull()
+    expect(messageAfter?.texto).toBe(DELETED_CLIENT_CHAT_MESSAGE_TEXT)
+    expect(messageAfter?.texto).not.toBe(sentinel)
+
+    const pedidoAfter = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect(pedidoAfter?.chatRevision ?? 0).toBeGreaterThan(pedidoBefore?.chatRevision ?? 0)
+
+    expect(await db.cliente.findUnique({ where: { id: cliente.id } })).toBeNull()
+  })
+})
+
+// ============================================
+// P2-T04 STAGE 2 — MODEL_R, real PostgreSQL. No test hooks added to
+// route.ts/client-account-deletion.ts — both tests below exercise the
+// exact same two-statement (create + increment, in one transaction) shape
+// the product code uses, either via the real POST route handler or via an
+// equivalent raw transaction proving the general atomicity guarantee.
+// ============================================
+describe("P2-T04 MODEL_R — real PostgreSQL: concurrent creates never lose a chatRevision increment", () => {
+  test("REAL_POSTGRES_CONCURRENT_CHAT_CREATE: two concurrent POSTs to the same pedido -> both messages persist, finalRevision = startingRevision + 2", async () => {
+    const negocio = await ensureNegocio(`concurrent-${randomUUID()}`)
+    const cliente = await ensureCliente(`concurrent-${randomUUID()}`)
+    const pedido = await ensurePedido({ clienteId: cliente.id, negocioId: negocio.id, estado: "recibido" })
+
+    const before = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    const cookie = await cookieFor(cliente.id)
+
+    const [res1, res2] = await Promise.all([
+      postChatMensaje(reqPostMensaje(pedido.id, cookie, { texto: "TEST_CONCURRENT_A" }), {
+        params: Promise.resolve({ pedidoId: pedido.id }),
+      }),
+      postChatMensaje(reqPostMensaje(pedido.id, cookie, { texto: "TEST_CONCURRENT_B" }), {
+        params: Promise.resolve({ pedidoId: pedido.id }),
+      }),
+    ])
+    expect(res1.status).toBe(200)
+    expect(res2.status).toBe(200)
+
+    const after = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect((after?.chatRevision ?? 0) - (before?.chatRevision ?? 0)).toBe(2)
+
+    const messages = await db.chatMensaje.findMany({
+      where: { pedidoId: pedido.id, texto: { startsWith: "TEST_CONCURRENT_" } },
+    })
+    expect(messages).toHaveLength(2)
+
+    // The POST route's push-notification side effect writes a real
+    // Notificacion row for the negocio (never cleaned up by `cleanup()`,
+    // which never creates any) — scoped and removed here explicitly.
+    await db.notificacion.deleteMany({ where: { pedidoId: pedido.id } })
+  })
+
+  test("REAL_POSTGRES_CHAT_CREATE_ROLLBACK: a failure in the SAME transaction after create() leaves the message absent and the revision unchanged", async () => {
+    const negocio = await ensureNegocio(`rollback-${randomUUID()}`)
+    const pedido = await ensurePedido({ clienteId: null, negocioId: negocio.id, estado: "recibido" })
+    const before = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+
+    let thrown: unknown = null
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.chatMensaje.create({
+          data: { pedidoId: pedido.id, remitente: "vendedor", clienteId: null, texto: "TEST_ROLLBACK_SENTINEL" },
+        })
+        // Same two-statement shape as the real POST route (create + revision
+        // increment, one transaction) — forces the SECOND statement to fail
+        // against a pedidoId that cannot exist, to prove the whole
+        // transaction (including the already-executed create) rolls back.
+        await tx.pedido.update({
+          where: { id: "does-not-exist-force-rollback" },
+          data: { chatRevision: { increment: 1 } },
+        })
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).not.toBeNull()
+
+    const messages = await db.chatMensaje.findMany({
+      where: { pedidoId: pedido.id, texto: "TEST_ROLLBACK_SENTINEL" },
+    })
+    expect(messages).toHaveLength(0)
+
+    const after = await db.pedido.findUnique({ where: { id: pedido.id }, select: { chatRevision: true } })
+    expect(after?.chatRevision).toBe(before?.chatRevision ?? 0)
   })
 })

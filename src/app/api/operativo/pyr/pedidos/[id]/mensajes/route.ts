@@ -169,12 +169,22 @@ export async function GET(
 
     // Marcar como leidos SOLO los mensajes de cliente realmente devueltos (best-effort; un
     // fallo no impide mostrar la conversacion).
+    // P2-T04 Stage 3B (R-MUT-07): atomico con el bump de Pedido.chatRevision — solo si
+    // count>0 — mismo invariant de MODEL_R que ya rige el mark-read del chat principal.
     const clienteMsgIds = rows.filter((m) => m.remitente === "cliente" && !m.leido).map((m) => m.id)
     if (clienteMsgIds.length > 0) {
       try {
-        await db.chatMensaje.updateMany({
-          where: { id: { in: clienteMsgIds }, pedidoId, remitente: "cliente", leido: false },
-          data: { leido: true },
+        await db.$transaction(async (tx) => {
+          const result = await tx.chatMensaje.updateMany({
+            where: { id: { in: clienteMsgIds }, pedidoId, remitente: "cliente", leido: false },
+            data: { leido: true },
+          })
+          if (result.count > 0) {
+            await tx.pedido.update({
+              where: { id: pedidoId },
+              data: { chatRevision: { increment: 1 } },
+            })
+          }
         })
       } catch {
         console.error("[OperativoPyR] Fallo al marcar mensajes como leidos")
@@ -280,6 +290,13 @@ export async function POST(
           clienteId: null,
         },
         select: { id: true },
+      })
+      // P2-T04 Stage 3B (R-MUT-06): mismo lock/transaccion que ya crea el mensaje — si el
+      // create falla, el bump nunca corre; si el bump fallara, Postgres revierte el create
+      // tambien (misma transaccion).
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { chatRevision: { increment: 1 } },
       })
       return { mensajeId: mensaje.id, clienteId: locked[0].clienteId, negocioNombre: locked[0].negocioNombre }
     })
