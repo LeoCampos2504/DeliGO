@@ -26,6 +26,31 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
   })
 }
 
+// P2-T05 Stage3R1 (F-P2-T05-12): read-only — NUNCA muta el binding
+// server-side. Antes del físico-detach de SERVER_DETACH_ONLY (F-P2-T05-02)
+// una PushSubscription física sólo existía si el actor seguía suscripto, así
+// que re-enviarla en cada mount era inofensivo. Ahora una subscription
+// física puede sobrevivir a un detach manual explícito — volver a postearla
+// automáticamente revertiría ese disable sin ninguna acción del usuario. Por
+// eso este chequeo es puramente informativo: rebind de un actor detached
+// exige siempre USER_EXPLICIT_ENABLE (el toggle de perfil/config).
+async function checkExistingPushSubscriptionStatus(subscription: PushSubscription): Promise<boolean> {
+  try {
+    const res = await fetch("/api/push/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: JSON.stringify(subscription),
+      }),
+    })
+    if (!res.ok) return false
+    const data = await res.json()
+    return data.subscribed === true
+  } catch {
+    return false
+  }
+}
+
 /**
  * PermissionPrompt — Auto-requests notification permissions after login
  *
@@ -72,9 +97,11 @@ export function PermissionPrompt() {
 
     const registration = await navigator.serviceWorker.getRegistration("/")
     const subscription = await registration?.pushManager.getSubscription()
-    if (subscription) {
-      await savePushSubscription(subscription)
-    }
+    if (!subscription) return
+
+    // Read-only status probe — never re-registers automatically (see
+    // checkExistingPushSubscriptionStatus above, F-P2-T05-12).
+    await checkExistingPushSubscriptionStatus(subscription)
   }, [isMozo])
 
   useEffect(() => {

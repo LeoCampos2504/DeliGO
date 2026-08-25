@@ -77,6 +77,7 @@ mock.module("@/lib/db", () => ({
         return row
       },
       findMany: async ({ where }: { where: Record<string, unknown> }) => rows.filter((r) => matchesWhere(r, where)),
+      findFirst: async ({ where }: { where: Record<string, unknown> }) => rows.find((r) => matchesWhere(r, where)) ?? null,
       deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
         deleteManyCalls.push({ where })
         const before = rows.length
@@ -93,6 +94,7 @@ const {
   detachPushSubscriptionByEndpoint,
   sweepDeadPushSubscriptionEndpoint,
   deletePushSubscriptionsForOwner,
+  hasPushSubscriptionForOwnerEndpoint,
 } = await import("./push-subscription-repository")
 const { PushSubscriptionOwnerType, PushSubscriptionChannel } = await import("@prisma/client")
 
@@ -419,5 +421,163 @@ describe("REPOSITORY_ASSUMES_ENDPOINT_PROOF_OF_POSSESSION=NO (MD58)", () => {
     await registerPushSubscription(owner("cliente", "A"), sub("E", "k", "a"))
     await registerPushSubscription(owner("negocio", "B"), sub("E", "k", "a"))
     expect(rows.length).toBe(2)
+  })
+})
+
+// P2-T05 Stage3 (§11/§27 del prompt): las rutas HTTP con dual-write
+// necesitan que `registerPushSubscription`/`detachPushSubscriptionByEndpoint`
+// participen en la MISMA transacción que su escritura legacy. Estos focales
+// prueban DOS cosas por separado: (a) el default sigue siendo compatible
+// (todos los 36+ tests de arriba ya lo prueban implícitamente, al no pasar
+// un tercer argumento); (b) cuando SÍ se pasa un client explícito, la llamada
+// aterriza en ESE objeto — nunca silenciosamente en el singleton `db` — vía
+// dos contadores de llamadas completamente independientes (dbClient vs
+// txClient), respaldados por el MISMO array `rows` subyacente.
+describe("transaction client support (Stage3 §11/§27) — default vs injected", () => {
+  let txUpsertCalls: number
+  let txDeleteManyCalls: number
+
+  function makeTxClient() {
+    return {
+      pushSubscription: {
+        upsert: async (args: {
+          where: { ownerType_ownerId_channel_endpoint: { ownerType: string; ownerId: string; channel: string; endpoint: string } }
+          create: Omit<Row, "id" | "createdAt" | "updatedAt">
+          update: Partial<Row>
+        }) => {
+          txUpsertCalls += 1
+          return realDbUpsert(args)
+        },
+        deleteMany: async (args: { where: Record<string, unknown> }) => {
+          txDeleteManyCalls += 1
+          return realDbDeleteMany(args)
+        },
+        findMany: async ({ where }: { where: Record<string, unknown> }) => rows.filter((r) => matchesWhere(r, where)),
+      },
+    }
+  }
+
+  // Re-implementa la MISMA lógica del mock de @/lib/db (arriba) para que el
+  // txClient opere sobre el mismo `rows` array sin depender del objeto `db`
+  // mockeado — así los dos contadores (upsertCalls del db-mock vs
+  // txUpsertCalls de acá) son verdaderamente independientes.
+  function realDbUpsert({
+    where,
+    create,
+    update,
+  }: {
+    where: { ownerType_ownerId_channel_endpoint: { ownerType: string; ownerId: string; channel: string; endpoint: string } }
+    create: Omit<Row, "id" | "createdAt" | "updatedAt">
+    update: Partial<Row>
+  }) {
+    const key = where.ownerType_ownerId_channel_endpoint
+    const existing = rows.find(
+      (r) => r.ownerType === key.ownerType && r.ownerId === key.ownerId && r.channel === key.channel && r.endpoint === key.endpoint
+    )
+    if (existing) {
+      Object.assign(existing, update, { updatedAt: new Date() })
+      return existing
+    }
+    idCounter += 1
+    const row: Row = { id: `tx-row-${idCounter}`, ...create, createdAt: new Date(), updatedAt: new Date() }
+    rows.push(row)
+    return row
+  }
+
+  function realDbDeleteMany({ where }: { where: Record<string, unknown> }) {
+    const before = rows.length
+    rows = rows.filter((r) => !matchesWhere(r, where))
+    return { count: before - rows.length }
+  }
+
+  beforeEach(() => {
+    txUpsertCalls = 0
+    txDeleteManyCalls = 0
+  })
+
+  test("default client compatibility: omitting the 3rd arg still uses the @/lib/db singleton mock", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    expect(upsertCalls.length).toBe(1)
+    expect(txUpsertCalls).toBe(0)
+  })
+
+  test("injected transaction client is used for register — never escapes to the default singleton", async () => {
+    const tx = makeTxClient()
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"), tx as never)
+
+    expect(txUpsertCalls).toBe(1)
+    expect(upsertCalls.length).toBe(0) // NORMALIZED_WRITE_ESCAPES_TRANSACTION=NO
+    expect(rows.length).toBe(1)
+    expect(rows[0].endpoint).toBe("E1")
+  })
+
+  test("injected transaction client is used for detach — never escapes to the default singleton", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    expect(rows.length).toBe(1)
+
+    const tx = makeTxClient()
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1", tx as never)
+
+    expect(result.detached).toBe(true)
+    expect(txDeleteManyCalls).toBe(1)
+    expect(deleteManyCalls.length).toBe(0) // NORMALIZED_WRITE_ESCAPES_TRANSACTION=NO
+    expect(rows.length).toBe(0)
+  })
+
+  test("register + detach semantics stay intact through an injected client (multi-device, exact-match)", async () => {
+    const tx = makeTxClient()
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"), tx as never)
+    await registerPushSubscription(owner("cliente", "A"), sub("E2"), tx as never)
+    expect(rows.length).toBe(2)
+
+    const detached = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1", tx as never)
+    expect(detached.detached).toBe(true)
+    expect(rows.length).toBe(1)
+    expect(rows[0].endpoint).toBe("E2")
+  })
+
+  test("sweepDeadPushSubscriptionEndpoint semantics stay intact (no transaction client param — global by design)", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E_DEAD"))
+    await registerPushSubscription(owner("negocio", "B"), sub("E_DEAD"))
+    await registerPushSubscription(owner("cliente", "A"), sub("E_ALIVE"))
+
+    const result = await sweepDeadPushSubscriptionEndpoint("E_DEAD")
+    expect(result.count).toBe(2)
+    expect(rows.length).toBe(1)
+    expect(rows[0].endpoint).toBe("E_ALIVE")
+  })
+})
+
+// P2-T05 Stage3R1 (F-P2-T05-12/13): existence-check focal — usada por
+// POST /api/push/status para responder únicamente sobre el owner+endpoint
+// exactos, nunca "el actor tiene alguna subscription".
+describe("hasPushSubscriptionForOwnerEndpoint (Stage3R1)", () => {
+  test("true: exact owner/channel/endpoint match", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    expect(await hasPushSubscriptionForOwnerEndpoint(owner("cliente", "A"), "E1")).toBe(true)
+  })
+
+  test("false: different endpoint, same owner", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    expect(await hasPushSubscriptionForOwnerEndpoint(owner("cliente", "A"), "E2")).toBe(false)
+  })
+
+  test("false: different owner, same endpoint (cross-actor never leaks true)", async () => {
+    await registerPushSubscription(owner("negocio", "B"), sub("E1"))
+    expect(await hasPushSubscriptionForOwnerEndpoint(owner("cliente", "A"), "E1")).toBe(false)
+  })
+
+  test("false: different channel, same owner+endpoint", async () => {
+    await registerPushSubscription({ ownerType: "negocio" as never, ownerId: "A", channel: "salon" as never }, sub("E1"))
+    expect(await hasPushSubscriptionForOwnerEndpoint(owner("negocio", "A", "default"), "E1")).toBe(false)
+  })
+
+  test("false: no rows at all for this owner", async () => {
+    expect(await hasPushSubscriptionForOwnerEndpoint(owner("cliente", "A"), "E1")).toBe(false)
+  })
+
+  test("rejects invalid owner/endpoint the same way as other primitives", async () => {
+    await expect(hasPushSubscriptionForOwnerEndpoint(owner("cliente", ""), "E1")).rejects.toThrow()
+    await expect(hasPushSubscriptionForOwnerEndpoint(owner("cliente", "A"), "")).rejects.toThrow()
   })
 })

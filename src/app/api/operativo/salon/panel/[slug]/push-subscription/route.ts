@@ -6,15 +6,12 @@ import {
   resolveOperativoAreaForSlug,
 } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-
-type PushSubscriptionInput = {
-  endpoint: string
-  expirationTime?: number | null
-  keys: {
-    p256dh: string
-    auth: string
-  }
-}
+import {
+  extractEndpointForDetach,
+  parsePushSubscriptionShape,
+  toNormalizedPushSubscriptionInput,
+} from "@/lib/push-subscription-http"
+import { detachPushSubscriptionByEndpoint, registerPushSubscription } from "@/lib/push-subscription-repository"
 
 function authErrorResponse(auth: { status: 401 | 403; state: string; clearSession?: boolean }) {
   const response = NextResponse.json(
@@ -31,61 +28,6 @@ function authErrorResponse(auth: { status: 401 | 403; state: string; clearSessio
   return noStore(response)
 }
 
-function parsePushSubscription(value: unknown): PushSubscriptionInput | null {
-  let parsed = value
-  if (typeof value === "string") {
-    try {
-      parsed = JSON.parse(value)
-    } catch {
-      return null
-    }
-  }
-
-  if (!parsed || typeof parsed !== "object") return null
-
-  const candidate = parsed as {
-    endpoint?: unknown
-    expirationTime?: unknown
-    keys?: { p256dh?: unknown; auth?: unknown }
-  }
-
-  if (
-    typeof candidate.endpoint !== "string" ||
-    candidate.endpoint.trim().length === 0 ||
-    !candidate.keys ||
-    typeof candidate.keys.p256dh !== "string" ||
-    candidate.keys.p256dh.trim().length === 0 ||
-    typeof candidate.keys.auth !== "string" ||
-    candidate.keys.auth.trim().length === 0
-  ) {
-    return null
-  }
-
-  const endpoint = candidate.endpoint.trim()
-  try {
-    const endpointUrl = new URL(endpoint)
-    if (endpointUrl.protocol !== "https:") {
-      return null
-    }
-  } catch {
-    return null
-  }
-
-  const expirationTime =
-    typeof candidate.expirationTime === "number" || candidate.expirationTime === null
-      ? candidate.expirationTime
-      : null
-
-  return {
-    endpoint,
-    expirationTime,
-    keys: {
-      p256dh: candidate.keys.p256dh,
-      auth: candidate.keys.auth,
-    },
-  }
-}
-
 // Logout-B1: `matchSubscription`, cuando se pasa, exige coincidencia exacta
 // contra el valor ya almacenado antes de limpiar — nunca un blind clear.
 // Omitido (POST) el filtro no se agrega, comportamiento sin cambios.
@@ -100,14 +42,16 @@ async function updateEmpleadoSubscription({
   cuentaOperativaId,
   matchSubscription,
   pushSubscription,
+  client,
 }: {
   empleadoId: string
   negocioId: string
   cuentaOperativaId: string
   matchSubscription?: string
   pushSubscription: string | null
+  client: Pick<typeof db, "empleado">
 }) {
-  return db.empleado.updateMany({
+  return client.empleado.updateMany({
     where: {
       id: empleadoId,
       negocioId,
@@ -178,7 +122,7 @@ export async function POST(
     if (!auth.ok) return authErrorResponse(auth)
 
     const body = await req.json().catch(() => ({}))
-    const subscription = parsePushSubscription((body as { subscription?: unknown }).subscription)
+    const subscription = parsePushSubscriptionShape((body as { subscription?: unknown }).subscription)
     if (!subscription) {
       return noStore(
         NextResponse.json(
@@ -187,12 +131,38 @@ export async function POST(
         )
       )
     }
+    const normalizedInput = toNormalizedPushSubscriptionInput(subscription)
+    if (!normalizedInput) {
+      return noStore(
+        NextResponse.json(
+          { ok: false, error: "Suscripcion invalida" },
+          { status: 400 }
+        )
+      )
+    }
 
-    const result = await updateEmpleadoSubscription({
-      empleadoId: auth.empleado.id,
-      negocioId: auth.negocio.id,
-      cuentaOperativaId: auth.cuenta.id,
-      pushSubscription: JSON.stringify(subscription),
+    // P2-T05 Stage3 (F-P0-03, dual-write atómico): legacy + normalizado en
+    // la MISMA transacción. Owner normalizado sigue siendo `empleado` — el
+    // channel `salon` está reservado al canal legacy distinto
+    // Negocio.pushSubscriptionSalon, sin writer en Stage3.
+    const result = await db.$transaction(async (tx) => {
+      const legacy = await updateEmpleadoSubscription({
+        empleadoId: auth.empleado.id,
+        negocioId: auth.negocio.id,
+        cuentaOperativaId: auth.cuenta.id,
+        pushSubscription: JSON.stringify(subscription),
+        client: tx,
+      })
+
+      if (legacy.count === 1) {
+        await registerPushSubscription(
+          { ownerType: "empleado", ownerId: auth.empleado.id, channel: "default" },
+          normalizedInput,
+          tx
+        )
+      }
+
+      return legacy
     })
 
     if (result.count !== 1) {
@@ -244,18 +214,38 @@ export async function DELETE(
     // Logout-B1: coincidencia exacta contra el endpoint almacenado — si otro
     // dispositivo de esta misma cuenta es el dueño actual, no se toca nada
     // (removed:false, no es un error de autorizacion).
-    const result = await updateEmpleadoSubscription({
-      empleadoId: auth.empleado.id,
-      negocioId: auth.negocio.id,
-      cuentaOperativaId: auth.cuenta.id,
-      matchSubscription: subscription,
-      pushSubscription: null,
+    //
+    // P2-T05 Stage3 (F-P2-T05-03): el detach normalizado nunca exige que el
+    // exact-match legacy haya encontrado nada — misma transacción.
+    const endpoint = extractEndpointForDetach(subscription)
+
+    const removed = await db.$transaction(async (tx) => {
+      const legacyResult = await updateEmpleadoSubscription({
+        empleadoId: auth.empleado.id,
+        negocioId: auth.negocio.id,
+        cuentaOperativaId: auth.cuenta.id,
+        matchSubscription: subscription,
+        pushSubscription: null,
+        client: tx,
+      })
+
+      let normalizedRemoved = false
+      if (endpoint) {
+        const result = await detachPushSubscriptionByEndpoint(
+          { ownerType: "empleado", ownerId: auth.empleado.id, channel: "default" },
+          endpoint,
+          tx
+        )
+        normalizedRemoved = result.detached
+      }
+
+      return legacyResult.count > 0 || normalizedRemoved
     })
 
     return noStore(
       NextResponse.json({
         ok: true,
-        removed: result.count > 0,
+        removed,
       })
     )
   } catch (error) {

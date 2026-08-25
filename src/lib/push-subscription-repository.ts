@@ -14,9 +14,22 @@
 // fisicamente muerto para TODO owner que lo referencie (nunca un ataque:
 // esa senal viene del proveedor Web Push, no de un cliente HTTP).
 import { db } from "@/lib/db"
-import { PushSubscriptionChannel, PushSubscriptionOwnerType, type PushSubscription } from "@prisma/client"
+import {
+  Prisma,
+  PrismaClient,
+  PushSubscriptionChannel,
+  PushSubscriptionOwnerType,
+  type PushSubscription,
+} from "@prisma/client"
 
 export type { PushSubscriptionOwnerType, PushSubscriptionChannel } from "@prisma/client"
+
+// P2-T05 Stage3 (transaction client support): las rutas HTTP que hacen
+// dual-write (legacy + normalizado) necesitan que estas dos primitivas
+// participen en la MISMA transacción Prisma que su escritura legacy. Por
+// default siguen usando el singleton — ningún caller existente (incluida
+// Stage2H) se ve afectado.
+type PushSubscriptionDbClient = PrismaClient | Prisma.TransactionClient
 
 const OWNER_TYPES: readonly PushSubscriptionOwnerType[] = [
   PushSubscriptionOwnerType.cliente,
@@ -103,12 +116,13 @@ function assertValidEndpoint(endpoint: string): void {
  */
 export async function registerPushSubscription(
   owner: PushSubscriptionOwner,
-  input: NormalizedPushSubscriptionInput
+  input: NormalizedPushSubscriptionInput,
+  client: PushSubscriptionDbClient = db
 ): Promise<PushSubscription> {
   assertValidOwner(owner)
   assertValidSubscriptionInput(input)
 
-  return db.pushSubscription.upsert({
+  return client.pushSubscription.upsert({
     where: {
       ownerType_ownerId_channel_endpoint: {
         ownerType: owner.ownerType,
@@ -157,12 +171,13 @@ export async function getPushSubscriptionsForOwner(owner: PushSubscriptionOwner)
  */
 export async function detachPushSubscriptionByEndpoint(
   owner: PushSubscriptionOwner,
-  endpoint: string
+  endpoint: string,
+  client: PushSubscriptionDbClient = db
 ): Promise<{ detached: boolean }> {
   assertValidOwner(owner)
   assertValidEndpoint(endpoint)
 
-  const result = await db.pushSubscription.deleteMany({
+  const result = await client.pushSubscription.deleteMany({
     where: {
       ownerType: owner.ownerType,
       ownerId: owner.ownerId,
@@ -172,6 +187,33 @@ export async function detachPushSubscriptionByEndpoint(
   })
 
   return { detached: result.count > 0 }
+}
+
+/**
+ * Existence check exacta de UN owner+channel+endpoint — usada por
+ * `POST /api/push/status` (P2-T05 Stage3R1, F-P2-T05-12/13) para responder
+ * únicamente "¿esta subscription física actual está vinculada server-side a
+ * este actor?", nunca "¿el actor tiene alguna subscription en general?".
+ * Read-only, no expone p256dh/auth/id ni ninguna otra fila.
+ */
+export async function hasPushSubscriptionForOwnerEndpoint(
+  owner: PushSubscriptionOwner,
+  endpoint: string
+): Promise<boolean> {
+  assertValidOwner(owner)
+  assertValidEndpoint(endpoint)
+
+  const row = await db.pushSubscription.findFirst({
+    where: {
+      ownerType: owner.ownerType,
+      ownerId: owner.ownerId,
+      channel: owner.channel,
+      endpoint,
+    },
+    select: { id: true },
+  })
+
+  return row !== null
 }
 
 /**

@@ -17,12 +17,23 @@ type EmpleadoRow = {
   pushSubscription: string | null
 }
 
+type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
+
 let empleadoRows: EmpleadoRow[]
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
 let updateManyThrows: Error | null
+let pushRows: PushRow[]
+let singletonDeleteManyCalls: number
+let txDeleteManyCalls: number
 
-mock.module("@/lib/db", () => ({
-  db: {
+function pushDeleteManyImpl(where: Record<string, unknown>) {
+  const before = pushRows.length
+  pushRows = pushRows.filter((r) => !Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v))
+  return { count: before - pushRows.length }
+}
+
+function makeDbClient(kind: "singleton" | "tx") {
+  return {
     empleado: {
       findFirst: async ({ where }: { where: { token: string; activo: boolean; eliminado: boolean } }) => {
         const row = empleadoRows.find(
@@ -53,6 +64,23 @@ mock.module("@/lib/db", () => ({
         return { count }
       },
     },
+    pushSubscription: {
+      deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
+        if (kind === "singleton") singletonDeleteManyCalls += 1
+        else txDeleteManyCalls += 1
+        return pushDeleteManyImpl(where)
+      },
+    },
+  }
+}
+
+const singletonDbClient = makeDbClient("singleton")
+const txDbClient = makeDbClient("tx")
+
+mock.module("@/lib/db", () => ({
+  db: {
+    ...singletonDbClient,
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txDbClient),
   },
 }))
 
@@ -85,7 +113,19 @@ beforeEach(() => {
   empleadoRows = []
   updateManyCalls = []
   updateManyThrows = null
+  pushRows = []
+  singletonDeleteManyCalls = 0
+  txDeleteManyCalls = 0
 })
+
+let pushIdCounter = 0
+function pushRow(ownerId: string, endpoint: string): PushRow {
+  pushIdCounter += 1
+  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint }
+}
+function subJson(endpoint: string) {
+  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+}
 
 describe("POST /api/mozo/push/unsubscribe — exact-match ownership hardening (Ownership-B2)", () => {
   test("S1: stored EA + request EA -> removed:true, DB cleared", async () => {
@@ -226,5 +266,55 @@ describe("POST /api/mozo/push/unsubscribe — exact-match ownership hardening (O
     expect(res.status).toBe(400)
     expect(body).toEqual({ error: "mozoToken es obligatorio" })
     expect(updateManyCalls.length).toBe(0)
+  })
+})
+
+describe("POST /api/mozo/push/unsubscribe — dual-detach (Stage3 §17, §27)", () => {
+  test("legacy + normalized removed in the SAME transaction, never the singleton", async () => {
+    const e1 = subJson("https://push.example/E1")
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: e1 },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/E1")]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: e1 }, undefined, "198.51.100.30")
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+    expect(pushRows.length).toBe(0)
+    expect(txDeleteManyCalls).toBe(1)
+    expect(singletonDeleteManyCalls).toBe(0)
+  })
+
+  test("stale device: normalized E1 detaches even though legacy already holds newer E2 (STALE_DEVICE_CAN_CLEAR_NEWER_LEGACY_BINDING=NO)", async () => {
+    const e1 = subJson("https://push.example/E1")
+    const e2 = subJson("https://push.example/E2")
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: e2 },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/E1"), pushRow("empleado-1", "https://push.example/E2")]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: e1 }, undefined, "198.51.100.31")
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, removed: true }) // normalized removal alone makes removed:true
+    expect(empleadoRows[0].pushSubscription).toBe(e2) // legacy untouched — never matched
+    expect(pushRows.map((r) => r.endpoint)).toEqual(["https://push.example/E2"])
+  })
+
+  test("cross-actor: never touches another empleado's normalized binding on the same endpoint", async () => {
+    const shared = subJson("https://push.example/SHARED")
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: shared },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/SHARED"), pushRow("empleado-OTHER", "https://push.example/SHARED")]
+
+    await callPost({ mozoToken: "tok-a", subscription: shared }, undefined, "198.51.100.32")
+
+    expect(pushRows.length).toBe(1)
+    expect(pushRows[0].ownerId).toBe("empleado-OTHER")
   })
 })

@@ -3,6 +3,17 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { parsePushSubscriptionShape, toNormalizedPushSubscriptionInput } from "@/lib/push-subscription-http"
+import { registerPushSubscription, type PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
+
+// P2-T05 Stage3 (F-P2-T05-03): mapping server-derived — el enum normalizado
+// NO incluye `superadmin` (rama legacy dead/inert bajo la sesión aislada
+// actual de SuperAdmin, P2-T17). El owner/channel jamás se aceptan del body.
+const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor" | "superadmin", PushSubscriptionOwnerType>> = {
+  cliente: "cliente",
+  negocio: "negocio",
+  repartidor: "repartidor",
+}
 
 // POST /api/push/subscribe — Save a push subscription for the current user
 export async function POST(req: NextRequest) {
@@ -34,10 +45,20 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate it's valid JSON
-    try {
-      JSON.parse(subscription)
-    } catch {
+    // P2-T05 Stage3 (F-P2-T05-01): validación de forma completa — antes sólo
+    // se comprobaba que fuera JSON válido. El valor legacy que se persiste
+    // sigue siendo el string RAW tal como lo envió el cliente (formato
+    // legacy sin cambios) — sólo se usa la forma parseada para derivar el
+    // input normalizado.
+    const parsedShape = parsePushSubscriptionShape(subscription)
+    if (!parsedShape) {
+      return NextResponse.json(
+        { error: "subscription debe ser un JSON válido" },
+        { status: 400 }
+      )
+    }
+    const normalizedInput = toNormalizedPushSubscriptionInput(parsedShape)
+    if (!normalizedInput) {
       return NextResponse.json(
         { error: "subscription debe ser un JSON válido" },
         { status: 400 }
@@ -47,24 +68,42 @@ export async function POST(req: NextRequest) {
     // Save subscription based on user type
     switch (user.type) {
       case "cliente":
-        await db.cliente.update({
-          where: { id: user.id },
-          data: { pushSubscription: subscription },
-        })
-        break
       case "negocio":
-        await db.negocio.update({
-          where: { id: user.id },
-          data: { pushSubscription: subscription },
+      case "repartidor": {
+        const ownerType = NORMALIZED_OWNER_TYPES[user.type]!
+        // P2-T05 Stage3 (F-P0-03, dual-write atómico): legacy + normalizado
+        // en la MISMA transacción — si cualquiera falla, ninguno queda
+        // committed. El registro normalizado nunca borra otros dispositivos
+        // del mismo owner (multi-device) ni de otro owner (MODEL-C1).
+        await db.$transaction(async (tx) => {
+          if (user.type === "cliente") {
+            await tx.cliente.update({
+              where: { id: user.id },
+              data: { pushSubscription: subscription },
+            })
+          } else if (user.type === "negocio") {
+            await tx.negocio.update({
+              where: { id: user.id },
+              data: { pushSubscription: subscription },
+            })
+          } else {
+            await tx.repartidor.update({
+              where: { id: user.id },
+              data: { pushSubscription: subscription },
+            })
+          }
+
+          await registerPushSubscription(
+            { ownerType, ownerId: user.id, channel: "default" },
+            normalizedInput,
+            tx
+          )
         })
         break
-      case "repartidor":
-        await db.repartidor.update({
-          where: { id: user.id },
-          data: { pushSubscription: subscription },
-        })
-        break
+      }
       case "superadmin":
+        // P2-T17: rama legacy dead/inert — sin owner normalizado, sin
+        // dual-write, sin transacción (comportamiento sin cambios).
         await db.superAdmin.update({
           where: { id: user.id },
           data: { pushSubscription: subscription },

@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { parsePushSubscriptionShape, toNormalizedPushSubscriptionInput } from "@/lib/push-subscription-http"
+import { registerPushSubscription } from "@/lib/push-subscription-repository"
 
 // POST /api/mozo/push/subscribe — Save push subscription for a mozo via their personal token
 export async function POST(req: NextRequest) {
@@ -38,20 +40,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Token de mozo inválido" }, { status: 401 })
     }
 
-    // Validate subscription is valid JSON
-    try {
-      JSON.parse(subscription)
-    } catch {
+    // P2-T05 Stage3 (F-P2-T05-01): validación de forma completa unificada —
+    // el valor legacy persistido sigue siendo el string RAW del cliente.
+    const parsedShape = parsePushSubscriptionShape(subscription)
+    if (!parsedShape) {
+      return NextResponse.json(
+        { error: "subscription debe ser un JSON válido" },
+        { status: 400 }
+      )
+    }
+    const normalizedInput = toNormalizedPushSubscriptionInput(parsedShape)
+    if (!normalizedInput) {
       return NextResponse.json(
         { error: "subscription debe ser un JSON válido" },
         { status: 400 }
       )
     }
 
-    // Save push subscription on the Empleado model
-    await db.empleado.update({
-      where: { id: empleado.id },
-      data: { pushSubscription: subscription },
+    // Save push subscription on the Empleado model + normalizada, en la
+    // MISMA transacción (P2-T05 Stage3, F-P0-03 dual-write atómico).
+    await db.$transaction(async (tx) => {
+      await tx.empleado.update({
+        where: { id: empleado.id },
+        data: { pushSubscription: subscription },
+      })
+
+      await registerPushSubscription(
+        { ownerType: "empleado", ownerId: empleado.id, channel: "default" },
+        normalizedInput,
+        tx
+      )
     })
 
     return NextResponse.json({ ok: true })

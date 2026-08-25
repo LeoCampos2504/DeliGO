@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { extractEndpointForDetach } from "@/lib/push-subscription-http"
+import { detachPushSubscriptionByEndpoint } from "@/lib/push-subscription-repository"
 
 // Ownership-B2: `subscription`, cuando se pasa, exige coincidencia EXACTA
 // contra el valor ya almacenado antes de limpiar — nunca un blind clear por
@@ -56,12 +58,32 @@ export async function POST(req: NextRequest) {
     // Ownership-B2: coincidencia exacta contra la subscription almacenada —
     // si otro dispositivo de este mismo mozoToken es hoy el dueño real, no
     // se toca nada (removed:false, no es un error de autorización).
-    const result = await db.empleado.updateMany({
-      where: { id: empleado.id, pushSubscription: subscription },
-      data: { pushSubscription: null },
+    //
+    // P2-T05 Stage3 (F-P2-T05-03): el detach normalizado nunca exige que el
+    // exact-match legacy haya encontrado nada — misma transacción, misma
+    // regla multi-device que /api/push/unsubscribe.
+    const endpoint = extractEndpointForDetach(subscription)
+
+    const removed = await db.$transaction(async (tx) => {
+      const legacyResult = await tx.empleado.updateMany({
+        where: { id: empleado.id, pushSubscription: subscription },
+        data: { pushSubscription: null },
+      })
+
+      let normalizedRemoved = false
+      if (endpoint) {
+        const result = await detachPushSubscriptionByEndpoint(
+          { ownerType: "empleado", ownerId: empleado.id, channel: "default" },
+          endpoint,
+          tx
+        )
+        normalizedRemoved = result.detached
+      }
+
+      return legacyResult.count > 0 || normalizedRemoved
     })
 
-    return NextResponse.json({ ok: true, removed: result.count > 0 })
+    return NextResponse.json({ ok: true, removed })
   } catch (error) {
     console.error("Error removing mozo push subscription:", safeErrorForLog(error))
     return NextResponse.json(

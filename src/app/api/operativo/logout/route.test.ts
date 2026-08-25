@@ -15,6 +15,7 @@ type EmpleadoRow = {
   cuentaOperativaId: string
   pushSubscription: string | null
 }
+type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
 
 let empleadoRows: EmpleadoRow[]
 let sessionByToken: Map<string, { cuentaOperativaId: string } | null>
@@ -22,30 +23,55 @@ let deletedSessionTokens: string[]
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
 let updateManyThrows: Error | null
 let callOrder: string[]
+let pushRows: PushRow[]
+let pushDeleteManyCalls: number
+let transactionThrows: Error | null
+
+function pushDeleteManyImpl(where: Record<string, unknown>) {
+  pushDeleteManyCalls += 1
+  const before = pushRows.length
+  pushRows = pushRows.filter((r) => !Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v))
+  return { count: before - pushRows.length }
+}
+
+const txClient = {
+  empleado: {
+    updateMany: async ({ where, data }: { where: Record<string, unknown>; data: { pushSubscription: string | null } }) => {
+      updateManyCalls.push({ where })
+      callOrder.push("push-detach")
+      if (updateManyThrows) throw updateManyThrows
+      let count = 0
+      for (const row of empleadoRows) {
+        if (
+          row.cuentaOperativaId === where.cuentaOperativaId &&
+          row.pushSubscription === where.pushSubscription
+        ) {
+          row.pushSubscription = data.pushSubscription
+          count += 1
+        }
+      }
+      return { count }
+    },
+    findMany: async ({ where }: { where: { cuentaOperativaId: string } }) =>
+      empleadoRows.filter((r) => r.cuentaOperativaId === where.cuentaOperativaId).map((r) => ({ id: r.id })),
+  },
+  pushSubscription: {
+    deleteMany: async ({ where }: { where: Record<string, unknown> }) => pushDeleteManyImpl(where),
+  },
+}
 
 mock.module("@/lib/db", () => ({
   db: {
-    empleado: {
-      updateMany: async ({ where, data }: { where: Record<string, unknown>; data: { pushSubscription: string | null } }) => {
-        updateManyCalls.push({ where })
-        callOrder.push("push-detach")
-        if (updateManyThrows) throw updateManyThrows
-        let count = 0
-        for (const row of empleadoRows) {
-          if (
-            row.cuentaOperativaId === where.cuentaOperativaId &&
-            row.pushSubscription === where.pushSubscription
-          ) {
-            row.pushSubscription = data.pushSubscription
-            count += 1
-          }
-        }
-        return { count }
-      },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      if (transactionThrows) throw transactionThrows
+      return fn(txClient)
     },
   },
 }))
 
+// P2-T05 Stage3: superset mock (SESSION_COOKIE_NAME/getUserFromToken added
+// for cross-file safety — see the comment in
+// src/app/api/push/subscribe/route.test.ts).
 mock.module("@/lib/auth", () => ({
   OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
   validateOperationalSession: async (token: string) => sessionByToken.get(token) ?? null,
@@ -53,6 +79,8 @@ mock.module("@/lib/auth", () => ({
     deletedSessionTokens.push(token)
     callOrder.push("session-delete")
   },
+  SESSION_COOKIE_NAME: "deligo_session",
+  getUserFromToken: async () => null,
 }))
 
 mock.module("@/lib/log-safe-error", () => ({
@@ -82,7 +110,19 @@ beforeEach(() => {
   updateManyCalls = []
   updateManyThrows = null
   callOrder = []
+  pushRows = []
+  pushDeleteManyCalls = 0
+  transactionThrows = null
 })
+
+let pushIdCounter = 0
+function pushRow(ownerId: string, endpoint: string): PushRow {
+  pushIdCounter += 1
+  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint }
+}
+function subJson(endpoint: string) {
+  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+}
 
 describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", () => {
   test("exact match: cuentaOperativaId=A + subscription=EA clears matching rows, logout still succeeds", async () => {
@@ -192,5 +232,69 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
     expect(body.ok).toBe(true)
     expect(updateManyCalls.length).toBe(0)
     expect(deletedSessionTokens).toEqual(["tok-invalid"])
+  })
+})
+
+describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (Stage3 §19)", () => {
+  test("stale device: normalized E1 detached even though legacy already holds newer E2 (own binding cleared without requiring legacy match)", async () => {
+    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    const e1 = subJson("https://push.example/E1")
+    const e2 = subJson("https://push.example/E2")
+    empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: e2 }]
+    pushRows = [pushRow("empleado-1", "https://push.example/E1"), pushRow("empleado-1", "https://push.example/E2")]
+
+    const res = await POST(buildRequest({ subscription: e1 }, { token: "tok-a" }))
+    expect(res.status).toBe(200)
+    expect(empleadoRows[0].pushSubscription).toBe(e2) // legacy untouched
+    expect(pushRows.map((r) => r.endpoint)).toEqual(["https://push.example/E2"]) // E1 gone
+  })
+
+  test("multiple Empleado under the same cuentaOperativaId: only the one holding this endpoint loses its row", async () => {
+    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    const e1 = subJson("https://push.example/E1")
+    empleadoRows = [
+      { id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: null },
+      { id: "empleado-2", cuentaOperativaId: "cuenta-a", pushSubscription: null },
+    ]
+    pushRows = [pushRow("empleado-2", "https://push.example/E1")]
+
+    await POST(buildRequest({ subscription: e1 }, { token: "tok-a" }))
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("never touches another cuentaOperativaId's normalized binding, even on the same endpoint", async () => {
+    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    const shared = subJson("https://push.example/SHARED")
+    empleadoRows = [
+      { id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: shared },
+      { id: "empleado-b1", cuentaOperativaId: "cuenta-b", pushSubscription: null },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/SHARED"), pushRow("empleado-b1", "https://push.example/SHARED")]
+
+    await POST(buildRequest({ subscription: shared }, { token: "tok-a" }))
+    expect(pushRows.length).toBe(1)
+    expect(pushRows[0].ownerId).toBe("empleado-b1")
+  })
+
+  test("OPERATIVE_LOGOUT_FAILURE_BLOCKS_LOGOUT=NO: normalized cleanup throwing still lets logout proceed", async () => {
+    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: null }]
+    transactionThrows = new Error("simulated transaction failure")
+
+    const res = await POST(buildRequest({ subscription: subJson("https://push.example/E1") }, { token: "tok-a" }))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(deletedSessionTokens).toEqual(["tok-a"])
+  })
+
+  test("no endpoint extractable (malformed subscription payload that still parses as valid JSON string): legacy path still runs, no crash", async () => {
+    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: "EA" }]
+
+    const res = await POST(buildRequest({ subscription: "EA" }, { token: "tok-a" }))
+    expect(res.status).toBe(200)
+    expect(pushDeleteManyCalls).toBe(0) // no endpoint could be extracted from "EA" -> normalized detach skipped
   })
 })

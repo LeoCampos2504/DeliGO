@@ -6,6 +6,8 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { extractEndpointForDetach } from "@/lib/push-subscription-http"
+import { detachPushSubscriptionByEndpoint } from "@/lib/push-subscription-repository"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -39,12 +41,39 @@ export async function POST(req: NextRequest) {
 
         if (subscription) {
           try {
-            await db.empleado.updateMany({
-              where: {
-                cuentaOperativaId: session.cuentaOperativaId,
-                pushSubscription: subscription,
-              },
-              data: { pushSubscription: null },
+            // P2-T05 Stage3 (F-P2-T05-03): cleanup normalizado multi-device
+            // safe, en una transacción interna dedicada — un fallo acá nunca
+            // debe impedir el logout (mismo BEST_EFFORT de siempre, ver
+            // catch más abajo). El detach normalizado se acota a los
+            // Empleado de ESTA cuentaOperativaId (nunca otra cuenta, nunca
+            // una búsqueda global por endpoint) y nunca exige que el
+            // exact-match legacy haya encontrado nada — un dispositivo
+            // stale (legacy ya sobrescrito por otro más reciente) igual debe
+            // poder retirar su propia fila normalizada.
+            const endpoint = extractEndpointForDetach(subscription)
+
+            await db.$transaction(async (tx) => {
+              await tx.empleado.updateMany({
+                where: {
+                  cuentaOperativaId: session.cuentaOperativaId,
+                  pushSubscription: subscription,
+                },
+                data: { pushSubscription: null },
+              })
+
+              if (endpoint) {
+                const ownEmpleados = await tx.empleado.findMany({
+                  where: { cuentaOperativaId: session.cuentaOperativaId },
+                  select: { id: true },
+                })
+                for (const empleado of ownEmpleados) {
+                  await detachPushSubscriptionByEndpoint(
+                    { ownerType: "empleado", ownerId: empleado.id, channel: "default" },
+                    endpoint,
+                    tx
+                  )
+                }
+              }
             })
           } catch (error) {
             console.error("[OperativoLogout] Push detach failed:", safeErrorForLog(error))

@@ -20,13 +20,44 @@ type Auth =
   | { ok: true; empleado: { id: string }; negocio: { id: string }; cuenta: { id: string } }
   | { ok: false; status: 401 | 403; state: string; clearSession?: boolean }
 
+type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string; p256dh: string; auth: string }
+
 let empleadoRows: EmpleadoRow[]
 let authResult: Auth
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
 let resolveAreaCalls: Array<{ area: string }>
+let pushRows: PushRow[]
+let pushIdCounter: number
+let singletonWriteCalls: number
+let txWriteCalls: number
 
-mock.module("@/lib/db", () => ({
-  db: {
+function pushUpsertImpl(args: {
+  where: { ownerType_ownerId_channel_endpoint: { ownerType: string; ownerId: string; channel: string; endpoint: string } }
+  create: Omit<PushRow, "id">
+  update: Partial<PushRow>
+}) {
+  const key = args.where.ownerType_ownerId_channel_endpoint
+  const existing = pushRows.find(
+    (r) => r.ownerType === key.ownerType && r.ownerId === key.ownerId && r.channel === key.channel && r.endpoint === key.endpoint
+  )
+  if (existing) {
+    Object.assign(existing, args.update)
+    return existing
+  }
+  pushIdCounter += 1
+  const row: PushRow = { id: `push-${pushIdCounter}`, ...args.create }
+  pushRows.push(row)
+  return row
+}
+
+function pushDeleteManyImpl(where: Record<string, unknown>) {
+  const before = pushRows.length
+  pushRows = pushRows.filter((r) => !Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v))
+  return { count: before - pushRows.length }
+}
+
+function makeDbClient(kind: "singleton" | "tx") {
+  return {
     empleado: {
       updateMany: async ({ where, data }: { where: Record<string, unknown>; data: { pushSubscription: string | null } }) => {
         updateManyCalls.push({ where })
@@ -48,11 +79,39 @@ mock.module("@/lib/db", () => ({
         return { count }
       },
     },
+    pushSubscription: {
+      upsert: async (args: Parameters<typeof pushUpsertImpl>[0]) => {
+        if (kind === "singleton") singletonWriteCalls += 1
+        else txWriteCalls += 1
+        return pushUpsertImpl(args)
+      },
+      deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
+        if (kind === "singleton") singletonWriteCalls += 1
+        else txWriteCalls += 1
+        return pushDeleteManyImpl(where)
+      },
+    },
+  }
+}
+
+const singletonDbClient = makeDbClient("singleton")
+const txDbClient = makeDbClient("tx")
+
+mock.module("@/lib/db", () => ({
+  db: {
+    ...singletonDbClient,
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txDbClient),
   },
 }))
 
+// P2-T05 Stage3: superset mock — see the identical comment in
+// operativo/mozo/panel/[slug]/push-subscription/route.test.ts.
 mock.module("@/lib/auth", () => ({
   OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
+  validateOperationalSession: async () => null,
+  deleteOperationalSession: async () => {},
+  SESSION_COOKIE_NAME: "deligo_session",
+  getUserFromToken: async () => null,
 }))
 
 mock.module("@/lib/operativo-mozo", () => ({
@@ -107,6 +166,10 @@ beforeEach(() => {
   empleadoRows = []
   updateManyCalls = []
   resolveAreaCalls = []
+  pushRows = []
+  pushIdCounter = 0
+  singletonWriteCalls = 0
+  txWriteCalls = 0
 })
 
 describe("DELETE /api/operativo/salon/panel/[slug]/push-subscription — exact-match detach (Logout-B1)", () => {
@@ -220,5 +283,90 @@ describe("DELETE /api/operativo/salon/panel/[slug]/push-subscription — exact-m
     expect(body).toEqual({ ok: true, subscribed: true })
     expect("pushSubscription" in updateManyCalls[0].where).toBe(false)
     expect(empleadoRows[0].pushSubscription).toBe(JSON.stringify(subscription))
+  })
+})
+
+function callPost(body?: unknown) {
+  return POST(
+    new NextRequest("http://localhost/api/operativo/salon/panel/test-slug/push-subscription", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+    }),
+    { params: Promise.resolve({ slug: "test-slug" }) }
+  )
+}
+
+function validSub(endpoint: string) {
+  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+}
+
+describe("POST /api/operativo/salon/panel/[slug]/push-subscription — atomic dual-write (Stage3 §15/§27)", () => {
+  test("legacy + normalized write in the SAME transaction, owner is `empleado`/channel `default` (NOT negocio/salon)", async () => {
+    setAuthorized()
+    empleadoRows = [
+      { id: "empleado-1", negocioId: "negocio-1", cuentaOperativaId: "cuenta-1", areaOperativa: "salon", activo: true, eliminado: false, pushSubscription: null },
+    ]
+
+    const res = await callPost({ subscription: validSub("https://push.example/E1") })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, subscribed: true })
+    expect(pushRows.length).toBe(1)
+    expect(pushRows[0]).toMatchObject({ ownerType: "empleado", ownerId: "empleado-1", channel: "default", endpoint: "https://push.example/E1" })
+    expect(txWriteCalls).toBe(1)
+    expect(singletonWriteCalls).toBe(0)
+  })
+
+  test("rejects http:// endpoint (unified validation, F-P2-T05-01)", async () => {
+    setAuthorized()
+    empleadoRows = [
+      { id: "empleado-1", negocioId: "negocio-1", cuentaOperativaId: "cuenta-1", areaOperativa: "salon", activo: true, eliminado: false, pushSubscription: null },
+    ]
+    const bad = JSON.stringify({ endpoint: "http://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+    const res = await callPost({ subscription: bad })
+    expect(res.status).toBe(400)
+    expect(pushRows.length).toBe(0)
+  })
+})
+
+describe("DELETE /api/operativo/salon/panel/[slug]/push-subscription — dual-detach (Stage3 §17/§27)", () => {
+  test("stale device: normalized detach succeeds even when legacy exact-match misses", async () => {
+    setAuthorized()
+    const e1 = validSub("https://push.example/E1")
+    const e2 = validSub("https://push.example/E2")
+    empleadoRows = [
+      { id: "empleado-1", negocioId: "negocio-1", cuentaOperativaId: "cuenta-1", areaOperativa: "salon", activo: true, eliminado: false, pushSubscription: e2 },
+    ]
+    pushRows = [
+      { id: "p1", ownerType: "empleado", ownerId: "empleado-1", channel: "default", endpoint: "https://push.example/E1", p256dh: "p", auth: "a" },
+      { id: "p2", ownerType: "empleado", ownerId: "empleado-1", channel: "default", endpoint: "https://push.example/E2", p256dh: "p", auth: "a" },
+    ]
+
+    const res = await callDelete({ subscription: e1 })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBe(e2)
+    expect(pushRows.map((r) => r.endpoint)).toEqual(["https://push.example/E2"])
+  })
+
+  test("cross-actor: never touches another empleado's normalized binding on the same endpoint", async () => {
+    setAuthorized()
+    const shared = validSub("https://push.example/SHARED")
+    empleadoRows = [
+      { id: "empleado-1", negocioId: "negocio-1", cuentaOperativaId: "cuenta-1", areaOperativa: "salon", activo: true, eliminado: false, pushSubscription: shared },
+    ]
+    pushRows = [
+      { id: "p1", ownerType: "empleado", ownerId: "empleado-1", channel: "default", endpoint: "https://push.example/SHARED", p256dh: "p", auth: "a" },
+      { id: "p2", ownerType: "empleado", ownerId: "empleado-OTHER", channel: "default", endpoint: "https://push.example/SHARED", p256dh: "p", auth: "a" },
+    ]
+
+    await callDelete({ subscription: shared })
+
+    expect(pushRows.length).toBe(1)
+    expect(pushRows[0].ownerId).toBe("empleado-OTHER")
   })
 })
