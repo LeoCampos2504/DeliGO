@@ -1281,6 +1281,55 @@ model Notificacion {
   @@map("notificaciones")
 }
 
+// P2-T05 (F-P0-03): tabla normalizada de subscriptions push multi-dispositivo
+// real, reemplazo gradual de los campos legacy `pushSubscription` de un solo
+// valor por actor (ver Cliente/Negocio/Repartidor/Empleado). Owner polimorfico
+// SIN FK, mismo patron que Notificacion.userId/userType arriba — la limpieza
+// al eliminar/desactivar un actor la gestiona la aplicacion, nunca un
+// onDelete de DB. `channel` distingue el push personal ("default") del canal
+// compartido de Salon en Negocio ("salon", espejo de
+// Negocio.pushSubscriptionSalon) para que ninguno oculte al otro durante el
+// fallback de lectura del rollout.
+//
+// P2-T05 Stage1C (F-P2-T05-03, reconciliacion con P0 invariante I4): el
+// endpoint/keys del body NUNCA es prueba de posesion (P0 ya lo establecio al
+// rechazar el "Modelo D" de transferencia de propiedad) — por eso el UNIQUE
+// de abajo es exclusivamente (ownerType, ownerId, channel, endpoint):
+// garantiza la idempotencia del PROPIO owner re-suscribiendose, pero
+// deliberadamente nunca impide que dos owners distintos compartan el mismo
+// endpoint fisico (multi-bind tolerado, el mismo estado que P0 ya aceptaba).
+// Ningun primitive sobre esta tabla puede borrar la fila de un owner
+// distinto al que la solicita — ver src/lib/push-subscription-repository.ts.
+enum PushSubscriptionOwnerType {
+  cliente
+  negocio
+  repartidor
+  empleado
+}
+
+enum PushSubscriptionChannel {
+  default
+  salon
+}
+
+model PushSubscription {
+  id             String                    @id @default(cuid())
+  ownerType      PushSubscriptionOwnerType
+  ownerId        String
+  channel        PushSubscriptionChannel   @default(default)
+  endpoint       String
+  p256dh         String
+  auth           String
+  expirationTime DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([ownerType, ownerId, channel, endpoint])
+  @@index([ownerType, ownerId, channel])
+  @@index([endpoint])
+  @@map("push_subscriptions")
+}
+
 // ============================================
 // HISTORIAL DE PEDIDOS (Eventos)
 // ============================================
