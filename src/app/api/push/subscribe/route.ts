@@ -3,7 +3,11 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { parsePushSubscriptionShape, toNormalizedPushSubscriptionInput } from "@/lib/push-subscription-http"
+import {
+  parsePushSubscriptionShape,
+  toLegacyPushSubscriptionString,
+  toNormalizedPushSubscriptionInput,
+} from "@/lib/push-subscription-http"
 import { registerPushSubscription, type PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 // P2-T05 Stage3 (F-P2-T05-03): mapping server-derived — el enum normalizado
@@ -46,10 +50,7 @@ export async function POST(req: NextRequest) {
     }
 
     // P2-T05 Stage3 (F-P2-T05-01): validación de forma completa — antes sólo
-    // se comprobaba que fuera JSON válido. El valor legacy que se persiste
-    // sigue siendo el string RAW tal como lo envió el cliente (formato
-    // legacy sin cambios) — sólo se usa la forma parseada para derivar el
-    // input normalizado.
+    // se comprobaba que fuera JSON válido.
     const parsedShape = parsePushSubscriptionShape(subscription)
     if (!parsedShape) {
       return NextResponse.json(
@@ -65,6 +66,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // P2-T05 Stage3H3 (F-P2-T05-16): el campo legacy es `String?` — un
+    // string original se persiste EXACTO (byte-for-byte, compatibilidad de
+    // exact-match con unsubscribe), un objeto original se canonicaliza a
+    // JSON usando sólo los campos ya validados.
+    const legacyValue = toLegacyPushSubscriptionString(subscription, parsedShape)
+
     // Save subscription based on user type
     switch (user.type) {
       case "cliente":
@@ -79,17 +86,17 @@ export async function POST(req: NextRequest) {
           if (user.type === "cliente") {
             await tx.cliente.update({
               where: { id: user.id },
-              data: { pushSubscription: subscription },
+              data: { pushSubscription: legacyValue },
             })
           } else if (user.type === "negocio") {
             await tx.negocio.update({
               where: { id: user.id },
-              data: { pushSubscription: subscription },
+              data: { pushSubscription: legacyValue },
             })
           } else {
             await tx.repartidor.update({
               where: { id: user.id },
-              data: { pushSubscription: subscription },
+              data: { pushSubscription: legacyValue },
             })
           }
 
@@ -106,7 +113,7 @@ export async function POST(req: NextRequest) {
         // dual-write, sin transacción (comportamiento sin cambios).
         await db.superAdmin.update({
           where: { id: user.id },
-          data: { pushSubscription: subscription },
+          data: { pushSubscription: legacyValue },
         })
         break
       default:

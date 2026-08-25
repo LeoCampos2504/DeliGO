@@ -167,11 +167,12 @@ function callSubscribe(subscription: unknown, ip: string, token = "valid-token")
   )
 }
 
-const VALID_SUB = JSON.stringify({
+const VALID_SUB_SHAPE = {
   endpoint: "https://push.example/E1",
   expirationTime: null,
   keys: { p256dh: "P256DH_1", auth: "AUTH_1" },
-})
+}
+const VALID_SUB = JSON.stringify(VALID_SUB_SHAPE)
 
 beforeEach(() => {
   clienteRows = [{ id: "cliente-1", pushSubscription: null }]
@@ -308,6 +309,90 @@ describe("POST /api/push/subscribe — atomicity: no partial dual-write", () => 
     const res = await callSubscribe(VALID_SUB, "203.0.113.20")
     expect(res.status).toBe(500)
     expect(clienteRows[0].pushSubscription).toBeNull() // rolled back
+    expect(pushRows.length).toBe(0)
+  })
+})
+
+describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P2-T05-16)", () => {
+  test("H3-A: raw string input — legacy write receives EXACTLY the same raw string (regression baseline, unchanged)", async () => {
+    currentUser = { id: "cliente-1", type: "cliente" }
+    const res = await callSubscribe(VALID_SUB, "203.0.113.40")
+    expect(res.status).toBe(200)
+    expect(clienteRows[0].pushSubscription).toBe(VALID_SUB)
+    expect(typeof clienteRows[0].pushSubscription).toBe("string")
+  })
+
+  test("H3-B: cliente + parsed object — 200, legacy write receives a string (never the object), normalized write occurs, same tx", async () => {
+    currentUser = { id: "cliente-1", type: "cliente" }
+    const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.41")
+    expect(res.status).toBe(200)
+
+    expect(typeof clienteRows[0].pushSubscription).toBe("string")
+    expect(JSON.parse(clienteRows[0].pushSubscription as string)).toEqual(VALID_SUB_SHAPE)
+
+    expect(pushRows.length).toBe(1)
+    expect(pushRows[0]).toMatchObject({ ownerType: "cliente", ownerId: "cliente-1", channel: "default", endpoint: VALID_SUB_SHAPE.endpoint })
+    expect(txUpsertCalls).toBe(1)
+    expect(singletonUpsertCalls).toBe(0)
+  })
+
+  test("H3-C: negocio + parsed object — 200, legacy write receives a string", async () => {
+    currentUser = { id: "negocio-1", type: "negocio" }
+    const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.42")
+    expect(res.status).toBe(200)
+    expect(typeof negocioRows[0].pushSubscription).toBe("string")
+    expect(pushRows[0].ownerType).toBe("negocio")
+  })
+
+  test("H3-D: repartidor + parsed object — 200, legacy write receives a string", async () => {
+    currentUser = { id: "repartidor-1", type: "repartidor" }
+    const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.43")
+    expect(res.status).toBe(200)
+    expect(typeof repartidorRows[0].pushSubscription).toBe("string")
+    expect(pushRows[0].ownerType).toBe("repartidor")
+  })
+
+  test("H3-E: superadmin + parsed object — 200, legacy-only, legacy value is a string, SUPERADMIN_NORMALIZED_WRITE_ATTEMPTED=NO", async () => {
+    currentUser = { id: "superadmin-1", type: "superadmin" }
+    const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.44")
+    expect(res.status).toBe(200)
+    expect(typeof superAdminRows[0].pushSubscription).toBe("string")
+    expect(pushRows.length).toBe(0)
+    expect(singletonUpsertCalls).toBe(0)
+    expect(txUpsertCalls).toBe(0)
+  })
+
+  test("H3-F: extra properties on the parsed object never govern owner/channel and never leak into the legacy canonical string", async () => {
+    currentUser = { id: "cliente-1", type: "cliente" }
+    const withExtras = { ...VALID_SUB_SHAPE, ownerId: "attacker-controlled", channel: "salon", extra: "junk" }
+    const res = await callSubscribe(withExtras, "203.0.113.45")
+    expect(res.status).toBe(200)
+
+    expect(pushRows[0].ownerId).toBe("cliente-1")
+    expect(pushRows[0].channel).toBe("default")
+
+    const stored = JSON.parse(clienteRows[0].pushSubscription as string)
+    expect(stored).toEqual(VALID_SUB_SHAPE)
+    expect(stored.ownerId).toBeUndefined()
+    expect(stored.channel).toBeUndefined()
+    expect(stored.extra).toBeUndefined()
+  })
+
+  test("H3-G: malformed object (invalid endpoint) — fail-closed 400, no DB write, unchanged from string-input behavior", async () => {
+    currentUser = { id: "cliente-1", type: "cliente" }
+    const bad = { endpoint: "http://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "a" } }
+    const res = await callSubscribe(bad, "203.0.113.46")
+    expect(res.status).toBe(400)
+    expect(clienteRows[0].pushSubscription).toBeNull()
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("H3-H: normalized write failure rolls back the object-derived legacy write too (same atomicity guarantee as string input)", async () => {
+    currentUser = { id: "", type: "cliente" }
+    clienteRows = [{ id: "", pushSubscription: null }]
+    const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.47")
+    expect(res.status).toBe(500)
+    expect(clienteRows[0].pushSubscription).toBeNull()
     expect(pushRows.length).toBe(0)
   })
 })

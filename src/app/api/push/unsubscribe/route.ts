@@ -3,7 +3,11 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { extractEndpointForDetach } from "@/lib/push-subscription-http"
+import {
+  arePushSubscriptionsEquivalent,
+  parsePushSubscriptionShape,
+  resolvePushSubscriptionDetachInput,
+} from "@/lib/push-subscription-http"
 import { detachPushSubscriptionByEndpoint, type PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor" | "superadmin", PushSubscriptionOwnerType>> = {
@@ -33,26 +37,61 @@ export async function POST(req: NextRequest) {
       return rateLimitResponse(rl)
     }
 
-    let subscription: string | null = null
+    let body: unknown = null
     try {
-      const body = await req.json()
-      subscription = typeof body?.subscription === "string" ? body.subscription : null
+      body = await req.json()
     } catch {
-      subscription = null
+      body = null
     }
+    const subscriptionRaw = (body as { subscription?: unknown } | null)?.subscription
 
-    if (!subscription) {
+    // Ausente/vacío: preserva el contrato actual — no-op honesto, nunca error.
+    if (
+      subscriptionRaw === undefined ||
+      subscriptionRaw === null ||
+      (typeof subscriptionRaw === "string" && subscriptionRaw.trim().length === 0)
+    ) {
       return NextResponse.json({ ok: true, removed: false })
     }
 
-    try {
-      JSON.parse(subscription)
-    } catch {
+    // P2-T05 Stage3H3R1 (F-P2-T05-17): un STRING preserva el contrato
+    // tolerante actual (sólo exige JSON.parse válido, nunca la forma
+    // completa) — no romper compatibilidad con valores legacy ya
+    // almacenados. Un valor que no sea string ni objeto plano (number,
+    // boolean, array) preserva el no-op existente. Un OBJETO debe cumplir la
+    // forma completa o falla cerrado — antes de esta corrección se
+    // descartaba en silencio como "sin subscription", lo cual dejaba el
+    // binding legacy imposible de retirar por esta vía (F-P2-T05-17).
+    if (typeof subscriptionRaw === "string") {
+      try {
+        JSON.parse(subscriptionRaw)
+      } catch {
+        return NextResponse.json(
+          { error: "subscription debe ser un JSON válido" },
+          { status: 400 }
+        )
+      }
+    } else if (typeof subscriptionRaw !== "object" || Array.isArray(subscriptionRaw)) {
+      return NextResponse.json({ ok: true, removed: false })
+    }
+
+    const detachInput = resolvePushSubscriptionDetachInput(subscriptionRaw)
+
+    if (typeof subscriptionRaw === "object" && !detachInput.parsed) {
       return NextResponse.json(
-        { error: "subscription debe ser un JSON vÃ¡lido" },
+        { error: "subscription debe ser un JSON válido" },
         { status: 400 }
       )
     }
+
+    // Candidatos exactos seguros: el string original tal cual (compatibilidad
+    // byte-exacta con clientes actuales) y/o la forma canónica del objeto
+    // parseado — nunca se inventa un candidato no derivado directamente del
+    // request.
+    const exactCandidates = [detachInput.rawString, detachInput.canonical].filter(
+      (value): value is string => typeof value === "string"
+    )
+    const endpoint = detachInput.endpoint
 
     let removed = false
 
@@ -63,7 +102,6 @@ export async function POST(req: NextRequest) {
     // vivo en la tabla normalizada). Ambas escrituras ocurren en la MISMA
     // transacción; nunca se llama al barrido global de endpoints muertos
     // desde un detach de usuario.
-    const endpoint = extractEndpointForDetach(subscription)
 
     // Remove only this browser subscription for the authenticated user.
     switch (user.type) {
@@ -73,21 +111,72 @@ export async function POST(req: NextRequest) {
         const ownerType = NORMALIZED_OWNER_TYPES[user.type]!
         removed = await db.$transaction(async (tx) => {
           let legacyRemoved = false
-          if (user.type === "cliente") {
-            legacyRemoved = (await tx.cliente.updateMany({
-              where: { id: user.id, pushSubscription: subscription },
-              data: { pushSubscription: null },
-            })).count > 0
-          } else if (user.type === "negocio") {
-            legacyRemoved = (await tx.negocio.updateMany({
-              where: { id: user.id, pushSubscription: subscription },
-              data: { pushSubscription: null },
-            })).count > 0
-          } else {
-            legacyRemoved = (await tx.repartidor.updateMany({
-              where: { id: user.id, pushSubscription: subscription },
-              data: { pushSubscription: null },
-            })).count > 0
+
+          for (const candidate of exactCandidates) {
+            let count = 0
+            if (user.type === "cliente") {
+              count = (await tx.cliente.updateMany({
+                where: { id: user.id, pushSubscription: candidate },
+                data: { pushSubscription: null },
+              })).count
+            } else if (user.type === "negocio") {
+              count = (await tx.negocio.updateMany({
+                where: { id: user.id, pushSubscription: candidate },
+                data: { pushSubscription: null },
+              })).count
+            } else {
+              count = (await tx.repartidor.updateMany({
+                where: { id: user.id, pushSubscription: candidate },
+                data: { pushSubscription: null },
+              })).count
+            }
+            if (count > 0) {
+              legacyRemoved = true
+              break
+            }
+          }
+
+          // P2-T05 Stage3H3R1 (F-P2-T05-17): fallback semántico — sólo si el
+          // exact/canonical-match falló Y el request trae una forma válida.
+          // Lee el valor legacy ACTUAL, lo compara por campos físicos (nunca
+          // sólo endpoint) contra el request, y si son la MISMA subscription
+          // lógica limpia con un CAS exacto contra ese mismo valor
+          // observado — nunca un blind clear por sólo el id del actor. Si el
+          // valor cambió entre la lectura y el write (otro dispositivo
+          // escribió), el CAS no matchea y no se limpia nada.
+          if (!legacyRemoved && detachInput.parsed) {
+            let currentRaw: string | null = null
+            if (user.type === "cliente") {
+              currentRaw = (await tx.cliente.findUnique({ where: { id: user.id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+            } else if (user.type === "negocio") {
+              currentRaw = (await tx.negocio.findUnique({ where: { id: user.id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+            } else {
+              currentRaw = (await tx.repartidor.findUnique({ where: { id: user.id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+            }
+
+            if (currentRaw) {
+              const currentParsed = parsePushSubscriptionShape(currentRaw)
+              if (currentParsed && arePushSubscriptionsEquivalent(currentParsed, detachInput.parsed)) {
+                let casCount = 0
+                if (user.type === "cliente") {
+                  casCount = (await tx.cliente.updateMany({
+                    where: { id: user.id, pushSubscription: currentRaw },
+                    data: { pushSubscription: null },
+                  })).count
+                } else if (user.type === "negocio") {
+                  casCount = (await tx.negocio.updateMany({
+                    where: { id: user.id, pushSubscription: currentRaw },
+                    data: { pushSubscription: null },
+                  })).count
+                } else {
+                  casCount = (await tx.repartidor.updateMany({
+                    where: { id: user.id, pushSubscription: currentRaw },
+                    data: { pushSubscription: null },
+                  })).count
+                }
+                legacyRemoved = casCount > 0
+              }
+            }
           }
 
           let normalizedRemoved = false
@@ -104,12 +193,37 @@ export async function POST(req: NextRequest) {
         })
         break
       }
-      case "superadmin":
-        removed = (await db.superAdmin.updateMany({
-          where: { id: user.id, pushSubscription: subscription },
-          data: { pushSubscription: null },
-        })).count > 0
+      case "superadmin": {
+        let legacyRemoved = false
+        for (const candidate of exactCandidates) {
+          const result = await db.superAdmin.updateMany({
+            where: { id: user.id, pushSubscription: candidate },
+            data: { pushSubscription: null },
+          })
+          if (result.count > 0) {
+            legacyRemoved = true
+            break
+          }
+        }
+
+        if (!legacyRemoved && detachInput.parsed) {
+          const current = await db.superAdmin.findUnique({ where: { id: user.id }, select: { pushSubscription: true } })
+          const currentRaw = current?.pushSubscription ?? null
+          if (currentRaw) {
+            const currentParsed = parsePushSubscriptionShape(currentRaw)
+            if (currentParsed && arePushSubscriptionsEquivalent(currentParsed, detachInput.parsed)) {
+              const casResult = await db.superAdmin.updateMany({
+                where: { id: user.id, pushSubscription: currentRaw },
+                data: { pushSubscription: null },
+              })
+              legacyRemoved = casResult.count > 0
+            }
+          }
+        }
+
+        removed = legacyRemoved
         break
+      }
       default:
         return NextResponse.json(
           { error: "Tipo de usuario no soportado" },

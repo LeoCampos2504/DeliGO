@@ -3,7 +3,11 @@ import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { parsePushSubscriptionShape, toNormalizedPushSubscriptionInput } from "@/lib/push-subscription-http"
+import {
+  parsePushSubscriptionShape,
+  toLegacyPushSubscriptionString,
+  toNormalizedPushSubscriptionInput,
+} from "@/lib/push-subscription-http"
 import { registerPushSubscription } from "@/lib/push-subscription-repository"
 
 // POST /api/mozo/push/subscribe — Save push subscription for a mozo via their personal token
@@ -40,8 +44,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Token de mozo inválido" }, { status: 401 })
     }
 
-    // P2-T05 Stage3 (F-P2-T05-01): validación de forma completa unificada —
-    // el valor legacy persistido sigue siendo el string RAW del cliente.
+    // P2-T05 Stage3 (F-P2-T05-01): validación de forma completa unificada.
     const parsedShape = parsePushSubscriptionShape(subscription)
     if (!parsedShape) {
       return NextResponse.json(
@@ -57,12 +60,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // P2-T05 Stage3H3 (F-P2-T05-16): ver push-subscription-http.ts —
+    // string original se persiste exacto, objeto original se canonicaliza.
+    const legacyValue = toLegacyPushSubscriptionString(subscription, parsedShape)
+
     // Save push subscription on the Empleado model + normalizada, en la
     // MISMA transacción (P2-T05 Stage3, F-P0-03 dual-write atómico).
     await db.$transaction(async (tx) => {
       await tx.empleado.update({
         where: { id: empleado.id },
-        data: { pushSubscription: subscription },
+        data: { pushSubscription: legacyValue },
       })
 
       await registerPushSubscription(

@@ -3,16 +3,32 @@ import { db } from "@/lib/db"
 import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { extractEndpointForDetach } from "@/lib/push-subscription-http"
+import {
+  arePushSubscriptionsEquivalent,
+  parsePushSubscriptionShape,
+  resolvePushSubscriptionDetachInput,
+} from "@/lib/push-subscription-http"
 import { detachPushSubscriptionByEndpoint } from "@/lib/push-subscription-repository"
 
-// Ownership-B2: `subscription`, cuando se pasa, exige coincidencia EXACTA
-// contra el valor ya almacenado antes de limpiar — nunca un blind clear por
-// sólo empleado.id. Mismo patrón ya certificado en /api/push/unsubscribe y en
+// Ownership-B2: `subscription`, cuando se pasa, exige coincidencia EXACTA (o,
+// desde Stage3H3R1/F-P2-T05-17, equivalencia semántica vía CAS) contra el
+// valor ya almacenado antes de limpiar — nunca un blind clear por sólo
+// empleado.id. Mismo patrón ya certificado en /api/push/unsubscribe y en
 // /api/operativo/{mozo,salon}/panel/[slug]/push-subscription DELETE.
-function parseUnsubscribeSubscription(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) return null
-  return value
+//
+// P2-T05 Stage3H3R1 (F-P2-T05-17): un string vacío/ausente/de otro tipo
+// primitivo (number, boolean) preserva el 400 "obligatorio" ya existente. Un
+// objeto plano es ahora un input válido de primera clase (antes se
+// descartaba en silencio junto con los demás no-string, dejando el binding
+// legacy imposible de retirar por esta vía) — se clasifica aparte para poder
+// fallar cerrado con un mensaje distinto si su forma es inválida.
+type UnsubscribeInputKind = "empty" | "string" | "object" | "other"
+
+function classifyUnsubscribeInput(value: unknown): UnsubscribeInputKind {
+  if (value === undefined || value === null) return "empty"
+  if (typeof value === "string") return value.trim().length === 0 ? "empty" : "string"
+  if (typeof value === "object" && !Array.isArray(value)) return "object"
+  return "other"
 }
 
 // POST /api/mozo/push/unsubscribe - Remove push subscription for a mozo
@@ -47,28 +63,76 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Token de mozo invalido" }, { status: 401 })
     }
 
-    const subscription = parseUnsubscribeSubscription((body as { subscription?: unknown }).subscription)
-    if (!subscription) {
+    const subscriptionRaw = (body as { subscription?: unknown }).subscription
+    const kind = classifyUnsubscribeInput(subscriptionRaw)
+
+    if (kind === "empty" || kind === "other") {
       return NextResponse.json(
         { error: "subscription es obligatorio" },
         { status: 400 }
       )
     }
 
-    // Ownership-B2: coincidencia exacta contra la subscription almacenada —
-    // si otro dispositivo de este mismo mozoToken es hoy el dueño real, no
-    // se toca nada (removed:false, no es un error de autorización).
+    // P2-T05 Stage3H3R1 (F-P2-T05-17): un STRING preserva el contrato
+    // tolerante ya existente (nunca exigió forma completa, sólo no-vacío) —
+    // no se agrega validación nueva para no romper valores legacy ya
+    // almacenados. Un OBJETO debe cumplir la forma completa o falla cerrado.
+    const detachInput = resolvePushSubscriptionDetachInput(subscriptionRaw)
+
+    if (kind === "object" && !detachInput.parsed) {
+      return NextResponse.json(
+        { error: "subscription debe ser un JSON válido" },
+        { status: 400 }
+      )
+    }
+
+    const exactCandidates = [detachInput.rawString, detachInput.canonical].filter(
+      (value): value is string => typeof value === "string"
+    )
+
+    // Ownership-B2: coincidencia exacta (o, desde F-P2-T05-17, equivalencia
+    // semántica vía CAS) contra la subscription almacenada — si otro
+    // dispositivo de este mismo mozoToken es hoy el dueño real, no se toca
+    // nada (removed:false, no es un error de autorización).
     //
     // P2-T05 Stage3 (F-P2-T05-03): el detach normalizado nunca exige que el
     // exact-match legacy haya encontrado nada — misma transacción, misma
     // regla multi-device que /api/push/unsubscribe.
-    const endpoint = extractEndpointForDetach(subscription)
+    const endpoint = detachInput.endpoint
 
     const removed = await db.$transaction(async (tx) => {
-      const legacyResult = await tx.empleado.updateMany({
-        where: { id: empleado.id, pushSubscription: subscription },
-        data: { pushSubscription: null },
-      })
+      let legacyRemoved = false
+
+      for (const candidate of exactCandidates) {
+        const result = await tx.empleado.updateMany({
+          where: { id: empleado.id, pushSubscription: candidate },
+          data: { pushSubscription: null },
+        })
+        if (result.count > 0) {
+          legacyRemoved = true
+          break
+        }
+      }
+
+      // P2-T05 Stage3H3R1 (F-P2-T05-17): fallback semántico — sólo si el
+      // exact/canonical-match falló Y el request trae una forma válida. Lee
+      // el valor legacy ACTUAL, compara por campos físicos (nunca sólo
+      // endpoint) y limpia con un CAS exacto contra ese mismo valor
+      // observado — nunca un blind clear por sólo el id del empleado.
+      if (!legacyRemoved && detachInput.parsed) {
+        const current = await tx.empleado.findUnique({ where: { id: empleado.id }, select: { pushSubscription: true } })
+        const currentRaw = current?.pushSubscription ?? null
+        if (currentRaw) {
+          const currentParsed = parsePushSubscriptionShape(currentRaw)
+          if (currentParsed && arePushSubscriptionsEquivalent(currentParsed, detachInput.parsed)) {
+            const casResult = await tx.empleado.updateMany({
+              where: { id: empleado.id, pushSubscription: currentRaw },
+              data: { pushSubscription: null },
+            })
+            legacyRemoved = casResult.count > 0
+          }
+        }
+      }
 
       let normalizedRemoved = false
       if (endpoint) {
@@ -80,7 +144,7 @@ export async function POST(req: NextRequest) {
         normalizedRemoved = result.detached
       }
 
-      return legacyResult.count > 0 || normalizedRemoved
+      return legacyRemoved || normalizedRemoved
     })
 
     return NextResponse.json({ ok: true, removed })

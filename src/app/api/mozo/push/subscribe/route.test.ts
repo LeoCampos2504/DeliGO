@@ -30,12 +30,19 @@ let pushRows: PushRow[]
 let idCounter: number
 let singletonUpsertCalls: number
 let txUpsertCalls: number
+// P2-T05 Stage3H3 (test M-H3-06): forces the normalized upsert to throw, to
+// prove the object-derived legacy write rolls back too (same atomicity
+// guarantee as the pre-existing string-input path).
+let forceNormalizedUpsertFailure: boolean
 
 function pushUpsertImpl(args: {
   where: { ownerType_ownerId_channel_endpoint: { ownerType: string; ownerId: string; channel: string; endpoint: string } }
   create: Omit<PushRow, "id">
   update: Partial<PushRow>
 }) {
+  if (forceNormalizedUpsertFailure) {
+    throw new Error("simulated normalized write failure (M-H3-06)")
+  }
   const key = args.where.ownerType_ownerId_channel_endpoint
   const existing = pushRows.find(
     (r) => r.ownerType === key.ownerType && r.ownerId === key.ownerId && r.channel === key.channel && r.endpoint === key.endpoint
@@ -81,7 +88,20 @@ const txClient = makeClient("tx")
 mock.module("@/lib/db", () => ({
   db: {
     ...singletonClient,
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txClient),
+    // P2-T05 Stage3H3 (F-P2-T05-16, test M-H3-06): snapshot + rollback-on-throw,
+    // same pattern already certified in src/app/api/push/subscribe/route.test.ts —
+    // needed to prove the normalized-write-failure case doesn't leave a
+    // partial legacy commit.
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const snapshot = { empleado: structuredClone(empleadoRows), push: structuredClone(pushRows) }
+      try {
+        return await fn(txClient)
+      } catch (e) {
+        empleadoRows = snapshot.empleado
+        pushRows = snapshot.push
+        throw e
+      }
+    },
   },
 }))
 
@@ -101,11 +121,12 @@ function callSubscribe(body: unknown, ip: string) {
   )
 }
 
-const VALID_SUB = JSON.stringify({
+const VALID_SUB_SHAPE = {
   endpoint: "https://push.example/E1",
   expirationTime: null,
   keys: { p256dh: "P1", auth: "A1" },
-})
+}
+const VALID_SUB = JSON.stringify(VALID_SUB_SHAPE)
 
 beforeEach(() => {
   empleadoRows = [
@@ -115,6 +136,7 @@ beforeEach(() => {
   idCounter = 0
   singletonUpsertCalls = 0
   txUpsertCalls = 0
+  forceNormalizedUpsertFailure = false
 })
 
 describe("POST /api/mozo/push/subscribe — unified validation + dual-write (Stage3)", () => {
@@ -180,5 +202,51 @@ describe("POST /api/mozo/push/subscribe — unified validation + dual-write (Sta
     const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB }, "198.51.100.27")
     expect(res.status).toBe(401)
     expect(pushRows.length).toBe(0)
+  })
+})
+
+describe("POST /api/mozo/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P2-T05-16)", () => {
+  test("M-H3-01: raw string input unchanged — legacy write receives exactly the same string", async () => {
+    const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB }, "198.51.100.40")
+    expect(res.status).toBe(200)
+    expect(empleadoRows[0].pushSubscription).toBe(VALID_SUB)
+  })
+
+  test("M-H3-02/03: valid parsed object -> 200, legacy write receives a string (never the object)", async () => {
+    const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB_SHAPE }, "198.51.100.41")
+    expect(res.status).toBe(200)
+    expect(typeof empleadoRows[0].pushSubscription).toBe("string")
+    expect(JSON.parse(empleadoRows[0].pushSubscription as string)).toEqual(VALID_SUB_SHAPE)
+  })
+
+  test("M-H3-04: normalized write uses ownerType=empleado/channel=default for parsed object input", async () => {
+    const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB_SHAPE }, "198.51.100.42")
+    expect(res.status).toBe(200)
+    expect(pushRows[0]).toMatchObject({ ownerType: "empleado", ownerId: "empleado-1", channel: "default" })
+  })
+
+  test("M-H3-05: legacy + normalized dual-write for object input stay in the same transaction, never the singleton", async () => {
+    const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB_SHAPE }, "198.51.100.43")
+    expect(res.status).toBe(200)
+    expect(txUpsertCalls).toBe(1)
+    expect(singletonUpsertCalls).toBe(0)
+  })
+
+  test("M-H3-06: normalized write failure rolls back the object-derived legacy write too (no partial commit)", async () => {
+    forceNormalizedUpsertFailure = true
+    const res = await callSubscribe({ mozoToken: "tok-a", subscription: VALID_SUB_SHAPE }, "198.51.100.44")
+    expect(res.status).toBe(500)
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("M-H3-07: actor authority never derives from the body — a fake empleadoId alongside a parsed object is ignored", async () => {
+    const res = await callSubscribe(
+      { mozoToken: "tok-a", subscription: VALID_SUB_SHAPE, empleadoId: "attacker-controlled", channel: "salon" },
+      "198.51.100.45"
+    )
+    expect(res.status).toBe(200)
+    expect(pushRows[0].ownerId).toBe("empleado-1")
+    expect(pushRows[0].channel).toBe("default")
   })
 })

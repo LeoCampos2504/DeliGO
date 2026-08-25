@@ -63,6 +63,12 @@ function makeDbClient(kind: "singleton" | "tx") {
         }
         return { count }
       },
+      // P2-T05 Stage3H3R1 (F-P2-T05-17): requerido por el fallback semántico
+      // CAS (lee el valor legacy actual antes del clear condicional).
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const row = empleadoRows.find((r) => r.id === where.id)
+        return row ? { pushSubscription: row.pushSubscription } : null
+      },
     },
     pushSubscription: {
       deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
@@ -80,7 +86,24 @@ const txDbClient = makeDbClient("tx")
 mock.module("@/lib/db", () => ({
   db: {
     ...singletonDbClient,
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txDbClient),
+    // P2-T05 Stage3H3R1 (F-P2-T05-17, M-R1-11): snapshot + rollback-on-throw,
+    // mismo patrón ya certificado en push/subscribe/route.test.ts y
+    // push/unsubscribe/route.test.ts — sin esto el mock no puede demostrar
+    // honestamente que un fallo del detach normalizado revierte el clear
+    // semántico legacy ya aplicado dentro de la misma transacción.
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const snapshot = {
+        empleado: structuredClone(empleadoRows),
+        push: structuredClone(pushRows),
+      }
+      try {
+        return await fn(txDbClient)
+      } catch (e) {
+        empleadoRows = snapshot.empleado
+        pushRows = snapshot.push
+        throw e
+      }
+    },
   },
 }))
 
@@ -123,8 +146,20 @@ function pushRow(ownerId: string, endpoint: string): PushRow {
   pushIdCounter += 1
   return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint }
 }
-function subJson(endpoint: string) {
-  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+function subJson(endpoint: string, p256dh = "p", auth = "a") {
+  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh, auth } })
+}
+
+// P2-T05 Stage3H3R1: representación OBJETO (nunca stringificada) de la
+// misma subscription — para probar el contrato object→* de F-P2-T05-17.
+function subObj(endpoint: string, p256dh = "p", auth = "a") {
+  return { endpoint, expirationTime: null as number | null, keys: { p256dh, auth } }
+}
+
+// Mismo contenido lógico que subJson pero con property order distinto del
+// canónico — para probar que la comparación semántica ignora serialización.
+function subJsonDifferentOrder(endpoint: string, p256dh = "p", auth = "a") {
+  return JSON.stringify({ keys: { auth, p256dh }, endpoint, expirationTime: null })
 }
 
 describe("POST /api/mozo/push/unsubscribe — exact-match ownership hardening (Ownership-B2)", () => {
@@ -316,5 +351,228 @@ describe("POST /api/mozo/push/unsubscribe — dual-detach (Stage3 §17, §27)", 
 
     expect(pushRows.length).toBe(1)
     expect(pushRows[0].ownerId).toBe("empleado-OTHER")
+  })
+})
+
+describe("POST /api/mozo/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F-P2-T05-17)", () => {
+  test("M-R1-01: object subscribe contract -> object unsubscribe -> FULL DETACH", async () => {
+    const endpoint = "https://push.example/M-OBJ-OBJ"
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: subJson(endpoint) },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: subObj(endpoint) }, undefined, "198.51.100.40")
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("M-R1-02: object-subscribe canonical legacy -> string unsubscribe with different property order -> FULL DETACH", async () => {
+    const endpoint = "https://push.example/M-OBJ-STR"
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: subJson(endpoint) },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: subJsonDifferentOrder(endpoint) }, undefined, "198.51.100.41")
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("M-R1-03: non-canonical raw string legacy -> object unsubscribe -> FULL DETACH via semantic CAS", async () => {
+    const endpoint = "https://push.example/M-STR-OBJ"
+    const nonCanonical = subJsonDifferentOrder(endpoint)
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: nonCanonical },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: subObj(endpoint) }, undefined, "198.51.100.42")
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBeNull() // OBJECT_UNSUBSCRIBE_CAN_LEAVE_ACTIVE_LEGACY_SEND_BINDING=NO after R1
+    expect(pushRows.length).toBe(0)
+  })
+
+  test("M-R1-04: stale device (different endpoint) preserves the newer legacy binding", async () => {
+    empleadoRows = [
+      {
+        id: "empleado-1",
+        token: "tok-a",
+        activo: true,
+        eliminado: false,
+        rol: "mozo",
+        areaOperativa: "mozo",
+        pushSubscription: subJson("https://push.example/M-NEWER"),
+      },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/M-STALE"), pushRow("empleado-1", "https://push.example/M-NEWER")]
+
+    const res = await callPost(
+      { mozoToken: "tok-a", subscription: subObj("https://push.example/M-STALE") },
+      undefined,
+      "198.51.100.43"
+    )
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, removed: true }) // normalized own detach alone
+    expect(empleadoRows[0].pushSubscription).toBe(subJson("https://push.example/M-NEWER")) // untouched
+    expect(pushRows.map((r) => r.endpoint)).toEqual(["https://push.example/M-NEWER"])
+  })
+
+  test("M-R1-05: same endpoint but rotated keys does not clear the newer legacy binding", async () => {
+    const endpoint = "https://push.example/M-ROTATED"
+    empleadoRows = [
+      {
+        id: "empleado-1",
+        token: "tok-a",
+        activo: true,
+        eliminado: false,
+        rol: "mozo",
+        areaOperativa: "mozo",
+        pushSubscription: subJson(endpoint, "NEW_P256DH", "NEW_AUTH"),
+      },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+
+    const res = await callPost(
+      { mozoToken: "tok-a", subscription: subObj(endpoint, "OLD_P256DH", "OLD_AUTH") },
+      undefined,
+      "198.51.100.44"
+    )
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, removed: true }) // normalized detach by endpoint still succeeds
+    expect(empleadoRows[0].pushSubscription).not.toBeNull() // OLD_KEYS_CAN_CLEAR_NEWER_SAME_ENDPOINT_LEGACY=NO
+  })
+
+  test("M-R1-06: normalized E1 detaches while normalized E2 (different device) is preserved", async () => {
+    empleadoRows = [
+      {
+        id: "empleado-1",
+        token: "tok-a",
+        activo: true,
+        eliminado: false,
+        rol: "mozo",
+        areaOperativa: "mozo",
+        pushSubscription: subJson("https://push.example/M-E2"),
+      },
+    ]
+    pushRows = [pushRow("empleado-1", "https://push.example/M-E1"), pushRow("empleado-1", "https://push.example/M-E2")]
+
+    await callPost({ mozoToken: "tok-a", subscription: subObj("https://push.example/M-E1") }, undefined, "198.51.100.45")
+
+    expect(pushRows.map((r) => r.endpoint)).toEqual(["https://push.example/M-E2"])
+  })
+
+  test("M-R1-07: actor authority remains mozoToken-derived — an object body cannot select a different empleado", async () => {
+    const endpoint = "https://push.example/M-AUTH"
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: subJson(endpoint) },
+      { id: "empleado-2", token: "tok-b", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: subJson(endpoint) },
+    ]
+
+    await callPost({ mozoToken: "tok-a", subscription: subObj(endpoint) }, undefined, "198.51.100.46")
+
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+    expect(empleadoRows[1].pushSubscription).toBe(subJson(endpoint)) // empleado-2 untouched
+  })
+
+  test("M-R1-08: body-supplied ownerId/empleadoId-like extra properties on the object are ignored", async () => {
+    const endpoint = "https://push.example/M-EXTRAS"
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: subJson(endpoint) },
+    ]
+
+    const withExtras = { ...subObj(endpoint), empleadoId: "attacker-controlled", ownerId: "attacker-controlled" }
+    const res = await callPost({ mozoToken: "tok-a", subscription: withExtras }, undefined, "198.51.100.47")
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, removed: true })
+    expect(empleadoRows[0].pushSubscription).toBeNull()
+  })
+
+  test("M-R1-09: missing subscription still 400s (unchanged)", async () => {
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: "EA" },
+    ]
+
+    const res = await callPost({ mozoToken: "tok-a" }, undefined, "198.51.100.48")
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ error: "subscription es obligatorio" })
+    expect(empleadoRows[0].pushSubscription).toBe("EA")
+  })
+
+  test("M-R1-10: malformed object (missing required shape) fails closed with 400, no write attempted", async () => {
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: "EA" },
+    ]
+
+    const res = await callPost({ mozoToken: "tok-a", subscription: { foo: "bar" } }, undefined, "198.51.100.49")
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ error: "subscription debe ser un JSON válido" })
+    expect(updateManyCalls.length).toBe(0)
+    expect(empleadoRows[0].pushSubscription).toBe("EA")
+  })
+
+  test("M-R1-11: transaction failure leaves no partial legacy clear (atomicity preserved)", async () => {
+    const endpoint = "https://push.example/M-ROLLBACK"
+    const nonCanonical = subJsonDifferentOrder(endpoint)
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: nonCanonical },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+    updateManyThrows = null
+
+    const originalDeleteMany = txDbClient.pushSubscription.deleteMany
+    txDbClient.pushSubscription.deleteMany = async () => {
+      throw new Error("simulated normalized write failure (M-H3R1-11)")
+    }
+    try {
+      const res = await callPost({ mozoToken: "tok-a", subscription: subObj(endpoint) }, undefined, "198.51.100.50")
+      expect(res.status).toBe(500)
+    } finally {
+      txDbClient.pushSubscription.deleteMany = originalDeleteMany
+    }
+
+    expect(empleadoRows[0].pushSubscription).toBe(nonCanonical) // rolled back, never partially committed
+    expect(pushRows.length).toBe(1)
+  })
+
+  test("M-R1-12: legacy value changed between CAS read and write is never blind-cleared", async () => {
+    const endpoint = "https://push.example/M-RACE"
+    const originalRaw = subJsonDifferentOrder(endpoint)
+    empleadoRows = [
+      { id: "empleado-1", token: "tok-a", activo: true, eliminado: false, rol: "mozo", areaOperativa: "mozo", pushSubscription: originalRaw },
+    ]
+    pushRows = [pushRow("empleado-1", endpoint)]
+
+    const originalFindUnique = txDbClient.empleado.findUnique
+    txDbClient.empleado.findUnique = async (...args: Parameters<typeof originalFindUnique>) => {
+      const result = await originalFindUnique(...args)
+      empleadoRows[0].pushSubscription = "RACED-IN-BY-ANOTHER-DEVICE"
+      return result
+    }
+    try {
+      const res = await callPost({ mozoToken: "tok-a", subscription: subObj(endpoint) }, undefined, "198.51.100.51")
+      const body = await res.json()
+      expect(body.removed).toBe(true) // normalized own detach still succeeds
+    } finally {
+      txDbClient.empleado.findUnique = originalFindUnique
+    }
+
+    expect(empleadoRows[0].pushSubscription).toBe("RACED-IN-BY-ANOTHER-DEVICE") // CAS never blind-clears
   })
 })
