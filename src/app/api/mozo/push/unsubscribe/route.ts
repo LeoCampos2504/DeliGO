@@ -98,8 +98,6 @@ export async function POST(req: NextRequest) {
     // P2-T05 Stage3 (F-P2-T05-03): el detach normalizado nunca exige que el
     // exact-match legacy haya encontrado nada — misma transacción, misma
     // regla multi-device que /api/push/unsubscribe.
-    const endpoint = detachInput.endpoint
-
     const removed = await db.$transaction(async (tx) => {
       let legacyRemoved = false
 
@@ -135,10 +133,14 @@ export async function POST(req: NextRequest) {
       }
 
       let normalizedRemoved = false
-      if (endpoint) {
+      if (detachInput.parsed) {
         const result = await detachPushSubscriptionByEndpoint(
           { ownerType: "empleado", ownerId: empleado.id, channel: "default" },
-          endpoint,
+          {
+            endpoint: detachInput.parsed.endpoint,
+            p256dh: detachInput.parsed.keys.p256dh,
+            auth: detachInput.parsed.keys.auth,
+          },
           tx
         )
         normalizedRemoved = result.detached

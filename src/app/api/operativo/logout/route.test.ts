@@ -16,7 +16,7 @@ type EmpleadoRow = {
   cuentaOperativaId: string
   pushSubscription: string | null
 }
-type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
+type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string; p256dh: string; auth: string }
 
 let empleadoRows: EmpleadoRow[]
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
@@ -114,7 +114,7 @@ beforeEach(() => {
 let pushIdCounter = 0
 function pushRow(ownerId: string, endpoint: string): PushRow {
   pushIdCounter += 1
-  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint }
+  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint, p256dh: "p", auth: "a" }
 }
 function subJson(endpoint: string) {
   return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh: "p", auth: "a" } })

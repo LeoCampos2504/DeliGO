@@ -6,7 +6,7 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { extractEndpointForDetach } from "@/lib/push-subscription-http"
+import { parsePushSubscriptionShape } from "@/lib/push-subscription-http"
 import { detachPushSubscriptionByEndpoint } from "@/lib/push-subscription-repository"
 
 function noStore<T extends Response>(response: T): T {
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
             // exact-match legacy haya encontrado nada — un dispositivo
             // stale (legacy ya sobrescrito por otro más reciente) igual debe
             // poder retirar su propia fila normalizada.
-            const endpoint = extractEndpointForDetach(subscription)
+            const parsedSubscription = parsePushSubscriptionShape(subscription)
 
             await db.$transaction(async (tx) => {
               await tx.empleado.updateMany({
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
                 data: { pushSubscription: null },
               })
 
-              if (endpoint) {
+              if (parsedSubscription) {
                 const ownEmpleados = await tx.empleado.findMany({
                   where: { cuentaOperativaId: session.cuentaOperativaId },
                   select: { id: true },
@@ -69,7 +69,11 @@ export async function POST(req: NextRequest) {
                 for (const empleado of ownEmpleados) {
                   await detachPushSubscriptionByEndpoint(
                     { ownerType: "empleado", ownerId: empleado.id, channel: "default" },
-                    endpoint,
+                    {
+                      endpoint: parsedSubscription.endpoint,
+                      p256dh: parsedSubscription.keys.p256dh,
+                      auth: parsedSubscription.keys.auth,
+                    },
                     tx
                   )
                 }

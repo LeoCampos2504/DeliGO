@@ -91,8 +91,6 @@ export async function POST(req: NextRequest) {
     const exactCandidates = [detachInput.rawString, detachInput.canonical].filter(
       (value): value is string => typeof value === "string"
     )
-    const endpoint = detachInput.endpoint
-
     let removed = false
 
     // P2-T05 Stage3 (F-P2-T05-03, MODEL-C1): el detach normalizado retira
@@ -180,10 +178,14 @@ export async function POST(req: NextRequest) {
           }
 
           let normalizedRemoved = false
-          if (endpoint) {
+          if (detachInput.parsed) {
             const result = await detachPushSubscriptionByEndpoint(
               { ownerType, ownerId: user.id, channel: "default" },
-              endpoint,
+              {
+                endpoint: detachInput.parsed.endpoint,
+                p256dh: detachInput.parsed.keys.p256dh,
+                auth: detachInput.parsed.keys.auth,
+              },
               tx
             )
             normalizedRemoved = result.detached

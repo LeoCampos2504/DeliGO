@@ -335,11 +335,10 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
     const body = await res.json()
 
     expect(res.status).toBe(200)
-    // El endpoint coincide, así que el detach normalizado (scoped por
-    // endpoint) sí retira la fila propia — eso es esperado y correcto. Lo
-    // que NO debe pasar es que el legacy con las keys NUEVAS se borre por
-    // sólo compartir endpoint con una request de keys viejas.
-    expect(body).toEqual({ ok: true, removed: true })
+    // La generación almacenada no coincide con la solicitada: ni el binding
+    // normalizado ni el legacy más nuevo pueden ser retirados por keys viejas.
+    expect(body).toEqual({ ok: true, removed: false })
+    expect(pushRows).toHaveLength(1)
     expect(clienteRows[0].pushSubscription).toBe(subJson(endpoint, "NEW_P256DH", "NEW_AUTH")) // OLD_KEYS_CAN_CLEAR_NEWER_SAME_ENDPOINT_LEGACY=NO
   })
 

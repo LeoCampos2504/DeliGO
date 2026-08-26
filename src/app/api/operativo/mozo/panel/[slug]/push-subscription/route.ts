@@ -7,7 +7,6 @@ import {
 } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
-  extractEndpointForDetach,
   parsePushSubscriptionShape,
   toNormalizedPushSubscriptionInput,
 } from "@/lib/push-subscription-http"
@@ -215,7 +214,7 @@ export async function DELETE(
     //
     // P2-T05 Stage3 (F-P2-T05-03): el detach normalizado nunca exige que el
     // exact-match legacy haya encontrado nada — misma transacción.
-    const endpoint = extractEndpointForDetach(subscription)
+    const parsedSubscription = parsePushSubscriptionShape(subscription)
 
     const removed = await db.$transaction(async (tx) => {
       const legacyResult = await updateEmpleadoSubscription({
@@ -228,10 +227,14 @@ export async function DELETE(
       })
 
       let normalizedRemoved = false
-      if (endpoint) {
+      if (parsedSubscription) {
         const result = await detachPushSubscriptionByEndpoint(
           { ownerType: "empleado", ownerId: auth.empleado.id, channel: "default" },
-          endpoint,
+          {
+            endpoint: parsedSubscription.endpoint,
+            p256dh: parsedSubscription.keys.p256dh,
+            auth: parsedSubscription.keys.auth,
+          },
           tx
         )
         normalizedRemoved = result.detached

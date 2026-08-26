@@ -57,6 +57,12 @@ export interface NormalizedPushSubscriptionInput {
   expirationTime: Date | null
 }
 
+export interface PushSubscriptionDetachInput {
+  endpoint: string
+  p256dh: string
+  auth: string
+}
+
 function assertValidOwner(owner: PushSubscriptionOwner): void {
   assertValidOwnerType(owner.ownerType)
   assertValidChannel(owner.channel)
@@ -172,6 +178,19 @@ export async function getPushSubscriptionsForOwner(owner: PushSubscriptionOwner)
   })
 }
 
+function assertValidDetachInput(input: PushSubscriptionDetachInput): void {
+  if (!input || typeof input !== "object") {
+    throw new Error("push-subscription-repository: detach input invalido")
+  }
+  assertValidEndpoint(input.endpoint)
+  if (typeof input.p256dh !== "string" || input.p256dh.trim().length === 0) {
+    throw new Error("push-subscription-repository: p256dh invalido")
+  }
+  if (typeof input.auth !== "string" || input.auth.trim().length === 0) {
+    throw new Error("push-subscription-repository: auth invalido")
+  }
+}
+
 /**
  * Devuelve las filas normalizadas de varios owners con una única lectura.
  * El resultado siempre contiene una entrada para cada owner solicitado,
@@ -211,24 +230,27 @@ export async function getPushSubscriptionsForOwners(
 }
 
 /**
- * Detach exacto de UN dispositivo físico de UN owner+channel — nunca toca
- * otras filas del mismo owner (otros endpoints) ni de ningún otro owner que
- * comparta ese mismo endpoint (P2-T05 Stage1C).
+ * Detach compare-and-delete atómico de UN dispositivo físico de UN
+ * owner+channel+endpoint y su generación esperada. Nunca toca otras filas del
+ * mismo owner, otro channel ni otro owner que comparta el endpoint. Las keys
+ * son compare values de generación, no prueba de posesión (P2-T13).
  */
 export async function detachPushSubscriptionByEndpoint(
   owner: PushSubscriptionOwner,
-  endpoint: string,
+  input: PushSubscriptionDetachInput,
   client: PushSubscriptionDbClient = db
 ): Promise<{ detached: boolean }> {
   assertValidOwner(owner)
-  assertValidEndpoint(endpoint)
+  assertValidDetachInput(input)
 
   const result = await client.pushSubscription.deleteMany({
     where: {
       ownerType: owner.ownerType,
       ownerId: owner.ownerId,
       channel: owner.channel,
-      endpoint,
+      endpoint: input.endpoint,
+      p256dh: input.p256dh,
+      auth: input.auth,
     },
   })
 

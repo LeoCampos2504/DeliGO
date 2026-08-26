@@ -40,6 +40,7 @@ let findManyOverride: Row[] | null
 let findManyShouldThrow: boolean
 let deleteManyCalls: Array<{ where: Record<string, unknown> }>
 let upsertCalls: Array<{ where: Record<string, unknown> }>
+let beforeDeleteMany: (() => void) | null
 
 function matchesWhere(row: Row, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => (row as Record<string, unknown>)[key] === value)
@@ -95,6 +96,9 @@ mock.module("@/lib/db", () => ({
       findFirst: async ({ where }: { where: Record<string, unknown> }) => rows.find((r) => matchesWhere(r, where)) ?? null,
       deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
         deleteManyCalls.push({ where })
+        const callback = beforeDeleteMany
+        beforeDeleteMany = null
+        callback?.()
         const before = rows.length
         rows = rows.filter((r) => !matchesWhere(r, where))
         return { count: before - rows.length }
@@ -122,6 +126,7 @@ beforeEach(() => {
   findManyShouldThrow = false
   deleteManyCalls = []
   upsertCalls = []
+  beforeDeleteMany = null
 })
 
 function owner(ownerType: string, ownerId: string, channel: string = "default") {
@@ -130,6 +135,10 @@ function owner(ownerType: string, ownerId: string, channel: string = "default") 
 
 function sub(endpoint: string, p256dh = "p256dh-value", auth = "auth-value") {
   return { endpoint, p256dh, auth, expirationTime: null }
+}
+
+function detachInput(endpoint: string, p256dh = "p256dh-value", auth = "auth-value") {
+  return { endpoint, p256dh, auth }
 }
 
 describe("registerPushSubscription — multi-device same owner (MD01-MD03)", () => {
@@ -193,7 +202,7 @@ describe("exact detach (MD07-MD08)", () => {
   test("MD07: A detach E1 -> sólo A:E1 desaparece, A:E2 permanece", async () => {
     await registerPushSubscription(owner("cliente", "A"), sub("E1"))
     await registerPushSubscription(owner("cliente", "A"), sub("E2"))
-    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1")
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E1"))
     expect(result.detached).toBe(true)
     expect(rows.length).toBe(1)
     expect(rows[0].endpoint).toBe("E2")
@@ -202,14 +211,14 @@ describe("exact detach (MD07-MD08)", () => {
   test("MD08 / EXACT_DETACH_CROSS_ACTOR_DELETE=NO: detach de A no borra el binding de B sobre el mismo E1", async () => {
     await registerPushSubscription(owner("cliente", "A"), sub("E1"))
     await registerPushSubscription(owner("negocio", "B"), sub("E1"))
-    await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1")
+    await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E1"))
     expect(rows.length).toBe(1)
     expect(rows[0].ownerType).toBe("negocio")
     expect(rows[0].ownerId).toBe("B")
   })
 
   test("detach de un endpoint inexistente no rompe y reporta detached=false", async () => {
-    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E-nunca-existio")
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E-nunca-existio"))
     expect(result.detached).toBe(false)
   })
 })
@@ -265,7 +274,7 @@ describe("cross-actor same-endpoint coexistence — NO_TRANSFER_MULTI_BIND (MD10
 describe("clean logout / account switch (MD53-MD54)", () => {
   test("MD53: A hace detach explícito + B registra el mismo endpoint -> B funciona con su propia row", async () => {
     await registerPushSubscription(owner("cliente", "A"), sub("E"))
-    await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E")
+    await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E"))
     await registerPushSubscription(owner("cliente", "B"), sub("E"))
     expect(rows.length).toBe(1)
     expect(rows[0].ownerId).toBe("B")
@@ -289,6 +298,44 @@ describe("key rotation (MD47)", () => {
     expect(rows[0].id).toBe(idAntes)
     expect(rows[0].p256dh).toBe("keys-nuevas")
     expect(rows[0].auth).toBe("auth-nueva")
+  })
+})
+
+describe("P2-T13 stale detach vs key rotation", () => {
+  test("T13-02: stale V1 detach never deletes the current V2 binding", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E", "keys-v1", "auth-v1"))
+    await registerPushSubscription(owner("cliente", "A"), sub("E", "keys-v2", "auth-v2"))
+
+    await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E", "keys-v1", "auth-v1"))
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].p256dh).toBe("keys-v2")
+    expect(rows[0].auth).toBe("auth-v2")
+  })
+
+  test("T13-03: current V2 detach removes the current binding", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E", "keys-v2", "auth-v2"))
+
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E", "keys-v2", "auth-v2"))
+
+    expect(result.detached).toBe(true)
+    expect(rows).toHaveLength(0)
+  })
+
+  test("T13-04: generation change immediately before delete evaluation is not removed", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E", "keys-v1", "auth-v1"))
+
+    beforeDeleteMany = () => {
+      rows[0].p256dh = "keys-v2"
+      rows[0].auth = "auth-v2"
+    }
+
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E", "keys-v1", "auth-v1"))
+
+    expect(result.detached).toBe(false)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].p256dh).toBe("keys-v2")
+    expect(rows[0].auth).toBe("auth-v2")
   })
 })
 
@@ -488,7 +535,7 @@ describe("runtime validation — inputs evidentemente inválidos", () => {
   })
 
   test("detachPushSubscriptionByEndpoint rechaza endpoint vacío", async () => {
-    await expect(detachPushSubscriptionByEndpoint(owner("cliente", "A"), "")).rejects.toThrow()
+    await expect(detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput(""))).rejects.toThrow()
   })
 
   test("sweepDeadPushSubscriptionEndpoint rechaza endpoint vacío", async () => {
@@ -600,7 +647,7 @@ describe("transaction client support (Stage3 §11/§27) — default vs injected"
     expect(rows.length).toBe(1)
 
     const tx = makeTxClient()
-    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1", tx as never)
+    const result = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E1"), tx as never)
 
     expect(result.detached).toBe(true)
     expect(txDeleteManyCalls).toBe(1)
@@ -614,7 +661,7 @@ describe("transaction client support (Stage3 §11/§27) — default vs injected"
     await registerPushSubscription(owner("cliente", "A"), sub("E2"), tx as never)
     expect(rows.length).toBe(2)
 
-    const detached = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), "E1", tx as never)
+    const detached = await detachPushSubscriptionByEndpoint(owner("cliente", "A"), detachInput("E1"), tx as never)
     expect(detached.detached).toBe(true)
     expect(rows.length).toBe(1)
     expect(rows[0].endpoint).toBe("E2")

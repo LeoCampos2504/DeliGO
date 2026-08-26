@@ -17,7 +17,7 @@ type EmpleadoRow = {
   pushSubscription: string | null
 }
 
-type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
+type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string; p256dh: string; auth: string }
 
 let empleadoRows: EmpleadoRow[]
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
@@ -144,7 +144,7 @@ beforeEach(() => {
 let pushIdCounter = 0
 function pushRow(ownerId: string, endpoint: string): PushRow {
   pushIdCounter += 1
-  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint }
+  return { id: `push-${pushIdCounter}`, ownerType: "empleado", ownerId, channel: "default", endpoint, p256dh: "p", auth: "a" }
 }
 function subJson(endpoint: string, p256dh = "p", auth = "a") {
   return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh, auth } })
@@ -450,7 +450,8 @@ describe("POST /api/mozo/push/unsubscribe — Stage3H3R1 symmetric semantic deta
     )
     const body = await res.json()
 
-    expect(body).toEqual({ ok: true, removed: true }) // normalized detach by endpoint still succeeds
+    expect(body).toEqual({ ok: true, removed: false }) // stale generation cannot remove normalized or legacy binding
+    expect(pushRows).toHaveLength(1)
     expect(empleadoRows[0].pushSubscription).not.toBeNull() // OLD_KEYS_CAN_CLEAR_NEWER_SAME_ENDPOINT_LEGACY=NO
   })
 
