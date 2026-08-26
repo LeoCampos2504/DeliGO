@@ -188,10 +188,19 @@ interface CreateNotificationParams {
   reservedPushEndpoints?: Set<string>
 }
 
-export type PushSubscriptionCleanup = {
+// P2-T05 Hardening H1 (F-P2-T05-19): unión discriminada — el canal SALON
+// (legacy-only, ver Stage3F) sólo es representable con `channel:"salon"` Y
+// `field:"pushSubscriptionSalon"` juntos; cualquier objeto que traiga
+// `field:"pushSubscriptionSalon"` SIN `channel:"salon"` no matchea ninguna
+// de las dos variantes y es un error de TypeScript en tiempo de compilación
+// (nunca sólo una convención de runtime como antes). `channel` es ahora la
+// autoridad para decidir elegibilidad de fan-out normalizado
+// (`isCorePushOwner` en `createNotification`) — `field` sigue existiendo
+// exclusivamente para elegir qué columna legacy recibe el CAS-clear en
+// `sendPushNotification`, nunca para decidir el canal.
+type PushSubscriptionCleanupBase = {
   model: string
   id: string
-  field?: string
   suppressEndpointLog?: boolean
   onExpired?: () => void
   /**
@@ -204,6 +213,10 @@ export type PushSubscriptionCleanup = {
    */
   additionalLegacyOwners?: Array<{ model: string; id: string; field?: string }>
 }
+
+export type PushSubscriptionCleanup =
+  | (PushSubscriptionCleanupBase & { channel?: "default"; field?: "pushSubscription" })
+  | (PushSubscriptionCleanupBase & { channel: "salon"; field: "pushSubscriptionSalon" })
 
 export function getPushSubscriptionEndpoint(subscriptionJson: string): string | null {
   try {
@@ -384,6 +397,24 @@ export async function resolveCorePushTargets(
 }
 
 /**
+ * P2-T05 Hardening H1 (F-P2-T05-20): compara ÚNICAMENTE el material
+ * criptográfico (p256dh/auth) de dos targets que ya comparten el mismo
+ * `endpoint` — nunca `expirationTime`, que es metadata operativa de
+ * renovación (no identidad del dispositivo) y puede legítimamente diferir
+ * entre la fila normalizada y el legacy JSON de la MISMA subscription real
+ * sin que eso signifique una subscription físicamente distinta. Un fallo de
+ * parseo (no debería ocurrir — ambos `raw` ya vienen de targets
+ * previamente validados) se trata de forma conservadora como "no puedo
+ * confirmar que sean la misma" — fail-closed, nunca fail-open.
+ */
+function sameFanoutSubscriptionKeys(rawA: string, rawB: string): boolean {
+  const a = parsePushSubscriptionShape(rawA)
+  const b = parsePushSubscriptionShape(rawB)
+  if (!a || !b) return false
+  return a.keys.p256dh === b.keys.p256dh && a.keys.auth === b.keys.auth
+}
+
+/**
  * Combina los targets de VARIOS recipients (fan-out multi-recipient, p.ej.
  * todos los mozos de salón de un negocio) en una lista única deduplicada
  * por endpoint físico — un mismo dispositivo compartido entre dos owners
@@ -391,14 +422,37 @@ export async function resolveCorePushTargets(
  * vía `additionalLegacyOwners` para que un 404/410 pueda limpiar el legacy
  * de cada uno con su propio CAS. El dedupe es exclusivamente de esta wave
  * lógica — nunca persistente entre notificaciones distintas.
+ *
+ * P2-T05 Hardening H1 (F-P2-T05-20): si dos owners DISTINTOS reportan el
+ * MISMO endpoint físico con material criptográfico DIVERGENTE (p256dh/auth
+ * distintos), la subscription real de ese endpoint es ambigua — nunca se
+ * transfiere ownership, nunca se borra la fila de ningún owner, nunca se
+ * adivina cuál de los dos es "más nueva", nunca se envía con material
+ * arbitrario, y nunca se interpreta como un 404/410 del proveedor (esa
+ * señal sólo puede venir de una respuesta HTTP real de Web Push). Se
+ * excluye ÚNICAMENTE ese endpoint conflictivo de esta wave de envío — el
+ * resto de los endpoints válidos se envían normalmente — y el resultado es
+ * el mismo sin importar el orden de `targetLists` (comparación siempre
+ * contra el primer target resuelto para ese endpoint; en cuanto se detecta
+ * UNA divergencia el endpoint queda marcado conflictivo de forma permanente
+ * para el resto de esta llamada, sin volver a agregarse aunque aparezca un
+ * tercer duplicado con keys coincidentes).
  */
 export function mergePushFanoutTargets(targetLists: PushFanoutTarget[][]): PushFanoutTarget[] {
   const byEndpoint = new Map<string, PushFanoutTarget>()
+  const conflicted = new Set<string>()
   for (const list of targetLists) {
     for (const t of list) {
+      if (conflicted.has(t.endpoint)) continue
       const existing = byEndpoint.get(t.endpoint)
       if (!existing) {
         byEndpoint.set(t.endpoint, { ...t })
+        continue
+      }
+      if (!sameFanoutSubscriptionKeys(existing.raw, t.raw)) {
+        byEndpoint.delete(t.endpoint)
+        conflicted.add(t.endpoint)
+        console.warn("[Push] Endpoint deduplicado con material de subscription en conflicto entre owners; target omitido de esta wave.")
         continue
       }
       if (t.cleanup && existing.cleanup && t.cleanup.id !== existing.cleanup.id) {
@@ -519,19 +573,21 @@ export async function createNotification(params: CreateNotificationParams): Prom
 
   // 2. Send push notification if a payload was built
   if (enrichedPushPayload) {
-    // P2-T05 Stage4: los 4 owners core reciben fan-out multi-device
-    // (normalizado UNION legacy) SÓLO en su canal personal por defecto;
-    // cualquier otro userType (superadmin, P2-T17) preserva exactamente el
-    // envío legacy single-subscription de siempre. Un `cleanupExpired.field`
-    // explícito distinto de "pushSubscription" (p.ej. Negocio.
-    // pushSubscriptionSalon — canal compartido legacy-only, ver Stage3F)
-    // es la señal existente de que este NO es el canal personal normalizado
-    // del owner, aunque userId/userType coincidan con uno core — nunca se
-    // debe mezclar el push personal del negocio con su display compartido
-    // de salón, ni intentar limpiar el campo equivocado en un 404/410.
+    // P2-T05 Stage4 + Hardening H1 (F-P2-T05-19): los 4 owners core reciben
+    // fan-out multi-device (normalizado UNION legacy) SÓLO en su canal
+    // personal por defecto; cualquier otro userType (superadmin, P2-T17)
+    // preserva exactamente el envío legacy single-subscription de siempre.
+    // La autoridad de canal es ahora `cleanupExpired.channel` (type-safe,
+    // ver PushSubscriptionCleanup arriba) — no la presencia/ausencia de
+    // `field`. Un `channel:"salon"` explícito (p.ej. Negocio.
+    // pushSubscriptionSalon — canal compartido legacy-only, ver Stage3F) es
+    // la señal de que este NO es el canal personal normalizado del owner,
+    // aunque userId/userType coincidan con uno core — nunca se debe mezclar
+    // el push personal del negocio con su display compartido de salón, ni
+    // intentar limpiar el campo equivocado en un 404/410.
     const isCorePushOwner =
       (userType === "cliente" || userType === "negocio" || userType === "repartidor" || userType === "empleado") &&
-      (!cleanupExpired?.field || cleanupExpired.field === "pushSubscription")
+      (cleanupExpired?.channel ?? "default") === "default"
 
     if (isCorePushOwner) {
       const fanoutPromise = (async () => {

@@ -284,7 +284,7 @@ describe("Dead-endpoint cleanup — normalized sweep + legacy CAS (D1-D5)", () =
     const staleTarget = {
       endpoint: EP("E1"),
       raw: sub("E1", "OLD_KEY", "OLD_AUTH"),
-      cleanup: { model: "cliente", id: "c1", field: "pushSubscription" },
+      cleanup: { model: "cliente", id: "c1", field: "pushSubscription" as const },
     }
     await push.sendPushToTargets([staleTarget], { title: "t", body: "b" })
     expect(legacyStore.cliente["c1"].pushSubscription).toBe(sub("E1", "NEW_KEY", "NEW_AUTH"))
@@ -293,7 +293,7 @@ describe("Dead-endpoint cleanup — normalized sweep + legacy CAS (D1-D5)", () =
   test("D4: current legacy malformed + normalized target E1 dies via 404 -> normalized sweep works, legacy not blindly cleared", async () => {
     legacyStore.cliente["c1"] = { pushSubscription: "{not-json" }
     webpushBehavior.set(EP("E1"), 404)
-    const target = { endpoint: EP("E1"), raw: sub("E1"), cleanup: { model: "cliente", id: "c1", field: "pushSubscription" } }
+    const target = { endpoint: EP("E1"), raw: sub("E1"), cleanup: { model: "cliente", id: "c1", field: "pushSubscription" as const } }
     await push.sendPushToTargets([target], { title: "t", body: "b" })
     expect(sweepCalls).toEqual([EP("E1")])
     expect(legacyStore.cliente["c1"].pushSubscription).toBe("{not-json")
@@ -303,7 +303,7 @@ describe("Dead-endpoint cleanup — normalized sweep + legacy CAS (D1-D5)", () =
     const raw = sub("E1", "p1", "a1")
     legacyStore.cliente["c1"] = { pushSubscription: raw }
     webpushBehavior.set(EP("E1"), 410)
-    const target = { endpoint: EP("E1"), raw, cleanup: { model: "cliente", id: "c1", field: "pushSubscription" } }
+    const target = { endpoint: EP("E1"), raw, cleanup: { model: "cliente", id: "c1", field: "pushSubscription" as const } }
     // The race fires exactly once, right after the CAS read resolves but
     // before the updateMany runs — a genuinely concurrent write, not a
     // pre-existing state difference (that's D2).
@@ -334,6 +334,135 @@ describe("Cross-actor dead endpoint (shared physical device)", () => {
     expect(sweepCalls).toEqual([EP("SHARED")])
     expect(legacyStore.empleado["e1"].pushSubscription).toBeNull()
     expect(legacyStore.empleado["e2"].pushSubscription).toBeNull()
+  })
+})
+
+// ============================================
+// P2-T05 Hardening H1 (F-P2-T05-20): same endpoint / divergent Push keys
+// across different owners — deterministic fail-closed per-endpoint policy
+// ============================================
+describe("mergePushFanoutTargets — divergent key resolution (F-P2-T05-20)", () => {
+  function fanoutTarget(endpoint: string, p256dh: string, auth: string, ownerId: string) {
+    return {
+      endpoint: EP(endpoint),
+      raw: sub(endpoint, p256dh, auth),
+      cleanup: { model: "empleado", id: ownerId, field: "pushSubscription" as const },
+    }
+  }
+
+  test("A: duplicate endpoint, SAME keys, different owners -> exactly 1 send target", () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "K", "A", "e1")],
+      [fanoutTarget("SHARED", "K", "A", "e2")],
+    ])
+    expect(merged.length).toBe(1)
+  })
+
+  test("B: duplicate endpoint, SAME keys -> cleanup contexts of both owners preserved via additionalLegacyOwners", () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "K", "A", "e1")],
+      [fanoutTarget("SHARED", "K", "A", "e2")],
+    ])
+    expect(merged[0].cleanup?.id).toBe("e1")
+    expect(merged[0].cleanup?.additionalLegacyOwners?.map((o) => o.id)).toEqual(["e2"])
+  })
+
+  test("C: same-owner normalized+legacy union (resolveCorePushTargets) merged through mergePushFanoutTargets -> normalized authority untouched", async () => {
+    normalizedByOwner.set(ownerKey("empleado", "e1", "default"), [
+      { endpoint: EP("E1"), p256dh: "NORM_KEY", auth: "NORM_AUTH", expirationTime: null },
+    ])
+    const targets = await push.resolveCorePushTargets("empleado", "e1", sub("E1", "LEGACY_KEY", "LEGACY_AUTH"))
+    const merged = push.mergePushFanoutTargets([targets])
+    // Normalized already won inside resolveCorePushTargets (F1-F7) — merging
+    // that single-owner list through mergePushFanoutTargets must not alter it.
+    expect(merged.length).toBe(1)
+    expect(merged).toEqual(targets)
+  })
+
+  test("D: duplicate endpoint, DIFFERENT keys, different owners -> endpoint conflicted, excluded from the wave", () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+    ])
+    expect(merged.length).toBe(0)
+  })
+
+  test("E/F: scenario D -> no normalized sweep / no DB delete attempted (conflict never reaches sendPushToTargets)", async () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+    ])
+    await push.sendPushToTargets(merged, { title: "t", body: "b" })
+    expect(sweepCalls).toEqual([])
+    expect(webpushCallLog).toEqual([])
+  })
+
+  test("G: scenario D -> no legacy CAS cleanup for either owner", async () => {
+    legacyStore.empleado["e1"] = { pushSubscription: sub("SHARED", "KEY_A", "AUTH_A") }
+    legacyStore.empleado["e2"] = { pushSubscription: sub("SHARED", "KEY_B", "AUTH_B") }
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+    ])
+    await push.sendPushToTargets(merged, { title: "t", body: "b" })
+    expect(legacyStore.empleado["e1"].pushSubscription).toBe(sub("SHARED", "KEY_A", "AUTH_A"))
+    expect(legacyStore.empleado["e2"].pushSubscription).toBe(sub("SHARED", "KEY_B", "AUTH_B"))
+  })
+
+  test("H: scenario D plus a second healthy endpoint -> the healthy endpoint still sends", async () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1"), fanoutTarget("HEALTHY", "K", "A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+    ])
+    expect(merged.map((t) => t.endpoint).sort()).toEqual([EP("HEALTHY")])
+    await push.sendPushToTargets(merged, { title: "t", body: "b" })
+    expect(webpushCallLog).toEqual([EP("HEALTHY")])
+  })
+
+  test("I: scenario D -> the sanitized diagnostic never contains endpoint/key/owner material", () => {
+    const originalWarn = console.warn
+    const warnCalls: unknown[][] = []
+    console.warn = (...args: unknown[]) => { warnCalls.push(args) }
+    try {
+      push.mergePushFanoutTargets([
+        [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+        [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+      ])
+    } finally {
+      console.warn = originalWarn
+    }
+    expect(warnCalls.length).toBe(1)
+    const serialized = warnCalls[0].map((a) => String(a)).join(" ")
+    expect(serialized).not.toContain(EP("SHARED"))
+    expect(serialized).not.toContain("KEY_A")
+    expect(serialized).not.toContain("KEY_B")
+    expect(serialized).not.toContain("AUTH_A")
+    expect(serialized).not.toContain("AUTH_B")
+    expect(serialized).not.toContain("e1")
+    expect(serialized).not.toContain("e2")
+  })
+
+  test("J: conflict detected regardless of input order -> same result both ways", () => {
+    const forward = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+    ])
+    const reversed = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+    ])
+    expect(forward.length).toBe(0)
+    expect(reversed.length).toBe(0)
+    expect(forward).toEqual(reversed)
+  })
+
+  test("a third duplicate with keys matching the FIRST owner does not resurrect an already-conflicted endpoint", () => {
+    const merged = push.mergePushFanoutTargets([
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e1")],
+      [fanoutTarget("SHARED", "KEY_B", "AUTH_B", "e2")],
+      [fanoutTarget("SHARED", "KEY_A", "AUTH_A", "e3")],
+    ])
+    expect(merged.length).toBe(0)
   })
 })
 
@@ -442,7 +571,7 @@ describe("Legacy-only surfaces remain untouched by normalized resolution", () =>
       cuerpo: "b",
       pushSubscription: legacyStore.negocio["n1"].pushSubscriptionSalon,
       pushPayload: { title: "t", body: "b" },
-      cleanupExpired: { model: "negocio", id: "n1", field: "pushSubscriptionSalon" },
+      cleanupExpired: { model: "negocio", id: "n1", channel: "salon", field: "pushSubscriptionSalon" },
       awaitPush: true,
     })
     // Only the salon legacy endpoint was sent — the negocio's PERSONAL
@@ -462,11 +591,21 @@ describe("Legacy-only surfaces remain untouched by normalized resolution", () =>
       cuerpo: "b",
       pushSubscription: legacyStore.negocio["n1"].pushSubscriptionSalon,
       pushPayload: { title: "t", body: "b" },
-      cleanupExpired: { model: "negocio", id: "n1", field: "pushSubscriptionSalon" },
+      cleanupExpired: { model: "negocio", id: "n1", channel: "salon", field: "pushSubscriptionSalon" },
       awaitPush: true,
     })
     expect(legacyStore.negocio["n1"].pushSubscriptionSalon).toBeNull()
     expect(legacyStore.negocio["n1"].pushSubscription).toBe(sub("PERSONAL_E1")) // untouched
+  })
+
+  test("P2-T05 Hardening H1 (F-P2-T05-19): field:\"pushSubscriptionSalon\" is a TypeScript compile error without channel:\"salon\" — the invariant is enforced by the type system, not just by convention", () => {
+    // @ts-expect-error - field:"pushSubscriptionSalon" without channel:"salon" must not typecheck (SALON_FIELD_DEFAULT_CHANNEL_TYPE_STATE_REJECTED).
+    const missingChannel: import("./push").PushSubscriptionCleanup = { model: "negocio", id: "n1", field: "pushSubscriptionSalon" }
+    // @ts-expect-error - field:"pushSubscriptionSalon" with the WRONG explicit channel ("default") must also not typecheck.
+    const wrongChannel: import("./push").PushSubscriptionCleanup = { model: "negocio", id: "n1", channel: "default", field: "pushSubscriptionSalon" }
+    void missingChannel
+    void wrongChannel
+    expect(true).toBe(true)
   })
 })
 

@@ -666,6 +666,7 @@ async function sendManualOrderNotifications(params: {
           cleanupExpired: {
             model: "negocio",
             id: params.negocioId,
+            channel: "salon",
             field: "pushSubscriptionSalon",
           },
         })

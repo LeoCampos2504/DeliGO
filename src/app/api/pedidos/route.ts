@@ -1779,7 +1779,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
               datos: { mesaNumero },
               pushSubscription: sharedPush.pushSubscriptionSalon,
               pushPayload: salonPayload,
-              cleanupExpired: { model: "negocio", id: negocioId, field: "pushSubscriptionSalon" },
+              cleanupExpired: { model: "negocio", id: negocioId, channel: "salon", field: "pushSubscriptionSalon" },
             })
           }
         }
