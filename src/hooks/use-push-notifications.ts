@@ -7,12 +7,32 @@ import { useAuthStore } from "@/store/auth-store"
 import { createLatestOperationGate } from "./push-operation-guard"
 import { checkPersonalPushStatus } from "./push-personal-status-check"
 
+/**
+ * P2-T05 Hardening H3B (F-P2-T05-23): resultado explícito y autoritativo de
+ * una mutación (`subscribe`/`unsubscribe`). Reemplaza el patrón anterior
+ * donde un consumidor leía `push.isSubscribed` DESPUÉS de un `await` — ese
+ * valor pertenece al closure/render donde la mutación arrancó, nunca se
+ * actualiza aunque el hook internamente sí aplique un `setIsSubscribed`
+ * más nuevo, así que un consumidor que lo lee así SIEMPRE ve el valor
+ * viejo (F-P2-T05-23: revierte una activación genuinamente exitosa).
+ *
+ * `current=false` significa que una operación MÁS NUEVA (otra mutación, un
+ * cambio de actor, o un unmount) invalidó ésta antes de terminar — el
+ * consumidor debe ignorar `subscribed` por completo y no tocar su UI en
+ * absoluto (ni éxito, ni fallo: sencillamente no le pertenece a esta
+ * operación decidir nada).
+ */
+export interface PushMutationResult {
+  current: boolean
+  subscribed: boolean
+}
+
 interface UsePushNotificationsReturn {
   isSupported: boolean
   isSubscribed: boolean
   permission: NotificationPermission | "default"
-  subscribe: () => Promise<void>
-  unsubscribe: () => Promise<void>
+  subscribe: () => Promise<PushMutationResult>
+  unsubscribe: () => Promise<PushMutationResult>
   loading: boolean
 }
 
@@ -31,6 +51,20 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // async todavía no haya resuelto. Antes de aplicar cualquier resultado se
   // exige `gate.isCurrent(id)`.
   const gateRef = useRef(createLatestOperationGate())
+
+  // P2-T05 Hardening H3B (F-P2-T05-23): espejo SIEMPRE-fresco del último
+  // `isSubscribed` aplicado — a diferencia de la variable de estado
+  // `isSubscribed` capturada por un closure de render, un `ref` se lee
+  // fresco en cualquier punto, incluso dentro del propio `subscribe()`/
+  // `unsubscribe()` tras un `await`. Se usa exclusivamente para reportar la
+  // verdad vigente en el `PushMutationResult` de un camino de fallo (donde
+  // el estado en sí no cambia), nunca para decidir si aplicar un nuevo
+  // valor — esa decisión sigue siendo 100% del gate.
+  const isSubscribedRef = useRef(false)
+  const applySubscribed = useCallback((value: boolean) => {
+    isSubscribedRef.current = value
+    setIsSubscribed(value)
+  }, [])
 
   // Identidad de actor NO-autoritativa — usada ÚNICAMENTE para invalidar
   // operaciones pendientes cuando el actor autenticado cambia (Race C). La
@@ -70,9 +104,19 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
     // P2-T05 Stage3R2 (Race C): el actor autenticado cambió — cualquier
     // lectura/mutación en vuelo pertenecía al actor anterior y nunca puede
-    // decidir el estado visible del actor nuevo.
+    // decidir el estado visible del actor nuevo. Invalidar el gate ya evita
+    // que esa mutación en vuelo aplique su propio `isSubscribed` (F-P2-T05-23)
+    // — pero por diseño (`createLatestOperationGate.invalidate()` NO acuña un
+    // nuevo id "current") esa misma invalidación es la razón por la que el
+    // `finally`/`finishMutation` de la operación vieja tampoco podrá volver a
+    // apagar `loading` (su `isCurrent(opId)` ya da `false`). Sin este reset
+    // explícito, `loading` queda atascado en `true` para el actor NUEVO
+    // — con el Switch deshabilitado mientras `loading` sea `true`, el actor
+    // nuevo ni siquiera podría disparar su propia mutación para destrabarlo
+    // (P2-T05 Hardening H3B precommit review, F-P2-T05-15 — hallazgo real).
     gateRef.current.invalidate()
-    setIsSubscribed(false)
+    applySubscribed(false)
+    setLoading(false)
     if (isSupported) {
       checkSubscription()
     }
@@ -90,7 +134,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // P2-T05 Stage3R2 (F-P2-T05-14): la orquestación real (incluida la
   // protección contra respuestas stale) vive en `checkPersonalPushStatus`,
   // compartiendo el mismo `gateRef` que subscribe()/unsubscribe() —
-  // ver push-personal-status-check.ts.
+  // ver push-personal-status-check.ts. Un status check nunca toca `loading`
+  // — sólo las mutaciones (subscribe/unsubscribe) lo hacen — así que no
+  // existe ninguna interacción posible entre un status check y la
+  // titularidad de `loading` de una mutación en vuelo (F-P2-T05-15,
+  // STATUS_CHECK_CAN_STEAL_MUTATION_LOADING_OWNERSHIP=NO estructuralmente).
   const checkSubscription = async () => {
     await checkPersonalPushStatus({
       gate: gateRef.current,
@@ -108,7 +156,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         const data = await res.json()
         return { ok: true, subscribed: data.subscribed === true }
       },
-      applyIsSubscribed: setIsSubscribed,
+      applyIsSubscribed: applySubscribed,
     })
   }
 
@@ -123,8 +171,29 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
   }
 
-  const subscribe = useCallback(async () => {
-    if (!isSupported || loading) return
+  // P2-T05 Hardening H3B (F-P2-T05-15 + F-P2-T05-23): único punto de salida
+  // para subscribe()/unsubscribe() — decide, con el gate SIEMPRE fresco
+  // (nunca un closure stale), si esta operación sigue siendo la vigente.
+  // Si lo es: aplica el nuevo `isSubscribed`, apaga `loading` y devuelve
+  // `current:true` con la verdad recién aplicada. Si no lo es (superada por
+  // una operación/actor más nuevo): NO toca `isSubscribed` ni `loading`
+  // (esa operación más nueva ya es dueña de ambos) y devuelve
+  // `current:false` — el consumidor debe no hacer absolutamente nada con
+  // el resultado.
+  const finishMutation = useCallback(
+    (opId: number, subscribed: boolean): PushMutationResult => {
+      const current = gateRef.current.isCurrent(opId)
+      if (current) {
+        applySubscribed(subscribed)
+        setLoading(false)
+      }
+      return { current, subscribed: current ? subscribed : isSubscribedRef.current }
+    },
+    [applySubscribed]
+  )
+
+  const subscribe = useCallback(async (): Promise<PushMutationResult> => {
+    if (!isSupported || loading) return { current: false, subscribed: isSubscribedRef.current }
 
     // P2-T05 Stage3R2 (F-P2-T05-14, Race B): begin() se llama de forma
     // SÍNCRONA antes de cualquier `await` — cualquier checkSubscription()
@@ -138,8 +207,10 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       setPermission(result)
 
       if (result !== "granted") {
-        toast.error("Necesitás permitir las notificaciones en tu navegador")
-        return
+        if (gateRef.current.isCurrent(opId)) {
+          toast.error("Necesitás permitir las notificaciones en tu navegador")
+        }
+        return finishMutation(opId, false)
       }
 
       // Register service worker
@@ -149,8 +220,10 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       // Get VAPID key
       const vapidKey = await getVapidKey()
       if (!vapidKey) {
-        toast.error("Las notificaciones push no están configuradas")
-        return
+        if (gateRef.current.isCurrent(opId)) {
+          toast.error("Las notificaciones push no están configuradas")
+        }
+        return finishMutation(opId, false)
       }
 
       // Reuse the browser subscription when it already exists on this origin.
@@ -174,19 +247,27 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       }
 
       if (gateRef.current.isCurrent(opId)) {
-        setIsSubscribed(true)
+        toast.success("Notificaciones activadas 🔔")
       }
-      toast.success("Notificaciones activadas 🔔")
+      return finishMutation(opId, true)
     } catch (error) {
       console.error("Push subscribe error:", safeErrorForLog(error))
-      toast.error("Error al activar notificaciones")
+      if (gateRef.current.isCurrent(opId)) {
+        toast.error("Error al activar notificaciones")
+      }
+      return finishMutation(opId, false)
     } finally {
-      setLoading(false)
+      // Cierra `loading` incluso en un `return` temprano de más arriba —
+      // `finishMutation` ya lo hace cuando la operación sigue vigente, pero
+      // dejarlo también acá (idempotente, protegido por el mismo gate) es
+      // la red de seguridad ante cualquier camino de salida futuro que se
+      // agregue sin pasar por `finishMutation`.
+      if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading])
+  }, [isSupported, loading, finishMutation])
 
-  const unsubscribe = useCallback(async () => {
-    if (!isSupported || loading) return
+  const unsubscribe = useCallback(async (): Promise<PushMutationResult> => {
+    if (!isSupported || loading) return { current: false, subscribed: isSubscribedRef.current }
 
     // P2-T05 Stage3R2 (F-P2-T05-14, Race A): mismo principio — invalida
     // cualquier checkSubscription() pendiente de forma síncrona, antes de
@@ -220,17 +301,23 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       }
 
       if (gateRef.current.isCurrent(opId)) {
-        setIsSubscribed(false)
         setPermission("default")
+        toast.success("Notificaciones desactivadas")
       }
-      toast.success("Notificaciones desactivadas")
+      return finishMutation(opId, false)
     } catch (error) {
       console.error("Push unsubscribe error:", safeErrorForLog(error))
-      toast.error("Error al desactivar notificaciones")
+      if (gateRef.current.isCurrent(opId)) {
+        toast.error("Error al desactivar notificaciones")
+      }
+      // Un detach fallido no cambió nada server-side — se reporta la verdad
+      // vigente (ref siempre fresco) tal cual estaba, sin forzar ningún
+      // valor nuevo.
+      return finishMutation(opId, isSubscribedRef.current)
     } finally {
-      setLoading(false)
+      if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading])
+  }, [isSupported, loading, finishMutation])
 
   return {
     isSupported,

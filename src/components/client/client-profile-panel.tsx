@@ -971,16 +971,36 @@ function SettingsSection({ pushEnabled }: { pushEnabled: boolean }) {
   const { theme, setTheme } = useTheme()
   const push = usePushNotifications()
   const [notifications, setNotifications] = useState(pushEnabled || push.isSubscribed)
+  // P2-T05 Hardening H3B (F-P2-T05-23): resincroniza `notifications` cuando
+  // el hook resuelve su chequeo de estado autoritativo async (o cuando un
+  // cambio de actor lo invalida) — mismo idiom ya certificado en
+  // config-tab.tsx ("ajustar estado durante el render"). Sin esto,
+  // `notifications` sólo se movería vía `handleToggleNotifications`, y
+  // quedaría stale ante cualquier resolución async que esta sección no
+  // haya disparado ella misma (p.ej. el chequeo de montaje).
+  const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
+  if (push.isSubscribed !== prevIsSubscribed) {
+    setPrevIsSubscribed(push.isSubscribed)
+    setNotifications(push.isSubscribed)
+  }
 
   const handleToggleNotifications = async (enabled: boolean) => {
     setNotifications(enabled)
     if (enabled) {
-      await push.subscribe()
-      if (!push.isSubscribed) {
-        setNotifications(false) // Revert if failed
+      // P2-T05 Hardening H3B (F-P2-T05-23): el resultado viene DIRECTO del
+      // hook (siempre fresco, nunca un closure stale) — nunca se vuelve a
+      // leer `push.isSubscribed` acá después del `await`. `current:false`
+      // significa que una operación/actor más nuevo ya es dueño de la UI;
+      // esta sección no debe tocar nada en ese caso.
+      const result = await push.subscribe()
+      if (result.current) {
+        setNotifications(result.subscribed)
       }
     } else {
-      await push.unsubscribe()
+      const result = await push.unsubscribe()
+      if (result.current) {
+        setNotifications(result.subscribed)
+      }
     }
   }
 
