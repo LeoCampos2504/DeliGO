@@ -1103,7 +1103,6 @@ model TerminalOperativa {
   perfil           String    @default("pantalla") // etiqueta/preset para UI (no autoriza por sí solo)
   areas            String    @default("[]") // JSON array — áreas permitidas (salon|pyr); fuente de verdad
   scopes           String    @default("[]") // JSON array — fuente de verdad de autorización (deny-by-default)
-  pushSubscription String?
   lastUsedAt       DateTime?
   revokedAt        DateTime?
   createdAt        DateTime  @default(now())
