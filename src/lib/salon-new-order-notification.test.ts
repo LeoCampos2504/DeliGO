@@ -10,6 +10,9 @@ type EmpleadoRow = { id: string; pushSubscription: string | null }
 let empleados: EmpleadoRow[]
 let notificacionRows: Array<{ userId: string }>
 let normalizedByOwnerId: Map<string, Array<{ endpoint: string; p256dh: string; auth: string; expirationTime: Date | null }>>
+let normalizedBatchCalls: Array<{ where: Record<string, unknown> }>
+let normalizedSingleOwnerCalls: Array<{ where: Record<string, unknown> }>
+let normalizedQueryShouldThrow: boolean
 let webpushCallLog: string[]
 
 mock.module("@/lib/db", () => ({
@@ -28,7 +31,19 @@ mock.module("@/lib/db", () => ({
     // demás exports reales) — se deja correr el repository REAL contra este
     // mock de `pushSubscription`.
     pushSubscription: {
-      findMany: async ({ where }: { where: { ownerId: string } }) => normalizedByOwnerId.get(where.ownerId) ?? [],
+      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+        const ownerId = where.ownerId
+        if (ownerId && typeof ownerId === "object" && "in" in ownerId) {
+          normalizedBatchCalls.push({ where })
+          if (normalizedQueryShouldThrow) throw new Error("simulated batch query failure")
+          return (ownerId as { in: string[] }).in.flatMap((id) =>
+            (normalizedByOwnerId.get(id) ?? []).map((row) => ({ ...row, ownerType: "empleado", ownerId: id, channel: "default" }))
+          )
+        }
+        normalizedSingleOwnerCalls.push({ where })
+        if (normalizedQueryShouldThrow) throw new Error("simulated single-owner query failure")
+        return normalizedByOwnerId.get(String(ownerId)) ?? []
+      },
       deleteMany: async () => ({ count: 1 }),
     },
   },
@@ -67,6 +82,9 @@ beforeEach(() => {
     { id: "empleado-2", pushSubscription: JSON.stringify({ endpoint: "https://push.example/empleado-2-legacy", keys: { p256dh: "p", auth: "a" }, expirationTime: null }) },
   ]
   normalizedByOwnerId = new Map()
+  normalizedBatchCalls = []
+  normalizedSingleOwnerCalls = []
+  normalizedQueryShouldThrow = false
   notificacionRows = []
   webpushCallLog = []
 })
@@ -86,6 +104,69 @@ describe("notifySalonNewOrderForOperations — real multi-recipient core fan-out
       "https://push.example/empleado-1-legacy",
       "https://push.example/empleado-2-legacy",
     ])
+    expect(notificacionRows.length).toBe(2)
+  })
+
+  test("H2: N recipients use one normalized batch query, preserve owner grouping and normalized+legacy dedupe", async () => {
+    normalizedByOwnerId.set("empleado-1", [
+      { endpoint: "https://push.example/empleado-1-legacy", p256dh: "p", auth: "a", expirationTime: null },
+      { endpoint: "https://push.example/empleado-1-normalized", p256dh: "p1", auth: "a1", expirationTime: null },
+    ])
+    normalizedByOwnerId.set("empleado-2", [
+      { endpoint: "https://push.example/empleado-2-normalized", p256dh: "p2", auth: "a2", expirationTime: null },
+    ])
+    empleados[1].pushSubscription = null
+    await notifySalonNewOrderForOperations({
+      pedidoId: "pedido-batch",
+      negocioId: "negocio-1",
+      slug: "mi-negocio",
+      mesaNumero: 3,
+      clienteNombre: "Cliente",
+      total: 100,
+    })
+    expect(normalizedBatchCalls.length).toBe(1)
+    expect(normalizedBatchCalls[0].where.ownerType).toBe("empleado")
+    expect(normalizedBatchCalls[0].where.channel).toBe("default")
+    expect(normalizedBatchCalls[0].where.ownerId).toEqual({ in: ["empleado-1", "empleado-2"] })
+    expect(normalizedSingleOwnerCalls.length).toBe(0)
+    expect(webpushCallLog.sort()).toEqual([
+      "https://push.example/empleado-1-legacy",
+      "https://push.example/empleado-1-normalized",
+      "https://push.example/empleado-2-normalized",
+    ])
+    expect(notificacionRows.length).toBe(2)
+  })
+
+  test("H2: batch query failure continues legacy-only without per-owner query fallback", async () => {
+    normalizedQueryShouldThrow = true
+    await notifySalonNewOrderForOperations({
+      pedidoId: "pedido-batch-failure",
+      negocioId: "negocio-1",
+      slug: "mi-negocio",
+      mesaNumero: 3,
+      clienteNombre: "Cliente",
+      total: 100,
+    })
+    expect(normalizedBatchCalls.length).toBe(1)
+    expect(normalizedSingleOwnerCalls.length).toBe(0)
+    expect(webpushCallLog.sort()).toEqual([
+      "https://push.example/empleado-1-legacy",
+      "https://push.example/empleado-2-legacy",
+    ])
+    expect(notificacionRows.length).toBe(2)
+  })
+
+  test("H2: malformed legacy for one recipient does not abort a healthy recipient", async () => {
+    empleados[0].pushSubscription = "{not-json"
+    await notifySalonNewOrderForOperations({
+      pedidoId: "pedido-malformed-legacy",
+      negocioId: "negocio-1",
+      slug: "mi-negocio",
+      mesaNumero: 3,
+      clienteNombre: "Cliente",
+      total: 100,
+    })
+    expect(webpushCallLog).toEqual(["https://push.example/empleado-2-legacy"])
     expect(notificacionRows.length).toBe(2)
   })
 
@@ -120,5 +201,7 @@ describe("notifySalonNewOrderForOperations — real multi-recipient core fan-out
     expect(result.attemptedEndpoints).toEqual([])
     expect(webpushCallLog.length).toBe(0)
     expect(notificacionRows.length).toBe(0)
+    expect(normalizedBatchCalls.length).toBe(0)
+    expect(normalizedSingleOwnerCalls.length).toBe(0)
   })
 })

@@ -4,6 +4,7 @@
 // VAPID-based web push notifications + DB persistence
 
 import webpush from "web-push"
+import type { PushSubscription } from "@prisma/client"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   arePushSubscriptionsEquivalent,
@@ -343,6 +344,8 @@ export interface PushFanoutTarget {
   cleanup?: PushSubscriptionCleanup
 }
 
+type NormalizedPushSubscriptionRow = Pick<PushSubscription, "endpoint" | "p256dh" | "auth" | "expirationTime">
+
 /**
  * Resuelve el conjunto de targets físicos únicos (por endpoint) para UN
  * owner core: UNION de sus PushSubscription normalizadas + su legacy actual
@@ -352,12 +355,12 @@ export interface PushFanoutTarget {
  * vez de abortar toda la notificación lógica. Legacy malformado/vacío nunca
  * aborta los targets normalizados — simplemente se omite.
  */
-export async function resolveCorePushTargets(
+export function resolveCorePushTargetsFromNormalized(
   ownerType: CorePushOwnerType,
   ownerId: string,
   legacyRaw: string | null | undefined,
-  channel: "default" | "salon" = "default"
-): Promise<PushFanoutTarget[]> {
+  normalizedRows: readonly NormalizedPushSubscriptionRow[]
+): PushFanoutTarget[] {
   const byEndpoint = new Map<string, PushFanoutTarget>()
   const cleanup: PushSubscriptionCleanup = {
     model: ownerType,
@@ -366,22 +369,16 @@ export async function resolveCorePushTargets(
     suppressEndpointLog: true,
   }
 
-  try {
-    const { getPushSubscriptionsForOwner } = await import("@/lib/push-subscription-repository")
-    const rows = await getPushSubscriptionsForOwner({ ownerType, ownerId, channel })
-    for (const row of rows) {
-      byEndpoint.set(row.endpoint, {
+  for (const row of normalizedRows) {
+    byEndpoint.set(row.endpoint, {
+      endpoint: row.endpoint,
+      raw: JSON.stringify({
         endpoint: row.endpoint,
-        raw: JSON.stringify({
-          endpoint: row.endpoint,
-          keys: { p256dh: row.p256dh, auth: row.auth },
-          expirationTime: row.expirationTime ? row.expirationTime.getTime() : null,
-        }),
-        cleanup,
-      })
-    }
-  } catch (error) {
-    console.error("[Push] Error leyendo targets normalizados, degradando a legacy:", safeErrorForLog(error))
+        keys: { p256dh: row.p256dh, auth: row.auth },
+        expirationTime: row.expirationTime ? row.expirationTime.getTime() : null,
+      }),
+      cleanup,
+    })
   }
 
   if (legacyRaw) {
@@ -394,6 +391,23 @@ export async function resolveCorePushTargets(
   }
 
   return Array.from(byEndpoint.values())
+}
+
+export async function resolveCorePushTargets(
+  ownerType: CorePushOwnerType,
+  ownerId: string,
+  legacyRaw: string | null | undefined,
+  channel: "default" | "salon" = "default"
+): Promise<PushFanoutTarget[]> {
+  let normalizedRows: PushSubscription[] = []
+  try {
+    const { getPushSubscriptionsForOwner } = await import("@/lib/push-subscription-repository")
+    normalizedRows = await getPushSubscriptionsForOwner({ ownerType, ownerId, channel })
+  } catch (error) {
+    console.error("[Push] Error leyendo targets normalizados, degradando a legacy:", safeErrorForLog(error))
+  }
+
+  return resolveCorePushTargetsFromNormalized(ownerType, ownerId, legacyRaw, normalizedRows)
 }
 
 /**
@@ -472,14 +486,45 @@ export function mergePushFanoutTargets(targetLists: PushFanoutTarget[][]): PushF
  * por-endpoint (`Promise.allSettled` — un fallo en E1 nunca aborta E2/E3).
  * Sin reintentos automáticos: un fallo transitorio se loguea y se continúa.
  */
+export const WEBPUSH_SEND_CONCURRENCY = 8
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  worker: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<PromiseSettledResult<R>[]> {
+  if (items.length === 0) return []
+
+  const results = new Array<PromiseSettledResult<R>>(items.length)
+  let nextIndex = 0
+
+  async function runWorker(): Promise<void> {
+    while (true) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index]) }
+      } catch (reason) {
+        results[index] = { status: "rejected", reason }
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  return results
+}
+
 export async function sendPushToTargets(
   targets: PushFanoutTarget[],
   payload: PushNotificationPayload
 ): Promise<{ attempted: number; delivered: number }> {
   if (targets.length === 0) return { attempted: 0, delivered: 0 }
 
-  const results = await Promise.allSettled(
-    targets.map((t) => sendPushNotification(t.raw, payload, t.cleanup))
+  const results = await mapWithConcurrency(
+    targets,
+    (t) => sendPushNotification(t.raw, payload, t.cleanup),
+    WEBPUSH_SEND_CONCURRENCY
   )
 
   let delivered = 0

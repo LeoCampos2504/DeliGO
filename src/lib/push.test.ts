@@ -21,10 +21,50 @@ let sweepCalls: string[]
 let notificacionCreateCalls: Array<{ userId: string; userType: string }>
 let webpushBehavior: Map<string, "success" | 404 | 410 | 500 | "network">
 let webpushCallLog: string[]
+let concurrencyGate: ReturnType<typeof createConcurrencyGate> | null
 /** Fires exactly once, right after a `findUnique` read resolves its return
  * value but before the caller sees it, to simulate a genuine race: the
  * store mutates DURING the read-then-CAS-write window (D5). */
 let raceOnNextRead: (() => void) | null
+
+function createConcurrencyGate() {
+  let released = false
+  let started = 0
+  let active = 0
+  let maxActive = 0
+  let release!: () => void
+  const releasePromise = new Promise<void>((resolve) => { release = resolve })
+  const startedWaiters: Array<{ count: number; resolve: () => void }> = []
+
+  return {
+    get started() { return started },
+    get maxActive() { return maxActive },
+    enter() {
+      started += 1
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      for (let i = startedWaiters.length - 1; i >= 0; i -= 1) {
+        if (started >= startedWaiters[i].count) startedWaiters.splice(i, 1)[0].resolve()
+      }
+    },
+    leave() {
+      active -= 1
+    },
+    waitForRelease() {
+      return releasePromise
+    },
+    release() {
+      if (!released) {
+        released = true
+        release()
+      }
+    },
+    waitForStarted(count: number) {
+      if (started >= count) return Promise.resolve()
+      return new Promise<void>((resolve) => startedWaiters.push({ count, resolve }))
+    },
+  }
+}
 
 function ownerKey(ownerType: string, ownerId: string, channel: string) {
   return `${ownerType}|${ownerId}|${channel}`
@@ -77,6 +117,15 @@ mock.module("web-push", () => ({
       webpushCallLog.push(subscription.endpoint)
       if (!subscription.endpoint.startsWith("https://push.example/")) {
         throw new Error("simulated network failure (unrecognized endpoint outside this test's fixture domain)")
+      }
+      const gate = concurrencyGate
+      if (gate) {
+        gate.enter()
+        try {
+          await gate.waitForRelease()
+        } finally {
+          gate.leave()
+        }
       }
       const behavior = webpushBehavior.get(subscription.endpoint) ?? "success"
       if (behavior === "success") return { statusCode: 201 }
@@ -131,6 +180,7 @@ beforeEach(() => {
   notificacionCreateCalls = []
   webpushBehavior = new Map()
   webpushCallLog = []
+  concurrencyGate = null
   raceOnNextRead = null
 })
 
@@ -250,6 +300,84 @@ describe("sendPushToTargets — per-endpoint failure isolation (P1-P4)", () => {
     await push.sendPushToTargets(targets, { title: "t", body: "b" })
     expect(webpushCallLog.filter((e) => e === EP("E1")).length).toBe(1)
     expect(webpushCallLog.filter((e) => e === EP("E2")).length).toBe(1)
+  })
+})
+
+describe("sendPushToTargets — H2 bounded Web Push concurrency", () => {
+  function targets(count: number, prefix: string) {
+    return Array.from({ length: count }, (_, index) => ({
+      endpoint: EP(`${prefix}-${index}`),
+      raw: sub(`${prefix}-${index}`),
+    }))
+  }
+
+  async function runGated(count: number, prefix: string) {
+    const gate = createConcurrencyGate()
+    concurrencyGate = gate
+    try {
+      const sendPromise = push.sendPushToTargets(targets(count, prefix), { title: "t", body: "b" })
+      await gate.waitForStarted(Math.min(8, count))
+      const startedBeforeRelease = gate.started
+      gate.release()
+      const result = await sendPromise
+      return { gate, startedBeforeRelease, result }
+    } finally {
+      gate.release()
+      concurrencyGate = null
+    }
+  }
+
+  test("zero targets return immediately without provider work", async () => {
+    const result = await push.sendPushToTargets([], { title: "t", body: "b" })
+    expect(result).toEqual({ attempted: 0, delivered: 0 })
+    expect(webpushCallLog).toEqual([])
+  })
+
+  test("one target is attempted once with max concurrency 1", async () => {
+    const { gate, result } = await runGated(1, "bounded-one")
+    expect(gate.maxActive).toBe(1)
+    expect(result.attempted).toBe(1)
+    expect(webpushCallLog).toEqual([EP("bounded-one-0")])
+  })
+
+  test("seven targets all run and never exceed seven active sends", async () => {
+    const { gate, result } = await runGated(7, "bounded-seven")
+    expect(gate.maxActive).toBe(7)
+    expect(result.attempted).toBe(7)
+    expect(webpushCallLog.length).toBe(7)
+  })
+
+  test("exactly eight targets fill the approved cap", async () => {
+    const { gate, result } = await runGated(8, "bounded-eight")
+    expect(gate.started).toBe(8)
+    expect(gate.maxActive).toBe(8)
+    expect(result.attempted).toBe(8)
+  })
+
+  test("the ninth target waits for a worker slot and max active remains eight", async () => {
+    const { gate, startedBeforeRelease, result } = await runGated(9, "bounded-nine")
+    expect(startedBeforeRelease).toBe(8)
+    expect(gate.started).toBe(9)
+    expect(gate.maxActive).toBe(8)
+    expect(result.attempted).toBe(9)
+  })
+
+  test("seventeen targets complete in bounded waves with observed max eight", async () => {
+    const { gate, result } = await runGated(17, "bounded-seventeen")
+    expect(gate.started).toBe(17)
+    expect(gate.maxActive).toBe(8)
+    expect(result.attempted).toBe(17)
+    expect(webpushCallLog.length).toBe(17)
+  })
+
+  test("a failed target does not stop queued targets and each endpoint is attempted once", async () => {
+    webpushBehavior.set(EP("bounded-failure-0"), 500)
+    const { gate, result } = await runGated(9, "bounded-failure")
+    expect(gate.maxActive).toBe(8)
+    expect(result.attempted).toBe(9)
+    expect(result.delivered).toBe(8)
+    expect(new Set(webpushCallLog).size).toBe(9)
+    expect(webpushCallLog.length).toBe(9)
   })
 })
 

@@ -3,9 +3,10 @@ import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
 import {
   mergePushFanoutTargets,
   operacionesSalonNewOrderNotification,
-  resolveCorePushTargets,
+  resolveCorePushTargetsFromNormalized,
   sendPushToTargets,
 } from "@/lib/push"
+import { getPushSubscriptionsForOwners } from "@/lib/push-subscription-repository"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type NotifySalonNewOrderParams = {
@@ -30,7 +31,7 @@ type NotifySalonNewOrderResult = {
 
 type SalonEmpleadoRecipient = {
   id: string
-  pushSubscription: string
+  pushSubscription: string | null
 }
 
 function shortId(value: string | null | undefined) {
@@ -57,15 +58,12 @@ async function resolveSalonEmpleados(negocioId: string): Promise<SalonEmpleadoRe
       eliminado: false,
       areaOperativa: "salon",
       cuentaOperativaId: { not: null },
-      pushSubscription: { not: null },
       cuentaOperativa: { activo: true, eliminado: false },
     },
     select: { id: true, pushSubscription: true },
   })
 
-  return empleados.filter(
-    (empleado): empleado is SalonEmpleadoRecipient => typeof empleado.pushSubscription === "string"
-  )
+  return empleados
 }
 
 export async function notifySalonNewOrderForOperations(
@@ -123,12 +121,26 @@ export async function notifySalonNewOrderForOperations(
     )
   )
 
-  // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) por cada
-  // empleado destinatario, mergeado y deduplicado por endpoint físico único
-  // en toda la wave — un dispositivo compartido entre dos empleados
-  // (MODEL-C1) recibe UN solo send, nunca duplicado.
-  const perRecipientTargets = await Promise.all(
-    empleados.map((empleado) => resolveCorePushTargets("empleado", empleado.id, empleado.pushSubscription))
+  // P2-T05 H2/F21: una lectura normalizada batch por wave. El builder común
+  // conserva la unión normalized+legacy y toda la semántica Stage4/H1 por
+  // recipient; sólo se elimina el N+1 de lecturas individuales.
+  let normalizedByOwner: Awaited<ReturnType<typeof getPushSubscriptionsForOwners>> = new Map()
+  try {
+    normalizedByOwner = await getPushSubscriptionsForOwners(
+      "empleado",
+      empleados.map((empleado) => empleado.id),
+      "default"
+    )
+  } catch (error) {
+    console.error("[Push/OperacionesSalon] Error leyendo targets normalizados en batch:", safeErrorForLog(error))
+  }
+  const perRecipientTargets = empleados.map((empleado) =>
+    resolveCorePushTargetsFromNormalized(
+      "empleado",
+      empleado.id,
+      empleado.pushSubscription,
+      normalizedByOwner.get(empleado.id) ?? []
+    )
   )
   const targets = mergePushFanoutTargets(perRecipientTargets)
   const attemptedEndpoints = targets.map((t) => t.endpoint)

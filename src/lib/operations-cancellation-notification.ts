@@ -4,11 +4,12 @@ import {
   mergePushFanoutTargets,
   operacionesOrderCancelledNotification,
   reservePushEndpoint,
-  resolveCorePushTargets,
+  resolveCorePushTargetsFromNormalized,
   sendPushToTargets,
   type OperationsCancellationArea,
   type PushFanoutTarget,
 } from "@/lib/push"
+import { getPushSubscriptionsForOwners } from "@/lib/push-subscription-repository"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type NotifyOperationsCancellationParams = {
@@ -23,7 +24,7 @@ type NotifyOperationsCancellationParams = {
 
 type OperationsRecipient = {
   id: string
-  pushSubscription: string
+  pushSubscription: string | null
 }
 
 function shortId(value: string | null | undefined) {
@@ -58,16 +59,13 @@ export async function notifyOperationsOrderCancelled({
       eliminado: false,
       areaOperativa: area,
       cuentaOperativaId: { not: null },
-      pushSubscription: { not: null },
       ...(excludeEmpleadoId ? { id: { not: excludeEmpleadoId } } : {}),
       cuentaOperativa: { activo: true, eliminado: false },
     },
     select: { id: true, pushSubscription: true },
   })
 
-  const recipients = empleados.filter(
-    (empleado): empleado is OperationsRecipient => typeof empleado.pushSubscription === "string"
-  )
+  const recipients = empleados as OperationsRecipient[]
   if (recipients.length === 0) return
 
   const panelUrl = buildOperationsCancellationUrl(negocio.slug, area, pedidoId)
@@ -98,13 +96,27 @@ export async function notifyOperationsOrderCancelled({
     )
   )
 
-  // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) por cada
-  // recipient, mergeado y deduplicado por endpoint físico único en toda la
-  // wave — preserva `reservedPushEndpoints` (dedupe entre distintos
-  // llamados de esta MISMA operación lógica, p.ej. si otro canal ya cubrió
-  // ese endpoint), nunca dedupe persistente entre notificaciones distintas.
-  const perRecipientTargets = await Promise.all(
-    recipients.map((empleado) => resolveCorePushTargets("empleado", empleado.id, empleado.pushSubscription))
+  // P2-T05 H2/F21: una lectura normalizada batch por wave. El builder común
+  // conserva la unión normalized+legacy y toda la semántica Stage4/H1 por
+  // recipient; un fallo batch deja normalized vacío y permite legacy-only sin
+  // reintentar N lecturas individuales.
+  let normalizedByOwner: Awaited<ReturnType<typeof getPushSubscriptionsForOwners>> = new Map()
+  try {
+    normalizedByOwner = await getPushSubscriptionsForOwners(
+      "empleado",
+      recipients.map((empleado) => empleado.id),
+      "default"
+    )
+  } catch (error) {
+    console.error("[Push/OperacionesCancelacion] Error leyendo targets normalizados en batch:", safeErrorForLog(error))
+  }
+  const perRecipientTargets = recipients.map((empleado) =>
+    resolveCorePushTargetsFromNormalized(
+      "empleado",
+      empleado.id,
+      empleado.pushSubscription,
+      normalizedByOwner.get(empleado.id) ?? []
+    )
   )
   let targets: PushFanoutTarget[] = mergePushFanoutTargets(perRecipientTargets)
   if (reservedPushEndpoints) {

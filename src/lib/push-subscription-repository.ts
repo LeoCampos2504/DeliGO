@@ -58,22 +58,30 @@ export interface NormalizedPushSubscriptionInput {
 }
 
 function assertValidOwner(owner: PushSubscriptionOwner): void {
-  if (!OWNER_TYPES.includes(owner.ownerType)) {
-    throw new Error("push-subscription-repository: ownerType invalido")
-  }
-  if (!CHANNELS.includes(owner.channel)) {
-    throw new Error("push-subscription-repository: channel invalido")
-  }
-  if (typeof owner.ownerId !== "string" || owner.ownerId.trim().length === 0) {
-    throw new Error("push-subscription-repository: ownerId invalido")
-  }
+  assertValidOwnerType(owner.ownerType)
+  assertValidChannel(owner.channel)
+  assertValidOwnerId(owner.ownerId)
 }
 
 function assertValidOwnerScope(owner: PushSubscriptionOwnerScope): void {
-  if (!OWNER_TYPES.includes(owner.ownerType)) {
+  assertValidOwnerType(owner.ownerType)
+  assertValidOwnerId(owner.ownerId)
+}
+
+function assertValidOwnerType(ownerType: PushSubscriptionOwnerType): void {
+  if (!OWNER_TYPES.includes(ownerType)) {
     throw new Error("push-subscription-repository: ownerType invalido")
   }
-  if (typeof owner.ownerId !== "string" || owner.ownerId.trim().length === 0) {
+}
+
+function assertValidChannel(channel: PushSubscriptionChannel): void {
+  if (!CHANNELS.includes(channel)) {
+    throw new Error("push-subscription-repository: channel invalido")
+  }
+}
+
+function assertValidOwnerId(ownerId: string): void {
+  if (typeof ownerId !== "string" || ownerId.trim().length === 0) {
     throw new Error("push-subscription-repository: ownerId invalido")
   }
 }
@@ -162,6 +170,44 @@ export async function getPushSubscriptionsForOwner(owner: PushSubscriptionOwner)
       channel: owner.channel,
     },
   })
+}
+
+/**
+ * Devuelve las filas normalizadas de varios owners con una única lectura.
+ * El resultado siempre contiene una entrada para cada owner solicitado,
+ * incluso cuando no tiene subscriptions; las filas inesperadas del mock o
+ * del driver quedan fuera de forma fail-closed y nunca se exponen al caller.
+ */
+export async function getPushSubscriptionsForOwners(
+  ownerType: PushSubscriptionOwnerType,
+  ownerIds: string[],
+  channel: PushSubscriptionChannel
+): Promise<Map<string, PushSubscription[]>> {
+  assertValidOwnerType(ownerType)
+  assertValidChannel(channel)
+
+  const uniqueOwnerIds = Array.from(new Set(ownerIds))
+  uniqueOwnerIds.forEach(assertValidOwnerId)
+
+  const grouped = new Map<string, PushSubscription[]>()
+  for (const ownerId of uniqueOwnerIds) grouped.set(ownerId, [])
+  if (uniqueOwnerIds.length === 0) return grouped
+
+  const rows = await db.pushSubscription.findMany({
+    where: {
+      ownerType,
+      ownerId: { in: uniqueOwnerIds },
+      channel,
+    },
+  })
+
+  for (const row of rows) {
+    if (row.ownerType !== ownerType || row.channel !== channel) continue
+    const ownerRows = grouped.get(row.ownerId)
+    if (ownerRows) ownerRows.push(row)
+  }
+
+  return grouped
 }
 
 /**

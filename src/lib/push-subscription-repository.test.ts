@@ -35,6 +35,9 @@ type Row = {
 
 let rows: Row[]
 let idCounter: number
+let findManyCalls: Array<{ where: Record<string, unknown> }>
+let findManyOverride: Row[] | null
+let findManyShouldThrow: boolean
 let deleteManyCalls: Array<{ where: Record<string, unknown> }>
 let upsertCalls: Array<{ where: Record<string, unknown> }>
 
@@ -76,7 +79,19 @@ mock.module("@/lib/db", () => ({
         rows.push(row)
         return row
       },
-      findMany: async ({ where }: { where: Record<string, unknown> }) => rows.filter((r) => matchesWhere(r, where)),
+      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+        findManyCalls.push({ where })
+        if (findManyShouldThrow) throw new Error("simulated batch query failure")
+        if (findManyOverride) return findManyOverride
+        return rows.filter((r) => {
+          const ownerIdFilter = where.ownerId
+          if (ownerIdFilter && typeof ownerIdFilter === "object" && "in" in ownerIdFilter) {
+            const ids = (ownerIdFilter as { in: string[] }).in
+            return r.ownerType === where.ownerType && ids.includes(r.ownerId) && r.channel === where.channel
+          }
+          return matchesWhere(r, where)
+        })
+      },
       findFirst: async ({ where }: { where: Record<string, unknown> }) => rows.find((r) => matchesWhere(r, where)) ?? null,
       deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
         deleteManyCalls.push({ where })
@@ -91,6 +106,7 @@ mock.module("@/lib/db", () => ({
 const {
   registerPushSubscription,
   getPushSubscriptionsForOwner,
+  getPushSubscriptionsForOwners,
   detachPushSubscriptionByEndpoint,
   sweepDeadPushSubscriptionEndpoint,
   deletePushSubscriptionsForOwner,
@@ -101,6 +117,9 @@ const { PushSubscriptionOwnerType, PushSubscriptionChannel } = await import("@pr
 beforeEach(() => {
   rows = []
   idCounter = 0
+  findManyCalls = []
+  findManyOverride = null
+  findManyShouldThrow = false
   deleteManyCalls = []
   upsertCalls = []
 })
@@ -334,6 +353,71 @@ describe("getPushSubscriptionsForOwner", () => {
     expect(personal[0].endpoint).toBe("E-personal")
     expect(salon.length).toBe(1)
     expect(salon[0].endpoint).toBe("E-salon")
+  })
+})
+
+describe("getPushSubscriptionsForOwners — H2 batch normalized read", () => {
+  test("empty ownerIds returns an empty Map without a Prisma query", async () => {
+    const result = await getPushSubscriptionsForOwners("cliente" as never, [], "default" as never)
+    expect(result).toEqual(new Map())
+    expect(findManyCalls.length).toBe(0)
+  })
+
+  test("one owner uses exactly one query and groups its rows", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    const result = await getPushSubscriptionsForOwners("cliente" as never, ["A"], "default" as never)
+    expect(findManyCalls.length).toBe(1)
+    expect(findManyCalls[0].where).toEqual({ ownerType: "cliente", ownerId: { in: ["A"] }, channel: "default" })
+    expect(result.get("A")?.map((row) => row.endpoint)).toEqual(["E1"])
+  })
+
+  test("multiple owners use one query with the exact ownerType and channel", async () => {
+    await registerPushSubscription(owner("empleado", "A", "default"), sub("E1"))
+    await registerPushSubscription(owner("empleado", "B", "default"), sub("E2"))
+    const result = await getPushSubscriptionsForOwners("empleado" as never, ["A", "B"], "default" as never)
+    expect(findManyCalls.length).toBe(1)
+    expect(findManyCalls[0].where.ownerType).toBe("empleado")
+    expect(findManyCalls[0].where.channel).toBe("default")
+    expect(result.get("A")?.map((row) => row.endpoint)).toEqual(["E1"])
+    expect(result.get("B")?.map((row) => row.endpoint)).toEqual(["E2"])
+  })
+
+  test("duplicate ownerIds are deduplicated before the query", async () => {
+    const result = await getPushSubscriptionsForOwners("cliente" as never, ["A", "A", "B", "A"], "default" as never)
+    expect(findManyCalls.length).toBe(1)
+    expect(findManyCalls[0].where.ownerId).toEqual({ in: ["A", "B"] })
+    expect([...result.keys()]).toEqual(["A", "B"])
+  })
+
+  test("multiple devices for one owner are all preserved without endpoint dedupe", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    await registerPushSubscription(owner("cliente", "A"), sub("E2"))
+    const result = await getPushSubscriptionsForOwners("cliente" as never, ["A"], "default" as never)
+    expect(result.get("A")?.map((row) => row.endpoint)).toEqual(["E1", "E2"])
+  })
+
+  test("requested owners with no rows receive an empty entry", async () => {
+    const result = await getPushSubscriptionsForOwners("cliente" as never, ["missing"], "default" as never)
+    expect(result.get("missing")).toEqual([])
+  })
+
+  test("unexpected rows outside the requested owner set are never exposed", async () => {
+    await registerPushSubscription(owner("cliente", "A"), sub("E1"))
+    const leaked = { ...rows[0], ownerId: "OUTSIDE" }
+    const wrongOwnerType = { ...rows[0], ownerType: "empleado" }
+    const wrongChannel = { ...rows[0], channel: "salon" }
+    findManyOverride = [rows[0], leaked, wrongOwnerType, wrongChannel]
+    const result = await getPushSubscriptionsForOwners("cliente" as never, ["A"], "default" as never)
+    expect(result.get("A")?.map((row) => row.ownerId)).toEqual(["A"])
+    expect(result.has("OUTSIDE")).toBe(false)
+  })
+
+  test("a batch query rejection propagates to the caller layer", async () => {
+    findManyShouldThrow = true
+    await expect(
+      getPushSubscriptionsForOwners("empleado" as never, ["A", "B"], "default" as never)
+    ).rejects.toThrow("simulated batch query failure")
+    expect(findManyCalls.length).toBe(1)
   })
 })
 
