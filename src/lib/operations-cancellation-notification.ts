@@ -1,10 +1,13 @@
 import { db } from "@/lib/db"
 import {
   buildOperationsCancellationUrl,
+  mergePushFanoutTargets,
   operacionesOrderCancelledNotification,
   reservePushEndpoint,
-  sendPushNotification,
+  resolveCorePushTargets,
+  sendPushToTargets,
   type OperationsCancellationArea,
+  type PushFanoutTarget,
 } from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -28,48 +31,8 @@ function shortId(value: string | null | undefined) {
   return value.length <= 8 ? value : `${value.slice(0, 8)}...`
 }
 
-function parseSubscriptionEndpoint(subscriptionJson: string): string | null {
-  try {
-    const parsed = JSON.parse(subscriptionJson) as { endpoint?: unknown }
-    return typeof parsed.endpoint === "string" && parsed.endpoint.trim()
-      ? parsed.endpoint.trim()
-      : null
-  } catch {
-    return null
-  }
-}
-
 function areaForMetodoEntrega(metodoEntrega: string): OperationsCancellationArea {
   return metodoEntrega === "mesa" ? "salon" : "pyr"
-}
-
-function groupByEndpoint(recipients: OperationsRecipient[]) {
-  const groups = new Map<string, { recipientIds: string[]; subscriptionJson: string }>()
-
-  for (const recipient of recipients) {
-    const endpoint = parseSubscriptionEndpoint(recipient.pushSubscription)
-    if (!endpoint) continue
-
-    const existing = groups.get(endpoint)
-    if (existing) {
-      existing.recipientIds.push(recipient.id)
-    } else {
-      groups.set(endpoint, {
-        recipientIds: [recipient.id],
-        subscriptionJson: recipient.pushSubscription,
-      })
-    }
-  }
-
-  return groups
-}
-
-async function clearExpiredEmployeeSubscriptions(ids: string[], negocioId: string) {
-  if (ids.length === 0) return
-  await db.empleado.updateMany({
-    where: { id: { in: ids }, negocioId },
-    data: { pushSubscription: null },
-  }).catch(() => undefined)
 }
 
 export async function notifyOperationsOrderCancelled({
@@ -135,28 +98,26 @@ export async function notifyOperationsOrderCancelled({
     )
   )
 
-  const groups = groupByEndpoint(recipients)
-  for (const group of groups.values()) {
-    const [primaryId, ...restIds] = group.recipientIds
-    if (reservedPushEndpoints && !reservePushEndpoint(group.subscriptionJson, reservedPushEndpoints)) {
-      continue
-    }
-    try {
-      await sendPushNotification(group.subscriptionJson, payload, {
-        model: "empleado",
-        id: primaryId,
-        field: "pushSubscription",
-        suppressEndpointLog: true,
-        onExpired: () => {
-          void clearExpiredEmployeeSubscriptions(restIds, negocioId)
-        },
-      })
-    } catch (error) {
-      console.error("[Push/OperacionesCancelacion] Error enviando notificacion:", {
-        pedidoId: shortId(pedidoId),
-        negocioId: shortId(negocioId),
-        errorName: error instanceof Error ? error.name : "unknown",
-      })
-    }
+  // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) por cada
+  // recipient, mergeado y deduplicado por endpoint físico único en toda la
+  // wave — preserva `reservedPushEndpoints` (dedupe entre distintos
+  // llamados de esta MISMA operación lógica, p.ej. si otro canal ya cubrió
+  // ese endpoint), nunca dedupe persistente entre notificaciones distintas.
+  const perRecipientTargets = await Promise.all(
+    recipients.map((empleado) => resolveCorePushTargets("empleado", empleado.id, empleado.pushSubscription))
+  )
+  let targets: PushFanoutTarget[] = mergePushFanoutTargets(perRecipientTargets)
+  if (reservedPushEndpoints) {
+    targets = targets.filter((t) => reservePushEndpoint(t.raw, reservedPushEndpoints))
+  }
+
+  try {
+    await sendPushToTargets(targets, payload)
+  } catch (error) {
+    console.error("[Push/OperacionesCancelacion] Error enviando notificacion:", {
+      pedidoId: shortId(pedidoId),
+      negocioId: shortId(negocioId),
+      errorName: error instanceof Error ? error.name : "unknown",
+    })
   }
 }

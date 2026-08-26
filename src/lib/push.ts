@@ -5,6 +5,11 @@
 
 import webpush from "web-push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import {
+  arePushSubscriptionsEquivalent,
+  parsePushSubscriptionShape,
+  type ParsedPushSubscriptionShape,
+} from "@/lib/push-subscription-http"
 
 // VAPID keys - generate once and store in env vars
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ""
@@ -189,6 +194,15 @@ export type PushSubscriptionCleanup = {
   field?: string
   suppressEndpointLog?: boolean
   onExpired?: () => void
+  /**
+   * P2-T05 Stage4: otros owners LEGACY (cross-actor shared endpoint, ver
+   * `groupByEndpoint` en salon-new-order-notification.ts/
+   * operations-cancellation-notification.ts) que también deben intentar un
+   * CAS-clear seguro si el proveedor confirma 404/410 para el mismo
+   * endpoint físico — nunca un blind clear, misma comparación semántica que
+   * el owner principal.
+   */
+  additionalLegacyOwners?: Array<{ model: string; id: string; field?: string }>
 }
 
 export function getPushSubscriptionEndpoint(subscriptionJson: string): string | null {
@@ -211,6 +225,218 @@ export function reservePushEndpoint(
   if (reservedEndpoints.has(endpoint)) return false
   reservedEndpoints.add(endpoint)
   return true
+}
+
+// ============================================
+// P2-T05 Stage4: safe legacy dead-endpoint cleanup (CAS, no blind clear)
+// ============================================
+// Reemplaza el blind-clear-by-actor-id histórico (F-P2-T05-16/17 ya
+// endurecieron el detach de usuario con este mismo patrón semántico +
+// compare-and-set; acá se reutiliza para el ÚNICO caso legítimo de barrido
+// automático: una confirmación 404/410 real del proveedor Web Push).
+// Nunca se llama desde un flujo de detach de usuario — eso sigue siendo
+// exclusivamente `detachPushSubscriptionByEndpoint` (exact-match, nunca
+// endpoint-global) en las rutas de unsubscribe.
+
+async function readCurrentLegacyPushValue(model: string, id: string, field: string): Promise<string | null> {
+  const { db } = await import("@/lib/db")
+  switch (model) {
+    case "cliente":
+      return (await db.cliente.findUnique({ where: { id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+    case "negocio":
+      if (field === "pushSubscriptionSalon") {
+        return (await db.negocio.findUnique({ where: { id }, select: { pushSubscriptionSalon: true } }))?.pushSubscriptionSalon ?? null
+      }
+      return (await db.negocio.findUnique({ where: { id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+    case "repartidor":
+      return (await db.repartidor.findUnique({ where: { id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+    case "empleado":
+      return (await db.empleado.findUnique({ where: { id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+    case "superadmin":
+      return (await db.superAdmin.findUnique({ where: { id }, select: { pushSubscription: true } }))?.pushSubscription ?? null
+    default:
+      return null
+  }
+}
+
+async function casClearLegacyPushValue(model: string, id: string, field: string, expectedCurrentRaw: string): Promise<boolean> {
+  const { db } = await import("@/lib/db")
+  switch (model) {
+    case "cliente": {
+      const r = await db.cliente.updateMany({ where: { id, pushSubscription: expectedCurrentRaw }, data: { pushSubscription: null } })
+      return r.count > 0
+    }
+    case "negocio": {
+      if (field === "pushSubscriptionSalon") {
+        const r = await db.negocio.updateMany({ where: { id, pushSubscriptionSalon: expectedCurrentRaw }, data: { pushSubscriptionSalon: null } })
+        return r.count > 0
+      }
+      const r = await db.negocio.updateMany({ where: { id, pushSubscription: expectedCurrentRaw }, data: { pushSubscription: null } })
+      return r.count > 0
+    }
+    case "repartidor": {
+      const r = await db.repartidor.updateMany({ where: { id, pushSubscription: expectedCurrentRaw }, data: { pushSubscription: null } })
+      return r.count > 0
+    }
+    case "empleado": {
+      const r = await db.empleado.updateMany({ where: { id, pushSubscription: expectedCurrentRaw }, data: { pushSubscription: null } })
+      return r.count > 0
+    }
+    case "superadmin": {
+      const r = await db.superAdmin.updateMany({ where: { id, pushSubscription: expectedCurrentRaw }, data: { pushSubscription: null } })
+      return r.count > 0
+    }
+    default:
+      return false
+  }
+}
+
+/**
+ * Lee el valor legacy ACTUAL, lo compara semánticamente (nunca sólo por
+ * endpoint) contra la subscription que realmente falló, y sólo si coinciden
+ * hace un CAS exacto contra ese mismo valor observado. Si cambió entre la
+ * lectura y el intento de limpieza (otro dispositivo escribió), el CAS no
+ * matchea y no se borra nada — el binding más nuevo sobrevive intacto.
+ */
+async function safeClearLegacyIfMatches(
+  model: string,
+  id: string,
+  field: string,
+  expectedShape: ParsedPushSubscriptionShape
+): Promise<boolean> {
+  try {
+    const currentRaw = await readCurrentLegacyPushValue(model, id, field)
+    if (!currentRaw) return false
+    const currentParsed = parsePushSubscriptionShape(currentRaw)
+    if (!currentParsed || !arePushSubscriptionsEquivalent(currentParsed, expectedShape)) return false
+    return await casClearLegacyPushValue(model, id, field, currentRaw)
+  } catch (error) {
+    console.error("[Push] Error en cleanup CAS de legacy:", safeErrorForLog(error))
+    return false
+  }
+}
+
+// ============================================
+// P2-T05 Stage4: normalized multi-device fan-out target resolution
+// ============================================
+
+export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado"
+
+export interface PushFanoutTarget {
+  /** JSON string listo para pasar a `sendPushNotification`. */
+  raw: string
+  endpoint: string
+  /** Contexto de limpieza legacy/normalizada para ESTE target específico. */
+  cleanup?: PushSubscriptionCleanup
+}
+
+/**
+ * Resuelve el conjunto de targets físicos únicos (por endpoint) para UN
+ * owner core: UNION de sus PushSubscription normalizadas + su legacy actual
+ * (nunca sólo fallback-cuando-vacío — durante mixed-version rollout el
+ * legacy puede tener un binding válido aún no reflejado en normalized). Si
+ * la consulta normalizada falla inesperadamente, degrada a legacy-only en
+ * vez de abortar toda la notificación lógica. Legacy malformado/vacío nunca
+ * aborta los targets normalizados — simplemente se omite.
+ */
+export async function resolveCorePushTargets(
+  ownerType: CorePushOwnerType,
+  ownerId: string,
+  legacyRaw: string | null | undefined,
+  channel: "default" | "salon" = "default"
+): Promise<PushFanoutTarget[]> {
+  const byEndpoint = new Map<string, PushFanoutTarget>()
+  const cleanup: PushSubscriptionCleanup = {
+    model: ownerType,
+    id: ownerId,
+    field: "pushSubscription",
+    suppressEndpointLog: true,
+  }
+
+  try {
+    const { getPushSubscriptionsForOwner } = await import("@/lib/push-subscription-repository")
+    const rows = await getPushSubscriptionsForOwner({ ownerType, ownerId, channel })
+    for (const row of rows) {
+      byEndpoint.set(row.endpoint, {
+        endpoint: row.endpoint,
+        raw: JSON.stringify({
+          endpoint: row.endpoint,
+          keys: { p256dh: row.p256dh, auth: row.auth },
+          expirationTime: row.expirationTime ? row.expirationTime.getTime() : null,
+        }),
+        cleanup,
+      })
+    }
+  } catch (error) {
+    console.error("[Push] Error leyendo targets normalizados, degradando a legacy:", safeErrorForLog(error))
+  }
+
+  if (legacyRaw) {
+    const parsedLegacy = parsePushSubscriptionShape(legacyRaw)
+    if (parsedLegacy && !byEndpoint.has(parsedLegacy.endpoint)) {
+      byEndpoint.set(parsedLegacy.endpoint, { endpoint: parsedLegacy.endpoint, raw: legacyRaw, cleanup })
+    }
+    // Legacy inválido/malformado: se omite silenciosamente, nunca aborta
+    // los targets normalizados ya resueltos.
+  }
+
+  return Array.from(byEndpoint.values())
+}
+
+/**
+ * Combina los targets de VARIOS recipients (fan-out multi-recipient, p.ej.
+ * todos los mozos de salón de un negocio) en una lista única deduplicada
+ * por endpoint físico — un mismo dispositivo compartido entre dos owners
+ * (MODEL-C1) recibe UN solo send, pero conserva el cleanup de AMBOS owners
+ * vía `additionalLegacyOwners` para que un 404/410 pueda limpiar el legacy
+ * de cada uno con su propio CAS. El dedupe es exclusivamente de esta wave
+ * lógica — nunca persistente entre notificaciones distintas.
+ */
+export function mergePushFanoutTargets(targetLists: PushFanoutTarget[][]): PushFanoutTarget[] {
+  const byEndpoint = new Map<string, PushFanoutTarget>()
+  for (const list of targetLists) {
+    for (const t of list) {
+      const existing = byEndpoint.get(t.endpoint)
+      if (!existing) {
+        byEndpoint.set(t.endpoint, { ...t })
+        continue
+      }
+      if (t.cleanup && existing.cleanup && t.cleanup.id !== existing.cleanup.id) {
+        const extra = { model: t.cleanup.model, id: t.cleanup.id, field: t.cleanup.field }
+        existing.cleanup = {
+          ...existing.cleanup,
+          additionalLegacyOwners: [...(existing.cleanup.additionalLegacyOwners ?? []), extra],
+        }
+      }
+    }
+  }
+  return Array.from(byEndpoint.values())
+}
+
+/**
+ * Envía el mismo payload a todos los targets con aislamiento de fallas
+ * por-endpoint (`Promise.allSettled` — un fallo en E1 nunca aborta E2/E3).
+ * Sin reintentos automáticos: un fallo transitorio se loguea y se continúa.
+ */
+export async function sendPushToTargets(
+  targets: PushFanoutTarget[],
+  payload: PushNotificationPayload
+): Promise<{ attempted: number; delivered: number }> {
+  if (targets.length === 0) return { attempted: 0, delivered: 0 }
+
+  const results = await Promise.allSettled(
+    targets.map((t) => sendPushNotification(t.raw, payload, t.cleanup))
+  )
+
+  let delivered = 0
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) {
+      delivered += 1
+    } else if (r.status === "rejected") {
+      console.error("[Push] Fan-out: un target falló de forma aislada:", safeErrorForLog(r.reason))
+    }
+  }
+  return { attempted: targets.length, delivered }
 }
 
 // Bugfix-4 [17]: rol de PWA "personal" (con sesión) a la que pertenece la
@@ -291,28 +517,66 @@ export async function createNotification(params: CreateNotificationParams): Prom
     // Don't fail the whole operation if DB write fails
   }
 
-  // 2. Send push notification if subscription exists
-  if (
-    pushSubscription &&
-    enrichedPushPayload &&
-    (!reservedPushEndpoints || reservePushEndpoint(pushSubscription, reservedPushEndpoints))
-  ) {
-    const pushPromise = sendPushNotification(pushSubscription, enrichedPushPayload, cleanupExpired)
-    if (awaitPush) {
-      // Await the push so errors surface in the caller's logs
-      try {
-        const sent = await pushPromise
-        if (!sent) {
-          console.warn(`[Push] sendPushNotification returned false for tipo=${tipo} userId=${userId} (VAPID not configured or subscription expired)`)
+  // 2. Send push notification if a payload was built
+  if (enrichedPushPayload) {
+    // P2-T05 Stage4: los 4 owners core reciben fan-out multi-device
+    // (normalizado UNION legacy) SÓLO en su canal personal por defecto;
+    // cualquier otro userType (superadmin, P2-T17) preserva exactamente el
+    // envío legacy single-subscription de siempre. Un `cleanupExpired.field`
+    // explícito distinto de "pushSubscription" (p.ej. Negocio.
+    // pushSubscriptionSalon — canal compartido legacy-only, ver Stage3F)
+    // es la señal existente de que este NO es el canal personal normalizado
+    // del owner, aunque userId/userType coincidan con uno core — nunca se
+    // debe mezclar el push personal del negocio con su display compartido
+    // de salón, ni intentar limpiar el campo equivocado en un 404/410.
+    const isCorePushOwner =
+      (userType === "cliente" || userType === "negocio" || userType === "repartidor" || userType === "empleado") &&
+      (!cleanupExpired?.field || cleanupExpired.field === "pushSubscription")
+
+    if (isCorePushOwner) {
+      const fanoutPromise = (async () => {
+        const targets = await resolveCorePushTargets(userType, userId, pushSubscription ?? null)
+        const filtered = reservedPushEndpoints
+          ? targets.filter((t) => reservePushEndpoint(t.raw, reservedPushEndpoints))
+          : targets
+        if (filtered.length === 0) return
+        const { attempted, delivered } = await sendPushToTargets(filtered, enrichedPushPayload)
+        if (delivered === 0 && attempted > 0) {
+          console.warn(`[Push] 0/${attempted} envíos entregados para tipo=${tipo} userId=${userId}`)
         }
-      } catch (err) {
-        console.error(`[Push] Error sending push notification (tipo=${tipo} userId=${userId}):`, safeErrorForLog(err))
+      })()
+      if (awaitPush) {
+        try {
+          await fanoutPromise
+        } catch (err) {
+          console.error(`[Push] Error en fan-out de push (tipo=${tipo} userId=${userId}):`, safeErrorForLog(err))
+        }
+      } else {
+        fanoutPromise.catch((err) => {
+          console.error("[Push] Error en fan-out de push:", safeErrorForLog(err))
+        })
       }
-    } else {
-      // Fire-and-forget (default for non-critical notifications)
-      pushPromise.catch((err) => {
-        console.error("[Push] Error sending push notification:", safeErrorForLog(err))
-      })
+    } else if (
+      pushSubscription &&
+      (!reservedPushEndpoints || reservePushEndpoint(pushSubscription, reservedPushEndpoints))
+    ) {
+      const pushPromise = sendPushNotification(pushSubscription, enrichedPushPayload, cleanupExpired)
+      if (awaitPush) {
+        // Await the push so errors surface in the caller's logs
+        try {
+          const sent = await pushPromise
+          if (!sent) {
+            console.warn(`[Push] sendPushNotification returned false for tipo=${tipo} userId=${userId} (VAPID not configured or subscription expired)`)
+          }
+        } catch (err) {
+          console.error(`[Push] Error sending push notification (tipo=${tipo} userId=${userId}):`, safeErrorForLog(err))
+        }
+      } else {
+        // Fire-and-forget (default for non-critical notifications)
+        pushPromise.catch((err) => {
+          console.error("[Push] Error sending push notification:", safeErrorForLog(err))
+        })
+      }
     }
   }
 }
@@ -353,33 +617,39 @@ export async function sendPushNotification(
       } catch {
         // Expiration callbacks are diagnostic only; cleanup should continue.
       }
-      // Auto-cleanup expired subscriptions to prevent future send attempts
-      if (cleanupExpired) {
+
+      const parsedShape = parsePushSubscriptionShape(subscriptionJson)
+      const deadEndpoint = parsedShape?.endpoint ?? getPushSubscriptionEndpoint(subscriptionJson)
+
+      // P2-T05 Stage4: barrido GLOBAL normalizado por endpoint — señal 404/410
+      // real del proveedor Web Push, nunca de un cliente HTTP; el mismo
+      // endpoint físico puede estar legítimamente ligado a varios owners
+      // (MODEL-C1) y todos deben perder esa fila muerta.
+      if (deadEndpoint) {
         try {
-          const { db } = await import("@/lib/db")
-          const modelMap: Record<string, string> = {
-            cliente: "cliente",
-            negocio: "negocio",
-            repartidor: "repartidor",
-            superadmin: "superAdmin",
-            empleado: "empleado",
+          const { sweepDeadPushSubscriptionEndpoint } = await import("@/lib/push-subscription-repository")
+          await sweepDeadPushSubscriptionEndpoint(deadEndpoint)
+        } catch (sweepError) {
+          console.error("[Push] Error en barrido normalizado de endpoint muerto:", safeErrorForLog(sweepError))
+        }
+      }
+
+      // P2-T05 Stage4 (F-P0-03/F-P2-T05-16/17): reemplaza el blind-clear-by-
+      // actor-id histórico por el mismo patrón CAS ya certificado en el
+      // detach de usuario — sólo limpia legacy si el valor ACTUAL sigue
+      // siendo semánticamente la misma subscription que falló. Si el actor
+      // ya escribió un binding distinto entre el envío y esta limpieza, el
+      // CAS no matchea y ese binding más nuevo sobrevive intacto.
+      if (cleanupExpired && parsedShape) {
+        const fieldToClear = cleanupExpired.field || "pushSubscription"
+        const cleared = await safeClearLegacyIfMatches(cleanupExpired.model, cleanupExpired.id, fieldToClear, parsedShape)
+        if (cleared) {
+          console.log(`[Push] Legacy limpiado de forma segura (CAS) para ${cleanupExpired.model}:${cleanupExpired.id} (field=${fieldToClear})`)
+        }
+        if (cleanupExpired.additionalLegacyOwners) {
+          for (const extra of cleanupExpired.additionalLegacyOwners) {
+            await safeClearLegacyIfMatches(extra.model, extra.id, extra.field || "pushSubscription", parsedShape)
           }
-          const prismaModel = modelMap[cleanupExpired.model]
-          if (prismaModel) {
-            // Determine which field to clear. Defaults to "pushSubscription".
-            // For shared-display subscriptions (salon, empleados) we pass a
-            // custom field name so we don't wipe the business owner's personal
-            // push subscription.
-            const fieldToClear = cleanupExpired.field || "pushSubscription"
-            // Dynamic model + field access for cleanup
-            await (db as Record<string, { update: (args: { where: { id: string }; data: Record<string, null> }) => Promise<unknown> }>)[prismaModel].update({
-              where: { id: cleanupExpired.id },
-              data: { [fieldToClear]: null },
-            })
-            console.log(`[Push] Cleaned up expired subscription for ${cleanupExpired.model}:${cleanupExpired.id} (field=${fieldToClear})`)
-          }
-        } catch (cleanupError) {
-          console.error("[Push] Failed to cleanup expired subscription:", safeErrorForLog(cleanupError))
         }
       }
       return false

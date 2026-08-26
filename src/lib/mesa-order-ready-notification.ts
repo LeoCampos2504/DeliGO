@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
-import { mesaOrderReadyNotification, sendPushNotification } from "@/lib/push"
+import { mesaOrderReadyNotification, resolveCorePushTargets, sendPushToTargets } from "@/lib/push"
 
 type ReadyMesaPedido = {
   id: string
@@ -245,7 +245,12 @@ export async function notifyMesaOrderReadyForMozo({
 
   if (!persisted.created) return
 
-  if (!mozo.pushSubscription) {
+  // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) — un
+  // mozo con varios dispositivos recibe el aviso en TODOS sus endpoints
+  // únicos, con exactamente 1 Notificacion lógica ya persistida arriba.
+  const targets = await resolveCorePushTargets("empleado", mozo.id, mozo.pushSubscription)
+
+  if (targets.length === 0) {
     logMesaOrderReady("mesa_order_ready_subscription_missing", {
       pedidoId: shortId(pedido.id),
       negocioId: shortId(pedido.negocioId),
@@ -255,26 +260,9 @@ export async function notifyMesaOrderReadyForMozo({
   }
 
   try {
-    let expired = false
-    const sent = await sendPushNotification(
-      mozo.pushSubscription,
-      payload,
-      {
-        model: "empleado",
-        id: mozo.id,
-        suppressEndpointLog: true,
-        onExpired: () => {
-          expired = true
-          logMesaOrderReady("mesa_order_ready_subscription_expired", {
-            pedidoId: shortId(pedido.id),
-            negocioId: shortId(pedido.negocioId),
-            mozoId: shortId(mozo.id),
-          })
-        },
-      }
-    )
+    const { attempted, delivered } = await sendPushToTargets(targets, payload)
 
-    if (sent) {
+    if (delivered > 0) {
       logMesaOrderReady("mesa_order_ready_push_sent", {
         pedidoId: shortId(pedido.id),
         negocioId: shortId(pedido.negocioId),
@@ -287,7 +275,7 @@ export async function notifyMesaOrderReadyForMozo({
       pedidoId: shortId(pedido.id),
       negocioId: shortId(pedido.negocioId),
       mozoId: shortId(mozo.id),
-      expired,
+      expired: attempted > 0,
     })
   } catch (error) {
     logMesaOrderReady("mesa_order_ready_push_delivery_failed", {

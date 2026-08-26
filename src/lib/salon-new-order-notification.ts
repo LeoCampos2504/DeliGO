@@ -1,6 +1,11 @@
 import { db } from "@/lib/db"
 import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
-import { operacionesSalonNewOrderNotification, sendPushNotification } from "@/lib/push"
+import {
+  mergePushFanoutTargets,
+  operacionesSalonNewOrderNotification,
+  resolveCorePushTargets,
+  sendPushToTargets,
+} from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type NotifySalonNewOrderParams = {
@@ -63,36 +68,6 @@ async function resolveSalonEmpleados(negocioId: string): Promise<SalonEmpleadoRe
   )
 }
 
-function groupByEndpoint(empleados: SalonEmpleadoRecipient[]) {
-  const byEndpoint = new Map<string, { empleadoIds: string[]; subscriptionJson: string }>()
-
-  for (const empleado of empleados) {
-    const endpoint = parseSubscriptionEndpoint(empleado.pushSubscription)
-    if (!endpoint) continue
-
-    const existing = byEndpoint.get(endpoint)
-    if (existing) {
-      existing.empleadoIds.push(empleado.id)
-    } else {
-      byEndpoint.set(endpoint, {
-        empleadoIds: [empleado.id],
-        subscriptionJson: empleado.pushSubscription,
-      })
-    }
-  }
-
-  return byEndpoint
-}
-
-async function clearSalonSubscription(empleadoId: string, negocioId: string) {
-  await db.empleado
-    .updateMany({
-      where: { id: empleadoId, negocioId },
-      data: { pushSubscription: null },
-    })
-    .catch(() => undefined)
-}
-
 export async function notifySalonNewOrderForOperations(
   params: NotifySalonNewOrderParams
 ): Promise<NotifySalonNewOrderResult> {
@@ -148,40 +123,30 @@ export async function notifySalonNewOrderForOperations(
     )
   )
 
-  // Envío de push: agrupado por endpoint único para no duplicar el aviso del
-  // sistema operativo en un mismo dispositivo/navegador compartido.
-  const byEndpoint = groupByEndpoint(empleados)
-  const attemptedEndpoints: string[] = []
+  // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) por cada
+  // empleado destinatario, mergeado y deduplicado por endpoint físico único
+  // en toda la wave — un dispositivo compartido entre dos empleados
+  // (MODEL-C1) recibe UN solo send, nunca duplicado.
+  const perRecipientTargets = await Promise.all(
+    empleados.map((empleado) => resolveCorePushTargets("empleado", empleado.id, empleado.pushSubscription))
+  )
+  const targets = mergePushFanoutTargets(perRecipientTargets)
+  const attemptedEndpoints = targets.map((t) => t.endpoint)
 
-  for (const [endpoint, group] of byEndpoint) {
-    attemptedEndpoints.push(endpoint)
-    const [primaryId, ...restIds] = group.empleadoIds
-
-    try {
-      await sendPushNotification(group.subscriptionJson, payload, {
-        model: "empleado",
-        id: primaryId,
-        field: "pushSubscription",
-        suppressEndpointLog: true,
-        onExpired: () => {
-          if (restIds.length > 0) {
-            void Promise.all(restIds.map((id) => clearSalonSubscription(id, params.negocioId)))
-          }
-        },
-      })
-    } catch (error) {
-      console.error("[Push/OperacionesSalon] Error enviando notificacion:", {
-        pedidoId: shortId(params.pedidoId),
-        errorName: error instanceof Error ? error.name : "unknown",
-      })
-    }
+  try {
+    await sendPushToTargets(targets, payload)
+  } catch (error) {
+    console.error("[Push/OperacionesSalon] Error enviando notificacion:", {
+      pedidoId: shortId(params.pedidoId),
+      errorName: error instanceof Error ? error.name : "unknown",
+    })
   }
 
   console.info("[Push/OperacionesSalon] resumen", {
     pedidoId: shortId(params.pedidoId),
     negocioId: shortId(params.negocioId),
     destinatarios: empleados.length,
-    endpointsUnicos: byEndpoint.size,
+    endpointsUnicos: targets.length,
   })
 
   return { attemptedEndpoints }
