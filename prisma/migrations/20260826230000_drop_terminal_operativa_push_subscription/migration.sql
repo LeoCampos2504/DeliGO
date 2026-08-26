@@ -1,0 +1,35 @@
+-- P2-T12 (F-P0-05): elimina la columna inerte "pushSubscription" de
+-- "terminales_salon" (modelo TerminalOperativa). Auditoría exhaustiva de
+-- P2-T12-STAGE1/STAGE2 confirmó: el campo existe sin modificación desde el
+-- commit que introdujo el feature terminal (nunca migrado ni escrito),
+-- cero readers y cero writers de producto actuales, cero send-path Push
+-- de terminal, sin ownerType normalizado para terminal, sin flujo
+-- cliente/UI de subscribe/unsubscribe. La exclusión de TerminalOperativa
+-- del modelo PushSubscription normalizado (P2-T05,
+-- 20260824220000_add_push_subscription_model) fue deliberada y
+-- documentada, no un descuido — este drop no reabre ni depende de esa
+-- migración.
+--
+-- No hay dato productivo que preservar: cero escritores en toda la
+-- historia de git implica que cualquier valor no-null en la columna hoy
+-- no tiene contrato de consumo vigente. Sin backfill, sin export.
+--
+-- Esta operación es puramente de catálogo (columna nullable, sin
+-- default, sin índice propio, sin foreign key) — no lee ni transforma
+-- ninguna fila existente. IF EXISTS por el mismo motivo de idempotencia
+-- que 20260811020000_drop_cliente_bloqueado_ip_cliente_unique.
+--
+-- NOTA DE ROLLOUT (P2-T12-STAGE2): esta migración por sí sola NO decide
+-- si puede desplegarse en el mismo commit/deploy que la remoción del
+-- campo del schema Prisma. Se identificaron 2 call-sites productivos
+-- (src/app/api/operaciones/terminal/activar/route.ts,
+-- src/lib/operaciones-terminal-auth.ts) donde `terminalOperativa.update()`
+-- se invoca SIN `select` explícito — el Prisma Client generado contra el
+-- schema ANTERIOR a este cambio incluiría "pushSubscription" en su
+-- cláusula RETURNING para esas dos queries, aunque el valor nunca se lea
+-- en JS. Si esta migración se aplica mientras una instancia vieja de la
+-- app (Prisma Client pre-drop) todavía sirve tráfico, esas dos queries
+-- fallarían con "column does not exist". La decisión de rollout
+-- (single-deploy vs. two-phase contract) queda para P2-T12-STAGE3.
+
+ALTER TABLE "terminales_salon" DROP COLUMN IF EXISTS "pushSubscription";
