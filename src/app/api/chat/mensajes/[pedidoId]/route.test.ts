@@ -3,6 +3,7 @@
 // of route.ts is replaced via mock.module before the route is imported.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 const DEFAULT_PEDIDO = {
   id: "pedido-1",
@@ -19,7 +20,6 @@ const DEFAULT_PEDIDO = {
 }
 
 let pedidoRecord: typeof DEFAULT_PEDIDO | null
-let sessionResult: { userId: string; userType: string } | null
 let createShouldThrow: Error | null
 let createCallCount: number
 let publishCalls: Array<Record<string, unknown>>
@@ -88,9 +88,10 @@ mock.module("@/lib/db", () => {
   return { db }
 })
 
-mock.module("@/lib/auth", () => ({
-  validateSession: async (_token: string) => sessionResult,
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock, shared with
+// the other six Push-related test files — see src/lib/test-helpers/auth-mock.ts
+// for why a per-file partial mock.module("@/lib/auth", ...) is unsafe.
+installAuthMock()
 
 mock.module("@/lib/rate-limit", () => ({
   checkRateLimit: () => ({ allowed: true, remaining: 10, resetAt: Date.now() + 1000 }),
@@ -153,7 +154,8 @@ function callGet(pedidoId = "pedido-1", query = "") {
 
 beforeEach(() => {
   pedidoRecord = { ...DEFAULT_PEDIDO }
-  sessionResult = { userId: "cliente-1", userType: "cliente" }
+  resetAuthMockState(authMockState)
+  authMockState.sessionResult = { userId: "cliente-1", userType: "cliente" }
   createShouldThrow = null
   createCallCount = 0
   publishCalls = []

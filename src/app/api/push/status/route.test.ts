@@ -3,6 +3,7 @@
 // src/app/api/push/subscribe/route.test.ts.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type ActorRow = { id: string; pushSubscription: string | null }
 type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
@@ -12,7 +13,6 @@ let negocioRows: ActorRow[]
 let repartidorRows: ActorRow[]
 let superAdminRows: ActorRow[]
 let pushRows: PushRow[]
-let currentUser: { id: string; type: string } | null
 
 function findActor(rows: ActorRow[], id: string, matchSubscription?: string) {
   return rows.find((r) => r.id === id && (matchSubscription === undefined || r.pushSubscription === matchSubscription)) ?? null
@@ -31,15 +31,10 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3R1: superset mock — see the identical comment in
-// src/app/api/push/subscribe/route.test.ts.
-mock.module("@/lib/auth", () => ({
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async (token: string) => (token === "valid-token" ? currentUser : null),
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async () => null,
-  deleteOperationalSession: async () => {},
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock — see the
+// identical comment in src/app/api/push/subscribe/route.test.ts and
+// src/lib/test-helpers/auth-mock.ts.
+installAuthMock()
 
 mock.module("@/lib/log-safe-error", () => ({
   safeErrorForLog: (e: unknown) => e,
@@ -76,7 +71,7 @@ beforeEach(() => {
   superAdminRows = [{ id: "superadmin-1", pushSubscription: null }]
   pushRows = []
   idc = 0
-  currentUser = null
+  resetAuthMockState()
 })
 
 describe("POST /api/push/status — auth", () => {
@@ -91,7 +86,7 @@ describe("POST /api/push/status — auth", () => {
   })
 
   test("STATUS_CLIENT_SUPPLIED_OWNER_AUTHORITY=NO: a fake ownerId in the body never changes whose binding is checked", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("cliente", "cliente-OTHER", "https://push.example/E1")]
     const res = await POST(
       new NextRequest("http://localhost/api/push/status", {
@@ -107,19 +102,19 @@ describe("POST /api/push/status — auth", () => {
 
 describe("POST /api/push/status — validation", () => {
   test("missing subscription -> 400", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callStatus(undefined, "203.0.113.10")
     expect(res.status).toBe(400)
   })
 
   test("malformed subscription -> 400", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callStatus("{not-json", "203.0.113.11")
     expect(res.status).toBe(400)
   })
 
   test("invalid shape (http endpoint) -> 400", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = JSON.stringify({ endpoint: "http://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "a" } })
     const res = await callStatus(bad, "203.0.113.12")
     expect(res.status).toBe(400)
@@ -128,7 +123,7 @@ describe("POST /api/push/status — validation", () => {
 
 describe("POST /api/push/status — cliente exact match", () => {
   test("normalized exact match -> true", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1")]
     const res = await callStatus(subJson("https://push.example/E1"), "203.0.113.20")
     const body = await res.json()
@@ -136,7 +131,7 @@ describe("POST /api/push/status — cliente exact match", () => {
   })
 
   test("legacy exact match (no normalized row) -> true — pre-backfill compatibility", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const sub = subJson("https://push.example/E1")
     clienteRows[0].pushSubscription = sub
     const res = await callStatus(sub, "203.0.113.21")
@@ -145,14 +140,14 @@ describe("POST /api/push/status — cliente exact match", () => {
   })
 
   test("neither normalized nor legacy match -> false", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callStatus(subJson("https://push.example/UNKNOWN"), "203.0.113.22")
     const body = await res.json()
     expect(body).toEqual({ subscribed: false })
   })
 
   test("other endpoint entirely (different device) -> false", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1")]
     const res = await callStatus(subJson("https://push.example/E3"), "203.0.113.23")
     const body = await res.json()
@@ -160,7 +155,7 @@ describe("POST /api/push/status — cliente exact match", () => {
   })
 
   test("other actor same endpoint -> false, no cross-owner leak", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("negocio", "negocio-1", "https://push.example/SHARED")]
     const res = await callStatus(subJson("https://push.example/SHARED"), "203.0.113.24")
     const body = await res.json()
@@ -171,14 +166,14 @@ describe("POST /api/push/status — cliente exact match", () => {
 
 describe("POST /api/push/status — negocio / repartidor exact-own behavior", () => {
   test("negocio: normalized exact match -> true", async () => {
-    currentUser = { id: "negocio-1", type: "negocio" }
+    authMockState.currentUser = { id: "negocio-1", type: "negocio" }
     pushRows = [pushRow("negocio", "negocio-1", "https://push.example/E1")]
     const res = await callStatus(subJson("https://push.example/E1"), "203.0.113.30")
     expect((await res.json()).subscribed).toBe(true)
   })
 
   test("repartidor: legacy exact match -> true", async () => {
-    currentUser = { id: "repartidor-1", type: "repartidor" }
+    authMockState.currentUser = { id: "repartidor-1", type: "repartidor" }
     const sub = subJson("https://push.example/E1")
     repartidorRows[0].pushSubscription = sub
     const res = await callStatus(sub, "203.0.113.31")
@@ -188,7 +183,7 @@ describe("POST /api/push/status — negocio / repartidor exact-own behavior", ()
 
 describe("POST /api/push/status — multi-device independence", () => {
   test("E1 and E2 both normalized for the same owner -> both status independently true", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [
       pushRow("cliente", "cliente-1", "https://push.example/E1"),
       pushRow("cliente", "cliente-1", "https://push.example/E2"),
@@ -202,7 +197,7 @@ describe("POST /api/push/status — multi-device independence", () => {
   })
 
   test("mixed rollout: legacy holds E2 (last-write-wins), normalized holds E1 -> both E1 and E2 report true", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const e2 = subJson("https://push.example/E2")
     clienteRows[0].pushSubscription = e2
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1")]
@@ -214,7 +209,7 @@ describe("POST /api/push/status — multi-device independence", () => {
   })
 
   test("disable E1 (normalized row removed): status E1 false, status E2 unaffected", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E2")] // E1 already detached
     const resE1 = await callStatus(subJson("https://push.example/E1"), "203.0.113.45")
     const resE2 = await callStatus(subJson("https://push.example/E2"), "203.0.113.46")
@@ -225,7 +220,7 @@ describe("POST /api/push/status — multi-device independence", () => {
 
 describe("POST /api/push/status — superadmin boundary", () => {
   test("superadmin: legacy-only, no normalized ownership fabricated", async () => {
-    currentUser = { id: "superadmin-1", type: "superadmin" }
+    authMockState.currentUser = { id: "superadmin-1", type: "superadmin" }
     const sub = subJson("https://push.example/E1")
     superAdminRows[0].pushSubscription = sub
     const res = await callStatus(sub, "203.0.113.50")
@@ -233,7 +228,7 @@ describe("POST /api/push/status — superadmin boundary", () => {
   })
 
   test("superadmin: no match -> false, never queries the normalized table", async () => {
-    currentUser = { id: "superadmin-1", type: "superadmin" }
+    authMockState.currentUser = { id: "superadmin-1", type: "superadmin" }
     const res = await callStatus(subJson("https://push.example/E1"), "203.0.113.51")
     expect((await res.json()).subscribed).toBe(false)
   })
@@ -241,7 +236,7 @@ describe("POST /api/push/status — superadmin boundary", () => {
 
 describe("POST /api/push/status — response shape", () => {
   test("response contains ONLY {subscribed} — never counts, ids, ownerType, channel, keys", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1")]
     const res = await callStatus(subJson("https://push.example/E1"), "203.0.113.60")
     const body = await res.json()

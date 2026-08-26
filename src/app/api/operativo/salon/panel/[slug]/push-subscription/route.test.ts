@@ -5,6 +5,7 @@
 // or reusing the Mozo route's test. No real DB, no real Railway secret.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type EmpleadoRow = {
   id: string
@@ -104,15 +105,11 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3: superset mock — see the identical comment in
-// operativo/mozo/panel/[slug]/push-subscription/route.test.ts.
-mock.module("@/lib/auth", () => ({
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async () => null,
-  deleteOperationalSession: async () => {},
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async () => null,
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock — see the
+// identical comment in
+// operativo/mozo/panel/[slug]/push-subscription/route.test.ts and
+// src/lib/test-helpers/auth-mock.ts.
+installAuthMock()
 
 mock.module("@/lib/operativo-mozo", () => ({
   noStore: <T>(response: T): T => response,
@@ -163,6 +160,7 @@ function callDelete(body?: unknown, rawBody?: string) {
 }
 
 beforeEach(() => {
+  resetAuthMockState()
   empleadoRows = []
   updateManyCalls = []
   resolveAreaCalls = []

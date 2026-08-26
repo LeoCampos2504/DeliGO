@@ -9,6 +9,7 @@
 // call arguments.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { authMockHooks, authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type EmpleadoRow = {
   id: string
@@ -18,8 +19,6 @@ type EmpleadoRow = {
 type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string }
 
 let empleadoRows: EmpleadoRow[]
-let sessionByToken: Map<string, { cuentaOperativaId: string } | null>
-let deletedSessionTokens: string[]
 let updateManyCalls: Array<{ where: Record<string, unknown> }>
 let updateManyThrows: Error | null
 let callOrder: string[]
@@ -69,19 +68,14 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3: superset mock (SESSION_COOKIE_NAME/getUserFromToken added
-// for cross-file safety — see the comment in
-// src/app/api/push/subscribe/route.test.ts).
-mock.module("@/lib/auth", () => ({
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async (token: string) => sessionByToken.get(token) ?? null,
-  deleteOperationalSession: async (token: string) => {
-    deletedSessionTokens.push(token)
-    callOrder.push("session-delete")
-  },
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async () => null,
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock, shared with
+// the other six Push-related test files — see src/lib/test-helpers/auth-mock.ts
+// for why a per-file partial mock.module("@/lib/auth", ...) is unsafe. This
+// file additionally needs to prove call-ORDERING against its own push-detach
+// mock (see `callOrder` below) — `authMockHooks.onDeleteOperationalSession`
+// is a shared, mutable singleton field for exactly that, so this file never
+// needs a second, competing `mock.module("@/lib/auth", ...)` registration.
+installAuthMock()
 
 mock.module("@/lib/log-safe-error", () => ({
   safeErrorForLog: (e: unknown) => e,
@@ -105,11 +99,13 @@ function buildRequest(body?: unknown, opts?: { rawBody?: string; noCookie?: bool
 
 beforeEach(() => {
   empleadoRows = []
-  sessionByToken = new Map()
-  deletedSessionTokens = []
+  resetAuthMockState()
   updateManyCalls = []
   updateManyThrows = null
   callOrder = []
+  authMockHooks.onDeleteOperationalSession = (_token) => {
+    callOrder.push("session-delete")
+  }
   pushRows = []
   pushDeleteManyCalls = 0
   transactionThrows = null
@@ -126,7 +122,7 @@ function subJson(endpoint: string) {
 
 describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", () => {
   test("exact match: cuentaOperativaId=A + subscription=EA clears matching rows, logout still succeeds", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [
       { id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: "EA" },
       { id: "empleado-2", cuentaOperativaId: "cuenta-a", pushSubscription: "EA" },
@@ -141,11 +137,11 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
     expect(updateManyCalls[0].where).toEqual({ cuentaOperativaId: "cuenta-a", pushSubscription: "EA" })
     expect(empleadoRows[0].pushSubscription).toBeNull()
     expect(empleadoRows[1].pushSubscription).toBeNull()
-    expect(deletedSessionTokens).toEqual(["tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a"])
   })
 
   test("DEVICE_A_CANNOT_CLEAR_EB: other device's stored subscription under the SAME account is preserved", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: "EB" }]
 
     const res = await POST(buildRequest({ subscription: "EA" }, { token: "tok-a" }))
@@ -155,7 +151,7 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
   })
 
   test("different account: subscription S under account B is never targeted by account A's logout", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [{ id: "empleado-b1", cuentaOperativaId: "cuenta-b", pushSubscription: "S" }]
 
     const res = await POST(buildRequest({ subscription: "S" }, { token: "tok-a" }))
@@ -165,7 +161,7 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
   })
 
   test("no body (old client): logout still succeeds, push updateMany is never called", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
 
     const res = await POST(buildRequest(undefined, { token: "tok-a" }))
     const body = await res.json()
@@ -173,20 +169,20 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
     expect(updateManyCalls.length).toBe(0)
-    expect(deletedSessionTokens).toEqual(["tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a"])
   })
 
   test("malformed JSON body: logout continues, no push update attempted", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
 
     const res = await POST(buildRequest(undefined, { rawBody: "{not-json", token: "tok-a" }))
     expect(res.status).toBe(200)
     expect(updateManyCalls.length).toBe(0)
-    expect(deletedSessionTokens).toEqual(["tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a"])
   })
 
   test("wrong-type / empty subscription: logout continues, no push update attempted", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
 
     const resNumber = await POST(buildRequest({ subscription: 12345 }, { token: "tok-a" }))
     expect(resNumber.status).toBe(200)
@@ -194,11 +190,11 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
     expect(resEmpty.status).toBe(200)
 
     expect(updateManyCalls.length).toBe(0)
-    expect(deletedSessionTokens).toEqual(["tok-a", "tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a", "tok-a"])
   })
 
   test("push detach DB failure: session deletion still executes, logout response unchanged", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     updateManyThrows = new Error("simulated DB failure")
 
     const res = await POST(buildRequest({ subscription: "EA" }, { token: "tok-a" }))
@@ -206,11 +202,11 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
 
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(deletedSessionTokens).toEqual(["tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a"])
   })
 
   test("ordering: push detach is attempted before the operational session is deleted", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: "EA" }]
 
     await POST(buildRequest({ subscription: "EA" }, { token: "tok-a" }))
@@ -221,23 +217,23 @@ describe("POST /api/operativo/logout — exact-match push detach (Logout-B1)", (
     const res = await POST(buildRequest(undefined, { noCookie: true }))
     expect(res.status).toBe(200)
     expect(updateManyCalls.length).toBe(0)
-    expect(deletedSessionTokens.length).toBe(0)
+    expect(authMockState.deletedOperationalSessionTokens.length).toBe(0)
   })
 
   test("invalid/expired session token: logout still succeeds, no push detach attempted (no server-derived account available)", async () => {
-    // sessionByToken has no entry for "tok-invalid" -> validateOperationalSession returns null
+    // no entry for "tok-invalid" in authMockState.operationalSessionByToken -> validateOperationalSession returns null
     const res = await POST(buildRequest({ subscription: "EA" }, { token: "tok-invalid" }))
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
     expect(updateManyCalls.length).toBe(0)
-    expect(deletedSessionTokens).toEqual(["tok-invalid"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-invalid"])
   })
 })
 
 describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (Stage3 §19)", () => {
   test("stale device: normalized E1 detached even though legacy already holds newer E2 (own binding cleared without requiring legacy match)", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     const e1 = subJson("https://push.example/E1")
     const e2 = subJson("https://push.example/E2")
     empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: e2 }]
@@ -250,7 +246,7 @@ describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (
   })
 
   test("multiple Empleado under the same cuentaOperativaId: only the one holding this endpoint loses its row", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     const e1 = subJson("https://push.example/E1")
     empleadoRows = [
       { id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: null },
@@ -263,7 +259,7 @@ describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (
   })
 
   test("never touches another cuentaOperativaId's normalized binding, even on the same endpoint", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     const shared = subJson("https://push.example/SHARED")
     empleadoRows = [
       { id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: shared },
@@ -277,7 +273,7 @@ describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (
   })
 
   test("OPERATIVE_LOGOUT_FAILURE_BLOCKS_LOGOUT=NO: normalized cleanup throwing still lets logout proceed", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: null }]
     transactionThrows = new Error("simulated transaction failure")
 
@@ -286,15 +282,28 @@ describe("POST /api/operativo/logout — normalized cleanup, multi-device safe (
 
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(deletedSessionTokens).toEqual(["tok-a"])
+    expect(authMockState.deletedOperationalSessionTokens).toEqual(["tok-a"])
   })
 
   test("no endpoint extractable (malformed subscription payload that still parses as valid JSON string): legacy path still runs, no crash", async () => {
-    sessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
+    authMockState.operationalSessionByToken.set("tok-a", { cuentaOperativaId: "cuenta-a" })
     empleadoRows = [{ id: "empleado-1", cuentaOperativaId: "cuenta-a", pushSubscription: "EA" }]
 
     const res = await POST(buildRequest({ subscription: "EA" }, { token: "tok-a" }))
     expect(res.status).toBe(200)
     expect(pushDeleteManyCalls).toBe(0) // no endpoint could be extracted from "EA" -> normalized detach skipped
   })
+})
+
+test("resetAuthMockState clears a previously installed logout hook before the next test", () => {
+  const oldHookCalls: string[] = []
+  authMockHooks.onDeleteOperationalSession = () => {
+    oldHookCalls.push("old-hook")
+  }
+
+  resetAuthMockState()
+  expect(authMockHooks.onDeleteOperationalSession).toBeUndefined()
+
+  authMockHooks.onDeleteOperationalSession?.("token-after-reset")
+  expect(oldHookCalls).toEqual([])
 })

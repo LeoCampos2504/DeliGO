@@ -9,6 +9,7 @@
 // parameter never leaks into POST's write path.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type EmpleadoRow = {
   id: string
@@ -107,16 +108,14 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3: superset mock (SESSION_COOKIE_NAME/getUserFromToken added
-// for cross-file safety — see the comment in
-// src/app/api/push/subscribe/route.test.ts).
-mock.module("@/lib/auth", () => ({
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async () => null,
-  deleteOperationalSession: async () => {},
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async () => null,
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock, shared with
+// the other six Push-related test files — see src/lib/test-helpers/auth-mock.ts
+// for why a per-file partial mock.module("@/lib/auth", ...) is unsafe. This
+// route only ever imports OPERATIONAL_SESSION_COOKIE_NAME directly (auth
+// itself is delegated to the separately-mocked @/lib/operativo-mozo below),
+// so the canonical mock's default (never-authenticated) validateOperationalSession/
+// getUserFromToken values are never exercised by this file's own route calls.
+installAuthMock()
 
 mock.module("@/lib/operativo-mozo", () => ({
   noStore: <T>(response: T): T => response,
@@ -164,6 +163,7 @@ function callDelete(body?: unknown, rawBody?: string) {
 }
 
 beforeEach(() => {
+  resetAuthMockState()
   empleadoRows = []
   updateManyCalls = []
   pushRows = []

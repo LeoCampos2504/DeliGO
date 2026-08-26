@@ -5,6 +5,7 @@
 // detachPushSubscriptionByEndpoint's real query shape).
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type ActorRow = { id: string; pushSubscription: string | null }
 type PushRow = {
@@ -25,7 +26,6 @@ let pushRows: PushRow[]
 let idCounter: number
 let singletonDeleteManyCalls: number
 let txDeleteManyCalls: number
-let currentUser: { id: string; type: string } | null
 
 function matchWhere(rows: ActorRow[], id: string, pushSubscription?: string) {
   return rows.find((r) => r.id === id && (pushSubscription === undefined || r.pushSubscription === pushSubscription))
@@ -110,15 +110,10 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3: superset mock — see the identical comment in
-// src/app/api/push/subscribe/route.test.ts for why.
-mock.module("@/lib/auth", () => ({
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async (token: string) => (token === "valid-token" ? currentUser : null),
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async () => null,
-  deleteOperationalSession: async () => {},
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock — see the
+// identical comment in src/app/api/push/subscribe/route.test.ts and
+// src/lib/test-helpers/auth-mock.ts.
+installAuthMock()
 
 mock.module("@/lib/log-safe-error", () => ({
   safeErrorForLog: (e: unknown) => e,
@@ -170,12 +165,12 @@ beforeEach(() => {
   idc = 0
   singletonDeleteManyCalls = 0
   txDeleteManyCalls = 0
-  currentUser = null
+  resetAuthMockState()
 })
 
 describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§17)", () => {
   test("stale device E1 detaches its own normalized row without requiring legacy exact-match", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const e1 = subJson("https://push.example/E1")
     const e2 = subJson("https://push.example/E2")
     clienteRows[0].pushSubscription = e2 // legacy currently holds the NEWER device (last-write-wins)
@@ -191,7 +186,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
   })
 
   test("cross-actor: unsubscribe from A never touches B's binding on the same endpoint", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const shared = subJson("https://push.example/SHARED")
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/SHARED"), pushRow("negocio", "negocio-1", "https://push.example/SHARED")]
 
@@ -205,7 +200,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
   })
 
   test("both legacy and normalized removed in the same transaction, never the singleton", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const e1 = subJson("https://push.example/E1")
     clienteRows[0].pushSubscription = e1
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1")]
@@ -222,7 +217,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
   })
 
   test("no subscription in body -> removed:false, no writes (unchanged legacy contract)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callUnsubscribe(undefined, "203.0.113.43")
     const body = await res.json()
     expect(res.status).toBe(200)
@@ -231,7 +226,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
   })
 
   test("neither legacy nor normalized match -> removed:false", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const other = subJson("https://push.example/UNKNOWN")
     const res = await callUnsubscribe(other, "203.0.113.44")
     const body = await res.json()
@@ -240,7 +235,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
   })
 
   test("USER_UNSUBSCRIBE_CAN_CALL_GLOBAL_DEAD_ENDPOINT_SWEEP=NO: only the caller's own owner scope is ever touched", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const shared = subJson("https://push.example/SHARED")
     pushRows = [
       pushRow("cliente", "cliente-1", "https://push.example/SHARED"),
@@ -256,7 +251,7 @@ describe("POST /api/push/unsubscribe — multi-device stale-device semantics (§
 
 describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F-P2-T05-17)", () => {
   test("G-R1-01: object subscribe contract -> object unsubscribe -> FULL DETACH (Cliente)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/OBJ-OBJ"
     clienteRows[0].pushSubscription = subJson(endpoint) // legacy stored as canonical (H3 object-subscribe outcome)
     pushRows = [pushRow("cliente", "cliente-1", endpoint)]
@@ -271,7 +266,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-02: object-subscribe canonical legacy -> string unsubscribe with different property order -> FULL DETACH", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/OBJ-STR"
     clienteRows[0].pushSubscription = subJson(endpoint) // canonical order
     pushRows = [pushRow("cliente", "cliente-1", endpoint)]
@@ -286,7 +281,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-03: non-canonical raw string legacy (byte-preserved by H3) -> object unsubscribe -> FULL DETACH via semantic CAS", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/STR-OBJ"
     const nonCanonical = subJsonDifferentOrder(endpoint) // what H3 would have preserved byte-for-byte
     clienteRows[0].pushSubscription = nonCanonical
@@ -302,7 +297,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-04: extra client-supplied properties on the object never block semantic detach", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/EXTRAS"
     clienteRows[0].pushSubscription = subJson(endpoint)
     pushRows = [pushRow("cliente", "cliente-1", endpoint)]
@@ -317,7 +312,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-05: stale device (different endpoint) cannot clear the current newer legacy binding via semantic fallback", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     clienteRows[0].pushSubscription = subJson("https://push.example/NEWER")
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/STALE"), pushRow("cliente", "cliente-1", "https://push.example/NEWER")]
 
@@ -331,7 +326,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-06: same endpoint but rotated keys cannot clear the newer legacy binding (endpoint-only comparison would wrongly match)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/ROTATED"
     clienteRows[0].pushSubscription = subJson(endpoint, "NEW_P256DH", "NEW_AUTH")
     pushRows = [pushRow("cliente", "cliente-1", endpoint)]
@@ -349,7 +344,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-07: normalized own-device detach succeeds while a different device's legacy binding remains (multi-device)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     clienteRows[0].pushSubscription = subJson("https://push.example/E2")
     pushRows = [pushRow("cliente", "cliente-1", "https://push.example/E1"), pushRow("cliente", "cliente-1", "https://push.example/E2")]
 
@@ -359,7 +354,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-08: cross-actor isolation preserved for object-contract unsubscribe on a shared endpoint", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const shared = "https://push.example/SHARED-OBJ"
     pushRows = [pushRow("cliente", "cliente-1", shared), pushRow("negocio", "negocio-1", shared)]
 
@@ -370,7 +365,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-09: Negocio object subscribe/unsubscribe symmetry", async () => {
-    currentUser = { id: "negocio-1", type: "negocio" }
+    authMockState.currentUser = { id: "negocio-1", type: "negocio" }
     const endpoint = "https://push.example/NEGOCIO-OBJ"
     negocioRows[0].pushSubscription = subJson(endpoint)
     pushRows = [pushRow("negocio", "negocio-1", endpoint)]
@@ -384,7 +379,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-10: Repartidor object subscribe/unsubscribe symmetry", async () => {
-    currentUser = { id: "repartidor-1", type: "repartidor" }
+    authMockState.currentUser = { id: "repartidor-1", type: "repartidor" }
     const endpoint = "https://push.example/REPARTIDOR-OBJ"
     repartidorRows[0].pushSubscription = subJson(endpoint)
     pushRows = [pushRow("repartidor", "repartidor-1", endpoint)]
@@ -398,7 +393,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-11: SuperAdmin object unsubscribe clears legacy-only, no normalized owner ever attempted", async () => {
-    currentUser = { id: "superadmin-1", type: "superadmin" }
+    authMockState.currentUser = { id: "superadmin-1", type: "superadmin" }
     const endpoint = "https://push.example/SUPERADMIN-OBJ"
     superAdminRows[0].pushSubscription = subJson(endpoint)
 
@@ -412,7 +407,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-12: missing subscription still preserves the generic no-op contract (unchanged)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callUnsubscribe(undefined, "203.0.113.61")
     const body = await res.json()
     expect(res.status).toBe(200)
@@ -420,7 +415,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-13: malformed object (missing required shape) fails closed with 400, no write attempted", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     clienteRows[0].pushSubscription = subJson("https://push.example/UNTOUCHED")
 
     const res = await callUnsubscribe({ foo: "bar" }, "203.0.113.62")
@@ -432,7 +427,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-14: normalized detach failure rolls back the legacy semantic clear (atomicity preserved)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/ROLLBACK"
     const nonCanonical = subJsonDifferentOrder(endpoint)
     clienteRows[0].pushSubscription = nonCanonical
@@ -454,7 +449,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-15: legacy value changed between read and write -> CAS does not blind-clear the new value", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/RACE"
     const originalRaw = subJsonDifferentOrder(endpoint)
     clienteRows[0].pushSubscription = originalRaw
@@ -478,7 +473,7 @@ describe("POST /api/push/unsubscribe — Stage3H3R1 symmetric semantic detach (F
   })
 
   test("G-R1-16: removed:true is truthful — no same-logical-subscription legacy binding survives after a full object detach", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const endpoint = "https://push.example/TRUTHFUL"
     clienteRows[0].pushSubscription = subJsonDifferentOrder(endpoint)
     pushRows = [pushRow("cliente", "cliente-1", endpoint)]

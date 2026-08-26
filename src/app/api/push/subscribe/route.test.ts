@@ -13,6 +13,7 @@
 // escapes the transaction (NORMALIZED_WRITE_ESCAPES_TRANSACTION=NO).
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
+import { authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-helpers/auth-mock"
 
 type ActorRow = { id: string; pushSubscription: string | null }
 type PushRow = {
@@ -34,7 +35,6 @@ let pushRows: PushRow[]
 let idCounter: number
 let singletonUpsertCalls: number
 let txUpsertCalls: number
-let currentUser: { id: string; type: string } | null
 
 function matchWhere(rows: ActorRow[], id: string) {
   return rows.find((r) => r.id === id)
@@ -133,21 +133,12 @@ mock.module("@/lib/db", () => ({
   },
 }))
 
-// P2-T05 Stage3: @/lib/auth is mocked as a SUPERSET of every export any
-// sibling push/operativo route test might need — Bun's mock.module patches
-// the module registry process-wide, so when many test files run in the same
-// `bun test` invocation, whichever file's mock loads last wins for ALL of
-// them (same hazard already documented in the operativo salon/mozo panel
-// route tests). Only SESSION_COOKIE_NAME/getUserFromToken are actually used
-// by this route; the OPERATIONAL_* fields are inert stubs for cross-file
-// safety.
-mock.module("@/lib/auth", () => ({
-  SESSION_COOKIE_NAME: "deligo_session",
-  getUserFromToken: async (token: string) => (token === "valid-token" ? currentUser : null),
-  OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
-  validateOperationalSession: async () => null,
-  deleteOperationalSession: async () => {},
-}))
+// P2-T05 Hardening H4 (F-P2-T05-22): canonical superset mock, shared with
+// the other six Push-related test files — see src/lib/test-helpers/auth-mock.ts
+// for why a per-file partial mock.module("@/lib/auth", ...) is unsafe. Only
+// SESSION_COOKIE_NAME/getUserFromToken are actually used by this route; the
+// OPERATIONAL_* exports are part of the canonical shape but inert here.
+installAuthMock()
 
 mock.module("@/lib/log-safe-error", () => ({
   safeErrorForLog: (e: unknown) => e,
@@ -183,18 +174,18 @@ beforeEach(() => {
   idCounter = 0
   singletonUpsertCalls = 0
   txUpsertCalls = 0
-  currentUser = null
+  resetAuthMockState()
 })
 
 describe("POST /api/push/subscribe — unified validation (F-P2-T05-01)", () => {
   test("B0: old valid client body still accepted", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.1")
     expect(res.status).toBe(200)
   })
 
   test("rejects http:// endpoint", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = JSON.stringify({ endpoint: "http://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "a" } })
     const res = await callSubscribe(bad, "203.0.113.2")
     expect(res.status).toBe(400)
@@ -202,28 +193,28 @@ describe("POST /api/push/subscribe — unified validation (F-P2-T05-01)", () => 
   })
 
   test("rejects empty p256dh", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = JSON.stringify({ endpoint: "https://push.example/E1", expirationTime: null, keys: { p256dh: "", auth: "a" } })
     const res = await callSubscribe(bad, "203.0.113.3")
     expect(res.status).toBe(400)
   })
 
   test("rejects empty auth", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = JSON.stringify({ endpoint: "https://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "" } })
     const res = await callSubscribe(bad, "203.0.113.4")
     expect(res.status).toBe(400)
   })
 
   test("rejects invalid expirationTime", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = JSON.stringify({ endpoint: "https://push.example/E1", expirationTime: "not-a-number", keys: { p256dh: "p", auth: "a" } })
     const res = await callSubscribe(bad, "203.0.113.5")
     expect(res.status).toBe(400)
   })
 
   test("accepts valid epoch expirationTime", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const ok = JSON.stringify({ endpoint: "https://push.example/E1", expirationTime: 1893456000000, keys: { p256dh: "p", auth: "a" } })
     const res = await callSubscribe(ok, "203.0.113.6")
     expect(res.status).toBe(200)
@@ -233,7 +224,7 @@ describe("POST /api/push/subscribe — unified validation (F-P2-T05-01)", () => 
 
 describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   test("cliente: legacy + normalized write in the SAME transaction, never the singleton", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.10")
     expect(res.status).toBe(200)
 
@@ -246,7 +237,7 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   })
 
   test("negocio: dual-write also works (spot-check second branch)", async () => {
-    currentUser = { id: "negocio-1", type: "negocio" }
+    authMockState.currentUser = { id: "negocio-1", type: "negocio" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.11")
     expect(res.status).toBe(200)
     expect(negocioRows[0].pushSubscription).toBe(VALID_SUB)
@@ -254,7 +245,7 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   })
 
   test("repartidor: dual-write also works (spot-check third branch)", async () => {
-    currentUser = { id: "repartidor-1", type: "repartidor" }
+    authMockState.currentUser = { id: "repartidor-1", type: "repartidor" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.12")
     expect(res.status).toBe(200)
     expect(repartidorRows[0].pushSubscription).toBe(VALID_SUB)
@@ -262,7 +253,7 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   })
 
   test("multi-device: E1 then E2 for the same cliente — both normalized rows coexist, legacy is last-write-wins E2", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     await callSubscribe(VALID_SUB, "203.0.113.13")
     const sub2 = JSON.stringify({ endpoint: "https://push.example/E2", expirationTime: null, keys: { p256dh: "p2", auth: "a2" } })
     await callSubscribe(sub2, "203.0.113.14")
@@ -273,7 +264,7 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   })
 
   test("superadmin: legacy-only, SUPERADMIN_NORMALIZED_WRITE_ATTEMPTED=NO", async () => {
-    currentUser = { id: "superadmin-1", type: "superadmin" }
+    authMockState.currentUser = { id: "superadmin-1", type: "superadmin" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.15")
     expect(res.status).toBe(200)
     expect(superAdminRows[0].pushSubscription).toBe(VALID_SUB)
@@ -283,7 +274,7 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
   })
 
   test("CLIENT_SUPPLIED_OWNER_AUTHORITY=NO: a fake ownerId/negocioId in the body never changes the server-derived owner", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const body = { subscription: VALID_SUB, ownerId: "attacker-controlled", negocioId: "attacker-controlled", channel: "salon" }
     const res = await POST(
       new NextRequest("http://localhost/api/push/subscribe", {
@@ -300,10 +291,10 @@ describe("POST /api/push/subscribe — atomic dual-write (F-P0-03)", () => {
 
 describe("POST /api/push/subscribe — atomicity: no partial dual-write", () => {
   test("if the normalized write throws, the legacy write rolls back too (SUBSCRIBE_PARTIAL_SUCCESS_ALLOWED=NO)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     // Empty ownerId makes registerPushSubscription's own validation throw
     // (assertValidOwner) — simulates the normalized write failing mid-tx.
-    currentUser = { id: "", type: "cliente" }
+    authMockState.currentUser = { id: "", type: "cliente" }
     clienteRows = [{ id: "", pushSubscription: null }]
 
     const res = await callSubscribe(VALID_SUB, "203.0.113.20")
@@ -315,7 +306,7 @@ describe("POST /api/push/subscribe — atomicity: no partial dual-write", () => 
 
 describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P2-T05-16)", () => {
   test("H3-A: raw string input — legacy write receives EXACTLY the same raw string (regression baseline, unchanged)", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callSubscribe(VALID_SUB, "203.0.113.40")
     expect(res.status).toBe(200)
     expect(clienteRows[0].pushSubscription).toBe(VALID_SUB)
@@ -323,7 +314,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-B: cliente + parsed object — 200, legacy write receives a string (never the object), normalized write occurs, same tx", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.41")
     expect(res.status).toBe(200)
 
@@ -337,7 +328,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-C: negocio + parsed object — 200, legacy write receives a string", async () => {
-    currentUser = { id: "negocio-1", type: "negocio" }
+    authMockState.currentUser = { id: "negocio-1", type: "negocio" }
     const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.42")
     expect(res.status).toBe(200)
     expect(typeof negocioRows[0].pushSubscription).toBe("string")
@@ -345,7 +336,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-D: repartidor + parsed object — 200, legacy write receives a string", async () => {
-    currentUser = { id: "repartidor-1", type: "repartidor" }
+    authMockState.currentUser = { id: "repartidor-1", type: "repartidor" }
     const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.43")
     expect(res.status).toBe(200)
     expect(typeof repartidorRows[0].pushSubscription).toBe("string")
@@ -353,7 +344,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-E: superadmin + parsed object — 200, legacy-only, legacy value is a string, SUPERADMIN_NORMALIZED_WRITE_ATTEMPTED=NO", async () => {
-    currentUser = { id: "superadmin-1", type: "superadmin" }
+    authMockState.currentUser = { id: "superadmin-1", type: "superadmin" }
     const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.44")
     expect(res.status).toBe(200)
     expect(typeof superAdminRows[0].pushSubscription).toBe("string")
@@ -363,7 +354,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-F: extra properties on the parsed object never govern owner/channel and never leak into the legacy canonical string", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const withExtras = { ...VALID_SUB_SHAPE, ownerId: "attacker-controlled", channel: "salon", extra: "junk" }
     const res = await callSubscribe(withExtras, "203.0.113.45")
     expect(res.status).toBe(200)
@@ -379,7 +370,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-G: malformed object (invalid endpoint) — fail-closed 400, no DB write, unchanged from string-input behavior", async () => {
-    currentUser = { id: "cliente-1", type: "cliente" }
+    authMockState.currentUser = { id: "cliente-1", type: "cliente" }
     const bad = { endpoint: "http://push.example/E1", expirationTime: null, keys: { p256dh: "p", auth: "a" } }
     const res = await callSubscribe(bad, "203.0.113.46")
     expect(res.status).toBe(400)
@@ -388,7 +379,7 @@ describe("POST /api/push/subscribe — parsed object input (P2-T05 Stage3H3, F-P
   })
 
   test("H3-H: normalized write failure rolls back the object-derived legacy write too (same atomicity guarantee as string input)", async () => {
-    currentUser = { id: "", type: "cliente" }
+    authMockState.currentUser = { id: "", type: "cliente" }
     clienteRows = [{ id: "", pushSubscription: null }]
     const res = await callSubscribe(VALID_SUB_SHAPE, "203.0.113.47")
     expect(res.status).toBe(500)
