@@ -54,6 +54,26 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     }
   }, [manager])
 
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== "deligo-auth") return
+      if (!event.newValue) return
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(event.newValue)
+      } catch {
+        return
+      }
+      const nextUser = (parsed as { state?: { user?: unknown } } | null)?.state?.user
+      if (nextUser === null) {
+        useAuthStore.getState().logout()
+      }
+    }
+
+    window.addEventListener("storage", handleStorage)
+    return () => window.removeEventListener("storage", handleStorage)
+  }, [])
+
   useEffect(() => () => manager.stop("provider-unmount"), [manager])
 
   const value = useMemo(() => ({ client: manager.getClient(), snapshot }), [manager, snapshot])

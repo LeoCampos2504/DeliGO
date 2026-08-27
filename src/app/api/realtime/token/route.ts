@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { findSesionByToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { issueSocketActorToken } from "@/lib/realtime-auth"
+import { issueSocketActorToken, SOCKET_TOKEN_TTL_SECONDS } from "@/lib/realtime-auth"
 import type { RealtimeUserType } from "@/lib/realtime-policy"
 
 function noStore<T extends NextResponse>(response: T): T {
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     if (!actor) return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
 
     const token = await issueSocketActorToken(actor)
-    return noStore(NextResponse.json({ ok: true, token, expiresIn: 300 }))
+    return noStore(NextResponse.json({ ok: true, token, expiresIn: SOCKET_TOKEN_TTL_SECONDS }))
   } catch {
     return noStore(NextResponse.json({ error: "No se pudo autenticar realtime" }, { status: 401 }))
   }

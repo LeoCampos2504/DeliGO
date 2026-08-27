@@ -47,7 +47,7 @@ describe("realtime signed credentials", () => {
     expect(claims.userType).toBe("cliente")
     expect(claims.sid).toBe("session-a")
     expect(claims.scopes).toEqual([])
-    expect(claims.exp! - claims.iat!).toBe(300)
+    expect(claims.exp! - claims.iat!).toBe(120)
   })
 
   test("rejects tampered and expired actor tokens", async () => {

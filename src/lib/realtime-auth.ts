@@ -4,7 +4,7 @@ import type { RealtimeScope, RealtimeUserType } from "@/lib/realtime-policy"
 
 export const REALTIME_ISSUER = "deligo-next"
 export const REALTIME_AUDIENCE = "deligo-chat-service"
-export const SOCKET_TOKEN_TTL_SECONDS = 5 * 60
+export const SOCKET_TOKEN_TTL_SECONDS = 2 * 60
 export const ROOM_CAPABILITY_TTL_SECONDS = 2 * 60
 
 export interface SocketActorClaims extends JWTPayload {
