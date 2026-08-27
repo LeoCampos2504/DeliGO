@@ -7,6 +7,7 @@ const {
   createEventDedupeCache,
   trackingCorrelationKey,
 } = require("./internal-publish-handler")
+const { checkSessionActive } = require("./internal-session-check-client")
 
 const ALLOWED_USER_TYPES = new Set(["cliente", "negocio", "repartidor"])
 const ALLOWED_SCOPES = new Set(["chat:read", "chat:typing", "tracking:watch", "tracking:publish"])
@@ -213,6 +214,12 @@ function locationPayload(data) {
 
 function createChatService(options = {}) {
   const port = options.port ?? process.env.PORT ?? 3003
+  // Connect-time session validation authority (Phase B). Default is the real
+  // HMAC-signed call to the monolith's internal session-check endpoint
+  // (Phase A, already deployed); tests inject a stub so the 12 pre-existing
+  // auth/room tests never depend on network or a real secret (see
+  // test/security.test.js#before()).
+  const validateSession = options.validateSession || checkSessionActive
   const allowedOrigins = getAllowedOrigins()
   const metrics = createMetrics()
   const connectedUsers = new Map()
@@ -287,7 +294,28 @@ function createChatService(options = {}) {
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token
+      // 1-3) local JWT verify (signature/issuer/audience/kind/exp, jose) —
+      // never spend the internal network call on a token that is already
+      // cryptographically invalid or expired (Stage2 CONNECT_VALIDATION_ORDER).
       const claims = await verifySignedToken(token, "socket-actor")
+
+      // 4-5) sid is already claims-verified; ask the Phase A authority
+      // whether the Sesion it names is still active. Exactly one call per
+      // connection attempt (never per event) — see EXISTING_SOCKET/CACHE
+      // invariants in codex-reports.
+      const sessionResult = await validateSession(claims.sid)
+      if (!sessionResult || sessionResult.valid !== true) {
+        metrics.authRejects += 1
+        const category =
+          sessionResult && typeof sessionResult.reason === "string" ? sessionResult.reason : "unknown"
+        console.warn(`[Chat] socket_auth_rejected category=SESSION_INVALID reason=${category}`)
+        // Client always sees the same generic code as any other invalid
+        // token — never the internal reason (config/HTTP/timeout/session
+        // state), so a rejected reconnect cannot be used to probe why.
+        return next(new Error("TOKEN_INVALID"))
+      }
+
+      // 6) accept only after both checks pass.
       socket.data.actor = {
         userId: claims.sub,
         userType: claims.userType,

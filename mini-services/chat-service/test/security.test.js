@@ -42,7 +42,11 @@ before(async () => {
   process.env.REALTIME_SOCKET_TOKEN_SECRET = secret
   process.env.REALTIME_KEY_ID = "testing-key"
   process.env.REALTIME_ALLOWED_ORIGINS = "http://localhost:3000"
-  service = createChatService({ port: 0 })
+  // Phase B (connect-time session validation) is stubbed here so these
+  // pre-existing auth/room tests keep exercising only JWT/room-capability
+  // behavior, never a real network call or a real REALTIME_SESSION_CHECK_SECRET.
+  // The session-check itself is covered by test/session-validation.test.js.
+  service = createChatService({ port: 0, validateSession: async () => ({ valid: true }) })
   await new Promise((resolve) => service.listen(resolve))
   baseUrl = `http://127.0.0.1:${service.httpServer.address().port}`
 })

@@ -227,7 +227,12 @@ before(async () => {
   process.env.REALTIME_SOCKET_TOKEN_SECRET = socketSecret
   process.env.REALTIME_KEY_ID = "testing-key"
   process.env.REALTIME_ALLOWED_ORIGINS = "http://localhost:3000"
-  service = createChatService({ port: 0 })
+  // Phase B (connect-time session validation, see ../internal-session-check-client.js)
+  // fails closed by default when unconfigured. This suite predates Phase B
+  // and only exercises the Internal Publish Bridge / legacy socket relays,
+  // never the session-check itself, so it is stubbed the same way
+  // test/security.test.js already is.
+  service = createChatService({ port: 0, validateSession: async () => ({ valid: true }) })
   await new Promise((resolve) => service.listen(resolve))
   baseUrl = "http://127.0.0.1:" + service.httpServer.address().port
 })
