@@ -164,6 +164,10 @@ export function ChatSheet() {
         }
       }),
       client.subscribe("user-typing", (data) => {
+        // F-P1-02: the server excludes only the emitting socket, never other
+        // sockets of the same actor — a sibling tab of the SAME account must
+        // not render its own typing back to itself.
+        if (data.userId === user.id) return
         addTypingUser(data.pedidoId, {
           userId: data.userId,
           userType: data.userType,
@@ -187,8 +191,15 @@ export function ChatSheet() {
       client.subscribe("unread-update", (data) => {
         setUnreadCount(data.count)
       }),
-      client.subscribe("messages-read", () => {
-        // HTTP polling remains the fallback; this event has no local UI effect yet.
+      client.subscribe("messages-read", (data) => {
+        // F-P1-01: only a same-actor sibling tab reading its own unread
+        // messages should clear this tab's badge locally — a cross-actor
+        // "the counterpart read what I sent" notification must remain a
+        // no-op here (no read-receipt UI exists yet). HTTP polling remains
+        // the fallback/reconciliation path for every other case.
+        if (data.readBy === user.id) {
+          updateConversationUnread(data.pedidoId, 0)
+        }
       }),
     ]
 

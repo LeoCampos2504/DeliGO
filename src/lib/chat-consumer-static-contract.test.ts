@@ -296,3 +296,93 @@ describe("Chat active-message resync V6 — exact contract", () => {
     expect(source).toContain("new AbortController()")
   })
 })
+
+// P2-T18 — F-P1-01 / F-P1-02: a sibling tab/socket of the SAME actor must
+// never treat its own typing or its own read-marking as if it came from
+// someone else. See codex-reports/CURRENT_TASK.md for the full contract.
+describe("P2-T18 — own-actor filtering for user-typing and messages-read", () => {
+  test("F-P1-02: user-typing ignores the same actor BEFORE it ever reaches addTypingUser", () => {
+    const source = chatSheet()
+    const subscribeIndex = source.indexOf('client.subscribe("user-typing", (data) => {')
+    const guardIndex = source.indexOf("if (data.userId === user.id) return")
+    const addTypingUserIndex = source.indexOf("addTypingUser(data.pedidoId, {")
+    expect(subscribeIndex).toBeGreaterThan(-1)
+    expect(guardIndex).toBeGreaterThan(-1)
+    expect(addTypingUserIndex).toBeGreaterThan(-1)
+    // Exact ordering: the guard lives inside this specific subscribe
+    // callback and returns before addTypingUser is ever reached — not a
+    // coincidental match against some other guard elsewhere in the file.
+    expect(guardIndex).toBeGreaterThan(subscribeIndex)
+    expect(addTypingUserIndex).toBeGreaterThan(guardIndex)
+    expect(addTypingUserIndex - guardIndex).toBeLessThan(120)
+  })
+
+  test("F-P1-02: the addTypingUser call is live code, not a commented-out remnant — a plain indexOf() cannot be fooled by `// addTypingUser(...)`", () => {
+    const source = chatSheet()
+    const callLine = source.split("\n").find((line) => line.includes("addTypingUser(data.pedidoId, {"))
+    expect(callLine).toBeDefined()
+    expect(callLine!.trim().startsWith("//")).toBe(false)
+  })
+
+  test("F-P1-02: the own-actor comparison uses the canonical user id, never userType/userName", () => {
+    const source = chatSheet()
+    const guardIndex = source.indexOf("if (data.userId === user.id) return")
+    expect(guardIndex).toBeGreaterThan(-1)
+    expect(source).not.toContain("data.userType === user.type")
+    expect(source).not.toContain("data.userName === user.nombre")
+  })
+
+  test("F-P1-02: user-stop-typing is untouched — removeTypingUser's existing filter already makes a self-echo stop a safe no-op", () => {
+    const source = chatSheet()
+    expect(source).toContain(
+      'client.subscribe("user-stop-typing", (data) => {\n' +
+        "        removeTypingUser(data.pedidoId, data.userId)",
+    )
+  })
+
+  test("F-P1-01: messages-read no longer has an empty body — a same-actor readBy clears this tab's own unread badge locally", () => {
+    const source = chatSheet()
+    const subscribeIndex = source.indexOf('client.subscribe("messages-read", (data) => {')
+    const guardIndex = source.indexOf("if (data.readBy === user.id) {")
+    const updateIndex = source.indexOf("updateConversationUnread(data.pedidoId, 0)")
+    expect(subscribeIndex).toBeGreaterThan(-1)
+    expect(guardIndex).toBeGreaterThan(-1)
+    expect(updateIndex).toBeGreaterThan(-1)
+    expect(guardIndex).toBeGreaterThan(subscribeIndex)
+    expect(updateIndex).toBeGreaterThan(guardIndex)
+    expect(updateIndex - guardIndex).toBeLessThan(60)
+  })
+
+  test("F-P1-01: the updateConversationUnread call is live code, not a commented-out remnant — a plain indexOf() cannot be fooled by `// updateConversationUnread(...)`", () => {
+    const source = chatSheet()
+    const callLine = source.split("\n").find((line) => line.includes("updateConversationUnread(data.pedidoId, 0)"))
+    expect(callLine).toBeDefined()
+    expect(callLine!.trim().startsWith("//")).toBe(false)
+  })
+
+  test("F-P1-01: a cross-actor messages-read (readBy !== own id) stays a no-op — updateConversationUnread(...,0) is called exactly once, only inside the same-actor guard", () => {
+    const source = chatSheet()
+    const matches = source.match(/updateConversationUnread\(data\.pedidoId, 0\)/g)
+    expect(matches?.length).toBe(1)
+    const subscribeIndex = source.indexOf('client.subscribe("messages-read", (data) => {')
+    const callbackEnd = source.indexOf("}),", subscribeIndex)
+    const block = source.slice(subscribeIndex, callbackEnd)
+    // The only statement inside the callback is the guarded branch — no
+    // unconditional mutation sits alongside/after it.
+    expect(block).toContain("if (data.readBy === user.id) {")
+    expect(block.trim().endsWith("}")).toBe(true)
+  })
+
+  test("F-P1-01/F-P1-02: no read-receipt/checkmark UI, new API, or new persisted field was introduced by this polish", () => {
+    const source = `${chatSheet()}\n${chatView()}`
+    for (const forbidden of ["readReceipt", "ReadReceipt", "checkmark", "leidoAt", "fetch(\"/api/chat/mark-read"]) {
+      expect(source).not.toContain(forbidden)
+    }
+  })
+
+  test("F-P1-01/F-P1-02: chat-service (mini-services) is not part of this diff surface — client-only fix, server broadcast semantics unchanged", () => {
+    const source = chatSheet()
+    expect(source).not.toContain("mini-services")
+    expect(source).not.toContain("getAuthorizedRecipientSockets")
+  })
+})
