@@ -204,6 +204,19 @@ export async function findSesionByToken(token: string) {
   }
 }
 
+// Autoridad de vigencia por Sesion.id (nunca por token) para el chequeo de
+// sesión en connect-time del realtime socket (P2-T11). Misma regla que
+// validateSession (fila existe + expiresAt futuro), pero de sólo lectura —
+// nunca borra una fila vencida, a diferencia de validateSession, porque este
+// helper responde una pregunta de otro proceso y no posee la sesión.
+export async function isSesionActiveById(sid: string): Promise<boolean> {
+  const session = await db.sesion.findUnique({
+    where: { id: sid },
+    select: { expiresAt: true },
+  })
+  return Boolean(session) && session!.expiresAt >= new Date()
+}
+
 // ============================================
 // Cookie configuration
 // ============================================
