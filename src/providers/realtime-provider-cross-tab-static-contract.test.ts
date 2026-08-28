@@ -31,11 +31,17 @@ describe("CROSS_TAB_LOGOUT_STORAGE_LISTENER_CONTRACT", () => {
     expect(effectBody).toContain('window.addEventListener("storage",')
   })
 
-  test("2. the handler checks event.key === \"deligo-auth\" before acting", () => {
+  test("2. the handler checks event.key against THIS tab's active-family key before acting (P2-T18-BLOCKER-AUTH2-R8, Phase 2 namespacing — no longer the fixed literal \"deligo-auth\")", () => {
     const source = readSource(PROVIDER_PATH)
     const effectBody = extractStorageEffectBody(source)
 
-    expect(effectBody).toMatch(/event\.key\s*!==\s*"deligo-auth"|event\.key\s*===\s*"deligo-auth"/)
+    // La familia activa se deriva de window.location.pathname en CADA
+    // evento (nunca cacheada), y la clave esperada cae de vuelta a la
+    // clave legacy plana "deligo-auth" cuando no hay familia — preserva
+    // el comportamiento anterior fuera de /cliente|/negocio|/repartidor.
+    expect(effectBody).toContain("activeSessionFamily(window.location.pathname)")
+    expect(effectBody).toMatch(/family\s*\?\s*`deligo-auth:\$\{family\}`\s*:\s*"deligo-auth"/)
+    expect(effectBody).toMatch(/event\.key\s*!==\s*expectedKey/)
   })
 
   test("3. JSON.parse of the payload is wrapped in try/catch", () => {
@@ -74,5 +80,31 @@ describe("CROSS_TAB_LOGOUT_STORAGE_LISTENER_CONTRACT", () => {
     const effectBody = extractStorageEffectBody(source)
 
     expect(effectBody.toLowerCase()).not.toMatch(/token|jwt|secret|cookie/)
+  })
+
+  // P2-T18-BLOCKER-AUTH2-R9-R1 — cierra el gap de cobertura encontrado por
+  // mutation testing en R9 (mutante #12): assertion #2 de arriba sólo prueba
+  // PRESENCIA del patrón "event.key !== expectedKey" vía toContain/toMatch —
+  // no prueba AUSENCIA de una condición adicional que permita también la
+  // clave legacy plana "deligo-auth" (p. ej.
+  // "event.key !== expectedKey && event.key !== \"deligo-auth\"", que sigue
+  // conteniendo el substring buscado y por lo tanto no rompe test #2). Este
+  // test aísla el guard EXACTO (la línea completa del if) y exige que sea
+  // ÚNICAMENTE esa comparación — cualquier ||/&& adicional, o una segunda
+  // referencia a event.key en la misma línea, lo hace fallar.
+  test("7. the event.key guard is a single exact-equality check — no additional clause admits the legacy flat key 'deligo-auth' as a bypass", () => {
+    const source = readSource(PROVIDER_PATH)
+    const effectBody = extractStorageEffectBody(source)
+
+    const guardStart = effectBody.indexOf("if (event.key !== expectedKey")
+    expect(guardStart).toBeGreaterThan(-1)
+    const guardLineEnd = effectBody.indexOf("\n", guardStart)
+    expect(guardLineEnd).toBeGreaterThan(guardStart)
+    const guardLine = effectBody.slice(guardStart, guardLineEnd).trim()
+
+    expect(guardLine).toBe("if (event.key !== expectedKey) return")
+    expect(guardLine).not.toContain("||")
+    expect(guardLine).not.toContain("&&")
+    expect(guardLine.match(/event\.key/g)?.length).toBe(1)
   })
 })

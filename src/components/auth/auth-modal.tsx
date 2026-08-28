@@ -166,7 +166,12 @@ function applyUserToAuthStore(user: AuthModalUser) {
 
 async function hydrateAuthStoreFromSession(expectedType: UserType): Promise<AuthModalUser | null> {
   try {
-    const res = await fetch("/api/auth/me", {
+    // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): expectedType ya es un parámetro
+    // conocido por el caller — se usa directo como selector. superadmin
+    // queda fuera del esquema de familias (sistema aislado, 24-A), no
+    // envía selector, comportamiento actual preservado para ese caso.
+    const selectorFamily = expectedType === "cliente" || expectedType === "negocio" || expectedType === "repartidor" ? expectedType : null
+    const res = await fetch(selectorFamily ? `/api/auth/me?actorFamily=${selectorFamily}` : "/api/auth/me", {
       cache: "no-store",
       credentials: "same-origin",
     })

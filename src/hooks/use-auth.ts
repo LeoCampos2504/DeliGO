@@ -2,9 +2,18 @@
 
 import { useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { useAuthStore } from "@/store/auth-store"
+import { activeSessionFamily, useAuthStore } from "@/store/auth-store"
 import type { UserType } from "@/lib/auth"
 import { ROLE_CONFIGS, type DeliGORole } from "@/lib/role-config"
+
+// P2-T18-BLOCKER-AUTH2-R8 (Phase 2): construye la URL de un endpoint
+// compartido (allowlist congelado por Fase 1: /api/auth/me,
+// /api/auth/logout, /api/realtime/token, /api/realtime/authorize)
+// adjuntando el selector ?actorFamily= sólo cuando hay una familia
+// conocida — mismo transporte ya certificado server-side, nunca uno nuevo.
+function withActorFamily(path: string, family: string | null): string {
+  return family ? `${path}?actorFamily=${family}` : path
+}
 
 /**
  * Map UserType to DeliGORole for logout redirect
@@ -69,7 +78,12 @@ export function useAuth({ autoSync = true }: UseAuthOptions = {}) {
 
   const syncSession = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/auth/me", {
+      // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): en el bootstrap, el store de
+      // ESTA pestaña todavía no tiene un user conocido — la única fuente
+      // de familia disponible en este punto es el pathname de la propia
+      // pestaña (nunca localStorage/query arbitrario).
+      const family = activeSessionFamily(window.location.pathname)
+      const res = await fetch(withActorFamily("/api/auth/me", family), {
         cache: "no-store",
         credentials: "same-origin",
       })
@@ -142,8 +156,15 @@ export function useAuth({ autoSync = true }: UseAuthOptions = {}) {
 
   const handleLogout = useCallback(async () => {
     // Remember the role BEFORE clearing the store
-    const currentRole = userTypeToRole(userType())
+    // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): family también se captura ACÁ,
+    // antes de logout() — es la única fuente confiable en este punto (el
+    // store real de esta sesión), se pierde en cuanto logout() limpia el
+    // store. superadmin/null nunca envían selector (fuera del esquema de
+    // familias, comportamiento actual preservado).
+    const family = userType()
+    const currentRole = userTypeToRole(family)
     const loginUrl = ROLE_CONFIGS[currentRole].loginUrl
+    const selectorFamily = family === "cliente" || family === "negocio" || family === "repartidor" ? family : null
 
     logout()
 
@@ -154,7 +175,7 @@ export function useAuth({ autoSync = true }: UseAuthOptions = {}) {
     }
 
     try {
-      await fetch("/api/auth/logout", { method: "POST" })
+      await fetch(withActorFamily("/api/auth/logout", selectorFamily), { method: "POST" })
     } catch {
       // Continue even if API call fails
     }

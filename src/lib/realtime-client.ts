@@ -1,5 +1,6 @@
 "use client"
 
+import { activeSessionFamily } from "@/store/auth-store"
 import type { RealtimeScope } from "@/lib/realtime-policy"
 import type { RealtimeActorTokenResult, RealtimeCapabilityResult } from "@/lib/realtime-types"
 
@@ -10,8 +11,20 @@ export function getRealtimeSocketUrl(): string {
   return "http://localhost:3003"
 }
 
+// P2-T18-BLOCKER-AUTH2-R8 (Phase 2): este módulo ya corre en el navegador
+// ("use client") — puede derivar la familia activa de
+// window.location.pathname por sí mismo, sin que RealtimeManager necesite
+// reenviar actor.userType a través de RealtimeManagerDependencies (ver
+// codex-reports/archive/P2-T18-BLOCKER-AUTH2-R7.md §REALTIME_MANAGER_RADIUS
+// — realtime-manager.ts y realtime-types.ts quedan explícitamente sin
+// tocar). Las firmas públicas exportadas de este archivo no cambian.
+function withActorFamily(path: string): string {
+  const family = activeSessionFamily(window.location.pathname)
+  return family ? `${path}?actorFamily=${family}` : path
+}
+
 export async function fetchRealtimeTokenResult(options: { signal?: AbortSignal } = {}): Promise<RealtimeActorTokenResult> {
-  const response = await fetch("/api/realtime/token", {
+  const response = await fetch(withActorFamily("/api/realtime/token"), {
     method: "POST",
     credentials: "include",
     cache: "no-store",
@@ -33,7 +46,7 @@ export async function authorizeRealtimeRoomResult(
   requestedScopes: RealtimeScope[],
   options: { signal?: AbortSignal } = {}
 ): Promise<RealtimeCapabilityResult> {
-  const response = await fetch("/api/realtime/authorize", {
+  const response = await fetch(withActorFamily("/api/realtime/authorize"), {
     method: "POST",
     credentials: "include",
     cache: "no-store",

@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
-import { useAuthStore } from "@/store/auth-store"
+import { activeSessionFamily, useAuthStore } from "@/store/auth-store"
 import { RealtimeManager } from "@/lib/realtime-manager"
 import type { RealtimeActorIdentity, RealtimeClient, RealtimeConnectionSnapshot, RealtimeUserType } from "@/lib/realtime-types"
 
@@ -56,7 +56,17 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== "deligo-auth") return
+      // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): la clave observada ya no es el
+      // literal fijo "deligo-auth" — se recalcula en cada evento contra la
+      // familia activa de ESTA pestaña (window.location.pathname), namespaced
+      // exactamente como auth-store.ts persiste (deligo-auth:<family>, o
+      // deligo-auth plano fuera de /cliente|/negocio|/repartidor). Un logout
+      // de otra familia escribe una clave distinta y nunca coincide acá —
+      // preserva same-family propagation e impide cross-family false logout
+      // (ver codex-reports/archive/P2-T18-BLOCKER-AUTH2-R7.md §CROSSTAB_FAMILY_SEMANTICS).
+      const family = activeSessionFamily(window.location.pathname)
+      const expectedKey = family ? `deligo-auth:${family}` : "deligo-auth"
+      if (event.key !== expectedKey) return
       if (!event.newValue) return
       let parsed: unknown
       try {

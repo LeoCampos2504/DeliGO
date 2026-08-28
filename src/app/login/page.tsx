@@ -91,7 +91,9 @@ function getSafeInternalRedirect(value: string | null): string {
 // ============================================
 async function confirmClienteSession(): Promise<{ id: string; nombre: string; email: string } | null> {
   try {
-    const res = await fetch("/api/auth/me", {
+    // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): esta es la página de login de
+    // Cliente específicamente — la familia es literal, sin ambigüedad.
+    const res = await fetch("/api/auth/me?actorFamily=cliente", {
       cache: "no-store",
       credentials: "same-origin",
     })

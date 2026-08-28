@@ -21,7 +21,10 @@ export function useSuspensionCheck() {
 
     const checkSuspension = async () => {
       try {
-        const res = await fetch("/api/auth/me")
+        // P2-T18-BLOCKER-AUTH2-R8 (Phase 2): este hook ya está guardado
+        // arriba (`user.type !== "negocio" -> return`), así que la familia
+        // es literal — sin ambigüedad posible, sin necesidad de derivarla.
+        const res = await fetch("/api/auth/me?actorFamily=negocio")
         if (!res.ok) return
 
         const data = await res.json()
