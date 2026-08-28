@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { evaluatePasswordHash, createSession, createSessionWithClient, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { evaluatePasswordHash, createSession, createSessionWithClient, getFamilySessionCookieName, SESSION_DURATION_HOURS, type SessionFamily } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   checkLoginAccountThrottle,
@@ -14,8 +14,16 @@ import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-securi
 import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
-function setCookie(response: NextResponse, token: string): void {
-  response.cookies.set(SESSION_COOKIE_NAME, token, {
+// P2-T18-BLOCKER-AUTH2-R2 (Phase 1): escribe SÓLO la cookie de la familia
+// autenticada — nunca toca la cookie de ninguna otra familia (login Cliente
+// nunca pisa Negocio y viceversa, por construcción: cada llamada apunta a un
+// nombre de cookie distinto). src/proxy.ts resuelve cuál de estas cookies
+// corresponde a cada request y la reenvía bajo el nombre legacy
+// SESSION_COOKIE_NAME a los route handlers existentes, sin que ninguno de
+// ellos (ni este archivo, más allá de este helper) necesite conocer el
+// nombre de cookie por familia.
+function setCookie(response: NextResponse, token: string, family: SessionFamily): void {
+  response.cookies.set(getFamilySessionCookieName(family), token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -196,7 +204,7 @@ async function loginCliente(data: { email: string; password: string }, req: Next
       telefono: cliente.telefono,
     },
   })
-  setCookie(res, token)
+  setCookie(res, token, "cliente")
   if (deviceIdentity.isNew) {
     setDeviceCookie(res, deviceIdentity.token)
   }
@@ -286,7 +294,7 @@ async function loginNegocio(data: { usuario: string; password: string }) {
         suspendido: true,
       },
     })
-    setCookie(res, token)
+    setCookie(res, token, "negocio")
     return res
   }
 
@@ -302,7 +310,7 @@ async function loginNegocio(data: { usuario: string; password: string }) {
       aprobado: negocio.aprobado,
     },
   })
-  setCookie(res, token)
+  setCookie(res, token, "negocio")
   return res
 }
 
@@ -376,6 +384,6 @@ async function loginRepartidor(data: { email: string; password: string }) {
       activo: repartidor.activo,
     },
   })
-  setCookie(res, token)
+  setCookie(res, token, "repartidor")
   return res
 }

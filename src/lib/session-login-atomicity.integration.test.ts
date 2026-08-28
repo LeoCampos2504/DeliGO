@@ -18,8 +18,14 @@ import type { Prisma } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, mock, setDefaultTimeout, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, hashPassword, hashSessionToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { createSession, hashPassword, hashSessionToken, FAMILY_SESSION_COOKIE_NAMES } from "@/lib/auth"
 import { DEVICE_COOKIE_NAME } from "@/lib/device-identity"
+
+// P2-T18-BLOCKER-AUTH2-R2 (Phase 1): loginCliente ahora escribe la cookie de
+// familia Cliente (deligo_session_cliente), no el nombre legacy — todos los
+// tests de este archivo loguean exclusivamente como Cliente. Ver
+// codex-reports/archive/P2-T18-BLOCKER-AUTH2-R1.md.
+const CLIENTE_SESSION_COOKIE_NAME = FAMILY_SESSION_COOKIE_NAMES.cliente
 
 setDefaultTimeout(60_000)
 
@@ -157,7 +163,7 @@ describe("NORMAL_CLIENT_SUCCESS", () => {
 
     const after = await db.sesion.count({ where: { userId: cliente.id } })
     expect(after - before).toBe(1)
-    expect(extractSetCookie(res, SESSION_COOKIE_NAME)).not.toBeNull()
+    expect(extractSetCookie(res, CLIENTE_SESSION_COOKIE_NAME)).not.toBeNull()
   })
 })
 
@@ -195,7 +201,7 @@ describe("BLOCKED_CLIENT_SUCCESS", () => {
     const blockRows = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
     expect(blockRows).toBeGreaterThanOrEqual(1)
 
-    expect(extractSetCookie(res, SESSION_COOKIE_NAME)).not.toBeNull()
+    expect(extractSetCookie(res, CLIENTE_SESSION_COOKIE_NAME)).not.toBeNull()
     expect(extractSetCookie(res, DEVICE_COOKIE_NAME)).not.toBeNull() // device nuevo -> isNew=true
   })
 })
@@ -231,7 +237,7 @@ describe("TX_BLOCK_FAILURE_ROLLBACK", () => {
     const blockAfter = await db.clienteBloqueado.count({ where: { clienteId: cliente.id } })
     expect(blockAfter).toBe(blockBefore) // TX_BLOCK_FAILURE_BLOCK_ROLLBACK=PASS
 
-    expect(extractSetCookie(res, SESSION_COOKIE_NAME)).toBeNull() // TX_BLOCK_FAILURE_COOKIES_ABSENT=PASS
+    expect(extractSetCookie(res, CLIENTE_SESSION_COOKIE_NAME)).toBeNull() // TX_BLOCK_FAILURE_COOKIES_ABSENT=PASS
     expect(extractSetCookie(res, DEVICE_COOKIE_NAME)).toBeNull()
   })
 })

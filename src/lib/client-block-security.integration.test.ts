@@ -12,7 +12,7 @@ import { randomUUID, createHash } from "crypto"
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { createSession, SESSION_COOKIE_NAME, FAMILY_SESSION_COOKIE_NAMES } from "@/lib/auth"
 import { createSuperadminSession, SUPERADMIN_SESSION_COOKIE_NAME } from "@/lib/superadmin-auth"
 import { DEVICE_COOKIE_NAME } from "@/lib/device-identity"
 import { POST as registerRoute } from "@/app/api/auth/register/route"
@@ -790,7 +790,12 @@ describe("BLOCKED-LOGIN-500-2 — Login multi-dispositivo, misma IP, cuenta ya b
     expect(rowsAfterRepeat).toBe(3)
 
     // La sesión creada en el login sigue siendo válida (perfil accesible).
-    const sessionToken = extractSetCookie(resA, SESSION_COOKIE_NAME)
+    // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): loginCliente ahora escribe la
+    // cookie de familia Cliente, no el nombre legacy — perfilRoute (sin
+    // modificar) sigue leyendo SESSION_COOKIE_NAME directamente, así que la
+    // simulación de request debe usar ese nombre igual que antes; sólo la
+    // EXTRACCIÓN de la respuesta de login cambia de nombre de cookie.
+    const sessionToken = extractSetCookie(resA, FAMILY_SESSION_COOKIE_NAMES.cliente)
     expect(sessionToken).not.toBeNull()
     const perfilRes = await perfilRoute(reqPerfil(`${SESSION_COOKIE_NAME}=${sessionToken}`))
     expect(perfilRes.status).toBe(200)

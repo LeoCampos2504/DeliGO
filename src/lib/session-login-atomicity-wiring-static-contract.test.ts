@@ -129,10 +129,14 @@ describe("1-6. Transacción — contenido exacto", () => {
 })
 
 describe("7-9. Cookies y rehash — orden relativo a la transacción", () => {
-  test("7. setCookie(res, token) ocurre DESPUÉS de que la transacción resuelve", () => {
+  test("7. setCookie(res, token, \"cliente\") ocurre DESPUÉS de que la transacción resuelve", () => {
+    // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): setCookie ahora recibe la familia
+    // de actor explícita — único cambio autorizado a esta llamada, ver
+    // codex-reports/archive/P2-T18-BLOCKER-AUTH2-R1.md. El orden relativo a
+    // la transacción (lo que este test protege) no cambió.
     const body = functionBody(read(AUTH_LOGIN), "async function loginCliente(")
     const idxReturn = body.indexOf("return sessionToken")
-    const idxSetCookie = body.indexOf("setCookie(res, token)")
+    const idxSetCookie = body.indexOf("setCookie(res, token, \"cliente\")")
     expect(idxReturn).toBeGreaterThan(-1)
     expect(idxSetCookie).toBeGreaterThan(idxReturn)
   })
@@ -157,16 +161,24 @@ describe("7-9. Cookies y rehash — orden relativo a la transacción", () => {
 })
 
 describe("10-14. Sin cambios en otros flujos (comparación byte a byte contra HEAD)", () => {
-  test("10. loginNegocio: cuerpo idéntico a HEAD", () => {
+  test("10. loginNegocio: idéntico a HEAD salvo el único cambio autorizado de Fase 1 (setCookie con familia explícita, en ambos call sites)", () => {
+    // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): loginNegocio nunca fue tocado por
+    // SESSION_LOGIN_ATOMICITY_DEBT (eso sigue siendo cierto — 0 líneas
+    // relacionadas con la transacción cambiaron). Su ÚNICO diff frente a
+    // HEAD es el argumento de familia agregado a setCookie(), en sus dos
+    // call sites (suspendido y normal) — normalizado acá antes de comparar
+    // para seguir protegiendo contra cualquier OTRO cambio no autorizado.
     const current = functionBody(read(AUTH_LOGIN), "async function loginNegocio(")
-    const atHead = functionBody(readAtHead(AUTH_LOGIN), "async function loginNegocio(")
-    expect(current).toBe(atHead)
+    const atHeadRaw = functionBody(readAtHead(AUTH_LOGIN), "async function loginNegocio(")
+    const atHeadNormalized = atHeadRaw.replaceAll("setCookie(res, token)", "setCookie(res, token, \"negocio\")")
+    expect(current).toBe(atHeadNormalized)
   })
 
-  test("11. loginRepartidor: cuerpo idéntico a HEAD", () => {
+  test("11. loginRepartidor: idéntico a HEAD salvo el único cambio autorizado de Fase 1 (setCookie con familia explícita)", () => {
     const current = functionBody(read(AUTH_LOGIN), "async function loginRepartidor(")
-    const atHead = functionBody(readAtHead(AUTH_LOGIN), "async function loginRepartidor(")
-    expect(current).toBe(atHead)
+    const atHeadRaw = functionBody(readAtHead(AUTH_LOGIN), "async function loginRepartidor(")
+    const atHeadNormalized = atHeadRaw.replaceAll("setCookie(res, token)", "setCookie(res, token, \"repartidor\")")
+    expect(current).toBe(atHeadNormalized)
   })
 
   test("12. operativo/login/route.ts: archivo completo idéntico a HEAD (sin tocar)", () => {

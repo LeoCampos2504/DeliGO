@@ -33,6 +33,121 @@ const UUID_REGEX =
 const SUPERADMIN_TOKEN_REGEX = /^[0-9a-f]{64}$/i
 
 // ---------------------------------------------------------------------------
+// P2-T18-BLOCKER-AUTH2-R2 (Phase 1) — Actor-family session cookie resolution
+// ---------------------------------------------------------------------------
+// SESSION_COOKIE_SELECTION_AND_AUTH_CONTEXT_ONLY — diseño congelado en
+// codex-reports/archive/P2-T18-BLOCKER-AUTH2-R1.md. Cliente/Negocio/
+// Repartidor (los tres tipos con login propio que comparten el modelo
+// Sesion) pueden tener, cada uno, su propia cookie con nombre de familia,
+// coexistiendo en el mismo navegador. Este bloque NUNCA hace lookup a DB
+// (Edge runtime, sin dependencias de @/lib/auth para no arrastrar Prisma) —
+// sólo decide qué cookie real reenviar bajo el nombre legacy SESSION_COOKIE
+// para que los route handlers existentes (que siguen leyendo únicamente
+// SESSION_COOKIE) resuelvan la identidad real contra Sesion exactamente
+// como siempre. El selector (?actorFamily=) NUNCA es autoridad — un mismatch
+// de userType real (resuelto server-side, downstream, sin cambios) nunca
+// autoriza, sólo produce el mismo 401/403 que ya producía antes de esta
+// tarea. Debe permanecer sincronizado manualmente con
+// FAMILY_SESSION_COOKIE_NAMES de src/lib/auth.ts (nunca importado acá).
+
+type SessionFamily = "cliente" | "negocio" | "repartidor"
+
+const FAMILY_SESSION_COOKIE_NAMES: Record<SessionFamily, string> = {
+  cliente: "deligo_session_cliente",
+  negocio: "deligo_session_negocio",
+  repartidor: "deligo_session_repartidor",
+}
+
+const SELECTOR_QUERY_PARAM = "actorFamily"
+
+// Rutas compartidas por múltiples familias donde Fase 2 empezará a enviar
+// el selector explícito — nunca puede anular una familia derivada de path
+// (ver pathFamily más abajo; esas rutas ni siquiera llegan a este chequeo).
+const SELECTOR_ENDPOINT_PREFIXES = [
+  "/api/auth/me",
+  "/api/auth/logout",
+  "/api/realtime/token",
+  "/api/realtime/authorize",
+]
+
+const RESOLVED_ACTOR_FAMILY_HEADER = "x-resolved-actor-family"
+
+function isSessionFamily(value: string | null): value is SessionFamily {
+  return value === "cliente" || value === "negocio" || value === "repartidor"
+}
+
+/** Familia implícita por prefijo de path — nunca anulable por selector. */
+function pathFamily(pathname: string): SessionFamily | null {
+  for (const { prefix, userType } of ROLE_PROTECTED_ROUTES) {
+    if (!isSessionFamily(userType)) continue // excluye superadmin — cookie propia, ver 24-A
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) return userType
+  }
+  return null
+}
+
+interface ResolvedActorSession {
+  family: SessionFamily | null
+  token: string | null
+}
+
+/**
+ * Resuelve qué cookie real corresponde a este request.
+ * Prioridad: 1) familia de path (nunca anulable); 2) selector explícito
+ * SOLO en SELECTOR_ENDPOINT_PREFIXES, validado contra un allowlist fijo —
+ * un selector desconocido/malformado se ignora (fail closed, nunca
+ * ambiguo); 3) sin familia resuelta: si existe EXACTAMENTE una cookie
+ * candidata (de familia o legacy) entre TODAS las conocidas, se usa sin
+ * ambigüedad — preserva el comportamiento actual de un único actor. Con
+ * más de una candidata y ninguna familia resuelta, no se reenvía nada
+ * (fail closed) — nunca se elige arbitrariamente entre dos actores.
+ */
+function resolveActorSession(request: NextRequest, pathname: string): ResolvedActorSession {
+  let family = pathFamily(pathname)
+
+  if (!family && matchesPrefix(pathname, SELECTOR_ENDPOINT_PREFIXES)) {
+    const selector = request.nextUrl.searchParams.get(SELECTOR_QUERY_PARAM)
+    if (isSessionFamily(selector)) family = selector
+  }
+
+  if (family) {
+    const familyToken = getCookieToken(request, FAMILY_SESSION_COOKIE_NAMES[family], UUID_REGEX)
+    if (familyToken) return { family, token: familyToken }
+    // Legacy fallback: sólo cuando la cookie de familia está ausente. El
+    // userType real se re-valida server-side, downstream, sin cambios — un
+    // mismatch nunca autoriza, sólo produce el mismo 401/403 de siempre.
+    return { family, token: getSessionToken(request) }
+  }
+
+  const candidates: string[] = []
+  for (const f of Object.keys(FAMILY_SESSION_COOKIE_NAMES) as SessionFamily[]) {
+    const t = getCookieToken(request, FAMILY_SESSION_COOKIE_NAMES[f], UUID_REGEX)
+    if (t) candidates.push(t)
+  }
+  const legacyToken = getSessionToken(request)
+  if (legacyToken) candidates.push(legacyToken)
+
+  if (candidates.length === 1) return { family: null, token: candidates[0] }
+  return { family: null, token: null }
+}
+
+/**
+ * Reescribe el header Cookie del request SALIENTE (nunca la respuesta al
+ * navegador) para que SESSION_COOKIE porte el token resuelto — los route
+ * handlers downstream, sin modificar, lo leen exactamente como siempre.
+ */
+function rewriteResolvedSessionCookieHeaders(request: NextRequest, token: string): Headers {
+  const headers = new Headers(request.headers)
+  const existing = headers.get("cookie") ?? ""
+  const kept = existing
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !part.startsWith(`${SESSION_COOKIE}=`))
+  kept.push(`${SESSION_COOKIE}=${token}`)
+  headers.set("cookie", kept.join("; "))
+  return headers
+}
+
+// ---------------------------------------------------------------------------
 // Route classification helpers
 // ---------------------------------------------------------------------------
 
@@ -243,7 +358,8 @@ function checkRouteProtection(
   request: NextRequest,
   pathname: string,
   method: string,
-  token: string | null
+  token: string | null,
+  resolved: ResolvedActorSession
 ): RouteCheckResult {
   // 1. Public routes — always allowed
   if (matchesPrefix(pathname, PUBLIC_API_PREFIXES)) {
@@ -255,11 +371,17 @@ function checkRouteProtection(
     return { allowed: true }
   }
 
-  // 3. Role-specific routes — each entry reads its own cookie/format (24-A's
-  // Superadmin cookie is isolated from the shared SESSION_COOKIE).
+  // 3. Role-specific routes. Superadmin (24-A) keeps its own isolated
+  // cookie/pattern, checked directly here — never went through
+  // resolveActorSession, which only knows cliente/negocio/repartidor.
+  // The other three reuse `resolved` (computed once in proxy()) instead of
+  // a fresh per-entry lookup, so a Fase 1 family-specific cookie is
+  // recognized here exactly as the legacy cookie always was.
   for (const { prefix, userType, cookieName, tokenPattern } of ROLE_PROTECTED_ROUTES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {
-      const roleToken = getCookieToken(request, cookieName, tokenPattern)
+      const roleToken = isSessionFamily(userType)
+        ? (resolved.family === userType ? resolved.token : null)
+        : getCookieToken(request, cookieName, tokenPattern)
       if (!roleToken) {
         return {
           allowed: false,
@@ -352,10 +474,15 @@ export function proxy(request: NextRequest) {
     return response
   }
 
+  // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): resuelto UNA vez por request, usado
+  // tanto por checkRouteProtection (soft-check) como por la reescritura de
+  // cookie request-only más abajo (aplica a rutas API y de página por
+  // igual — mismo mecanismo, sin costo adicional de archivos/complejidad).
+  const resolved = resolveActorSession(request, pathname)
+
   // --- API route protection (soft auth) ---
   if (isApiRoute) {
-    const token = getSessionToken(request)
-    const check = checkRouteProtection(request, pathname, request.method, token)
+    const check = checkRouteProtection(request, pathname, request.method, resolved.token, resolved)
 
     if (isRouteBlocked(check)) {
       const response = NextResponse.json(
@@ -381,8 +508,25 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  // --- Continue with the request ---
-  const response = NextResponse.next()
+  // --- Continue with the request, presentando la cookie resuelta bajo el
+  // nombre legacy a los route handlers downstream (nunca al navegador —
+  // ver rewriteResolvedSessionCookieHeaders). RESOLVED_ACTOR_FAMILY_HEADER
+  // se sanea de forma INCONDICIONAL antes de decidir si escribir un valor
+  // de confianza — SANITIZE_FIRST -> RESOLVE -> SET_TRUSTED_IF_VALID. Un
+  // valor suministrado por el cliente NUNCA puede sobrevivir este paso,
+  // ni siquiera cuando resolved.family/resolved.token son null
+  // (P2-T18-BLOCKER-AUTH2-R2-R2, corrección del hallazgo de
+  // AUTH2-R2-R1 — la versión anterior sólo sobrescribía el header cuando
+  // resolved.family era verdadero en /api/auth/logout, dejando pasar sin
+  // tocar un valor spoofeado en cualquier otro escenario). ---
+  const headers = resolved.token
+    ? rewriteResolvedSessionCookieHeaders(request, resolved.token)
+    : new Headers(request.headers)
+  headers.delete(RESOLVED_ACTOR_FAMILY_HEADER)
+  if (pathname === "/api/auth/logout" && resolved.family) {
+    headers.set(RESOLVED_ACTOR_FAMILY_HEADER, resolved.family)
+  }
+  const response = NextResponse.next({ request: { headers } })
 
   // --- Add security headers to all responses ---
   addSecurityHeaders(response)

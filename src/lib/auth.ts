@@ -226,6 +226,24 @@ export const OPERATIONAL_SESSION_COOKIE_NAME = "deligo_operativo_session"
 export const SESSION_DURATION_HOURS = 12
 export const OPERATIONAL_SESSION_USER_TYPE = "cuenta_operativa"
 
+// P2-T18-BLOCKER-AUTH2-R2 (Phase 1): cookie con nombre por familia de actor,
+// coexistiendo con SESSION_COOKIE_NAME (nunca reemplazada acá — sigue siendo
+// la única cookie que los ~89 route handlers no tocados por esta fase leen).
+// src/proxy.ts (Edge runtime) mantiene su PROPIA copia local de este mapeo
+// (nunca importa este archivo, que carga Prisma vía @/lib/db) — ambas deben
+// permanecer sincronizadas manualmente si esta lista cambia.
+export type SessionFamily = "cliente" | "negocio" | "repartidor"
+
+export const FAMILY_SESSION_COOKIE_NAMES: Record<SessionFamily, string> = {
+  cliente: "deligo_session_cliente",
+  negocio: "deligo_session_negocio",
+  repartidor: "deligo_session_repartidor",
+}
+
+export function getFamilySessionCookieName(family: SessionFamily): string {
+  return FAMILY_SESSION_COOKIE_NAMES[family]
+}
+
 // ============================================
 // Session management (DB-backed)
 // ============================================
