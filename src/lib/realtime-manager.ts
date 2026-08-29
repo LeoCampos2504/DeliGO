@@ -951,15 +951,11 @@ export class RealtimeManager {
       if (socket !== this.socket || this.stopped) return
       const payload = args[0] as RealtimeEventMap[typeof event]
       const handlers = this.subscriptions.get(event)
-      // eslint-disable-next-line no-console
-      console.log(`[Realtime][DIAG] relay_fired event=${event} subscriberCount=${handlers?.size ?? 0}`)
       if (!handlers) return
       for (const subscriber of [...handlers]) {
         try {
           subscriber(payload)
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.error(`[Realtime][DIAG] subscriber_threw event=${event}`, error)
+        } catch {
           // One consumer must not prevent the remaining registry handlers from receiving the event.
         }
       }
