@@ -63,11 +63,25 @@ const SELECTOR_QUERY_PARAM = "actorFamily"
 // Rutas compartidas por múltiples familias donde Fase 2 empezará a enviar
 // el selector explícito — nunca puede anular una familia derivada de path
 // (ver pathFamily más abajo; esas rutas ni siquiera llegan a este chequeo).
+// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): las 6 entradas de Chat/Push
+// de abajo leen la cookie legacy directamente sin derivar familia de su
+// propio path — bajo 2+ cookies de familia coexistiendo, resolveActorSession
+// caía en su fallback ambiguo (fail-closed) para estas rutas exactamente
+// igual que para las 4 originales. `/api/push/status` no está en
+// AUTH_REQUIRED_PREFIXES, pero sufre la misma ambigüedad porque el rewrite
+// de cookie de abajo es incondicional a esa lista — se incluye acá por la
+// misma causa raíz, no por pertenecer a esa lista.
 const SELECTOR_ENDPOINT_PREFIXES = [
   "/api/auth/me",
   "/api/auth/logout",
   "/api/realtime/token",
   "/api/realtime/authorize",
+  "/api/chat/no-leidos",
+  "/api/chat/conversaciones",
+  "/api/chat/mensajes",
+  "/api/push/subscribe",
+  "/api/push/unsubscribe",
+  "/api/push/status",
 ]
 
 const RESOLVED_ACTOR_FAMILY_HEADER = "x-resolved-actor-family"

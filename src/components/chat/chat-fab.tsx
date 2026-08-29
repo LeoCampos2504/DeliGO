@@ -51,7 +51,16 @@ export function ChatFab() {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const res = await fetch("/api/chat/no-leidos", { signal: controller.signal })
+      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+      // familia, requerido para que /api/chat/no-leidos resuelva sin
+      // ambigüedad cuando coexisten 2+ cookies de familia en el mismo
+      // navegador — mismo transporte ?actorFamily= ya certificado en Fase 2,
+      // fuente confiable useAuthStore().user?.type (nunca pathname: ChatFab
+      // se monta desde el layout raíz, activo en cualquier ruta).
+      const url = user?.type
+        ? `/api/chat/no-leidos?actorFamily=${user.type}`
+        : "/api/chat/no-leidos"
+      const res = await fetch(url, { signal: controller.signal })
       if (controller.signal.aborted || !res.ok) return
       const data = await res.json()
       if (controller.signal.aborted) return
@@ -69,7 +78,7 @@ export function ChatFab() {
         fetchingRef.current = false
       }
     }
-  }, [setUnreadCount])
+  }, [setUnreadCount, user?.type])
 
   // Track tab visibility, drives both the recurring-interval decision and
   // the foreground-episode coalescing below.

@@ -223,12 +223,22 @@ export function ChatView({
       // lifecycle actually knows one — never invented as 0.
       const sentKnownRevision = kind === "safety" ? knownHistoryRevisionRef.current : undefined
       const query = buildHistoryRequestQuery({ kind, knownRevision: sentKnownRevision })
+      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+      // familia — mismo transporte ?actorFamily= ya certificado en Fase 2,
+      // requerido para que /api/chat/mensajes/[pedidoId] resuelva sin
+      // ambigüedad bajo 2+ cookies de familia coexistiendo. Preserva
+      // `query` (mode=safety/knownRevision) tal cual, sólo agrega el
+      // selector como parámetro adicional.
+      const familyParam = user?.type ? `actorFamily=${user.type}` : ""
+      const historyUrl = familyParam
+        ? `/api/chat/mensajes/${pedidoId}${query}${query ? "&" : "?"}${familyParam}`
+        : `/api/chat/mensajes/${pedidoId}${query}`
 
       const result = await runHistoryRequestWithDeadline(
         controller,
         ACTIVE_HISTORY_SINGLE_REQUEST_DEADLINE_MS,
         async () => {
-          const res = await fetch(`/api/chat/mensajes/${pedidoId}${query}`, { signal: controller.signal })
+          const res = await fetch(historyUrl, { signal: controller.signal })
           if (!res.ok) throw new Error("history-http-error")
           return (await res.json()) as {
             mensajes?: ChatMessage[]
@@ -320,7 +330,7 @@ export function ChatView({
         }
       }
     },
-    [pedidoId, setLoadingMessages, setMessages, setPedidoInfo, updateConversationUnread],
+    [pedidoId, setLoadingMessages, setMessages, setPedidoInfo, updateConversationUnread, user?.type],
   )
 
   // Single entry point for every non-mount history trigger: an allowed
@@ -641,7 +651,14 @@ export function ChatView({
         }
       }
 
-      const res = await fetch(`/api/chat/mensajes/${pedidoId}`, {
+      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+      // familia — mismo transporte ?actorFamily= ya certificado en Fase 2,
+      // requerido para que POST /api/chat/mensajes/[pedidoId] resuelva sin
+      // ambigüedad bajo 2+ cookies de familia coexistiendo.
+      const sendUrl = user?.type
+        ? `/api/chat/mensajes/${pedidoId}?actorFamily=${user.type}`
+        : `/api/chat/mensajes/${pedidoId}`
+      const res = await fetch(sendUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -685,7 +702,7 @@ export function ChatView({
     } finally {
       if (isCurrentActor()) setSending(false)
     }
-  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, client, isCurrentActor, updateConversationLastMessage, setSending])
+  }, [messageText, pendingAttachment, isSending, isUploading, pedidoId, addMessage, client, isCurrentActor, updateConversationLastMessage, setSending, user?.type])
 
   // Typing indicator
   const handleTyping = useCallback(

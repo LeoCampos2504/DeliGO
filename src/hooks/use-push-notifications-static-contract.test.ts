@@ -18,12 +18,19 @@ describe("F-P2-T05-02 — PHYSICAL_UNSUBSCRIBE_POLICY_FINAL=SERVER_DETACH_ONLY",
   })
 
   test("PERSONAL_MANUAL_DISABLE_SERVER_DETACH_ONLY=SI: unsubscribe() still calls the server detach endpoint", () => {
-    expect(src).toContain('fetch("/api/push/unsubscribe"')
+    // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): the URL is now built
+    // into a local `unsubscribeUrl` variable (carrying the actorFamily
+    // selector) instead of a literal passed directly to fetch() — the
+    // fetch call site and the base endpoint string are asserted separately.
+    expect(src).toContain("fetch(unsubscribeUrl")
+    expect(src).toContain('"/api/push/unsubscribe"')
   })
 
-  test("no new endpoint was introduced for this — still exactly one call site to /api/push/unsubscribe", () => {
+  test("no new endpoint was introduced for this — still exactly one call site to /api/push/unsubscribe (comment + selector-URL template + selector-URL fallback = 3 literal occurrences of the same single call site)", () => {
     const matches = src.match(/\/api\/push\/unsubscribe/g) ?? []
-    expect(matches.length).toBe(1)
+    expect(matches.length).toBe(3)
+    const callSites = [...src.matchAll(/const res = await fetch\(unsubscribeUrl/g)]
+    expect(callSites.length).toBe(1)
   })
 
   test("local state (isSubscribed/permission) is still updated after the server call, unconditionally on success", () => {
@@ -54,7 +61,11 @@ describe("F-P2-T05-13 — PERSONAL_PUSH_UI_STATUS_SOURCE=SERVER_ACTOR_ENDPOINT_B
 
   test("checkSubscription delegates to checkPersonalPushStatus, wired to the server-authoritative status endpoint", () => {
     expect(checkSubscriptionBody).toContain("checkPersonalPushStatus({")
-    expect(checkSubscriptionBody).toContain('fetch("/api/push/status"')
+    // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): the URL now carries the
+    // actorFamily selector via a local `statusUrl` variable instead of a
+    // literal passed directly to fetch().
+    expect(checkSubscriptionBody).toContain("fetch(statusUrl")
+    expect(checkSubscriptionBody).toContain('"/api/push/status"')
     expect(checkSubscriptionBody).toContain('method: "POST"')
     // P2-T05 Hardening H3B (F-P2-T05-23): `applyIsSubscribed` ahora apunta al
     // wrapper `applySubscribed` (mantiene también el ref siempre-fresco),
@@ -258,5 +269,44 @@ describe("F-P2-T05-15 — stale operations cannot own loading/toast (auxiliary s
     expect(actorEffectBody).toContain("gateRef.current.invalidate()")
     expect(actorEffectBody).toContain("applySubscribed(false)")
     expect(actorEffectBody).toContain("setLoading(false)")
+  })
+})
+
+// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): /api/push/status,
+// /api/push/subscribe y /api/push/unsubscribe son endpoints compartidos sin
+// familia derivable de su propio path — bajo 2+ cookies de familia
+// coexistiendo, resolveActorSession() no puede resolverlos sin un selector
+// explícito. Este hook ya computaba `actorType` para otro propósito
+// (invalidación Race C, no-autoritativo) — se reutiliza como fuente del
+// selector, nunca window.location.pathname (el hook se usa desde paneles de
+// perfil montados bajo rutas de familia, pero el propio hook no depende de
+// eso, y no debe hacerlo).
+describe("F-P2-T18-AUTH02 — use-push-notifications actorFamily selector propagation", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("actorType (useAuthStore().user?.type) is the trusted family source, never window.location.pathname", () => {
+    expect(src).toContain('const actorType = useAuthStore((s) => s.user?.type ?? null)')
+    expect(src).not.toContain("activeSessionFamily(")
+    expect(src).not.toContain("window.location.pathname")
+  })
+
+  test("all three call sites (status, subscribe, unsubscribe) build their URL from actorType with the same ternary shape", () => {
+    expect(src).toContain('const statusUrl = actorType ? `/api/push/status?actorFamily=${actorType}` : "/api/push/status"')
+    expect(src).toContain('const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"')
+    expect(src).toContain('const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"')
+    // P2-T18-BLOCKER-AUTH2-R13-R3-R1 (M9 gap closure): the three checks above
+    // only proved each URL variable is DECLARED — mirroring the consumption
+    // checks that already exist for unsubscribeUrl ("fetch(unsubscribeUrl",
+    // F-P2-T05-02 describe above) and statusUrl ("fetch(statusUrl",
+    // F-P2-T05-13 describe above), this proves subscribe()'s fetch actually
+    // CONSUMES subscribeUrl rather than a bare literal (R13-R3 mutant M9
+    // survived because this was missing).
+    expect(src).toContain("fetch(subscribeUrl")
+  })
+
+  test("subscribe() and unsubscribe() depend on actorType in their useCallback deps array — a fresh actor never reuses a stale selector", () => {
+    expect(src).toContain("}, [isSupported, loading, finishMutation, actorType])")
+    const depsOccurrences = [...src.matchAll(/\}, \[isSupported, loading, finishMutation, actorType\]\)/g)]
+    expect(depsOccurrences.length).toBe(2)
   })
 })

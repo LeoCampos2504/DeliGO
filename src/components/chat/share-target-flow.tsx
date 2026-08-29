@@ -57,7 +57,12 @@ async function loadTargets(role: Role): Promise<{ ok: true; targets: ChatTarget[
     return { ok: true, targets }
   }
 
-  const res = await fetch("/api/chat/conversaciones", { cache: "no-store" })
+  // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+  // familia — mismo transporte ?actorFamily= ya certificado en Fase 2,
+  // requerido para que /api/chat/conversaciones resuelva sin ambigüedad
+  // bajo 2+ cookies de familia coexistiendo. `role` es "cliente"/"negocio"
+  // en este punto (la rama "operaciones" ya retornó arriba).
+  const res = await fetch(`/api/chat/conversaciones?actorFamily=${role}`, { cache: "no-store" })
   if (res.status === 401) return { ok: false, noSession: true }
   if (!res.ok) return { ok: false, noSession: false }
   const data = await res.json().catch(() => null)
@@ -112,7 +117,11 @@ async function sendToTarget(role: Role, pedidoId: string, share: PendingShare): 
     ? { archivoUrl: uploadData.url, archivoNombre: share.name, archivoTipo: "application/pdf" }
     : { imagenUrl: uploadData.url }
 
-  const msgRes = await fetch(`/api/chat/mensajes/${encodeURIComponent(pedidoId)}`, {
+  // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+  // familia — mismo transporte ?actorFamily= ya certificado en Fase 2,
+  // requerido para que POST /api/chat/mensajes/[pedidoId] resuelva sin
+  // ambigüedad bajo 2+ cookies de familia coexistiendo.
+  const msgRes = await fetch(`/api/chat/mensajes/${encodeURIComponent(pedidoId)}?actorFamily=${role}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

@@ -16,8 +16,14 @@ function isMozoRoute(pathname: string) {
   return pathname === "/mozo" || pathname.startsWith("/mozo/")
 }
 
-async function savePushSubscription(subscription: PushSubscription): Promise<void> {
-  await fetch("/api/push/subscribe", {
+// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): `family` es el selector
+// explícito de familia — mismo transporte ?actorFamily= ya certificado en
+// Fase 2, requerido para que /api/push/subscribe resuelva sin ambigüedad
+// bajo 2+ cookies de familia coexistiendo. El caller (dentro de
+// PermissionPrompt) siempre pasa `uType` del actor autenticado actual.
+async function savePushSubscription(subscription: PushSubscription, family: string | null): Promise<void> {
+  const url = family ? `/api/push/subscribe?actorFamily=${family}` : "/api/push/subscribe"
+  await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -34,9 +40,12 @@ async function savePushSubscription(subscription: PushSubscription): Promise<voi
 // automáticamente revertiría ese disable sin ninguna acción del usuario. Por
 // eso este chequeo es puramente informativo: rebind de un actor detached
 // exige siempre USER_EXPLICIT_ENABLE (el toggle de perfil/config).
-async function checkExistingPushSubscriptionStatus(subscription: PushSubscription): Promise<boolean> {
+// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): idéntico selector para
+// /api/push/status.
+async function checkExistingPushSubscriptionStatus(subscription: PushSubscription, family: string | null): Promise<boolean> {
   try {
-    const res = await fetch("/api/push/status", {
+    const url = family ? `/api/push/status?actorFamily=${family}` : "/api/push/status"
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -101,8 +110,8 @@ export function PermissionPrompt() {
 
     // Read-only status probe — never re-registers automatically (see
     // checkExistingPushSubscriptionStatus above, F-P2-T05-12).
-    await checkExistingPushSubscriptionStatus(subscription)
-  }, [isMozo])
+    await checkExistingPushSubscriptionStatus(subscription, uType)
+  }, [isMozo, uType])
 
   useEffect(() => {
     if (isMozo) {
@@ -169,7 +178,7 @@ export function PermissionPrompt() {
           }
 
           if (subscription) {
-            await savePushSubscription(subscription)
+            await savePushSubscription(subscription, uType)
           }
         } catch (err) {
           console.error("Push subscription error:", safeErrorForLog(err))

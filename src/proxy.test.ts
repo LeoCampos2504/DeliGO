@@ -291,3 +291,139 @@ describe("Superadmin: cookie propia, fuera de este mecanismo por completo", () =
     expect(res.status).toBe(401)
   })
 })
+
+// ============================================
+// P2-T18-BLOCKER-AUTH2-R13-R2 (Fase 2, F-P2-T18-AUTH02)
+// ============================================
+// Cubre los 6 prefijos nuevos congelados por R13-R1: /api/chat/no-leidos,
+// /api/chat/conversaciones, /api/chat/mensajes, /api/push/subscribe,
+// /api/push/unsubscribe, /api/push/status. Mismo patrón exacto que CASE
+// 7/8/9/10 (endpoint compartido + selector), aplicado a esta categoría —
+// nunca reemplaza esos casos, los extiende. Ninguno de estos 6 prefijos
+// está en ROLE_PROTECTED_ROUTES (nunca path-derivable), así que el único
+// mecanismo de desambiguación posible es el selector.
+
+describe("AUTH02 — Chat: selector explícito resuelve bajo coexistencia", () => {
+  test("/api/chat/no-leidos?actorFamily=cliente con ambas cookies -> resuelve Cliente, nunca 401", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/chat/no-leidos?actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+  })
+
+  test("/api/chat/conversaciones?actorFamily=negocio con ambas cookies -> resuelve Negocio, nunca 401", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/chat/conversaciones?actorFamily=negocio", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
+
+  test("/api/chat/mensajes/<pedidoId>?actorFamily=cliente con ambas cookies -> resuelve Cliente (prefijo cubre el sub-path dinámico)", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/chat/mensajes/abc123?actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+  })
+
+  test("/api/chat/mensajes/<pedidoId>?mode=safety&actorFamily=cliente -> el selector convive con otros query params existentes", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/chat/mensajes/abc123?mode=safety&actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken })
+    )
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
+})
+
+describe("AUTH02 — Push: selector explícito resuelve bajo coexistencia", () => {
+  test("/api/push/subscribe?actorFamily=negocio con ambas cookies -> resuelve Negocio, nunca 401", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=negocio", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
+
+  test("/api/push/unsubscribe?actorFamily=cliente con ambas cookies -> resuelve Cliente, nunca 401", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/push/unsubscribe?actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+  })
+
+  test("/api/push/status?actorFamily=negocio con ambas cookies -> resuelve Negocio (fuera de AUTH_REQUIRED_PREFIXES, mismo mecanismo)", () => {
+    const clienteToken = uuid()
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/push/status?actorFamily=negocio", { [CLIENTE_COOKIE]: clienteToken, [NEGOCIO_COOKIE]: negocioToken }, { method: "POST" })
+    )
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+    expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
+})
+
+describe("AUTH02 — fail-closed preservado: selector ausente/malformado/desconocido bajo 2+ cookies", () => {
+  test("/api/chat/no-leidos sin selector, ambas cookies presentes -> ambiguo, sin reenvío, 401 (sin cambio de comportamiento)", () => {
+    const res = proxy(req("/api/chat/no-leidos", { [CLIENTE_COOKIE]: uuid(), [NEGOCIO_COOKIE]: uuid() }))
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("/api/push/subscribe?actorFamily=hacker con ambas cookies -> selector desconocido, fail closed, 401", () => {
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=hacker", { [CLIENTE_COOKIE]: uuid(), [NEGOCIO_COOKIE]: uuid() }, { method: "POST" })
+    )
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("/api/push/unsubscribe?actorFamily=cliente pero SIN cookie Cliente (sólo Negocio) -> no puede cruzar de familia, sin reenvío", () => {
+    const res = proxy(
+      req("/api/push/unsubscribe?actorFamily=cliente", { [NEGOCIO_COOKIE]: uuid() }, { method: "POST" })
+    )
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+  })
+})
+
+describe("AUTH02 — compatibilidad single-family preservada (regresión)", () => {
+  test("/api/chat/no-leidos sin selector, UNA sola cookie de familia presente -> no ambiguo, se reenvía igual que antes de este fix", () => {
+    const token = uuid()
+    const res = proxy(req("/api/chat/no-leidos", { [CLIENTE_COOKIE]: token }))
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${token}`)
+  })
+
+  test("/api/push/status sin selector, UNA sola cookie de familia presente -> no ambiguo, se reenvía igual que antes de este fix", () => {
+    const token = uuid()
+    const res = proxy(req("/api/push/status", { [NEGOCIO_COOKIE]: token }, { method: "POST" }))
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${token}`)
+  })
+})
+
+describe("AUTH02 — /api/chat/cleanup permanece público, ajeno a este mecanismo", () => {
+  test("/api/chat/cleanup nunca exige selector ni cookie de sesión (ruta pública, PUBLIC_API_PREFIXES)", () => {
+    const res = proxy(req("/api/chat/cleanup", {}))
+    // Público -> nunca 401 por ausencia de sesión; su propio auth (secreto
+    // cron) es responsabilidad exclusiva del route handler, sin cambio.
+    expect(res.status).not.toBe(401)
+  })
+})

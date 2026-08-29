@@ -266,7 +266,15 @@ export function ChatSheet() {
     const controller = new AbortController()
     conversationsAbortRef.current = controller
     try {
-      const res = await fetch("/api/chat/conversaciones", { signal: controller.signal })
+      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+      // familia — mismo transporte ?actorFamily= ya certificado en Fase 2,
+      // requerido para que /api/chat/conversaciones resuelva sin ambigüedad
+      // cuando coexisten 2+ cookies de familia. Fuente: useAuthStore().user?.type
+      // (nunca pathname: ChatSheet se monta desde el layout raíz).
+      const url = user?.type
+        ? `/api/chat/conversaciones?actorFamily=${user.type}`
+        : "/api/chat/conversaciones"
+      const res = await fetch(url, { signal: controller.signal })
       if (controller.signal.aborted || !res.ok) return
       const data = await res.json()
       if (controller.signal.aborted) return
@@ -285,7 +293,7 @@ export function ChatSheet() {
         if (isFirstLoad) setLoadingConversations(false)
       }
     }
-  }, [setArchivedConversations, setConversations, setLoadingConversations])
+  }, [setArchivedConversations, setConversations, setLoadingConversations, user?.type])
 
   // Teardown on actor change / capability loss: abort any in-flight request
   // and reset the single-flight guard and first-load flag so a stale

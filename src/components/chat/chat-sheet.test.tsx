@@ -15,7 +15,11 @@ import { resolve } from "node:path"
 // tested in src/lib/chat-history-resync.test.ts; this file verifies
 // ChatSheet actually WIRES that logic in the required, safe place.
 
-const chatSheetSource = () => readFileSync(resolve(import.meta.dir, "chat-sheet.tsx"), "utf8")
+// P2-T18-BLOCKER-AUTH2-R13-R2: .replace normalizes CRLF -> LF so the new
+// AUTH02 multi-line toContain() assertions below are insensitive to this
+// file's on-disk line-ending convention (unaffected pre-existing tests
+// above never depended on this either way).
+const chatSheetSource = () => readFileSync(resolve(import.meta.dir, "chat-sheet.tsx"), "utf8").replace(/\r\n/g, "\n")
 
 describe("ChatSheet — exact Chat room coverage token publication", () => {
   test("imports the coverage-token helper from the shared pure history-resync module", () => {
@@ -195,5 +199,34 @@ describe("ChatSheet — D2 presentation-candidate creation and threading", () =>
     const source = chatSheetSource()
     expect(source).toContain("const isSheetOpenRef = useRef(isSheetOpen)")
     expect(source).toContain("isSheetOpenRef.current = isSheetOpen")
+  })
+})
+
+// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): /api/chat/conversaciones
+// es un endpoint compartido sin familia derivable de su propio path — bajo
+// 2+ cookies de familia coexistiendo, resolveActorSession() en src/proxy.ts
+// no puede resolverlo sin un selector explícito. Mismo patrón estructural
+// que el resto de este archivo: prueba de fuente, no de render.
+describe("ChatSheet — F-P2-T18-AUTH02 actorFamily selector propagation", () => {
+  test("the conversaciones fetch URL carries an explicit actorFamily selector derived from the authenticated user type", () => {
+    const source = chatSheetSource()
+    expect(source).toContain(
+      'const url = user?.type\n        ? `/api/chat/conversaciones?actorFamily=${user.type}`\n        : "/api/chat/conversaciones"',
+    )
+    expect(source).toContain("const res = await fetch(url, { signal: controller.signal })")
+  })
+
+  test("the family source is the authenticated user type, never window.location.pathname (ChatSheet is mounted from the root layout, not a family-scoped page)", () => {
+    const source = chatSheetSource()
+    expect(source).not.toContain("activeSessionFamily(")
+    expect(source).not.toContain("window.location.pathname")
+  })
+
+  test("loadConversations depends on user?.type — a fresh actor after login/switch never reuses a stale selector", () => {
+    const source = chatSheetSource()
+    const callbackEnd = source.indexOf(
+      "}, [setArchivedConversations, setConversations, setLoadingConversations, user?.type])",
+    )
+    expect(callbackEnd).toBeGreaterThan(-1)
   })
 })

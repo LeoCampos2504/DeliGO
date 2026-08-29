@@ -147,7 +147,12 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         return registration.pushManager.getSubscription()
       },
       fetchStatus: async (subscriptionJson) => {
-        const res = await fetch("/api/push/status", {
+        // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
+        // de familia — mismo transporte ?actorFamily= ya certificado en
+        // Fase 2, requerido para que /api/push/status resuelva sin
+        // ambigüedad bajo 2+ cookies de familia coexistiendo.
+        const statusUrl = actorType ? `/api/push/status?actorFamily=${actorType}` : "/api/push/status"
+        const res = await fetch(statusUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subscription: subscriptionJson }),
@@ -234,7 +239,12 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       })
 
       // Save to server
-      const res = await fetch("/api/push/subscribe", {
+      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
+      // de familia — mismo transporte ?actorFamily= ya certificado en
+      // Fase 2, requerido para que /api/push/subscribe resuelva sin
+      // ambigüedad bajo 2+ cookies de familia coexistiendo.
+      const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"
+      const res = await fetch(subscribeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -264,7 +274,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       // agregue sin pasar por `finishMutation`.
       if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading, finishMutation])
+  }, [isSupported, loading, finishMutation, actorType])
 
   const unsubscribe = useCallback(async (): Promise<PushMutationResult> => {
     if (!isSupported || loading) return { current: false, subscribed: isSubscribedRef.current }
@@ -279,7 +289,14 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       const subscription = await registration.pushManager.getSubscription()
 
       if (subscription) {
-        const res = await fetch("/api/push/unsubscribe", {
+        // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
+        // de familia — mismo transporte ?actorFamily= ya certificado en
+        // Fase 2, requerido para que /api/push/unsubscribe resuelva sin
+        // ambigüedad bajo 2+ cookies de familia coexistiendo. `actorType`
+        // sigue siendo el del actor autenticado en este momento (esta
+        // acción es explícita del usuario, nunca disparada tras logout).
+        const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"
+        const res = await fetch(unsubscribeUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -317,7 +334,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     } finally {
       if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading, finishMutation])
+  }, [isSupported, loading, finishMutation, actorType])
 
   return {
     isSupported,
