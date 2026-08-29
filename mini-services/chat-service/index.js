@@ -379,12 +379,10 @@ function createChatService(options = {}) {
         setRoomGrant(user, room, scopes, claims.exp)
         metrics.roomJoins += 1
         ack(acknowledgement, { ok: true, room, scopes: [...scopes] })
-        console.log(`[Chat][DIAG] join_ok room=${room} socketId=${socket.id} scopes=${[...scopes].join(",")}`)
       } catch (error) {
         metrics.roomRejects += 1
         const code = error?.message === AUTH_REJECT_CODES.EXPIRED ? AUTH_REJECT_CODES.EXPIRED : "CAPABILITY_INVALID"
         ack(acknowledgement, { ok: false, code })
-        console.log(`[Chat][DIAG] join_fail socketId=${socket.id} code=${code} error=${error?.message}`)
       }
     })
 
@@ -462,15 +460,11 @@ function createChatService(options = {}) {
     socket.on("typing", (pedidoId) => {
       if (!user.limiters.typing.allow()) {
         metrics.rateLimitedEvents += 1
-        console.log(`[Chat][DIAG] typing_rate_limited socketId=${socket.id}`)
         return
       }
       if (typeof pedidoId !== "string") return
       const room = getAuthorizedRoom(user, pedidoId, "chat:typing")
-      if (!room) {
-        console.log(`[Chat][DIAG] typing_no_authorized_room socketId=${socket.id} pedidoId=${pedidoId}`)
-        return
-      }
+      if (!room) return
       const payload = {
         pedidoId,
         userId: actor.userId,
@@ -478,14 +472,10 @@ function createChatService(options = {}) {
         userName: "Usuario",
       }
       // Recipient-scope filtering (REV1_B) — see message-sent above.
-      const recipientSocketIds = getAuthorizedRecipientSockets(connectedUsers, room, "chat:typing")
-      let emitted = 0
-      for (const socketId of recipientSocketIds) {
+      for (const socketId of getAuthorizedRecipientSockets(connectedUsers, room, "chat:typing")) {
         if (socketId === socket.id) continue
         io.to(socketId).emit("user-typing", payload)
-        emitted += 1
       }
-      console.log(`[Chat][DIAG] typing_received room=${room} socketId=${socket.id} candidates=${recipientSocketIds.length} emitted=${emitted} connectedUsersSize=${connectedUsers.size}`)
     })
 
     socket.on("stop-typing", (pedidoId) => {
