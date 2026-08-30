@@ -8,7 +8,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { cn, isNegocioOpen } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { getBusinessLocalDateParts, normalizeBusinessTimezone } from "@/lib/business-hours"
 
 // ============================================
 // Types
@@ -61,23 +62,35 @@ function formatTimeRange(apertura: string, cierre: string): string {
   return `${fmt(apertura)} - ${fmt(cierre)}`
 }
 
-function getCurrentDayKey(): string {
-  const now = new Date()
-  const day = now.getDay() || 7 // Convert Sunday=0 to 7
-  return String(day)
+function resolveInstant(evaluatedAt?: string): Date {
+  if (evaluatedAt) {
+    const parsed = new Date(evaluatedAt)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return new Date()
 }
 
-function getCurrentTime(): string {
-  const now = new Date()
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+function getCurrentDayKey(timezone: string, instant: Date): string {
+  return String(getBusinessLocalDateParts(instant, timezone).weekday)
+}
+
+function getCurrentTime(timezone: string, instant: Date): string {
+  const local = getBusinessLocalDateParts(instant, timezone)
+  return `${String(local.hour).padStart(2, "0")}:${String(local.minute).padStart(2, "0")}`
 }
 
 /**
  * Get a short summary of today's hours, e.g. "9:00 - 22:00" or "Cerrado"
  */
-export function getTodayHoursLabel(horarios: string | HorariosData | Record<string, unknown>): string {
+export function getTodayHoursLabel(
+  horarios: string | HorariosData | Record<string, unknown>,
+  timezone: string,
+  evaluatedAt?: string
+): string {
   const parsed = parseHorarios(horarios)
-  const todayKey = getCurrentDayKey()
+  const normalizedTimezone = normalizeBusinessTimezone(timezone)
+  const instant = resolveInstant(evaluatedAt)
+  const todayKey = getCurrentDayKey(normalizedTimezone, instant)
   const today = parsed[todayKey]
 
   if (!today || !today.abierto) return "Cerrado"
@@ -110,6 +123,10 @@ interface HorariosPopoverProps {
   horarioMode?: string
   /** Manual open/closed status (only used when horarioMode = "simple") */
   abiertoManual?: boolean
+  /** Canonical server result for this business and evaluation instant. */
+  isOpen: boolean
+  timezone: string
+  evaluatedAt?: string
 }
 
 export function HorariosPopover({
@@ -119,14 +136,17 @@ export function HorariosPopover({
   className,
   horarioMode,
   abiertoManual,
+  isOpen,
+  timezone,
+  evaluatedAt,
 }: HorariosPopoverProps) {
   const [open, setOpen] = React.useState(false)
   const parsed = parseHorarios(horarios)
-  const horariosStr = typeof horarios === "string" ? horarios : JSON.stringify(horarios)
-  const isOpen = isNegocioOpen(horariosStr, horarioMode, abiertoManual)
   const isSimpleMode = horarioMode === "simple"
-  const todayKey = getCurrentDayKey()
-  const currentTime = getCurrentTime()
+  const normalizedTimezone = normalizeBusinessTimezone(timezone)
+  const evaluatedInstant = resolveInstant(evaluatedAt)
+  const todayKey = getCurrentDayKey(normalizedTimezone, evaluatedInstant)
+  const currentTime = getCurrentTime(normalizedTimezone, evaluatedInstant)
 
   // Build ordered day list (1-7)
   const days = ["1", "2", "3", "4", "5", "6", "7"]

@@ -98,6 +98,7 @@ model Negocio {
 
   // Horarios (JSON: keys "1"-"7" with apertura/cierre/turno2 etc.)
   horarios            String   @default("{}")
+  timezone            String   @default("America/Argentina/Buenos_Aires")
   horarioMode         String   @default("experto") // "simple" = toggle manual, "experto" = horarios por día
   abiertoManual       Boolean  @default(true) // solo aplica cuando horarioMode = "simple"
 

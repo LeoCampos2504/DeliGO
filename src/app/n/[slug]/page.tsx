@@ -43,7 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Drawer, DrawerContent, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
+import { cn, formatPrice } from "@/lib/utils"
 import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSecciones, generateCartItemKey } from "@/store/cart-store"
 import { CartPanel } from "@/components/cart/cart-panel"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
@@ -127,6 +127,11 @@ interface NegocioAPI {
   bannerUrl: string | null
   categorias: string[]
   horarios: Record<string, unknown>
+  timezone: string
+  isOpen: boolean
+  evaluatedAt: string
+  horarioMode?: string
+  abiertoManual?: boolean
   ofreceDelivery: boolean
   precioDelivery: number
   tarifaServicio: number
@@ -471,7 +476,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
 
 
-  const isOpen = negocio ? isNegocioOpen(JSON.stringify(negocio.horarios), negocio.horarioMode, negocio.abiertoManual) : false
+  const isOpen = negocio?.isOpen ?? false
   const isRopa = negocio?.rubro === "ropa"
 
   // Cart store
@@ -808,6 +813,9 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
                   horarios={negocio.horarios}
                   horarioMode={negocio.horarioMode}
                   abiertoManual={negocio.abiertoManual}
+                  isOpen={negocio.isOpen}
+                  timezone={negocio.timezone}
+                  evaluatedAt={negocio.evaluatedAt}
                   variant="badge"
                   darkBg
                 />
@@ -1043,7 +1051,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-red-700 dark:text-red-300">Local cerrado</p>
             <p className="text-xs text-red-600/70 dark:text-red-400/70">
-              Tocá "Cerrado" arriba para ver los horarios · Hoy: {getTodayHoursLabel(negocio.horarios)}
+              Tocá "Cerrado" arriba para ver los horarios · Hoy: {getTodayHoursLabel(negocio.horarios, negocio.timezone, negocio.evaluatedAt)}
             </p>
           </div>
         </div>

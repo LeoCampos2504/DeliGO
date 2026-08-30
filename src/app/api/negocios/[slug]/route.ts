@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { getBusinessHoursState } from "@/lib/business-hours"
 
 const productPublicSelect = {
   id: true,
@@ -254,6 +255,7 @@ export async function GET(
         mensajeBienvenida: true,
         categorias: true,
         horarios: true,
+        timezone: true,
         horarioMode: true,
         abiertoManual: true,
         whatsapp: true,
@@ -388,6 +390,13 @@ export async function GET(
       fecha: review.fecha.toISOString(),
     }))
 
+    const hoursState = getBusinessHoursState({
+      horarios: negocio.horarios,
+      horarioMode: negocio.horarioMode,
+      abiertoManual: negocio.abiertoManual,
+      timezone: negocio.timezone,
+    })
+
     return NextResponse.json({
       id: negocio.id,
       slug: negocio.slug,
@@ -399,6 +408,7 @@ export async function GET(
       bannerUrl: negocio.bannerUrl,
       categorias: normalizeStringArray(negocio.categorias),
       horarios: safeParseJSON(negocio.horarios, {}),
+      ...hoursState,
       horarioMode: negocio.horarioMode,
       abiertoManual: negocio.abiertoManual,
       whatsapp: negocio.whatsapp,

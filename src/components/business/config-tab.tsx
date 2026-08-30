@@ -86,6 +86,7 @@ interface NegocioConfig {
   toleranciaCancelacion: number
   mostrarVentas: boolean
   horarios?: Record<string, DiaHorario>
+  timezone?: string
   instagram: string
   facebook: string
   logoUrl: string | null

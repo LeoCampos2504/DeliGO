@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { getBusinessHoursState } from "@/lib/business-hours"
 
 // Seguridad-6B.4: favoritos del cliente — preferencia privada ligada a la sesión, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -32,6 +33,7 @@ export async function GET(req: NextRequest) {
             precioDelivery: true,
             tiempoEntrega: true,
             horarios: true,
+            timezone: true,
             suspendido: true,
             aprobado: true,
             mostrarVentas: true,
@@ -54,6 +56,12 @@ export async function GET(req: NextRequest) {
       ok: true,
       favoritos: favoritos.map((f) => ({
         ...f.negocio,
+        ...getBusinessHoursState({
+          horarios: f.negocio.horarios,
+          horarioMode: f.negocio.horarioMode,
+          abiertoManual: f.negocio.abiertoManual,
+          timezone: f.negocio.timezone,
+        }),
         favoritoId: f.id,
         totalVentas: f.negocio._count.pedidos,
       })),

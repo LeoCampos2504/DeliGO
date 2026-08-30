@@ -10,7 +10,7 @@ import {
   parseSubscriptionEndpoint,
 } from "@/lib/salon-new-order-notification"
 import { getClientIp } from "@/lib/rate-limit"
-import { isNegocioOpen } from "@/lib/utils"
+import { isBusinessOpenAt } from "@/lib/business-hours"
 import { openOrReuseMesaOccupancyForStaff, heartbeatOcupacionForStaffOrder } from "@/lib/mesa-occupancy"
 import {
   buildIngredientesQuitadosSnapshot,
@@ -1016,6 +1016,7 @@ export async function POST(
               lat: true,
               lng: true,
               horarios: true,
+              timezone: true,
               horarioMode: true,
               abiertoManual: true,
               aceptaTransferencia: true,
@@ -1026,7 +1027,13 @@ export async function POST(
           if (metodoPago === "transferencia" && !negocio.aceptaTransferencia) {
             throw new Error("METODO_PAGO_INVALIDO")
           }
-          if (!isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)) {
+          if (!isBusinessOpenAt({
+            instant: new Date(),
+            horarios: negocio.horarios,
+            horarioMode: negocio.horarioMode,
+            abiertoManual: negocio.abiertoManual,
+            timezone: negocio.timezone,
+          })) {
             throw new Error("NEGOCIO_CERRADO")
           }
 

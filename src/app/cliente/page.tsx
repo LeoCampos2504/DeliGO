@@ -36,7 +36,7 @@ import { BottomNav } from "@/components/shared/bottom-nav"
 import { AuthModal } from "@/components/auth/auth-modal"
 import { WrongRoleNotice } from "@/components/shared/wrong-role-notice"
 import { PromotedBusinessesSection } from "@/components/home/promoted-businesses-section"
-import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
+import { cn, formatPrice } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore } from "@/store/nav-store"
@@ -106,6 +106,9 @@ interface NegocioHome {
   zonaDeliveryActiva: boolean
   tiempoEntrega: number
   horarios: string
+  timezone: string
+  isOpen: boolean
+  evaluatedAt: string
   horarioMode?: string
   abiertoManual?: boolean
   totalPromociones: number
@@ -992,7 +995,7 @@ function BusinessCard({
   hasDeliveryAddress?: boolean
   isOutsideZone?: boolean
 }) {
-  const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
+  const isOpen = negocio.isOpen
 
   // Determine delivery price display (zone-aware)
   const deliveryLabel = getDeliveryLabel(negocio, deliveryPrecio, hasDeliveryAddress)

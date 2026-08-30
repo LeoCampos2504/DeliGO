@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getPlatformConfig } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { getBusinessHoursState } from "@/lib/business-hours"
 
 // GET - Public endpoint: returns promoted businesses with their most ordered products + general products
 export async function GET() {
@@ -56,6 +57,7 @@ export async function GET() {
         puntuacionPromedio: true,
         totalResenas: true,
         horarios: true,
+        timezone: true,
         horarioMode: true,
         abiertoManual: true,
         categorias: true,
@@ -82,6 +84,12 @@ export async function GET() {
         const productoIds = negocio.productos.map((p) => p.id)
 
         if (productoIds.length === 0) {
+          const hoursState = getBusinessHoursState({
+            horarios: negocio.horarios,
+            horarioMode: negocio.horarioMode,
+            abiertoManual: negocio.abiertoManual,
+            timezone: negocio.timezone,
+          })
           return {
             id: negocio.id,
             slug: negocio.slug,
@@ -99,6 +107,7 @@ export async function GET() {
             puntuacionPromedio: negocio.puntuacionPromedio,
             totalResenas: negocio.totalResenas,
             horarios: negocio.horarios,
+            ...hoursState,
             horarioMode: negocio.horarioMode,
             abiertoManual: negocio.abiertoManual,
             categorias: negocio.categorias,
@@ -176,6 +185,13 @@ export async function GET() {
             categoria: producto.categoria,
           }))
 
+        const hoursState = getBusinessHoursState({
+          horarios: negocio.horarios,
+          horarioMode: negocio.horarioMode,
+          abiertoManual: negocio.abiertoManual,
+          timezone: negocio.timezone,
+        })
+
         return {
           id: negocio.id,
           slug: negocio.slug,
@@ -193,6 +209,7 @@ export async function GET() {
           puntuacionPromedio: negocio.puntuacionPromedio,
           totalResenas: negocio.totalResenas,
           horarios: negocio.horarios,
+          ...hoursState,
           horarioMode: negocio.horarioMode,
           abiertoManual: negocio.abiertoManual,
           categorias: negocio.categorias,

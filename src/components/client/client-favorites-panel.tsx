@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn, formatPrice, isNegocioOpen } from "@/lib/utils"
+import { cn, formatPrice } from "@/lib/utils"
 import { HorariosPopover } from "@/components/shared/horarios-popover"
 import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 
@@ -37,6 +37,9 @@ interface NegocioFavorito {
   precioDelivery: number
   tiempoEntrega: number
   horarios: string
+  timezone: string
+  isOpen: boolean
+  evaluatedAt: string
   horarioMode?: string
   abiertoManual?: boolean
   suspendido: boolean
@@ -152,7 +155,7 @@ function FavoriteCard({
   onToggle: () => void
   isToggling: boolean
 }) {
-  const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
+  const isOpen = negocio.isOpen
   const rubroLabel =
     negocio.rubro === "restaurante"
       ? "Restaurante"
@@ -216,6 +219,9 @@ function FavoriteCard({
                 horarios={negocio.horarios}
                 horarioMode={negocio.horarioMode}
                 abiertoManual={negocio.abiertoManual}
+                isOpen={negocio.isOpen}
+                timezone={negocio.timezone}
+                evaluatedAt={negocio.evaluatedAt}
                 variant="overlay"
               />
             )}

@@ -31,7 +31,7 @@ import {
   heartbeatOcupacionForStaffOrder,
   SalonDeshabilitadoError,
 } from "@/lib/mesa-occupancy"
-import { isNegocioOpen } from "@/lib/utils"
+import { isBusinessOpenAt } from "@/lib/business-hours"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import {
@@ -1014,7 +1014,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
 
 
     // Check if business is open
-    if (!isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)) {
+    if (!isBusinessOpenAt({
+      instant: new Date(),
+      horarios: negocio.horarios,
+      horarioMode: negocio.horarioMode,
+      abiertoManual: negocio.abiertoManual,
+      timezone: negocio.timezone,
+    })) {
       return NextResponse.json(
         { error: "Este negocio está cerrado y no recibe pedidos en este momento" },
         { status: 400 }

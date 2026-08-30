@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/carousel"
 import { Badge } from "@/components/ui/badge"
 import { Star, Bike, Clock, Flame, ChevronRight, ShoppingCart, Sparkles, Store } from "lucide-react"
-import { formatPrice, isNegocioOpen } from "@/lib/utils"
+import { formatPrice } from "@/lib/utils"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useSoloDeliveryCoverage } from "@/hooks/use-solo-delivery-coverage"
@@ -49,6 +49,9 @@ interface NegocioPromocionado {
   puntuacionPromedio: number
   totalResenas: number
   horarios: string
+  timezone: string
+  isOpen: boolean
+  evaluatedAt: string
   horarioMode?: string
   abiertoManual?: boolean
   categorias: string
@@ -289,7 +292,7 @@ function NegocioFullSlide({
   hasDeliveryAddress?: boolean
   isOutsideZone?: boolean
 }) {
-  const isOpen = isNegocioOpen(negocio.horarios, negocio.horarioMode, negocio.abiertoManual)
+  const isOpen = negocio.isOpen
   const rubroEmoji = getRubroEmoji(negocio.rubro)
   const rubroLabel = getRubroLabel(negocio.rubro)
   const allProducts = [...negocio.productosTop, ...negocio.productosGenerales]

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { getBusinessHoursState } from "@/lib/business-hours"
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,7 +59,15 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    const result = sorted.map((n) => ({
+    const result = sorted.map((n) => {
+      const hoursState = getBusinessHoursState({
+        horarios: n.horarios,
+        horarioMode: n.horarioMode,
+        abiertoManual: n.abiertoManual,
+        timezone: n.timezone,
+      })
+
+      return {
       id: n.id,
       slug: n.slug,
       nombre: n.nombre,
@@ -79,12 +88,14 @@ export async function GET(request: NextRequest) {
       zonaDeliveryActiva: n.zonaDeliveryActiva,
       tiempoEntrega: n.tiempoEntrega,
       horarios: n.horarios,
+      ...hoursState,
       horarioMode: n.horarioMode,
       abiertoManual: n.abiertoManual,
       totalPromociones: n.productos.length,
       mostrarVentas: n.mostrarVentas,
       totalVentas: n._count.pedidos,
-    }))
+      }
+    })
 
     return NextResponse.json(result)
   } catch (error) {
