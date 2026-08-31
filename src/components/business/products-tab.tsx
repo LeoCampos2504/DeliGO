@@ -58,7 +58,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { cn, formatPrice } from "@/lib/utils"
-import { normalizeOwnSectionOptions, validateOwnSectionOptionPrice, type OwnSectionOption } from "@/lib/product-own-sections"
+import { normalizeOwnSectionOptionsForEditor, validateOwnSectionOptionPrice, type OwnSectionOption } from "@/lib/product-own-sections"
 import { toast } from "sonner"
 import { ImageUpload, MultiImageUpload } from "@/components/shared/image-upload"
 import type { PanelMode } from "./business-panel"
@@ -2624,11 +2624,17 @@ function ProductOptionSectionsEditor({
       const parsed = JSON.parse(formData.secciones)
       if (!Array.isArray(parsed)) return []
       // Normalize each section to ensure all properties exist (handles old/incomplete formats).
-      // normalizeOwnSectionOptions also upgrades legacy string[] options to
-      // {nombre, precio: 0} — OWN-PRODUCT-OPTION-PRICES-R1 backward compatibility.
+      // OWN-PRODUCT-OPTIONS-REGRESSION-FIX-R1: uses the editor-safe
+      // normalizer, which (unlike the read/display-boundary
+      // normalizeOwnSectionOptions) never drops a blank-named row — this
+      // recomputes on every render of the editor's OWN in-progress state
+      // (including immediately after "Agregar opción" appends a fresh
+      // {nombre:"", precio:0} placeholder), so filtering by name here
+      // would strip that row before it ever painted. Legacy string[]
+      // options still upgrade to {nombre, precio: 0} either way.
       return parsed.map((s: Record<string, unknown>) => ({
         nombre: typeof s?.nombre === "string" ? s.nombre : String(s ?? ""),
-        opciones: normalizeOwnSectionOptions(s?.opciones),
+        opciones: normalizeOwnSectionOptionsForEditor(s?.opciones),
         obligatorio: s?.obligatorio === true,
         maximo: typeof s?.maximo === "number" ? s.maximo : 0,
       }))
