@@ -116,8 +116,8 @@ describe("§8: real element highlight — no blocking overlay, pointer interacti
     expect(TARGET).not.toMatch(/pointer-events-none/)
   })
 
-  test("the ring uses Tailwind's ring utilities (box-shadow — never affects layout box size); TUTORIAL-HIGHLIGHT-PULSE-POLISH-R1: the attention glow is a separate `filter` property, never Tailwind's infinite animate-pulse", () => {
-    expect(TARGET).toMatch(/ring-2 ring-primary/)
+  test("the persistent highlight uses a CSS outline (never affects layout box size, never fills the interior); TUTORIAL-HIGHLIGHT-PULSE-POLISH-R1: the attention glow is a separate animated `boxShadow`, never Tailwind's infinite animate-pulse", () => {
+    expect(TARGET).toMatch(/outline-2 outline-primary/)
     expect(TARGET).not.toMatch(/animate-pulse/)
   })
 })
