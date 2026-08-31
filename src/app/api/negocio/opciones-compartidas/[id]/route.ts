@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validateSharedOptionPayload } from "@/lib/shared-options-server"
 
 // PUT - Update opcion compartida
 export async function PUT(
@@ -29,13 +30,21 @@ export async function PUT(
       return NextResponse.json({ error: "No encontrado" }, { status: 404 })
     }
 
+    const validPayload = validateSharedOptionPayload({ opciones, obligatorio, maximo })
+    if (!validPayload.ok) {
+      return NextResponse.json({ error: validPayload.error }, { status: 400 })
+    }
+    if (nombre !== undefined && (typeof nombre !== "string" || !nombre.trim())) {
+      return NextResponse.json({ error: "El nombre debe ser válido" }, { status: 400 })
+    }
+
     const updated = await db.opcionesCompartidas.update({
       where: { id },
       data: {
         ...(nombre !== undefined && { nombre: nombre.trim() }),
-        ...(opciones !== undefined && { opciones: JSON.stringify(opciones) }),
-        ...(obligatorio !== undefined && { obligatorio }),
-        ...(maximo !== undefined && { maximo }),
+        ...(opciones !== undefined && { opciones: JSON.stringify(validPayload.opciones) }),
+        ...(obligatorio !== undefined && { obligatorio: validPayload.obligatorio }),
+        ...(maximo !== undefined && { maximo: validPayload.maximo }),
       },
     })
 
@@ -67,39 +76,52 @@ export async function DELETE(
 
     const { id } = await params
 
-    // Verify ownership
-    const existing = await db.opcionesCompartidas.findUnique({ where: { id } })
-    if (!existing || existing.negocioId !== user.id) {
-      return NextResponse.json({ error: "No encontrado" }, { status: 404 })
-    }
+    const deleted = await db.$transaction(async (tx) => {
+      const existing = await tx.opcionesCompartidas.findFirst({
+        where: { id, negocioId: user.id },
+        select: { id: true },
+      })
+      if (!existing) return false
 
-    await db.opcionesCompartidas.delete({ where: { id } })
+      // Parse every in-scope product before changing anything. A malformed
+      // JSON field fails closed and rolls back the whole delete instead of
+      // leaving a dangling reference behind.
+      const productos = await tx.producto.findMany({
+        where: { negocioId: user.id },
+        select: { id: true, opcionesCompartidasIds: true },
+      })
+      const updates: Array<{ productId: string; value: string }> = []
+      for (const prod of productos) {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(prod.opcionesCompartidasIds || "[]")
+        } catch {
+          throw new Error("Producto con referencias de opciones compartidas invalidas")
+        }
+        if (!Array.isArray(parsed)) {
+          throw new Error("Producto con referencias de opciones compartidas invalidas")
+        }
 
-    // Also remove this ID from all products that reference it
-    const productos = await db.producto.findMany({
-      where: { negocioId: user.id },
-      select: { id: true, opcionesCompartidasIds: true },
+        const updated = parsed.filter((item: unknown) =>
+          typeof item === "string" ? item !== id : (item as { id?: string })?.id !== id
+        )
+        if (updated.length !== parsed.length) {
+          updates.push({ productId: prod.id, value: JSON.stringify(updated) })
+        }
+      }
+
+      await tx.opcionesCompartidas.delete({ where: { id } })
+      for (const update of updates) {
+        await tx.producto.update({
+          where: { id: update.productId },
+          data: { opcionesCompartidasIds: update.value },
+        })
+      }
+      return true
     })
 
-    for (const prod of productos) {
-      try {
-        const parsed: unknown[] = JSON.parse(prod.opcionesCompartidasIds || "[]")
-        // Handle both old format (string[]) and new format ({id, obligatorio, maximo}[])
-        const needsUpdate = parsed.some((item: unknown) =>
-          typeof item === "string" ? item === id : (item as { id?: string })?.id === id
-        )
-        if (needsUpdate) {
-          const updated = parsed.filter((item: unknown) =>
-            typeof item === "string" ? item !== id : (item as { id?: string })?.id !== id
-          )
-          await db.producto.update({
-            where: { id: prod.id },
-            data: { opcionesCompartidasIds: JSON.stringify(updated) },
-          })
-        }
-      } catch {
-        // Skip if JSON parse fails
-      }
+    if (!deleted) {
+      return NextResponse.json({ error: "No encontrado" }, { status: 404 })
     }
 
     return NextResponse.json({ ok: true })

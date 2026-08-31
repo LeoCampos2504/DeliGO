@@ -5,7 +5,7 @@ import { auditLog } from "@/lib/audit"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
-  readSharedOptionIdList,
+  readSharedOptionConfigList,
   readStringIdList,
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validIngredienteIds.error }, { status: 400 })
     }
 
-    const validOpcionesCompartidasIds = readSharedOptionIdList(
+    const validOpcionesCompartidasIds = readSharedOptionConfigList(
       opcionesCompartidasIds,
       "opcionesCompartidasIds"
     )
@@ -226,7 +226,9 @@ export async function POST(req: NextRequest) {
         secciones: JSON.stringify(validSecciones.value),
         recomendados: JSON.stringify([]),
         imagenesExtra: JSON.stringify(validImagenesExtra.value),
-        opcionesCompartidasIds: opcionesCompartidasIds ? JSON.stringify(opcionesCompartidasIds) : "[]",
+        opcionesCompartidasIds: opcionesCompartidasIds !== undefined
+          ? JSON.stringify(validOpcionesCompartidasIds.configs)
+          : "[]",
         orden: orden || 0,
         negocioId,
       },
