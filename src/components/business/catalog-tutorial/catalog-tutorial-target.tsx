@@ -25,45 +25,57 @@ import { cn } from "@/lib/utils"
 import { useCatalogTutorialGuide } from "./catalog-tutorial-guide-context"
 import type { CatalogTutorialTargetKey } from "./catalog-tutorial-targets"
 
-// TUTORIAL-HIGHLIGHT-PULSE-POLISH-R1 §25-27: the outline itself (Tailwind
-// `ring-*`, box-shadow based — zero layout impact) is permanent for as
-// long as a target is active — it never animates, never disappears. Only
-// a SEPARATE `filter: drop-shadow(...)` glow pulses briefly on
-// activation, via the Web Animations API in the effect below (never the
-// Tailwind utility this file used before, whose default `infinite`
-// iteration count was the operator's actual complaint — it also toggles
-// `opacity` on the
-// whole element, which visually looks like the real control is fading
-// out, exactly what §27 says to avoid). `filter` and `box-shadow` are
-// independent CSS properties, so animating one never fights the other —
-// the ring drawn by `ring-2`/`ring-offset-2` is untouched throughout.
-const STATIC_GLOW = "drop-shadow(0 0 8px rgba(251,140,0,0.45))"
-const PEAK_GLOW = "drop-shadow(0 0 15px rgba(251,140,0,0.8))"
+// OWN-PRODUCT-OPTIONS-REGRESSION-FIX / highlight-fill fix: the persistent
+// highlight is a pure `outline` (a real CSS outline — not Tailwind's
+// composed ring / offset-ring box-shadow utilities, and not a CSS
+// `filter`-based glow). Outline paints ONLY a line around the box edge —
+// it can never fill the interior, never tints a nested card's own
+// background, and (unlike the offset-ring utility, which paints a solid
+// offset-color rectangle to fake a gap) never leaves a mismatched-color
+// "stain" when the highlighted block's own local background differs from
+// the page background. The filter-based glow was also removed: applied
+// to a container with real children (icons, nested cards, semi-
+// transparent panels), a CSS filter shadow follows the alpha shape of
+// ALL that content and is rasterized as a bitmap layer by mobile
+// browsers — exactly the "leftover tinted patches inside the block" the
+// operator saw on mobile. `outline` and `box-shadow` are independent,
+// non-compositing CSS properties, so the pulse below (which animates
+// `box-shadow` only) can never fight or smear into this static outline.
+// Deliberately no `bg-*` class here: `outline`/`box-shadow` never fill a
+// box regardless of its background, so forcing one isn't needed to keep
+// the interior clean — and this class is also applied directly to real
+// elements with their OWN meaningful background (e.g. the solid-orange
+// "Agregar producto" button) via useCatalogTutorialTargetRing, where a
+// `bg-*` utility here could win the cascade and blank out that real
+// background.
+export const CATALOG_TUTORIAL_TARGET_RING_CLASSNAME = "outline-2 outline-primary outline-offset-2"
 
-export const CATALOG_TUTORIAL_TARGET_RING_CLASSNAME =
-  "ring-2 ring-primary ring-offset-2 ring-offset-background [filter:drop-shadow(0_0_8px_rgba(251,140,0,0.45))]"
+const PULSE_GLOW = "0 0 14px 2px rgba(251,140,0,0.55)"
+const PULSE_NONE = "0 0 0 0 rgba(251,140,0,0)"
 
-// Exactly 2 pulse cycles (static -> peak -> static, twice), ending on the
-// SAME value as the persistent static class above so releasing control
-// back to CSS after the animation ends is seamless — no jump/pop. ~900ms
-// total, inside the task's suggested ~0.8-1.5s attention-phase window.
+// Exactly 2 pulse cycles (none -> glow -> none, twice) — starts AND ends
+// on the same "no shadow at all" value, so there is nothing left to
+// clean up: once the animation finishes, box-shadow is already `none`.
+// ~900ms total, inside the ~0.8-1.5s attention-phase window.
 const ATTENTION_PULSE_KEYFRAMES: Keyframe[] = [
-  { filter: STATIC_GLOW },
-  { filter: PEAK_GLOW },
-  { filter: STATIC_GLOW },
-  { filter: PEAK_GLOW },
-  { filter: STATIC_GLOW },
+  { boxShadow: PULSE_NONE },
+  { boxShadow: PULSE_GLOW },
+  { boxShadow: PULSE_NONE },
+  { boxShadow: PULSE_GLOW },
+  { boxShadow: PULSE_NONE },
 ]
-// `fill: "none"` (the default — deliberately not overridden) means once
-// the animation ends, the inline `filter` this Animation applied is
-// released and the element falls back to its CSS class's static
-// drop-shadow (CATALOG_TUTORIAL_TARGET_RING_CLASSNAME above) — no manual
-// cleanup of the settled state is needed, and no visible jump since the
-// last keyframe already matches that static value.
+// `fill: "none"` is passed EXPLICITLY (rather than relying on it being
+// the default) so a lingering animation-fill-mode can never be the
+// reason a stale frame (a filled-looking box-shadow) survives after the
+// pulse ends — once finished, this Animation's effect stops applying
+// entirely and box-shadow falls back to the CSS cascade, which never
+// declares one (no shadow class on the static ring above) — genuinely
+// `none`, not just visually similar to it.
 const ATTENTION_PULSE_OPTIONS: KeyframeAnimationOptions = {
   duration: 900,
   iterations: 1,
   easing: "ease-in-out",
+  fill: "none",
 }
 
 function useTargetRegistration<T extends HTMLElement>(target: CatalogTutorialTargetKey) {
@@ -122,7 +134,7 @@ export function CatalogTutorialTarget({
   return (
     <div
       ref={ref}
-      className={cn("rounded-lg transition-shadow", isActive && CATALOG_TUTORIAL_TARGET_RING_CLASSNAME, className)}
+      className={cn("rounded-lg", isActive && CATALOG_TUTORIAL_TARGET_RING_CLASSNAME, className)}
     >
       {children}
     </div>

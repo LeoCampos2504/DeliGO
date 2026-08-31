@@ -23,16 +23,27 @@ const TARGET = readFileSync(
   "utf8"
 )
 
-describe("TUTORIAL_STATIC_RING_PRESERVED: the outline is permanent, never part of the animated phase", () => {
-  test("ring-2/ring-offset classes are applied unconditionally whenever isActive — not gated by an animation-finished flag", () => {
-    expect(TARGET).toMatch(/CATALOG_TUTORIAL_TARGET_RING_CLASSNAME =\s*\n\s*"ring-2 ring-primary ring-offset-2 ring-offset-background/)
+describe("TUTORIAL_STATIC_RING_PRESERVED: the outline is permanent, never part of the animated phase, and never fills the interior", () => {
+  test("the persistent highlight is a real CSS outline (not Tailwind ring/ring-offset, not filter:drop-shadow) — outline can never fill a box's interior regardless of its own background", () => {
+    expect(TARGET).toMatch(/export const CATALOG_TUTORIAL_TARGET_RING_CLASSNAME = "outline-2 outline-primary outline-offset-2"/)
   })
 
-  test("the ring/outline classes are never part of the WAAPI keyframes — filter (the animated property) and the ring (box-shadow) are independent CSS properties, so the ring can never be interrupted or hidden mid-pulse", () => {
+  test("no ring-offset and no drop-shadow anywhere — both were the actual root cause of tinted/stained interiors on mobile (ring-offset paints a solid color rectangle; drop-shadow follows child content's alpha shape)", () => {
+    expect(TARGET).not.toMatch(/ring-offset/)
+    expect(TARGET).not.toMatch(/drop-shadow/)
+  })
+
+  test("the static class carries no bg-* utility — the highlight must never override a real target's own background (e.g. a solid-color button) when applied directly via useCatalogTutorialTargetRing", () => {
+    const classLine = TARGET.match(/export const CATALOG_TUTORIAL_TARGET_RING_CLASSNAME = "[^"]*"/)
+    expect(classLine).not.toBeNull()
+    expect(classLine![0]).not.toMatch(/\bbg-/)
+  })
+
+  test("the outline is never part of the WAAPI keyframes — outline and box-shadow (the animated property) are independent CSS properties, so the outline can never be interrupted or hidden mid-pulse", () => {
     const keyframesBlock = TARGET.match(/const ATTENTION_PULSE_KEYFRAMES: Keyframe\[\] = \[[\s\S]*?\]/)
     expect(keyframesBlock).not.toBeNull()
-    expect(keyframesBlock![0]).not.toMatch(/ring|boxShadow/)
-    expect(keyframesBlock![0]).toMatch(/filter:/)
+    expect(keyframesBlock![0]).not.toMatch(/outline/)
+    expect(keyframesBlock![0]).toMatch(/boxShadow:/)
   })
 })
 
@@ -47,17 +58,17 @@ describe("TUTORIAL_INFINITE_PULSE=NO: no infinite animation anywhere in the targ
   })
 })
 
-describe("TUTORIAL_ATTENTION_PULSE_ITERATIONS=1_OR_2: exactly 2 pulse cycles, finite duration", () => {
-  test("the keyframe list encodes exactly 2 static->peak->static cycles (5 keyframes: static, peak, static, peak, static)", () => {
+describe("TUTORIAL_ATTENTION_PULSE_ITERATIONS=1_OR_2: exactly 2 pulse cycles, finite duration, zero residue", () => {
+  test("the keyframe list encodes exactly 2 none->glow->none cycles (5 keyframes: none, glow, none, glow, none)", () => {
     const keyframesBlock = TARGET.match(/const ATTENTION_PULSE_KEYFRAMES: Keyframe\[\] = \[([\s\S]*?)\]/)
     expect(keyframesBlock).not.toBeNull()
-    const entries = keyframesBlock![1].match(/\{ filter: (STATIC_GLOW|PEAK_GLOW) \}/g) ?? []
+    const entries = keyframesBlock![1].match(/\{ boxShadow: (PULSE_NONE|PULSE_GLOW) \}/g) ?? []
     expect(entries).toEqual([
-      "{ filter: STATIC_GLOW }",
-      "{ filter: PEAK_GLOW }",
-      "{ filter: STATIC_GLOW }",
-      "{ filter: PEAK_GLOW }",
-      "{ filter: STATIC_GLOW }",
+      "{ boxShadow: PULSE_NONE }",
+      "{ boxShadow: PULSE_GLOW }",
+      "{ boxShadow: PULSE_NONE }",
+      "{ boxShadow: PULSE_GLOW }",
+      "{ boxShadow: PULSE_NONE }",
     ])
   })
 
@@ -69,14 +80,20 @@ describe("TUTORIAL_ATTENTION_PULSE_ITERATIONS=1_OR_2: exactly 2 pulse cycles, fi
     expect(durationMs).toBeLessThanOrEqual(1500)
   })
 
-  test("the animation ends on exactly the same filter value as the persistent static class — no visible jump when WAAPI releases control back to CSS", () => {
-    expect(TARGET).toMatch(/const STATIC_GLOW = "drop-shadow\(0 0 8px rgba\(251,140,0,0\.45\)\)"/)
-    expect(TARGET).toMatch(/\[filter:drop-shadow\(0_0_8px_rgba\(251,140,0,0\.45\)\)\]/)
+  test("the pulse starts AND ends on a fully-zero box-shadow — nothing is left to clean up, and the static ring class declares no box-shadow of its own to conflict with it", () => {
+    expect(TARGET).toMatch(/const PULSE_NONE = "0 0 0 0 rgba\(251,140,0,0\)"/)
+    const classLine = TARGET.match(/export const CATALOG_TUTORIAL_TARGET_RING_CLASSNAME = "[^"]*"/)
+    expect(classLine![0]).not.toMatch(/shadow/)
   })
 
-  test("no opacity is touched by the pulse (task §27: 'do not make strong opacity changes that make the form look like it is disappearing')", () => {
+  test("fill is explicitly set to 'none' — an animation-fill-mode that preserved the final frame was one of the failure modes this fix must rule out", () => {
+    expect(TARGET).toMatch(/fill:\s*"none"/)
+  })
+
+  test("no opacity and no background-color is touched by the pulse (task §27: 'do not make strong opacity changes'; the operator's bug: tinted/stained interior)", () => {
     const keyframesBlock = TARGET.match(/const ATTENTION_PULSE_KEYFRAMES: Keyframe\[\] = \[[\s\S]*?\]/)
     expect(keyframesBlock![0]).not.toMatch(/opacity/)
+    expect(keyframesBlock![0]).not.toMatch(/background/)
   })
 })
 
