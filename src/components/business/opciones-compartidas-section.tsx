@@ -27,6 +27,8 @@ import { toast } from "sonner"
 import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
 import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
+import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
+import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
 
 // ============================================
 // Types
@@ -39,6 +41,7 @@ interface OpcionesCompartidasSectionProps {
     rubro: string
     colorPrincipal: string
   }
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 interface OpcionItem {
@@ -74,11 +77,19 @@ const defaultFormData: FormData = {
 // ============================================
 // Main Component
 // ============================================
-export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSectionProps) {
+export function OpcionesCompartidasSection({ negocio, onDirtyChange }: OpcionesCompartidasSectionProps) {
   const queryClient = useQueryClient()
   const [formOpen, setFormOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<OpcionCompartida | null>(null)
   const [formData, setFormData] = useState<FormData>(defaultFormData)
+  const [initialFormData, setInitialFormData] = useState<FormData>(defaultFormData)
+  const isDirty = formOpen && !deepEqual(initialFormData, formData)
+  const { confirmOpen, guardedClose, confirmDiscard, cancelDiscard } = useUnsavedChangesGuard(isDirty)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange])
   const [deleteDialog, setDeleteDialog] = useState<OpcionCompartida | null>(null)
   const guide = useCatalogTutorialGuide()
   const { ref: addRef, className: addRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("shared-option-add")
@@ -118,9 +129,11 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["negocio-opciones-compartidas", negocio.id] })
       toast.success("Opción compartida guardada correctamente")
+      const { id: _id, ...savedFormData } = variables
+      setInitialFormData(savedFormData)
       closeForm()
     },
     onError: (err: Error) => {
@@ -150,6 +163,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
   const openNewForm = () => {
     setEditingItem(null)
     setFormData(defaultFormData)
+    setInitialFormData(defaultFormData)
     setFormOpen(true)
   }
 
@@ -161,12 +175,14 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
     } catch {
       parsedOpciones = []
     }
-    setFormData({
+    const loaded: FormData = {
       nombre: item.nombre,
       opciones: parsedOpciones,
       obligatorio: item.obligatorio,
       maximo: item.maximo,
-    })
+    }
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setFormOpen(true)
   }
 
@@ -272,7 +288,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
       )}
 
       {/* ===== ADD/EDIT DRAWER ===== */}
-      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) closeForm() }}>
+      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) guardedClose(closeForm) }}>
         <DrawerContent className="max-h-[92vh]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="flex items-center gap-2">
@@ -444,7 +460,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
               <Button
                 variant="outline"
                 className="flex-1 rounded-xl"
-                onClick={closeForm}
+                onClick={() => guardedClose(closeForm)}
               >
                 Cancelar
               </Button>
@@ -467,6 +483,12 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      <CatalogUnsavedChangesDialog
+        open={confirmOpen}
+        onContinueEditing={cancelDiscard}
+        onDiscard={confirmDiscard}
+      />
 
       {/* ===== DELETE CONFIRMATION ===== */}
       <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>

@@ -44,10 +44,16 @@ describe("step catalog integrity", () => {
     }
   })
 
-  test("exactly the ingredients and additions steps are restaurant-only (audit §2.4: only restaurant exposes those subtabs)", () => {
+  test("every restaurant-only capability step is gated away from ropa/negocio", () => {
     const restricted = CATALOG_TUTORIAL_STEPS.filter((s) => s.supportedRubros)
     const restrictedIds = restricted.map((s) => s.id).sort()
-    expect(restrictedIds).toEqual(["create-additions", "create-ingredients"])
+    expect(restrictedIds).toEqual([
+      "create-additions",
+      "create-ingredients",
+      "description-discounts",
+      "own-product-section",
+      "simple-vs-expert",
+    ])
     for (const step of restricted) {
       expect(step.supportedRubros).toEqual(["restaurante"])
     }
@@ -71,11 +77,17 @@ describe("getVisibleSteps — rubro filtering (task §10, §34: no impossible st
     expect(visible).not.toContain("create-additions")
   })
 
-  test("ropa/negocio still see every other step (own sections, shared options, stock, preview, etc.)", () => {
+  test("ropa/negocio see the steps supported by their capability model", () => {
     const restauranteIds = new Set(getVisibleSteps("restaurante").map((s) => s.id))
     const ropaIds = new Set(getVisibleSteps("ropa").map((s) => s.id))
     const onlyInRestaurante = [...restauranteIds].filter((id) => !ropaIds.has(id))
-    expect(onlyInRestaurante.sort()).toEqual(["create-additions", "create-ingredients"])
+    expect(onlyInRestaurante.sort()).toEqual([
+      "create-additions",
+      "create-ingredients",
+      "description-discounts",
+      "own-product-section",
+      "simple-vs-expert",
+    ])
   })
 })
 

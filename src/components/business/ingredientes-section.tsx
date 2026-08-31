@@ -38,6 +38,8 @@ import { ImageUpload } from "@/components/shared/image-upload"
 import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
 import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
+import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
+import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
 
 // ============================================
 // Types
@@ -50,6 +52,8 @@ interface IngredientesSectionProps {
     rubro: string
     colorPrincipal: string
   }
+  /** BUSINESS-CATALOG-UX-HARDENING-R1: reports this section's own form dirty state up so ProductsTab can guard subtab switches away from it. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 interface Ingrediente {
@@ -75,13 +79,21 @@ const defaultFormData: IngredienteFormData = {
 // ============================================
 // Ingredientes Section Component
 // ============================================
-export function IngredientesSection({ negocio }: IngredientesSectionProps) {
+export function IngredientesSection({ negocio, onDirtyChange }: IngredientesSectionProps) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState("todos")
   const [formOpen, setFormOpen] = useState(false)
   const [editingIngrediente, setEditingIngrediente] = useState<Ingrediente | null>(null)
   const [formData, setFormData] = useState<IngredienteFormData>(defaultFormData)
+  const [initialFormData, setInitialFormData] = useState<IngredienteFormData>(defaultFormData)
+  const isDirty = formOpen && !deepEqual(initialFormData, formData)
+  const { confirmOpen, guardedClose, confirmDiscard, cancelDiscard } = useUnsavedChangesGuard(isDirty)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange])
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null)
   const [categoryInput, setCategoryInput] = useState("")
   const [showCategoryInput, setShowCategoryInput] = useState(false)
@@ -134,9 +146,11 @@ export function IngredientesSection({ negocio }: IngredientesSectionProps) {
       if (!res.ok) throw new Error("Error guardando ingrediente")
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["negocio-ingredientes", negocio.id] })
       toast.success("Ingrediente guardado correctamente")
+      const { id: _id, ...savedFormData } = variables
+      setInitialFormData(savedFormData)
       closeForm()
     },
     onError: () => {
@@ -288,16 +302,19 @@ export function IngredientesSection({ negocio }: IngredientesSectionProps) {
   const openNewForm = () => {
     setEditingIngrediente(null)
     setFormData(defaultFormData)
+    setInitialFormData(defaultFormData)
     setFormOpen(true)
   }
 
   const openEditForm = (ingrediente: Ingrediente) => {
-    setEditingIngrediente(ingrediente)
-    setFormData({
+    const loaded: IngredienteFormData = {
       nombre: ingrediente.nombre,
       categoria: ingrediente.categoria || "",
       imagenUrl: ingrediente.imagenUrl || "",
-    })
+    }
+    setEditingIngrediente(ingrediente)
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setFormOpen(true)
   }
 
@@ -530,7 +547,7 @@ export function IngredientesSection({ negocio }: IngredientesSectionProps) {
       )}
 
       {/* ===== INGREDIENTE FORM DRAWER ===== */}
-      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) closeForm() }}>
+      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) guardedClose(closeForm) }}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="flex items-center gap-2">
@@ -637,7 +654,7 @@ export function IngredientesSection({ negocio }: IngredientesSectionProps) {
               <Button
                 variant="outline"
                 className="flex-1 rounded-xl"
-                onClick={closeForm}
+                onClick={() => guardedClose(closeForm)}
               >
                 Cancelar
               </Button>
@@ -660,6 +677,12 @@ export function IngredientesSection({ negocio }: IngredientesSectionProps) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      <CatalogUnsavedChangesDialog
+        open={confirmOpen}
+        onContinueEditing={cancelDiscard}
+        onDiscard={confirmDiscard}
+      />
 
       {/* ===== DELETE CONFIRMATION ===== */}
       <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>

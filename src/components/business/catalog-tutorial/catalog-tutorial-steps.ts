@@ -6,13 +6,17 @@
 // codex-reports/BUSINESS_CATALOG_TUTORIAL_AUDIT_R1.md — this file must
 // never teach a feature the audit found does not exist (product
 // cloning, guaranteed full stock-hiding, per-ingredient
-// non-removability, price delta on a product's own sections, a global
-// unsaved-changes guard). Where the audit found a UI/copy inconsistency
-// (stock switch's "Oculto del catálogo" helper vs. the real "Sin stock,
-// no comprable" public behavior — audit §13.1), the tutorial states the
-// REAL observable behavior, not the misleading helper text.
+// non-removability, price delta on a product's own sections). Where the
+// audit found a UI/copy inconsistency (stock switch's "Oculto del
+// catálogo" helper vs. the real "Sin stock, no comprable" public
+// behavior — audit §13.1), the tutorial states the REAL observable
+// behavior, not the misleading helper text. BUSINESS-CATALOG-UX-
+// HARDENING-R1 added a real global unsaved-changes guard (see
+// src/hooks/use-unsaved-changes-guard.ts) — the "edit-product" step
+// below was updated to match that new reality instead of the old one.
 
 import type { CatalogTutorialRubro, CatalogTutorialStep } from "./catalog-tutorial-types"
+import { getCatalogRubroCapabilities } from "./catalog-tutorial-rubro-capabilities"
 
 // The host app's `negocio.rubro` is an untyped `string` (business-panel.tsx
 // gates on `rubro === "ropa"` / `rubro === "negocio"` directly, no shared
@@ -24,10 +28,17 @@ export function normalizeRubro(rawRubro: string): CatalogTutorialRubro {
   return "restaurante"
 }
 
-// Only these two chapters are gated by rubro (audit §2.4: "Agregados e
-// Ingredientes, sólo para restaurante en modo experto") — every other
-// step applies across rubros with its noun swapped by resolveRubroCopy.
-const RESTAURANT_ONLY: CatalogTutorialRubro[] = ["restaurante"]
+// BUSINESS-CATALOG-UX-HARDENING-R1: which rubros get which chapters is now
+// derived from the single named capability authority
+// (catalog-tutorial-rubro-capabilities.ts) instead of one ad hoc
+// "RESTAURANT_ONLY" list reused loosely for unrelated chapters — each
+// capability is checked independently, even though they all currently
+// resolve the same way (only "restaurante" reaches Expert mode at all).
+const ALL_RUBROS: CatalogTutorialRubro[] = ["restaurante", "ropa", "negocio"]
+const EXPERT_MODE_RUBROS = ALL_RUBROS.filter((r) => getCatalogRubroCapabilities(r).supportsCatalogExpertMode)
+const INGREDIENT_RUBROS = ALL_RUBROS.filter((r) => getCatalogRubroCapabilities(r).supportsIngredients)
+const ADDITION_RUBROS = ALL_RUBROS.filter((r) => getCatalogRubroCapabilities(r).supportsAdditions)
+const OWN_OPTIONS_RUBROS = ALL_RUBROS.filter((r) => getCatalogRubroCapabilities(r).supportsRestaurantOwnOptions)
 
 export interface RubroCopy {
   productSingular: string // "producto" | "prenda"
@@ -126,7 +137,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     details: [
       "Podés cambiar nombre, precio, categoría o imagen.",
       "Guardá y esperá el mensaje de confirmación.",
-      "No cierres el formulario ni cambies de pantalla antes de guardar: hoy no hay un aviso de cambios sin guardar.",
+      "Si intentás cerrar el formulario o cambiar de pantalla con cambios sin guardar, vas a ver un aviso para confirmar antes de perderlos.",
     ],
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
@@ -145,6 +156,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Pasar a Modo Experto",
     actionKey: "setModeExpert",
     completionLabel: "Listo, continuar",
+    supportedRubros: EXPERT_MODE_RUBROS,
   },
   {
     id: "description-discounts",
@@ -159,6 +171,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     ],
     actionKey: "none",
     completionLabel: "Entendido",
+    supportedRubros: EXPERT_MODE_RUBROS,
   },
   {
     id: "create-ingredients",
@@ -174,7 +187,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a Ingredientes",
     actionKey: "goToIngredients",
     completionLabel: "Ya lo creé",
-    supportedRubros: RESTAURANT_ONLY,
+    supportedRubros: INGREDIENT_RUBROS,
   },
   {
     id: "create-additions",
@@ -189,7 +202,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a Agregados",
     actionKey: "goToAdditions",
     completionLabel: "Ya lo creé",
-    supportedRubros: RESTAURANT_ONLY,
+    supportedRubros: ADDITION_RUBROS,
   },
   {
     id: "own-product-section",
@@ -207,6 +220,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Ya la creé",
+    supportedRubros: OWN_OPTIONS_RUBROS,
   },
   {
     id: "create-shared-options",

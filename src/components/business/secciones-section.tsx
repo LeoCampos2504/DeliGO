@@ -17,6 +17,8 @@ import { toast } from "sonner"
 import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
 import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
+import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
+import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
 
 // ============================================
 // Types
@@ -29,6 +31,7 @@ interface SeccionesSectionProps {
     rubro: string
     colorPrincipal: string
   }
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 interface SeccionProducto {
@@ -83,11 +86,19 @@ const defaultFormData: SeccionFormData = {
 // ============================================
 // Main Component
 // ============================================
-export function SeccionesSection({ negocio }: SeccionesSectionProps) {
+export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionProps) {
   const queryClient = useQueryClient()
   const [formOpen, setFormOpen] = useState(false)
   const [editingSeccion, setEditingSeccion] = useState<Seccion | null>(null)
   const [formData, setFormData] = useState<SeccionFormData>(defaultFormData)
+  const [initialFormData, setInitialFormData] = useState<SeccionFormData>(defaultFormData)
+  const isDirty = formOpen && !deepEqual(initialFormData, formData)
+  const { confirmOpen, guardedClose, confirmDiscard, cancelDiscard } = useUnsavedChangesGuard(isDirty)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange])
   const [deleteDialog, setDeleteDialog] = useState<Seccion | null>(null)
   const [reorderingId, setReorderingId] = useState<string | null>(null)
   const guide = useCatalogTutorialGuide()
@@ -142,9 +153,11 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
       toast.success("Sección guardada correctamente")
+      const { id: _id, ...savedFormData } = variables
+      setInitialFormData(savedFormData)
       closeForm()
     },
     onError: (err) => {
@@ -193,23 +206,27 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
   // Form handlers
   const openNewForm = () => {
     setEditingSeccion(null)
-    setFormData({
+    const loaded: SeccionFormData = {
       ...defaultFormData,
       orden: sortedSecciones.length,
       productoIds: [],
-    })
+    }
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setFormOpen(true)
   }
 
   const openEditForm = (seccion: Seccion) => {
     setEditingSeccion(seccion)
-    setFormData({
+    const loaded: SeccionFormData = {
       nombre: seccion.nombre,
       orientacion: seccion.orientacion,
       color: seccion.color,
       orden: seccion.orden,
       productoIds: seccion.productos?.map((sp) => sp.productoId) ?? [],
-    })
+    }
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setFormOpen(true)
   }
 
@@ -333,7 +350,7 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
       )}
 
       {/* ===== ADD/EDIT DRAWER ===== */}
-      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) closeForm() }}>
+      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) guardedClose(closeForm) }}>
         <DrawerContent className="max-h-[92vh]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="flex items-center gap-2">
@@ -538,7 +555,7 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
               <Button
                 variant="outline"
                 className="flex-1 rounded-xl"
-                onClick={closeForm}
+                onClick={() => guardedClose(closeForm)}
               >
                 Cancelar
               </Button>
@@ -561,6 +578,12 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      <CatalogUnsavedChangesDialog
+        open={confirmOpen}
+        onContinueEditing={cancelDiscard}
+        onDiscard={confirmDiscard}
+      />
 
       {/* ===== DELETE CONFIRMATION ===== */}
       <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
