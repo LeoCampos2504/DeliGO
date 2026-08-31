@@ -66,11 +66,15 @@ import { IngredientesSection } from "./ingredientes-section"
 import { SeccionesSection } from "./secciones-section"
 import { OpcionesCompartidasSection } from "./opciones-compartidas-section"
 import { SectionErrorBoundary } from "@/components/shared/section-error-boundary"
+import { CatalogTutorial, type CatalogTutorialSubTab } from "./catalog-tutorial/catalog-tutorial"
 
 // ============================================
 // Types
 // ============================================
-type CatalogSubTab = "productos" | "agregados" | "ingredientes" | "secciones" | "opciones"
+// Exported for BUSINESS-CATALOG-INAPP-TUTORIAL-R1's CatalogTutorial
+// component, mounted as a child of this one — it navigates via the real
+// setSubTab passed down below, never a DOM click hack.
+export type CatalogSubTab = "productos" | "agregados" | "ingredientes" | "secciones" | "opciones"
 
 interface ProductsTabProps {
   negocio: {
@@ -81,6 +85,12 @@ interface ProductsTabProps {
     colorPrincipal: string
   }
   mode: PanelMode
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R1: mirrors the onNavigate pattern
+  // DashboardTab already uses — lets the tutorial (mounted inside this
+  // component) request a real Simple/Expert switch through
+  // BusinessPanel's own handleModeChange, never a local/shadow mode
+  // state of its own.
+  onModeChange?: (mode: PanelMode) => void
 }
 
 interface Producto {
@@ -446,7 +456,7 @@ function ChipInput({
 // ============================================
 // Products Tab Component
 // ============================================
-export function ProductsTab({ negocio, mode }: ProductsTabProps) {
+export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   const queryClient = useQueryClient()
   const isRopa = negocio.rubro === "ropa"
   const isNegocio = negocio.rubro === "negocio"
@@ -819,6 +829,13 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogTutorial
+          negocio={negocio}
+          mode={mode}
+          onModeChange={onModeChange ?? (() => {})}
+          onNavigateSubTab={setSubTab}
+          onRequestCreateProduct={openNewForm}
+        />
         <SectionErrorBoundary>
           <AgregadosSection negocio={negocio} />
         </SectionErrorBoundary>
@@ -829,6 +846,13 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogTutorial
+          negocio={negocio}
+          mode={mode}
+          onModeChange={onModeChange ?? (() => {})}
+          onNavigateSubTab={setSubTab}
+          onRequestCreateProduct={openNewForm}
+        />
         <SectionErrorBoundary>
           <IngredientesSection negocio={negocio} />
         </SectionErrorBoundary>
@@ -839,6 +863,13 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogTutorial
+          negocio={negocio}
+          mode={mode}
+          onModeChange={onModeChange ?? (() => {})}
+          onNavigateSubTab={setSubTab}
+          onRequestCreateProduct={openNewForm}
+        />
         <SectionErrorBoundary>
           <SeccionesSection negocio={negocio} />
         </SectionErrorBoundary>
@@ -849,6 +880,13 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     return (
       <div className="space-y-4">
         <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogTutorial
+          negocio={negocio}
+          mode={mode}
+          onModeChange={onModeChange ?? (() => {})}
+          onNavigateSubTab={setSubTab}
+          onRequestCreateProduct={openNewForm}
+        />
         <SectionErrorBoundary>
           <OpcionesCompartidasSection negocio={negocio} />
         </SectionErrorBoundary>
@@ -873,6 +911,15 @@ export function ProductsTab({ negocio, mode }: ProductsTabProps) {
     <div className="space-y-4">
       {/* ===== CATALOG SUB-TABS ===== */}
       <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+
+      {/* ===== BUSINESS-CATALOG-INAPP-TUTORIAL-R1 ===== */}
+      <CatalogTutorial
+        negocio={negocio}
+        mode={mode}
+        onModeChange={onModeChange ?? (() => {})}
+        onNavigateSubTab={setSubTab}
+        onRequestCreateProduct={openNewForm}
+      />
 
       {/* ===== SEARCH BAR ===== */}
       <div className="relative">
