@@ -114,6 +114,15 @@ export interface BrowserModeInfo {
 
 export interface DerivedGeometry {
   fixedViewportBottom: number
+  // LEGACY (kept for report/test compatibility with R1-R4): a
+  // self-consistency check between rect.bottom and the CSS `bottom`
+  // formula through fixedViewportBottom — NOT a physical on-screen
+  // distance. IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5 proved this
+  // tautologically reads back whatever `bottom` the CSS declares,
+  // regardless of whether the element is actually rendering in the
+  // correct place on the physical screen — real R4 data showed it stays
+  // "42" even during confirmed clipping. Use navPhysicalScreenBottomDistance
+  // below as authority for "is this actually 42px from the real screen edge."
   navBottomDistance: number | null
   fabBottomDistance: number | null
   fabNavGap: number | null
@@ -122,6 +131,21 @@ export interface DerivedGeometry {
   sheetVisibleGapBottom: number | null
   overlayVisibleGapBottom: number | null
   composerBottomGap: number | null
+  // IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5 §13-14: the actually-
+  // proven physical-screen metrics. innerHeight - rect.bottom, with NO
+  // offsetTop term — real R4 data (133 keyboard-closed samples) proved
+  // this is the formula that clusters tightly around the 42px design
+  // target (variance 56) while `innerHeight - (rect.bottom + offsetTop)`
+  // does not (variance 954, mean ~22) and would have called a confirmed
+  // real ~110px floating state "correct." rect.bottom itself already IS
+  // the physical on-screen Y-coordinate for a `position:fixed` element on
+  // this WebKit build — no further adjustment needed.
+  navPhysicalScreenBottomDistance: number | null
+  fabPhysicalScreenBottomDistance: number | null
+  navPhysicalOverflowBottom: number | null
+  fabPhysicalOverflowBottom: number | null
+  navPhysicalFullyVisible: boolean | null
+  fabPhysicalFullyVisible: boolean | null
 }
 
 // IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only mirror of
@@ -223,6 +247,23 @@ export function computeDerivedGeometry(input: {
   const overlayVisibleGapBottom = chatOverlay ? fixedViewportBottom - chatOverlay.rect.bottom : null
   const composerBottomGap = chatComposer ? fixedViewportBottom - chatComposer.rect.bottom : null
 
+  // IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5: rect.bottom (raw, as
+  // getBoundingClientRect reports it) already IS the physical on-screen
+  // Y-coordinate for a position:fixed element on this WebKit build — no
+  // offsetTop adjustment. innerHeight - rect.bottom is therefore the
+  // actual physical distance from the true screen bottom, proven against
+  // 133 real keyboard-closed R4 samples (median exactly 42, variance 56)
+  // — see the module-level comment on DerivedGeometry.navBottomDistance
+  // for why that older field is NOT this.
+  const navPhysicalScreenBottomDistance = bottomNav ? windowInnerHeight - bottomNav.rect.bottom : null
+  const fabPhysicalScreenBottomDistance = chatFab ? windowInnerHeight - chatFab.rect.bottom : null
+  const navPhysicalOverflowBottom = bottomNav
+    ? Math.max(0, bottomNav.rect.bottom - windowInnerHeight)
+    : null
+  const fabPhysicalOverflowBottom = chatFab ? Math.max(0, chatFab.rect.bottom - windowInnerHeight) : null
+  const navPhysicalFullyVisible = navPhysicalOverflowBottom !== null ? navPhysicalOverflowBottom <= 1 : null
+  const fabPhysicalFullyVisible = fabPhysicalOverflowBottom !== null ? fabPhysicalOverflowBottom <= 1 : null
+
   return {
     fixedViewportBottom,
     navBottomDistance,
@@ -233,6 +274,12 @@ export function computeDerivedGeometry(input: {
     sheetVisibleGapBottom,
     overlayVisibleGapBottom,
     composerBottomGap,
+    navPhysicalScreenBottomDistance,
+    fabPhysicalScreenBottomDistance,
+    navPhysicalOverflowBottom,
+    fabPhysicalOverflowBottom,
+    navPhysicalFullyVisible,
+    fabPhysicalFullyVisible,
   }
 }
 
@@ -541,4 +588,10 @@ export const DERIVED_GEOMETRY_ALLOWED_KEYS = [
   "sheetVisibleGapBottom",
   "overlayVisibleGapBottom",
   "composerBottomGap",
+  "navPhysicalScreenBottomDistance",
+  "fabPhysicalScreenBottomDistance",
+  "navPhysicalOverflowBottom",
+  "fabPhysicalOverflowBottom",
+  "navPhysicalFullyVisible",
+  "fabPhysicalFullyVisible",
 ].sort()

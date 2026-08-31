@@ -553,6 +553,17 @@ export function IOSViewportDebugPanel() {
                     : liveSnapshot.scrollRestoreDebug.restoreReason ?? "-"
                   : "-"}
               </span>
+              <span>nav phys.dist</span>
+              <span>{liveSnapshot?.derived.navPhysicalScreenBottomDistance?.toFixed(1) ?? "-"}</span>
+              <span>nav visible</span>
+              <span>
+                {liveSnapshot?.derived.navPhysicalFullyVisible === null ||
+                liveSnapshot?.derived.navPhysicalFullyVisible === undefined
+                  ? "-"
+                  : liveSnapshot.derived.navPhysicalFullyVisible
+                    ? "YES"
+                    : `NO (+${liveSnapshot.derived.navPhysicalOverflowBottom?.toFixed(1)}px)`}
+              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/20">

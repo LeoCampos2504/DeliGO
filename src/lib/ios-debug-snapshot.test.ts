@@ -392,6 +392,12 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         sheetVisibleGapBottom: null,
         overlayVisibleGapBottom: null,
         composerBottomGap: null,
+        navPhysicalScreenBottomDistance: 42,
+        fabPhysicalScreenBottomDistance: 118,
+        navPhysicalOverflowBottom: 0,
+        fabPhysicalOverflowBottom: 0,
+        navPhysicalFullyVisible: true,
+        fabPhysicalFullyVisible: true,
       },
       scrollRestoreDebug: {
         preFocusScrollY: 100,

@@ -62,6 +62,13 @@ const STABLE_FRAMES_REQUIRED = 6 // consecutive rAF frames with no material view
 const STABLE_TOLERANCE_PX = 1
 const STABLE_MAX_FRAMES = 180 // ~3s at 60fps hard safety cap — never loops forever
 const RESTORE_MAX_RETRIES = 1 // at most one bounded follow-up scrollTo if WebKit re-adjusts a frame later
+// IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5: how many animation frames
+// to keep re-reading the live visualViewport.offsetTop after any real vv
+// event, to catch WebKit's own continuous interpolation between its
+// throttled/coalesced event dispatches. ~250ms at 60fps — comfortably
+// longer than every real transient episode measured (max 103ms) with
+// margin, self-terminating (never an always-on loop).
+const DOCK_OFFSET_POLL_FRAMES = 15
 
 function isIOSDevice(): boolean {
   if (typeof navigator === "undefined") return false
@@ -302,8 +309,51 @@ export function IOSKeyboardFix() {
       root.style.setProperty("--ios-dock-visual-offset-top", `${vv?.offsetTop ?? 0}px`)
     }
 
+    // IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5: real standalone data
+    // proved the R4 synchronous write above is still not enough during a
+    // fast scroll fling — not because the JS write is delayed, but because
+    // WebKit's own `visualViewport` `scroll`/`resize` EVENTS are throttled/
+    // coalesced and do not fire on every compositor frame while the visual
+    // viewport is actively panning. Independently re-derived from the full
+    // R4 payload: 91% of keyboard-closed samples already matched the
+    // design target (42px, median exactly 42) proving the compensation
+    // FORMULA itself is correct — removing it was proven to REINTRODUCE a
+    // sustained ~110px floating bug (offsetTop=68 held for many real
+    // samples). The remaining error is 3 brief episodes (max 103ms, max
+    // 52px) exactly at the moments the browser's own event dispatch lags
+    // behind its continuously-interpolating internal value — confirmed by
+    // cross-checking computedBottom against what it should read for the
+    // CURRENT offsetTop: the actual CSS value matches what the PREVIOUS
+    // event's offsetTop would have produced, every single time, in both
+    // magnitude and sign.
+    // Fix: a short, self-terminating rAF-polling window (not an always-on
+    // loop) that re-reads the live visualViewport.offsetTop every frame
+    // for DOCK_OFFSET_POLL_FRAMES frames after any real vv event — closing
+    // the gap between sparse events without polling indefinitely. Fully
+    // independent of the keyboard-detection pipeline's own rAF/
+    // stabilization timing, which is untouched.
+    let dockOffsetPollRafId = 0
+    let dockOffsetPollFramesLeft = 0
+
+    const pollDockOffsetTick = () => {
+      dockOffsetPollRafId = 0
+      updateDockVisualOffsetSync()
+      dockOffsetPollFramesLeft -= 1
+      if (dockOffsetPollFramesLeft > 0) {
+        dockOffsetPollRafId = window.requestAnimationFrame(pollDockOffsetTick)
+      }
+    }
+
+    const startDockOffsetPolling = () => {
+      dockOffsetPollFramesLeft = DOCK_OFFSET_POLL_FRAMES
+      if (!dockOffsetPollRafId) {
+        dockOffsetPollRafId = window.requestAnimationFrame(pollDockOffsetTick)
+      }
+    }
+
     const handleViewportChange = () => {
       updateDockVisualOffsetSync()
+      startDockOffsetPolling()
       hasEditableFocus = isEditableTarget(document.activeElement)
       scheduleUpdate()
     }
@@ -348,6 +398,7 @@ export function IOSKeyboardFix() {
     return () => {
       if (rafId) window.cancelAnimationFrame(rafId)
       if (stabilizeRafId) window.cancelAnimationFrame(stabilizeRafId)
+      if (dockOffsetPollRafId) window.cancelAnimationFrame(dockOffsetPollRafId)
 
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
