@@ -381,6 +381,7 @@ export function ChatSheet() {
       <SheetContent
         side="right"
         className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
+        data-ios-debug-role="chat-sheet"
       >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>

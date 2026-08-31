@@ -11,6 +11,7 @@ import { InstallPrompt } from "@/components/shared/install-prompt";
 import { DynamicManifest } from "@/components/shared/dynamic-manifest";
 import { PermissionPrompt } from "@/components/shared/permission-prompt";
 import { IOSKeyboardFix } from "@/components/pwa/ios-keyboard-fix";
+import { IOSViewportDebugPanel } from "@/components/pwa/ios-viewport-debug-panel";
 import { Toaster } from "sonner";
 
 const nunito = Nunito({
@@ -93,6 +94,7 @@ export default function RootLayout({
               </div>
               <DynamicManifest />
               <IOSKeyboardFix />
+              <IOSViewportDebugPanel />
               <ChatProvider />
               <ServiceWorkerRegistration />
               <InstallPrompt />

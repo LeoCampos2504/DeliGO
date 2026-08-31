@@ -332,6 +332,55 @@ body.ios-device .ios-bottom-nav {
   bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px);
 }
 
+/* ─── iOS bottom-dock shared safe-area authority ───
+   IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1: BottomNav and ChatFab
+   used to read two different safe-area authorities on iOS — BottomNav the
+   static footprint above, ChatFab the raw dynamic env(safe-area-inset-bottom).
+   That mismatch (confirmed independently by both the Claude and Codex iOS
+   diagnostics, codex-reports/IOS_MOBILE_INDEPENDENT_DIAGNOSTIC_CLAUDE_R1.md
+   and codex-reports/IOS_MOBILE_VIEWPORT_NAV_INPUT_DIAGNOSTIC_R2.md) is what
+   let the chat FAB drift down and overlap the "Perfil" tab whenever the
+   Safari toolbar was visible. --ios-bottom-safe-footprint below is
+   deliberately defined with the exact same formula BottomNav's own rule
+   already inlines above — kept as a literal duplicate rather than
+   refactored into a shared reference so the existing
+   IOS-24-NAV-SAFEAREA-STABILITY contract tests (which assert that exact
+   literal text) stay untouched; ios-nav-dock-static-contract.test.ts now
+   also asserts these two formulas can never read differently. ─── */
+body.ios-device {
+  --ios-bottom-safe-footprint: env(safe-area-max-inset-bottom, 34px);
+  --ios-bottom-nav-height: 4rem;
+  --ios-bottom-dock-gap: 8px;
+  --ios-chat-fab-gap-above-nav: 12px;
+}
+
+/* ─── iOS chat FAB: same static safe-area authority + explicit dock metrics ───
+   bottom = footprint + nav's own gap + nav's own height + a fixed clearance
+   above the nav, instead of the old independent "5rem + dynamic env()"
+   guess. This guarantees the FAB sits above BottomNav by a constant amount
+   regardless of Safari toolbar state, since both now anchor to the same
+   static footprint. Scoped to body.ios-device only — non-iOS keeps the
+   dynamic base Tailwind class in chat-fab.tsx unmodified (same override
+   pattern already used for the nav dock above). ─── */
+body.ios-device .ios-chat-fab {
+  bottom: calc(
+    var(--ios-bottom-safe-footprint) + var(--ios-bottom-dock-gap) +
+    var(--ios-bottom-nav-height) + var(--ios-chat-fab-gap-above-nav)
+  );
+}
+
+/* ─── Hide chat FAB when iOS keyboard opens ───
+   Mirrors the BottomNav rule above exactly (visibility + pointer-events,
+   never transform) so both bottom-dock elements share one keyboard-
+   visibility policy. Replaces the previous ios-keyboard-hide /
+   keyboard-hide-when-editing classes on ChatFab, which had no matching CSS
+   rule anywhere in the codebase and therefore never actually hid it. ─── */
+html.ios-device.ios-keyboard-open .ios-chat-fab,
+body.ios-device.ios-keyboard-open .ios-chat-fab {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* ─── iOS viewport height — use instead of h-screen / 100vh ───
    IOS-24-FIX-A: root layout and Chat/Sidebar/Orders sheets no longer use
    this — they rely on native 100dvh instead, since --visual-viewport-height

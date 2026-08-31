@@ -168,6 +168,17 @@ export function ChatFab() {
     return null
   }
 
+  // IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1: `ios-chat-fab` gives
+  // this button the SAME static iOS safe-area authority as BottomNav (see
+  // the shared `--ios-bottom-safe-footprint` block in globals.css), instead
+  // of the old independent `5rem + env(safe-area-inset-bottom)` formula that
+  // could drift from the nav's own footprint and overlap "Perfil" while the
+  // Safari toolbar was visible. The base Tailwind `bottom-[...]` class below
+  // is the non-iOS fallback only — body.ios-device overrides it. The same
+  // `ios-chat-fab` class also now drives real keyboard-open hiding
+  // (visibility + pointer-events, mirroring BottomNav), replacing the two
+  // previous dead keyboard-hide class names this button used to carry,
+  // which had no matching CSS rule anywhere in the codebase.
   return (
     <AnimatePresence>
       <motion.button
@@ -177,8 +188,9 @@ export function ChatFab() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setSheetOpen(true)}
-        className="ios-keyboard-hide keyboard-hide-when-editing fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
+        className="ios-chat-fab fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-colors"
         aria-label="Abrir chat"
+        data-ios-debug-role="chat-fab"
       >
         <MessageCircle className="h-6 w-6" />
         {unreadCount > 0 && (

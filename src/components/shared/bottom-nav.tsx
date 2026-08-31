@@ -77,6 +77,7 @@ export function BottomNav() {
         "bottom-[calc(env(safe-area-inset-bottom,0px)+8px)]",
         "bg-card border border-border rounded-3xl shadow-lg overflow-hidden"
       )}
+      data-ios-debug-role="bottom-nav"
     >
       <div className="flex items-center justify-around h-16">
         {tabs.map((tab) => {

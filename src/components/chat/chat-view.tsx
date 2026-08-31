@@ -956,7 +956,10 @@ export function ChatView({
       )}
 
       {/* Input */}
-      <div className="shrink-0 px-3 py-3 border-t border-border/50 bg-card">
+      <div
+        className="shrink-0 px-3 py-3 border-t border-border/50 bg-card"
+        data-ios-debug-role="chat-composer"
+      >
         <div className="flex items-center gap-1.5">
           {/* Paperclip attachment popover */}
           <Popover open={attachPopoverOpen} onOpenChange={setAttachPopoverOpen}>
