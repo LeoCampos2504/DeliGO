@@ -82,7 +82,6 @@ export async function PUT(
       agregadoIds,
       ingredienteIds,
       opcionesCompartidasIds,
-      orden,
     } = body
 
     // Validation
@@ -96,6 +95,13 @@ export async function PUT(
     if (precio !== undefined && precio <= 0) {
       return NextResponse.json(
         { error: "El precio debe ser mayor a 0" },
+        { status: 400 }
+      )
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "orden")) {
+      return NextResponse.json(
+        { error: "El orden se modifica únicamente desde el endpoint dedicado de reordenamiento" },
         { status: 400 }
       )
     }
@@ -202,8 +208,6 @@ export async function PUT(
     if (opcionesCompartidasIds !== undefined) {
       updateData.opcionesCompartidasIds = JSON.stringify(validOpcionesCompartidasIds.configs)
     }
-    if (orden !== undefined) updateData.orden = orden
-
     // Update product
     const producto = await db.producto.update({
       where: { id },

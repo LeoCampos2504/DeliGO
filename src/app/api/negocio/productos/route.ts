@@ -10,6 +10,7 @@ import {
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
+import { Prisma } from "@prisma/client"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -115,7 +116,6 @@ export async function POST(req: NextRequest) {
       agregadoIds,
       ingredienteIds,
       opcionesCompartidasIds,
-      orden,
     } = body
 
     // Validation
@@ -207,83 +207,70 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
-    // Create product
-    const producto = await db.producto.create({
-      data: {
-        nombre: nombre.trim(),
-        precio,
-        categoria: categoria || "Sin Categoria",
-        imagenUrl: validImagenUrl.value,
-        stock: stock !== undefined ? stock : true,
-        descuentoActivo: descuentoActivo || false,
-        tipoDescuento: tipoDescuento || "porcentaje",
-        valorDescuento: valorDescuento || 0,
-        descripcion: descripcion || null,
-        talles: JSON.stringify(talles || []),
-        colores: JSON.stringify(colores || []),
-        material: material || "",
-        genero: genero || "",
-        secciones: JSON.stringify(validSecciones.value),
-        recomendados: JSON.stringify([]),
-        imagenesExtra: JSON.stringify(validImagenesExtra.value),
-        opcionesCompartidasIds: opcionesCompartidasIds !== undefined
-          ? JSON.stringify(validOpcionesCompartidasIds.configs)
-          : "[]",
-        orden: orden || 0,
-        negocioId,
-      },
-    })
-
-    // Create junction records for agregados
-    if (validAgregadoIds.ids.length > 0) {
-      await db.productoAgregado.createMany({
-        data: validAgregadoIds.ids.map((agregadoId) => ({
-          productoId: producto.id,
-          agregadoId,
-        })),
+    // Product.orden is server-owned. New products append after every active
+    // product in the business; the max read and all related writes share one
+    // serializable transaction so concurrent creates cannot choose position 0.
+    const producto = await db.$transaction(async (tx) => {
+      const maxOrder = await tx.producto.aggregate({
+        where: { negocioId, eliminado: false },
+        _max: { orden: true },
       })
-    }
-
-    // Create junction records for ingredientes
-    if (validIngredienteIds.ids.length > 0) {
-      await db.productoIngrediente.createMany({
-        data: validIngredienteIds.ids.map((ingredienteId) => ({
-          productoId: producto.id,
-          ingredienteId,
-        })),
-      })
-    }
-
-    // Update or create Promocion if discount active
-    if (descuentoActivo && precioPromo !== null) {
-      const negocio = await db.negocio.findUnique({
-        where: { id: negocioId },
-        select: { slug: true, nombre: true },
-      })
-
-      await db.promocion.upsert({
-        where: { productoId: producto.id },
-        update: {
+      const created = await tx.producto.create({
+        data: {
+          nombre: nombre.trim(),
+          precio,
+          categoria: categoria || "Sin Categoria",
+          imagenUrl: validImagenUrl.value,
+          stock: stock !== undefined ? stock : true,
+          descuentoActivo: descuentoActivo || false,
+          tipoDescuento: tipoDescuento || "porcentaje",
+          valorDescuento: valorDescuento || 0,
+          descripcion: descripcion || null,
+          talles: JSON.stringify(talles || []),
+          colores: JSON.stringify(colores || []),
+          material: material || "",
+          genero: genero || "",
+          secciones: JSON.stringify(validSecciones.value),
+          recomendados: JSON.stringify([]),
+          imagenesExtra: JSON.stringify(validImagenesExtra.value),
+          opcionesCompartidasIds: opcionesCompartidasIds !== undefined
+            ? JSON.stringify(validOpcionesCompartidasIds.configs)
+            : "[]",
+          orden: (maxOrder._max.orden ?? -1) + 1,
           negocioId,
-          negocioSlug: negocio?.slug || "",
-          negocioNombre: negocio?.nombre || "",
-          precioOriginal: precio,
-          precioPromo,
-          descuento: tipoDescuento === "porcentaje" ? `${valorDescuento}%` : `$${valorDescuento}`,
-          activa: true,
-        },
-        create: {
-          productoId: producto.id,
-          negocioId,
-          negocioSlug: negocio?.slug || "",
-          negocioNombre: negocio?.nombre || "",
-          precioOriginal: precio,
-          precioPromo,
-          descuento: tipoDescuento === "porcentaje" ? `${valorDescuento}%` : `$${valorDescuento}`,
-          activa: true,
         },
       })
-    }
+
+      if (validAgregadoIds.ids.length > 0) {
+        await tx.productoAgregado.createMany({
+          data: validAgregadoIds.ids.map((agregadoId) => ({ productoId: created.id, agregadoId })),
+        })
+      }
+      if (validIngredienteIds.ids.length > 0) {
+        await tx.productoIngrediente.createMany({
+          data: validIngredienteIds.ids.map((ingredienteId) => ({ productoId: created.id, ingredienteId })),
+        })
+      }
+      if (descuentoActivo && precioPromo !== null) {
+        const negocio = await tx.negocio.findUnique({
+          where: { id: negocioId },
+          select: { slug: true, nombre: true },
+        })
+        await tx.promocion.create({
+          data: {
+            productoId: created.id,
+            negocioId,
+            negocioSlug: negocio?.slug || "",
+            negocioNombre: negocio?.nombre || "",
+            precioOriginal: precio,
+            precioPromo,
+            descuento: tipoDescuento === "porcentaje" ? `${valorDescuento}%` : `$${valorDescuento}`,
+            activa: true,
+          },
+        })
+      }
+      return created
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     // Audit log
     await auditLog({ userId: negocioId, userType: "negocio", accion: "producto.creado", recurso: "producto", recursoId: producto.id, detalle: { nombre: producto.nombre, precio: producto.precio } })
@@ -308,6 +295,15 @@ export async function POST(req: NextRequest) {
       precioPromo,
     }, { status: 201 })
   } catch (error) {
+    const isSerializationConflict =
+      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||
+      (error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01"))
+    if (isSerializationConflict) {
+      return NextResponse.json(
+        { error: "El catálogo cambió mientras se creaba el producto. Intentá de nuevo." },
+        { status: 409 }
+      )
+    }
     console.error("Error creating producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al crear producto" },
