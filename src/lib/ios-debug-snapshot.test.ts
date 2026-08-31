@@ -2,16 +2,23 @@
 
 import { describe, expect, test } from "bun:test"
 import {
+  advanceMilestoneTracker,
   buildExportPayload,
   buildTextSummary,
+  classifyKeyboardMilestone,
   computeDerivedGeometry,
+  createInitialMilestoneTrackerState,
   createRingBuffer,
   DEBUG_EVENT_BUFFER_MAX,
+  DERIVED_GEOMETRY_ALLOWED_KEYS,
   DOCK_ELEMENT_ALLOWED_KEYS,
   GEOMETRY_SNAPSHOT_ALLOWED_KEYS,
+  IOS_DEBUG_STORAGE_KEY,
   RECT_ALLOWED_KEYS,
   isIosDebugFlagEnabled,
+  resolveIosDebugEnabled,
   type BrowserModeInfo,
+  type ComposerElementGeometry,
   type DockElementGeometry,
   type GeometrySnapshot,
   type OverlayElementGeometry,
@@ -41,7 +48,7 @@ const browserMode: BrowserModeInfo = {
 }
 
 describe("computeDerivedGeometry", () => {
-  test("computes all fields when every element is present", () => {
+  test("computes all fields when every element is present and offsetTop is 0 (no correction needed)", () => {
     const nav = dockGeom(42, 42 - 64) // bottom=42 → rect.top = -22 (bottom - height); construct explicitly below
     const navRect = { top: 42 - 64, left: 12, right: 500, bottom: 42, width: 488, height: 64 }
     const fabRect = { top: 200, left: 320, right: 376, bottom: 300, width: 56, height: 56 }
@@ -52,7 +59,9 @@ describe("computeDerivedGeometry", () => {
       chatFab: { ...nav, rect: fabRect },
       chatSheet: null,
       chatOverlay: null,
+      chatComposer: null,
     })
+    expect(derived.fixedViewportBottom).toBe(800)
     expect(derived.navBottomDistance).toBe(800 - 42)
     expect(derived.fabBottomDistance).toBe(800 - 300)
     expect(derived.fabNavGap).toBe(navRect.top - fabRect.bottom)
@@ -68,7 +77,9 @@ describe("computeDerivedGeometry", () => {
       chatFab: null,
       chatSheet: null,
       chatOverlay: null,
+      chatComposer: null,
     })
+    expect(derived.fixedViewportBottom).toBe(800) // always computable — not "missing"
     expect(derived.navBottomDistance).toBeNull()
     expect(derived.fabBottomDistance).toBeNull()
     expect(derived.fabNavGap).toBeNull()
@@ -76,6 +87,7 @@ describe("computeDerivedGeometry", () => {
     expect(derived.keyboardOffsetCandidate).toBeNull()
     expect(derived.sheetVisibleGapBottom).toBeNull()
     expect(derived.overlayVisibleGapBottom).toBeNull()
+    expect(derived.composerBottomGap).toBeNull()
   })
 
   test("fabNavGap is null when only one of the two dock elements is present", () => {
@@ -86,37 +98,91 @@ describe("computeDerivedGeometry", () => {
       chatFab: null,
       chatSheet: null,
       chatOverlay: null,
+      chatComposer: null,
     })
     expect(derived.fabNavGap).toBeNull()
     expect(derived.navBottomDistance).not.toBeNull()
   })
 
-  test("sheet/overlay gap uses the visual viewport's visible bottom (offsetTop + height), not window.innerHeight", () => {
+  // IOS-MOBILE-REAL-DEVICE-R2-PWA-PREPARATION regression coverage — a real
+  // iPhone Safari capture (18.7, Safari 26.0.1) proved the R1 formulas
+  // below were wrong whenever visualViewport.offsetTop was non-zero: they
+  // used window.innerHeight (or offsetTop + height for sheet/overlay)
+  // directly, but getBoundingClientRect() on that WebKit build reports
+  // `fixed` elements relative to a frame shifted by offsetTop. See
+  // codex-reports/IOS_MOBILE_REAL_DEVICE_R2_PWA_PREPARATION.md for the full
+  // dataset (165/165 real BottomNav snapshots match the corrected formula,
+  // only 131/165 matched the old one).
+  test("REGRESSION — real chrome-collapsed example: offsetTop=10 must be subtracted from innerHeight before comparing to rect.bottom", () => {
+    // Real captured values: innerHeight=739, visualViewport.offsetTop=10,
+    // BottomNav computedBottom=42px (static CSS, unaffected by this bug),
+    // real getBoundingClientRect().bottom=687.
+    const bottomNav: DockElementGeometry = {
+      rect: { top: 623, left: 12, right: 378, bottom: 687, width: 366, height: 64 },
+      computedPosition: "fixed",
+      computedBottom: "42px",
+      computedVisibility: "visible",
+      computedPointerEvents: "auto",
+      computedTransform: "none",
+    }
+    const derived = computeDerivedGeometry({
+      windowInnerHeight: 739,
+      visualViewport: { width: 390, height: 729, offsetTop: 10, offsetLeft: 0, scale: 1 },
+      bottomNav,
+      chatFab: null,
+      chatSheet: null,
+      chatOverlay: null,
+      chatComposer: null,
+    })
+    expect(derived.fixedViewportBottom).toBe(729) // 739 - 10
+    // Corrected: fixedViewportBottom(729) - rect.bottom(687) = 42, matching the CSS bottom.
+    expect(derived.navBottomDistance).toBe(42)
+    // The OLD (buggy) formula would have produced innerHeight(739) - rect.bottom(687) = 52 ≠ 42.
+    expect(739 - 687).not.toBe(42)
+  })
+
+  test("REGRESSION — real keyboard-open example: sheet/overlay/composer gap must resolve to ~0, not ~359", () => {
+    // Real captured values during Chat's keyboard-open state: innerHeight=739,
+    // visualViewport.height=380, visualViewport.offsetTop=359 — and
+    // ChatOverlay/ChatSheet/ChatComposer rect.bottom were ALL exactly 380
+    // (146/146 real paired Overlay+Sheet snapshots had 0px difference).
     const chatSheet: SheetElementGeometry = {
-      rect: { top: 0, left: 100, right: 500, bottom: 500, width: 400, height: 500 },
+      rect: { top: -359, left: 0, right: 390, bottom: 380, width: 390, height: 739 },
       computedPosition: "fixed",
       computedTop: "0px",
       computedBottom: "0px",
-      computedHeight: "500px",
+      computedHeight: "739px",
       computedTransform: "none",
     }
     const chatOverlay: OverlayElementGeometry = {
-      rect: { top: 0, left: 0, right: 600, bottom: 520, width: 600, height: 520 },
+      rect: { top: -359, left: 0, right: 390, bottom: 380, width: 390, height: 739 },
       computedPosition: "fixed",
-      computedInset: "0px",
-      computedHeight: "520px",
+      computedInset: "0px 0px 0px 0px",
+      computedHeight: "739px",
+    }
+    const chatComposer: ComposerElementGeometry = {
+      rect: { top: 320, left: 0, right: 390, bottom: 380, width: 390, height: 60 },
+      computedPosition: "static",
+      computedBottom: "auto",
+      computedTransform: "none",
     }
     const derived = computeDerivedGeometry({
-      windowInnerHeight: 800,
-      visualViewport: { width: 600, height: 520, offsetTop: 10, offsetLeft: 0, scale: 1 },
+      windowInnerHeight: 739,
+      visualViewport: { width: 390, height: 380, offsetTop: 359, offsetLeft: 0, scale: 1 },
       bottomNav: null,
       chatFab: null,
       chatSheet,
       chatOverlay,
+      chatComposer,
     })
-    // visible bottom = offsetTop(10) + height(520) = 530
-    expect(derived.sheetVisibleGapBottom).toBe(530 - 500)
-    expect(derived.overlayVisibleGapBottom).toBe(530 - 520)
+    expect(derived.fixedViewportBottom).toBe(380) // 739 - 359
+    expect(derived.sheetVisibleGapBottom).toBe(0)
+    expect(derived.overlayVisibleGapBottom).toBe(0)
+    expect(derived.composerBottomGap).toBe(0)
+    // The OLD (buggy) formula used offsetTop + height = 359 + 380 = 739,
+    // which would have reported a fabricated ~359px gap instead of 0.
+    const oldBuggyVisibleBottom = 359 + 380
+    expect(oldBuggyVisibleBottom - chatSheet.rect.bottom).toBe(359)
   })
 })
 
@@ -153,6 +219,73 @@ describe("isIosDebugFlagEnabled", () => {
     expect(isIosDebugFlagEnabled("?foo=bar")).toBe(false)
     expect(isIosDebugFlagEnabled("?iosDebug=0")).toBe(false)
     expect(isIosDebugFlagEnabled("?iosDebug=true")).toBe(false)
+  })
+})
+
+describe("resolveIosDebugEnabled — standalone PWA persistence", () => {
+  test("query flag alone enables it", () => {
+    expect(resolveIosDebugEnabled("?iosDebug=1", null)).toBe(true)
+  })
+  test("stored flag alone enables it — needed because manifest-cliente.json's start_url has no query string", () => {
+    expect(resolveIosDebugEnabled("", "1")).toBe(true)
+  })
+  test("neither present disables it", () => {
+    expect(resolveIosDebugEnabled("", null)).toBe(false)
+    expect(resolveIosDebugEnabled("", "0")).toBe(false)
+  })
+  test("storage key is a stable, namespaced string (never a generic name that could collide)", () => {
+    expect(IOS_DEBUG_STORAGE_KEY).toBe("deligo-ios-debug-enabled")
+  })
+})
+
+describe("classifyKeyboardMilestone / advanceMilestoneTracker — automatic milestone capture", () => {
+  test("classification: closed / normal-keyboard / chat-keyboard", () => {
+    expect(classifyKeyboardMilestone({ keyboardOpen: false, hasChatSheet: false })).toBe("closed")
+    expect(classifyKeyboardMilestone({ keyboardOpen: false, hasChatSheet: true })).toBe("closed")
+    expect(classifyKeyboardMilestone({ keyboardOpen: true, hasChatSheet: false })).toBe("normal-keyboard")
+    expect(classifyKeyboardMilestone({ keyboardOpen: true, hasChatSheet: true })).toBe("chat-keyboard")
+  })
+
+  test("fires AUTO_BASELINE_STABLE once, after 2 consecutive closed observations, never again", () => {
+    let state = createInitialMilestoneTrackerState()
+    let r = advanceMilestoneTracker(state, "closed")
+    expect(r.fire).toBeNull() // 1st observation — not yet stable
+    state = r.state
+    r = advanceMilestoneTracker(state, "closed")
+    expect(r.fire).toBe("AUTO_BASELINE_STABLE") // 2nd consecutive — stable
+    state = r.state
+    r = advanceMilestoneTracker(state, "closed")
+    expect(r.fire).toBeNull() // already fired once — never repeats
+  })
+
+  test("fires AUTO_KEYBOARD_OPEN_STABLE on normal-keyboard, AUTO_CHAT_KEYBOARD_OPEN_STABLE on chat-keyboard, each re-armed on the next cycle", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "closed").state
+    let r = advanceMilestoneTracker(state, "closed") // baseline fires here
+    state = r.state
+    r = advanceMilestoneTracker(state, "normal-keyboard")
+    expect(r.fire).toBeNull()
+    state = r.state
+    r = advanceMilestoneTracker(state, "normal-keyboard")
+    expect(r.fire).toBe("AUTO_KEYBOARD_OPEN_STABLE")
+    state = r.state
+    r = advanceMilestoneTracker(state, "chat-keyboard")
+    state = r.state
+    r = advanceMilestoneTracker(state, "chat-keyboard")
+    expect(r.fire).toBe("AUTO_CHAT_KEYBOARD_OPEN_STABLE")
+  })
+
+  test("fires AUTO_AFTER_KEYBOARD_CLOSE immediately on the edge back to closed from either keyboard class", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "normal-keyboard").state
+    const r = advanceMilestoneTracker(state, "closed")
+    expect(r.fire).toBe("AUTO_AFTER_KEYBOARD_CLOSE")
+  })
+
+  test("does not fire AUTO_AFTER_KEYBOARD_CLOSE on the very first observation (no prior class to close from)", () => {
+    const state = createInitialMilestoneTrackerState()
+    const r = advanceMilestoneTracker(state, "closed")
+    expect(r.fire).toBeNull()
   })
 })
 
@@ -206,6 +339,7 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
       chatComposer: null,
       browserMode,
       derived: {
+        fixedViewportBottom: 800,
         navBottomDistance: 1,
         fabBottomDistance: 1,
         fabNavGap: 1,
@@ -213,6 +347,7 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         keyboardOffsetCandidate: null,
         sheetVisibleGapBottom: null,
         overlayVisibleGapBottom: null,
+        composerBottomGap: null,
       },
     }
     expect(Object.keys(snapshot).sort()).toEqual(GEOMETRY_SNAPSHOT_ALLOWED_KEYS)
@@ -222,6 +357,19 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
     const geom = dockGeom(42)
     expect(Object.keys(geom).sort()).toEqual(DOCK_ELEMENT_ALLOWED_KEYS)
     expect(Object.keys(geom.rect).sort()).toEqual(RECT_ALLOWED_KEYS)
+  })
+
+  test("a DerivedGeometry result has exactly the documented keys — no raw input echoed back beyond the fixed reference frame", () => {
+    const derived = computeDerivedGeometry({
+      windowInnerHeight: 800,
+      visualViewport: null,
+      bottomNav: null,
+      chatFab: null,
+      chatSheet: null,
+      chatOverlay: null,
+      chatComposer: null,
+    })
+    expect(Object.keys(derived).sort()).toEqual(DERIVED_GEOMETRY_ALLOWED_KEYS)
   })
 
   test("none of the allowed keys anywhere in the schema resemble input value/message/token/credential fields", () => {

@@ -37,9 +37,9 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).toContain("if (!mounted || !enabled) return null")
   })
 
-  test("B. el flag se lee una sola vez desde window.location.search, nunca desde props/SSR", () => {
+  test("B. el flag se lee una sola vez desde window.location.search (+ localStorage), nunca desde props/SSR", () => {
     const source = panelSource()
-    expect(source).toContain("setEnabled(isIosDebugFlagEnabled(window.location.search))")
+    expect(source).toContain("setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))")
     expect(source).not.toMatch(/searchParams\s*:\s*{/)
   })
 
@@ -69,12 +69,36 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).not.toMatch(/sendBeacon/)
   })
 
-  test("G. nunca lee input.value, localStorage, document.cookie, ni contenido de mensajes", () => {
+  test("G. nunca lee input.value, document.cookie, ni contenido de mensajes", () => {
     const source = panelCodeOnly()
     expect(source).not.toMatch(/\.value\b/)
-    expect(source).not.toMatch(/localStorage/)
     expect(source).not.toMatch(/document\.cookie/)
     expect(source).not.toMatch(/textContent|innerText|innerHTML/)
+  })
+
+  // IOS-MOBILE-REAL-DEVICE-R2-PWA-PREPARATION §14: localStorage se agregó
+  // deliberadamente, pero SÓLO para persistir el propio flag booleano del
+  // panel (IOS_DEBUG_STORAGE_KEY) a través del relanzamiento de la PWA
+  // instalada — nunca para leer datos de la app/sesión real. Este test
+  // reemplaza el "nunca localStorage" de G: en vez de prohibirlo, exige que
+  // CADA uso de localStorage en el archivo opere exclusivamente sobre esa
+  // constante importada, nunca sobre una clave arbitraria o dinámica.
+  test("G2. localStorage se usa únicamente para IOS_DEBUG_STORAGE_KEY — nunca para una clave arbitraria", () => {
+    const source = panelCodeOnly()
+    expect(source).toContain("IOS_DEBUG_STORAGE_KEY")
+    const calls = [...source.matchAll(/localStorage\.(getItem|setItem|removeItem)\(([^)]*)\)/g)]
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) {
+      const args = call[2]
+      expect(args.trim().startsWith("IOS_DEBUG_STORAGE_KEY")).toBe(true)
+    }
+  })
+
+  test("G3. toda lectura/escritura de localStorage está envuelta en try/catch (private browsing / storage bloqueado no debe romper el panel)", () => {
+    const source = panelCodeOnly()
+    expect(source).toMatch(/try \{\s*storedFlag = window\.localStorage\.getItem/)
+    expect(source).toMatch(/try \{\s*window\.localStorage\.setItem/)
+    expect(source).toMatch(/try \{\s*window\.localStorage\.removeItem/)
   })
 
   test("H. exportar JSON usa navigator.clipboard, nunca un endpoint propio ni descarga automática", () => {
@@ -95,6 +119,23 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).toContain('[data-ios-debug-role="chat-sheet"]')
     expect(source).toContain('[data-ios-debug-role="chat-composer"]')
     expect(source).toContain('[data-slot="sheet-overlay"]')
+  })
+
+  test("L. el estado enabled combina query flag y localStorage vía resolveIosDebugEnabled (no sólo el query flag)", () => {
+    const source = panelSource()
+    expect(source).toContain("setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))")
+  })
+
+  test("M. feedMilestoneClassifier corre tanto en el live-update normal como en la ventana de settling — cubre ambos caminos de captura automática", () => {
+    const source = panelSource()
+    const occurrences = source.match(/feedMilestoneClassifier\(/g) ?? []
+    // 1 definición (useCallback) + al menos 2 usos (scheduleLiveUpdate y runSettlingCapture x2 llamadas)
+    expect(occurrences.length).toBeGreaterThanOrEqual(3)
+  })
+
+  test("N. el timer de AUTO_FINAL_STABLE se cancela en el cleanup del efecto de listeners", () => {
+    const source = panelSource()
+    expect(source).toContain("if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)")
   })
 
   test("K. está montado en el root layout, no dentro de una ruta específica", () => {

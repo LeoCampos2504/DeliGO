@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import {
+  advanceMilestoneTracker,
   buildExportPayload,
   buildTextSummary,
+  classifyKeyboardMilestone,
   computeDerivedGeometry,
+  createInitialMilestoneTrackerState,
   createRingBuffer,
   DEBUG_EVENT_BUFFER_MAX,
+  IOS_DEBUG_STORAGE_KEY,
   isIosDebugFlagEnabled,
+  resolveIosDebugEnabled,
   type BrowserModeInfo,
   type ComposerElementGeometry,
   type DockElementGeometry,
@@ -21,14 +26,19 @@ import {
  * IOSViewportDebugPanel — TEMPORARY, query-flag-gated real-device geometry
  * diagnostics (IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1).
  *
- * Only mounts its DOM/listeners when the URL contains `?iosDebug=1` — with
- * the flag absent (the normal-user case), this component returns null on
- * every render and never touches document/window beyond the one-time flag
- * check, exactly like BottomNav's own `mounted` gate. It never reads input
- * values, chat message text, tokens, cookies, or localStorage — only
- * numeric rects and a fixed whitelist of computed-style/className strings
- * (see src/lib/ios-debug-snapshot.ts, which also unit-tests that whitelist
- * so a sensitive field can never be added silently).
+ * Only mounts its DOM/listeners when the URL contains `?iosDebug=1` (or the
+ * one-time-armed localStorage flag from a previous visit — see
+ * IOS_DEBUG_STORAGE_KEY, needed because the installed PWA's start_url has
+ * no query string) — with neither present (the normal-user case), this
+ * component returns null on every render and never touches document/
+ * window beyond that one-time check, exactly like BottomNav's own
+ * `mounted` gate. It never reads input values, chat message text, tokens,
+ * cookies, or session/business data from localStorage — the ONLY
+ * localStorage key it ever touches is its own namespaced debug-enabled
+ * flag. Every other field is a numeric rect or a fixed whitelist of
+ * computed-style/className strings (see src/lib/ios-debug-snapshot.ts,
+ * which also unit-tests that whitelist so a sensitive field can never be
+ * added silently).
  *
  * This is scaffolding to collect real-iPhone evidence for the two symptoms
  * neither the Claude nor the Codex iOS diagnostics could resolve from
@@ -51,6 +61,7 @@ const MANUAL_CAPTURE_LABELS = [
 
 const SETTLING_FRAMES = 6
 const SETTLING_STABLE_DELAY_MS = 250
+const FINAL_STABLE_DELAY_MS = 1500
 
 function readRect(el: Element) {
   const r = el.getBoundingClientRect()
@@ -168,6 +179,7 @@ function captureSnapshot(captureLabel: string, eventType: string, pathname: stri
       chatFab,
       chatSheet,
       chatOverlay,
+      chatComposer,
     }),
   }
 }
@@ -186,22 +198,92 @@ export function IOSViewportDebugPanel() {
   const rafRef = useRef(0)
   const hadEditableFocusRef = useRef(false)
   const settlingActiveRef = useRef(false)
+  const milestoneStateRef = useRef(createInitialMilestoneTrackerState())
+  const finalStableTimerRef = useRef(0)
 
   // Same SSR-safe "mounted" gate BottomNav uses — server and first client
   // render both render nothing, avoiding a hydration mismatch. The debug
-  // flag is only ever read from window.location, never from props/SSR.
+  // flag is read from window.location AND (so the standalone PWA, whose
+  // manifest start_url has no query string, keeps the panel armed after
+  // install) a localStorage flag written the first time ?iosDebug=1 was
+  // seen — see IOS_DEBUG_STORAGE_KEY's doc comment in ios-debug-snapshot.ts.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setMounted(true)
-      setEnabled(isIosDebugFlagEnabled(window.location.search))
+      const queryEnabled = isIosDebugFlagEnabled(window.location.search)
+      let storedFlag: string | null = null
+      try {
+        storedFlag = window.localStorage.getItem(IOS_DEBUG_STORAGE_KEY)
+      } catch {
+        // Private browsing / storage blocked — fall back to query-only.
+      }
+      setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))
+      if (queryEnabled) {
+        try {
+          window.localStorage.setItem(IOS_DEBUG_STORAGE_KEY, "1")
+        } catch {
+          // Nothing to do — the panel still works for this session via the query flag.
+        }
+      }
     }, 0)
     return () => window.clearTimeout(timer)
   }, [])
+
+  const handleDisarm = () => {
+    try {
+      window.localStorage.removeItem(IOS_DEBUG_STORAGE_KEY)
+    } catch {
+      // Nothing to do.
+    }
+    setEnabled(false)
+  }
 
   const pushEvent = useCallback((snap: GeometrySnapshot) => {
     eventsBufferRef.current.push(snap)
     setAutoCount(eventsBufferRef.current.length)
   }, [])
+
+  // AUTO_FINAL_STABLE: fires once, FINAL_STABLE_DELAY_MS after the keyboard
+  // last closed, IF nothing else (a new focus, a new keyboard-class change)
+  // happened in the meantime — see feedMilestoneClassifier below, which
+  // cancels this timer on any class change.
+  const armFinalStable = useCallback(() => {
+    if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)
+    finalStableTimerRef.current = window.setTimeout(() => {
+      finalStableTimerRef.current = 0
+      const snap = captureSnapshot("AUTO_FINAL_STABLE", "auto-milestone", pathname)
+      setManualCaptures((prev) => [...prev, snap])
+    }, FINAL_STABLE_DELAY_MS)
+  }, [pathname])
+
+  // Automatic milestone capture (§10): classifies every snapshot into
+  // closed/normal-keyboard/chat-keyboard and, via the pure edge-detecting
+  // tracker in ios-debug-snapshot.ts, labels BASELINE/KEYBOARD_OPEN/
+  // CHAT_KEYBOARD_OPEN/AFTER_KEYBOARD_CLOSE moments without the operator
+  // ever tapping a button — tapping the panel while a native keyboard is
+  // open can itself trigger a focusout and contaminate the very state
+  // being measured.
+  const feedMilestoneClassifier = useCallback(
+    (snap: GeometrySnapshot) => {
+      const keyboardOpen = snap.documentElement.className.includes("ios-keyboard-open")
+      const cls = classifyKeyboardMilestone({ keyboardOpen, hasChatSheet: Boolean(snap.chatSheet) })
+      const prevClass = milestoneStateRef.current.lastClass
+      const result = advanceMilestoneTracker(milestoneStateRef.current, cls)
+      milestoneStateRef.current = result.state
+
+      if (prevClass !== null && prevClass !== cls && finalStableTimerRef.current) {
+        window.clearTimeout(finalStableTimerRef.current)
+        finalStableTimerRef.current = 0
+      }
+
+      if (result.fire) {
+        const milestoneSnap = captureSnapshot(result.fire, "auto-milestone", pathname)
+        setManualCaptures((prev) => [...prev, milestoneSnap])
+        if (result.fire === "AUTO_AFTER_KEYBOARD_CLOSE") armFinalStable()
+      }
+    },
+    [pathname, armFinalStable]
+  )
 
   const scheduleLiveUpdate = useCallback(
     (eventType: string) => {
@@ -211,9 +293,10 @@ export function IOSViewportDebugPanel() {
         const snap = captureSnapshot("auto", eventType, pathname)
         setLiveSnapshot(snap)
         pushEvent(snap)
+        feedMilestoneClassifier(snap)
       })
     },
-    [pathname, pushEvent]
+    [pathname, pushEvent, feedMilestoneClassifier]
   )
 
   // Observation-only settling capture: never touches ios-keyboard-fix.tsx
@@ -226,19 +309,23 @@ export function IOSViewportDebugPanel() {
     settlingActiveRef.current = true
     let frame = 0
     const step = () => {
-      pushEvent(captureSnapshot(`settling-frame-${frame}`, "focusout-settling", pathname))
+      const snap = captureSnapshot(`settling-frame-${frame}`, "focusout-settling", pathname)
+      pushEvent(snap)
+      feedMilestoneClassifier(snap)
       frame += 1
       if (frame <= SETTLING_FRAMES) {
         window.requestAnimationFrame(step)
       } else {
         window.setTimeout(() => {
-          pushEvent(captureSnapshot("settling-stable", "focusout-settling", pathname))
+          const stableSnap = captureSnapshot("settling-stable", "focusout-settling", pathname)
+          pushEvent(stableSnap)
+          feedMilestoneClassifier(stableSnap)
           settlingActiveRef.current = false
         }, SETTLING_STABLE_DELAY_MS)
       }
     }
     window.requestAnimationFrame(step)
-  }, [pathname, pushEvent])
+  }, [pathname, pushEvent, feedMilestoneClassifier])
 
   useEffect(() => {
     if (!enabled) return
@@ -274,6 +361,7 @@ export function IOSViewportDebugPanel() {
 
     return () => {
       if (rafRef.current) window.cancelAnimationFrame(rafRef.current)
+      if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)
       window.removeEventListener("resize", onResize)
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("orientationchange", onOrientation)
@@ -380,6 +468,12 @@ export function IOSViewportDebugPanel() {
               <span>{liveSnapshot?.chatSheet?.rect.bottom.toFixed(0) ?? "-"}</span>
               <span>composer.rect.b</span>
               <span>{liveSnapshot?.chatComposer?.rect.bottom.toFixed(0) ?? "-"}</span>
+              <span>fixedVB</span>
+              <span>{liveSnapshot?.derived.fixedViewportBottom.toFixed(0) ?? "-"}</span>
+              <span>sheet gap</span>
+              <span>{liveSnapshot?.derived.sheetVisibleGapBottom?.toFixed(0) ?? "-"}</span>
+              <span>composer gap</span>
+              <span>{liveSnapshot?.derived.composerBottomGap?.toFixed(0) ?? "-"}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/20">
@@ -418,6 +512,14 @@ export function IOSViewportDebugPanel() {
                 CLEAR
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleDisarm}
+              className="w-full bg-white/5 hover:bg-white/10 text-white/60 rounded px-2 py-1 text-center"
+            >
+              DISARM (stop showing this panel on this device)
+            </button>
 
             <div className="text-white/60">
               {manualCaptures.length} manual · {autoCount} auto
