@@ -14,6 +14,9 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
+import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
+import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 
 // ============================================
 // Types
@@ -87,6 +90,14 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
   const [formData, setFormData] = useState<SeccionFormData>(defaultFormData)
   const [deleteDialog, setDeleteDialog] = useState<Seccion | null>(null)
   const [reorderingId, setReorderingId] = useState<string | null>(null)
+  const guide = useCatalogTutorialGuide()
+  const { ref: addRef, className: addRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("catalog-section-add")
+
+  // R3 §23: form opening is real state — advances the catalog-section
+  // guide from its "add button" phase to its "form" phase automatically.
+  useEffect(() => {
+    if (formOpen) guide.advanceIfActive("catalog-sections", "catalog-section-form-area")
+  }, [formOpen, guide.advanceIfActive])
 
   // Fetch secciones
   const { data: secciones = [], isLoading } = useQuery<Seccion[]>({
@@ -206,6 +217,7 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
     setFormOpen(false)
     setEditingSeccion(null)
     setFormData(defaultFormData)
+    guide.stopGuideIfActive("catalog-sections")
   }
 
   const handleSave = () => {
@@ -258,6 +270,12 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
   return (
     <div className="space-y-4">
       {/* ===== HEADER ===== */}
+      <CatalogTutorialGuideCoach
+        targetKeys={["catalog-section-add"]}
+        mode="expert"
+        rawRubro={negocio.rubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div
@@ -277,11 +295,11 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
           </div>
         </div>
         <Button
+          ref={addRef}
           size="sm"
-          className="rounded-xl gap-1.5 font-semibold h-9"
+          className={cn("rounded-xl gap-1.5 font-semibold h-9 transition-shadow", addRingClassName)}
           style={{ backgroundColor: negocio.colorPrincipal }}
           onClick={openNewForm}
-          data-catalog-tutorial-target="catalog-section-add"
         >
           <Plus className="h-3.5 w-3.5" />
           Agregar
@@ -334,6 +352,13 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+            <CatalogTutorialGuideCoach
+              targetKeys={["catalog-section-form-area"]}
+              mode="expert"
+              rawRubro={negocio.rubro}
+              onReturnToTutorial={() => guide.requestReturn()}
+            />
+            <CatalogTutorialTarget target="catalog-section-form-area">
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -505,6 +530,7 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
                 )}
               </div>
             </motion.div>
+            </CatalogTutorialTarget>
           </div>
 
           <DrawerFooter className="border-t pt-3">

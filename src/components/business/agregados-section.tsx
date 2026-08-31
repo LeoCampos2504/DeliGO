@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import { Plus, Search, Edit3, Trash2, X, Check, Tag, Pencil } from "lucide-react"
@@ -35,6 +35,9 @@ import {
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { ImageUpload } from "@/components/shared/image-upload"
+import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
+import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
+import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 
 // ============================================
 // Types
@@ -92,6 +95,14 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
   const [deleteCategoryDialog, setDeleteCategoryDialog] = useState<string | null>(null)
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editingCategoryValue, setEditingCategoryValue] = useState("")
+  const guide = useCatalogTutorialGuide()
+  const { ref: addRef, className: addRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("addition-add")
+
+  // R3 §23: form opening is real state — advances the addition guide from
+  // its "add button" phase to its "form" phase automatically.
+  useEffect(() => {
+    if (formOpen) guide.advanceIfActive("create-additions", "addition-form-area")
+  }, [formOpen, guide.advanceIfActive])
 
   // Fetch agregados
   const { data: agregados = [], isLoading: loadingAgregados } = useQuery<Agregado[]>({
@@ -268,6 +279,7 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
     setFormData(defaultFormData)
     setNewCategoryInForm(false)
     setFormCategoryInput("")
+    guide.stopGuideIfActive("create-additions")
   }
 
   const handleSave = () => {
@@ -565,11 +577,17 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
       </AnimatePresence>
 
       {/* ===== ADD AGREGADO BUTTON ===== */}
+      <CatalogTutorialGuideCoach
+        targetKeys={["addition-add"]}
+        mode="expert"
+        rawRubro={negocio.rubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       <Button
+        ref={addRef}
         onClick={openNewForm}
-        className="w-full rounded-xl h-11 gap-2 font-semibold"
+        className={cn("w-full rounded-xl h-11 gap-2 font-semibold transition-shadow", addRingClassName)}
         style={{ backgroundColor: negocio.colorPrincipal }}
-        data-catalog-tutorial-target="addition-add"
       >
         <Plus className="h-4 w-4" />
         Agregar agregado
@@ -651,6 +669,13 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
 
           {/* Form content */}
           <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <CatalogTutorialGuideCoach
+              targetKeys={["addition-form-area"]}
+              mode="expert"
+              rawRubro={negocio.rubro}
+              onReturnToTutorial={() => guide.requestReturn()}
+            />
+            <CatalogTutorialTarget target="addition-form-area">
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -783,6 +808,7 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
                 />
               </div>
             </motion.div>
+            </CatalogTutorialTarget>
           </div>
 
           {/* Save footer */}
