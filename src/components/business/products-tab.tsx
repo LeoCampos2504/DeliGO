@@ -23,6 +23,7 @@ import {
   Tag,
   Wand2,
   Settings2,
+  Copy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -796,6 +797,27 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
     },
   })
 
+  // The endpoint reads the persisted product server-side. Mutation variables
+  // let each card disable only its own action while the request is pending.
+  const duplicateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/negocio/productos/${id}/duplicar`, { method: "POST" })
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(error.error || "Error duplicando producto")
+      }
+      return res.json() as Promise<{ nombre?: string }>
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["negocio-productos", negocio.id] })
+      queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
+      toast.success(result.nombre ? `Producto duplicado: ${result.nombre}` : "Producto duplicado correctamente")
+    },
+    onError: (error) => {
+      toast.error(error.message || "Error al duplicar el producto")
+    },
+  })
+
   const filteredProducts = useMemo(() => {
     let filtered = productos
     if (activeCategory !== "todos") {
@@ -1230,6 +1252,8 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
               colorPrincipal={negocio.colorPrincipal}
               onEdit={() => openEditForm(product)}
               onDelete={() => setDeleteDialog(product.id)}
+              onDuplicate={() => duplicateMutation.mutate(product.id)}
+              isDuplicating={duplicateMutation.isPending && duplicateMutation.variables === product.id}
               delay={i * 0.03}
               isRopa={isRopa}
             />
@@ -1512,6 +1536,8 @@ function ProductCard({
   colorPrincipal,
   onEdit,
   onDelete,
+  onDuplicate,
+  isDuplicating,
   delay,
   isRopa,
 }: {
@@ -1519,6 +1545,8 @@ function ProductCard({
   colorPrincipal: string
   onEdit: () => void
   onDelete: () => void
+  onDuplicate: () => void
+  isDuplicating: boolean
   delay: number
   isRopa: boolean
 }) {
@@ -1607,14 +1635,29 @@ function ProductCard({
               variant="secondary"
               size="icon"
               className={cn("h-8 w-8 rounded-full shadow-md transition-shadow", editRingClassNameDesktop)}
+              aria-label="Editar producto"
+              title="Editar producto"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
             >
               <Edit3 className="h-3.5 w-3.5" />
             </Button>
             <Button
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 rounded-full shadow-md"
+              aria-label="Duplicar producto"
+              title="Duplicar producto"
+              onClick={(e) => { e.stopPropagation(); onDuplicate() }}
+              disabled={isDuplicating}
+            >
+              {isDuplicating ? <span className="text-[10px]">…</span> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+            <Button
               variant="destructive"
               size="icon"
               className="h-8 w-8 rounded-full shadow-md"
+              aria-label="Eliminar producto"
+              title="Eliminar producto"
               onClick={(e) => { e.stopPropagation(); onDelete() }}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -1688,6 +1731,7 @@ function ProductCard({
               variant="outline"
               size="sm"
               className={cn("flex-1 h-8 rounded-lg text-xs gap-1.5 transition-shadow", editRingClassNameMobile)}
+              aria-label="Editar producto"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
             >
               <Edit3 className="h-3 w-3" />
@@ -1696,7 +1740,20 @@ function ProductCard({
             <Button
               variant="outline"
               size="sm"
+              className="flex-1 h-8 rounded-lg text-xs gap-1.5"
+              aria-label="Duplicar producto"
+              onClick={(e) => { e.stopPropagation(); onDuplicate() }}
+              disabled={isDuplicating}
+            >
+              <Copy className="h-3 w-3" />
+              {isDuplicating ? "Duplicando…" : "Duplicar"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="h-8 rounded-lg text-xs text-destructive hover:text-destructive"
+              aria-label="Eliminar producto"
+              title="Eliminar producto"
               onClick={(e) => { e.stopPropagation(); onDelete() }}
             >
               <Trash2 className="h-3 w-3" />
