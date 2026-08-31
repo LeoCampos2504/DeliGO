@@ -164,13 +164,50 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(source).not.toMatch(/\bpb-safe\b|\bmb-safe\b/)
   })
 
-  test("R. fuente única de bottom: sólo existe una regla en globals.css que fije `bottom` para .ios-bottom-nav (fuera de la ocultación por teclado, que no usa bottom)", () => {
+  // IOS-STANDALONE-REAL-DEVICE-FIX-R3: real standalone-PWA device data
+  // proved a second, deliberately scoped rule is required — see the
+  // "iOS standalone PWA: compensate stale visualViewport.offsetTop" block
+  // in globals.css. The invariant this test protects ("no duplicated/
+  // conflicting bottom formula can silently drift in") still holds: there
+  // are now exactly TWO bottom-setting blocks for .ios-bottom-nav, the
+  // original base rule (protected verbatim by tests L/M/N/O above) and
+  // ONE additional rule scoped to `@media (display-mode: standalone)` that
+  // only subtracts the residual visual-viewport offset on top of the same
+  // base formula — never a second, independent formula.
+  test("R. exactamente dos reglas en globals.css fijan `bottom` para .ios-bottom-nav: la base y la compensación de standalone (nunca una tercera/independiente)", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     const blockPattern = /[^{}]*\.ios-bottom-nav[^{]*\{[^}]*\}/g
     const blocks = css.match(blockPattern) ?? []
     const blocksSettingBottom = blocks.filter((block) => /\bbottom\s*:/.test(block))
-    expect(blocksSettingBottom.length).toBe(1)
+    expect(blocksSettingBottom.length).toBe(2)
     expect(blocksSettingBottom[0]).toContain("body.ios-device .ios-bottom-nav")
+    expect(blocksSettingBottom[1]).toContain("body.ios-device .ios-bottom-nav")
+  })
+
+  test("R2. la regla de compensación de standalone está dentro de @media (display-mode: standalone) y resta --visual-viewport-offset-top sobre la MISMA fórmula base (nunca una fórmula independiente)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8").replace(/\r\n/g, "\n")
+    const mediaStart = css.indexOf("@media (display-mode: standalone)")
+    expect(mediaStart).toBeGreaterThan(-1)
+    // Encuentra el "}" de cierre del bloque @media contando llaves desde su
+    // propio "{" — robusto frente a llaves anidadas (las reglas internas).
+    const openBraceIdx = css.indexOf("{", mediaStart)
+    let depth = 0
+    let closeIdx = -1
+    for (let i = openBraceIdx; i < css.length; i++) {
+      if (css[i] === "{") depth++
+      else if (css[i] === "}") {
+        depth--
+        if (depth === 0) {
+          closeIdx = i
+          break
+        }
+      }
+    }
+    expect(closeIdx).toBeGreaterThan(openBraceIdx)
+    const mediaBlock = css.slice(mediaStart, closeIdx)
+    expect(mediaBlock).toContain(".ios-bottom-nav")
+    expect(mediaBlock).toMatch(/env\(safe-area-max-inset-bottom,\s*34px\)\s*\+\s*8px\s*-\s*var\(--visual-viewport-offset-top,\s*0px\)/)
+    expect(mediaBlock).toContain(".ios-chat-fab")
   })
 
   test("sanity check: el detector de transform en el shell encuentra un caso sintético que sí lo usa", () => {

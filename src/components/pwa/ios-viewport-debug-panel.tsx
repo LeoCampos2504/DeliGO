@@ -17,6 +17,7 @@ import {
   type DockElementGeometry,
   type GeometrySnapshot,
   type OverlayElementGeometry,
+  type ScrollRestoreDebugSnapshot,
   type SheetElementGeometry,
 } from "@/lib/ios-debug-snapshot"
 
@@ -135,6 +136,34 @@ function readBrowserMode(): BrowserModeInfo {
   }
 }
 
+// Mirrors Window.__iosScrollRestoreDebug (declared and written only by
+// ios-keyboard-fix.tsx — see IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18). This
+// file defines its own matching shape defensively rather than importing
+// it, so ios-keyboard-fix.tsx never needs to know this panel exists.
+function readScrollRestoreDebug(): ScrollRestoreDebugSnapshot | null {
+  const raw = (
+    window as unknown as {
+      __iosScrollRestoreDebug?: {
+        preFocusScrollY: number | null
+        currentScrollYAtDecision: number
+        shouldRestore: boolean
+        restoreReason: string | null
+        restoreTargetScrollY: number | null
+        decidedAt: number
+      }
+    }
+  ).__iosScrollRestoreDebug
+  if (!raw) return null
+  return {
+    preFocusScrollY: raw.preFocusScrollY,
+    currentScrollYAtDecision: raw.currentScrollYAtDecision,
+    shouldRestore: raw.shouldRestore,
+    restoreReason: raw.restoreReason,
+    restoreTargetScrollY: raw.restoreTargetScrollY,
+    decidedAt: raw.decidedAt,
+  }
+}
+
 function captureSnapshot(captureLabel: string, eventType: string, pathname: string | null): GeometrySnapshot {
   const vv = window.visualViewport
   const visualViewport = vv
@@ -181,6 +210,7 @@ function captureSnapshot(captureLabel: string, eventType: string, pathname: stri
     chatSheet,
     chatComposer,
     browserMode: readBrowserMode(),
+    scrollRestoreDebug: readScrollRestoreDebug(),
     derived: computeDerivedGeometry({
       windowInnerHeight: window.innerHeight,
       visualViewport,
@@ -253,8 +283,12 @@ export function IOSViewportDebugPanel() {
     (snap: GeometrySnapshot) => {
       const keyboardOpen = snap.documentElement.className.includes("ios-keyboard-open")
       const cls = classifyKeyboardMilestone({ keyboardOpen, hasChatSheet: Boolean(snap.chatSheet) })
+      const geometry = {
+        vvHeight: snap.visualViewport?.height ?? null,
+        vvOffsetTop: snap.visualViewport?.offsetTop ?? null,
+      }
       const prevClass = milestoneStateRef.current.lastClass
-      const result = advanceMilestoneTracker(milestoneStateRef.current, cls)
+      const result = advanceMilestoneTracker(milestoneStateRef.current, cls, geometry)
       milestoneStateRef.current = result.state
 
       if (prevClass !== null && prevClass !== cls && finalStableTimerRef.current) {
@@ -460,6 +494,14 @@ export function IOSViewportDebugPanel() {
               <span>{liveSnapshot?.derived.sheetVisibleGapBottom?.toFixed(0) ?? "-"}</span>
               <span>composer gap</span>
               <span>{liveSnapshot?.derived.composerBottomGap?.toFixed(0) ?? "-"}</span>
+              <span>restore</span>
+              <span>
+                {liveSnapshot?.scrollRestoreDebug
+                  ? liveSnapshot.scrollRestoreDebug.shouldRestore
+                    ? `->${liveSnapshot.scrollRestoreDebug.restoreTargetScrollY}`
+                    : liveSnapshot.scrollRestoreDebug.restoreReason ?? "-"
+                  : "-"}
+              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/20">

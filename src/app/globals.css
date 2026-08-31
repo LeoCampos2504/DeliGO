@@ -381,6 +381,86 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
   pointer-events: none !important;
 }
 
+/* ─── iOS standalone PWA: compensate stale visualViewport.offsetTop ───
+   IOS-STANDALONE-REAL-DEVICE-FIX-R3: a real installed-PWA iPhone capture
+   (iOS 18.7, Safari 26.0.1, standalone=true) proved BottomNav/ChatFab
+   visually float ~68px above their resting position for a window after
+   the on-screen keyboard closes. Their `bottom` formula never changes
+   (computedBottom stayed "42px"/"118px" through the whole capture) — the
+   bug is that WebKit leaves `visualViewport.offsetTop` stuck at a stale,
+   residual value (68px observed, decaying to 0 only once the user makes
+   an actual scroll gesture) instead of resetting it to 0 once the
+   keyboard is gone. That decay-to-0 moment is exactly what the operator
+   saw as "the nav moved while scrolling." The real capture's own numbers
+   prove the compensation below restores the correct physical distance:
+   baseline (offsetTop=0) → nav.rect.bottom=755, 797-755=42; stale state
+   (offsetTop=68) → nav.rect.bottom=687, 797-687=110 (wrong, should stay
+   42, off by exactly the 68px residual). Subtracting
+   --visual-viewport-offset-top (already published by IOSKeyboardFix on
+   every visualViewport resize/scroll, reset on unmount — no new
+   listener) from the static `bottom` value cancels that residual.
+   Scoped to display-mode:standalone only: IOS_MOBILE_REAL_DEVICE_R2's
+   Safari-tab capture matched the UNcompensated formula in 165/165 real
+   snapshots with no stale residual ever observed there — applying this
+   in Safari tab would move an already-correct nav for no reason. Placed
+   after the base rules above so it wins the cascade in standalone
+   contexts without !important. Never applies while keyboard is open
+   (both elements are visibility:hidden then, per the rule above — no
+   compensation is needed or visible while hidden). ─── */
+@media (display-mode: standalone) {
+  body.ios-device .ios-bottom-nav {
+    bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px - var(--visual-viewport-offset-top, 0px));
+  }
+
+  body.ios-device .ios-chat-fab {
+    bottom: calc(
+      var(--ios-bottom-safe-footprint) + var(--ios-bottom-dock-gap) +
+      var(--ios-bottom-nav-height) + var(--ios-chat-fab-gap-above-nav) -
+      var(--visual-viewport-offset-top, 0px)
+    );
+  }
+}
+
+/* ─── iOS Chat: keyboard-region background coverage ───
+   IOS-STANDALONE-REAL-DEVICE-FIX-R3: real standalone capture proved
+   ChatOverlay and ChatSheet always match each other exactly (0px
+   top/bottom/height difference in 146/146 real paired snapshots, R2) —
+   so their mismatch was never the cause of the operator's real,
+   confirmed symptom (client-page content visible below the Chat
+   composer while the keyboard is open). The actual mechanism: while the
+   keyboard is open, both fixed surfaces are shifted by WebKit's visual
+   viewport pan (visualViewport.offsetTop, 403px observed) and their
+   bottom edge lands at the *visible* boundary
+   (innerHeight - offsetTop = 394 observed), short of the true device
+   bottom (innerHeight = 797) by exactly that residual. The gap between
+   394 and 797 is real, physical screen space that neither Sheet nor
+   Overlay paints — so whatever sits behind them (the normal client page,
+   full height, unclipped) can show through it.
+   This filler does not move the composer or any content — it only adds
+   a non-interactive background-colored layer under everything, anchored
+   to the true fixed-viewport bottom and pushed further down by exactly
+   `visualViewport.offsetTop` (a negative `bottom` compensation — the
+   mirror image of the dock compensation above) so its own bottom edge
+   always reaches the true device bottom, with its height equal to that
+   same residual — i.e., it fills exactly the gap and nothing more.
+   Height (and therefore visible area) is 0 whenever offsetTop is 0
+   (keyboard closed, or normal Safari-tab states where this residual
+   either doesn't occur or self-resolves) — safe by construction, so this
+   is NOT scoped to standalone only; it is a no-op everywhere else.
+   Element only exists in the DOM while ChatSheet itself is mounted (see
+   chat-sheet.tsx) — no permanent layer, no effect on the normal client
+   page, BottomNav, ChatFab, or any other drawer. ─── */
+body.ios-device .ios-chat-keyboard-backdrop {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * var(--visual-viewport-offset-top, 0px));
+  height: var(--visual-viewport-offset-top, 0px);
+  background: var(--background);
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* ─── iOS viewport height — use instead of h-screen / 100vh ───
    IOS-24-FIX-A: root layout and Chat/Sidebar/Orders sheets no longer use
    this — they rely on native 100dvh instead, since --visual-viewport-height

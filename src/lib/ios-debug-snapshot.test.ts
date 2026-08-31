@@ -14,6 +14,7 @@ import {
   DOCK_ELEMENT_ALLOWED_KEYS,
   GEOMETRY_SNAPSHOT_ALLOWED_KEYS,
   RECT_ALLOWED_KEYS,
+  SCROLL_RESTORE_DEBUG_ALLOWED_KEYS,
   isIosDebugFlagEnabled,
   type BrowserModeInfo,
   type ComposerElementGeometry,
@@ -228,46 +229,105 @@ describe("classifyKeyboardMilestone / advanceMilestoneTracker — automatic mile
     expect(classifyKeyboardMilestone({ keyboardOpen: true, hasChatSheet: true })).toBe("chat-keyboard")
   })
 
-  test("fires AUTO_BASELINE_STABLE once, after 2 consecutive closed observations, never again", () => {
+  const geom = (vvHeight: number | null, vvOffsetTop: number | null) => ({ vvHeight, vvOffsetTop })
+  const NO_VV = geom(null, null)
+
+  test("fires AUTO_BASELINE_STABLE once, after 2 consecutive closed observations with stable geometry, never again", () => {
     let state = createInitialMilestoneTrackerState()
-    let r = advanceMilestoneTracker(state, "closed")
+    let r = advanceMilestoneTracker(state, "closed", geom(797, 0))
     expect(r.fire).toBeNull() // 1st observation — not yet stable
     state = r.state
-    r = advanceMilestoneTracker(state, "closed")
-    expect(r.fire).toBe("AUTO_BASELINE_STABLE") // 2nd consecutive — stable
+    r = advanceMilestoneTracker(state, "closed", geom(797, 0))
+    expect(r.fire).toBe("AUTO_BASELINE_STABLE") // 2nd consecutive, same geometry — stable
     state = r.state
-    r = advanceMilestoneTracker(state, "closed")
+    r = advanceMilestoneTracker(state, "closed", geom(797, 0))
     expect(r.fire).toBeNull() // already fired once — never repeats
   })
 
   test("fires AUTO_KEYBOARD_OPEN_STABLE on normal-keyboard, AUTO_CHAT_KEYBOARD_OPEN_STABLE on chat-keyboard, each re-armed on the next cycle", () => {
     let state = createInitialMilestoneTrackerState()
-    state = advanceMilestoneTracker(state, "closed").state
-    let r = advanceMilestoneTracker(state, "closed") // baseline fires here
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state
+    let r = advanceMilestoneTracker(state, "closed", geom(797, 0)) // baseline fires here
     state = r.state
-    r = advanceMilestoneTracker(state, "normal-keyboard")
+    r = advanceMilestoneTracker(state, "normal-keyboard", geom(394, 403))
     expect(r.fire).toBeNull()
     state = r.state
-    r = advanceMilestoneTracker(state, "normal-keyboard")
+    r = advanceMilestoneTracker(state, "normal-keyboard", geom(394, 403))
     expect(r.fire).toBe("AUTO_KEYBOARD_OPEN_STABLE")
     state = r.state
-    r = advanceMilestoneTracker(state, "chat-keyboard")
+    r = advanceMilestoneTracker(state, "chat-keyboard", geom(394, 403))
     state = r.state
-    r = advanceMilestoneTracker(state, "chat-keyboard")
+    r = advanceMilestoneTracker(state, "chat-keyboard", geom(394, 403))
     expect(r.fire).toBe("AUTO_CHAT_KEYBOARD_OPEN_STABLE")
   })
 
   test("fires AUTO_AFTER_KEYBOARD_CLOSE immediately on the edge back to closed from either keyboard class", () => {
     let state = createInitialMilestoneTrackerState()
-    state = advanceMilestoneTracker(state, "normal-keyboard").state
-    const r = advanceMilestoneTracker(state, "closed")
+    state = advanceMilestoneTracker(state, "normal-keyboard", geom(394, 403)).state
+    const r = advanceMilestoneTracker(state, "closed", geom(729, 68))
     expect(r.fire).toBe("AUTO_AFTER_KEYBOARD_CLOSE")
   })
 
   test("does not fire AUTO_AFTER_KEYBOARD_CLOSE on the very first observation (no prior class to close from)", () => {
     const state = createInitialMilestoneTrackerState()
-    const r = advanceMilestoneTracker(state, "closed")
+    const r = advanceMilestoneTracker(state, "closed", geom(797, 0))
     expect(r.fire).toBeNull()
+  })
+
+  // IOS-STANDALONE-REAL-DEVICE-FIX-R3 §19 regression — reproduces the real
+  // false-early-fire: class flips to chat-keyboard and STAYS chat-keyboard
+  // for 2 observations, but the geometry is still mid-transition between
+  // them (vv.height 729->394, offsetTop 49->403, the exact real numbers
+  // from the payload). Must NOT fire until geometry itself stops changing.
+  test("REGRESSION — does not fire AUTO_CHAT_KEYBOARD_OPEN_STABLE while class is stable but geometry is still transitioning", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state // baseline fires
+    let r = advanceMilestoneTracker(state, "chat-keyboard", geom(729, 49)) // real: false-early value
+    expect(r.fire).toBeNull()
+    state = r.state
+    // Same CLASS, but geometry actually changed to the real settled value —
+    // must reset stability, not treat this as "2nd stable observation".
+    r = advanceMilestoneTracker(state, "chat-keyboard", geom(394, 403)) // real: true settled value, ~161ms later
+    expect(r.fire).toBeNull() // only 1 observation at the NEW geometry so far
+    state = r.state
+    r = advanceMilestoneTracker(state, "chat-keyboard", geom(394, 403)) // now genuinely stable
+    expect(r.fire).toBe("AUTO_CHAT_KEYBOARD_OPEN_STABLE")
+  })
+
+  test("fires AUTO_VIEWPORT_RESTORED_TO_BASELINE only when closed AND geometry actually matches the recorded baseline — not merely 'stable in time'", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state // baseline fires, baseline geometry = (797,0)
+    state = advanceMilestoneTracker(state, "normal-keyboard", geom(394, 403)).state
+    // Keyboard closes but leaves a STALE residual (the real R3 68px bug) —
+    // this is "stable in time" (2 identical observations) but NOT restored.
+    let r = advanceMilestoneTracker(state, "closed", geom(729, 68)) // AUTO_AFTER_KEYBOARD_CLOSE edge
+    expect(r.fire).toBe("AUTO_AFTER_KEYBOARD_CLOSE")
+    state = r.state
+    r = advanceMilestoneTracker(state, "closed", geom(729, 68))
+    expect(r.fire).toBeNull() // stable, but NOT AUTO_VIEWPORT_RESTORED_TO_BASELINE — geometry doesn't match (797,0)
+    state = r.state
+    // Now it genuinely resolves back to the real baseline geometry.
+    r = advanceMilestoneTracker(state, "closed", geom(797, 0))
+    expect(r.fire).toBeNull() // 1st observation at the new (correct) geometry
+    state = r.state
+    r = advanceMilestoneTracker(state, "closed", geom(797, 0))
+    expect(r.fire).toBe("AUTO_VIEWPORT_RESTORED_TO_BASELINE")
+  })
+
+  test("geometry stability tolerates sub-pixel jitter (<= 1px) without resetting the stable count", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "closed", geom(797, 0)).state
+    const r = advanceMilestoneTracker(state, "closed", geom(797.6, 0.4)) // real device: sub-pixel jitter observed
+    expect(r.fire).toBe("AUTO_BASELINE_STABLE")
+  })
+
+  test("without visualViewport (NO_VV), falls back to class-only stability instead of blocking forever", () => {
+    let state = createInitialMilestoneTrackerState()
+    state = advanceMilestoneTracker(state, "closed", NO_VV).state
+    const r = advanceMilestoneTracker(state, "closed", NO_VV)
+    expect(r.fire).toBe("AUTO_BASELINE_STABLE")
   })
 })
 
@@ -331,8 +391,28 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         overlayVisibleGapBottom: null,
         composerBottomGap: null,
       },
+      scrollRestoreDebug: {
+        preFocusScrollY: 100,
+        currentScrollYAtDecision: 100,
+        shouldRestore: false,
+        restoreReason: "already-within-tolerance",
+        restoreTargetScrollY: null,
+        decidedAt: 1,
+      },
     }
     expect(Object.keys(snapshot).sort()).toEqual(GEOMETRY_SNAPSHOT_ALLOWED_KEYS)
+  })
+
+  test("a ScrollRestoreDebugSnapshot has exactly the documented keys — no input/message fields, only scroll numbers and a fixed reason string", () => {
+    const snap = {
+      preFocusScrollY: 100,
+      currentScrollYAtDecision: 100,
+      shouldRestore: false,
+      restoreReason: "already-within-tolerance",
+      restoreTargetScrollY: null,
+      decidedAt: 1,
+    }
+    expect(Object.keys(snap).sort()).toEqual(SCROLL_RESTORE_DEBUG_ALLOWED_KEYS)
   })
 
   test("a dock element geometry has exactly the documented keys (rect + a fixed whitelist of computed styles) — no input/text fields", () => {

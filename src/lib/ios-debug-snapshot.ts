@@ -102,6 +102,20 @@ export interface DerivedGeometry {
   composerBottomGap: number | null
 }
 
+// IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only mirror of
+// Window.__iosScrollRestoreDebug (declared and written by
+// ios-keyboard-fix.tsx — see that file for the single write site). Only
+// numeric scroll positions and a fixed, non-sensitive reason string ever
+// end up here — never input values or message content.
+export interface ScrollRestoreDebugSnapshot {
+  preFocusScrollY: number | null
+  currentScrollYAtDecision: number
+  shouldRestore: boolean
+  restoreReason: string | null
+  restoreTargetScrollY: number | null
+  decidedAt: number
+}
+
 export interface GeometrySnapshot {
   timestamp: number
   captureLabel: string
@@ -118,6 +132,7 @@ export interface GeometrySnapshot {
   chatComposer: ComposerElementGeometry | null
   browserMode: BrowserModeInfo
   derived: DerivedGeometry
+  scrollRestoreDebug: ScrollRestoreDebugSnapshot | null
 }
 
 export interface DebugExportPayload {
@@ -293,16 +308,53 @@ export function classifyKeyboardMilestone(input: {
   return input.hasChatSheet ? "chat-keyboard" : "normal-keyboard"
 }
 
+// IOS-STANDALONE-REAL-DEVICE-FIX-R3 §19: a real standalone capture proved
+// AUTO_CHAT_KEYBOARD_OPEN_STABLE fired too early — the DOM class
+// (`ios-keyboard-open` + ChatSheet present) was already stable for 2
+// observations, but the underlying visualViewport geometry was still
+// mid-transition (vv.height=729/offsetTop=49, then ~155ms later the real
+// settled state vv.height=394/offsetTop=403). Class-only stability is not
+// enough; this now also requires vv.height/offsetTop to be unchanged
+// (within MILESTONE_GEOMETRY_STABLE_TOLERANCE_PX) across the same
+// observations — the same tolerance-based "hasn't moved in N ticks" idea
+// ios-keyboard-fix.tsx's own waitForViewportStableThenMaybeRestore already
+// uses (STABLE_TOLERANCE_PX), applied here to milestone classification
+// instead of restore timing.
+export interface MilestoneGeometry {
+  vvHeight: number | null
+  vvOffsetTop: number | null
+}
+
+export const MILESTONE_GEOMETRY_STABLE_TOLERANCE_PX = 1
+
+function isGeometryStable(previous: MilestoneGeometry | null, current: MilestoneGeometry): boolean {
+  if (!previous) return false
+  if (previous.vvHeight === null || current.vvHeight === null) return true
+  if (previous.vvOffsetTop === null || current.vvOffsetTop === null) return true
+  return (
+    Math.abs(previous.vvHeight - current.vvHeight) <= MILESTONE_GEOMETRY_STABLE_TOLERANCE_PX &&
+    Math.abs(previous.vvOffsetTop - current.vvOffsetTop) <= MILESTONE_GEOMETRY_STABLE_TOLERANCE_PX
+  )
+}
+
 export const MILESTONE_STABLE_THRESHOLD = 2
 
 export interface MilestoneTrackerState {
   lastClass: KeyboardMilestoneClass | null
+  lastGeometry: MilestoneGeometry | null
   stableCount: number
   baselineFired: boolean
+  baselineGeometry: MilestoneGeometry | null
 }
 
 export function createInitialMilestoneTrackerState(): MilestoneTrackerState {
-  return { lastClass: null, stableCount: 0, baselineFired: false }
+  return {
+    lastClass: null,
+    lastGeometry: null,
+    stableCount: 0,
+    baselineFired: false,
+    baselineGeometry: null,
+  }
 }
 
 export type MilestoneLabel =
@@ -310,27 +362,40 @@ export type MilestoneLabel =
   | "AUTO_KEYBOARD_OPEN_STABLE"
   | "AUTO_CHAT_KEYBOARD_OPEN_STABLE"
   | "AUTO_AFTER_KEYBOARD_CLOSE"
+  | "AUTO_VIEWPORT_RESTORED_TO_BASELINE"
 
 export interface MilestoneTrackerResult {
   state: MilestoneTrackerState
   fire: MilestoneLabel | null
 }
 
-// Called once per new classification observation (e.g. once per throttled
-// live-update tick). Fires AUTO_BASELINE_STABLE the first time the page is
-// observed "closed" (no keyboard) for MILESTONE_STABLE_THRESHOLD
-// consecutive observations — only once, ever, per tracker instance.
-// AUTO_*_KEYBOARD_OPEN_STABLE fires every time a keyboard class holds
-// stable for that same threshold (re-arms on the next open, since the
-// operator may reproduce the cycle more than once). AUTO_AFTER_KEYBOARD_CLOSE
-// fires immediately on the edge back to "closed" from either keyboard
-// class — no stability wait needed, it just marks "the keyboard just
-// closed" for the timeline.
+// Called once per new classification+geometry observation (e.g. once per
+// throttled live-update tick). Fires AUTO_BASELINE_STABLE the first time
+// the page is observed "closed" (no keyboard) with stable class AND stable
+// geometry for MILESTONE_STABLE_THRESHOLD consecutive observations — only
+// once, ever, per tracker instance; its geometry is remembered as the
+// baseline to compare future restorations against.
+// AUTO_*_KEYBOARD_OPEN_STABLE fires every time a keyboard class AND its
+// geometry hold stable for that same threshold (re-arms on the next open).
+// AUTO_AFTER_KEYBOARD_CLOSE fires immediately on the class edge back to
+// "closed" from either keyboard class — no stability wait, it just marks
+// "the keyboard just closed" for the timeline (§20: this is a TEMPORAL
+// marker only, not a claim the viewport geometry is actually correct — see
+// IOS-MOBILE-REAL-DEVICE-R2-PWA-PREPARATION's own AUTO_FINAL_STABLE, fired
+// by the component on a fixed delay after this, which is ALSO purely
+// temporal). AUTO_VIEWPORT_RESTORED_TO_BASELINE is the geometry-verified
+// counterpart: it only fires once "closed" is stable again AND its
+// geometry actually matches the recorded baseline — distinguishing "time
+// has passed and nothing is visibly changing" (which R3's real device
+// proved can still be the STALE, wrong 68px-residual state) from "the
+// viewport genuinely returned to where it started."
 export function advanceMilestoneTracker(
   state: MilestoneTrackerState,
-  cls: KeyboardMilestoneClass
+  cls: KeyboardMilestoneClass,
+  geometry: MilestoneGeometry
 ): MilestoneTrackerResult {
-  const stableCount = state.lastClass === cls ? state.stableCount + 1 : 1
+  const sameClass = state.lastClass === cls
+  const stableCount = sameClass && isGeometryStable(state.lastGeometry, geometry) ? state.stableCount + 1 : 1
   const justStabilized = stableCount === MILESTONE_STABLE_THRESHOLD
   const closedAfterKeyboard =
     state.lastClass !== null &&
@@ -340,19 +405,32 @@ export function advanceMilestoneTracker(
 
   let fire: MilestoneLabel | null = null
   let baselineFired = state.baselineFired
+  let baselineGeometry = state.baselineGeometry
 
   if (!baselineFired && cls === "closed" && justStabilized) {
     fire = "AUTO_BASELINE_STABLE"
     baselineFired = true
+    baselineGeometry = geometry
   } else if (justStabilized && cls === "normal-keyboard") {
     fire = "AUTO_KEYBOARD_OPEN_STABLE"
   } else if (justStabilized && cls === "chat-keyboard") {
     fire = "AUTO_CHAT_KEYBOARD_OPEN_STABLE"
   } else if (closedAfterKeyboard) {
     fire = "AUTO_AFTER_KEYBOARD_CLOSE"
+  } else if (
+    baselineFired &&
+    baselineGeometry &&
+    cls === "closed" &&
+    justStabilized &&
+    isGeometryStable(baselineGeometry, geometry)
+  ) {
+    fire = "AUTO_VIEWPORT_RESTORED_TO_BASELINE"
   }
 
-  return { state: { lastClass: cls, stableCount, baselineFired }, fire }
+  return {
+    state: { lastClass: cls, lastGeometry: geometry, stableCount, baselineFired, baselineGeometry },
+    fire,
+  }
 }
 
 // ─── Query-flag gate (pure, testable) ────────────────────────────────────
@@ -391,6 +469,16 @@ export const GEOMETRY_SNAPSHOT_ALLOWED_KEYS = [
   "chatComposer",
   "browserMode",
   "derived",
+  "scrollRestoreDebug",
+].sort()
+
+export const SCROLL_RESTORE_DEBUG_ALLOWED_KEYS = [
+  "preFocusScrollY",
+  "currentScrollYAtDecision",
+  "shouldRestore",
+  "restoreReason",
+  "restoreTargetScrollY",
+  "decidedAt",
 ].sort()
 
 export const DOCK_ELEMENT_ALLOWED_KEYS = [

@@ -96,9 +96,26 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).not.toMatch(/<a[^>]*download/)
   })
 
-  test("I. no importa ni modifica el restore de scroll existente (ios-keyboard-fix / ios-scroll-restore-decision)", () => {
+  // IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: el panel ahora LEE (nunca
+  // escribe, nunca importa) el espejo de diagnóstico
+  // window.__iosScrollRestoreDebug que ios-keyboard-fix.tsx publica — una
+  // relación deliberada y unidireccional, no una reintroducción del
+  // acoplamiento que este test originalmente prohibía. La invariante real
+  // ("el panel no puede llegar a INFLUIR el restore") se prueba abajo con
+  // más precisión que la prohibición total de R1.
+  test("I. no importa src/lib/ios-scroll-restore-decision ni src/components/pwa/ios-keyboard-fix — sólo lee su espejo de diagnóstico vía window", () => {
     const source = panelCodeOnly()
-    expect(source).not.toMatch(/ios-keyboard-fix|ios-scroll-restore-decision|preFocusScrollY/)
+    expect(source).not.toMatch(/from ["']@\/lib\/ios-scroll-restore-decision["']/)
+    expect(source).not.toMatch(/from ["']@\/components\/pwa\/ios-keyboard-fix["']/)
+    expect(source).not.toMatch(/decideScrollRestore|resolveCycleStart/)
+  })
+
+  test("I2. sólo LEE window.__iosScrollRestoreDebug — nunca lo asigna/escribe (nunca podría alterar la decisión real)", () => {
+    const source = panelCodeOnly()
+    expect(source).toContain("window as unknown as {")
+    expect(source).toContain("__iosScrollRestoreDebug")
+    expect(source).not.toMatch(/window\.__iosScrollRestoreDebug\s*=/)
+    expect(source).not.toMatch(/\.__iosScrollRestoreDebug\s*=(?!=)/)
   })
 
   test("J. usa los mismos data-ios-debug-role/data-slot ya expuestos por BottomNav/ChatFab/ChatSheet/composer, no nombres nuevos inventados", () => {

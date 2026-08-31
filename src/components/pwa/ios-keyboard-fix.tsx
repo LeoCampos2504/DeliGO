@@ -31,6 +31,27 @@ import { decideScrollRestore, resolveCycleStart } from "@/lib/ios-scroll-restore
  * NOT their own JS keyboard detection. This is the single source of truth.
  */
 
+// IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only diagnostic snapshot of
+// the last restore decision, for the TEMPORARY iosDebug panel only — never
+// read by any application code, never changes control flow or timing of
+// the restore logic itself (see the single write site below, right after
+// decideScrollRestore already runs). Declared here (the writer) rather
+// than imported from the diagnostic library, so this file's only import
+// stays ios-scroll-restore-decision — the diagnostic panel defines its own
+// matching shape defensively when it reads window.__iosScrollRestoreDebug.
+declare global {
+  interface Window {
+    __iosScrollRestoreDebug?: {
+      preFocusScrollY: number | null
+      currentScrollYAtDecision: number
+      shouldRestore: boolean
+      restoreReason: string | null
+      restoreTargetScrollY: number | null
+      decidedAt: number
+    }
+  }
+}
+
 const EDITABLE_SELECTOR =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"], [contenteditable=""]'
 
@@ -153,6 +174,18 @@ export function IOSKeyboardFix() {
             keyboardOpen: hasEditableFocus || keyboardOpenFromViewportNow(),
             toleranceRestorePx: RESTORE_TOLERANCE_PX,
           })
+
+          // Diagnostic-only — see the Window.__iosScrollRestoreDebug
+          // declaration above. Pure observability, no effect on `decision`
+          // or on what happens next.
+          window.__iosScrollRestoreDebug = {
+            preFocusScrollY: capturedPreFocusScrollY,
+            currentScrollYAtDecision: window.scrollY,
+            shouldRestore: decision.shouldRestore,
+            restoreReason: decision.shouldRestore ? null : decision.reason,
+            restoreTargetScrollY: decision.shouldRestore ? decision.target : null,
+            decidedAt: Date.now(),
+          }
 
           if (decision.shouldRestore) {
             performRestore(decision.target)
@@ -308,6 +341,7 @@ export function IOSKeyboardFix() {
       root.style.removeProperty("--visual-viewport-width")
       root.style.removeProperty("--visual-viewport-offset-top")
       root.style.removeProperty("--ios-keyboard-offset")
+      delete window.__iosScrollRestoreDebug
     }
   }, [])
 

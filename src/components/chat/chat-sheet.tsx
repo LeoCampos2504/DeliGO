@@ -383,6 +383,12 @@ export function ChatSheet() {
         className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
         data-ios-debug-role="chat-sheet"
       >
+        {/* IOS-STANDALONE-REAL-DEVICE-FIX-R3: non-interactive background
+            filler for the keyboard-region gap on iOS — see its own rule in
+            globals.css (.ios-chat-keyboard-backdrop) for the full math.
+            Zero height/no-op outside iOS or whenever the residual visual
+            viewport offset is 0; only exists while this Sheet is mounted. */}
+        <div className="ios-chat-keyboard-backdrop" aria-hidden="true" />
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>
         {activePedidoId ? (
