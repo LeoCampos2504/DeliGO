@@ -24,6 +24,10 @@ import {
   Wand2,
   Settings2,
   Copy,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  ListOrdered,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -104,6 +108,7 @@ interface ProductsTabProps {
 
 interface Producto {
   id: string
+  orden: number
   nombre: string
   precio: number
   categoria: string
@@ -534,6 +539,8 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState("todos")
   const [formOpen, setFormOpen] = useState(false)
+  const [reorderMode, setReorderMode] = useState(false)
+  const [reorderProducts, setReorderProducts] = useState<Producto[]>([])
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null)
   const [formStep, setFormStep] = useState(0)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
@@ -819,6 +826,49 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
     },
   })
 
+  const reorderMutation = useMutation({
+    mutationFn: async ({ productIds }: { productIds: string[]; previousProducts: Producto[] }) => {
+      const res = await fetch("/api/negocio/productos/orden", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productIds }),
+      })
+      const result = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) throw new Error(result.error || "Error al ordenar productos")
+      return result
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["negocio-productos", negocio.id] })
+      toast.success("Orden de productos guardado")
+    },
+    onError: (error, variables) => {
+      setReorderProducts(variables.previousProducts)
+      void queryClient.invalidateQueries({ queryKey: ["negocio-productos", negocio.id] })
+      toast.error(error.message || "No se pudo guardar el orden")
+    },
+  })
+
+  const enterReorderMode = () => {
+    if (formOpen || otherFormIsDirty || loadingProducts) return
+    setReorderProducts([...productos])
+    setReorderMode(true)
+  }
+
+  const moveProduct = (sourceId: string, targetId: string) => {
+    if (reorderMutation.isPending || sourceId === targetId) return
+    const sourceIndex = reorderProducts.findIndex((product) => product.id === sourceId)
+    const targetIndex = reorderProducts.findIndex((product) => product.id === targetId)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const next = [...reorderProducts]
+    const [moved] = next.splice(sourceIndex, 1)
+    next.splice(targetIndex, 0, moved)
+    setReorderProducts(next)
+    reorderMutation.mutate({
+      productIds: next.map((product) => product.id),
+      previousProducts: reorderProducts,
+    })
+  }
+
   const filteredProducts = useMemo(() => {
     let filtered = productos
     if (activeCategory !== "todos") {
@@ -1094,8 +1144,33 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
         onNavigateSubTab={requestSubTab}
       />
 
-      {/* ===== SEARCH BAR ===== */}
-      <div className="relative">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{reorderMode ? "Ordenando productos" : "Orden del catálogo"}</p>
+          <p className="text-xs text-muted-foreground">
+            {reorderMode
+              ? "Se muestra el catálogo completo. Los cambios se guardan al mover un producto."
+              : "Reordená todos tus productos sin afectar categorías ni secciones."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant={reorderMode ? "outline" : "default"}
+          size="sm"
+          className="shrink-0 rounded-lg gap-1.5"
+          onClick={() => reorderMode ? setReorderMode(false) : enterReorderMode()}
+          disabled={reorderMutation.isPending || (!reorderMode && (formOpen || otherFormIsDirty || loadingProducts))}
+          aria-label={reorderMode ? "Salir del modo ordenar productos" : "Ordenar productos"}
+        >
+          {reorderMode ? <X className="h-3.5 w-3.5" /> : <ListOrdered className="h-3.5 w-3.5" />}
+          {reorderMode ? "Salir" : "Ordenar productos"}
+        </Button>
+      </div>
+
+      {!reorderMode ? (
+        <>
+          {/* ===== SEARCH BAR ===== */}
+          <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           type="text"
@@ -1104,9 +1179,9 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10 h-10 rounded-xl bg-muted/50 border-border/50 text-sm"
         />
-      </div>
+          </div>
 
-      {/* ===== CATEGORY PILLS ===== */}
+          {/* ===== CATEGORY PILLS ===== */}
       <CatalogTutorialGuideCoach
         targetKeys={["category-control", "product-edit"]}
         mode={mode}
@@ -1172,8 +1247,8 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
         </button>
       </div>
 
-      {/* Add category inline */}
-      <AnimatePresence>
+          {/* Add category inline */}
+          <AnimatePresence>
         {showCategoryInput && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -1217,9 +1292,9 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+          </AnimatePresence>
 
-      {/* ===== ADD PRODUCT BUTTON ===== */}
+          {/* ===== ADD PRODUCT BUTTON ===== */}
       <CatalogTutorialGuideCoach
         targetKeys={["add-product"]}
         mode={mode}
@@ -1236,8 +1311,8 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
         {isRopa ? "Agregar prenda" : "Agregar producto"}
       </Button>
 
-      {/* ===== PRODUCT GRID ===== */}
-      {loadingProducts ? (
+          {/* ===== PRODUCT GRID ===== */}
+          {loadingProducts ? (
         <ProductGridSkeleton />
       ) : filteredProducts.length === 0 ? (
         <EmptyProducts isRopa={isRopa} />
@@ -1257,6 +1332,15 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
             />
           ))}
         </div>
+          )}
+        </>
+      ) : (
+        <ProductReorderList
+          products={reorderProducts}
+          colorPrincipal={negocio.colorPrincipal}
+          isPending={reorderMutation.isPending}
+          onMove={moveProduct}
+        />
       )}
 
       {/* ===== PRODUCT FORM DRAWER ===== */}
@@ -3319,6 +3403,121 @@ function EmptyProducts({ isRopa }: { isRopa: boolean }) {
           </p>
         </>
       )}
+    </div>
+  )
+}
+
+function ProductReorderList({
+  products,
+  colorPrincipal,
+  isPending,
+  onMove,
+}: {
+  products: Producto[]
+  colorPrincipal: string
+  isPending: boolean
+  onMove: (sourceId: string, targetId: string) => void
+}) {
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+
+  if (products.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+        No hay productos activos para ordenar.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2" role="list" aria-label="Lista completa de productos para ordenar">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
+        <span>{products.length} productos activos · orden global</span>
+        {isPending && <span className="font-medium text-primary">Guardando…</span>}
+      </div>
+      {products.map((product, index) => {
+        const isFirst = index === 0
+        const isLast = index === products.length - 1
+        return (
+          <div
+            key={product.id}
+            role="listitem"
+            onDragOver={(event) => {
+              if (!isPending && draggingId && draggingId !== product.id) {
+                event.preventDefault()
+                setDragOverId(product.id)
+              }
+            }}
+            onDragLeave={() => setDragOverId(null)}
+            onDrop={(event) => {
+              event.preventDefault()
+              const sourceId = event.dataTransfer.getData("text/plain") || draggingId
+              if (sourceId) onMove(sourceId, product.id)
+              setDraggingId(null)
+              setDragOverId(null)
+            }}
+            className={cn(
+              "flex items-center gap-3 rounded-xl border bg-card p-3 transition-colors",
+              dragOverId === product.id && "border-primary bg-primary/5"
+            )}
+          >
+            <button
+              type="button"
+              draggable={!isPending}
+              onDragStart={(event) => {
+                if (isPending) return
+                event.dataTransfer.effectAllowed = "move"
+                event.dataTransfer.setData("text/plain", product.id)
+                setDraggingId(product.id)
+              }}
+              onDragEnd={() => {
+                setDraggingId(null)
+                setDragOverId(null)
+              }}
+              className="hidden shrink-0 cursor-grab rounded-lg p-2 text-muted-foreground hover:bg-muted active:cursor-grabbing sm:block"
+              aria-label={`Arrastrar ${product.nombre}`}
+              title="Arrastrar para reordenar"
+              disabled={isPending}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+              style={{ backgroundColor: colorPrincipal }}
+              aria-label={`Posición ${index + 1}`}
+            >
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{product.nombre}</span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                onClick={() => onMove(product.id, products[index - 1].id)}
+                disabled={isPending || isFirst}
+                aria-label={`Subir ${product.nombre}`}
+                title="Subir"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                onClick={() => onMove(product.id, products[index + 1].id)}
+                disabled={isPending || isLast}
+                aria-label={`Bajar ${product.nombre}`}
+                title="Bajar"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
