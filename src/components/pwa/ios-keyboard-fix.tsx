@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { decideScrollRestore, resolveCycleStart } from "@/lib/ios-scroll-restore-decision"
+import { decideViewportRecovery, VIEWPORT_RECOVERY_HEIGHT_TOLERANCE_PX } from "@/lib/ios-viewport-recovery-decision"
 
 /**
  * IOSKeyboardFix — Global iOS virtual keyboard handler.
@@ -49,6 +50,28 @@ declare global {
       restoreTargetScrollY: number | null
       decidedAt: number
     }
+    // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: opt-in TESTING
+    // experiment toggle. Written ONLY by IOSViewportDebugPanel's own toggle
+    // button (itself only ever mounted/interactive behind ?iosDebug=1 — see
+    // that file), read here on every keyboard-close settle. Never true for
+    // a normal user with no query flag; absent entirely (undefined) is the
+    // same as explicitly false.
+    __iosViewportRecoveryExperiment?: boolean
+    // Read-only diagnostic mirror of the last recovery attempt — same
+    // pattern as __iosScrollRestoreDebug above: written once per keyboard-
+    // close settle, right after the decision is made, never read by any
+    // application code, never influences control flow.
+    __iosViewportRecoveryDebug?: {
+      attempted: boolean
+      experimentEnabled: boolean
+      isStandalone: boolean
+      reason: string | null
+      baselineViewportHeight: number | null
+      heightBeforeAttempt: number | null
+      heightAfterAttempt: number | null
+      recovered: boolean | null
+      decidedAt: number
+    }
   }
 }
 
@@ -93,6 +116,16 @@ export function IOSKeyboardFix() {
     const vv = window.visualViewport
     const keyboardThreshold = 80
 
+    // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: the real pre-
+    // keyboard visualViewport.height, captured once at mount (before any
+    // editable focus has ever happened this session) — R6's complete real
+    // device JSON proved this is the value visualViewport.height should
+    // return to after a keyboard close but, on affected iOS/WebKit builds,
+    // never does (stuck at a shorter value for the rest of the session).
+    // Only ever used by the opt-in recovery experiment below; the existing
+    // certified keyboard-detection/restore logic above never reads it.
+    const initialViewportHeight = vv?.height ?? window.innerHeight
+
     let rafId = 0
     let hasEditableFocus = isEditableTarget(document.activeElement)
     let lastKeyboardOpen = false
@@ -131,6 +164,82 @@ export function IOSKeyboardFix() {
         }
       }
       attempt(RESTORE_MAX_RETRIES)
+    }
+
+    // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: opt-in TESTING
+    // experiment only — see the Window.__iosViewportRecoveryExperiment
+    // declaration above. No real device was available to verify this
+    // technique (documented independently by multiple sources for this
+    // exact WebKit standalone-PWA bug: toggle `display:none` -> restore on
+    // the full-viewport-height root, forcing a synchronous reflow with no
+    // paint in between, to make WebKit re-measure visualViewport.height)
+    // actually recovers the viewport on this codebase's real devices before
+    // shipping it — so it is entirely inert unless the operator explicitly
+    // arms it via the debug panel toggle, and only ever runs AFTER the
+    // existing, already-certified scroll-restore decision above has
+    // already completed (see the single call site in
+    // waitForViewportStableThenMaybeRestore's tick()) — it can never race
+    // or interfere with that logic, and always re-applies the exact scrollY
+    // that logic already settled on if the reflow toggle disturbs it.
+    const attemptViewportRecovery = () => {
+      const experimentEnabled = window.__iosViewportRecoveryExperiment === true
+      const isStandalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false
+      const heightBeforeAttempt = vv?.height ?? window.innerHeight
+
+      const decision = decideViewportRecovery({
+        experimentEnabled,
+        isStandalone,
+        keyboardJustClosed: true,
+        baselineViewportHeight: initialViewportHeight,
+        currentViewportHeight: heightBeforeAttempt,
+        toleranceViewportHeightPx: VIEWPORT_RECOVERY_HEIGHT_TOLERANCE_PX,
+      })
+
+      if (!decision.shouldAttemptRecovery) {
+        window.__iosViewportRecoveryDebug = {
+          attempted: false,
+          experimentEnabled,
+          isStandalone,
+          reason: decision.reason,
+          baselineViewportHeight: initialViewportHeight,
+          heightBeforeAttempt,
+          heightAfterAttempt: null,
+          recovered: null,
+          decidedAt: Date.now(),
+        }
+        return
+      }
+
+      const target = body.firstElementChild as HTMLElement | null
+      const preScrollY = window.scrollY
+      let heightAfterAttempt = heightBeforeAttempt
+
+      if (target) {
+        const previousDisplay = target.style.display
+        target.style.display = "none"
+        void target.offsetHeight // synchronous reflow, no paint between the two writes
+        target.style.display = previousDisplay
+
+        if (Math.abs(window.scrollY - preScrollY) > RESTORE_TOLERANCE_PX) {
+          window.scrollTo({ top: preScrollY, left: window.scrollX, behavior: "auto" })
+        }
+
+        heightAfterAttempt = window.visualViewport?.height ?? window.innerHeight
+      }
+
+      window.__iosViewportRecoveryDebug = {
+        attempted: Boolean(target),
+        experimentEnabled,
+        isStandalone,
+        reason: target ? null : "no-root-element",
+        baselineViewportHeight: initialViewportHeight,
+        heightBeforeAttempt,
+        heightAfterAttempt,
+        recovered: target
+          ? Math.abs(initialViewportHeight - heightAfterAttempt) <= VIEWPORT_RECOVERY_HEIGHT_TOLERANCE_PX
+          : null,
+        decidedAt: Date.now(),
+      }
     }
 
     // Waits for visualViewport.height/offsetTop and window.innerHeight to
@@ -201,9 +310,12 @@ export function IOSKeyboardFix() {
           // viewport to settle, a fresh cycle is already under way (started
           // by handleFocusIn, which preserved this same preFocusScrollY via
           // resolveCycleStart) — resetting now would wipe the state that
-          // new cycle still needs when it eventually closes.
+          // new cycle still needs when it eventually closes. The recovery
+          // experiment only runs on a genuine close-and-settle, same as the
+          // restore logic above — never mid-cycle.
           if (!hasEditableFocus) {
             resetCycle()
+            attemptViewportRecovery()
           }
           return
         }
@@ -421,6 +533,7 @@ export function IOSKeyboardFix() {
       root.style.removeProperty("--ios-keyboard-offset")
       root.style.removeProperty("--ios-dock-visual-offset-top")
       delete window.__iosScrollRestoreDebug
+      delete window.__iosViewportRecoveryDebug
     }
   }, [])
 

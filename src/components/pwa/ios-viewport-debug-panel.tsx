@@ -26,6 +26,7 @@ import {
   type SafePaintElementInfo,
   type ScrollRestoreDebugSnapshot,
   type SheetElementGeometry,
+  type ViewportRecoveryDebugSnapshot,
 } from "@/lib/ios-debug-snapshot"
 
 /**
@@ -170,6 +171,40 @@ function readChatKeyboardBackdrop(el: Element | null): ChatKeyboardBackdropGeome
   }
 }
 
+// Mirrors Window.__iosViewportRecoveryDebug (declared and written only by
+// ios-keyboard-fix.tsx — see IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-
+// RECOVERY-R7). Same defensive-own-shape pattern as
+// readScrollRestoreDebug above.
+function readViewportRecoveryDebug(): ViewportRecoveryDebugSnapshot | null {
+  const raw = (
+    window as unknown as {
+      __iosViewportRecoveryDebug?: {
+        attempted: boolean
+        experimentEnabled: boolean
+        isStandalone: boolean
+        reason: string | null
+        baselineViewportHeight: number | null
+        heightBeforeAttempt: number | null
+        heightAfterAttempt: number | null
+        recovered: boolean | null
+        decidedAt: number
+      }
+    }
+  ).__iosViewportRecoveryDebug
+  if (!raw) return null
+  return {
+    attempted: raw.attempted,
+    experimentEnabled: raw.experimentEnabled,
+    isStandalone: raw.isStandalone,
+    reason: raw.reason,
+    baselineViewportHeight: raw.baselineViewportHeight,
+    heightBeforeAttempt: raw.heightBeforeAttempt,
+    heightAfterAttempt: raw.heightAfterAttempt,
+    recovered: raw.recovered,
+    decidedAt: raw.decidedAt,
+  }
+}
+
 // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §8-10: safe elementsFromPoint
 // hit-test. Only reads structural/paint properties already whitelisted by
 // SafePaintElementInfo — never innerText/textContent/value/dataset — see
@@ -267,7 +302,13 @@ function captureSnapshot(
   captureLabel: string,
   eventType: string,
   pathname: string | null,
-  includeOcclusionProbes = false
+  includeOcclusionProbes = false,
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: the milestone
+  // tracker's recorded true baseline (see MilestoneTrackerState in
+  // ios-debug-snapshot.ts), threaded through so computeDerivedGeometry can
+  // compute visualViewportHeightDeficit/viewportGeometryRestored. null
+  // until AUTO_BASELINE_STABLE has fired once this session.
+  baselineGeometry: { vvHeight: number | null; vvOffsetTop: number | null } | null = null
 ): GeometrySnapshot {
   const vv = window.visualViewport
   const visualViewport = vv
@@ -321,6 +362,7 @@ function captureSnapshot(
     browserMode: readBrowserMode(),
     scrollRestoreDebug: readScrollRestoreDebug(),
     navOcclusionProbes: includeOcclusionProbes ? readOcclusionProbes(bottomNavEl) : null,
+    viewportRecoveryDebug: readViewportRecoveryDebug(),
     derived: computeDerivedGeometry({
       windowInnerHeight: window.innerHeight,
       visualViewport,
@@ -329,6 +371,7 @@ function captureSnapshot(
       chatSheet,
       chatOverlay,
       chatComposer,
+      baselineGeometry,
     }),
   }
 }
@@ -342,6 +385,12 @@ export function IOSViewportDebugPanel() {
   const [autoCount, setAutoCount] = useState(0)
   const [liveSnapshot, setLiveSnapshot] = useState<GeometrySnapshot | null>(null)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: mirrors
+  // window.__iosViewportRecoveryExperiment purely for the toggle button's
+  // own display — ios-keyboard-fix.tsx reads the window global directly
+  // (never this React state), so this component owning stale state can
+  // never desync the actual experiment behavior.
+  const [viewportRecoveryExperimentOn, setViewportRecoveryExperimentOn] = useState(false)
 
   const eventsBufferRef = useRef(createRingBuffer<GeometrySnapshot>(DEBUG_EVENT_BUFFER_MAX))
   const rafRef = useRef(0)
@@ -399,7 +448,13 @@ export function IOSViewportDebugPanel() {
     if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)
     finalStableTimerRef.current = window.setTimeout(() => {
       finalStableTimerRef.current = 0
-      const snap = captureSnapshot("AUTO_FINAL_STABLE", "auto-milestone", pathname, true)
+      const snap = captureSnapshot(
+        "AUTO_FINAL_STABLE",
+        "auto-milestone",
+        pathname,
+        true,
+        milestoneStateRef.current.baselineGeometry
+      )
       setManualCaptures((prev) => [...prev, snap])
     }, FINAL_STABLE_DELAY_MS)
   }, [pathname])
@@ -419,7 +474,13 @@ export function IOSViewportDebugPanel() {
     postKbTimelineActiveRef.current = true
     let frame = 0
     const step = () => {
-      const snap = captureSnapshot(`POST_KB_F${frame}`, "post-keyboard-timeline", pathname, true)
+      const snap = captureSnapshot(
+        `POST_KB_F${frame}`,
+        "post-keyboard-timeline",
+        pathname,
+        true,
+        milestoneStateRef.current.baselineGeometry
+      )
       pushEvent(snap)
       frame += 1
       if (frame <= POST_KB_TIMELINE_FRAMES) {
@@ -428,7 +489,13 @@ export function IOSViewportDebugPanel() {
         postKbTimelineRafRef.current = 0
         for (const delay of POST_KB_TIMELINE_DELAYS_MS) {
           const timerId = window.setTimeout(() => {
-            const delayedSnap = captureSnapshot(`POST_KB_T${delay}`, "post-keyboard-timeline", pathname, true)
+            const delayedSnap = captureSnapshot(
+              `POST_KB_T${delay}`,
+              "post-keyboard-timeline",
+              pathname,
+              true,
+              milestoneStateRef.current.baselineGeometry
+            )
             pushEvent(delayedSnap)
           }, delay)
           postKbTimelineTimersRef.current.push(timerId)
@@ -472,7 +539,8 @@ export function IOSViewportDebugPanel() {
       `POST_KB_SCROLL_${w.count}_${direction}`,
       "post-keyboard-scroll-watch",
       pathname,
-      true
+      true,
+      milestoneStateRef.current.baselineGeometry
     )
     pushEvent(snap)
     if (w.count >= POST_KB_SCROLL_WATCH_MAX_EVENTS) disarmPostKeyboardScrollWatch()
@@ -503,7 +571,13 @@ export function IOSViewportDebugPanel() {
       }
 
       if (result.fire) {
-        const milestoneSnap = captureSnapshot(result.fire, "auto-milestone", pathname, true)
+        const milestoneSnap = captureSnapshot(
+          result.fire,
+          "auto-milestone",
+          pathname,
+          true,
+          milestoneStateRef.current.baselineGeometry
+        )
         const isKeyboardStableMilestone =
           result.fire === "AUTO_KEYBOARD_OPEN_STABLE" || result.fire === "AUTO_CHAT_KEYBOARD_OPEN_STABLE"
 
@@ -531,7 +605,7 @@ export function IOSViewportDebugPanel() {
       if (rafRef.current) return
       rafRef.current = window.requestAnimationFrame(() => {
         rafRef.current = 0
-        const snap = captureSnapshot("auto", eventType, pathname)
+        const snap = captureSnapshot("auto", eventType, pathname, false, milestoneStateRef.current.baselineGeometry)
         setLiveSnapshot(snap)
         pushEvent(snap)
         feedMilestoneClassifier(snap)
@@ -550,7 +624,13 @@ export function IOSViewportDebugPanel() {
     settlingActiveRef.current = true
     let frame = 0
     const step = () => {
-      const snap = captureSnapshot(`settling-frame-${frame}`, "focusout-settling", pathname, true)
+      const snap = captureSnapshot(
+        `settling-frame-${frame}`,
+        "focusout-settling",
+        pathname,
+        true,
+        milestoneStateRef.current.baselineGeometry
+      )
       pushEvent(snap)
       feedMilestoneClassifier(snap)
       frame += 1
@@ -558,7 +638,13 @@ export function IOSViewportDebugPanel() {
         window.requestAnimationFrame(step)
       } else {
         window.setTimeout(() => {
-          const stableSnap = captureSnapshot("settling-stable", "focusout-settling", pathname, true)
+          const stableSnap = captureSnapshot(
+            "settling-stable",
+            "focusout-settling",
+            pathname,
+            true,
+            milestoneStateRef.current.baselineGeometry
+          )
           pushEvent(stableSnap)
           feedMilestoneClassifier(stableSnap)
           settlingActiveRef.current = false
@@ -627,7 +713,7 @@ export function IOSViewportDebugPanel() {
   }, [enabled, scheduleLiveUpdate, runSettlingCapture, handlePostKeyboardScroll, disarmPostKeyboardScrollWatch])
 
   const handleManualCapture = (label: string) => {
-    const snap = captureSnapshot(label, "manual", pathname, true)
+    const snap = captureSnapshot(label, "manual", pathname, true, milestoneStateRef.current.baselineGeometry)
     setManualCaptures((prev) => [...prev, snap])
     setLiveSnapshot(snap)
   }
@@ -674,6 +760,19 @@ export function IOSViewportDebugPanel() {
     setLiveSnapshot(null)
     openCycleStableSnapRef.current = null
     disarmPostKeyboardScrollWatch()
+  }
+
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §14: a panel toggle,
+  // as the task requests, so the operator can arm the experiment before
+  // focusing an input without a fresh PWA install. Writes directly to the
+  // window global ios-keyboard-fix.tsx reads — this panel never runs the
+  // recovery mechanism itself. Toggling while a keyboard cycle is active
+  // has no effect on the CURRENT cycle (the flag is only read once, at the
+  // moment a real keyboard-close settles) — safe to click any time.
+  const handleToggleViewportRecoveryExperiment = () => {
+    const next = !viewportRecoveryExperimentOn
+    window.__iosViewportRecoveryExperiment = next
+    setViewportRecoveryExperimentOn(next)
   }
 
   if (!mounted || !enabled) return null
@@ -756,6 +855,41 @@ export function IOSViewportDebugPanel() {
                   return classifyProbeOcclusion(probe)
                 })()}
               </span>
+              <span>vv.height deficit</span>
+              <span>{liveSnapshot?.derived.visualViewportHeightDeficit?.toFixed(1) ?? "-"}</span>
+              <span>viewport restored</span>
+              <span>
+                {liveSnapshot?.derived.viewportGeometryRestored === null ||
+                liveSnapshot?.derived.viewportGeometryRestored === undefined
+                  ? "-"
+                  : liveSnapshot.derived.viewportGeometryRestored
+                    ? "YES"
+                    : "NO"}
+              </span>
+              <span>recovery attempt</span>
+              <span>
+                {liveSnapshot?.viewportRecoveryDebug
+                  ? liveSnapshot.viewportRecoveryDebug.attempted
+                    ? liveSnapshot.viewportRecoveryDebug.recovered
+                      ? "OK"
+                      : "TRIED,NO"
+                    : (liveSnapshot.viewportRecoveryDebug.reason ?? "-")
+                  : "-"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1 pt-1 border-t border-white/20">
+              <button
+                type="button"
+                onClick={handleToggleViewportRecoveryExperiment}
+                className={
+                  viewportRecoveryExperimentOn
+                    ? "flex-1 bg-emerald-700 hover:bg-emerald-600 rounded px-2 py-1"
+                    : "flex-1 bg-white/10 hover:bg-white/20 rounded px-2 py-1"
+                }
+              >
+                viewport recovery experiment: {viewportRecoveryExperimentOn ? "ON" : "OFF"}
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/20">

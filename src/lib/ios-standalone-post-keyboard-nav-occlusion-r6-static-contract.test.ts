@@ -258,8 +258,12 @@ describe("6. Timeline acotado post-teclado (§15) — contrato estático del pan
       /const runPostKeyboardTimeline[\s\S]{0,1200}?\}, \[pathname, pushEvent\]\)/
     )
     expect(timelineBlock).not.toBeNull()
-    expect(timelineBlock![0]).toMatch(/POST_KB_F\$\{frame\}.*true\)/)
-    expect(timelineBlock![0]).toMatch(/POST_KB_T\$\{delay\}.*true\)/)
+    // R7 added a 5th captureSnapshot argument (baselineGeometry), so the
+    // call now spans multiple lines — match across newlines and only
+    // require `true` to appear before the call closes, not immediately
+    // adjacent to the closing paren.
+    expect(timelineBlock![0]).toMatch(/POST_KB_F\$\{frame\}[\s\S]*?true[\s\S]*?\)/)
+    expect(timelineBlock![0]).toMatch(/POST_KB_T\$\{delay\}[\s\S]*?true[\s\S]*?\)/)
   })
 
   test("se cancela por completo en el cleanup del efecto (rAF + todos los timers pendientes)", () => {

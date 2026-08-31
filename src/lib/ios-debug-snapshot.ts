@@ -105,6 +105,24 @@ export interface ChatKeyboardBackdropGeometry {
   parentZIndex: string
 }
 
+// IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: read-only mirror
+// of Window.__iosViewportRecoveryDebug (declared and written by
+// ios-keyboard-fix.tsx — see that file for the single write site, right
+// after the opt-in recovery experiment's decision is made). Purely
+// numeric heights/booleans and a fixed reason-string enum, never an input
+// value or message.
+export interface ViewportRecoveryDebugSnapshot {
+  attempted: boolean
+  experimentEnabled: boolean
+  isStandalone: boolean
+  reason: string | null
+  baselineViewportHeight: number | null
+  heightBeforeAttempt: number | null
+  heightAfterAttempt: number | null
+  recovered: boolean | null
+  decidedAt: number
+}
+
 export interface BrowserModeInfo {
   standalone: boolean
   displayModeStandalone: boolean
@@ -184,6 +202,16 @@ export interface DerivedGeometry {
   fabPhysicalOverflowBottom: number | null
   navPhysicalFullyVisible: boolean | null
   fabPhysicalFullyVisible: boolean | null
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: distinct from
+  // every navBottomDistance/navPhysical* field above, which describe the
+  // DOCK's position — these describe the VIEWPORT ITSELF. R6's complete
+  // real JSON proved a capture can be "temporally stable" (offsetTop
+  // settled at 0, geometry unchanging for the full bounded settling
+  // window) while visualViewportHeightDeficit stays 68px indefinitely —
+  // "stable" and "restored" are deliberately kept as two different
+  // concepts here, never conflated into one boolean.
+  visualViewportHeightDeficit: number | null
+  viewportGeometryRestored: boolean | null
 }
 
 // IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only mirror of
@@ -225,6 +253,11 @@ export interface GeometrySnapshot {
   // never competes with the very scroll/compositor behavior under
   // investigation) or BottomNav itself wasn't found in the DOM.
   navOcclusionProbes: OcclusionProbeResult[] | null
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: null whenever the
+  // opt-in recovery experiment has never fired yet this session (flag off,
+  // no keyboard-close settle happened, etc.) — see
+  // Window.__iosViewportRecoveryDebug in ios-keyboard-fix.tsx.
+  viewportRecoveryDebug: ViewportRecoveryDebugSnapshot | null
 }
 
 export interface DebugExportPayload {
@@ -262,6 +295,15 @@ export interface DebugExportPayload {
 // old behavior for browsers without the API. Still returns null
 // field-by-field when the corresponding element is absent — never
 // fabricates a value for a missing element.
+// IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: tolerance for deciding
+// visualViewportHeightDeficit/offsetTop are close enough to the recorded
+// baseline to call the viewport genuinely "restored" — matches
+// VIEWPORT_RECOVERY_HEIGHT_TOLERANCE_PX in ios-viewport-recovery-decision.ts
+// (kept as a separate constant here rather than importing it, the same way
+// this file already keeps its own numeric constants independent of
+// ios-keyboard-fix.tsx's — this module has no dependency on that one).
+export const VIEWPORT_GEOMETRY_RESTORED_TOLERANCE_PX = 4
+
 export function computeDerivedGeometry(input: {
   windowInnerHeight: number
   visualViewport: VisualViewportGeometry | null
@@ -270,9 +312,26 @@ export function computeDerivedGeometry(input: {
   chatSheet: SheetElementGeometry | null
   chatOverlay: OverlayElementGeometry | null
   chatComposer: ComposerElementGeometry | null
+  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: the recorded
+  // "true baseline" geometry (vv.height/offsetTop from the FIRST stable
+  // closed-keyboard observation this session — the same value the
+  // milestone tracker in ios-viewport-debug-panel.tsx already records as
+  // MilestoneTrackerState.baselineGeometry). Optional/null when no
+  // baseline has been recorded yet (e.g. before AUTO_BASELINE_STABLE ever
+  // fires) — visualViewportHeightDeficit/viewportGeometryRestored then
+  // correctly return null rather than fabricating a comparison.
+  baselineGeometry?: { vvHeight: number | null; vvOffsetTop: number | null } | null
 }): DerivedGeometry {
-  const { windowInnerHeight, visualViewport, bottomNav, chatFab, chatSheet, chatOverlay, chatComposer } =
-    input
+  const {
+    windowInnerHeight,
+    visualViewport,
+    bottomNav,
+    chatFab,
+    chatSheet,
+    chatOverlay,
+    chatComposer,
+    baselineGeometry,
+  } = input
 
   const fixedViewportBottom = windowInnerHeight - (visualViewport?.offsetTop ?? 0)
 
@@ -309,6 +368,23 @@ export function computeDerivedGeometry(input: {
   const navPhysicalFullyVisible = navPhysicalOverflowBottom !== null ? navPhysicalOverflowBottom <= 1 : null
   const fabPhysicalFullyVisible = fabPhysicalOverflowBottom !== null ? fabPhysicalOverflowBottom <= 1 : null
 
+  const baselineHeight = baselineGeometry?.vvHeight ?? null
+  const currentHeight = visualViewport?.height ?? null
+  const visualViewportHeightDeficit =
+    baselineHeight !== null && currentHeight !== null ? baselineHeight - currentHeight : null
+  const baselineOffsetTop = baselineGeometry?.vvOffsetTop ?? null
+  const currentOffsetTop = visualViewport?.offsetTop ?? null
+  const heightRestored =
+    visualViewportHeightDeficit !== null
+      ? Math.abs(visualViewportHeightDeficit) <= VIEWPORT_GEOMETRY_RESTORED_TOLERANCE_PX
+      : null
+  const offsetRestored =
+    baselineOffsetTop !== null && currentOffsetTop !== null
+      ? Math.abs(baselineOffsetTop - currentOffsetTop) <= VIEWPORT_GEOMETRY_RESTORED_TOLERANCE_PX
+      : null
+  const viewportGeometryRestored =
+    heightRestored === null || offsetRestored === null ? null : heightRestored && offsetRestored
+
   return {
     fixedViewportBottom,
     navBottomDistance,
@@ -325,6 +401,8 @@ export function computeDerivedGeometry(input: {
     fabPhysicalOverflowBottom,
     navPhysicalFullyVisible,
     fabPhysicalFullyVisible,
+    visualViewportHeightDeficit,
+    viewportGeometryRestored,
   }
 }
 
@@ -702,6 +780,19 @@ export const GEOMETRY_SNAPSHOT_ALLOWED_KEYS = [
   "derived",
   "scrollRestoreDebug",
   "navOcclusionProbes",
+  "viewportRecoveryDebug",
+].sort()
+
+export const VIEWPORT_RECOVERY_DEBUG_ALLOWED_KEYS = [
+  "attempted",
+  "experimentEnabled",
+  "isStandalone",
+  "reason",
+  "baselineViewportHeight",
+  "heightBeforeAttempt",
+  "heightAfterAttempt",
+  "recovered",
+  "decidedAt",
 ].sort()
 
 export const SCROLL_RESTORE_DEBUG_ALLOWED_KEYS = [
@@ -755,4 +846,6 @@ export const DERIVED_GEOMETRY_ALLOWED_KEYS = [
   "fabPhysicalOverflowBottom",
   "navPhysicalFullyVisible",
   "fabPhysicalFullyVisible",
+  "visualViewportHeightDeficit",
+  "viewportGeometryRestored",
 ].sort()
