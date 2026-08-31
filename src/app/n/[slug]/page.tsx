@@ -47,6 +47,7 @@ import { cn, formatPrice } from "@/lib/utils"
 import { formatOptionalPriceDelta, type OwnSectionOption } from "@/lib/product-own-sections"
 import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSecciones, generateCartItemKey } from "@/store/cart-store"
 import { CartPanel } from "@/components/cart/cart-panel"
+import { ProductImageGallery } from "@/components/client/product-image-gallery"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
 import { MesaSelectorSheet } from "@/components/business/mesa-selector-sheet"
 import { MesaClienteCuentaPanel } from "@/components/shared/mesa-cliente-cuenta-panel"
@@ -1869,7 +1870,6 @@ function ProductDetailSheet({
   const [selectedTalle, setSelectedTalle] = useState("")
   const [selectedColor, setSelectedColor] = useState("")
   const [notas, setNotas] = useState("")
-  const [activeImageIdx, setActiveImageIdx] = useState(0)
   const [selectedOpcionesCompartidas, setSelectedOpcionesCompartidas] = useState<Map<string, CartItemAgregado>>(new Map())
 
   // Resolve shared options from product's opcionesCompartidasIds against negocio's opcionesCompartidas
@@ -2143,58 +2143,14 @@ function ProductDetailSheet({
           nombre/precio/opciones fuera de la vista inicial. */}
       <div className="shrink-0">
         <div className="relative bg-muted/30 w-full h-[clamp(200px,38dvh,420px)]">
-          {isRopa && product.imagenesExtra && product.imagenesExtra.length > 0 ? (
-            // Ropa: image gallery with thumbnails
-            <div className="relative w-full h-full">
-              <img
-                src={activeImageIdx === 0 ? (product.imagenUrl || "") : product.imagenesExtra[activeImageIdx - 1]}
-                alt={product.nombre}
-                className="w-full h-full object-contain object-center"
-              />
-              {product.descuentoLabel && (
-                <Badge className="absolute top-3 left-3 bg-red-500 text-white border-0 text-sm font-bold px-3 py-1 shadow-lg">
-                  {product.descuentoLabel}
-                </Badge>
-              )}
-              {/* Image dots */}
-              {((product.imagenUrl ? 1 : 0) + (product.imagenesExtra || []).length) > 1 && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {[product.imagenUrl, ...(product.imagenesExtra || [])].filter(Boolean).map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setActiveImageIdx(idx)}
-                      className={cn(
-                        "w-2 h-2 rounded-full transition-all",
-                        idx === activeImageIdx ? "bg-white w-5" : "bg-white/50"
-                      )}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : product.imagenUrl ? (
-            <img
-              src={product.imagenUrl}
-              alt={product.nombre}
-              className="w-full h-full object-contain object-center"
-            />
-          ) : (
-            <div
-              className="w-full h-full flex items-center justify-center"
-              style={{
-                background: `linear-gradient(135deg, ${negocio.colorPrincipal}25, ${negocio.colorPrincipal}10)`,
-              }}
-            >
-              <span className="text-6xl opacity-20">
-                {negocio.rubro === "restaurante" ? "🍽️" : negocio.rubro === "ropa" ? "👕" : "🛒"}
-              </span>
-            </div>
-          )}
-          {!isRopa && product.descuentoLabel && (
-            <Badge className="absolute top-3 left-3 bg-red-500 text-white border-0 text-sm font-bold px-3 py-1 shadow-lg">
-              {product.descuentoLabel}
-            </Badge>
-          )}
+          <ProductImageGallery
+            key={`${product.id}:${product.imagenUrl ?? ""}:${product.imagenesExtra.join("\u0000")}`}
+            mainImage={product.imagenUrl}
+            extraImages={product.imagenesExtra}
+            alt={product.nombre}
+            placeholder={negocio.rubro === "restaurante" ? "🍽️" : negocio.rubro === "ropa" ? "👕" : "🛒"}
+            discountLabel={product.descuentoLabel}
+          />
         </div>
       </div>
 

@@ -23,6 +23,7 @@ function read(relPath: string): string {
 }
 
 const PAGE_PATH = "src/app/n/[slug]/page.tsx"
+const GALLERY_PATH = "src/components/client/product-image-gallery.tsx"
 
 function stripJsxComments(code: string): string {
   return code.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
@@ -46,17 +47,13 @@ describe("PRODUCT_IMAGE_VIEWPORT — altura acotada por viewport, nunca por aspe
     expect(block).toMatch(/h-\[clamp\([^)]*dvh[^)]*\)\]/)
   })
 
-  test("B: ambas variantes de <img> (galería de ropa y single) usan object-contain, no object-cover", () => {
-    const block = imageBlock(read(PAGE_PATH))
-    const imgTags = block.match(/<img\b[^>]*>/g) ?? []
-    expect(imgTags.length).toBe(2) // galería (ropa) + imagen única
-    for (const tag of imgTags) {
-      expect(tag).toContain("object-contain")
-      expect(tag).not.toContain("object-cover")
-    }
-    // El placeholder "sin imagen" (ícono decorativo) no es una <img> real —
-    // no debe forzarse a object-contain, sigue centrado como antes.
-    expect(block).toContain("flex items-center justify-center")
+  test("B: el componente compartido de galería usa object-contain y nunca recorta la imagen", () => {
+    const gallery = read(GALLERY_PATH)
+    const imgTags = gallery.match(/<img\b[^>]*>/g) ?? []
+    expect(imgTags.length).toBe(1)
+    expect(imgTags[0]).toContain("object-contain")
+    expect(imgTags[0]).not.toContain("object-cover")
+    expect(gallery).toContain("flex items-center justify-center")
   })
 
   test("las cards de la grilla (ProductCard) NO fueron tocadas — siguen usando su propio aspect-ratio + object-cover", () => {
@@ -66,10 +63,12 @@ describe("PRODUCT_IMAGE_VIEWPORT — altura acotada por viewport, nunca por aspe
     expect(src).toContain("aspect-[4/3] sm:aspect-square bg-muted/30 overflow-hidden")
   })
 
-  test("los badges de descuento siguen posicionados absolute dentro del mismo wrapper relative del media viewport", () => {
-    const block = imageBlock(read(PAGE_PATH))
-    const occurrences = (block.match(/absolute top-3 left-3 bg-red-500/g) ?? []).length
-    expect(occurrences).toBe(2) // variante ropa + variante no-ropa
+  test("el badge de descuento sigue dentro del componente visual y recibe el dato del detalle", () => {
+    const page = read(PAGE_PATH)
+    const gallery = read(GALLERY_PATH)
+    expect(page).toContain("discountLabel={product.descuentoLabel}")
+    expect(gallery).toContain("discountLabel &&")
+    expect(gallery).toContain("absolute top-3 left-3")
   })
 })
 
