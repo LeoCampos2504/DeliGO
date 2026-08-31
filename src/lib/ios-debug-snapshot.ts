@@ -83,6 +83,28 @@ export interface ComposerElementGeometry {
   computedTransform: string
 }
 
+// IOS-STANDALONE-FINAL-VISUAL-FIX-R4 §14: geometry-only diagnostic hook for
+// the keyboard-region backdrop filler, so the final real-device JSON can
+// prove (not just assert) that it now reaches the true physical bottom and
+// is no longer clipped by a `overflow-hidden` ancestor. `parent*` fields
+// describe its actual DOM parent (document.body after this fix) — a
+// visible/non-hidden overflow there is itself evidence the R3 clipping
+// cause no longer applies.
+export interface ChatKeyboardBackdropGeometry {
+  rect: RectGeometry
+  computedPosition: string
+  computedTop: string
+  computedBottom: string
+  computedHeight: string
+  computedVisibility: string
+  computedBackgroundColor: string
+  computedZIndex: string
+  computedPointerEvents: string
+  parentOverflow: string
+  parentOverflowY: string
+  parentZIndex: string
+}
+
 export interface BrowserModeInfo {
   standalone: boolean
   displayModeStandalone: boolean
@@ -130,6 +152,7 @@ export interface GeometrySnapshot {
   chatOverlay: OverlayElementGeometry | null
   chatSheet: SheetElementGeometry | null
   chatComposer: ComposerElementGeometry | null
+  chatKeyboardBackdrop: ChatKeyboardBackdropGeometry | null
   browserMode: BrowserModeInfo
   derived: DerivedGeometry
   scrollRestoreDebug: ScrollRestoreDebugSnapshot | null
@@ -467,6 +490,7 @@ export const GEOMETRY_SNAPSHOT_ALLOWED_KEYS = [
   "chatOverlay",
   "chatSheet",
   "chatComposer",
+  "chatKeyboardBackdrop",
   "browserMode",
   "derived",
   "scrollRestoreDebug",
@@ -479,6 +503,21 @@ export const SCROLL_RESTORE_DEBUG_ALLOWED_KEYS = [
   "restoreReason",
   "restoreTargetScrollY",
   "decidedAt",
+].sort()
+
+export const CHAT_KEYBOARD_BACKDROP_ALLOWED_KEYS = [
+  "rect",
+  "computedPosition",
+  "computedTop",
+  "computedBottom",
+  "computedHeight",
+  "computedVisibility",
+  "computedBackgroundColor",
+  "computedZIndex",
+  "computedPointerEvents",
+  "parentOverflow",
+  "parentOverflowY",
+  "parentZIndex",
 ].sort()
 
 export const DOCK_ELEMENT_ALLOWED_KEYS = [

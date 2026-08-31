@@ -277,7 +277,33 @@ export function IOSKeyboardFix() {
       scheduleUpdate()
     }
 
+    // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: a real standalone-PWA capture
+    // proved --visual-viewport-offset-top (updated only inside
+    // updateViewportState, which scheduleUpdate defers by one
+    // requestAnimationFrame) can lag the *actual*, current
+    // visualViewport.offsetTop by a full frame or more during a fast
+    // scroll fling — several native `scroll` events can fire before that
+    // rAF callback runs. The standalone dock compensation (globals.css)
+    // subtracts this value from BottomNav/ChatFab's `bottom`, so a stale
+    // value briefly renders the dock at the wrong physical position —
+    // real numbers observed: offsetTop=41.34 while the CSS was still
+    // compensating for a stale ~66px, leaving the dock only ~17px (then,
+    // one event later, ~0.66px) from the true bottom edge — a visible
+    // partial disappearance. --ios-dock-visual-offset-top is a SEPARATE,
+    // synchronously-updated variable dedicated to that compensation only
+    // — written directly here, in the native event handler itself,
+    // before scheduleUpdate's rAF hop, so it can never be more than one
+    // real browser event behind. The general keyboard-detection pipeline
+    // (CSS classes, --ios-keyboard-offset, the stabilization wait) keeps
+    // its existing rAF/stabilization semantics unchanged — those exist
+    // for good reasons (avoiding class-toggle flicker, racing the restore
+    // logic) that don't apply to this single, idempotent style write.
+    const updateDockVisualOffsetSync = () => {
+      root.style.setProperty("--ios-dock-visual-offset-top", `${vv?.offsetTop ?? 0}px`)
+    }
+
     const handleViewportChange = () => {
+      updateDockVisualOffsetSync()
       hasEditableFocus = isEditableTarget(document.activeElement)
       scheduleUpdate()
     }
@@ -305,6 +331,7 @@ export function IOSKeyboardFix() {
     // Initial state
     setKeyboardClasses(false)
     updateViewportState()
+    updateDockVisualOffsetSync()
 
     // Event listeners
     document.addEventListener("focusin", handleFocusIn)
@@ -341,6 +368,7 @@ export function IOSKeyboardFix() {
       root.style.removeProperty("--visual-viewport-width")
       root.style.removeProperty("--visual-viewport-offset-top")
       root.style.removeProperty("--ios-keyboard-offset")
+      root.style.removeProperty("--ios-dock-visual-offset-top")
       delete window.__iosScrollRestoreDebug
     }
   }, [])

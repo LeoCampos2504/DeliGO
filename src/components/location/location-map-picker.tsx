@@ -280,7 +280,7 @@ export function LocationMapPicker({
   return (
     <div className="space-y-3">
       {/* ===== MAP ===== */}
-      <div className="relative rounded-2xl overflow-hidden border border-border/50">
+      <div className="relative isolate rounded-2xl overflow-hidden border border-border/50">
         <div
           ref={mapContainerRef}
           className="w-full h-[280px] sm:h-[320px] md:h-[360px] bg-muted/30"

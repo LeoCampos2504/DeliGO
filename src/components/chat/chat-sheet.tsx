@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from "react"
+import { createPortal } from "react-dom"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
@@ -376,19 +377,40 @@ export function ChatSheet() {
 
   if (!user || user.type === "repartidor") return null
 
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: the keyboard-region backdrop filler
+  // used to be the first child of SheetContent (R3), but real standalone
+  // device evidence proved it never painted past y≈394 out of a 797px
+  // screen — SheetContent has `overflow-hidden`, and CSS overflow clipping
+  // applies to the paint/clip tree regardless of a descendant's own
+  // `position:fixed`, so the filler was clipped to the exact same shifted
+  // boundary as the content it was meant to extend past. Portaled directly
+  // to document.body instead — a sibling of Radix's own Sheet portal tree,
+  // not a descendant of the clipping SheetContent — same pattern BottomNav
+  // already uses for the same category of reason. Its own CSS rule in
+  // globals.css (.ios-chat-keyboard-backdrop) is unchanged: still a no-op
+  // (0 height) whenever there's no residual visual-viewport offset, still
+  // only mounted while the Sheet itself is open.
+  const keyboardBackdrop =
+    isSheetOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="ios-chat-keyboard-backdrop"
+            aria-hidden="true"
+            data-ios-debug-role="chat-keyboard-backdrop"
+          />,
+          document.body
+        )
+      : null
+
   return (
-    <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
-        data-ios-debug-role="chat-sheet"
-      >
-        {/* IOS-STANDALONE-REAL-DEVICE-FIX-R3: non-interactive background
-            filler for the keyboard-region gap on iOS — see its own rule in
-            globals.css (.ios-chat-keyboard-backdrop) for the full math.
-            Zero height/no-op outside iOS or whenever the residual visual
-            viewport offset is 0; only exists while this Sheet is mounted. */}
-        <div className="ios-chat-keyboard-backdrop" aria-hidden="true" />
+    <>
+      {keyboardBackdrop}
+      <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
+          data-ios-debug-role="chat-sheet"
+        >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>
         {activePedidoId ? (
@@ -443,8 +465,9 @@ export function ChatSheet() {
             <ConversationList />
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }
 

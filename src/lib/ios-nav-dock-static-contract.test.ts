@@ -111,10 +111,22 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(source).not.toMatch(/createPortal|bottom-nav/)
   })
 
-  test("K. Chat (chat-sheet/chat-view/sheet.tsx) no fue modificado por este fix", () => {
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: chat-sheet.tsx ahora usa
+  // createPortal deliberadamente (el filler de fondo del teclado se porta
+  // a document.body para escapar del overflow-hidden de SheetContent — ver
+  // ios-standalone-final-visual-fix-r4-static-contract.test.ts) — una
+  // excepción acotada y justificada, no una reintroducción del acoplamiento
+  // que este test protegía originalmente. Nunca debe referenciar
+  // literalmente "bottom-nav", y chat-view.tsx/sheet.tsx (nunca tocados por
+  // ninguna de las dos tareas) siguen prohibiendo ambos por completo.
+  test("K. Chat no referencia bottom-nav; chat-view.tsx y sheet.tsx tampoco usan createPortal (sólo chat-sheet.tsx, por el filler del teclado)", () => {
     for (const file of [CHAT_SHEET, CHAT_VIEW, UI_SHEET]) {
       const source = readFileSync(file, "utf-8")
-      expect(source).not.toMatch(/bottom-nav|createPortal/)
+      expect(source).not.toMatch(/bottom-nav/)
+    }
+    for (const file of [CHAT_VIEW, UI_SHEET]) {
+      const source = readFileSync(file, "utf-8")
+      expect(source).not.toMatch(/createPortal/)
     }
   })
 
@@ -184,7 +196,14 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(blocksSettingBottom[1]).toContain("body.ios-device .ios-bottom-nav")
   })
 
-  test("R2. la regla de compensación de standalone está dentro de @media (display-mode: standalone) y resta --visual-viewport-offset-top sobre la MISMA fórmula base (nunca una fórmula independiente)", () => {
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: la variable cambió de
+  // --visual-viewport-offset-top (compartida, actualizada dentro del rAF
+  // de updateViewportState — probado que puede quedar hasta un frame
+  // atrasada durante un scroll rápido) a --ios-dock-visual-offset-top
+  // (dedicada, escrita sincrónicamente en el propio handler del evento
+  // nativo de visualViewport — ver ios-keyboard-fix.tsx). La fórmula base
+  // y el resto de la invariante no cambian.
+  test("R2. la regla de compensación de standalone está dentro de @media (display-mode: standalone) y resta --ios-dock-visual-offset-top (sincrónica) sobre la MISMA fórmula base (nunca una fórmula independiente)", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8").replace(/\r\n/g, "\n")
     const mediaStart = css.indexOf("@media (display-mode: standalone)")
     expect(mediaStart).toBeGreaterThan(-1)
@@ -206,7 +225,7 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(closeIdx).toBeGreaterThan(openBraceIdx)
     const mediaBlock = css.slice(mediaStart, closeIdx)
     expect(mediaBlock).toContain(".ios-bottom-nav")
-    expect(mediaBlock).toMatch(/env\(safe-area-max-inset-bottom,\s*34px\)\s*\+\s*8px\s*-\s*var\(--visual-viewport-offset-top,\s*0px\)/)
+    expect(mediaBlock).toMatch(/env\(safe-area-max-inset-bottom,\s*34px\)\s*\+\s*8px\s*-\s*var\(--ios-dock-visual-offset-top,\s*0px\)/)
     expect(mediaBlock).toContain(".ios-chat-fab")
   })
 

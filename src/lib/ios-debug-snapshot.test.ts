@@ -10,6 +10,7 @@ import {
   createInitialMilestoneTrackerState,
   createRingBuffer,
   DEBUG_EVENT_BUFFER_MAX,
+  CHAT_KEYBOARD_BACKDROP_ALLOWED_KEYS,
   DERIVED_GEOMETRY_ALLOWED_KEYS,
   DOCK_ELEMENT_ALLOWED_KEYS,
   GEOMETRY_SNAPSHOT_ALLOWED_KEYS,
@@ -379,6 +380,7 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
       chatOverlay: null,
       chatSheet: null,
       chatComposer: null,
+      chatKeyboardBackdrop: null,
       browserMode,
       derived: {
         fixedViewportBottom: 800,
@@ -413,6 +415,24 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
       decidedAt: 1,
     }
     expect(Object.keys(snap).sort()).toEqual(SCROLL_RESTORE_DEBUG_ALLOWED_KEYS)
+  })
+
+  test("a ChatKeyboardBackdropGeometry has exactly the documented keys — geometry/computed-style only, no text/input fields", () => {
+    const snap = {
+      rect: rect(797),
+      computedPosition: "fixed",
+      computedTop: "auto",
+      computedBottom: "-403px",
+      computedHeight: "403px",
+      computedVisibility: "visible",
+      computedBackgroundColor: "rgb(250, 250, 250)",
+      computedZIndex: "45",
+      computedPointerEvents: "none",
+      parentOverflow: "visible",
+      parentOverflowY: "visible",
+      parentZIndex: "auto",
+    }
+    expect(Object.keys(snap).sort()).toEqual(CHAT_KEYBOARD_BACKDROP_ALLOWED_KEYS)
   })
 
   test("a dock element geometry has exactly the documented keys (rect + a fixed whitelist of computed styles) — no input/text fields", () => {

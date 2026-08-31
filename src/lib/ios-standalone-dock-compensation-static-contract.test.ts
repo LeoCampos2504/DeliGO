@@ -122,21 +122,28 @@ describe("IOS-STANDALONE-REAL-DEVICE-FIX-R3 — aritmética de compensación del
 })
 
 describe("IOS-STANDALONE-REAL-DEVICE-FIX-R3 — texto de la regla real en globals.css", () => {
-  test("la compensación del nav está en @media (display-mode: standalone) y resta --visual-viewport-offset-top de la MISMA fórmula base", () => {
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4 renombró la variable de compensación
+  // del DOCK de --visual-viewport-offset-top (compartida, actualizada con
+  // hasta un frame de atraso) a --ios-dock-visual-offset-top (dedicada,
+  // sincrónica) — ver ios-standalone-final-visual-fix-r4-static-contract.test.ts
+  // para el contrato completo de la nueva variable. El filler de fondo del
+  // Chat, más abajo, sigue usando la variable compartida original — su
+  // problema era clipping (posición en el DOM), no timing.
+  test("la compensación del nav está en @media (display-mode: standalone) y resta --ios-dock-visual-offset-top de la MISMA fórmula base", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     expect(css).toMatch(
-      /@media \(display-mode: standalone\) \{[\s\S]*?body\.ios-device \.ios-bottom-nav \{\s*bottom: calc\(env\(safe-area-max-inset-bottom, 34px\) \+ 8px - var\(--visual-viewport-offset-top, 0px\)\);/
+      /@media \(display-mode: standalone\) \{[\s\S]*?body\.ios-device \.ios-bottom-nav \{\s*bottom: calc\(env\(safe-area-max-inset-bottom, 34px\) \+ 8px - var\(--ios-dock-visual-offset-top, 0px\)\);/
     )
   })
 
-  test("la compensación del FAB está en el mismo bloque @media y resta --visual-viewport-offset-top sobre las mismas 4 variables compartidas", () => {
+  test("la compensación del FAB está en el mismo bloque @media y resta --ios-dock-visual-offset-top sobre las mismas 4 variables compartidas", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     expect(css).toMatch(
-      /@media \(display-mode: standalone\) \{[\s\S]*?body\.ios-device \.ios-chat-fab \{[\s\S]*?var\(--ios-bottom-safe-footprint\)[\s\S]*?var\(--ios-bottom-dock-gap\)[\s\S]*?var\(--ios-bottom-nav-height\)[\s\S]*?var\(--ios-chat-fab-gap-above-nav\)[\s\S]*?-\s*var\(--visual-viewport-offset-top, 0px\)/
+      /@media \(display-mode: standalone\) \{[\s\S]*?body\.ios-device \.ios-chat-fab \{[\s\S]*?var\(--ios-bottom-safe-footprint\)[\s\S]*?var\(--ios-bottom-dock-gap\)[\s\S]*?var\(--ios-bottom-nav-height\)[\s\S]*?var\(--ios-chat-fab-gap-above-nav\)[\s\S]*?-\s*var\(--ios-dock-visual-offset-top, 0px\)/
     )
   })
 
-  test("--visual-viewport-offset-top reutilizado es exactamente el que ya publica IOSKeyboardFix (no un listener nuevo)", () => {
+  test("--visual-viewport-offset-top sigue publicada por IOSKeyboardFix (el filler de Chat todavía la usa — su fix fue de posición en el DOM, no de timing)", () => {
     const keyboardFix = readFileSync(
       join(process.cwd(), "src", "components", "pwa", "ios-keyboard-fix.tsx"),
       "utf-8"
@@ -166,10 +173,18 @@ describe("IOS-STANDALONE-REAL-DEVICE-FIX-R3 — texto de la regla real en global
 })
 
 describe("IOS-STANDALONE-REAL-DEVICE-FIX-R3 — Chat keyboard-region background coverage", () => {
-  test("el filler existe sólo dentro de ChatSheet (no un layer global permanente)", () => {
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: el filler dejó de ser hijo de
+  // SheetContent (real device probó que overflow-hidden lo recortaba) y
+  // ahora se porta directo a document.body, gateado por isSheetOpen — ver
+  // ios-standalone-final-visual-fix-r4-static-contract.test.ts para el
+  // contrato completo de esa reubicación. Este test sólo confirma que
+  // sigue existiendo únicamente mientras el Chat está abierto (no un layer
+  // permanente).
+  test("el filler sigue existiendo sólo mientras el Chat está abierto (no un layer global permanente)", () => {
     const source = readFileSync(CHAT_SHEET, "utf-8")
     expect(source).toContain('className="ios-chat-keyboard-backdrop"')
     expect(source).toContain('aria-hidden="true"')
+    expect(source).toMatch(/isSheetOpen\s*&&[\s\S]{0,80}createPortal/)
   })
 
   test("la regla CSS del filler es pointer-events:none, sin transform, y su bottom/height dependen SOLO de --visual-viewport-offset-top (0 cuando no hay residual)", () => {

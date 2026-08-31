@@ -13,6 +13,7 @@ import {
   DEBUG_EVENT_BUFFER_MAX,
   isIosDebugFlagEnabled,
   type BrowserModeInfo,
+  type ChatKeyboardBackdropGeometry,
   type ComposerElementGeometry,
   type DockElementGeometry,
   type GeometrySnapshot,
@@ -126,6 +127,27 @@ function readComposerElement(el: Element | null): ComposerElementGeometry | null
   }
 }
 
+function readChatKeyboardBackdrop(el: Element | null): ChatKeyboardBackdropGeometry | null {
+  if (!el) return null
+  const cs = window.getComputedStyle(el)
+  const parent = el.parentElement
+  const parentCs = parent ? window.getComputedStyle(parent) : null
+  return {
+    rect: readRect(el),
+    computedPosition: cs.position,
+    computedTop: cs.top,
+    computedBottom: cs.bottom,
+    computedHeight: cs.height,
+    computedVisibility: cs.visibility,
+    computedBackgroundColor: cs.backgroundColor,
+    computedZIndex: cs.zIndex,
+    computedPointerEvents: cs.pointerEvents,
+    parentOverflow: parentCs?.overflow ?? "",
+    parentOverflowY: parentCs?.overflowY ?? "",
+    parentZIndex: parentCs?.zIndex ?? "",
+  }
+}
+
 function readBrowserMode(): BrowserModeInfo {
   const nav = window.navigator as Navigator & { standalone?: boolean }
   return {
@@ -175,6 +197,9 @@ function captureSnapshot(captureLabel: string, eventType: string, pathname: stri
   const chatOverlay = readOverlayElement(document.querySelector('[data-slot="sheet-overlay"]'))
   const chatSheet = readSheetElement(document.querySelector('[data-ios-debug-role="chat-sheet"]'))
   const chatComposer = readComposerElement(document.querySelector('[data-ios-debug-role="chat-composer"]'))
+  const chatKeyboardBackdrop = readChatKeyboardBackdrop(
+    document.querySelector('[data-ios-debug-role="chat-keyboard-backdrop"]')
+  )
 
   const bodyStyle = window.getComputedStyle(document.body)
 
@@ -209,6 +234,7 @@ function captureSnapshot(captureLabel: string, eventType: string, pathname: stri
     chatOverlay,
     chatSheet,
     chatComposer,
+    chatKeyboardBackdrop,
     browserMode: readBrowserMode(),
     scrollRestoreDebug: readScrollRestoreDebug(),
     derived: computeDerivedGeometry({
@@ -239,6 +265,17 @@ export function IOSViewportDebugPanel() {
   const settlingActiveRef = useRef(false)
   const milestoneStateRef = useRef(createInitialMilestoneTrackerState())
   const finalStableTimerRef = useRef(0)
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4 §19: a real capture showed
+  // AUTO_KEYBOARD_OPEN_STABLE/AUTO_CHAT_KEYBOARD_OPEN_STABLE can
+  // legitimately re-stabilize more than once within the SAME still-open
+  // cycle (a slow multi-stage WebKit transition can pass through more than
+  // one distinct "stable for 2 ticks" geometry before truly settling) —
+  // each re-fire REPLACES the previous entry for this cycle instead of
+  // appending another one, so the exported JSON keeps exactly one
+  // authoritative settled milestone per cycle, always the LAST (most
+  // settled) one, never an early intermediate state. Reset to null on
+  // AUTO_AFTER_KEYBOARD_CLOSE (cycle ended — the next open starts fresh).
+  const openCycleStableSnapRef = useRef<GeometrySnapshot | null>(null)
 
   // Same SSR-safe "mounted" gate BottomNav uses — server and first client
   // render both render nothing, avoiding a hydration mismatch. The debug
@@ -298,8 +335,21 @@ export function IOSViewportDebugPanel() {
 
       if (result.fire) {
         const milestoneSnap = captureSnapshot(result.fire, "auto-milestone", pathname)
-        setManualCaptures((prev) => [...prev, milestoneSnap])
-        if (result.fire === "AUTO_AFTER_KEYBOARD_CLOSE") armFinalStable()
+        const isKeyboardStableMilestone =
+          result.fire === "AUTO_KEYBOARD_OPEN_STABLE" || result.fire === "AUTO_CHAT_KEYBOARD_OPEN_STABLE"
+
+        if (isKeyboardStableMilestone && openCycleStableSnapRef.current) {
+          const supersededSnap = openCycleStableSnapRef.current
+          setManualCaptures((prev) => prev.map((s) => (s === supersededSnap ? milestoneSnap : s)))
+        } else {
+          setManualCaptures((prev) => [...prev, milestoneSnap])
+        }
+        if (isKeyboardStableMilestone) openCycleStableSnapRef.current = milestoneSnap
+
+        if (result.fire === "AUTO_AFTER_KEYBOARD_CLOSE") {
+          openCycleStableSnapRef.current = null
+          armFinalStable()
+        }
       }
     },
     [pathname, armFinalStable]
@@ -439,6 +489,7 @@ export function IOSViewportDebugPanel() {
     eventsBufferRef.current.clear()
     setAutoCount(0)
     setLiveSnapshot(null)
+    openCycleStableSnapRef.current = null
   }
 
   if (!mounted || !enabled) return null

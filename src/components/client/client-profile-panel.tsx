@@ -1650,7 +1650,7 @@ function AddressMapPicker({
 
   return (
     <div className="space-y-2">
-      <div className="relative rounded-xl overflow-hidden border border-border/50">
+      <div className="relative isolate rounded-xl overflow-hidden border border-border/50">
         <div
           ref={mapContainerRef}
           className="w-full h-[200px] bg-muted/30"

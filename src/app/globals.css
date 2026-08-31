@@ -395,10 +395,8 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
    prove the compensation below restores the correct physical distance:
    baseline (offsetTop=0) → nav.rect.bottom=755, 797-755=42; stale state
    (offsetTop=68) → nav.rect.bottom=687, 797-687=110 (wrong, should stay
-   42, off by exactly the 68px residual). Subtracting
-   --visual-viewport-offset-top (already published by IOSKeyboardFix on
-   every visualViewport resize/scroll, reset on unmount — no new
-   listener) from the static `bottom` value cancels that residual.
+   42, off by exactly the 68px residual). Subtracting the current visual
+   viewport offset from the static `bottom` value cancels that residual.
    Scoped to display-mode:standalone only: IOS_MOBILE_REAL_DEVICE_R2's
    Safari-tab capture matched the UNcompensated formula in 165/165 real
    snapshots with no stale residual ever observed there — applying this
@@ -406,17 +404,32 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
    after the base rules above so it wins the cascade in standalone
    contexts without !important. Never applies while keyboard is open
    (both elements are visibility:hidden then, per the rule above — no
-   compensation is needed or visible while hidden). ─── */
+   compensation is needed or visible while hidden).
+   IOS-STANDALONE-FINAL-VISUAL-FIX-R4: switched from
+   --visual-viewport-offset-top to --ios-dock-visual-offset-top. A second
+   real standalone capture proved the shared variable (only updated
+   inside IOSKeyboardFix's requestAnimationFrame-batched
+   updateViewportState) can itself go stale by a full frame or more
+   during a fast scroll fling, briefly compensating for the WRONG
+   residual and pushing the dock to within ~1px of the true screen edge
+   (partial clipping) — real numbers: offsetTop=41.34 while `bottom` was
+   still compensating for a stale ~66px. --ios-dock-visual-offset-top is
+   written synchronously in the native visualViewport resize/scroll
+   handler itself (ios-keyboard-fix.tsx), never deferred through that
+   extra animation-frame hop — the general keyboard-detection pipeline
+   (CSS classes, --ios-keyboard-offset, the stabilization wait before
+   scroll-restore) keeps its own rAF/stabilization timing unchanged,
+   since that batching exists for unrelated, legitimate reasons. ─── */
 @media (display-mode: standalone) {
   body.ios-device .ios-bottom-nav {
-    bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px - var(--visual-viewport-offset-top, 0px));
+    bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px - var(--ios-dock-visual-offset-top, 0px));
   }
 
   body.ios-device .ios-chat-fab {
     bottom: calc(
       var(--ios-bottom-safe-footprint) + var(--ios-bottom-dock-gap) +
       var(--ios-bottom-nav-height) + var(--ios-chat-fab-gap-above-nav) -
-      var(--visual-viewport-offset-top, 0px)
+      var(--ios-dock-visual-offset-top, 0px)
     );
   }
 }
@@ -447,9 +460,21 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
    (keyboard closed, or normal Safari-tab states where this residual
    either doesn't occur or self-resolves) — safe by construction, so this
    is NOT scoped to standalone only; it is a no-op everywhere else.
-   Element only exists in the DOM while ChatSheet itself is mounted (see
-   chat-sheet.tsx) — no permanent layer, no effect on the normal client
-   page, BottomNav, ChatFab, or any other drawer. ─── */
+   IOS-STANDALONE-FINAL-VISUAL-FIX-R4: real device evidence proved this
+   never painted past the visible content boundary as a CHILD of
+   SheetContent — `overflow-hidden` on SheetContent clips descendant paint
+   regardless of the descendant's own `position:fixed` (clipping happens
+   in the paint/clip tree, independent of the positioning scheme that
+   escapes normal LAYOUT flow). Portaled directly to document.body from
+   chat-sheet.tsx instead — a sibling of Radix's own Sheet portal tree,
+   never a descendant of anything that clips — same category of fix
+   BottomNav already uses portal-to-body for. z-index raised from 0 to 45
+   (BottomNav's z-40 < this < Chat's z-50) because as a document.body-level
+   portal it now competes directly against ordinary page content in the
+   root stacking context, where z-index:auto content could otherwise win
+   on DOM order alone. Element only exists in the DOM while ChatSheet
+   itself is open (see chat-sheet.tsx) — no permanent layer, no effect on
+   the normal client page, BottomNav, ChatFab, or any other drawer. ─── */
 body.ios-device .ios-chat-keyboard-backdrop {
   position: fixed;
   left: 0;
@@ -458,7 +483,7 @@ body.ios-device .ios-chat-keyboard-backdrop {
   height: var(--visual-viewport-offset-top, 0px);
   background: var(--background);
   pointer-events: none;
-  z-index: 0;
+  z-index: 45;
 }
 
 /* ─── iOS viewport height — use instead of h-screen / 100vh ───
