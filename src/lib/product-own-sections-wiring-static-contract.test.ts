@@ -58,8 +58,9 @@ describe("single shared normalizer — no boundary reimplements own-section opti
 // Editor: price input UI
 // ============================================
 describe("business editor: price input per own-section option (task §38)", () => {
-  test("the editor's own-section options load through normalizeOwnSectionOptions (legacy strings upgrade to {nombre, precio: 0} automatically)", () => {
-    expect(PRODUCTS_TAB).toMatch(/opciones: normalizeOwnSectionOptions\(s\?\.opciones\)/)
+  test("OWN-PRODUCT-OPTIONS-REGRESSION-FIX-R1: the editor loads through normalizeOwnSectionOptionsForEditor (the editor-safe, non-filtering variant) — never the read/display-boundary normalizeOwnSectionOptions, which would strip a freshly-added blank-named row before it can ever be typed into (the root cause of the 'Agregar opción does nothing' regression)", () => {
+    expect(PRODUCTS_TAB).toMatch(/opciones: normalizeOwnSectionOptionsForEditor\(s\?\.opciones\)/)
+    expect(PRODUCTS_TAB).not.toMatch(/opciones: normalizeOwnSectionOptions\(s\?\.opciones\)/)
   })
 
   test("a numeric price input exists per option, with the 'Precio extra' label/title and the $0-blank helper copy", () => {

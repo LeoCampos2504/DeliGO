@@ -61,6 +61,48 @@ export function normalizeOwnSectionOptions(raw: unknown): OwnSectionOption[] {
 }
 
 /**
+ * OWN-PRODUCT-OPTIONS-REGRESSION-FIX-R1: editor-safe variant of
+ * `normalizeOwnSectionOptions` — same shape coercion (legacy string ->
+ * `{nombre, precio: 0}`, defensive precio fallback), but NEVER drops an
+ * entry just because its name is currently blank.
+ *
+ * Root cause this exists to fix: `ProductOptionSectionsEditor`'s own
+ * `sections` useMemo was calling `normalizeOwnSectionOptions` (the
+ * READ/DISPLAY-boundary function above) on every recomputation of its OWN
+ * in-progress editor state. That function's `if (!nombre) continue` is
+ * correct for a public/order-facing read (a nameless option is
+ * meaningless to a customer) but is WRONG applied to the editor's live
+ * state: the moment "Agregar opción" appends a fresh `{nombre: "",
+ * precio: 0}` placeholder row, the very next render's useMemo recomputed
+ * `sections` from that state and silently stripped the blank-named row
+ * before it ever painted — so the new row never appeared, and "Agregar
+ * opción" looked like it did nothing at all.
+ *
+ * Task §13's own instruction is followed here: ONE canonical shape flows
+ * through the editor (`OwnSectionOption[]`, never a raw string mixed in)
+ * — this function still upgrades legacy strings once it sees them — but
+ * "canonical" must not be conflated with "non-blank": a mid-typing blank
+ * name is a normal, expected transient editor state, not invalid data.
+ */
+export function normalizeOwnSectionOptionsForEditor(raw: unknown): OwnSectionOption[] {
+  if (!Array.isArray(raw)) return []
+  const result: OwnSectionOption[] = []
+  for (const item of raw) {
+    if (typeof item === "string") {
+      result.push({ nombre: item, precio: 0 })
+      continue
+    }
+    if (isPlainObject(item)) {
+      const nombre = typeof item.nombre === "string" ? item.nombre : ""
+      const precio =
+        typeof item.precio === "number" && Number.isFinite(item.precio) && item.precio >= 0 ? item.precio : 0
+      result.push({ nombre, precio })
+    }
+  }
+  return result
+}
+
+/**
  * Save-time validation for the business editor's price input: `undefined`
  * normalizes to 0 (task §38 "Empty: normalize to 0"); a finite number
  * >= 0 is accepted as-is; anything else (negative, NaN, Infinity, a
@@ -88,12 +130,26 @@ export type ValidateProductSectionsResult =
 
 /**
  * Save-time (POST/PUT `/api/negocio/productos`) structural validation of
- * the whole `secciones` array a business owner submits — rejects a
- * malformed section/option/price outright (400) rather than silently
- * coercing it, so a bad request never gets a false "guardado
- * correctamente". Legacy string options are still accepted here (a
- * business editing an old product without touching its sections should
- * never be forced to re-enter them) and normalize to `precio: 0`.
+ * the whole `secciones` array a business owner submits. Legacy string
+ * options are still accepted here (a business editing an old product
+ * without touching its sections should never be forced to re-enter them)
+ * and normalize to `precio: 0`.
+ *
+ * OWN-PRODUCT-OPTIONS-REGRESSION-FIX-R1: a blank-named section or a
+ * blank-named option is SKIPPED (silently dropped, not persisted) rather
+ * than rejecting the entire save. This is a deliberate leniency, not a
+ * security relaxation — every PRICE is still validated strictly (finite,
+ * >= 0, or the save is rejected outright) and every genuinely malformed
+ * shape (a non-object entry) is still rejected outright. Only "an
+ * unnamed placeholder row the owner hasn't finished filling in yet" is
+ * treated as a no-op instead of a hard blocker: before this fix, pressing
+ * "Agregar" to start a new section (which begins with `nombre: ""` by
+ * design — see addSection() in products-tab.tsx) and then saving before
+ * naming it made the ENTIRE product fail to save, even though every
+ * other real, complete section/option on that same product was perfectly
+ * valid. Mirrors how the read-side normalizer above already treats a
+ * blank name (skip, never throw) — this is the save-time equivalent of
+ * that same leniency.
  */
 export function validateProductSectionsForSave(raw: unknown): ValidateProductSectionsResult {
   if (raw === undefined || raw === null) return { ok: true, value: [] }
@@ -103,7 +159,7 @@ export function validateProductSectionsForSave(raw: unknown): ValidateProductSec
   for (const rawSection of raw) {
     if (!isPlainObject(rawSection)) return { ok: false, error: "Sección de opciones inválida" }
     const nombre = typeof rawSection.nombre === "string" ? rawSection.nombre.trim() : ""
-    if (!nombre) return { ok: false, error: "Nombre de sección inválido" }
+    if (!nombre) continue // incomplete placeholder section — dropped, not rejected
     const obligatorio = rawSection.obligatorio === true
     const maximo =
       typeof rawSection.maximo === "number" && Number.isInteger(rawSection.maximo) && rawSection.maximo >= 0
@@ -120,9 +176,9 @@ export function validateProductSectionsForSave(raw: unknown): ValidateProductSec
       }
       if (!isPlainObject(rawOption)) return { ok: false, error: "Opción de sección inválida" }
       const optNombre = typeof rawOption.nombre === "string" ? rawOption.nombre.trim() : ""
-      if (!optNombre) return { ok: false, error: "Nombre de opción inválido" }
       const precio = validateOwnSectionOptionPrice(rawOption.precio)
       if (precio === null) return { ok: false, error: "Precio de opción inválido" }
+      if (!optNombre) continue // incomplete placeholder option — dropped, not rejected
       opciones.push({ nombre: optNombre, precio })
     }
 

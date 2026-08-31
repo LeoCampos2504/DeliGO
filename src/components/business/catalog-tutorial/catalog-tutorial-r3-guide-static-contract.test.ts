@@ -116,9 +116,9 @@ describe("§8: real element highlight — no blocking overlay, pointer interacti
     expect(TARGET).not.toMatch(/pointer-events-none/)
   })
 
-  test("the ring uses Tailwind's ring/shadow utilities (box-shadow — never affects layout box size), plus the pulse animation, gated by prefers-reduced-motion", () => {
+  test("the ring uses Tailwind's ring utilities (box-shadow — never affects layout box size); TUTORIAL-HIGHLIGHT-PULSE-POLISH-R1: the attention glow is a separate `filter` property, never Tailwind's infinite animate-pulse", () => {
     expect(TARGET).toMatch(/ring-2 ring-primary/)
-    expect(TARGET).toMatch(/animate-pulse motion-reduce:animate-none/)
+    expect(TARGET).not.toMatch(/animate-pulse/)
   })
 })
 
