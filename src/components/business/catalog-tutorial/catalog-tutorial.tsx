@@ -54,7 +54,9 @@ import {
   resolveStepCopy,
 } from "./catalog-tutorial-steps"
 import { readTutorialProgress, writeTutorialProgress } from "./catalog-tutorial-storage"
-import type { CatalogTutorialActionKey, CatalogTutorialStep } from "./catalog-tutorial-types"
+import { CatalogTutorialHighlightRing, useCatalogTutorialHighlight } from "./catalog-tutorial-highlight"
+import type { CatalogTutorialTargetKey } from "./catalog-tutorial-targets"
+import type { CatalogTutorialActionKey, CatalogTutorialFieldGuideEntry, CatalogTutorialStep } from "./catalog-tutorial-types"
 
 export type CatalogTutorialSubTab = "productos" | "agregados" | "ingredientes" | "secciones" | "opciones"
 export type CatalogTutorialPanelMode = "simple" | "expert"
@@ -89,6 +91,8 @@ export function CatalogTutorial({
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<TutorialView>("home")
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
+  const [fieldGuideIndex, setFieldGuideIndex] = useState(0)
+  const highlight = useCatalogTutorialHighlight()
 
   useEffect(() => {
     // setMounted/setProgress run inside a deferred callback (not as a
@@ -113,6 +117,24 @@ export function CatalogTutorial({
   const summary = computeProgressSummary(progress, visibleStepIds)
   const currentStep =
     (progress.currentStepId && visibleSteps.find((s) => s.id === progress.currentStepId)) || null
+
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §12: a single, unconditional
+  // clearing point covering every lifecycle event the task lists (step
+  // change, tutorial closes, target unmounts is handled inside the hook
+  // itself, skip/finish/reset all change `view` and/or `currentStepId`
+  // and/or `open`) — rather than manually calling clearHighlight() at
+  // every individual handler call site, which would be easy to miss one
+  // of. No stale ring can ever survive any of these transitions.
+  useEffect(() => {
+    // Deferred for the same reason as the mounted-gate effect above
+    // (react-hooks/set-state-in-effect) — setFieldGuideIndex must not run
+    // as a direct effect-body statement.
+    const timer = window.setTimeout(() => {
+      highlight.clearHighlight()
+      setFieldGuideIndex(0)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [view, currentStep?.id, open])
 
   // task §5: the ONLY real navigation surface. Never a DOM click — every
   // branch calls the host's own state setters/callbacks.
@@ -149,7 +171,17 @@ export function CatalogTutorial({
         return
       case "openPreview":
         if (typeof window !== "undefined") {
-          window.open(`/n/${negocio.slug}?preview=true`, "_blank", "noopener,noreferrer")
+          // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §20, §25: previewSource=business
+          // is a presentation-only hint (return destination + read-only
+          // detail-viewing policy on /n/[slug]) — never authorization.
+          // Opened in a new tab so this Sheet's own progress/state (in
+          // this same tab) is untouched regardless of how the preview tab
+          // is closed.
+          window.open(
+            `/n/${negocio.slug}?preview=true&previewSource=business`,
+            "_blank",
+            "noopener,noreferrer"
+          )
         }
         return
     }
@@ -230,6 +262,7 @@ export function CatalogTutorial({
             setOpen(true)
           }}
           aria-label="Abrir tutorial del catálogo"
+          data-catalog-tutorial-target="catalog-tutorial-button"
         >
           Tutorial del catálogo
         </Button>
@@ -307,10 +340,16 @@ export function CatalogTutorial({
               onSkip={() => handleSkipStep(currentStep)}
               onBack={() => handleBackStep(currentStep)}
               onClose={() => setOpen(false)}
+              fieldGuideIndex={fieldGuideIndex}
+              onFieldGuideIndexChange={setFieldGuideIndex}
+              onShowMe={highlight.showMe}
+              highlightFailed={highlight.failed}
             />
           )}
         </SheetContent>
       </Sheet>
+
+      <CatalogTutorialHighlightRing rect={highlight.rect} />
 
       <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
         <DialogContent>
@@ -512,6 +551,10 @@ function TutorialStepView({
   onSkip,
   onBack,
   onClose,
+  fieldGuideIndex,
+  onFieldGuideIndexChange,
+  onShowMe,
+  highlightFailed,
 }: {
   step: CatalogTutorialStep
   rubro: ReturnType<typeof normalizeRubro>
@@ -525,7 +568,15 @@ function TutorialStepView({
   onSkip: () => void
   onBack: () => void
   onClose: () => void
+  fieldGuideIndex: number
+  onFieldGuideIndexChange: (index: number) => void
+  onShowMe: (targetKey: CatalogTutorialTargetKey) => void
+  highlightFailed: boolean
 }) {
+  const fieldGuide = step.fieldGuide
+  const currentField: CatalogTutorialFieldGuideEntry | null =
+    fieldGuide && fieldGuide.length > 0 ? fieldGuide[Math.min(fieldGuideIndex, fieldGuide.length - 1)] : null
+
   return (
     <>
       <SheetHeader>
@@ -543,10 +594,66 @@ function TutorialStepView({
             ))}
           </ul>
         )}
-        {step.actionKey && step.actionKey !== "none" && step.actionLabel && (
-          <Button type="button" onClick={onGoToAction} className="w-full">
-            {resolveStepCopy(step.actionLabel, rubro)}
-          </Button>
+
+        <div className="flex flex-wrap gap-2">
+          {step.actionKey && step.actionKey !== "none" && step.actionLabel && (
+            <Button type="button" onClick={onGoToAction} className="flex-1">
+              {resolveStepCopy(step.actionLabel, rubro)}
+            </Button>
+          )}
+          {/* R2 §5, §8: highlights the real field without navigating away —
+              only useful once the owner is already on the right screen
+              (after "Ir a..."), so this is additive next to it. */}
+          {step.targetKey && (
+            <Button type="button" variant="outline" onClick={() => onShowMe(step.targetKey!)}>
+              Mostrarme
+            </Button>
+          )}
+        </div>
+
+        {/* R2 §9-10: compact per-field sub-guide (Simple product's 6
+            fields, or an Expert area's handful of relevant controls) —
+            never a new top-level step. */}
+        {fieldGuide && fieldGuide.length > 0 && currentField && (
+          <div className="rounded-lg border p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Campo {fieldGuideIndex + 1} de {fieldGuide.length}
+            </p>
+            <p className="mb-2 font-semibold" aria-live="polite">
+              Ahora buscá: {resolveStepCopy(currentField.label, rubro)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={fieldGuideIndex === 0}
+                onClick={() => onFieldGuideIndexChange(Math.max(0, fieldGuideIndex - 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={fieldGuideIndex >= fieldGuide.length - 1}
+                onClick={() => onFieldGuideIndexChange(Math.min(fieldGuide.length - 1, fieldGuideIndex + 1))}
+              >
+                Siguiente campo
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => onShowMe(currentField.targetKey)}>
+                Mostrarme
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* task §15: fails safe — the tutorial stays fully usable, the
+            owner just follows the written step instead. */}
+        {highlightFailed && (
+          <p className="text-xs text-muted-foreground" role="status">
+            No pudimos señalar este campo automáticamente. Podés seguir el paso manualmente.
+          </p>
         )}
       </div>
       <SheetFooter className="flex-col gap-2">

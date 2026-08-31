@@ -225,6 +225,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
           className="rounded-xl gap-1.5 font-semibold h-9"
           style={{ backgroundColor: negocio.colorPrincipal }}
           onClick={openNewForm}
+          data-catalog-tutorial-target="shared-option-add"
         >
           <Plus className="h-3.5 w-3.5" />
           Agregar

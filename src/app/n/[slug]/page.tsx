@@ -207,6 +207,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const isPreview = searchParams.get("preview") === "true"
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §20: a presentation-only hint, NEVER
+  // authorization — it only changes which internal, allowlisted return
+  // destination the preview exit controls use and whether the read-only
+  // product-detail viewing policy applies (see requireAuth/openProductDetail
+  // below). It never gates a protected /api/negocio/* route, and never
+  // accepts an arbitrary external URL (no open-redirect surface).
+  const previewSource = searchParams.get("previewSource")
+  const isBusinessPreview = isPreview && previewSource === "business"
   const mesaParam = searchParams.get("mesa")
   const mesaNumero = mesaParam ? parseInt(mesaParam, 10) : null
   const isMesaOrder = !!mesaNumero
@@ -602,9 +610,20 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     return ["Todas", ...negocio.categorias]
   }, [negocio])
 
-  // Open product detail (with auth gate)
+  // Open product detail (with auth gate).
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §26-31: in an authenticated Business
+  // Preview, VIEWING detail is exempt from the client/Google-login gate —
+  // this is purely a UI-policy relaxation, never a data-access change: the
+  // full product payload (ingredients/additions/options/price) already
+  // arrived unauthenticated in the /api/negocios/[slug] response that
+  // rendered this very product card (see that route's public select — no
+  // additional request happens when the detail sheet opens). requireAuth()
+  // itself is NOT modified and still gates handleAddToCart below —
+  // ordering remains exactly as strict as before; Preview's own "Agregar"
+  // CTA is additionally hidden/disabled in ProductDetailSheet regardless
+  // (belt-and-suspenders, see isPreview prop there).
   const openProductDetail = (product: ProductoAPI) => {
-    if (!requireAuth()) return
+    if (!isBusinessPreview && !requireAuth()) return
     setSelectedProduct(product)
     setDetailOpen(true)
   }
@@ -698,7 +717,12 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
             <Eye className="h-4 w-4 shrink-0" />
             <span className="text-sm font-bold truncate">Estás en modo vista previa</span>
           </div>
-          <Link href="/cliente/" className="shrink-0">
+          {/* BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §22: "Volver al panel" must
+              return a business owner to /negocio, never /cliente/ — only
+              when isBusinessPreview (previewSource=business). Ordinary
+              public preview (?preview=true alone, no business context to
+              return to) keeps its original /cliente/ destination. */}
+          <Link href={isBusinessPreview ? "/negocio" : "/cliente/"} className="shrink-0">
             <Button
               size="sm"
               variant="secondary"
@@ -740,7 +764,11 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
               <ArrowLeft className="h-5 w-5" />
             </button>
           ) : (
-            <Link href="/cliente/">
+            // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §21: this circular back
+            // control must return to /negocio in an authenticated Business
+            // Preview — the same isBusinessPreview gate as the banner's
+            // "Volver al panel" above, so both in-app exits agree.
+            <Link href={isBusinessPreview ? "/negocio" : "/cliente/"}>
               <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -1303,6 +1331,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
                 setDetailOpen(false)
               }}
               isRopa={isRopa}
+              isPreview={isPreview}
             />
           )}
         </DrawerContent>
@@ -1817,11 +1846,20 @@ function ProductDetailSheet({
   negocio,
   onAddToCart,
   isRopa = false,
+  isPreview = false,
 }: {
   product: ProductoAPI
   negocio: NegocioAPI
   onAddToCart: (item: CartItem) => void
   isRopa?: boolean
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §32-34: selections below (ingredients,
+  // additions, own sections, shared options, quantity) stay exactly the
+  // same local, ephemeral React state regardless of isPreview — nothing
+  // about them changes. isPreview only affects the final CTA at the
+  // bottom (disabled/replaced with explanatory copy instead of calling
+  // onAddToCart) and a small inline note — never blocks local selection,
+  // never fabricates a fake success.
+  isPreview?: boolean
 }) {
   const [quantity, setQuantity] = useState(1)
   const [selectedAgregados, setSelectedAgregados] = useState<Map<string, CartItemAgregado>>(new Map())
@@ -1974,7 +2012,13 @@ function ProductDetailSheet({
   }
 
   // Handle add to cart
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §33: belt-and-suspenders — the
+  // button below is already disabled/hidden in preview so this can't
+  // normally be reached by a click, but a direct early return here means
+  // no order-mutation path is EVER reachable from this function while
+  // isPreview is true, regardless of how it's called.
   const handleAdd = () => {
+    if (isPreview) return
     // Validate required sections — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
@@ -2622,8 +2666,17 @@ function ProductDetailSheet({
 
       {/* ===== BOTTOM ACTION BAR ===== */}
       <div className="shrink-0 bg-background/95 backdrop-blur-md border-t border-border p-4">
+        {isPreview && (
+          <p className="mb-2 text-center text-xs font-medium text-muted-foreground">
+            Vista previa · Los cambios de selección no generan un pedido.
+          </p>
+        )}
         <div className="flex items-center gap-4">
           {/* Quantity controls */}
+          {/* Quantity is the same category as ingredient/addition/option
+              selection below — local ephemeral state, useful in Preview to
+              verify total calculation. Never disabled here; only the
+              actual order-mutation CTA is. */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -2640,17 +2693,23 @@ function ProductDetailSheet({
             </button>
           </div>
 
-          {/* Add to cart button */}
+          {/* Add to cart button — BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §33-34:
+              disabled and relabeled in Preview regardless of stock, so no
+              order/cart mutation is ever reachable from here while
+              previewing; product configuration (ingredients/additions/
+              options/quantity above) remains fully interactable. */}
           <button
             onClick={handleAdd}
-            disabled={!product.stock || !canAdd}
+            disabled={isPreview || !product.stock || !canAdd}
             className="flex-1 py-3 rounded-2xl font-bold text-sm text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             style={{
               backgroundColor: negocio.colorPrincipal,
               boxShadow: `0 4px 14px ${negocio.colorPrincipal}35`,
             }}
           >
-            {product.stock ? (
+            {isPreview ? (
+              "Vista previa — no se pueden realizar pedidos"
+            ) : product.stock ? (
               `${isRopa ? "Agregar al carrito" : "Agregar"} · ${formatPrice(itemTotal)}`
             ) : (
               "Sin stock"

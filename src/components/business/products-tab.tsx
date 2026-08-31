@@ -983,6 +983,7 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
         <button
           onClick={() => setShowCategoryInput(!showCategoryInput)}
           className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border border-dashed border-border text-muted-foreground hover:bg-muted/50"
+          data-catalog-tutorial-target="category-control"
         >
           <Plus className="h-3 w-3" />
           Categoría
@@ -1041,6 +1042,7 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
         onClick={openNewForm}
         className="w-full rounded-xl h-11 gap-2 font-semibold"
         style={{ backgroundColor: negocio.colorPrincipal }}
+        data-catalog-tutorial-target="add-product"
       >
         <Plus className="h-4 w-4" />
         {isRopa ? "Agregar prenda" : "Agregar producto"}
@@ -1425,6 +1427,7 @@ function ProductCard({
               size="icon"
               className="h-8 w-8 rounded-full shadow-md"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
+              data-catalog-tutorial-target="product-edit"
             >
               <Edit3 className="h-3.5 w-3.5" />
             </Button>
@@ -1505,6 +1508,7 @@ function ProductCard({
               size="sm"
               className="flex-1 h-8 rounded-lg text-xs gap-1.5"
               onClick={(e) => { e.stopPropagation(); onEdit() }}
+              data-catalog-tutorial-target="product-edit"
             >
               <Edit3 className="h-3 w-3" />
               Editar
@@ -1563,7 +1567,7 @@ function StepBasicInfo({
       exit={{ opacity: 0, x: -20 }}
       className="space-y-4"
     >
-      <div>
+      <div data-catalog-tutorial-target="product-name">
         <Label htmlFor="prod-nombre" className="text-sm font-semibold mb-1.5 block">
           {isRopa ? "Nombre de la prenda *" : "Nombre *"}
         </Label>
@@ -1576,7 +1580,7 @@ function StepBasicInfo({
         />
       </div>
 
-      <div>
+      <div data-catalog-tutorial-target="product-price">
         <Label htmlFor="prod-precio" className="text-sm font-semibold mb-1.5 block">Precio *</Label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">$</span>
@@ -1691,7 +1695,7 @@ function StepBasicInfo({
         </div>
       ) : (
         /* ===== RESTAURANT & NEGOCIO: Categoría (free-form) ===== */
-        <div>
+        <div data-catalog-tutorial-target="product-category">
           <Label className="text-sm font-semibold mb-1.5 flex items-center gap-1.5">
             Categoría
             <button
@@ -1821,7 +1825,7 @@ function StepBasicInfo({
       )}
 
       {/* Imagen principal */}
-      <div>
+      <div data-catalog-tutorial-target="product-main-image">
         <Label className="text-sm font-semibold mb-1.5 block">Imagen principal</Label>
         <ImageUpload
           value={formData.imagenUrl || null}
@@ -1835,7 +1839,7 @@ function StepBasicInfo({
       </div>
 
       {/* Galería de imágenes */}
-      <div>
+      <div data-catalog-tutorial-target="product-gallery">
         <Label className="text-sm font-semibold mb-1.5 block">
           {isRopa ? "Más fotos de la prenda" : "Galería de imágenes"}
         </Label>
@@ -1849,7 +1853,7 @@ function StepBasicInfo({
       </div>
 
       {/* Stock toggle — always visible in StepBasicInfo (simple mode) */}
-      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50" data-catalog-tutorial-target="product-stock">
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
@@ -2360,7 +2364,7 @@ function StepOptions({
       className="space-y-5"
     >
       {/* Stock - Always shown */}
-      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50" data-catalog-tutorial-target="product-stock">
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
@@ -2374,7 +2378,7 @@ function StepOptions({
       </div>
 
       {/* Discount - Always shown */}
-      <div className="space-y-3">
+      <div className="space-y-3" data-catalog-tutorial-target="product-discount">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Descuento</p>
           <Switch
@@ -2422,7 +2426,7 @@ function StepOptions({
           <Separator />
 
           {/* Description */}
-          <div>
+          <div data-catalog-tutorial-target="product-description">
             <Label className="text-sm font-semibold mb-1.5 block">Descripción</Label>
             <Textarea
               value={formData.descripcion}
@@ -2434,7 +2438,7 @@ function StepOptions({
 
           {/* Agregados */}
           {agregados.length > 0 && (
-            <div>
+            <div data-catalog-tutorial-target="product-additions">
               <Label className="text-sm font-semibold mb-2 flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
                 Agregados
@@ -2476,7 +2480,7 @@ function StepOptions({
 
           {/* Ingredientes */}
           {ingredientes.length > 0 && (
-            <div>
+            <div data-catalog-tutorial-target="product-ingredients">
               <Label className="text-sm font-semibold mb-2 flex items-center gap-1.5">
                 🥬 Ingredientes
               </Label>
@@ -2648,7 +2652,7 @@ function ProductOptionSectionsEditor({
     <div>
       {/* ===== Shared Options Selector ===== */}
       {opcionesCompartidas.length > 0 && (
-        <div className="mb-4">
+        <div className="mb-4" data-catalog-tutorial-target="product-shared-options">
           <div className="flex items-center gap-1.5 mb-2">
             <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
             <Label className="text-sm font-semibold">Opciones compartidas</Label>
@@ -2733,7 +2737,7 @@ function ProductOptionSectionsEditor({
       )}
 
       {/* ===== Custom Option Sections ===== */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2" data-catalog-tutorial-target="product-own-sections">
         <Label className="text-sm font-semibold flex items-center gap-1.5">
           <ListChecks className="h-3.5 w-3.5" />
           {sectionLabel}
@@ -3053,6 +3057,17 @@ function CatalogSubNav({
   items: { id: CatalogSubTab; label: string; icon: typeof PackageOpen }[]
   colorPrincipal: string
 }) {
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §6, §11: stable tutorial targets for
+  // the tab buttons the tutorial's "Ir a Ingredientes/Agregados/Secciones/
+  // Opciones" actions already navigate to via the real setSubTab above —
+  // this only adds a highlight anchor, it doesn't change behavior.
+  const subTabTutorialTarget: Partial<Record<CatalogSubTab, string>> = {
+    ingredientes: "ingredients-tab",
+    agregados: "additions-tab",
+    secciones: "catalog-sections-tab",
+    opciones: "shared-options-tab",
+  }
+
   return (
     <div className="flex bg-muted/60 rounded-xl p-1 gap-1">
       {items.map((item) => {
@@ -3069,6 +3084,7 @@ function CatalogSubNav({
                 : "text-muted-foreground hover:text-foreground"
             )}
             style={isActive ? { color: colorPrincipal } : undefined}
+            data-catalog-tutorial-target={subTabTutorialTarget[item.id]}
           >
             <Icon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{item.label}</span>

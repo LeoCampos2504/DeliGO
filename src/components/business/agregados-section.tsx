@@ -569,6 +569,7 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
         onClick={openNewForm}
         className="w-full rounded-xl h-11 gap-2 font-semibold"
         style={{ backgroundColor: negocio.colorPrincipal }}
+        data-catalog-tutorial-target="addition-add"
       >
         <Plus className="h-4 w-4" />
         Agregar agregado

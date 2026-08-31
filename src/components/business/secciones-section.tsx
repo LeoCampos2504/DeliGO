@@ -281,6 +281,7 @@ export function SeccionesSection({ negocio }: SeccionesSectionProps) {
           className="rounded-xl gap-1.5 font-semibold h-9"
           style={{ backgroundColor: negocio.colorPrincipal }}
           onClick={openNewForm}
+          data-catalog-tutorial-target="catalog-section-add"
         >
           <Plus className="h-3.5 w-3.5" />
           Agregar

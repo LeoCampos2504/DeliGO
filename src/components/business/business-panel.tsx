@@ -318,8 +318,26 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
                 variant="outline"
                 size="sm"
                 className="gap-1.5 rounded-full text-xs font-semibold border-primary/30 text-primary hover:bg-primary/5"
-                onClick={() => window.location.href = `/n/${negocio.slug}?preview=true`}
+                // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §17-23: opened in a new
+                // tab (matching the tutorial's own openPreview action)
+                // rather than navigating this tab away — so the business
+                // panel session stays open and unmodified regardless of
+                // how the preview tab is eventually closed (in-app "Volver
+                // al panel"/back-arrow, or the browser/PWA's own X/close
+                // chrome — see /n/[slug]/page.tsx's isBusinessPreview
+                // handling for the in-app paths). previewSource=business
+                // is a presentation-only hint, never authorization — it
+                // only changes the return destination and the read-only
+                // detail-viewing policy there, never a protected API.
+                onClick={() =>
+                  window.open(
+                    `/n/${negocio.slug}?preview=true&previewSource=business`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  )
+                }
                 title="Ver cómo ven los clientes tu catálogo"
+                data-catalog-tutorial-target="preview-button"
               >
                 <Eye className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Vista previa</span>
@@ -356,11 +374,15 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
             {/* Mode toggle — only for restaurantes */}
             {showModeToggle && (
               <div className="flex items-center gap-2 shrink-0 bg-muted/60 rounded-full px-3 py-1.5">
-                <Sparkles className={cn("h-3.5 w-3.5 transition-colors", mode === "simple" ? "text-primary" : "text-muted-foreground")} />
+                <Sparkles
+                  data-catalog-tutorial-target="mode-simple"
+                  className={cn("h-3.5 w-3.5 transition-colors", mode === "simple" ? "text-primary" : "text-muted-foreground")}
+                />
                 <Switch
                   checked={mode === "expert"}
                   onCheckedChange={(checked) => handleModeChange(checked ? "expert" : "simple")}
                   className="scale-90"
+                  data-catalog-tutorial-target="mode-expert"
                 />
                 <Zap className={cn("h-3.5 w-3.5 transition-colors", mode === "expert" ? "text-primary" : "text-muted-foreground")} />
               </div>
