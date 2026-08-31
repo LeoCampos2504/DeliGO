@@ -301,12 +301,6 @@ export function MultiImageUpload({
               alt={`Imagen ${idx + 1}`}
               className="w-full h-full object-cover"
             />
-            {/* Primary badge */}
-            {idx === 0 && (
-              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] font-bold text-center py-0.5">
-                Principal
-              </span>
-            )}
             {/* Actions overlay */}
             {!disabled && (
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">

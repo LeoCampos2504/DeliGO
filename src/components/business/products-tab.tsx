@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { normalizeOwnSectionOptionsForEditor, validateOwnSectionOptionPrice, type OwnSectionOption } from "@/lib/product-own-sections"
+import { parseProductImageList } from "@/lib/product-gallery"
 import { toast } from "sonner"
 import { ImageUpload, MultiImageUpload } from "@/components/shared/image-upload"
 import type { PanelMode } from "./business-panel"
@@ -118,7 +119,7 @@ interface Producto {
   material: string
   genero: string
   recomendados: string
-  imagenesExtra: string
+  imagenesExtra: string[] | string
   agregados: { agregadoId: string; agregado: { id: string; nombre: string; precio: number } }[]
   ingredientes: { ingredienteId: string; ingrediente: { id: string; nombre: string } }[]
   opcionesCompartidasIds?: string
@@ -851,10 +852,7 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
         return match ? match.value : ""
       })(),
       imagenUrl: product.imagenUrl ?? "",
-      imagenesExtra: (() => {
-        try { return JSON.parse(product.imagenesExtra || "[]") as string[] }
-        catch { return [] }
-      })(),
+      imagenesExtra: parseProductImageList(product.imagenesExtra),
       stock: product.stock,
       descuentoActivo: product.descuentoActivo,
       tipoDescuento: product.tipoDescuento,
