@@ -114,7 +114,7 @@ const OWN_SECTION_AREA: CatalogTutorialGuidePhase = {
   targetKey: "product-own-sections",
   title: "Secciones de opciones",
   body:
-    "Usalas cuando esta elección pertenece solamente a este {producto}.\n\nPor ejemplo: Tamaño de esta pizza, Punto de cocción de esta hamburguesa.",
+    "Usalas cuando esta elección pertenece solamente a este {producto}.\n\nPor ejemplo: Tamaño de esta pizza, Punto de cocción de esta hamburguesa. Cada opción puede tener un recargo opcional — dejala en $0 si no cambia el precio.",
 }
 
 const SHARED_OPTION_ADD: CatalogTutorialGuidePhase = {

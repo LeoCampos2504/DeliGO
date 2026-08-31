@@ -9,6 +9,7 @@ import {
   readStringIdList,
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
+import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -190,6 +191,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validOpcionesCompartidasIds.error }, { status: 400 })
     }
 
+    // OWN-PRODUCT-OPTION-PRICES-R1 §50: reject a malformed/negative option
+    // price outright rather than silently coercing it.
+    const validSecciones = validateProductSectionsForSave(secciones)
+    if (!validSecciones.ok) {
+      return NextResponse.json({ error: validSecciones.error }, { status: 400 })
+    }
+
     const ownsCatalogRefs = await validateNegocioResourceOwnership(negocioId, {
       agregados: validAgregadoIds.ids,
       ingredientes: validIngredienteIds.ids,
@@ -215,7 +223,7 @@ export async function POST(req: NextRequest) {
         colores: JSON.stringify(colores || []),
         material: material || "",
         genero: genero || "",
-        secciones: JSON.stringify(secciones || []),
+        secciones: JSON.stringify(validSecciones.value),
         recomendados: JSON.stringify([]),
         imagenesExtra: JSON.stringify(validImagenesExtra.value),
         opcionesCompartidasIds: opcionesCompartidasIds ? JSON.stringify(opcionesCompartidasIds) : "[]",

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { getBusinessHoursState } from "@/lib/business-hours"
+import { normalizeOwnSectionOptions, type OwnSectionOption } from "@/lib/product-own-sections"
 
 const productPublicSelect = {
   id: true,
@@ -90,7 +91,7 @@ type ProductRecord = {
 
 type ProductSection = {
   nombre: string
-  opciones: string[]
+  opciones: OwnSectionOption[]
   obligatorio: boolean
   maximo: number
 }
@@ -155,9 +156,11 @@ function normalizeProductSections(raw: unknown): ProductSection[] {
       const section = item as Record<string, unknown>
       return {
         nombre: typeof section.nombre === "string" ? section.nombre : "",
-        opciones: Array.isArray(section.opciones)
-          ? section.opciones.filter((option): option is string => typeof option === "string")
-          : [],
+        // OWN-PRODUCT-OPTION-PRICES-R1: legacy string[] options AND the
+        // new {nombre, precio}[] shape both normalize correctly here —
+        // this used to filter out anything that wasn't a plain string,
+        // which would have silently dropped every priced option.
+        opciones: normalizeOwnSectionOptions(section.opciones),
         obligatorio: typeof section.obligatorio === "boolean" ? section.obligatorio : false,
         maximo: typeof section.maximo === "number" ? section.maximo : 0,
       }

@@ -17,6 +17,7 @@ import {
   type IngredienteQuitadoCanonico,
 } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { normalizeOwnSectionOptions, validateAndPriceProductSections } from "@/lib/product-own-sections"
 
 const MAX_ITEMS_PER_ORDER = 50
 const MAX_QUANTITY_PER_ITEM = 99
@@ -47,6 +48,11 @@ interface ValidatedPedidoItem {
   cantidad: number
   agregados: Array<{ id: string; nombre: string; precio: number; tipo: string }>
   secciones: Record<string, SectionSelection>
+  // OWN-PRODUCT-OPTION-PRICES-R1: same server-authoritative price map
+  // POST /api/pedidos now computes — a manual Mozo order must never
+  // under-charge for a priced own-section option just because it went
+  // through this separate order-creation surface.
+  seccionesPrecios: Record<string, number>
   // P1-A.2B: snapshot autoritativo server-side (nombre/grupo derivados de
   // Producto -> ProductoIngrediente -> Ingrediente) — nunca los datos crudos
   // enviados por el Mozo. Ver buildIngredientesQuitadosSnapshot.
@@ -63,7 +69,7 @@ interface SharedOptionConfig {
 
 interface ProductSection {
   nombre: string
-  opciones: string[]
+  opciones: Array<{ nombre: string; precio: number }>
   obligatorio: boolean
   maximo: number
 }
@@ -398,15 +404,10 @@ function normalizeProductSections(raw: unknown): ProductSection[] {
     .map((item): ProductSection | null => {
       if (!isPlainObject(item) || typeof item.nombre !== "string") return null
       const nombre = item.nombre.trim()
-      const opciones = Array.isArray(item.opciones)
-        ? item.opciones
-            .filter((option): option is string => typeof option === "string" && option.trim().length > 0)
-            .map((option) => option.trim())
-        : []
       if (!nombre) return null
       return {
         nombre,
-        opciones,
+        opciones: normalizeOwnSectionOptions(item.opciones),
         obligatorio: item.obligatorio === true,
         maximo:
           typeof item.maximo === "number" && Number.isInteger(item.maximo) && item.maximo > 0
@@ -436,49 +437,15 @@ function normalizeSharedOption(raw: { id: string; opciones: string }): SharedOpt
   return { id: raw.id, opciones }
 }
 
+// OWN-PRODUCT-OPTION-PRICES-R1: same shared, unit-tested pricing
+// authority POST /api/pedidos uses (@/lib/product-own-sections) — kept as
+// a thin adapter to this file's existing ValidationResult<T> convention.
 function validateProductSections(
   selected: Record<string, SectionSelection>,
   sections: ProductSection[]
-): ValidationResult<Record<string, SectionSelection>> {
-  const sectionMap = new Map(sections.map((section) => [section.nombre, section]))
-  const normalized: Record<string, SectionSelection> = {}
-
-  for (const [sectionName, selection] of Object.entries(selected)) {
-    const section = sectionMap.get(sectionName)
-    if (!section) return fail("Opcion de producto invalida")
-
-    if (typeof selection === "string") {
-      if (!section.opciones.includes(selection)) return fail("Opcion de producto invalida")
-      normalized[sectionName] = selection
-      continue
-    }
-
-    const validSelection: Record<string, number> = {}
-    let totalSelected = 0
-    for (const [optionName, quantity] of Object.entries(selection)) {
-      if (!section.opciones.includes(optionName)) return fail("Opcion de producto invalida")
-      totalSelected += quantity
-      validSelection[optionName] = quantity
-    }
-    if (section.maximo > 0 && totalSelected > section.maximo) {
-      return fail("Seleccion de seccion excede el maximo permitido")
-    }
-    if (totalSelected > 0) normalized[sectionName] = validSelection
-  }
-
-  for (const section of sections) {
-    if (!section.obligatorio) continue
-    const selection = normalized[section.nombre]
-    const selectedCount =
-      typeof selection === "string"
-        ? selection ? 1 : 0
-        : selection
-          ? Object.values(selection).reduce((sum, quantity) => sum + quantity, 0)
-          : 0
-    if (selectedCount < 1) return fail("Falta seleccionar una opcion obligatoria")
-  }
-
-  return ok(normalized)
+): ValidationResult<{ normalized: Record<string, SectionSelection>; seccionesPrecios: Record<string, number>; seccionesTotal: number }> {
+  const result = validateAndPriceProductSections(selected, sections)
+  return result.ok ? ok(result.value) : fail(result.error)
 }
 
 function splitSharedOptionId(value: string): { sharedId: string; optionName: string } | null {
@@ -1192,14 +1159,15 @@ export async function POST(
               }
             }
 
-            serverTotalProductos += (unitPrice + agregadosTotal) * item.cantidad
+            serverTotalProductos += (unitPrice + agregadosTotal + validSections.value.seccionesTotal) * item.cantidad
             validatedItems.push({
               productoId: producto.id,
               nombre: producto.nombre,
               precio: unitPrice,
               cantidad: item.cantidad,
               agregados: validatedAgregados,
-              secciones: validSections.value,
+              secciones: validSections.value.normalized,
+              seccionesPrecios: validSections.value.seccionesPrecios,
               ingredientesQuitados: ingredientesQuitadosSnapshot,
               talle: item.talle,
               color: item.color,
@@ -1268,7 +1236,7 @@ export async function POST(
                   // (IngredienteQuitadoCanonico[]) armado por buildIngredientesQuitadosSnapshot
                   // más arriba — persiste `[]` cuando no se pidió quitar nada, igual que antes.
                   ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
-                  seccionesPrecios: JSON.stringify({}),
+                  seccionesPrecios: JSON.stringify(item.seccionesPrecios),
                   talle: item.talle,
                   color: item.color,
                 })),

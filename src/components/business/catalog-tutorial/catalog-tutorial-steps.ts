@@ -198,11 +198,11 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     description:
       "Una sección de opciones propia pertenece a un solo {producto} y no se reutiliza en otros.",
     details: [
-      "Ejemplo A — {Producto} Pizza Especial, sección \"Tamaño\": Individual / Familiar, Obligatoria, Máx. 1.",
+      "Ejemplo A — {Producto} Pizza Especial, sección \"Tamaño\": Individual / Familiar +$2.500, Obligatoria, Máx. 1.",
       "Ejemplo B — {Producto} Papas Especiales, sección \"Salsas\": Opcional, Máx. 2.",
       "Obligatoria exige que el cliente elija al menos una opción antes de poder pedir.",
       "Máx. 0 se comporta como selección única (radio); un máximo mayor permite elegir varias.",
-      "Las opciones propias hoy no tienen un precio individual distinto — a diferencia de las opciones compartidas.",
+      "Cada opción puede tener un recargo opcional — dejala en $0 si no cambia el precio (no se muestra ningún texto de precio en ese caso).",
     ],
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
@@ -215,7 +215,7 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     description: "Una opción compartida es un grupo que podés usar en varios {productos} a la vez.",
     details: [
       "Ejemplo — \"Elegí tu bebida\": Coca-Cola +$0, Sprite +$0, Agua Mineral +$300. Obligatoria, Máx. 1.",
-      "A diferencia de una sección propia, las opciones compartidas SÍ pueden tener precio por opción.",
+      "Igual que una sección propia, cada opción puede tener un recargo opcional. La diferencia real entre ambas es la reutilización, no el precio.",
     ],
     actionLabel: "Ir a Opciones",
     actionKey: "goToSharedOptions",
@@ -348,11 +348,14 @@ export interface CatalogTutorialDecisionRow {
   answer: string
 }
 
+// R2 §54: PRICE does not decide own/shared — REUSE does. Both example rows
+// below now involve a price to make that explicit (Familiar cuesta más in
+// the own-section row too).
 export const CATALOG_TUTORIAL_DECISION_TABLE: CatalogTutorialDecisionRow[] = [
   { need: "Que el cliente pueda quitar tomate", answer: "Ingrediente" },
   { need: "Que agregue panceta por un precio extra", answer: "Agregado" },
-  { need: "Que elija algo exclusivo de este {producto}", answer: "Sección de opciones propia" },
-  { need: "Que la misma elección aparezca en varios {productos}", answer: "Opción compartida" },
+  { need: "Que elija el tamaño de ESTE {producto} y Familiar cueste más", answer: "Sección de opciones propia" },
+  { need: "Que la misma elección de bebida aparezca en MUCHOS {productos}", answer: "Opción compartida" },
 ]
 
 // §13 — compact comparison, own product section vs. shared option.
@@ -367,17 +370,15 @@ export const CATALOG_TUTORIAL_OWN_VS_SHARED_COMPARISON: CatalogTutorialCompariso
     points: [
       "Pertenece a un solo {producto}",
       "No es reutilizable",
-      "Obligatoria u opcional",
-      "Tiene un máximo de selecciones",
-      "Las opciones no cambian el precio hoy",
+      "Obligatoria u opcional, una o varias selecciones",
+      "Cada opción puede tener un recargo opcional",
     ],
   },
   {
     title: "Opción compartida",
     points: [
       "Reutilizable en varios {productos}",
-      "Se puede vincular a varios {productos} a la vez",
-      "Las opciones sí pueden tener precio",
+      "Cada opción puede tener un recargo opcional",
       "El contenido compartido actualiza a todos los {productos} vinculados",
       "Obligatorio y máximo pueden variar por {producto}",
     ],

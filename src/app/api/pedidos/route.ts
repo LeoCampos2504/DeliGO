@@ -40,6 +40,7 @@ import {
 } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { getPlatformServiceFee } from "@/lib/platform-settings"
+import { normalizeOwnSectionOptions, validateAndPriceProductSections } from "@/lib/product-own-sections"
 
 // ============================================
 // P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
@@ -160,6 +161,14 @@ interface ValidatedPedidoItem {
   cantidad: number
   agregados: Array<{ id: string; nombre: string; precio: number; tipo: string }>
   secciones: Record<string, SectionSelection>
+  // OWN-PRODUCT-OPTION-PRICES-R1 §51: server-authoritative price
+  // contribution of each selected own-section option, keyed
+  // `sectionName::optionName`, already multiplied by quantity for
+  // multi-select — derived exclusively from `productSections` (the
+  // stored Producto config), never from anything the client sent. This
+  // is what gets persisted into PedidoItem.seccionesPrecios so a
+  // historical order can explain its own total.
+  seccionesPrecios: Record<string, number>
   // P1-A.2B: snapshot autoritativo server-side (nombre/grupo derivados de
   // Producto -> ProductoIngrediente -> Ingrediente) — nunca los datos crudos
   // enviados por el cliente. Ver buildIngredientesQuitadosSnapshot.
@@ -176,7 +185,7 @@ interface SharedOptionConfig {
 
 interface ProductSection {
   nombre: string
-  opciones: string[]
+  opciones: Array<{ nombre: string; precio: number }>
   obligatorio: boolean
   maximo: number
 }
@@ -489,15 +498,14 @@ function normalizeProductSections(raw: unknown): ProductSection[] {
     .map((item): ProductSection | null => {
       if (!isPlainObject(item) || typeof item.nombre !== "string") return null
       const nombre = item.nombre.trim()
-      const opciones = Array.isArray(item.opciones)
-        ? item.opciones
-            .filter((option): option is string => typeof option === "string" && option.trim().length > 0)
-            .map((option) => option.trim())
-        : []
       if (!nombre) return null
+      // OWN-PRODUCT-OPTION-PRICES-R1: the shared normalizer accepts both
+      // legacy string[] and the new {nombre, precio}[] shape — this is
+      // the server's own read of `Producto.secciones`, so its prices are
+      // exactly what the business configured (never client input).
       return {
         nombre,
-        opciones,
+        opciones: normalizeOwnSectionOptions(item.opciones),
         obligatorio: item.obligatorio === true,
         maximo:
           typeof item.maximo === "number" && Number.isInteger(item.maximo) && item.maximo > 0
@@ -527,49 +535,18 @@ function normalizeSharedOption(raw: { id: string; opciones: string }): SharedOpt
   return { id: raw.id, opciones }
 }
 
+// OWN-PRODUCT-OPTION-PRICES-R1: the section-selection validator + server-
+// authoritative price computation now lives in @/lib/product-own-sections
+// (validateAndPriceProductSections) — pure, unit-tested directly there,
+// and shared so this route can never drift from that logic. Thin adapter
+// kept local only for the ValidationResult<T> return shape this file's
+// other validators already use.
 function validateProductSections(
   selected: Record<string, SectionSelection>,
   sections: ProductSection[]
-): ValidationResult<Record<string, SectionSelection>> {
-  const sectionMap = new Map(sections.map((section) => [section.nombre, section]))
-  const normalized: Record<string, SectionSelection> = {}
-
-  for (const [sectionName, selection] of Object.entries(selected)) {
-    const section = sectionMap.get(sectionName)
-    if (!section) return fail("Opcion de producto invalida")
-
-    if (typeof selection === "string") {
-      if (!section.opciones.includes(selection)) return fail("Opcion de producto invalida")
-      normalized[sectionName] = selection
-      continue
-    }
-
-    const validSelection: Record<string, number> = {}
-    let totalSelected = 0
-    for (const [optionName, quantity] of Object.entries(selection)) {
-      if (!section.opciones.includes(optionName)) return fail("Opcion de producto invalida")
-      totalSelected += quantity
-      validSelection[optionName] = quantity
-    }
-    if (section.maximo > 0 && totalSelected > section.maximo) {
-      return fail("Seleccion de seccion excede el maximo permitido")
-    }
-    if (totalSelected > 0) normalized[sectionName] = validSelection
-  }
-
-  for (const section of sections) {
-    if (!section.obligatorio) continue
-    const selection = normalized[section.nombre]
-    const selectedCount =
-      typeof selection === "string"
-        ? selection ? 1 : 0
-        : selection
-          ? Object.values(selection).reduce((sum, quantity) => sum + quantity, 0)
-          : 0
-    if (selectedCount < 1) return fail("Falta seleccionar una opcion obligatoria")
-  }
-
-  return ok(normalized)
+): ValidationResult<{ normalized: Record<string, SectionSelection>; seccionesPrecios: Record<string, number>; seccionesTotal: number }> {
+  const result = validateAndPriceProductSections(selected, sections)
+  return result.ok ? ok(result.value) : fail(result.error)
 }
 
 function splitSharedOptionId(value: string): { sharedId: string; optionName: string } | null {
@@ -996,14 +973,15 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         }
       }
 
-      serverTotalProductos += (unitPrice + agregadosTotal) * item.cantidad
+      serverTotalProductos += (unitPrice + agregadosTotal + validSections.value.seccionesTotal) * item.cantidad
       validatedItems.push({
         productoId: producto.id,
         nombre: producto.nombre,
         precio: unitPrice,
         cantidad: item.cantidad,
         agregados: validatedAgregados,
-        secciones: validSections.value,
+        secciones: validSections.value.normalized,
+        seccionesPrecios: validSections.value.seccionesPrecios,
         ingredientesQuitados: ingredientesQuitadosSnapshot,
         talle: item.talle,
         color: item.color,
@@ -1489,7 +1467,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           // (IngredienteQuitadoCanonico[]) armado por buildIngredientesQuitadosSnapshot
           // más arriba — persiste `[]` cuando no se pidió quitar nada, igual que antes.
           ingredientesQuitados: JSON.stringify(item.ingredientesQuitados),
-          seccionesPrecios: JSON.stringify({}),
+          seccionesPrecios: JSON.stringify(item.seccionesPrecios),
           talle: item.talle,
           color: item.color,
         })),

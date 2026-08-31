@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { cn, formatPrice } from "@/lib/utils"
+import { formatOptionalPriceDelta } from "@/lib/product-own-sections"
 import { useCartStore, type CartItem, type DeliveryAddress } from "@/store/cart-store"
 import { toast } from "sonner"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
@@ -877,10 +878,13 @@ function CartItemCard({
 }) {
   const [isRemoving, setIsRemoving] = useState(false)
 
-  const itemTotalPrice = useMemo(
-    () => (item.precio + item.agregados.reduce((s, a) => s + a.precio, 0)) * item.cantidad,
-    [item.precio, item.agregados, item.cantidad]
-  )
+  const itemTotalPrice = useMemo(() => {
+    const agregadosTotal = item.agregados.reduce((s, a) => s + a.precio, 0)
+    // OWN-PRODUCT-OPTION-PRICES-R1: seccionesPrecios values already have
+    // quantity multiplied in — sum directly, same as agregados.
+    const seccionesTotal = Object.values(item.seccionesPrecios ?? {}).reduce((s, p) => s + p, 0)
+    return (item.precio + agregadosTotal + seccionesTotal) * item.cantidad
+  }, [item.precio, item.agregados, item.seccionesPrecios, item.cantidad])
 
   const handleRemove = () => {
     setIsRemoving(true)
@@ -892,15 +896,23 @@ function CartItemCard({
   if (item.talle) details.push(`Talle: ${item.talle}`)
   if (item.color) details.push(`Color: ${item.color}`)
   item.agregados.forEach((a) => details.push(`+ ${a.nombre}`))
+  // OWN-PRODUCT-OPTION-PRICES-R1 §47: zero-price options show no
+  // suffix at all — only a positive delta from item.seccionesPrecios
+  // (already quantity-multiplied) gets appended, formatted the same way
+  // as every other price on this page.
+  const seccionPriceSuffix = (sectionName: string, optionName: string): string => {
+    const precio = item.seccionesPrecios?.[`${sectionName}::${optionName}`]
+    return precio && precio > 0 ? ` ${formatOptionalPriceDelta(precio, formatPrice)}` : ""
+  }
   Object.entries(item.secciones).forEach(([k, v]) => {
     if (!v) return
     if (typeof v === "string") {
-      details.push(`${k}: ${v}`)
+      details.push(`${k}: ${v}${seccionPriceSuffix(k, v)}`)
     } else {
       // Multi-select: { optionName: quantity }
       const parts = Object.entries(v as Record<string, number>)
         .filter(([, qty]) => qty > 0)
-        .map(([opt, qty]) => qty > 1 ? `${opt} x${qty}` : opt)
+        .map(([opt, qty]) => `${qty > 1 ? `${opt} x${qty}` : opt}${seccionPriceSuffix(k, opt)}`)
       if (parts.length > 0) details.push(`${k}: ${parts.join(", ")}`)
     }
   })
