@@ -434,6 +434,46 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
   }
 }
 
+/* ─── R8: degraded-viewport dock fallback ───
+   IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: R7 certified, on a
+   real device, that the tested WebKit recovery technique cannot force
+   visualViewport.height back to baseline after the first keyboard cycle
+   (729 -> 729, unchanged) — R6's hit-testing had already proven the
+   resulting visual clipping is not a DOM occluder, not z-index, not
+   backdrop/filter compositing. The remaining, evidence-grounded
+   explanation: the lower ~68px of the LAYOUT viewport falls outside the
+   region WebKit is currently treating as paintable, so no `bottom`-based
+   compensation targeting the physical screen edge can ever be fully
+   correct there.
+   ios-keyboard-fix.tsx computes and writes `--ios-dock-nav-top`/
+   `--ios-dock-fab-top` (see resolveIosDockPlacement in
+   src/lib/ios-dock-viewport-state.ts for the pure derivation) and toggles
+   `ios-dock-degraded` on <html>/<body> ONLY when a real, tolerance-checked
+   viewport-height deficit is detected with the keyboard already closed —
+   never merely because standalone mode is active. `top` (not `bottom`) is
+   used deliberately: unlike `bottom`, `top` maps directly and linearly to
+   rect.top for a `position:fixed` element on this WebKit build, with no
+   innerHeight/offsetTop inversion needed — sidestepping the exact
+   `bottom`-property quirk that made R3-R5's compensation formula fragile
+   in the first place. `bottom: auto` here is what makes this the sole
+   positioning authority while degraded — the R3-R5 `bottom` calc above
+   keeps computing (harmlessly unused) rather than needing to be
+   conditionally disabled in JS, so healthy-mode behavior is completely
+   unaffected. Higher selector specificity than the block above (an extra
+   class) means this always wins on its own, regardless of source order,
+   whenever `ios-dock-degraded` is present. ─── */
+@media (display-mode: standalone) {
+  body.ios-device.ios-dock-degraded .ios-bottom-nav {
+    top: var(--ios-dock-nav-top);
+    bottom: auto;
+  }
+
+  body.ios-device.ios-dock-degraded .ios-chat-fab {
+    top: var(--ios-dock-fab-top);
+    bottom: auto;
+  }
+}
+
 /* ─── R6: TEMPORARY diagnostic-only nav paint probes (query-flag gated) ───
    IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: R5's real-device evidence
    showed geometry (navPhysicalFullyVisible) can be PASS while the operator

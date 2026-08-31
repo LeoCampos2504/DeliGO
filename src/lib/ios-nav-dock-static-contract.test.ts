@@ -105,10 +105,22 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(firstChildRuleBody).not.toMatch(/padding-bottom/)
   })
 
-  test("J. IOSKeyboardFix (position-restore) e IOS-24-POSITION-FIX no fueron tocados por esta tarea", () => {
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: this test originally
+  // protected IOSKeyboardFix from growing any nav-specific coupling at all.
+  // R8 explicitly and deliberately breaks that isolation in one controlled
+  // way — writing --ios-dock-nav-top/--ios-dock-fab-top so the dock can stay
+  // inside WebKit's actual paintable viewport when it degrades — see
+  // ios-standalone-degraded-viewport-dock-fallback-r8-static-contract.test.ts
+  // for the tests that protect THAT specific, authorized surface. The
+  // invariant this test still protects: no DOM coupling (still never
+  // createPortal, never queries the nav element directly, never imports
+  // bottom-nav.tsx) — only the CSS custom-property channel.
+  test("J. IOSKeyboardFix (position-restore) e IOS-24-POSITION-FIX no fueron tocados por esta tarea; el acoplamiento con el nav está limitado al canal de CSS custom properties de R8 (sin DOM directo)", () => {
     const source = readFileSync(IOS_KEYBOARD_FIX, "utf-8")
     expect(source).toContain("preFocusScrollY")
-    expect(source).not.toMatch(/createPortal|bottom-nav/)
+    expect(source).not.toMatch(/createPortal/)
+    expect(source).not.toMatch(/from ["']@\/components\/shared\/bottom-nav["']/)
+    expect(source).not.toMatch(/querySelector\(['"]\.ios-bottom-nav/)
   })
 
   // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: chat-sheet.tsx ahora usa
@@ -186,14 +198,26 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
   // ONE additional rule scoped to `@media (display-mode: standalone)` that
   // only subtracts the residual visual-viewport offset on top of the same
   // base formula — never a second, independent formula.
-  test("R. exactamente dos reglas en globals.css fijan `bottom` para .ios-bottom-nav: la base y la compensación de standalone (nunca una tercera/independiente)", () => {
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: a real device
+  // certified the recovery experiment fails (R7) — the third rule below is
+  // the deliberate, gated (.ios-dock-degraded) fallback that keeps the dock
+  // inside WebKit's actual paintable viewport instead of continuing to
+  // target a physical screen edge the reduced viewport can't reliably
+  // paint into. It sets `bottom: auto` (matching this test's own
+  // \bbottom\s*: pattern) specifically to CEDE authority to `top` — not a
+  // second/competing bottom formula. Count intentionally raised from 2 to
+  // 3; the invariant (no undocumented fourth formula silently drifting in)
+  // still holds.
+  test("R. exactamente tres reglas en globals.css fijan `bottom` para .ios-bottom-nav: la base, la compensación de standalone y el fallback degradado de R8 (nunca una cuarta/independiente)", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     const blockPattern = /[^{}]*\.ios-bottom-nav[^{]*\{[^}]*\}/g
     const blocks = css.match(blockPattern) ?? []
     const blocksSettingBottom = blocks.filter((block) => /\bbottom\s*:/.test(block))
-    expect(blocksSettingBottom.length).toBe(2)
+    expect(blocksSettingBottom.length).toBe(3)
     expect(blocksSettingBottom[0]).toContain("body.ios-device .ios-bottom-nav")
     expect(blocksSettingBottom[1]).toContain("body.ios-device .ios-bottom-nav")
+    expect(blocksSettingBottom[2]).toContain("body.ios-device.ios-dock-degraded .ios-bottom-nav")
+    expect(blocksSettingBottom[2]).toMatch(/bottom:\s*auto/)
   })
 
   // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: la variable cambió de

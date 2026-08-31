@@ -26,8 +26,8 @@ import {
   type SafePaintElementInfo,
   type ScrollRestoreDebugSnapshot,
   type SheetElementGeometry,
-  type ViewportRecoveryDebugSnapshot,
 } from "@/lib/ios-debug-snapshot"
+import { resolveIosDockViewportMode, type DockViewportMode } from "@/lib/ios-dock-viewport-state"
 
 /**
  * IOSViewportDebugPanel — TEMPORARY, query-flag-gated real-device geometry
@@ -171,40 +171,6 @@ function readChatKeyboardBackdrop(el: Element | null): ChatKeyboardBackdropGeome
   }
 }
 
-// Mirrors Window.__iosViewportRecoveryDebug (declared and written only by
-// ios-keyboard-fix.tsx — see IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-
-// RECOVERY-R7). Same defensive-own-shape pattern as
-// readScrollRestoreDebug above.
-function readViewportRecoveryDebug(): ViewportRecoveryDebugSnapshot | null {
-  const raw = (
-    window as unknown as {
-      __iosViewportRecoveryDebug?: {
-        attempted: boolean
-        experimentEnabled: boolean
-        isStandalone: boolean
-        reason: string | null
-        baselineViewportHeight: number | null
-        heightBeforeAttempt: number | null
-        heightAfterAttempt: number | null
-        recovered: boolean | null
-        decidedAt: number
-      }
-    }
-  ).__iosViewportRecoveryDebug
-  if (!raw) return null
-  return {
-    attempted: raw.attempted,
-    experimentEnabled: raw.experimentEnabled,
-    isStandalone: raw.isStandalone,
-    reason: raw.reason,
-    baselineViewportHeight: raw.baselineViewportHeight,
-    heightBeforeAttempt: raw.heightBeforeAttempt,
-    heightAfterAttempt: raw.heightAfterAttempt,
-    recovered: raw.recovered,
-    decidedAt: raw.decidedAt,
-  }
-}
-
 // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §8-10: safe elementsFromPoint
 // hit-test. Only reads structural/paint properties already whitelisted by
 // SafePaintElementInfo — never innerText/textContent/value/dataset — see
@@ -303,17 +269,25 @@ function captureSnapshot(
   eventType: string,
   pathname: string | null,
   includeOcclusionProbes = false,
-  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: the milestone
-  // tracker's recorded true baseline (see MilestoneTrackerState in
-  // ios-debug-snapshot.ts), threaded through so computeDerivedGeometry can
-  // compute visualViewportHeightDeficit/viewportGeometryRestored. null
-  // until AUTO_BASELINE_STABLE has fired once this session.
+  // The milestone tracker's recorded true baseline (see
+  // MilestoneTrackerState in ios-debug-snapshot.ts), threaded through so
+  // computeDerivedGeometry can compute visualViewportHeightDeficit/
+  // viewportGeometryRestored/dockViewportMode. null until
+  // AUTO_BASELINE_STABLE has fired once this session.
   baselineGeometry: { vvHeight: number | null; vvOffsetTop: number | null } | null = null
 ): GeometrySnapshot {
   const vv = window.visualViewport
   const visualViewport = vv
     ? { width: vv.width, height: vv.height, offsetTop: vv.offsetTop, offsetLeft: vv.offsetLeft, scale: vv.scale }
     : null
+  const keyboardOpenNow = document.documentElement.className.includes("ios-keyboard-open")
+  const isStandaloneNow = window.matchMedia?.("(display-mode: standalone)").matches ?? false
+  const dockViewportMode: DockViewportMode = resolveIosDockViewportMode({
+    keyboardOpen: keyboardOpenNow,
+    isStandalone: isStandaloneNow,
+    baselineViewportHeight: baselineGeometry?.vvHeight ?? null,
+    currentViewportHeight: visualViewport?.height ?? null,
+  })
 
   const bottomNavEl = document.querySelector('[data-ios-debug-role="bottom-nav"]')
   const bottomNav = readDockElement(bottomNavEl)
@@ -362,7 +336,7 @@ function captureSnapshot(
     browserMode: readBrowserMode(),
     scrollRestoreDebug: readScrollRestoreDebug(),
     navOcclusionProbes: includeOcclusionProbes ? readOcclusionProbes(bottomNavEl) : null,
-    viewportRecoveryDebug: readViewportRecoveryDebug(),
+    dockViewportMode,
     derived: computeDerivedGeometry({
       windowInnerHeight: window.innerHeight,
       visualViewport,
@@ -385,12 +359,6 @@ export function IOSViewportDebugPanel() {
   const [autoCount, setAutoCount] = useState(0)
   const [liveSnapshot, setLiveSnapshot] = useState<GeometrySnapshot | null>(null)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
-  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: mirrors
-  // window.__iosViewportRecoveryExperiment purely for the toggle button's
-  // own display — ios-keyboard-fix.tsx reads the window global directly
-  // (never this React state), so this component owning stale state can
-  // never desync the actual experiment behavior.
-  const [viewportRecoveryExperimentOn, setViewportRecoveryExperimentOn] = useState(false)
 
   const eventsBufferRef = useRef(createRingBuffer<GeometrySnapshot>(DEBUG_EVENT_BUFFER_MAX))
   const rafRef = useRef(0)
@@ -762,19 +730,6 @@ export function IOSViewportDebugPanel() {
     disarmPostKeyboardScrollWatch()
   }
 
-  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §14: a panel toggle,
-  // as the task requests, so the operator can arm the experiment before
-  // focusing an input without a fresh PWA install. Writes directly to the
-  // window global ios-keyboard-fix.tsx reads — this panel never runs the
-  // recovery mechanism itself. Toggling while a keyboard cycle is active
-  // has no effect on the CURRENT cycle (the flag is only read once, at the
-  // moment a real keyboard-close settles) — safe to click any time.
-  const handleToggleViewportRecoveryExperiment = () => {
-    const next = !viewportRecoveryExperimentOn
-    window.__iosViewportRecoveryExperiment = next
-    setViewportRecoveryExperimentOn(next)
-  }
-
   if (!mounted || !enabled) return null
 
   return (
@@ -866,30 +821,26 @@ export function IOSViewportDebugPanel() {
                     ? "YES"
                     : "NO"}
               </span>
-              <span>recovery attempt</span>
+              <span>dock mode</span>
+              <span>{liveSnapshot?.dockViewportMode ?? "-"}</span>
+              <span>nav in paintable</span>
               <span>
-                {liveSnapshot?.viewportRecoveryDebug
-                  ? liveSnapshot.viewportRecoveryDebug.attempted
-                    ? liveSnapshot.viewportRecoveryDebug.recovered
-                      ? "OK"
-                      : "TRIED,NO"
-                    : (liveSnapshot.viewportRecoveryDebug.reason ?? "-")
-                  : "-"}
+                {liveSnapshot?.derived.navInsidePaintableViewport === null ||
+                liveSnapshot?.derived.navInsidePaintableViewport === undefined
+                  ? "-"
+                  : liveSnapshot.derived.navInsidePaintableViewport
+                    ? `YES (+${liveSnapshot.derived.navPaintableBottomGap?.toFixed(1)}px)`
+                    : `NO (${liveSnapshot.derived.navPaintableBottomGap?.toFixed(1)}px)`}
               </span>
-            </div>
-
-            <div className="flex items-center gap-1 pt-1 border-t border-white/20">
-              <button
-                type="button"
-                onClick={handleToggleViewportRecoveryExperiment}
-                className={
-                  viewportRecoveryExperimentOn
-                    ? "flex-1 bg-emerald-700 hover:bg-emerald-600 rounded px-2 py-1"
-                    : "flex-1 bg-white/10 hover:bg-white/20 rounded px-2 py-1"
-                }
-              >
-                viewport recovery experiment: {viewportRecoveryExperimentOn ? "ON" : "OFF"}
-              </button>
+              <span>fab in paintable</span>
+              <span>
+                {liveSnapshot?.derived.fabInsidePaintableViewport === null ||
+                liveSnapshot?.derived.fabInsidePaintableViewport === undefined
+                  ? "-"
+                  : liveSnapshot.derived.fabInsidePaintableViewport
+                    ? "YES"
+                    : "NO"}
+              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-1 pt-1 border-t border-white/20">

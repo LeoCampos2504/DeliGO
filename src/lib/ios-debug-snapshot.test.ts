@@ -400,6 +400,11 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         fabPhysicalFullyVisible: true,
         visualViewportHeightDeficit: 0,
         viewportGeometryRestored: true,
+        paintableViewportBottom: 797,
+        navPaintableBottomGap: 42,
+        fabPaintableBottomGap: 118,
+        navInsidePaintableViewport: true,
+        fabInsidePaintableViewport: true,
       },
       scrollRestoreDebug: {
         preFocusScrollY: 100,
@@ -410,7 +415,7 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         decidedAt: 1,
       },
       navOcclusionProbes: null,
-      viewportRecoveryDebug: null,
+      dockViewportMode: null,
     }
     expect(Object.keys(snapshot).sort()).toEqual(GEOMETRY_SNAPSHOT_ALLOWED_KEYS)
   })

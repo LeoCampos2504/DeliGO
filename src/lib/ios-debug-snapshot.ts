@@ -11,6 +11,8 @@
 // only numeric geometry, a fixed whitelist of computed-style strings, and
 // className strings of our own known dock elements.
 
+import type { DockViewportMode } from "./ios-dock-viewport-state"
+
 export interface RectGeometry {
   top: number
   left: number
@@ -105,24 +107,6 @@ export interface ChatKeyboardBackdropGeometry {
   parentZIndex: string
 }
 
-// IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7 §11: read-only mirror
-// of Window.__iosViewportRecoveryDebug (declared and written by
-// ios-keyboard-fix.tsx — see that file for the single write site, right
-// after the opt-in recovery experiment's decision is made). Purely
-// numeric heights/booleans and a fixed reason-string enum, never an input
-// value or message.
-export interface ViewportRecoveryDebugSnapshot {
-  attempted: boolean
-  experimentEnabled: boolean
-  isStandalone: boolean
-  reason: string | null
-  baselineViewportHeight: number | null
-  heightBeforeAttempt: number | null
-  heightAfterAttempt: number | null
-  recovered: boolean | null
-  decidedAt: number
-}
-
 export interface BrowserModeInfo {
   standalone: boolean
   displayModeStandalone: boolean
@@ -212,6 +196,20 @@ export interface DerivedGeometry {
   // concepts here, never conflated into one boolean.
   visualViewportHeightDeficit: number | null
   viewportGeometryRestored: boolean | null
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8 §20-21: the
+  // acceptance geometry for the fallback. navPhysicalFullyVisible (above)
+  // is proven insufficient on its own — R6/R7 showed it can read `true`
+  // while physical pixels are compositor-clipped, because it only checks
+  // against window.innerHeight, not against what WebKit is CURRENTLY
+  // painting. paintableViewportBottom = offsetTop + visualViewport.height
+  // (the same physical/fixed coordinate frame rect.bottom already uses —
+  // no innerHeight inversion) is the authority these two new fields use
+  // instead.
+  paintableViewportBottom: number | null
+  navPaintableBottomGap: number | null
+  fabPaintableBottomGap: number | null
+  navInsidePaintableViewport: boolean | null
+  fabInsidePaintableViewport: boolean | null
 }
 
 // IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only mirror of
@@ -253,11 +251,13 @@ export interface GeometrySnapshot {
   // never competes with the very scroll/compositor behavior under
   // investigation) or BottomNav itself wasn't found in the DOM.
   navOcclusionProbes: OcclusionProbeResult[] | null
-  // IOS-STANDALONE-POST-KEYBOARD-VIEWPORT-RECOVERY-R7: null whenever the
-  // opt-in recovery experiment has never fired yet this session (flag off,
-  // no keyboard-close settle happened, etc.) — see
-  // Window.__iosViewportRecoveryDebug in ios-keyboard-fix.tsx.
-  viewportRecoveryDebug: ViewportRecoveryDebugSnapshot | null
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: which dock mode was
+  // active at capture time — the single source of truth is
+  // resolveIosDockViewportMode (ios-dock-viewport-state.ts), called here
+  // with the same inputs ios-keyboard-fix.tsx's own mode authority uses.
+  // null only when isIOSDevice() would be false (non-iOS) or before the
+  // panel has read a first live snapshot.
+  dockViewportMode: DockViewportMode | null
 }
 
 export interface DebugExportPayload {
@@ -385,6 +385,22 @@ export function computeDerivedGeometry(input: {
   const viewportGeometryRestored =
     heightRestored === null || offsetRestored === null ? null : heightRestored && offsetRestored
 
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: paintableViewportBottom
+  // is visualViewport's OWN bottom edge in the same physical/fixed
+  // coordinate frame getBoundingClientRect() already uses for rect.bottom —
+  // offsetTop + height, no innerHeight inversion (that inversion is a
+  // `bottom`-property-specific quirk this field deliberately avoids; see
+  // resolveIosDockPlacement in ios-dock-viewport-state.ts for the full
+  // derivation this mirrors). A small negative tolerance (-1px) absorbs
+  // sub-pixel rounding the same way navPhysicalFullyVisible already does.
+  const paintableViewportBottom = visualViewport ? visualViewport.offsetTop + visualViewport.height : null
+  const navPaintableBottomGap =
+    bottomNav && paintableViewportBottom !== null ? paintableViewportBottom - bottomNav.rect.bottom : null
+  const fabPaintableBottomGap =
+    chatFab && paintableViewportBottom !== null ? paintableViewportBottom - chatFab.rect.bottom : null
+  const navInsidePaintableViewport = navPaintableBottomGap !== null ? navPaintableBottomGap >= -1 : null
+  const fabInsidePaintableViewport = fabPaintableBottomGap !== null ? fabPaintableBottomGap >= -1 : null
+
   return {
     fixedViewportBottom,
     navBottomDistance,
@@ -403,6 +419,11 @@ export function computeDerivedGeometry(input: {
     fabPhysicalFullyVisible,
     visualViewportHeightDeficit,
     viewportGeometryRestored,
+    paintableViewportBottom,
+    navPaintableBottomGap,
+    fabPaintableBottomGap,
+    navInsidePaintableViewport,
+    fabInsidePaintableViewport,
   }
 }
 
@@ -780,19 +801,7 @@ export const GEOMETRY_SNAPSHOT_ALLOWED_KEYS = [
   "derived",
   "scrollRestoreDebug",
   "navOcclusionProbes",
-  "viewportRecoveryDebug",
-].sort()
-
-export const VIEWPORT_RECOVERY_DEBUG_ALLOWED_KEYS = [
-  "attempted",
-  "experimentEnabled",
-  "isStandalone",
-  "reason",
-  "baselineViewportHeight",
-  "heightBeforeAttempt",
-  "heightAfterAttempt",
-  "recovered",
-  "decidedAt",
+  "dockViewportMode",
 ].sort()
 
 export const SCROLL_RESTORE_DEBUG_ALLOWED_KEYS = [
@@ -848,4 +857,9 @@ export const DERIVED_GEOMETRY_ALLOWED_KEYS = [
   "fabPhysicalFullyVisible",
   "visualViewportHeightDeficit",
   "viewportGeometryRestored",
+  "paintableViewportBottom",
+  "navPaintableBottomGap",
+  "fabPaintableBottomGap",
+  "navInsidePaintableViewport",
+  "fabInsidePaintableViewport",
 ].sort()
