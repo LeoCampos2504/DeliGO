@@ -13,10 +13,8 @@ import {
   DERIVED_GEOMETRY_ALLOWED_KEYS,
   DOCK_ELEMENT_ALLOWED_KEYS,
   GEOMETRY_SNAPSHOT_ALLOWED_KEYS,
-  IOS_DEBUG_STORAGE_KEY,
   RECT_ALLOWED_KEYS,
   isIosDebugFlagEnabled,
-  resolveIosDebugEnabled,
   type BrowserModeInfo,
   type ComposerElementGeometry,
   type DockElementGeometry,
@@ -219,22 +217,6 @@ describe("isIosDebugFlagEnabled", () => {
     expect(isIosDebugFlagEnabled("?foo=bar")).toBe(false)
     expect(isIosDebugFlagEnabled("?iosDebug=0")).toBe(false)
     expect(isIosDebugFlagEnabled("?iosDebug=true")).toBe(false)
-  })
-})
-
-describe("resolveIosDebugEnabled — standalone PWA persistence", () => {
-  test("query flag alone enables it", () => {
-    expect(resolveIosDebugEnabled("?iosDebug=1", null)).toBe(true)
-  })
-  test("stored flag alone enables it — needed because manifest-cliente.json's start_url has no query string", () => {
-    expect(resolveIosDebugEnabled("", "1")).toBe(true)
-  })
-  test("neither present disables it", () => {
-    expect(resolveIosDebugEnabled("", null)).toBe(false)
-    expect(resolveIosDebugEnabled("", "0")).toBe(false)
-  })
-  test("storage key is a stable, namespaced string (never a generic name that could collide)", () => {
-    expect(IOS_DEBUG_STORAGE_KEY).toBe("deligo-ios-debug-enabled")
   })
 })
 

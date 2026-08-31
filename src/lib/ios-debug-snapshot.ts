@@ -355,26 +355,21 @@ export function advanceMilestoneTracker(
   return { state: { lastClass: cls, stableCount, baselineFired }, fire }
 }
 
-// ─── Query-flag gate (pure, testable) ───────────────────────────────────
+// ─── Query-flag gate (pure, testable) ────────────────────────────────────
+// IOS-PWA-DEBUG-LAUNCH-FIX-R2A: this used to be supplemented by a
+// localStorage flag (IOS_DEBUG_STORAGE_KEY) meant to carry ?iosDebug=1
+// from a Safari tab into the installed standalone PWA. That never could
+// have worked — Safari and an installed Home Screen web app are separate
+// WebKit storage contexts on iOS and do not share localStorage — confirmed
+// by the operator's real device (panel worked in Safari, not after
+// installing). Removed. The actual fix is
+// public/manifest-cliente.json's start_url, which now embeds
+// ?iosDebug=1 directly for TESTING, so every cold launch from the
+// installed icon already carries the flag — this function alone is
+// sufficient again.
 export function isIosDebugFlagEnabled(search: string): boolean {
   const params = new URLSearchParams(search)
   return params.get("iosDebug") === "1"
-}
-
-// ─── Standalone-PWA persistence (IOS-MOBILE-REAL-DEVICE-R2-PWA-PREPARATION) ─
-// manifest-cliente.json's start_url is "/cliente" with no query string, so
-// launching the installed TESTING PWA from the Home Screen icon always
-// lands on a URL without ?iosDebug=1 — the query flag alone can never
-// re-arm the panel after installation. IOS_DEBUG_STORAGE_KEY is the
-// localStorage key the panel writes once it sees the query flag (so a
-// single "open the link once in Safari, tap Add to Home Screen" is enough)
-// and reads on every mount thereafter — scoped to this TESTING origin
-// only, never touching manifest.json/start_url/scope, and with zero effect
-// on any user who never passed ?iosDebug=1 in the first place.
-export const IOS_DEBUG_STORAGE_KEY = "deligo-ios-debug-enabled"
-
-export function resolveIosDebugEnabled(search: string, storedFlag: string | null): boolean {
-  return isIosDebugFlagEnabled(search) || storedFlag === "1"
 }
 
 // The exact whitelisted key sets every geometry object must have — used by

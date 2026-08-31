@@ -3,7 +3,7 @@
   "name": "DeliGO - Pedí lo que quieras",
   "short_name": "DeliGO",
   "description": "DeliGO: Pedí comida, ropa y más a tu puerta. La plataforma de delivery y comercio local más rápida.",
-  "start_url": "/cliente",
+  "start_url": "/cliente?iosDebug=1",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#FB8C00",

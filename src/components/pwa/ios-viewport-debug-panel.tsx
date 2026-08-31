@@ -11,9 +11,7 @@ import {
   createInitialMilestoneTrackerState,
   createRingBuffer,
   DEBUG_EVENT_BUFFER_MAX,
-  IOS_DEBUG_STORAGE_KEY,
   isIosDebugFlagEnabled,
-  resolveIosDebugEnabled,
   type BrowserModeInfo,
   type ComposerElementGeometry,
   type DockElementGeometry,
@@ -24,18 +22,29 @@ import {
 
 /**
  * IOSViewportDebugPanel — TEMPORARY, query-flag-gated real-device geometry
- * diagnostics (IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1).
+ * diagnostics (IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1, corrected
+ * by IOS-PWA-DEBUG-LAUNCH-FIX-R2A).
  *
- * Only mounts its DOM/listeners when the URL contains `?iosDebug=1` (or the
- * one-time-armed localStorage flag from a previous visit — see
- * IOS_DEBUG_STORAGE_KEY, needed because the installed PWA's start_url has
- * no query string) — with neither present (the normal-user case), this
- * component returns null on every render and never touches document/
- * window beyond that one-time check, exactly like BottomNav's own
- * `mounted` gate. It never reads input values, chat message text, tokens,
- * cookies, or session/business data from localStorage — the ONLY
- * localStorage key it ever touches is its own namespaced debug-enabled
- * flag. Every other field is a numeric rect or a fixed whitelist of
+ * Only mounts its DOM/listeners when the URL contains `?iosDebug=1` — with
+ * it absent (the normal-user case), this component returns null on every
+ * render and never touches document/window beyond that one-time check,
+ * exactly like BottomNav's own `mounted` gate.
+ *
+ * IOS-PWA-DEBUG-LAUNCH-FIX-R2A removed the localStorage-based persistence
+ * this file used to carry the flag from a Safari tab into the installed
+ * standalone PWA: Safari and an installed Home Screen web app are separate
+ * WebKit storage contexts on iOS and do not share localStorage, so that
+ * mechanism could never have worked across that boundary (confirmed by the
+ * operator's real device — the panel appeared in Safari but not after
+ * installing). The actual fix is
+ * `public/manifest-cliente.json`'s `start_url`, which now embeds
+ * `?iosDebug=1` directly (TESTING only — see that file's own note and
+ * codex-reports/IOS_PWA_DEBUG_LAUNCH_FIX_R2A.md), so every cold launch from
+ * the installed icon already lands on a URL containing the flag. No
+ * cross-context persistence is needed.
+ *
+ * Never reads input values, chat message text, tokens, cookies, or
+ * localStorage — every field is a numeric rect or a fixed whitelist of
  * computed-style/className strings (see src/lib/ios-debug-snapshot.ts,
  * which also unit-tests that whitelist so a sensitive field can never be
  * added silently).
@@ -203,40 +212,17 @@ export function IOSViewportDebugPanel() {
 
   // Same SSR-safe "mounted" gate BottomNav uses — server and first client
   // render both render nothing, avoiding a hydration mismatch. The debug
-  // flag is read from window.location AND (so the standalone PWA, whose
-  // manifest start_url has no query string, keeps the panel armed after
-  // install) a localStorage flag written the first time ?iosDebug=1 was
-  // seen — see IOS_DEBUG_STORAGE_KEY's doc comment in ios-debug-snapshot.ts.
+  // flag is read exclusively from window.location.search — the installed
+  // TESTING PWA's manifest start_url now embeds ?iosDebug=1 directly (see
+  // this file's module comment), so every cold launch already carries it;
+  // no cross-context persistence is needed or attempted.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setMounted(true)
-      const queryEnabled = isIosDebugFlagEnabled(window.location.search)
-      let storedFlag: string | null = null
-      try {
-        storedFlag = window.localStorage.getItem(IOS_DEBUG_STORAGE_KEY)
-      } catch {
-        // Private browsing / storage blocked — fall back to query-only.
-      }
-      setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))
-      if (queryEnabled) {
-        try {
-          window.localStorage.setItem(IOS_DEBUG_STORAGE_KEY, "1")
-        } catch {
-          // Nothing to do — the panel still works for this session via the query flag.
-        }
-      }
+      setEnabled(isIosDebugFlagEnabled(window.location.search))
     }, 0)
     return () => window.clearTimeout(timer)
   }, [])
-
-  const handleDisarm = () => {
-    try {
-      window.localStorage.removeItem(IOS_DEBUG_STORAGE_KEY)
-    } catch {
-      // Nothing to do.
-    }
-    setEnabled(false)
-  }
 
   const pushEvent = useCallback((snap: GeometrySnapshot) => {
     eventsBufferRef.current.push(snap)
@@ -512,14 +498,6 @@ export function IOSViewportDebugPanel() {
                 CLEAR
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={handleDisarm}
-              className="w-full bg-white/5 hover:bg-white/10 text-white/60 rounded px-2 py-1 text-center"
-            >
-              DISARM (stop showing this panel on this device)
-            </button>
 
             <div className="text-white/60">
               {manualCaptures.length} manual · {autoCount} auto

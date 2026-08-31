@@ -2,6 +2,7 @@
 
 // ============================================
 // IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1 — contrato estático focal
+// (corregido por IOS-PWA-DEBUG-LAUNCH-FIX-R2A)
 // ============================================
 // No existe React Testing Library en el stack de tests de este repo (ver el
 // comentario de módulo de chat-fab.test.tsx / chat-sheet.test.tsx para el
@@ -12,6 +13,14 @@
 // está cubierta con tests reales de comportamiento en
 // src/lib/ios-debug-snapshot.test.ts — este archivo sólo protege el
 // cableado del componente React alrededor de esa lógica.
+//
+// IOS-PWA-DEBUG-LAUNCH-FIX-R2A quitó la persistencia por localStorage que
+// R2 había agregado para intentar llevar el flag de Safari a la PWA
+// instalada — Safari y una PWA instalada son contextos de storage
+// separados en WebKit/iOS, así que esa persistencia nunca pudo funcionar
+// cruzando ese límite (confirmado por el propio dispositivo real del
+// operador). El fix real es que `public/manifest-cliente.json` ahora
+// declara `start_url` con `?iosDebug=1` incluido, sólo en TESTING.
 // REAL_IPHONE_VERIFICATION_REQUIRED=SI
 
 import { describe, expect, test } from "bun:test"
@@ -37,9 +46,9 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).toContain("if (!mounted || !enabled) return null")
   })
 
-  test("B. el flag se lee una sola vez desde window.location.search (+ localStorage), nunca desde props/SSR", () => {
+  test("B. el flag se lee una sola vez desde window.location.search, nunca desde props/SSR ni localStorage", () => {
     const source = panelSource()
-    expect(source).toContain("setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))")
+    expect(source).toContain("setEnabled(isIosDebugFlagEnabled(window.location.search))")
     expect(source).not.toMatch(/searchParams\s*:\s*{/)
   })
 
@@ -69,36 +78,16 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).not.toMatch(/sendBeacon/)
   })
 
-  test("G. nunca lee input.value, document.cookie, ni contenido de mensajes", () => {
+  // IOS-PWA-DEBUG-LAUNCH-FIX-R2A: localStorage ya no tiene ningún propósito
+  // (el fix real es manifest-cliente.json's start_url) — se volvió a la
+  // prohibición estricta de R1 en vez de la excepción acotada que R2 había
+  // introducido para IOS_DEBUG_STORAGE_KEY.
+  test("G. nunca lee input.value, localStorage, document.cookie, ni contenido de mensajes", () => {
     const source = panelCodeOnly()
     expect(source).not.toMatch(/\.value\b/)
+    expect(source).not.toMatch(/localStorage/)
     expect(source).not.toMatch(/document\.cookie/)
     expect(source).not.toMatch(/textContent|innerText|innerHTML/)
-  })
-
-  // IOS-MOBILE-REAL-DEVICE-R2-PWA-PREPARATION §14: localStorage se agregó
-  // deliberadamente, pero SÓLO para persistir el propio flag booleano del
-  // panel (IOS_DEBUG_STORAGE_KEY) a través del relanzamiento de la PWA
-  // instalada — nunca para leer datos de la app/sesión real. Este test
-  // reemplaza el "nunca localStorage" de G: en vez de prohibirlo, exige que
-  // CADA uso de localStorage en el archivo opere exclusivamente sobre esa
-  // constante importada, nunca sobre una clave arbitraria o dinámica.
-  test("G2. localStorage se usa únicamente para IOS_DEBUG_STORAGE_KEY — nunca para una clave arbitraria", () => {
-    const source = panelCodeOnly()
-    expect(source).toContain("IOS_DEBUG_STORAGE_KEY")
-    const calls = [...source.matchAll(/localStorage\.(getItem|setItem|removeItem)\(([^)]*)\)/g)]
-    expect(calls.length).toBeGreaterThan(0)
-    for (const call of calls) {
-      const args = call[2]
-      expect(args.trim().startsWith("IOS_DEBUG_STORAGE_KEY")).toBe(true)
-    }
-  })
-
-  test("G3. toda lectura/escritura de localStorage está envuelta en try/catch (private browsing / storage bloqueado no debe romper el panel)", () => {
-    const source = panelCodeOnly()
-    expect(source).toMatch(/try \{\s*storedFlag = window\.localStorage\.getItem/)
-    expect(source).toMatch(/try \{\s*window\.localStorage\.setItem/)
-    expect(source).toMatch(/try \{\s*window\.localStorage\.removeItem/)
   })
 
   test("H. exportar JSON usa navigator.clipboard, nunca un endpoint propio ni descarga automática", () => {
@@ -121,28 +110,23 @@ describe("IOSViewportDebugPanel — contrato estático", () => {
     expect(source).toContain('[data-slot="sheet-overlay"]')
   })
 
-  test("L. el estado enabled combina query flag y localStorage vía resolveIosDebugEnabled (no sólo el query flag)", () => {
-    const source = panelSource()
-    expect(source).toContain("setEnabled(resolveIosDebugEnabled(window.location.search, storedFlag))")
-  })
-
-  test("M. feedMilestoneClassifier corre tanto en el live-update normal como en la ventana de settling — cubre ambos caminos de captura automática", () => {
-    const source = panelSource()
-    const occurrences = source.match(/feedMilestoneClassifier\(/g) ?? []
-    // 1 definición (useCallback) + al menos 2 usos (scheduleLiveUpdate y runSettlingCapture x2 llamadas)
-    expect(occurrences.length).toBeGreaterThanOrEqual(3)
-  })
-
-  test("N. el timer de AUTO_FINAL_STABLE se cancela en el cleanup del efecto de listeners", () => {
-    const source = panelSource()
-    expect(source).toContain("if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)")
-  })
-
   test("K. está montado en el root layout, no dentro de una ruta específica", () => {
     const layoutSource = readFileSync(
       resolve(import.meta.dir, "..", "..", "app", "layout.tsx"),
       "utf8"
     ).replace(/\r\n/g, "\n")
     expect(layoutSource).toContain("<IOSViewportDebugPanel />")
+  })
+
+  test("L. feedMilestoneClassifier corre tanto en el live-update normal como en la ventana de settling — cubre ambos caminos de captura automática", () => {
+    const source = panelSource()
+    const occurrences = source.match(/feedMilestoneClassifier\(/g) ?? []
+    // 1 definición (useCallback) + al menos 2 usos (scheduleLiveUpdate y runSettlingCapture x2 llamadas)
+    expect(occurrences.length).toBeGreaterThanOrEqual(3)
+  })
+
+  test("M. el timer de AUTO_FINAL_STABLE se cancela en el cleanup del efecto de listeners", () => {
+    const source = panelSource()
+    expect(source).toContain("if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)")
   })
 })
