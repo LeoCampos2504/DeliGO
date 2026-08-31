@@ -456,7 +456,11 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
               <SalesTab negocio={negocio} />
             )}
             {activeTab === "productos" && (
-              <ProductsTab negocio={negocio} mode={showModeToggle ? mode : "simple"} />
+              <ProductsTab
+                negocio={negocio}
+                mode={showModeToggle ? mode : "simple"}
+                onModeChange={handleModeChange}
+              />
             )}
             {activeTab === "pedidos" && (
               <OrdersTab negocio={negocio} />
