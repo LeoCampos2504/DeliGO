@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { validateSharedOptionPayload } from "@/lib/shared-options-server"
 
 // GET - List opciones compartidas for negocio
 export async function GET(req: NextRequest) {
@@ -50,19 +51,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { nombre, opciones, obligatorio, maximo } = body
 
-    if (!nombre?.trim()) {
+    if (typeof nombre !== "string" || !nombre.trim()) {
       return NextResponse.json(
         { error: "El nombre es obligatorio" },
         { status: 400 }
       )
     }
 
+    const validPayload = validateSharedOptionPayload({ opciones, obligatorio, maximo })
+    if (!validPayload.ok) {
+      return NextResponse.json({ error: validPayload.error }, { status: 400 })
+    }
+
     const opcionCompartida = await db.opcionesCompartidas.create({
       data: {
         nombre: nombre.trim(),
-        opciones: JSON.stringify(opciones || []),
-        obligatorio: obligatorio ?? false,
-        maximo: maximo ?? 0,
+        opciones: JSON.stringify(validPayload.opciones),
+        obligatorio: validPayload.obligatorio,
+        maximo: validPayload.maximo,
         negocioId,
       },
     })

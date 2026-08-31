@@ -2,6 +2,16 @@ import { db } from "@/lib/db"
 
 type IdListResult = { ok: true; ids: string[] } | { ok: false; error: string }
 
+export type SharedOptionConfig = {
+  id: string
+  obligatorio: boolean
+  maximo: number
+}
+
+export type SharedOptionConfigListResult =
+  | { ok: true; ids: string[]; configs: SharedOptionConfig[] }
+  | { ok: false; error: string }
+
 type NegocioResourceRefs = {
   productos?: string[]
   agregados?: string[]
@@ -30,32 +40,54 @@ export function readStringIdList(value: unknown, fieldName: string): IdListResul
   return { ok: true, ids: uniqueIds(ids) }
 }
 
-export function readSharedOptionIdList(value: unknown, fieldName: string): IdListResult {
-  if (value === undefined) return { ok: true, ids: [] }
+export function readSharedOptionConfigList(value: unknown, fieldName: string): SharedOptionConfigListResult {
+  if (value === undefined) return { ok: true, ids: [], configs: [] }
   if (!Array.isArray(value)) {
     return { ok: false, error: `${fieldName} debe ser un array de IDs` }
   }
 
   const ids: string[] = []
+  const configs: SharedOptionConfig[] = []
   for (const item of value) {
     if (typeof item === "string") {
       if (!item.trim()) return { ok: false, error: `${fieldName} contiene IDs invalidos` }
-      ids.push(item.trim())
+      const id = item.trim()
+      ids.push(id)
+      configs.push({ id, obligatorio: false, maximo: 0 })
       continue
     }
 
     if (item && typeof item === "object") {
-      const id = (item as { id?: unknown }).id
-      if (typeof id === "string" && id.trim()) {
-        ids.push(id.trim())
-        continue
+      const record = item as { id?: unknown; obligatorio?: unknown; maximo?: unknown }
+      if (typeof record.id !== "string" || !record.id.trim()) {
+        return { ok: false, error: `${fieldName} contiene IDs invalidos` }
       }
+
+      const obligatorio = record.obligatorio ?? false
+      if (typeof obligatorio !== "boolean") {
+        return { ok: false, error: `${fieldName} contiene una configuración obligatoria invalida` }
+      }
+
+      const maximo = record.maximo ?? 0
+      if (typeof maximo !== "number" || !Number.isSafeInteger(maximo) || maximo < 0) {
+        return { ok: false, error: `${fieldName} contiene un máximo invalido` }
+      }
+
+      const id = record.id.trim()
+      ids.push(id)
+      configs.push({ id, obligatorio, maximo })
+      continue
     }
 
     return { ok: false, error: `${fieldName} contiene IDs invalidos` }
   }
 
-  return { ok: true, ids: uniqueIds(ids) }
+  return { ok: true, ids: uniqueIds(ids), configs }
+}
+
+export function readSharedOptionIdList(value: unknown, fieldName: string): IdListResult {
+  const result = readSharedOptionConfigList(value, fieldName)
+  return result.ok ? { ok: true, ids: result.ids } : result
 }
 
 async function ownsAllProductos(negocioId: string, ids: string[]) {

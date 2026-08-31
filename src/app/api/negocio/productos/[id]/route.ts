@@ -4,7 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
-  readSharedOptionIdList,
+  readSharedOptionConfigList,
   readStringIdList,
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
@@ -162,7 +162,7 @@ export async function PUT(
       return NextResponse.json({ error: validIngredienteIds.error }, { status: 400 })
     }
 
-    const validOpcionesCompartidasIds = readSharedOptionIdList(
+    const validOpcionesCompartidasIds = readSharedOptionConfigList(
       opcionesCompartidasIds,
       "opcionesCompartidasIds"
     )
@@ -199,7 +199,9 @@ export async function PUT(
     if (material !== undefined) updateData.material = material
     if (genero !== undefined) updateData.genero = genero
     if (validSecciones && validSecciones.ok) updateData.secciones = JSON.stringify(validSecciones.value)
-    if (opcionesCompartidasIds !== undefined) updateData.opcionesCompartidasIds = JSON.stringify(opcionesCompartidasIds)
+    if (opcionesCompartidasIds !== undefined) {
+      updateData.opcionesCompartidasIds = JSON.stringify(validOpcionesCompartidasIds.configs)
+    }
     if (orden !== undefined) updateData.orden = orden
 
     // Update product
