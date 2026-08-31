@@ -135,11 +135,12 @@ describe("decision table and comparison content (task §12-13)", () => {
     ])
   })
 
-  test("comparison correctly states only shared options have a price delta (audit §9/§10 — own sections do not)", () => {
+  test("OWN-PRODUCT-OPTION-PRICES-R1 §53: both own sections and shared options now state the same optional-per-option-price capability — price no longer distinguishes them, reuse does", () => {
     const ownSection = CATALOG_TUTORIAL_OWN_VS_SHARED_COMPARISON[0]
     const sharedOption = CATALOG_TUTORIAL_OWN_VS_SHARED_COMPARISON[1]
-    expect(ownSection.points.some((p) => /no cambian el precio/i.test(p))).toBe(true)
-    expect(sharedOption.points.some((p) => /s.? pueden tener precio/i.test(p))).toBe(true)
+    expect(ownSection.points.some((p) => /recargo opcional/i.test(p))).toBe(true)
+    expect(sharedOption.points.some((p) => /recargo opcional/i.test(p))).toBe(true)
+    expect(ownSection.points.some((p) => /no (cambian|tienen) (el )?precio/i.test(p))).toBe(false)
   })
 })
 

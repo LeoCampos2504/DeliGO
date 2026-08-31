@@ -44,6 +44,7 @@ import { Drawer, DrawerContent, DrawerTitle, DrawerDescription } from "@/compone
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn, formatPrice } from "@/lib/utils"
+import { formatOptionalPriceDelta, type OwnSectionOption } from "@/lib/product-own-sections"
 import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSecciones, generateCartItemKey } from "@/store/cart-store"
 import { CartPanel } from "@/components/cart/cart-panel"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
@@ -81,7 +82,7 @@ interface ProductoAPI {
   tipoDescuento: string
   valorDescuento: number
   descripcion: string | null
-  secciones: Array<{ nombre: string; opciones: string[]; obligatorio: boolean; maximo: number }>
+  secciones: Array<{ nombre: string; opciones: OwnSectionOption[]; obligatorio: boolean; maximo: number }>
   recomendados: string[]
   talles: string[]
   colores: string[]
@@ -1921,6 +1922,39 @@ function ProductDetailSheet({
     return map
   }, [product.ingredientes])
 
+  // OWN-PRODUCT-OPTION-PRICES-R1: own-section selections carry a price
+  // delta now (previously secciones never affected the total at all).
+  // `perSelectionPrecio` uses the same `sectionName::optionName` key shape
+  // PedidoItem.seccionesPrecios persists server-side (§51) — purely a
+  // display/local-total convenience here; the server never trusts this
+  // client-computed map, it always re-derives from the stored Producto.
+  const seccionesPricing = useMemo(() => {
+    const perSelectionPrecio: Record<string, number> = {}
+    let total = 0
+    for (const section of product.secciones || []) {
+      const val = selectedSecciones[section.nombre]
+      if (!val) continue
+      if (typeof val === "string") {
+        const opt = section.opciones.find((o) => o.nombre === val)
+        if (opt && opt.precio > 0) {
+          perSelectionPrecio[`${section.nombre}::${opt.nombre}`] = opt.precio
+          total += opt.precio
+        }
+        continue
+      }
+      for (const [optName, qty] of Object.entries(val)) {
+        if (!(qty > 0)) continue
+        const opt = section.opciones.find((o) => o.nombre === optName)
+        if (opt && opt.precio > 0) {
+          const delta = opt.precio * qty
+          perSelectionPrecio[`${section.nombre}::${opt.nombre}`] = delta
+          total += delta
+        }
+      }
+    }
+    return { perSelectionPrecio, total }
+  }, [product.secciones, selectedSecciones])
+
   // Calculate item total
   const itemTotal = useMemo(() => {
     const basePrice = product.precioPromo ?? product.precio
@@ -1932,8 +1966,8 @@ function ProductDetailSheet({
       (sum, a) => sum + a.precio,
       0
     )
-    return (basePrice + agregadosTotal + opcionesCompartidasTotal) * quantity
-  }, [product.precio, product.precioPromo, selectedAgregados, selectedOpcionesCompartidas, quantity])
+    return (basePrice + agregadosTotal + opcionesCompartidasTotal + seccionesPricing.total) * quantity
+  }, [product.precio, product.precioPromo, selectedAgregados, selectedOpcionesCompartidas, seccionesPricing, quantity])
 
   // Toggle agregado
   const toggleAgregado = (a: { id: string; nombre: string; precio: number }) => {
@@ -2055,6 +2089,7 @@ function ProductDetailSheet({
       cantidad: quantity,
       agregados: allAgregados,
       secciones: selectedSecciones,
+      seccionesPrecios: seccionesPricing.perSelectionPrecio,
       ingredientesQuitados: removedNames,
       talle: selectedTalle,
       color: selectedColor,
@@ -2348,7 +2383,8 @@ function ProductDetailSheet({
                       /* Multi-select with per-option quantity */
                       <div className="space-y-1.5">
                         {(section.opciones || []).map((option, optIdx) => {
-                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          const optLabel = option.nombre
+                          const optPrecio = option.precio
                           const qty = getOptionQty(section.nombre, optLabel)
                           const isSelected = qty > 0
                           return (
@@ -2366,7 +2402,16 @@ function ProductDetailSheet({
                                   : undefined
                               }
                             >
-                              <span className="font-medium flex-1">{optLabel}</span>
+                              <span className="font-medium flex-1">
+                                {optLabel}
+                                {/* OWN-PRODUCT-OPTION-PRICES-R1 §32: zero renders nothing — never "Gratis"/"$0" */}
+                                {optPrecio > 0 && (
+                                  <span className="ml-1.5 text-xs font-semibold text-muted-foreground">
+                                    {formatOptionalPriceDelta(optPrecio, formatPrice)}
+                                    {qty > 1 ? ` x${qty}` : ""}
+                                  </span>
+                                )}
+                              </span>
                               <div className="flex items-center gap-2 shrink-0">
                                 <button
                                   type="button"
@@ -2414,7 +2459,8 @@ function ProductDetailSheet({
                       /* Single-select (radio) */
                       <div className="space-y-1.5">
                         {(section.opciones || []).map((option, optIdx) => {
-                          const optLabel = typeof option === 'string' ? option : String(option ?? '')
+                          const optLabel = option.nombre
+                          const optPrecio = option.precio
                           return (
                           <button
                             key={`${section.nombre}-opt-${optIdx}`}
@@ -2451,7 +2497,14 @@ function ProductDetailSheet({
                                 />
                               )}
                             </div>
-                            <span className="font-medium">{optLabel}</span>
+                            <span className="font-medium flex-1">
+                              {optLabel}
+                              {optPrecio > 0 && (
+                                <span className="ml-1.5 text-xs font-semibold text-muted-foreground">
+                                  {formatOptionalPriceDelta(optPrecio, formatPrice)}
+                                </span>
+                              )}
+                            </span>
                           </button>
                           )
                         })}

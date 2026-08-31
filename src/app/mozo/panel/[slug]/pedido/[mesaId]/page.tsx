@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
+import { formatOptionalPriceDelta, type OwnSectionOption } from "@/lib/product-own-sections"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 
 interface MesaOperativa {
@@ -59,7 +60,7 @@ interface MenuProduct {
   precioPromo: number | null
   imagenUrl: string | null
   stock: boolean
-  secciones: Array<{ nombre: string; opciones: string[]; obligatorio: boolean; maximo: number }>
+  secciones: Array<{ nombre: string; opciones: OwnSectionOption[]; obligatorio: boolean; maximo: number }>
   talles: string[]
   colores: string[]
   agregados: Array<{ id: string; nombre: string; precio: number; categoria: string }>
@@ -94,6 +95,10 @@ interface OrderItem {
   cantidad: number
   agregados: Array<{ id: string; nombre: string; precio: number }>
   secciones: Record<string, SectionSelection>
+  // OWN-PRODUCT-OPTION-PRICES-R1: same local/display-only price map the
+  // customer cart carries (CartItem.seccionesPrecios) — the manual-order
+  // POST route remains the sole pricing authority server-side.
+  seccionesPrecios: Record<string, number>
   ingredientesQuitados: string[]
   talle: string
   color: string
@@ -664,7 +669,41 @@ function ProductConfigurator({
     return [...Object.values(selectedAgregados), ...Object.values(selectedShared)]
   }, [selectedAgregados, selectedShared])
 
-  const unitTotal = (product.precioPromo ?? product.precio) + selectedAddons.reduce((sum, addon) => sum + addon.precio, 0)
+  // OWN-PRODUCT-OPTION-PRICES-R1: same display-only local pricing the
+  // customer-facing page computes (seccionesPricing) — the server (POST
+  // manual-order route) remains the sole pricing authority regardless of
+  // what's shown here.
+  const seccionesPricing = useMemo(() => {
+    const perSelectionPrecio: Record<string, number> = {}
+    let total = 0
+    for (const section of product.secciones) {
+      const value = selectedSections[section.nombre]
+      if (!value) continue
+      if (typeof value === "string") {
+        const opt = section.opciones.find((o) => o.nombre === value)
+        if (opt && opt.precio > 0) {
+          perSelectionPrecio[`${section.nombre}::${opt.nombre}`] = opt.precio
+          total += opt.precio
+        }
+        continue
+      }
+      for (const [optName, qty] of Object.entries(value)) {
+        if (!(qty > 0)) continue
+        const opt = section.opciones.find((o) => o.nombre === optName)
+        if (opt && opt.precio > 0) {
+          const delta = opt.precio * qty
+          perSelectionPrecio[`${section.nombre}::${opt.nombre}`] = delta
+          total += delta
+        }
+      }
+    }
+    return { perSelectionPrecio, total }
+  }, [product.secciones, selectedSections])
+
+  const unitTotal =
+    (product.precioPromo ?? product.precio) +
+    selectedAddons.reduce((sum, addon) => sum + addon.precio, 0) +
+    seccionesPricing.total
   const canAdd = useMemo(() => {
     const sectionsOk = product.secciones
       .filter((section) => section.obligatorio)
@@ -749,6 +788,7 @@ function ProductConfigurator({
       cantidad: quantity,
       agregados: selectedAddons,
       secciones: selectedSections,
+      seccionesPrecios: seccionesPricing.perSelectionPrecio,
       ingredientesQuitados: Object.values(removedIngredientes),
       talle: selectedTalle,
       color: selectedColor,
@@ -806,13 +846,18 @@ function ProductConfigurator({
                 title={`${section.nombre}${section.obligatorio ? " *" : ""}`}
                 description={section.maximo > 1 ? `Hasta ${section.maximo}` : undefined}
               >
-                {section.opciones.map((option) => {
+                {section.opciones.map((opt) => {
+                  const option = opt.nombre
+                  const priceLabel = formatOptionalPriceDelta(opt.precio, formatPrice)
                   const selection = selectedSections[section.nombre]
                   const quantitySelected = typeof selection === "object" ? selection[option] || 0 : 0
                   if (section.maximo > 1) {
                     return (
                       <div key={option} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                        <span className="text-sm font-medium">{option}</span>
+                        <span className="text-sm font-medium">
+                          {option}
+                          {priceLabel && <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{priceLabel}</span>}
+                        </span>
                         <QuantityStepper
                           value={quantitySelected}
                           onDecrease={() => setSectionValue(section, option, -1)}
@@ -824,6 +869,7 @@ function ProductConfigurator({
                   return (
                     <ChoiceButton key={option} active={selection === option} onClick={() => setSectionValue(section, option)}>
                       {option}
+                      {priceLabel && <span className="ml-1.5 text-xs font-semibold opacity-80">{priceLabel}</span>}
                     </ChoiceButton>
                   )
                 })}
@@ -932,11 +978,23 @@ function CartLine({
                 + {agregado.nombre}
               </Badge>
             ))}
-            {Object.entries(item.secciones).map(([section, value]) => (
-              <Badge key={section} variant="outline" className="text-[10px]">
-                {section}: {typeof value === "string" ? value : Object.entries(value).map(([name, quantity]) => `${name} x${quantity}`).join(", ")}
-              </Badge>
-            ))}
+            {Object.entries(item.secciones).map(([section, value]) => {
+              const priceSuffix = (optionName: string) => {
+                const precio = item.seccionesPrecios?.[`${section}::${optionName}`]
+                return precio && precio > 0 ? ` ${formatOptionalPriceDelta(precio, formatPrice)}` : ""
+              }
+              const label =
+                typeof value === "string"
+                  ? `${value}${priceSuffix(value)}`
+                  : Object.entries(value)
+                      .map(([name, quantity]) => `${quantity > 1 ? `${name} x${quantity}` : name}${priceSuffix(name)}`)
+                      .join(", ")
+              return (
+                <Badge key={section} variant="outline" className="text-[10px]">
+                  {section}: {label}
+                </Badge>
+              )
+            })}
             {ingredientesQuitados.map((nombre) => (
               <Badge
                 key={nombre}
@@ -1131,5 +1189,7 @@ function buildOrderItemKey(item: {
 }
 
 function getOrderItemTotal(item: OrderItem) {
-  return (item.precio + item.agregados.reduce((sum, agregado) => sum + agregado.precio, 0)) * item.cantidad
+  const agregadosTotal = item.agregados.reduce((sum, agregado) => sum + agregado.precio, 0)
+  const seccionesTotal = Object.values(item.seccionesPrecios ?? {}).reduce((sum, precio) => sum + precio, 0)
+  return (item.precio + agregadosTotal + seccionesTotal) * item.cantidad
 }

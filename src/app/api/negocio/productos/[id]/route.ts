@@ -8,6 +8,7 @@ import {
   readStringIdList,
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
+import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -178,6 +179,16 @@ export async function PUT(
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
+    // OWN-PRODUCT-OPTION-PRICES-R1 §50: reject a malformed/negative option
+    // price outright rather than silently coercing it.
+    let validSecciones: ReturnType<typeof validateProductSectionsForSave> | null = null
+    if (secciones !== undefined) {
+      validSecciones = validateProductSectionsForSave(secciones)
+      if (!validSecciones.ok) {
+        return NextResponse.json({ error: validSecciones.error }, { status: 400 })
+      }
+    }
+
     if (stock !== undefined) updateData.stock = stock
     if (descuentoActivo !== undefined) updateData.descuentoActivo = descuentoActivo
     if (tipoDescuento !== undefined) updateData.tipoDescuento = tipoDescuento
@@ -187,7 +198,7 @@ export async function PUT(
     if (colores !== undefined) updateData.colores = JSON.stringify(colores)
     if (material !== undefined) updateData.material = material
     if (genero !== undefined) updateData.genero = genero
-    if (secciones !== undefined) updateData.secciones = JSON.stringify(secciones)
+    if (validSecciones && validSecciones.ok) updateData.secciones = JSON.stringify(validSecciones.value)
     if (opcionesCompartidasIds !== undefined) updateData.opcionesCompartidasIds = JSON.stringify(opcionesCompartidasIds)
     if (orden !== undefined) updateData.orden = orden
 

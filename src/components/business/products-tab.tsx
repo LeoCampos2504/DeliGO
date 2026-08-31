@@ -58,6 +58,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { cn, formatPrice } from "@/lib/utils"
+import { normalizeOwnSectionOptions, validateOwnSectionOptionPrice, type OwnSectionOption } from "@/lib/product-own-sections"
 import { toast } from "sonner"
 import { ImageUpload, MultiImageUpload } from "@/components/shared/image-upload"
 import type { PanelMode } from "./business-panel"
@@ -2599,7 +2600,7 @@ function StepOptions({
 // ============================================
 interface ProductOptionSection {
   nombre: string
-  opciones: string[]
+  opciones: OwnSectionOption[]
   obligatorio: boolean
   maximo: number // 0 = single select (default), >1 = multi-select with per-option quantity
 }
@@ -2622,10 +2623,12 @@ function ProductOptionSectionsEditor({
     try {
       const parsed = JSON.parse(formData.secciones)
       if (!Array.isArray(parsed)) return []
-      // Normalize each section to ensure all properties exist (handles old/incomplete formats)
+      // Normalize each section to ensure all properties exist (handles old/incomplete formats).
+      // normalizeOwnSectionOptions also upgrades legacy string[] options to
+      // {nombre, precio: 0} — OWN-PRODUCT-OPTION-PRICES-R1 backward compatibility.
       return parsed.map((s: Record<string, unknown>) => ({
         nombre: typeof s?.nombre === "string" ? s.nombre : String(s ?? ""),
-        opciones: Array.isArray(s?.opciones) ? s.opciones as string[] : [],
+        opciones: normalizeOwnSectionOptions(s?.opciones),
         obligatorio: s?.obligatorio === true,
         maximo: typeof s?.maximo === "number" ? s.maximo : 0,
       }))
@@ -2656,7 +2659,7 @@ function ProductOptionSectionsEditor({
     const updated = [...sections]
     updated[sectionIndex] = {
       ...updated[sectionIndex],
-      opciones: [...updated[sectionIndex].opciones, ""],
+      opciones: [...updated[sectionIndex].opciones, { nombre: "", precio: 0 }],
     }
     updateSections(updated)
   }
@@ -2673,7 +2676,23 @@ function ProductOptionSectionsEditor({
   const updateOption = (sectionIndex: number, optionIndex: number, value: string) => {
     const updated = [...sections]
     const newOpciones = [...updated[sectionIndex].opciones]
-    newOpciones[optionIndex] = value
+    newOpciones[optionIndex] = { ...newOpciones[optionIndex], nombre: value }
+    updated[sectionIndex] = { ...updated[sectionIndex], opciones: newOpciones }
+    updateSections(updated)
+  }
+
+  // OWN-PRODUCT-OPTION-PRICES-R1 §38: optional price per option. Empty
+  // input normalizes to 0; validateOwnSectionOptionPrice rejects negative/
+  // NaN by simply not applying the change (the Input's own type="number"
+  // min={0} already discourages typing a negative value in the first
+  // place — this is defense in depth, matching the server's own rule).
+  const updateOptionPrice = (sectionIndex: number, optionIndex: number, rawValue: string) => {
+    const parsed = rawValue.trim() === "" ? 0 : parseFloat(rawValue)
+    const validated = validateOwnSectionOptionPrice(parsed)
+    if (validated === null) return
+    const updated = [...sections]
+    const newOpciones = [...updated[sectionIndex].opciones]
+    newOpciones[optionIndex] = { ...newOpciones[optionIndex], precio: validated }
     updated[sectionIndex] = { ...updated[sectionIndex], opciones: newOpciones }
     updateSections(updated)
   }
@@ -2902,11 +2921,25 @@ function ProductOptionSectionsEditor({
                   <div key={oi} className="flex items-center gap-1.5">
                     <div className="w-2 h-2 rounded-full bg-muted-foreground/20 shrink-0" />
                     <Input
-                      value={option}
+                      value={option.nombre}
                       onChange={(e) => updateOption(si, oi, e.target.value)}
                       placeholder={`Opción ${oi + 1}`}
                       className="rounded-lg text-sm h-7 flex-1"
                     />
+                    {/* OWN-PRODUCT-OPTION-PRICES-R1 §38: optional price per option — "Precio extra", $0 (blank in the input, not forced) if it doesn't change the price */}
+                    <div className="relative shrink-0 w-20">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={option.precio || ""}
+                        onChange={(e) => updateOptionPrice(si, oi, e.target.value)}
+                        placeholder="0"
+                        title="Precio extra"
+                        className="rounded-lg text-sm h-7 pl-4 w-full"
+                      />
+                    </div>
                     <Button
                       type="button"
                       variant="ghost"
@@ -2918,6 +2951,9 @@ function ProductOptionSectionsEditor({
                     </Button>
                   </div>
                 ))}
+                <p className="pl-4 text-[10px] text-muted-foreground">
+                  Dejalo en $0 si esta opción no cambia el precio.
+                </p>
                 <button
                   type="button"
                   onClick={() => addOption(si)}

@@ -38,6 +38,15 @@ export interface CartItem {
   cantidad: number
   agregados: CartItemAgregado[]
   secciones: CartItemSecciones
+  // OWN-PRODUCT-OPTION-PRICES-R1: local/display-only price contribution of
+  // each selected own-section option, keyed `sectionName::optionName`
+  // (already multiplied by quantity for multi-select) — mirrors
+  // PedidoItem.seccionesPrecios server-side. Never sent to the server as
+  // an authoritative price: POST /api/pedidos only ever receives
+  // `secciones` (labels/quantities) and always re-derives the real price
+  // from the stored Producto. Optional so every existing call site that
+  // builds a CartItem without touching secciones still compiles.
+  seccionesPrecios?: Record<string, number>
   ingredientesQuitados: string[] // ingredient names removed
   talle: string
   color: string
@@ -240,7 +249,14 @@ export const useCartStore = create<CartState>()(
             (aSum, a) => aSum + a.precio,
             0
           )
-          return sum + (item.precio + agregadosTotal) * item.cantidad
+          // OWN-PRODUCT-OPTION-PRICES-R1: seccionesPrecios values are
+          // already the full per-selection contribution (quantity already
+          // multiplied in) — sum them directly, same as agregados.
+          const seccionesTotal = Object.values(item.seccionesPrecios ?? {}).reduce(
+            (sSum, precio) => sSum + precio,
+            0
+          )
+          return sum + (item.precio + agregadosTotal + seccionesTotal) * item.cantidad
         }, 0)
       },
 

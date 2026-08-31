@@ -176,9 +176,22 @@ describe("M. Ingredient vs. Addition distinction present", () => {
 
 // N
 describe("N. Own-section vs. shared-option distinction present", () => {
-  test("comparison content states own sections have no price delta, shared options do", () => {
-    expect(STEPS).toMatch(/Las opciones no cambian el precio hoy/)
-    expect(STEPS).toMatch(/Las opciones s.? pueden tener precio/)
+  // OWN-PRODUCT-OPTION-PRICES-R1 §53-54: price no longer distinguishes
+  // own sections from shared options — REUSE does. Both comparison
+  // columns now state the same "recargo opcional" capability; the
+  // distinguishing points are exclusivity/reuse, never price.
+  test("comparison content states BOTH own sections and shared options can have an optional per-option price — price is no longer the distinguishing factor", () => {
+    const ownColumn = STEPS.match(/title: "Sección propia",\s*points: \[[\s\S]*?\]/)
+    const sharedColumn = STEPS.match(/title: "Opción compartida",\s*points: \[[\s\S]*?\]/)
+    expect(ownColumn).not.toBeNull()
+    expect(sharedColumn).not.toBeNull()
+    expect(ownColumn![0]).toMatch(/recargo opcional/)
+    expect(sharedColumn![0]).toMatch(/recargo opcional/)
+  })
+
+  test("REUSE is the stated distinguishing factor, not price — the own-section column never claims prices are unsupported", () => {
+    expect(STEPS).not.toMatch(/opciones (propias )?(hoy )?no tienen (un )?precio/)
+    expect(STEPS).not.toMatch(/no cambian el precio/)
   })
 })
 
