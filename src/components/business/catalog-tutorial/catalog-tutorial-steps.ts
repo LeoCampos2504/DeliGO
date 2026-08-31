@@ -99,7 +99,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Ya la creé",
-    targetKey: "category-control",
   },
   {
     id: "create-simple-product",
@@ -115,19 +114,9 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
       "6. Stock disponible — dejalo activo si querés aceptar compras",
       "Al guardar vas a ver el mensaje \"Producto guardado correctamente\". Esperá ese mensaje antes de continuar.",
     ],
-    actionLabel: "Crear {producto} simple",
-    actionKey: "openCreateProduct",
+    actionLabel: "Ir a {Productos}",
+    actionKey: "goToProducts",
     completionLabel: "Ya lo creé y vi el mensaje de guardado",
-    targetKey: "add-product",
-    // R2 §9: the audited SIMPLE_PRODUCT_FIELD_COUNT=6, exactly this order.
-    fieldGuide: [
-      { id: "field-name", label: "Nombre", targetKey: "product-name" },
-      { id: "field-price", label: "Precio", targetKey: "product-price" },
-      { id: "field-category", label: "Categoría", targetKey: "product-category" },
-      { id: "field-main-image", label: "Imagen principal", targetKey: "product-main-image" },
-      { id: "field-gallery", label: "Galería de imágenes", targetKey: "product-gallery" },
-      { id: "field-stock", label: "Stock disponible", targetKey: "product-stock" },
-    ],
   },
   {
     id: "edit-product",
@@ -142,7 +131,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Ya lo edité y guardé",
-    targetKey: "product-edit",
   },
   {
     id: "simple-vs-expert",
@@ -157,7 +145,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Pasar a Modo Experto",
     actionKey: "setModeExpert",
     completionLabel: "Listo, continuar",
-    targetKey: "mode-expert",
   },
   {
     id: "description-discounts",
@@ -172,10 +159,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     ],
     actionKey: "none",
     completionLabel: "Entendido",
-    fieldGuide: [
-      { id: "field-description", label: "Descripción", targetKey: "product-description" },
-      { id: "field-discount", label: "Descuento", targetKey: "product-discount" },
-    ],
   },
   {
     id: "create-ingredients",
@@ -192,11 +175,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionKey: "goToIngredients",
     completionLabel: "Ya lo creé",
     supportedRubros: RESTAURANT_ONLY,
-    targetKey: "ingredients-tab",
-    fieldGuide: [
-      { id: "field-ingredient-add", label: "Agregar ingrediente", targetKey: "ingredient-add" },
-      { id: "field-product-ingredients", label: "Ingredientes del {producto}", targetKey: "product-ingredients" },
-    ],
   },
   {
     id: "create-additions",
@@ -212,11 +190,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionKey: "goToAdditions",
     completionLabel: "Ya lo creé",
     supportedRubros: RESTAURANT_ONLY,
-    targetKey: "additions-tab",
-    fieldGuide: [
-      { id: "field-addition-add", label: "Agregar agregado", targetKey: "addition-add" },
-      { id: "field-product-additions", label: "Agregados del {producto}", targetKey: "product-additions" },
-    ],
   },
   {
     id: "own-product-section",
@@ -234,7 +207,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Ya la creé",
-    targetKey: "product-own-sections",
   },
   {
     id: "create-shared-options",
@@ -248,8 +220,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a Opciones",
     actionKey: "goToSharedOptions",
     completionLabel: "Ya la creé",
-    targetKey: "shared-options-tab",
-    fieldGuide: [{ id: "field-shared-option-add", label: "Agregar opción compartida", targetKey: "shared-option-add" }],
   },
   {
     id: "reuse-shared-options",
@@ -264,7 +234,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Ya la reutilicé",
-    targetKey: "product-shared-options",
   },
   {
     id: "stock",
@@ -279,7 +248,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a {Productos}",
     actionKey: "goToProducts",
     completionLabel: "Entendido",
-    targetKey: "product-stock",
   },
   {
     id: "catalog-sections",
@@ -295,8 +263,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Ir a Secciones",
     actionKey: "goToCatalogSections",
     completionLabel: "Ya la creé",
-    targetKey: "catalog-sections-tab",
-    fieldGuide: [{ id: "field-catalog-section-add", label: "Agregar sección", targetKey: "catalog-section-add" }],
   },
   {
     id: "preview",
@@ -312,7 +278,6 @@ export const CATALOG_TUTORIAL_STEPS: CatalogTutorialStep[] = [
     actionLabel: "Abrir Vista previa",
     actionKey: "openPreview",
     completionLabel: "Ya la revisé",
-    targetKey: "preview-button",
   },
   {
     id: "edit-reusable-safely",

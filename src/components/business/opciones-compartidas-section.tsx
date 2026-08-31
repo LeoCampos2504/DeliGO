@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -24,6 +24,9 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
+import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
+import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 
 // ============================================
 // Types
@@ -77,6 +80,14 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
   const [editingItem, setEditingItem] = useState<OpcionCompartida | null>(null)
   const [formData, setFormData] = useState<FormData>(defaultFormData)
   const [deleteDialog, setDeleteDialog] = useState<OpcionCompartida | null>(null)
+  const guide = useCatalogTutorialGuide()
+  const { ref: addRef, className: addRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("shared-option-add")
+
+  // R3 §23: form opening is real state — advances the shared-option guide
+  // from its "add button" phase to its "form" phase automatically.
+  useEffect(() => {
+    if (formOpen) guide.advanceIfActive("create-shared-options", "shared-option-form-area")
+  }, [formOpen, guide.advanceIfActive])
 
   // Fetch opciones compartidas
   const { data: opciones = [], isLoading } = useQuery<OpcionCompartida[]>({
@@ -163,6 +174,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
     setFormOpen(false)
     setEditingItem(null)
     setFormData(defaultFormData)
+    guide.stopGuideIfActive("create-shared-options")
   }
 
   const handleSave = () => {
@@ -202,6 +214,12 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
   return (
     <div className="space-y-4">
       {/* ===== HEADER ===== */}
+      <CatalogTutorialGuideCoach
+        targetKeys={["shared-option-add"]}
+        mode="expert"
+        rawRubro={negocio.rubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div
@@ -221,11 +239,11 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
           </div>
         </div>
         <Button
+          ref={addRef}
           size="sm"
-          className="rounded-xl gap-1.5 font-semibold h-9"
+          className={cn("rounded-xl gap-1.5 font-semibold h-9 transition-shadow", addRingClassName)}
           style={{ backgroundColor: negocio.colorPrincipal }}
           onClick={openNewForm}
-          data-catalog-tutorial-target="shared-option-add"
         >
           <Plus className="h-3.5 w-3.5" />
           Agregar
@@ -273,6 +291,13 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+            <CatalogTutorialGuideCoach
+              targetKeys={["shared-option-form-area"]}
+              mode="expert"
+              rawRubro={negocio.rubro}
+              onReturnToTutorial={() => guide.requestReturn()}
+            />
+            <CatalogTutorialTarget target="shared-option-form-area">
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -411,6 +436,7 @@ export function OpcionesCompartidasSection({ negocio }: OpcionesCompartidasSecti
                 )}
               </div>
             </motion.div>
+            </CatalogTutorialTarget>
           </div>
 
           <DrawerFooter className="border-t pt-3">

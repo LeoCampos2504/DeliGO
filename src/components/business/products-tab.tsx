@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -67,6 +67,9 @@ import { SeccionesSection } from "./secciones-section"
 import { OpcionesCompartidasSection } from "./opciones-compartidas-section"
 import { SectionErrorBoundary } from "@/components/shared/section-error-boundary"
 import { CatalogTutorial, type CatalogTutorialSubTab } from "./catalog-tutorial/catalog-tutorial"
+import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
+import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
+import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 
 // ============================================
 // Types
@@ -470,6 +473,26 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null)
   const [categoryInput, setCategoryInput] = useState("")
   const [showCategoryInput, setShowCategoryInput] = useState(false)
+  const guide = useCatalogTutorialGuide()
+  const { ref: categoryRef, className: categoryRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("category-control")
+  const { ref: addProductRef, className: addProductRingClassName } = useCatalogTutorialTargetRing<HTMLButtonElement>("add-product")
+
+  // BUSINESS-CATALOG-INAPP-TUTORIAL-R3 §23: auto-advance the product guide
+  // purely from real state changes (the Drawer opening, the real
+  // Siguiente button changing formStep) — never a synthetic click.
+  // advanceIfActive is a no-op unless "create-simple-product" is the
+  // guide currently running, so this never affects the edit-product guide
+  // or any other area's guide.
+  useEffect(() => {
+    if (!formOpen) return
+    const targetKey =
+      formStep === 0
+        ? "product-basic-info-area"
+        : mode === "expert" && formStep === 1
+          ? "product-advanced-options-area"
+          : "product-review-area"
+    guide.advanceIfActive("create-simple-product", targetKey)
+  }, [formOpen, formStep, mode, guide.advanceIfActive])
 
   // Sub-tab items — customize based on rubro
   const subTabItems: { id: CatalogSubTab; label: string; icon: typeof PackageOpen }[] = useMemo(() => {
@@ -785,6 +808,9 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
     })
     setFormStep(0)
     setFormOpen(true)
+    // R3 §13: the edit guide is a single phase (highlight the real Editar
+    // button) — once the owner clicked it, its job is done.
+    guide.stopGuideIfActive("edit-product")
   }
 
   const closeForm = () => {
@@ -792,6 +818,10 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
     setEditingProduct(null)
     setFormData(defaultFormData)
     setFormStep(0)
+    // R3 §22: closing the real form ends whichever product guide was
+    // pointing at it — never leaves a stale "form changed" fallback.
+    guide.stopGuideIfActive("create-simple-product")
+    guide.stopGuideIfActive("edit-product")
   }
 
   const handleSave = () => {
@@ -834,7 +864,6 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
           onNavigateSubTab={setSubTab}
-          onRequestCreateProduct={openNewForm}
         />
         <SectionErrorBoundary>
           <AgregadosSection negocio={negocio} />
@@ -851,7 +880,6 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
           onNavigateSubTab={setSubTab}
-          onRequestCreateProduct={openNewForm}
         />
         <SectionErrorBoundary>
           <IngredientesSection negocio={negocio} />
@@ -868,7 +896,6 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
           onNavigateSubTab={setSubTab}
-          onRequestCreateProduct={openNewForm}
         />
         <SectionErrorBoundary>
           <SeccionesSection negocio={negocio} />
@@ -885,7 +912,6 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
           onNavigateSubTab={setSubTab}
-          onRequestCreateProduct={openNewForm}
         />
         <SectionErrorBoundary>
           <OpcionesCompartidasSection negocio={negocio} />
@@ -918,7 +944,6 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
         mode={mode}
         onModeChange={onModeChange ?? (() => {})}
         onNavigateSubTab={setSubTab}
-        onRequestCreateProduct={openNewForm}
       />
 
       {/* ===== SEARCH BAR ===== */}
@@ -934,6 +959,12 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
       </div>
 
       {/* ===== CATEGORY PILLS ===== */}
+      <CatalogTutorialGuideCoach
+        targetKeys={["category-control", "product-edit"]}
+        mode={mode}
+        rawRubro={negocio.rubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => setActiveCategory("todos")}
@@ -981,9 +1012,12 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           </button>
         ))}
         <button
+          ref={categoryRef}
           onClick={() => setShowCategoryInput(!showCategoryInput)}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border border-dashed border-border text-muted-foreground hover:bg-muted/50"
-          data-catalog-tutorial-target="category-control"
+          className={cn(
+            "flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border border-dashed border-border text-muted-foreground hover:bg-muted/50 transition-shadow",
+            categoryRingClassName
+          )}
         >
           <Plus className="h-3 w-3" />
           Categoría
@@ -1038,11 +1072,17 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
       </AnimatePresence>
 
       {/* ===== ADD PRODUCT BUTTON ===== */}
+      <CatalogTutorialGuideCoach
+        targetKeys={["add-product"]}
+        mode={mode}
+        rawRubro={negocio.rubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       <Button
+        ref={addProductRef}
         onClick={openNewForm}
-        className="w-full rounded-xl h-11 gap-2 font-semibold"
+        className={cn("w-full rounded-xl h-11 gap-2 font-semibold transition-shadow", addProductRingClassName)}
         style={{ backgroundColor: negocio.colorPrincipal }}
-        data-catalog-tutorial-target="add-product"
       >
         <Plus className="h-4 w-4" />
         {isRopa ? "Agregar prenda" : "Agregar producto"}
@@ -1119,6 +1159,12 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
 
           {/* Form content — scrollable area */}
           <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 overscroll-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+            <CatalogTutorialGuideCoach
+              targetKeys={["product-basic-info-area", "product-advanced-options-area", "product-review-area"]}
+              mode={mode}
+              rawRubro={negocio.rubro}
+              onReturnToTutorial={() => guide.requestReturn()}
+            />
             <AnimatePresence mode="wait">
               {formStep === 0 && (
                 <StepBasicInfo
@@ -1153,6 +1199,7 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
                     formData={formData}
                     setFormData={setFormData}
                     mode={mode}
+                    rawRubro={negocio.rubro}
                     agregados={agregados}
                     ingredientes={ingredientes}
                     opcionesCompartidas={opcionesCompartidas}
@@ -1358,6 +1405,9 @@ function ProductCard({
     catch { return [] }
   }, [product.talles])
 
+  const { ref: editRefDesktop, className: editRingClassNameDesktop } = useCatalogTutorialTargetRing<HTMLButtonElement>("product-edit")
+  const { ref: editRefMobile, className: editRingClassNameMobile } = useCatalogTutorialTargetRing<HTMLButtonElement>("product-edit")
+
   const colores: string[] = useMemo(() => {
     try { return JSON.parse(product.colores) as string[] }
     catch { return [] }
@@ -1423,11 +1473,11 @@ function ProductCard({
           {/* Actions overlay - desktop hover */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors items-center justify-center gap-2 opacity-0 group-hover:opacity-100 hidden sm:flex">
             <Button
+              ref={editRefDesktop}
               variant="secondary"
               size="icon"
-              className="h-8 w-8 rounded-full shadow-md"
+              className={cn("h-8 w-8 rounded-full shadow-md transition-shadow", editRingClassNameDesktop)}
               onClick={(e) => { e.stopPropagation(); onEdit() }}
-              data-catalog-tutorial-target="product-edit"
             >
               <Edit3 className="h-3.5 w-3.5" />
             </Button>
@@ -1504,11 +1554,11 @@ function ProductCard({
           {/* Mobile action buttons - always visible */}
           <div className="flex gap-2 mt-2 sm:hidden">
             <Button
+              ref={editRefMobile}
               variant="outline"
               size="sm"
-              className="flex-1 h-8 rounded-lg text-xs gap-1.5"
+              className={cn("flex-1 h-8 rounded-lg text-xs gap-1.5 transition-shadow", editRingClassNameMobile)}
               onClick={(e) => { e.stopPropagation(); onEdit() }}
-              data-catalog-tutorial-target="product-edit"
             >
               <Edit3 className="h-3 w-3" />
               Editar
@@ -1550,6 +1600,7 @@ function StepBasicInfo({
 }) {
   const [newCatInput, setNewCatInput] = useState("")
   const [showNewCat, setShowNewCat] = useState(false)
+  const { ref: areaRef, className: areaRingClassName } = useCatalogTutorialTargetRing<HTMLDivElement>("product-basic-info-area")
 
   const handleCreateCategory = () => {
     const trimmed = newCatInput.trim()
@@ -1562,12 +1613,13 @@ function StepBasicInfo({
 
   return (
     <motion.div
+      ref={areaRef}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="space-y-4"
+      className={cn("space-y-4 rounded-lg p-1 transition-shadow", areaRingClassName)}
     >
-      <div data-catalog-tutorial-target="product-name">
+      <div>
         <Label htmlFor="prod-nombre" className="text-sm font-semibold mb-1.5 block">
           {isRopa ? "Nombre de la prenda *" : "Nombre *"}
         </Label>
@@ -1580,7 +1632,7 @@ function StepBasicInfo({
         />
       </div>
 
-      <div data-catalog-tutorial-target="product-price">
+      <div>
         <Label htmlFor="prod-precio" className="text-sm font-semibold mb-1.5 block">Precio *</Label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">$</span>
@@ -1695,7 +1747,7 @@ function StepBasicInfo({
         </div>
       ) : (
         /* ===== RESTAURANT & NEGOCIO: Categoría (free-form) ===== */
-        <div data-catalog-tutorial-target="product-category">
+        <div>
           <Label className="text-sm font-semibold mb-1.5 flex items-center gap-1.5">
             Categoría
             <button
@@ -1825,7 +1877,7 @@ function StepBasicInfo({
       )}
 
       {/* Imagen principal */}
-      <div data-catalog-tutorial-target="product-main-image">
+      <div>
         <Label className="text-sm font-semibold mb-1.5 block">Imagen principal</Label>
         <ImageUpload
           value={formData.imagenUrl || null}
@@ -1839,7 +1891,7 @@ function StepBasicInfo({
       </div>
 
       {/* Galería de imágenes */}
-      <div data-catalog-tutorial-target="product-gallery">
+      <div>
         <Label className="text-sm font-semibold mb-1.5 block">
           {isRopa ? "Más fotos de la prenda" : "Galería de imágenes"}
         </Label>
@@ -1853,7 +1905,7 @@ function StepBasicInfo({
       </div>
 
       {/* Stock toggle — always visible in StepBasicInfo (simple mode) */}
-      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50" data-catalog-tutorial-target="product-stock">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
@@ -1883,12 +1935,14 @@ function StepRopaDetails({
   setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
   opcionesCompartidas: { id: string; nombre: string; opciones: string; obligatorio: boolean; maximo: number }[]
 }) {
+  const { ref: areaRef, className: areaRingClassName } = useCatalogTutorialTargetRing<HTMLDivElement>("product-advanced-options-area")
   return (
     <motion.div
+      ref={areaRef}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="space-y-5"
+      className={cn("space-y-5 rounded-lg p-1 transition-shadow", areaRingClassName)}
     >
       {/* Stock */}
       <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
@@ -2029,6 +2083,7 @@ function StepRopaDetails({
         formData={formData}
         setFormData={setFormData}
         isRopa={true}
+        rawRubro="ropa"
         opcionesCompartidas={opcionesCompartidas}
       />
     </motion.div>
@@ -2047,12 +2102,14 @@ function StepNegocioDetails({
   setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
   opcionesCompartidas: { id: string; nombre: string; opciones: string; obligatorio: boolean; maximo: number }[]
 }) {
+  const { ref: areaRef, className: areaRingClassName } = useCatalogTutorialTargetRing<HTMLDivElement>("product-advanced-options-area")
   return (
     <motion.div
+      ref={areaRef}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="space-y-5"
+      className={cn("space-y-5 rounded-lg p-1 transition-shadow", areaRingClassName)}
     >
       {/* Stock */}
       <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
@@ -2129,6 +2186,7 @@ function StepNegocioDetails({
         formData={formData}
         setFormData={setFormData}
         isRopa={false}
+        rawRubro="negocio"
         opcionesCompartidas={opcionesCompartidas}
       />
     </motion.div>
@@ -2345,6 +2403,7 @@ function StepOptions({
   formData,
   setFormData,
   mode,
+  rawRubro,
   agregados,
   ingredientes,
   opcionesCompartidas,
@@ -2352,19 +2411,22 @@ function StepOptions({
   formData: ProductFormData
   setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
   mode: PanelMode
+  rawRubro: string
   agregados: Agregado[]
   ingredientes: Ingrediente[]
   opcionesCompartidas: { id: string; nombre: string; opciones: string; obligatorio: boolean; maximo: number }[]
 }) {
+  const { ref: areaRef, className: areaRingClassName } = useCatalogTutorialTargetRing<HTMLDivElement>("product-advanced-options-area")
   return (
     <motion.div
+      ref={areaRef}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
-      className="space-y-5"
+      className={cn("space-y-5 rounded-lg p-1 transition-shadow", areaRingClassName)}
     >
       {/* Stock - Always shown */}
-      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50" data-catalog-tutorial-target="product-stock">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
@@ -2378,7 +2440,7 @@ function StepOptions({
       </div>
 
       {/* Discount - Always shown */}
-      <div className="space-y-3" data-catalog-tutorial-target="product-discount">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Descuento</p>
           <Switch
@@ -2426,7 +2488,7 @@ function StepOptions({
           <Separator />
 
           {/* Description */}
-          <div data-catalog-tutorial-target="product-description">
+          <div>
             <Label className="text-sm font-semibold mb-1.5 block">Descripción</Label>
             <Textarea
               value={formData.descripcion}
@@ -2438,7 +2500,7 @@ function StepOptions({
 
           {/* Agregados */}
           {agregados.length > 0 && (
-            <div data-catalog-tutorial-target="product-additions">
+            <div>
               <Label className="text-sm font-semibold mb-2 flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
                 Agregados
@@ -2480,7 +2542,7 @@ function StepOptions({
 
           {/* Ingredientes */}
           {ingredientes.length > 0 && (
-            <div data-catalog-tutorial-target="product-ingredients">
+            <div>
               <Label className="text-sm font-semibold mb-2 flex items-center gap-1.5">
                 🥬 Ingredientes
               </Label>
@@ -2523,6 +2585,7 @@ function StepOptions({
           <ProductOptionSectionsEditor
             formData={formData}
             setFormData={setFormData}
+            rawRubro={rawRubro}
             opcionesCompartidas={opcionesCompartidas}
           />
         </>
@@ -2545,13 +2608,16 @@ function ProductOptionSectionsEditor({
   formData,
   setFormData,
   isRopa = false,
+  rawRubro,
   opcionesCompartidas = [],
 }: {
   formData: ProductFormData
   setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>
   isRopa?: boolean
+  rawRubro: string
   opcionesCompartidas?: { id: string; nombre: string; opciones: string; obligatorio: boolean; maximo: number }[]
 }) {
+  const guide = useCatalogTutorialGuide()
   const sections: ProductOptionSection[] = useMemo(() => {
     try {
       const parsed = JSON.parse(formData.secciones)
@@ -2650,9 +2716,15 @@ function ProductOptionSectionsEditor({
 
   return (
     <div>
+      <CatalogTutorialGuideCoach
+        targetKeys={["product-own-sections", "product-shared-options"]}
+        mode="expert"
+        rawRubro={rawRubro}
+        onReturnToTutorial={() => guide.requestReturn()}
+      />
       {/* ===== Shared Options Selector ===== */}
       {opcionesCompartidas.length > 0 && (
-        <div className="mb-4" data-catalog-tutorial-target="product-shared-options">
+        <CatalogTutorialTarget target="product-shared-options" className="mb-4">
           <div className="flex items-center gap-1.5 mb-2">
             <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
             <Label className="text-sm font-semibold">Opciones compartidas</Label>
@@ -2733,11 +2805,12 @@ function ProductOptionSectionsEditor({
               <Separator />
             </div>
           )}
-        </div>
+        </CatalogTutorialTarget>
       )}
 
       {/* ===== Custom Option Sections ===== */}
-      <div className="flex items-center justify-between mb-2" data-catalog-tutorial-target="product-own-sections">
+      <CatalogTutorialTarget target="product-own-sections">
+      <div className="flex items-center justify-between mb-2">
         <Label className="text-sm font-semibold flex items-center gap-1.5">
           <ListChecks className="h-3.5 w-3.5" />
           {sectionLabel}
@@ -2858,6 +2931,7 @@ function ProductOptionSectionsEditor({
           ))}
         </div>
       )}
+      </CatalogTutorialTarget>
     </div>
   )
 }
@@ -3057,17 +3131,6 @@ function CatalogSubNav({
   items: { id: CatalogSubTab; label: string; icon: typeof PackageOpen }[]
   colorPrincipal: string
 }) {
-  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §6, §11: stable tutorial targets for
-  // the tab buttons the tutorial's "Ir a Ingredientes/Agregados/Secciones/
-  // Opciones" actions already navigate to via the real setSubTab above —
-  // this only adds a highlight anchor, it doesn't change behavior.
-  const subTabTutorialTarget: Partial<Record<CatalogSubTab, string>> = {
-    ingredientes: "ingredients-tab",
-    agregados: "additions-tab",
-    secciones: "catalog-sections-tab",
-    opciones: "shared-options-tab",
-  }
-
   return (
     <div className="flex bg-muted/60 rounded-xl p-1 gap-1">
       {items.map((item) => {
@@ -3084,7 +3147,6 @@ function CatalogSubNav({
                 : "text-muted-foreground hover:text-foreground"
             )}
             style={isActive ? { color: colorPrincipal } : undefined}
-            data-catalog-tutorial-target={subTabTutorialTarget[item.id]}
           >
             <Icon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{item.label}</span>

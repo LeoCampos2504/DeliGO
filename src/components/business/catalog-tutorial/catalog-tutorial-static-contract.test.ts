@@ -50,11 +50,13 @@ describe("B. does not auto-start in a blocking way", () => {
     expect(TUTORIAL).toMatch(/const \[open, setOpen\] = useState\(false\)/)
   })
 
-  test("no effect forces open=true on mount", () => {
-    const effectBlocks = TUTORIAL.match(/useEffect\(\(\) => \{[\s\S]*?\n {2}\}, \[[^\]]*\]\)/g) ?? []
-    for (const block of effectBlocks) {
-      expect(block).not.toMatch(/setOpen\(true\)/)
-    }
+  test("no effect forces open=true unconditionally on mount — the only setOpen(true) inside an effect is deep inside the R3 return-handler closure, itself only invoked later by an explicit user action (requestReturn), never called at mount time", () => {
+    const mountEffectStart = TUTORIAL.indexOf("useEffect(() => {\n    // setMounted/setProgress")
+    expect(mountEffectStart).toBeGreaterThan(-1)
+    const mountEffectEnd = TUTORIAL.indexOf("[negocio.id])", mountEffectStart)
+    expect(mountEffectEnd).toBeGreaterThan(mountEffectStart)
+    const mountEffectBlock = TUTORIAL.slice(mountEffectStart, mountEffectEnd)
+    expect(mountEffectBlock).not.toMatch(/setOpen\(true\)/)
   })
 
   test("the first-visit card is only shown when NOT started and NOT dismissed — never forced, always has an escape ('Ahora no')", () => {
@@ -72,8 +74,8 @@ describe("C-F. start / Next / Back / Skip / continue-after-reopen controls exist
     expect(TUTORIAL).toContain('Saltar')
   })
 
-  test("the mini 'Continuar tutorial' control only renders when started, not finished, and the sheet is closed", () => {
-    expect(TUTORIAL).toMatch(/!open && started && !finished/)
+  test("the mini 'Continuar tutorial' control only renders when started, not finished, the sheet is closed, and no contextual guide is active", () => {
+    expect(TUTORIAL).toMatch(/!open && !guide\.isGuideActive && started && !finished/)
     expect(TUTORIAL).toContain("Continuar tutorial · Paso")
   })
 
@@ -207,11 +209,9 @@ describe("Q. tutorial actions never auto-submit forms or fake DOM clicks", () =>
     expect(TUTORIAL).not.toMatch(/requestSubmit/)
   })
 
-  test("openCreateProduct action only opens the real create form (via the host's own openNewForm) — it never fills or submits it", () => {
-    const block = TUTORIAL.match(/case "openCreateProduct":[\s\S]*?return/)
-    expect(block).not.toBeNull()
-    expect(block![0]).toMatch(/onRequestCreateProduct\(\)/)
-    expect(block![0]).not.toMatch(/setFormData|handleSave|saveMutation/)
+  test("R3: no action key opens/auto-fills the create-product form directly — the owner always clicks the real 'Agregar producto' button themselves, guided only by a highlight (task §6, §12)", () => {
+    expect(TUTORIAL).not.toMatch(/openCreateProduct/)
+    expect(TUTORIAL).not.toMatch(/onRequestCreateProduct/)
   })
 
   test("runAction never calls a save/create/update/delete mutation directly — only navigation/mode-switch callbacks", () => {

@@ -1,19 +1,25 @@
 "use client"
 
 // ============================================
-// BUSINESS-CATALOG-INAPP-TUTORIAL-R1 — companion panel
+// BUSINESS-CATALOG-INAPP-TUTORIAL-R1/R3 — companion panel
 // ============================================
 // Optional, non-blocking guided tutorial for the business catalog (task
 // §3-4). Deliberately NOT a full-screen spotlight tour: it's a compact
 // side panel (Sheet) the owner opens/minimizes at will. Pressing an
-// "Ir a..." action closes the panel and performs a REAL navigation
-// through the host's own component state (never a DOM click hack) — the
-// owner then fills/submits the real form themselves. Nothing here ever
-// creates, edits, or deletes a business entity automatically (task §5).
+// "Ir a..." action closes the panel, performs a REAL navigation through
+// the host's own component state (never a DOM click hack), and — R3 §6-9
+// — starts a contextual workflow guide that highlights the real next
+// action in place (see catalog-tutorial-guide-context.tsx). The owner
+// always performs the real click/fill/save themselves; nothing here ever
+// creates, edits, or deletes a business entity automatically (task §5,
+// §24).
 //
 // Mount this once, as a child of ProductsTab, passing the already-owned
 // subtab/mode state down (see products-tab.tsx / business-panel.tsx for
-// the wiring) — never reach into the DOM to find those controls.
+// the wiring) — never reach into the DOM to find those controls. Must be
+// rendered under <CatalogTutorialGuideProvider> (mounted once around
+// <ProductsTab> in business-panel.tsx, OUTSIDE it, so the guide survives
+// ProductsTab's own subtab-driven re-renders).
 
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -54,9 +60,9 @@ import {
   resolveStepCopy,
 } from "./catalog-tutorial-steps"
 import { readTutorialProgress, writeTutorialProgress } from "./catalog-tutorial-storage"
-import { CatalogTutorialHighlightRing, useCatalogTutorialHighlight } from "./catalog-tutorial-highlight"
-import type { CatalogTutorialTargetKey } from "./catalog-tutorial-targets"
-import type { CatalogTutorialActionKey, CatalogTutorialFieldGuideEntry, CatalogTutorialStep } from "./catalog-tutorial-types"
+import { useCatalogTutorialGuide } from "./catalog-tutorial-guide-context"
+import { getFirstGuidePhase, hasGuide } from "./catalog-tutorial-guides"
+import type { CatalogTutorialActionKey, CatalogTutorialStep } from "./catalog-tutorial-types"
 
 export type CatalogTutorialSubTab = "productos" | "agregados" | "ingredientes" | "secciones" | "opciones"
 export type CatalogTutorialPanelMode = "simple" | "expert"
@@ -66,21 +72,15 @@ export interface CatalogTutorialProps {
   mode: CatalogTutorialPanelMode
   onModeChange: (mode: CatalogTutorialPanelMode) => void
   onNavigateSubTab: (subTab: CatalogTutorialSubTab) => void
-  onRequestCreateProduct: () => void
 }
 
 type TutorialView = "home" | "step" | "steps-list" | "help"
 
-export function CatalogTutorial({
-  negocio,
-  mode,
-  onModeChange,
-  onNavigateSubTab,
-  onRequestCreateProduct,
-}: CatalogTutorialProps) {
+export function CatalogTutorial({ negocio, mode, onModeChange, onNavigateSubTab }: CatalogTutorialProps) {
   const rubro = useMemo(() => normalizeRubro(negocio.rubro), [negocio.rubro])
   const visibleSteps = useMemo(() => getVisibleSteps(rubro), [rubro])
   const visibleStepIds = useMemo(() => visibleSteps.map((s) => s.id), [visibleSteps])
+  const guide = useCatalogTutorialGuide()
 
   // Same SSR-safe "mounted" gate used elsewhere in this codebase (e.g.
   // BottomNav, IOSViewportDebugPanel) — server and first client render
@@ -91,8 +91,6 @@ export function CatalogTutorial({
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<TutorialView>("home")
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-  const [fieldGuideIndex, setFieldGuideIndex] = useState(0)
-  const highlight = useCatalogTutorialHighlight()
 
   useEffect(() => {
     // setMounted/setProgress run inside a deferred callback (not as a
@@ -117,24 +115,6 @@ export function CatalogTutorial({
   const summary = computeProgressSummary(progress, visibleStepIds)
   const currentStep =
     (progress.currentStepId && visibleSteps.find((s) => s.id === progress.currentStepId)) || null
-
-  // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §12: a single, unconditional
-  // clearing point covering every lifecycle event the task lists (step
-  // change, tutorial closes, target unmounts is handled inside the hook
-  // itself, skip/finish/reset all change `view` and/or `currentStepId`
-  // and/or `open`) — rather than manually calling clearHighlight() at
-  // every individual handler call site, which would be easy to miss one
-  // of. No stale ring can ever survive any of these transitions.
-  useEffect(() => {
-    // Deferred for the same reason as the mounted-gate effect above
-    // (react-hooks/set-state-in-effect) — setFieldGuideIndex must not run
-    // as a direct effect-body statement.
-    const timer = window.setTimeout(() => {
-      highlight.clearHighlight()
-      setFieldGuideIndex(0)
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [view, currentStep?.id, open])
 
   // task §5: the ONLY real navigation surface. Never a DOM click — every
   // branch calls the host's own state setters/callbacks.
@@ -164,11 +144,6 @@ export function CatalogTutorial({
       case "setModeExpert":
         onModeChange("expert")
         return
-      case "openCreateProduct":
-        if (mode !== "simple") onModeChange("simple")
-        onNavigateSubTab("productos")
-        onRequestCreateProduct()
-        return
       case "openPreview":
         if (typeof window !== "undefined") {
           // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §20, §25: previewSource=business
@@ -188,6 +163,10 @@ export function CatalogTutorial({
   }
 
   const openAtStep = (stepId: string) => {
+    // R3 §22: navigating directly to a (possibly different) step always
+    // ends whatever guide was running — a stale guide from a step the
+    // owner is no longer looking at must never keep highlighting.
+    guide.stopGuide()
     persist(setCurrentStep(progress, stepId, Date.now()))
     setView("step")
     setOpen(true)
@@ -207,9 +186,16 @@ export function CatalogTutorial({
   const handleGoToAction = (step: CatalogTutorialStep) => {
     persist(setCurrentStep(progress, step.id, Date.now()))
     runAction(step.actionKey)
-    // task §15: closing here is what leaves the real business UI fully
+    // R3 §11: closing here is what leaves the real business UI fully
     // usable — the owner performs the real action outside this panel.
     setOpen(false)
+    // R3 §6, §12-19: replaces R2's separate "show me" click — the
+    // contextual guide starts automatically on the real next action the
+    // moment the owner navigates there, no extra step.
+    if (hasGuide(step.id)) {
+      const firstPhase = getFirstGuidePhase(step.id, { mode })
+      if (firstPhase) guide.startGuide(step.id, firstPhase.targetKey)
+    }
   }
 
   const advanceAfter = (step: CatalogTutorialStep, base: CatalogTutorialProgress) => {
@@ -221,15 +207,18 @@ export function CatalogTutorial({
   }
 
   const handleCompleteStep = (step: CatalogTutorialStep) => {
+    guide.stopGuideIfActive(step.id)
     const completed = markStepCompleted(progress, step.id, Date.now())
     advanceAfter(step, completed)
   }
 
   const handleSkipStep = (step: CatalogTutorialStep) => {
+    guide.stopGuideIfActive(step.id)
     advanceAfter(step, progress)
   }
 
   const handleBackStep = (step: CatalogTutorialStep) => {
+    guide.stopGuideIfActive(step.id)
     const idx = visibleStepIds.indexOf(step.id)
     const prevStepId = visibleSteps[idx - 1]?.id
     if (prevStepId) persist(setCurrentStep(progress, prevStepId, Date.now()))
@@ -240,15 +229,37 @@ export function CatalogTutorial({
   }
 
   const handleReset = () => {
+    guide.stopGuide()
     persist(resetTutorialProgress())
     setResetConfirmOpen(false)
     setOpen(false)
     setView("home")
   }
 
+  // R3 §21: ends the contextual guide, clears the active target, and
+  // reopens the main tutorial at the SAME step that started the guide
+  // (guide id === step id, see catalog-tutorial-guides.ts) — progress is
+  // untouched (no complete/skip is implied by returning). Registered with
+  // the guide context so any coach card, wherever it renders, can trigger
+  // this exact real Sheet-reopening behavior (task §21) without needing
+  // to be a descendant of this component.
+  useEffect(() => {
+    guide.setReturnHandler(() => {
+      const originStepId = guide.activeGuideId
+      guide.stopGuide()
+      if (originStepId) {
+        persist(setCurrentStep(progress, originStepId, Date.now()))
+        setView("step")
+        setOpen(true)
+      }
+    })
+    return () => guide.setReturnHandler(null)
+  }, [progress, guide.activeGuideId])
+
   if (!mounted) return null
 
   const showIntroCard = !started && !progress.dismissedIntro
+  const guideTargetMissing = guide.isGuideActive && guide.activeTargetKey !== null && !guide.isTargetMounted(guide.activeTargetKey)
 
   return (
     <>
@@ -262,11 +273,23 @@ export function CatalogTutorial({
             setOpen(true)
           }}
           aria-label="Abrir tutorial del catálogo"
-          data-catalog-tutorial-target="catalog-tutorial-button"
         >
           Tutorial del catálogo
         </Button>
-        {!open && started && !finished && (
+        {/* R3 §11: small, non-obstructive indicator — reuses the same
+            inline (never position:fixed) header slot R1/R2 already had for
+            "Continuar tutorial", so a guide in progress never needs a new
+            floating overlay. R3 §22: a target that stopped being mounted
+            (form closed/changed unexpectedly) shows the fail-safe copy
+            here instead of silently doing nothing. */}
+        {!open && guide.isGuideActive && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => guide.requestReturn()} role="status">
+            {guideTargetMissing
+              ? "El formulario cambió. Volvé al tutorial para continuar."
+              : "Tutorial activo · Volver al tutorial"}
+          </Button>
+        )}
+        {!open && !guide.isGuideActive && started && !finished && (
           <Button
             type="button"
             variant="ghost"
@@ -340,16 +363,10 @@ export function CatalogTutorial({
               onSkip={() => handleSkipStep(currentStep)}
               onBack={() => handleBackStep(currentStep)}
               onClose={() => setOpen(false)}
-              fieldGuideIndex={fieldGuideIndex}
-              onFieldGuideIndexChange={setFieldGuideIndex}
-              onShowMe={highlight.showMe}
-              highlightFailed={highlight.failed}
             />
           )}
         </SheetContent>
       </Sheet>
-
-      <CatalogTutorialHighlightRing rect={highlight.rect} />
 
       <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
         <DialogContent>
@@ -551,10 +568,6 @@ function TutorialStepView({
   onSkip,
   onBack,
   onClose,
-  fieldGuideIndex,
-  onFieldGuideIndexChange,
-  onShowMe,
-  highlightFailed,
 }: {
   step: CatalogTutorialStep
   rubro: ReturnType<typeof normalizeRubro>
@@ -568,15 +581,7 @@ function TutorialStepView({
   onSkip: () => void
   onBack: () => void
   onClose: () => void
-  fieldGuideIndex: number
-  onFieldGuideIndexChange: (index: number) => void
-  onShowMe: (targetKey: CatalogTutorialTargetKey) => void
-  highlightFailed: boolean
 }) {
-  const fieldGuide = step.fieldGuide
-  const currentField: CatalogTutorialFieldGuideEntry | null =
-    fieldGuide && fieldGuide.length > 0 ? fieldGuide[Math.min(fieldGuideIndex, fieldGuide.length - 1)] : null
-
   return (
     <>
       <SheetHeader>
@@ -595,65 +600,10 @@ function TutorialStepView({
           </ul>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          {step.actionKey && step.actionKey !== "none" && step.actionLabel && (
-            <Button type="button" onClick={onGoToAction} className="flex-1">
-              {resolveStepCopy(step.actionLabel, rubro)}
-            </Button>
-          )}
-          {/* R2 §5, §8: highlights the real field without navigating away —
-              only useful once the owner is already on the right screen
-              (after "Ir a..."), so this is additive next to it. */}
-          {step.targetKey && (
-            <Button type="button" variant="outline" onClick={() => onShowMe(step.targetKey!)}>
-              Mostrarme
-            </Button>
-          )}
-        </div>
-
-        {/* R2 §9-10: compact per-field sub-guide (Simple product's 6
-            fields, or an Expert area's handful of relevant controls) —
-            never a new top-level step. */}
-        {fieldGuide && fieldGuide.length > 0 && currentField && (
-          <div className="rounded-lg border p-3">
-            <p className="text-xs font-medium text-muted-foreground">
-              Campo {fieldGuideIndex + 1} de {fieldGuide.length}
-            </p>
-            <p className="mb-2 font-semibold" aria-live="polite">
-              Ahora buscá: {resolveStepCopy(currentField.label, rubro)}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={fieldGuideIndex === 0}
-                onClick={() => onFieldGuideIndexChange(Math.max(0, fieldGuideIndex - 1))}
-              >
-                Anterior
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={fieldGuideIndex >= fieldGuide.length - 1}
-                onClick={() => onFieldGuideIndexChange(Math.min(fieldGuide.length - 1, fieldGuideIndex + 1))}
-              >
-                Siguiente campo
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => onShowMe(currentField.targetKey)}>
-                Mostrarme
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* task §15: fails safe — the tutorial stays fully usable, the
-            owner just follows the written step instead. */}
-        {highlightFailed && (
-          <p className="text-xs text-muted-foreground" role="status">
-            No pudimos señalar este campo automáticamente. Podés seguir el paso manualmente.
-          </p>
+        {step.actionKey && step.actionKey !== "none" && step.actionLabel && (
+          <Button type="button" onClick={onGoToAction} className="w-full">
+            {resolveStepCopy(step.actionLabel, rubro)}
+          </Button>
         )}
       </div>
       <SheetFooter className="flex-col gap-2">

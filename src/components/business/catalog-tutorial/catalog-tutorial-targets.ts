@@ -1,49 +1,38 @@
 // ============================================
-// BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §6 — stable target registry
+// BUSINESS-CATALOG-INAPP-TUTORIAL-R3 §8 — workflow-area target registry
 // ============================================
-// A closed, typed set of `data-catalog-tutorial-target` values. Kept as a
-// plain string-literal registry (not a full React ref context) — task
-// §6 explicitly allows this pattern and prefers it over a ref registry
-// that would require touching every target component's internals just to
-// register a ref. The DOM lookup this registry supports is used ONLY for
-// visual discovery (scrollIntoView + bounding rect) — never to click,
-// submit, or mutate anything (§7).
+// A closed, typed set of target keys the contextual guide can highlight.
+// R2 had 27 field-level keys discovered via `document.querySelector` from
+// a detached, fixed-position portal ring. That UX failed the operator's
+// manual test (R2 report, operator feedback: highlight could appear
+// visually detached from the real control). R3 replaces both the
+// granularity (field-level -> workflow-AREA-level, task §5) and the
+// mechanism (DOM query + portal -> a real wrapping component around the
+// actual React element, see catalog-tutorial-target.tsx) — this registry
+// only defines WHICH areas exist, never how they're found.
 
 export const CATALOG_TUTORIAL_TARGET_KEYS = [
-  "catalog-tutorial-button",
   "category-control",
   "add-product",
-  "mode-simple",
-  "mode-expert",
-  "product-name",
-  "product-price",
-  "product-category",
-  "product-main-image",
-  "product-gallery",
-  "product-stock",
-  "product-description",
-  "product-discount",
-  "ingredients-tab",
-  "ingredient-add",
-  "product-ingredients",
-  "additions-tab",
-  "addition-add",
-  "product-additions",
-  "product-own-sections",
-  "shared-options-tab",
-  "shared-option-add",
-  "product-shared-options",
-  "catalog-sections-tab",
-  "catalog-section-add",
-  "preview-button",
+  "product-basic-info-area",
+  "product-advanced-options-area",
+  "product-review-area",
   "product-edit",
+  "mode-expert",
+  "ingredient-add",
+  "ingredient-form-area",
+  "addition-add",
+  "addition-form-area",
+  "product-own-sections",
+  "shared-option-add",
+  "shared-option-form-area",
+  "product-shared-options",
+  "catalog-section-add",
+  "catalog-section-form-area",
+  "preview-button",
 ] as const
 
 export type CatalogTutorialTargetKey = (typeof CATALOG_TUTORIAL_TARGET_KEYS)[number]
-
-export function buildTargetSelector(key: CatalogTutorialTargetKey): string {
-  return `[data-catalog-tutorial-target="${key}"]`
-}
 
 export function isCatalogTutorialTargetKey(value: string): value is CatalogTutorialTargetKey {
   return (CATALOG_TUTORIAL_TARGET_KEYS as readonly string[]).includes(value)

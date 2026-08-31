@@ -45,7 +45,11 @@ describe("Preview Exit Test Matrix", () => {
   })
 
   test("EXIT C (X / window-close, browser/OS-owned chrome): the app never fabricates control over it — instead the opening architecture (business-panel.tsx) opens Preview in a new tab/window via window.open, so the business-panel tab/session is untouched by however that window is closed", () => {
-    expect(BUSINESS_PANEL).toMatch(/window\.open\(\s*`\/n\/\$\{negocio\.slug\}\?preview=true&previewSource=business`,\s*"_blank",\s*"noopener,noreferrer"\s*\)/)
+    // R3: the preview trigger was extracted into its own PreviewButton
+    // component (to consume the new tutorial guide context) — the slug
+    // comes in as a plain `slug` prop there instead of `negocio.slug`
+    // directly, but the window.open contract itself is unchanged.
+    expect(BUSINESS_PANEL).toMatch(/window\.open\(`\/n\/\$\{slug\}\?preview=true&previewSource=business`, "_blank", "noopener,noreferrer"\)/)
   })
 
   test("no code path attempts to call window.close() or otherwise assert control over browser/OS-owned chrome from within the preview page", () => {
