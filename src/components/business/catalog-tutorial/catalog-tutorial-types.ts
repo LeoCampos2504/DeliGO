@@ -7,6 +7,8 @@
 // pure/impure split already established elsewhere in this codebase (e.g.
 // src/lib/ios-scroll-restore-decision.ts vs its DOM shell).
 
+import type { CatalogTutorialTargetKey } from "./catalog-tutorial-targets"
+
 // Rubro values as they appear in the business panel today
 // (src/components/business/business-panel.tsx: `negocio.rubro` is a
 // plain `string`, gated via `isRopa = rubro === "ropa"` /
@@ -36,6 +38,17 @@ export type CatalogTutorialActionKey =
   | "openPreview"
   | "none"
 
+// BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §9-10: one entry in a step's optional
+// compact field sub-guide (Simple product's 6 fields, or an Expert area's
+// handful of relevant controls). Never a value/label the owner types —
+// only a display label and which real target to highlight.
+export interface CatalogTutorialFieldGuideEntry {
+  id: string
+  // May contain the same {producto}/{Producto} tokens as step text.
+  label: string
+  targetKey: CatalogTutorialTargetKey
+}
+
 export interface CatalogTutorialStep {
   id: string
   chapterTitle: string
@@ -61,6 +74,15 @@ export interface CatalogTutorialStep {
   // auto-detection heuristics) — this R1 implementation never infers
   // completion from product counts, DOM state, or polling.
   completionLabel: string
+  // R2 §5, §8: when set, a "Mostrarme" action highlights this single real
+  // target. Mutually usable alongside fieldGuide below for steps that
+  // have both a primary target and a multi-field sub-guide.
+  targetKey?: CatalogTutorialTargetKey
+  // R2 §9-10: when set, renders a compact "Campo X de N" sub-navigator
+  // inside the step (Anterior / Siguiente campo / Mostrarme), each entry
+  // highlighting a different real field — without adding new top-level
+  // steps (task: "Keep the existing 17-step architecture").
+  fieldGuide?: CatalogTutorialFieldGuideEntry[]
 }
 
 export interface CatalogTutorialChapterGroup {
