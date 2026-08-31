@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -71,6 +71,8 @@ import { CatalogTutorial, type CatalogTutorialSubTab } from "./catalog-tutorial/
 import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
 import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
+import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
+import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
 
 // ============================================
 // Types
@@ -95,6 +97,7 @@ interface ProductsTabProps {
   // BusinessPanel's own handleModeChange, never a local/shadow mode
   // state of its own.
   onModeChange?: (mode: PanelMode) => void
+  onRegisterNavigationGuard?: (guard: ((action: () => void) => void) | null) => void
 }
 
 interface Producto {
@@ -175,6 +178,67 @@ const defaultFormData: ProductFormData = {
   agregadosIds: [],
   ingredientesIds: [],
   opcionesCompartidasIds: [],
+}
+
+function parseProductJson(raw: string, fallback: unknown): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Canonical comparison form for dirty-state detection. The API historically
+ * returned both JSON strings and arrays for some fields, and own options may
+ * still be legacy strings. Those equivalent representations must not create
+ * a false warning; persisted ordering of galleries/sections is retained.
+ */
+export function normalizeProductFormData(data: ProductFormData): unknown {
+  const rawSections = parseProductJson(data.secciones, [])
+  const sections = Array.isArray(rawSections)
+    ? rawSections.map((section) => {
+        const item = section && typeof section === "object" && !Array.isArray(section)
+          ? section as Record<string, unknown>
+          : {}
+        return {
+          nombre: typeof item.nombre === "string" ? item.nombre.trim() : "",
+          opciones: normalizeOwnSectionOptionsForEditor(item.opciones).map((option) => ({
+            nombre: option.nombre.trim(),
+            precio: option.precio,
+          })),
+          obligatorio: item.obligatorio === true,
+          maximo: typeof item.maximo === "number" && Number.isFinite(item.maximo) ? item.maximo : 0,
+        }
+      })
+    : []
+
+  const sharedOptions = data.opcionesCompartidasIds.map((option) => ({
+    id: option.id,
+    obligatorio: option.obligatorio === true,
+    maximo: Number.isFinite(option.maximo) ? option.maximo : 0,
+  }))
+
+  return {
+    nombre: data.nombre.trim(),
+    precio: data.precio,
+    categoria: data.categoria.trim().replace(/^Sin categoría$/i, "Sin Categoria"),
+    imagenUrl: data.imagenUrl.trim(),
+    imagenesExtra: data.imagenesExtra.map((url) => url.trim()),
+    stock: data.stock,
+    descuentoActivo: data.descuentoActivo,
+    tipoDescuento: data.tipoDescuento,
+    valorDescuento: data.valorDescuento,
+    descripcion: data.descripcion.trim(),
+    talles: parseProductJson(data.talles, []),
+    colores: parseProductJson(data.colores, []),
+    material: data.material.trim(),
+    genero: data.genero,
+    secciones: sections,
+    agregadosIds: [...data.agregadosIds].sort(),
+    ingredientesIds: [...data.ingredientesIds].sort(),
+    opcionesCompartidasIds: sharedOptions,
+  }
 }
 
 const generoOptions = [
@@ -460,7 +524,7 @@ function ChipInput({
 // ============================================
 // Products Tab Component
 // ============================================
-export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
+export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationGuard }: ProductsTabProps) {
   const queryClient = useQueryClient()
   const isRopa = negocio.rubro === "ropa"
   const isNegocio = negocio.rubro === "negocio"
@@ -471,6 +535,13 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null)
   const [formStep, setFormStep] = useState(0)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
+  const [initialFormData, setInitialFormData] = useState<ProductFormData>(defaultFormData)
+  const productIsDirty = formOpen && !deepEqual(normalizeProductFormData(initialFormData), normalizeProductFormData(formData))
+  const productGuard = useUnsavedChangesGuard(productIsDirty)
+  const [otherFormIsDirty, setOtherFormIsDirty] = useState(false)
+  const catalogNavigationGuard = useUnsavedChangesGuard(productIsDirty || otherFormIsDirty, { beforeUnload: false })
+  const { guardedClose: guardedCatalogNavigation } = catalogNavigationGuard
+  const closeFormRef = useRef<() => void>(() => {})
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null)
   const [categoryInput, setCategoryInput] = useState("")
   const [showCategoryInput, setShowCategoryInput] = useState(false)
@@ -510,6 +581,10 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
     items.push({ id: "opciones", label: "Opciones", icon: Settings2 })
     return items
   }, [mode, isRopa, isNegocio])
+
+  // A guarded mode change can make expert-only subtabs unreachable. Derive a
+  // safe visible value instead of synchronously setting state from an effect.
+  const activeSubTab = subTabItems.some((item) => item.id === subTab) ? subTab : "productos"
 
   // Fetch products
   const { data: productos = [], isLoading: loadingProducts } = useQuery<Producto[]>({
@@ -690,11 +765,13 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
       if (!res.ok) throw new Error("Error guardando producto")
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["negocio-productos", negocio.id] })
       queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
       queryClient.invalidateQueries({ queryKey: ["negocio-categorias", negocio.id] })
       toast.success(isRopa ? "Prenda guardada correctamente" : "Producto guardado correctamente")
+      const { id: _id, ...savedFormData } = variables
+      setInitialFormData(savedFormData)
       closeForm()
     },
     onError: () => {
@@ -735,13 +812,13 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   const openNewForm = () => {
     setEditingProduct(null)
     setFormData(defaultFormData)
+    setInitialFormData(defaultFormData)
     setFormStep(0)
     setFormOpen(true)
   }
 
   const openEditForm = (product: Producto) => {
-    setEditingProduct(product)
-    setFormData({
+    const loaded: ProductFormData = {
       nombre: product.nombre,
       precio: product.precio,
       categoria: product.categoria,
@@ -795,7 +872,7 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
       agregadosIds: product.agregados?.map((a) => a.agregadoId) ?? [],
       ingredientesIds: product.ingredientes?.map((i) => i.ingredienteId) ?? [],
       opcionesCompartidasIds: (() => {
-        const raw = (product as Record<string, unknown>).opcionesCompartidasIds
+        const raw = (product as unknown as Record<string, unknown>).opcionesCompartidasIds
         let parsed: unknown[] = []
         if (Array.isArray(raw)) parsed = raw
         else { try { parsed = JSON.parse((raw as string) || "[]") } catch { parsed = [] } }
@@ -806,7 +883,10 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           return { id: obj.id ?? "", obligatorio: obj.obligatorio ?? false, maximo: obj.maximo ?? 0 }
         }).filter((c) => c.id)
       })(),
-    })
+    }
+    setEditingProduct(product)
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setFormStep(0)
     setFormOpen(true)
     // R3 §13: the edit guide is a single phase (highlight the real Editar
@@ -824,6 +904,49 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
     guide.stopGuideIfActive("create-simple-product")
     guide.stopGuideIfActive("edit-product")
   }
+
+  useEffect(() => {
+    closeFormRef.current = closeForm
+  }, [closeForm])
+
+  // One app-controlled exit path for Product, child catalog forms, subtab
+  // switches and the main BusinessPanel tabs. Internal Product steps never
+  // call this path, so moving Basic → Advanced → Review stays uninterrupted.
+  const requestCatalogNavigation = useCallback((action: () => void) => {
+    guardedCatalogNavigation(() => {
+      if (formOpen) closeFormRef.current()
+      setOtherFormIsDirty(false)
+      action()
+    })
+  }, [guardedCatalogNavigation, formOpen])
+
+  const requestSubTab = useCallback((nextSubTab: CatalogSubTab) => {
+    if (nextSubTab === activeSubTab) return
+    const requiresExpertMode = (nextSubTab === "ingredientes" || nextSubTab === "agregados") && mode !== "expert"
+    requestCatalogNavigation(() => {
+      if (requiresExpertMode) onModeChange?.("expert")
+      setSubTab(nextSubTab)
+    })
+  }, [activeSubTab, mode, onModeChange, requestCatalogNavigation])
+
+  useEffect(() => {
+    onRegisterNavigationGuard?.(requestCatalogNavigation)
+    return () => onRegisterNavigationGuard?.(null)
+  }, [onRegisterNavigationGuard, requestCatalogNavigation])
+
+  const discardDialog = (
+    <CatalogUnsavedChangesDialog
+      open={productGuard.confirmOpen || catalogNavigationGuard.confirmOpen}
+      onContinueEditing={() => {
+        productGuard.cancelDiscard()
+        catalogNavigationGuard.cancelDiscard()
+      }}
+      onDiscard={() => {
+        if (productGuard.confirmOpen) productGuard.confirmDiscard()
+        else catalogNavigationGuard.confirmDiscard()
+      }}
+    />
+  )
 
   const handleSave = () => {
     // Validate discount limits
@@ -856,67 +979,71 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   }, [formData.precio, formData.descuentoActivo, formData.tipoDescuento, formData.valorDescuento])
 
   // If on a non-productos sub-tab, render the respective section (after all hooks)
-  if (subTab === "agregados" && mode === "expert" && !isRopa && !isNegocio) {
+  if (activeSubTab === "agregados" && mode === "expert" && !isRopa && !isNegocio) {
     return (
       <div className="space-y-4">
-        <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogSubNav subTab={activeSubTab} setSubTab={requestSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
         <CatalogTutorial
           negocio={negocio}
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
-          onNavigateSubTab={setSubTab}
+          onNavigateSubTab={requestSubTab}
         />
         <SectionErrorBoundary>
-          <AgregadosSection negocio={negocio} />
+          <AgregadosSection negocio={negocio} onDirtyChange={setOtherFormIsDirty} />
         </SectionErrorBoundary>
+        {discardDialog}
       </div>
     )
   }
-  if (subTab === "ingredientes" && mode === "expert" && !isRopa && !isNegocio) {
+  if (activeSubTab === "ingredientes" && mode === "expert" && !isRopa && !isNegocio) {
     return (
       <div className="space-y-4">
-        <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogSubNav subTab={activeSubTab} setSubTab={requestSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
         <CatalogTutorial
           negocio={negocio}
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
-          onNavigateSubTab={setSubTab}
+          onNavigateSubTab={requestSubTab}
         />
         <SectionErrorBoundary>
-          <IngredientesSection negocio={negocio} />
+          <IngredientesSection negocio={negocio} onDirtyChange={setOtherFormIsDirty} />
         </SectionErrorBoundary>
+        {discardDialog}
       </div>
     )
   }
-  if (subTab === "secciones") {
+  if (activeSubTab === "secciones") {
     return (
       <div className="space-y-4">
-        <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogSubNav subTab={activeSubTab} setSubTab={requestSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
         <CatalogTutorial
           negocio={negocio}
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
-          onNavigateSubTab={setSubTab}
+          onNavigateSubTab={requestSubTab}
         />
         <SectionErrorBoundary>
-          <SeccionesSection negocio={negocio} />
+          <SeccionesSection negocio={negocio} onDirtyChange={setOtherFormIsDirty} />
         </SectionErrorBoundary>
+        {discardDialog}
       </div>
     )
   }
-  if (subTab === "opciones") {
+  if (activeSubTab === "opciones") {
     return (
       <div className="space-y-4">
-        <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+        <CatalogSubNav subTab={activeSubTab} setSubTab={requestSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
         <CatalogTutorial
           negocio={negocio}
           mode={mode}
           onModeChange={onModeChange ?? (() => {})}
-          onNavigateSubTab={setSubTab}
+          onNavigateSubTab={requestSubTab}
         />
         <SectionErrorBoundary>
-          <OpcionesCompartidasSection negocio={negocio} />
+          <OpcionesCompartidasSection negocio={negocio} onDirtyChange={setOtherFormIsDirty} />
         </SectionErrorBoundary>
+        {discardDialog}
       </div>
     )
   }
@@ -937,14 +1064,14 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
   return (
     <div className="space-y-4">
       {/* ===== CATALOG SUB-TABS ===== */}
-      <CatalogSubNav subTab={subTab} setSubTab={setSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
+      <CatalogSubNav subTab={activeSubTab} setSubTab={requestSubTab} items={subTabItems} colorPrincipal={negocio.colorPrincipal} />
 
       {/* ===== BUSINESS-CATALOG-INAPP-TUTORIAL-R1 ===== */}
       <CatalogTutorial
         negocio={negocio}
         mode={mode}
         onModeChange={onModeChange ?? (() => {})}
-        onNavigateSubTab={setSubTab}
+        onNavigateSubTab={requestSubTab}
       />
 
       {/* ===== SEARCH BAR ===== */}
@@ -1111,7 +1238,7 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
       )}
 
       {/* ===== PRODUCT FORM DRAWER ===== */}
-      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) closeForm() }}>
+      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) productGuard.guardedClose(closeForm) }}>
         <DrawerContent className="max-h-[92vh]">
           <DrawerHeader className="text-left shrink-0">
             <DrawerTitle className="flex items-center gap-2">
@@ -1264,6 +1391,8 @@ export function ProductsTab({ negocio, mode, onModeChange }: ProductsTabProps) {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      {discardDialog}
 
       {/* ===== DELETE CONFIRMATION ===== */}
       <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
@@ -1911,8 +2040,8 @@ function StepBasicInfo({
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
             {formData.stock
-              ? (isRopa ? "La prenda aparece en el catálogo" : "El producto aparece en el catálogo")
-              : (isRopa ? "Oculta del catálogo" : "Oculto del catálogo")}
+              ? (isRopa ? "La prenda está disponible para comprar" : "El producto está disponible para comprar")
+              : (isRopa ? "La prenda se mostrará como Sin stock y no se podrá comprar" : "El producto se mostrará como Sin stock y no se podrá comprar")}
           </p>
         </div>
         <Switch
@@ -1950,7 +2079,7 @@ function StepRopaDetails({
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
-            {formData.stock ? "La prenda aparece en el catálogo" : "Oculta del catálogo"}
+            {formData.stock ? "La prenda está disponible para comprar" : "La prenda se mostrará como Sin stock y no se podrá comprar"}
           </p>
         </div>
         <Switch
@@ -2117,7 +2246,7 @@ function StepNegocioDetails({
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
-            {formData.stock ? "El producto aparece en el catálogo" : "Oculto del catálogo"}
+            {formData.stock ? "El producto está disponible para comprar" : "El producto se mostrará como Sin stock y no se podrá comprar"}
           </p>
         </div>
         <Switch
@@ -2431,7 +2560,7 @@ function StepOptions({
         <div>
           <p className="text-sm font-semibold">Stock disponible</p>
           <p className="text-xs text-muted-foreground">
-            {formData.stock ? "El producto aparece en el catálogo" : "Oculto del catálogo"}
+            {formData.stock ? "El producto está disponible para comprar" : "El producto se mostrará como Sin stock y no se podrá comprar"}
           </p>
         </div>
         <Switch

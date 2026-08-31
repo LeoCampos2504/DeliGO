@@ -125,11 +125,14 @@ export function CatalogTutorial({ negocio, mode, onModeChange, onNavigateSubTab 
         onNavigateSubTab("productos")
         return
       case "goToIngredients":
-        if (mode !== "expert") onModeChange("expert")
+        // ProductsTab upgrades to Expert inside the same guarded navigation
+        // transaction when this subtab is reached from Simple mode. Keeping
+        // the two state changes together prevents a dirty editor from
+        // producing two competing discard dialogs.
         onNavigateSubTab("ingredientes")
         return
       case "goToAdditions":
-        if (mode !== "expert") onModeChange("expert")
+        // See goToIngredients: mode and subtab are one guarded transition.
         onNavigateSubTab("agregados")
         return
       case "goToCatalogSections":

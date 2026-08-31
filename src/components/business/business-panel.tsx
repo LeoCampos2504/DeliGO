@@ -90,6 +90,25 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   const [abiertoManual, setAbiertoManual] = useState(negocio.abiertoManual !== false)
   const { logout } = useAuth()
   const queryClient = useQueryClient()
+  const catalogNavigationGuardRef = useRef<((action: () => void) => void) | null>(null)
+
+  const requestPanelNavigation = useCallback((target: PanelTab) => {
+    const guardedNavigation = catalogNavigationGuardRef.current
+    if (activeTab === "productos" && guardedNavigation) {
+      guardedNavigation(() => setActiveTab(target))
+      return
+    }
+    setActiveTab(target)
+  }, [activeTab])
+
+  const requestLogout = useCallback(() => {
+    const logoutAction = () => { void logout() }
+    if (activeTab === "productos" && catalogNavigationGuardRef.current) {
+      catalogNavigationGuardRef.current(logoutAction)
+      return
+    }
+    logoutAction()
+  }, [activeTab, logout])
 
   // Fetch negocio config to get accurate horarioMode/abiertoManual from the database
   const { data: configData } = useQuery({
@@ -116,8 +135,8 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       salon: "salon",
     }
     const target = tabMap[tab]
-    if (target) setActiveTab(target)
-  }, [])
+    if (target) requestPanelNavigation(target)
+  }, [requestPanelNavigation])
 
   // Sync horario state with negocio prop changes AND config query data
   useEffect(() => {
@@ -234,7 +253,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
         }
         const target = tabMap[tabParam]
         if (target) {
-          setActiveTab(target)
+          requestPanelNavigation(target)
           // Bugfix-4B [17B]: antes esto limpiaba TODA la query string, incluido
           // un eventual `pedidoId` — que OrdersTab necesita leer recién en el
           // siguiente render, cuando se monta por primera vez al cambiar de tab.
@@ -258,21 +277,28 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       window.removeEventListener("focus", consumeTabParam)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [])
+  }, [requestPanelNavigation])
 
   const handleModeChange = useCallback((newMode: PanelMode) => {
-    setMode(newMode)
-    // Save to database (fire and forget)
-    fetch("/api/negocio/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ panelMode: newMode }),
-    }).catch(() => {})
-    // Also save to localStorage as quick fallback
-    if (typeof window !== "undefined") {
-      localStorage.setItem("deligo-panel-mode", newMode)
+    const changeMode = () => {
+      setMode(newMode)
+      // Save to database (fire and forget)
+      fetch("/api/negocio/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ panelMode: newMode }),
+      }).catch(() => {})
+      // Also save to localStorage as quick fallback
+      if (typeof window !== "undefined") {
+        localStorage.setItem("deligo-panel-mode", newMode)
+      }
     }
-  }, [])
+    if (activeTab === "productos" && catalogNavigationGuardRef.current) {
+      catalogNavigationGuardRef.current(changeMode)
+      return
+    }
+    changeMode()
+  }, [activeTab])
 
   const rubroLabels: Record<string, string> = {
     restaurante: "Restaurante",
@@ -334,7 +360,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
-                onClick={logout}
+                onClick={requestLogout}
                 title="Cerrar sesión"
               >
                 <LogOut className="h-4 w-4" />
@@ -396,7 +422,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => requestPanelNavigation(tab.id)}
                   className={cn(
                     "relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors",
                     isActive
@@ -458,6 +484,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
                 negocio={negocio}
                 mode={showModeToggle ? mode : "simple"}
                 onModeChange={handleModeChange}
+                onRegisterNavigationGuard={(guard) => { catalogNavigationGuardRef.current = guard }}
               />
             )}
             {activeTab === "pedidos" && (

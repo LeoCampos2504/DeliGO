@@ -38,6 +38,8 @@ import { ImageUpload } from "@/components/shared/image-upload"
 import { CatalogTutorialGuideCoach } from "./catalog-tutorial/catalog-tutorial-guide"
 import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-guide-context"
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
+import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
+import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
 
 // ============================================
 // Types
@@ -50,6 +52,8 @@ interface AgregadosSectionProps {
     rubro: string
     colorPrincipal: string
   }
+  /** BUSINESS-CATALOG-UX-HARDENING-R1: reports this section's own form dirty state up so ProductsTab can guard subtab switches away from it. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 interface Agregado {
@@ -80,13 +84,21 @@ const SIN_CATEGORIA = "Sin categoría"
 // ============================================
 // Agregados Section Component
 // ============================================
-export function AgregadosSection({ negocio }: AgregadosSectionProps) {
+export function AgregadosSection({ negocio, onDirtyChange }: AgregadosSectionProps) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState("todos")
   const [formOpen, setFormOpen] = useState(false)
   const [editingAgregado, setEditingAgregado] = useState<Agregado | null>(null)
   const [formData, setFormData] = useState<AgregadoFormData>(defaultFormData)
+  const [initialFormData, setInitialFormData] = useState<AgregadoFormData>(defaultFormData)
+  const isDirty = formOpen && !deepEqual(initialFormData, formData)
+  const { confirmOpen, guardedClose, confirmDiscard, cancelDiscard } = useUnsavedChangesGuard(isDirty)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange])
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null)
   const [categoryInput, setCategoryInput] = useState("")
   const [showCategoryInput, setShowCategoryInput] = useState(false)
@@ -186,9 +198,11 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["negocio-agregados", negocio.id] })
       toast.success("Agregado guardado correctamente")
+      const { id: _id, ...savedFormData } = variables
+      setInitialFormData(savedFormData)
       closeForm()
     },
     onError: (err: Error) => {
@@ -255,19 +269,22 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
   const openNewForm = () => {
     setEditingAgregado(null)
     setFormData(defaultFormData)
+    setInitialFormData(defaultFormData)
     setNewCategoryInForm(false)
     setFormCategoryInput("")
     setFormOpen(true)
   }
 
   const openEditForm = (agregado: Agregado) => {
-    setEditingAgregado(agregado)
-    setFormData({
+    const loaded: AgregadoFormData = {
       nombre: agregado.nombre,
       precio: agregado.precio,
       categoria: agregado.categoria || SIN_CATEGORIA,
       imagenUrl: agregado.imagenUrl ?? "",
-    })
+    }
+    setEditingAgregado(agregado)
+    setFormData(loaded)
+    setInitialFormData(loaded)
     setNewCategoryInForm(false)
     setFormCategoryInput("")
     setFormOpen(true)
@@ -649,7 +666,7 @@ export function AgregadosSection({ negocio }: AgregadosSectionProps) {
       )}
 
       {/* ===== AGREGADO FORM DRAWER ===== */}
-      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) closeForm() }}>
+      <Drawer open={formOpen} onOpenChange={(open) => { if (!open) guardedClose(closeForm) }}>
         <DrawerContent className="max-h-[90vh]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="flex items-center gap-2">
