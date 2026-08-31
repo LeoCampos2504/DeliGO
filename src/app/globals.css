@@ -434,6 +434,70 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
   }
 }
 
+/* ─── R6: TEMPORARY diagnostic-only nav paint probes (query-flag gated) ───
+   IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: R5's real-device evidence
+   showed geometry (navPhysicalFullyVisible) can be PASS while the operator
+   still visually sees BottomNav partially hidden after a keyboard close —
+   a paint/compositing symptom geometry alone can't diagnose. These two
+   diagnostics only ever activate behind ?iosDebug=1 (and, for the solid
+   probe, additionally &navPaintProbe=solid) — see bottom-nav.tsx, gated
+   the same way IOSViewportDebugPanel already gates itself. Neither is ever
+   present for a normal user with no query flag.
+   `outline` (not `border`/`box-shadow`) is used deliberately: it paints
+   outside the box without participating in layout at all, so it cannot
+   change the nav's own size or the FAB's 10px gap above it. The 3 markers
+   are absolutely positioned INSIDE the nav's own `overflow-hidden` box
+   (never outside it) so they can't leak into surrounding layout, and are
+   non-interactive (`pointer-events:none` implied by not being interactive
+   content, no click handlers). Purpose (§11): when the operator sees the
+   nav visually disappear, these markers show whether the WHOLE nav box
+   vanished together, or only part of it (matching the operator's own
+   "partially covered" report) — direct visual evidence a screenshot alone
+   can't give without a fixed reference point. ─── */
+.ios-nav-debug-outline {
+  outline: 1px solid #ff2d55;
+  outline-offset: -1px;
+}
+
+.ios-nav-debug-marker {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: #ff2d55;
+  pointer-events: none;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ios-nav-debug-marker-top {
+  top: 2px;
+}
+
+.ios-nav-debug-marker-middle {
+  top: calc(50% - 2px);
+}
+
+.ios-nav-debug-marker-bottom {
+  bottom: 2px;
+}
+
+/* §12: forces an opaque background and strips any inherited backdrop/
+   regular filter, to discriminate hypothesis H3/H4 (backdrop/filter
+   compositing) from a real DOM occluder or a WebKit fixed-layer repaint
+   bug (H10) — see the task's own A/B protocol in codex-reports/
+   IOS_STANDALONE_POST_KEYBOARD_NAV_OCCLUSION_R6.md. BottomNav's own
+   `bg-card` is already a fully opaque color (#FFFFFF / #1A1A1A, no alpha —
+   see the `--card` tokens near the top of this file) and carries no
+   backdrop-filter of its own; this rule exists to rule the hypothesis out
+   with certainty even against any unexpected inherited/ancestor filter,
+   not because source review found one on the nav itself. ─── */
+.ios-nav-paint-probe-solid {
+  background: var(--card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* ─── iOS Chat: keyboard-region background coverage ───
    IOS-STANDALONE-REAL-DEVICE-FIX-R3: real standalone capture proved
    ChatOverlay and ChatSheet always match each other exactly (0px

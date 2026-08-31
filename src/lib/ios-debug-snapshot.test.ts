@@ -407,6 +407,7 @@ describe("no sensitive data can silently enter the schema (whitelist lock)", () 
         restoreTargetScrollY: null,
         decidedAt: 1,
       },
+      navOcclusionProbes: null,
     }
     expect(Object.keys(snapshot).sort()).toEqual(GEOMETRY_SNAPSHOT_ALLOWED_KEYS)
   })

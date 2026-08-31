@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { Home, ClipboardList, Heart, Tag, User } from "lucide-react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
+import { isIosDebugFlagEnabled, isNavPaintProbeSolidEnabled } from "@/lib/ios-debug-snapshot"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavStore, type ClientTab } from "@/store/nav-store"
 
@@ -53,13 +54,25 @@ export function BottomNav() {
   const user = useAuthStore((s) => s.user)
   const { activeTab, setActiveTab } = useNavStore()
   const [mounted, setMounted] = useState(false)
+  // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §11-12: both flags are
+  // read once, the same way IOSViewportDebugPanel reads its own ?iosDebug=1
+  // gate — TEMPORARY diagnostic-only, never affects a normal user (no query
+  // param present). navPaintProbeSolid is itself gated behind iosDebug=1
+  // too (isNavPaintProbeSolidEnabled requires both), so a stray
+  // `?navPaintProbe=solid` alone can never do anything.
+  const [debugProbeEnabled, setDebugProbeEnabled] = useState(false)
+  const [navPaintProbeSolid, setNavPaintProbeSolid] = useState(false)
 
   useEffect(() => {
     // setMounted runs inside a deferred callback (not as a direct effect-body
     // statement) — same idiom already used elsewhere in this codebase for
     // this exact "detect client-only condition, then flip state" shape
     // (react-hooks/set-state-in-effect).
-    const timer = window.setTimeout(() => setMounted(true), 0)
+    const timer = window.setTimeout(() => {
+      setMounted(true)
+      setDebugProbeEnabled(isIosDebugFlagEnabled(window.location.search))
+      setNavPaintProbeSolid(isNavPaintProbeSolidEnabled(window.location.search))
+    }, 0)
     return () => window.clearTimeout(timer)
   }, [])
 
@@ -75,10 +88,23 @@ export function BottomNav() {
         "ios-bottom-nav",
         "fixed z-40 left-3 right-3 mx-auto max-w-lg",
         "bottom-[calc(env(safe-area-inset-bottom,0px)+8px)]",
-        "bg-card border border-border rounded-3xl shadow-lg overflow-hidden"
+        "bg-card border border-border rounded-3xl shadow-lg overflow-hidden",
+        // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §11-12: TEMPORARY,
+        // query-flag-only diagnostic classes — see globals.css for their
+        // rules. `outline` (never border/box-shadow) has zero layout effect,
+        // so the real 8px/safe-area dock contract is untouched either way.
+        debugProbeEnabled && "ios-nav-debug-outline",
+        navPaintProbeSolid && "ios-nav-paint-probe-solid"
       )}
       data-ios-debug-role="bottom-nav"
     >
+      {debugProbeEnabled && (
+        <>
+          <span className="ios-nav-debug-marker ios-nav-debug-marker-top" aria-hidden="true" />
+          <span className="ios-nav-debug-marker ios-nav-debug-marker-middle" aria-hidden="true" />
+          <span className="ios-nav-debug-marker ios-nav-debug-marker-bottom" aria-hidden="true" />
+        </>
+      )}
       <div className="flex items-center justify-around h-16">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id

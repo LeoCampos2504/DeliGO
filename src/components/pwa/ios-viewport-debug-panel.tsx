@@ -7,17 +7,23 @@ import {
   buildExportPayload,
   buildTextSummary,
   classifyKeyboardMilestone,
+  classifyProbeOcclusion,
   computeDerivedGeometry,
+  computeNavProbePoints,
   createInitialMilestoneTrackerState,
   createRingBuffer,
   DEBUG_EVENT_BUFFER_MAX,
   isIosDebugFlagEnabled,
+  sanitizeClassNameSample,
+  sanitizeStaticId,
   type BrowserModeInfo,
   type ChatKeyboardBackdropGeometry,
   type ComposerElementGeometry,
   type DockElementGeometry,
   type GeometrySnapshot,
+  type OcclusionProbeResult,
   type OverlayElementGeometry,
+  type SafePaintElementInfo,
   type ScrollRestoreDebugSnapshot,
   type SheetElementGeometry,
 } from "@/lib/ios-debug-snapshot"
@@ -73,6 +79,22 @@ const MANUAL_CAPTURE_LABELS = [
 const SETTLING_FRAMES = 6
 const SETTLING_STABLE_DELAY_MS = 250
 const FINAL_STABLE_DELAY_MS = 1500
+
+// IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §15: bounded, self-
+// terminating post-keyboard-close observation window — 21 rAF-driven
+// samples (frame 0..20) then 4 fixed delayed samples, matching the task's
+// own §15 spec exactly. Armed only from the AUTO_AFTER_KEYBOARD_CLOSE edge
+// (never a standing interval), and every timer/rAF handle is cancelled on
+// unmount — see the effect cleanup below.
+const POST_KB_TIMELINE_FRAMES = 20
+const POST_KB_TIMELINE_DELAYS_MS = [250, 500, 1000, 1500] as const
+
+// §16: bounded post-keyboard scroll observation — stops after whichever
+// comes first, N real scroll events or a fixed timeout, so it can never
+// become a standing listener effect beyond the window a real transient
+// would plausibly occur in.
+const POST_KB_SCROLL_WATCH_MAX_EVENTS = 10
+const POST_KB_SCROLL_WATCH_TIMEOUT_MS = 5000
 
 function readRect(el: Element) {
   const r = el.getBoundingClientRect()
@@ -148,6 +170,53 @@ function readChatKeyboardBackdrop(el: Element | null): ChatKeyboardBackdropGeome
   }
 }
 
+// IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §8-10: safe elementsFromPoint
+// hit-test. Only reads structural/paint properties already whitelisted by
+// SafePaintElementInfo — never innerText/textContent/value/dataset — see
+// sanitizeClassNameSample/sanitizeStaticId in ios-debug-snapshot.ts for how
+// classNameSample/staticId are further scrubbed before being kept.
+function readSafePaintElementInfo(el: Element): SafePaintElementInfo {
+  const cs = window.getComputedStyle(el)
+  return {
+    tagName: el.tagName.toLowerCase(),
+    debugRole: el.getAttribute("data-ios-debug-role"),
+    ariaRole: el.getAttribute("role"),
+    staticId: sanitizeStaticId(el.id || ""),
+    classNameSample: sanitizeClassNameSample(typeof el.className === "string" ? el.className : ""),
+    computedPosition: cs.position,
+    computedZIndex: cs.zIndex,
+    computedPointerEvents: cs.pointerEvents,
+    computedVisibility: cs.visibility,
+    computedOpacity: cs.opacity,
+  }
+}
+
+const OCCLUSION_PROBE_MAX_ELEMENTS = 8
+
+function readOcclusionProbes(navEl: Element | null): OcclusionProbeResult[] | null {
+  if (!navEl) return null
+  const rect = readRect(navEl)
+  const points = computeNavProbePoints(rect)
+  return points.map((point) => {
+    const stack = document.elementsFromPoint(point.x, point.y).slice(0, OCCLUSION_PROBE_MAX_ELEMENTS)
+    const elements = stack.map(readSafePaintElementInfo)
+    // navEl.contains(el) also matches navEl itself (Node.contains includes
+    // the node); the reverse (el.contains(navEl)) deliberately isn't
+    // checked — an ANCESTOR of nav (document.body, html) is present at
+    // every point on the page and must never count as "nav is present".
+    const navStackIndex = stack.findIndex((el) => navEl.contains(el))
+    return {
+      label: point.label,
+      x: point.x,
+      y: point.y,
+      elements,
+      navElementPresent: navStackIndex !== -1,
+      navStackIndex: navStackIndex === -1 ? null : navStackIndex,
+      topElementIsNavOrDescendant: navStackIndex === 0,
+    }
+  })
+}
+
 function readBrowserMode(): BrowserModeInfo {
   const nav = window.navigator as Navigator & { standalone?: boolean }
   return {
@@ -186,13 +255,27 @@ function readScrollRestoreDebug(): ScrollRestoreDebugSnapshot | null {
   }
 }
 
-function captureSnapshot(captureLabel: string, eventType: string, pathname: string | null): GeometrySnapshot {
+// IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §14: includeOcclusionProbes
+// defaults to false so the high-frequency live resize/scroll ticks (which
+// can fire many times per second during a scroll fling) never pay the
+// elementsFromPoint + getComputedStyle cost — that extra main-thread work
+// would itself perturb the exact compositor behavior under investigation.
+// It is explicitly turned on only for meaningful "moments": manual taps,
+// the post-blur settling window, every AUTO_* milestone, and the new
+// bounded post-keyboard timeline/scroll-watch below — see call sites.
+function captureSnapshot(
+  captureLabel: string,
+  eventType: string,
+  pathname: string | null,
+  includeOcclusionProbes = false
+): GeometrySnapshot {
   const vv = window.visualViewport
   const visualViewport = vv
     ? { width: vv.width, height: vv.height, offsetTop: vv.offsetTop, offsetLeft: vv.offsetLeft, scale: vv.scale }
     : null
 
-  const bottomNav = readDockElement(document.querySelector('[data-ios-debug-role="bottom-nav"]'))
+  const bottomNavEl = document.querySelector('[data-ios-debug-role="bottom-nav"]')
+  const bottomNav = readDockElement(bottomNavEl)
   const chatFab = readDockElement(document.querySelector('[data-ios-debug-role="chat-fab"]'))
   const chatOverlay = readOverlayElement(document.querySelector('[data-slot="sheet-overlay"]'))
   const chatSheet = readSheetElement(document.querySelector('[data-ios-debug-role="chat-sheet"]'))
@@ -237,6 +320,7 @@ function captureSnapshot(captureLabel: string, eventType: string, pathname: stri
     chatKeyboardBackdrop,
     browserMode: readBrowserMode(),
     scrollRestoreDebug: readScrollRestoreDebug(),
+    navOcclusionProbes: includeOcclusionProbes ? readOcclusionProbes(bottomNavEl) : null,
     derived: computeDerivedGeometry({
       windowInnerHeight: window.innerHeight,
       visualViewport,
@@ -277,6 +361,17 @@ export function IOSViewportDebugPanel() {
   // AUTO_AFTER_KEYBOARD_CLOSE (cycle ended — the next open starts fresh).
   const openCycleStableSnapRef = useRef<GeometrySnapshot | null>(null)
 
+  // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: refs for the new bounded
+  // post-keyboard timeline (§15) and scroll-watch (§16) instrumentation.
+  // Kept as refs, not state, for the same reason every other timer/rAF
+  // handle in this file is a ref — they're mutated from event callbacks
+  // outside the render cycle and never need to trigger a re-render
+  // themselves (the resulting snapshots flow into the ring buffer instead).
+  const postKbTimelineActiveRef = useRef(false)
+  const postKbTimelineRafRef = useRef(0)
+  const postKbTimelineTimersRef = useRef<number[]>([])
+  const postKbScrollWatchRef = useRef({ active: false, count: 0, lastScrollY: 0, timeoutId: 0 })
+
   // Same SSR-safe "mounted" gate BottomNav uses — server and first client
   // render both render nothing, avoiding a hydration mismatch. The debug
   // flag is read exclusively from window.location.search — the installed
@@ -304,10 +399,84 @@ export function IOSViewportDebugPanel() {
     if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)
     finalStableTimerRef.current = window.setTimeout(() => {
       finalStableTimerRef.current = 0
-      const snap = captureSnapshot("AUTO_FINAL_STABLE", "auto-milestone", pathname)
+      const snap = captureSnapshot("AUTO_FINAL_STABLE", "auto-milestone", pathname, true)
       setManualCaptures((prev) => [...prev, snap])
     }, FINAL_STABLE_DELAY_MS)
   }, [pathname])
+
+  // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 §15: fires once per real
+  // AUTO_AFTER_KEYBOARD_CLOSE edge. Captures frame 0..POST_KB_TIMELINE_FRAMES
+  // via requestAnimationFrame (each including a fresh occlusion hit-test),
+  // then POST_KB_TIMELINE_DELAYS_MS fixed-delay samples, then stops on its
+  // own — never rearms itself, never runs concurrently with itself
+  // (postKbTimelineActiveRef guards re-entry from a second close edge while
+  // the rAF portion is still running). Pushed to the ring buffer (not
+  // manualCaptures) so a burst of ~25 samples per cycle doesn't clutter the
+  // operator-facing capture list, while still being included in COPY JSON's
+  // `events` array.
+  const runPostKeyboardTimeline = useCallback(() => {
+    if (postKbTimelineActiveRef.current) return
+    postKbTimelineActiveRef.current = true
+    let frame = 0
+    const step = () => {
+      const snap = captureSnapshot(`POST_KB_F${frame}`, "post-keyboard-timeline", pathname, true)
+      pushEvent(snap)
+      frame += 1
+      if (frame <= POST_KB_TIMELINE_FRAMES) {
+        postKbTimelineRafRef.current = window.requestAnimationFrame(step)
+      } else {
+        postKbTimelineRafRef.current = 0
+        for (const delay of POST_KB_TIMELINE_DELAYS_MS) {
+          const timerId = window.setTimeout(() => {
+            const delayedSnap = captureSnapshot(`POST_KB_T${delay}`, "post-keyboard-timeline", pathname, true)
+            pushEvent(delayedSnap)
+          }, delay)
+          postKbTimelineTimersRef.current.push(timerId)
+        }
+        postKbTimelineActiveRef.current = false
+      }
+    }
+    postKbTimelineRafRef.current = window.requestAnimationFrame(step)
+  }, [pathname, pushEvent])
+
+  // §16: observes the next real scroll gesture(s) after a keyboard close,
+  // to answer whether visual hiding correlates with scroll direction or
+  // only appears on the next compositor repaint regardless of scroll.
+  // Never calls preventDefault, never reads/writes scrollY beyond
+  // observing it — purely observational, exactly like runSettlingCapture.
+  const disarmPostKeyboardScrollWatch = useCallback(() => {
+    const w = postKbScrollWatchRef.current
+    if (w.timeoutId) window.clearTimeout(w.timeoutId)
+    w.active = false
+    w.count = 0
+    w.timeoutId = 0
+  }, [])
+
+  const armPostKeyboardScrollWatch = useCallback(() => {
+    const w = postKbScrollWatchRef.current
+    if (w.timeoutId) window.clearTimeout(w.timeoutId)
+    w.active = true
+    w.count = 0
+    w.lastScrollY = window.scrollY
+    w.timeoutId = window.setTimeout(disarmPostKeyboardScrollWatch, POST_KB_SCROLL_WATCH_TIMEOUT_MS)
+  }, [disarmPostKeyboardScrollWatch])
+
+  const handlePostKeyboardScroll = useCallback(() => {
+    const w = postKbScrollWatchRef.current
+    if (!w.active) return
+    const currentScrollY = window.scrollY
+    const direction = currentScrollY > w.lastScrollY ? "down" : currentScrollY < w.lastScrollY ? "up" : "none"
+    w.lastScrollY = currentScrollY
+    w.count += 1
+    const snap = captureSnapshot(
+      `POST_KB_SCROLL_${w.count}_${direction}`,
+      "post-keyboard-scroll-watch",
+      pathname,
+      true
+    )
+    pushEvent(snap)
+    if (w.count >= POST_KB_SCROLL_WATCH_MAX_EVENTS) disarmPostKeyboardScrollWatch()
+  }, [pathname, pushEvent, disarmPostKeyboardScrollWatch])
 
   // Automatic milestone capture (§10): classifies every snapshot into
   // closed/normal-keyboard/chat-keyboard and, via the pure edge-detecting
@@ -334,7 +503,7 @@ export function IOSViewportDebugPanel() {
       }
 
       if (result.fire) {
-        const milestoneSnap = captureSnapshot(result.fire, "auto-milestone", pathname)
+        const milestoneSnap = captureSnapshot(result.fire, "auto-milestone", pathname, true)
         const isKeyboardStableMilestone =
           result.fire === "AUTO_KEYBOARD_OPEN_STABLE" || result.fire === "AUTO_CHAT_KEYBOARD_OPEN_STABLE"
 
@@ -349,10 +518,12 @@ export function IOSViewportDebugPanel() {
         if (result.fire === "AUTO_AFTER_KEYBOARD_CLOSE") {
           openCycleStableSnapRef.current = null
           armFinalStable()
+          runPostKeyboardTimeline()
+          armPostKeyboardScrollWatch()
         }
       }
     },
-    [pathname, armFinalStable]
+    [pathname, armFinalStable, runPostKeyboardTimeline, armPostKeyboardScrollWatch]
   )
 
   const scheduleLiveUpdate = useCallback(
@@ -379,7 +550,7 @@ export function IOSViewportDebugPanel() {
     settlingActiveRef.current = true
     let frame = 0
     const step = () => {
-      const snap = captureSnapshot(`settling-frame-${frame}`, "focusout-settling", pathname)
+      const snap = captureSnapshot(`settling-frame-${frame}`, "focusout-settling", pathname, true)
       pushEvent(snap)
       feedMilestoneClassifier(snap)
       frame += 1
@@ -387,7 +558,7 @@ export function IOSViewportDebugPanel() {
         window.requestAnimationFrame(step)
       } else {
         window.setTimeout(() => {
-          const stableSnap = captureSnapshot("settling-stable", "focusout-settling", pathname)
+          const stableSnap = captureSnapshot("settling-stable", "focusout-settling", pathname, true)
           pushEvent(stableSnap)
           feedMilestoneClassifier(stableSnap)
           settlingActiveRef.current = false
@@ -401,7 +572,10 @@ export function IOSViewportDebugPanel() {
     if (!enabled) return
 
     const onResize = () => scheduleLiveUpdate("resize")
-    const onScroll = () => scheduleLiveUpdate("scroll")
+    const onScroll = () => {
+      scheduleLiveUpdate("scroll")
+      handlePostKeyboardScroll()
+    }
     const onVvResize = () => scheduleLiveUpdate("visualViewport-resize")
     const onVvScroll = () => scheduleLiveUpdate("visualViewport-scroll")
     const onOrientation = () => scheduleLiveUpdate("orientationchange")
@@ -432,6 +606,15 @@ export function IOSViewportDebugPanel() {
     return () => {
       if (rafRef.current) window.cancelAnimationFrame(rafRef.current)
       if (finalStableTimerRef.current) window.clearTimeout(finalStableTimerRef.current)
+      // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: cancel the bounded
+      // post-keyboard timeline's rAF + any still-pending delayed-sample
+      // timers, and disarm the scroll-watch's timeout — nothing from this
+      // temporary diagnostic instrumentation may outlive the panel.
+      if (postKbTimelineRafRef.current) window.cancelAnimationFrame(postKbTimelineRafRef.current)
+      for (const timerId of postKbTimelineTimersRef.current) window.clearTimeout(timerId)
+      postKbTimelineTimersRef.current = []
+      postKbTimelineActiveRef.current = false
+      disarmPostKeyboardScrollWatch()
       window.removeEventListener("resize", onResize)
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("orientationchange", onOrientation)
@@ -441,10 +624,10 @@ export function IOSViewportDebugPanel() {
       window.visualViewport?.removeEventListener("resize", onVvResize)
       window.visualViewport?.removeEventListener("scroll", onVvScroll)
     }
-  }, [enabled, scheduleLiveUpdate, runSettlingCapture])
+  }, [enabled, scheduleLiveUpdate, runSettlingCapture, handlePostKeyboardScroll, disarmPostKeyboardScrollWatch])
 
   const handleManualCapture = (label: string) => {
-    const snap = captureSnapshot(label, "manual", pathname)
+    const snap = captureSnapshot(label, "manual", pathname, true)
     setManualCaptures((prev) => [...prev, snap])
     setLiveSnapshot(snap)
   }
@@ -490,6 +673,7 @@ export function IOSViewportDebugPanel() {
     setAutoCount(0)
     setLiveSnapshot(null)
     openCycleStableSnapRef.current = null
+    disarmPostKeyboardScrollWatch()
   }
 
   if (!mounted || !enabled) return null
@@ -563,6 +747,14 @@ export function IOSViewportDebugPanel() {
                   : liveSnapshot.derived.navPhysicalFullyVisible
                     ? "YES"
                     : `NO (+${liveSnapshot.derived.navPhysicalOverflowBottom?.toFixed(1)}px)`}
+              </span>
+              <span>nav occl (mid)</span>
+              <span>
+                {(() => {
+                  const probe = liveSnapshot?.navOcclusionProbes?.find((p) => p.label === "NAV_MIDDLE_CENTER")
+                  if (!probe) return "- (tap a capture)"
+                  return classifyProbeOcclusion(probe)
+                })()}
               </span>
             </div>
 

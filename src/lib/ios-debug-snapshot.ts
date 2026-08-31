@@ -112,6 +112,44 @@ export interface BrowserModeInfo {
   userAgent: string | null
 }
 
+// ============================================
+// IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6 — paint/occlusion probes
+// ============================================
+// R5 proved geometry (rect.bottom, the CSS `bottom` compensation) can be
+// fully PASS while the operator still visually sees BottomNav partially
+// hidden after a keyboard close/open cycle — a contradiction geometry
+// alone can never explain. These types support a SAFE `elementsFromPoint`
+// hit-test: they only ever carry structural, non-user-generated data
+// (tag name, our own `data-ios-debug-role` attribute, a fixed ARIA role
+// string, computed layout/paint style strings) — never innerText,
+// textContent, form values, or dataset business/user/order identifiers.
+// classNameSample and staticId are further sanitized (see
+// sanitizeClassNameSample/sanitizeStaticId below) so that even a
+// misbehaving ancestor component can never leak arbitrary page content
+// through this path.
+export interface SafePaintElementInfo {
+  tagName: string
+  debugRole: string | null
+  ariaRole: string | null
+  staticId: string | null
+  classNameSample: string | null
+  computedPosition: string
+  computedZIndex: string
+  computedPointerEvents: string
+  computedVisibility: string
+  computedOpacity: string
+}
+
+export interface OcclusionProbeResult {
+  label: string
+  x: number
+  y: number
+  elements: SafePaintElementInfo[]
+  navElementPresent: boolean
+  navStackIndex: number | null
+  topElementIsNavOrDescendant: boolean
+}
+
 export interface DerivedGeometry {
   fixedViewportBottom: number
   // LEGACY (kept for report/test compatibility with R1-R4): a
@@ -180,6 +218,13 @@ export interface GeometrySnapshot {
   browserMode: BrowserModeInfo
   derived: DerivedGeometry
   scrollRestoreDebug: ScrollRestoreDebugSnapshot | null
+  // IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: null whenever this
+  // particular capture opted out of the elementsFromPoint hit-test (the
+  // high-frequency live resize/scroll ticks skip it deliberately — see
+  // ios-viewport-debug-panel.tsx's captureSnapshot — so the extra DOM work
+  // never competes with the very scroll/compositor behavior under
+  // investigation) or BottomNav itself wasn't found in the DOM.
+  navOcclusionProbes: OcclusionProbeResult[] | null
 }
 
 export interface DebugExportPayload {
@@ -281,6 +326,121 @@ export function computeDerivedGeometry(input: {
     navPhysicalFullyVisible,
     fabPhysicalFullyVisible,
   }
+}
+
+// ─── R6: nav paint/occlusion probe geometry + sanitization (pure) ──────
+// Five points sampled from BottomNav's own live rect, clamped at least
+// NAV_PROBE_EDGE_MARGIN_PX inside its bounds so a probe can never land on
+// a neighboring element merely due to sub-pixel rounding at the exact
+// edge. TOP/MIDDLE/BOTTOM_CENTER answer "is nav occluded uniformly or
+// only partially" (§9-10 — the operator specifically reported only PART
+// of the nav disappearing); BOTTOM_LEFT/BOTTOM_RIGHT catch an occluder
+// that only covers one side (e.g. a safe-area/notch-relative element).
+export const NAV_PROBE_EDGE_MARGIN_PX = 2
+
+export interface NavProbePoint {
+  label: string
+  x: number
+  y: number
+}
+
+function clampToRange(value: number, min: number, max: number): number {
+  if (min > max) return (min + max) / 2
+  return Math.min(Math.max(value, min), max)
+}
+
+export function computeNavProbePoints(rect: RectGeometry): NavProbePoint[] {
+  const centerX = (rect.left + rect.right) / 2
+  const topY = clampToRange(rect.top + NAV_PROBE_EDGE_MARGIN_PX, rect.top, rect.bottom)
+  const middleY = (rect.top + rect.bottom) / 2
+  const bottomY = clampToRange(rect.bottom - NAV_PROBE_EDGE_MARGIN_PX, rect.top, rect.bottom)
+  const leftX = clampToRange(rect.left + NAV_PROBE_EDGE_MARGIN_PX, rect.left, rect.right)
+  const rightX = clampToRange(rect.right - NAV_PROBE_EDGE_MARGIN_PX, rect.left, rect.right)
+
+  return [
+    { label: "NAV_TOP_CENTER", x: centerX, y: topY },
+    { label: "NAV_MIDDLE_CENTER", x: centerX, y: middleY },
+    { label: "NAV_BOTTOM_CENTER", x: centerX, y: bottomY },
+    { label: "NAV_BOTTOM_LEFT", x: leftX, y: bottomY },
+    { label: "NAV_BOTTOM_RIGHT", x: rightX, y: bottomY },
+  ]
+}
+
+// Only ever exposes Tailwind/structural utility tokens relevant to
+// diagnosing stacking/paint (position, z-index, opacity, backdrop/blur,
+// overflow, transform, our own `ios-` prefix) — never arbitrary text, since
+// no user/business content is ever encoded as a className token in this
+// codebase's cn()-built classNames.
+const SAFE_CLASS_TOKEN_PATTERN =
+  /^(fixed|absolute|sticky|relative|static|isolate|isolation-|inset-|top-|bottom-|left-|right-|z-|opacity-|backdrop-|blur|filter|overflow-|translate-|transform|will-change-|contain-|mix-blend-|ios-|bg-|border|shadow|rounded)/
+
+export function sanitizeClassNameSample(className: string): string | null {
+  if (!className) return null
+  const tokens = className
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0 && SAFE_CLASS_TOKEN_PATTERN.test(t))
+  if (tokens.length === 0) return null
+  return tokens.slice(0, 12).join(" ")
+}
+
+// Rejects anything containing digits, uppercase, underscores, or colons —
+// the shape of generated/dynamic ids (Radix's `radix-:r3a:`, order/user
+// ids) — only a plain lowercase-and-hyphen static id can ever pass, and
+// this codebase has no such ids marking sensitive elements.
+const SAFE_STATIC_ID_PATTERN = /^[a-z][a-z-]{0,40}$/
+
+export function sanitizeStaticId(id: string): string | null {
+  if (!id) return null
+  return SAFE_STATIC_ID_PATTERN.test(id) ? id : null
+}
+
+export const SAFE_PAINT_ELEMENT_ALLOWED_KEYS = [
+  "tagName",
+  "debugRole",
+  "ariaRole",
+  "staticId",
+  "classNameSample",
+  "computedPosition",
+  "computedZIndex",
+  "computedPointerEvents",
+  "computedVisibility",
+  "computedOpacity",
+].sort()
+
+export const OCCLUSION_PROBE_RESULT_ALLOWED_KEYS = [
+  "label",
+  "x",
+  "y",
+  "elements",
+  "navElementPresent",
+  "navStackIndex",
+  "topElementIsNavOrDescendant",
+].sort()
+
+// NOT_OCCLUDED_DOM / OCCLUDED_BY_ELEMENT is exactly what elementsFromPoint
+// can prove from the DOM paint order. A third possible real-world class,
+// UNKNOWN_COMPOSITOR (geometry PASS + hit-test says nav topmost + physical
+// screenshot still shows it missing — §9, §20), is deliberately NOT
+// something this function can return: it requires comparing this result
+// against the operator's physical screenshot, a judgment call made when
+// writing the report, not a DOM-observable fact.
+export type OcclusionClass = "NOT_OCCLUDED_DOM" | "OCCLUDED_BY_ELEMENT"
+
+export function classifyProbeOcclusion(probe: {
+  topElementIsNavOrDescendant: boolean
+}): OcclusionClass {
+  return probe.topElementIsNavOrDescendant ? "NOT_OCCLUDED_DOM" : "OCCLUDED_BY_ELEMENT"
+}
+
+// Mirrors isIosDebugFlagEnabled's shape — the solid/no-backdrop A/B
+// compositor probe (§12) is a STRICT subset of the debug flag: it can
+// never activate on its own, only when both are present, so a stray
+// `?navPaintProbe=solid` alone (e.g. a bookmarked/shared URL) can never
+// change what a normal user sees.
+export function isNavPaintProbeSolidEnabled(search: string): boolean {
+  const params = new URLSearchParams(search)
+  return isIosDebugFlagEnabled(search) && params.get("navPaintProbe") === "solid"
 }
 
 // ─── Bounded ring buffer (§20) ──────────────────────────────────────────
@@ -541,6 +701,7 @@ export const GEOMETRY_SNAPSHOT_ALLOWED_KEYS = [
   "browserMode",
   "derived",
   "scrollRestoreDebug",
+  "navOcclusionProbes",
 ].sort()
 
 export const SCROLL_RESTORE_DEBUG_ALLOWED_KEYS = [
