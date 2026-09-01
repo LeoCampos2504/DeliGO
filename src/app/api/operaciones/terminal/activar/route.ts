@@ -98,6 +98,16 @@ export async function POST(req: NextRequest) {
         if (terminal.revokedAt || terminal.estado === "revocado") return { ok: false }
         if (terminal.estado !== "pendiente") return { ok: false }
 
+        // The pairing code may have been issued before the business was
+        // suspended or approval was withdrawn. Re-read lifecycle authority
+        // inside the same transaction, before consuming the code or creating
+        // any terminal/session state. Keep the response generic.
+        const negocio = await tx.negocio.findUnique({
+          where: { id: terminal.negocioId },
+          select: { aprobado: true, suspendido: true },
+        })
+        if (!negocio || !negocio.aprobado || negocio.suspendido) return { ok: false }
+
         // Tarea 20 (Dark Kitchen): una terminal cuyo grant incluye el área
         // "salon" nunca puede activarse mientras el negocio no tenga Salón
         // habilitado — mismo mensaje genérico que cualquier otro motivo de

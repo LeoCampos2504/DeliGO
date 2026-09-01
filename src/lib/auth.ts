@@ -433,7 +433,7 @@ export async function getUserFromToken(token: string): Promise<AuthUser | null> 
           where: { id: userId },
           select: { id: true, nombre: true, email: true, activo: true },
         })
-        if (!user) return null
+        if (!user || !user.activo) return null
         return { ...user, type: "repartidor" as const }
       }
       case "superadmin": {
