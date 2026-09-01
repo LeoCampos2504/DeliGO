@@ -207,7 +207,7 @@ describe("23-B — integración en la página pública", () => {
     expect(src).toContain("const salonHabilitadoDelNegocio = !!negocio?.salonHabilitado")
     expect(src).toMatch(/const \{ effectiveMesaNumero, effectiveMesaId, isEffectiveMesaOrder \} = resolveEffectiveMesa\(\{/)
     expect(src).not.toContain("mesaHabilitadaParaEsteNegocio")
-    expect(src).toMatch(/isEffectiveMesaOrder\s*&&\s*effectiveMesaNumero\s*&&\s*!isAuthenticatedMozo/)
+    expect(src).toMatch(/isEffectiveMesaOrder\s*&&\s*effectiveMesaNumero/)
   })
 
   test("la página nunca pasa negocioId/mesaId/ocupacionId al panel — solo slug/mesaNumero públicos", () => {

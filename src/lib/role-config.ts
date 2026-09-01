@@ -111,7 +111,8 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     color: "amber",
     themeColor: "#D97706",
     manifestFile: "/manifest-mozo.json",
-    // startUrl is dynamic — set to /m/{token} at install time via /api/manifest
+    // Legacy /m/{token} links are no longer an install or authentication path.
+    // The personal operational PWA starts at the session-based /mozo surface.
     startUrl: "/mozo",
     loginUrl: "/mozo",
     icon192: "/icon-mozo-192x192.png",
@@ -119,8 +120,6 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     gradientFrom: "from-amber-500",
     gradientTo: "to-orange-600",
     shadowColor: "shadow-amber-500/20",
-    tokenBased: true,
-    pathPrefix: "/m/",
   },
   salon: {
     id: "salon",

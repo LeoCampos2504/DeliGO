@@ -30,7 +30,7 @@ describe("TAREA-20-CORRECCIÓN-2 — la transición asíncrona de salonHabilitad
     // 11) — enrutarlo por shouldCheckMesaGeofence() de la lib rompe la
     // memoización manual del useCallback siguiente (runMesaGeofenceCheck);
     // confirmado reproducible. Mismo resultado booleano en ambas formas.
-    expect(src).toContain("const shouldCheckMesaGeofence = isEffectiveMesaOrder && !isAuthenticatedMozo && !!negocio?.mesaGeofenceReady")
+    expect(src).toContain("const shouldCheckMesaGeofence = isEffectiveMesaOrder && !!negocio?.mesaGeofenceReady")
   })
 
   test("cart-panel.tsx importa y LLAMA resolveMetodoEntrega/defaultMetodoEntregaManual — metodoEntrega nunca es un useState inicializado una sola vez", () => {
@@ -225,7 +225,7 @@ describe("Tarea 20-CORRECCIÓN-1 — página pública consolida UN SOLO flag efe
   test("banner de mesa y panel de cuenta pública (23-B) usan isEffectiveMesaOrder, nunca mesaHabilitadaParaEsteNegocio ni isMesaOrder crudo", () => {
     const src = read("src/app/n/[slug]/page.tsx")
     expect(src).not.toContain("mesaHabilitadaParaEsteNegocio")
-    const usos = (src.match(/isEffectiveMesaOrder && effectiveMesaNumero && !isAuthenticatedMozo/g) ?? []).length
+    const usos = (src.match(/isEffectiveMesaOrder && effectiveMesaNumero/g) ?? []).length
     expect(usos).toBe(2) // banner de mesa + panel de cuenta pública (23-B)
   })
 
@@ -238,16 +238,12 @@ describe("Tarea 20-CORRECCIÓN-1 — página pública consolida UN SOLO flag efe
 
   test("la consulta a mesas-public (customerMesaData) nunca se dispara si el negocio no tiene Salón habilitado (Tarea 20-CORRECCIÓN-2: vía shouldFetchCustomerMesaData)", () => {
     const src = read("src/app/n/[slug]/page.tsx")
-    const ocurrencias = (src.match(/shouldFetchCustomerMesaData\(\{ mesaNumero, slug, isAuthenticatedMozo, salonHabilitadoDelNegocio \}\)/g) ?? []).length
+    const ocurrencias = (src.match(/shouldFetchCustomerMesaData\(\{ mesaNumero, slug, isAuthenticatedMozo: false, salonHabilitadoDelNegocio \}\)/g) ?? []).length
     expect(ocurrencias).toBe(2) // guardia dentro de queryFn + `enabled`, misma función real en ambos
   })
 
   test("isMesaOrder crudo sobrevive únicamente como detección de URL — nunca como autoridad de comportamiento fuera de su propia declaración", () => {
     const src = read("src/app/n/[slug]/page.tsx")
-    // Solo debe aparecer en su propia declaración y en comentarios explicativos —
-    // nunca en una expresión booleana real (`isMesaOrder &&`, `if (isMesaOrder)`, etc.)
-    expect(src).not.toMatch(/if \(isMesaOrder\)/)
-    expect(src).not.toMatch(/isMesaOrder &&/)
-    expect(src).not.toMatch(/!isMesaOrder &&/)
+    expect(src).not.toMatch(/\bisMesaOrder\b/)
   })
 })

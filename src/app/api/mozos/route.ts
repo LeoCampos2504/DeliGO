@@ -1,66 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/db"
-import { esAreaMozoEfectiva } from "@/lib/area-operativa"
-import { safeErrorForLog } from "@/lib/log-safe-error"
+import { NextResponse } from "next/server"
 
-function readBearerToken(req: NextRequest): string | null {
-  const authorization = req.headers.get("authorization")
-  const match = authorization?.match(/^Bearer\s+([^\s]+)$/)
-  return match?.[1] ?? null
-}
-
-function noStore(response: NextResponse): NextResponse {
-  response.headers.set("Cache-Control", "no-store")
-  return response
-}
-
-// GET /api/mozos - Validate mozo bearer token and return mozo info + negocio
-export async function GET(req: NextRequest) {
-  try {
-    const token = readBearerToken(req)
-
-    if (!token) {
-      return noStore(NextResponse.json({ error: "Authorization Bearer requerido" }, { status: 400 }))
-    }
-
-    const empleado = await db.empleado.findFirst({
-      where: { token, activo: true, eliminado: false },
-      select: {
-        id: true,
-        nombre: true,
-        codigo: true,
-        rol: true,
-        areaOperativa: true,
-        negocio: {
-          select: {
-            id: true,
-            nombre: true,
-            slug: true,
-            colorPrincipal: true,
-            salonActivo: true,
-          },
-        },
-      },
-    })
-
-    if (!empleado) {
-      return noStore(NextResponse.json({ error: "Token inválido" }, { status: 404 }))
-    }
-
-    // Guard de transición (Operaciones-1F): token legacy solo válido con área efectiva Mozo.
-    if (!esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
-      return noStore(NextResponse.json({ error: "Token inválido" }, { status: 404 }))
-    }
-
-    return noStore(NextResponse.json({
-      id: empleado.id,
-      nombre: empleado.nombre,
-      codigo: empleado.codigo,
-      rol: empleado.rol,
-      negocio: empleado.negocio,
-    }))
-  } catch (error) {
-    console.error("Error validating mozo token:", safeErrorForLog(error))
-    return noStore(NextResponse.json({ error: "Error del servidor" }, { status: 500 }))
-  }
+// Legacy-Cleanup-2A: la API plural bearer de Empleado.token queda retirada.
+// El archivo se conserva temporalmente; P2-T15 decide su eliminación física.
+export async function GET(_request?: Request) {
+  return NextResponse.json(
+    { error: "Esta API fue reemplazada por DeliGO Operaciones" },
+    { status: 410, headers: { "Cache-Control": "private, no-store" } }
+  )
 }

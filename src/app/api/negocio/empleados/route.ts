@@ -15,24 +15,18 @@ function normalizeAreaOperativa(value: unknown): string | null {
     : null
 }
 
-function maskToken(token?: string | null) {
-  if (!token) return null
-  if (token.length <= 8) return "********"
-  return `${token.slice(0, 4)}...${token.slice(-4)}`
-}
-
-// Legacy-Cleanup-1A: ya no se emite ningún Empleado.token nuevo (ver POST más
-// abajo), así que este serializer ya nunca tiene un token real para revelar —
-// se mantiene la misma forma de respuesta (token/tokenMasked/tokenRevealed)
-// para no romper consumidores existentes, pero `token` queda siempre `null` y
-// `tokenRevealed` siempre `false`. Un token YA EXISTENTE de antes de esta
-// etapa (empleado mozo creado previamente) sigue viajando enmascarado en
-// `tokenMasked`, nunca en texto plano.
-function serializeEmpleado<T extends { token: string | null }>(empleado: T) {
+// Legacy-Cleanup-2A: el campo físico legacy no forma parte de ninguna respuesta.
+// Se conservan únicamente placeholders nulos para clientes administrativos que
+// todavía esperan la forma histórica del objeto.
+function serializeEmpleado<T extends Record<string, unknown>>(empleado: T) {
+  const { token: _legacyToken, tokenMasked: _legacyTokenMasked, ...safeEmpleado } = empleado as T & {
+    token?: unknown
+    tokenMasked?: unknown
+  }
   return {
-    ...empleado,
+    ...safeEmpleado,
     token: null,
-    tokenMasked: maskToken(empleado.token),
+    tokenMasked: null,
     tokenRevealed: false,
   }
 }
@@ -69,7 +63,6 @@ export async function GET(req: NextRequest) {
         areaOperativa: true,
         asignacionVersion: true,
         activo: true,
-        token: true,
         negocioId: true,
         cuentaOperativa: {
           select: {
@@ -82,11 +75,8 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // GET es estrictamente de lectura (Operaciones-1F.1): no crea, modifica,
-    // regenera ni revoca tokens legacy. Legacy-Cleanup-1A: ya no se emite
-    // ningún Empleado.token nuevo en ningún flujo — un token no-nulo en un
-    // empleado existente es, a partir de esta etapa, siempre uno emitido
-    // antes de este cambio, nunca uno nuevo.
+    // GET es estrictamente de lectura: no crea, modifica, regenera ni revoca
+    // tokens legacy, y tampoco expone el campo físico aunque exista en DB.
     return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
   } catch (error) {
     console.error("Error listing empleados:", safeErrorForLog(error))
