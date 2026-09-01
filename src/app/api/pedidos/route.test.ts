@@ -194,3 +194,62 @@ describe("P2T01-01/02/03/20 — POST /api/pedidos snapshots seguimientoDeliveryH
     expect(fresh.seguimientoDeliveryHabilitado).toBe(false)
   })
 })
+
+describe("P2-T08 F-T08-01 — autorización de mesa fail-closed ante excepción", () => {
+  test("negocio calibrado/enforce: una excepción del autorizador devuelve 503 y no crea Pedido", async () => {
+    const suffix = randomUUID()
+    const negocio = await db.negocio.create({
+      data: {
+        nombre: `${prefix}f01-${suffix}`,
+        slug: `${prefix}f01-${suffix}`,
+        usuario: `${prefix}f01-${suffix}`,
+        email: `${prefix}f01-${suffix}@example.test`,
+        password: "fixture",
+        aprobado: true,
+        suspendido: false,
+        salonActivo: true,
+        horarioMode: "simple",
+        abiertoManual: true,
+        lat: -34.6037,
+        lng: -58.3816,
+        ubicacionCalibradaEn: new Date(),
+      },
+    })
+    const producto = await db.producto.create({
+      data: { nombre: `${prefix}f01-producto-${suffix}`, precio: 100, negocioId: negocio.id },
+    })
+    const mesa = await db.mesa.create({ data: { negocioId: negocio.id, numero: 9000 + Math.floor(Math.random() * 500) } })
+
+    const response = await crearPedido(
+      new NextRequest("http://localhost/api/pedidos", {
+        method: "POST",
+        body: JSON.stringify({
+          negocioId: negocio.id,
+          items: [{ productoId: producto.id, cantidad: 1, agregados: [], secciones: {}, ingredientesQuitados: [], talle: "", color: "" }],
+          metodoEntrega: "mesa",
+          metodoPago: "efectivo",
+          notas: null,
+          direccion: null,
+          referencia: null,
+          lat: null,
+          lng: null,
+          mesaId: mesa.id,
+          mesaNumero: mesa.numero,
+          empleadoCodigo: null,
+          fingerprint: null,
+          mesaGeolocation: { lat: -34.6037, lng: -58.3816, accuracy: 10 },
+        }),
+        headers: { "content-type": "application/json", "x-forwarded-for": randomUUID() },
+      }),
+      {
+        authorizeStaffForNegocio: async () => {
+          throw new Error("p2-t08 injected authorization failure")
+        },
+      }
+    )
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({ code: "MESA_AUTH_UNAVAILABLE" })
+    expect(await db.pedido.count({ where: { negocioId: negocio.id } })).toBe(0)
+  })
+})

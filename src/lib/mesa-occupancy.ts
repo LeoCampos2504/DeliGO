@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "crypto"
 import type { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { SESSION_COOKIE_NAME, findSesionByToken, OPERATIONAL_SESSION_COOKIE_NAME, validateOperationalSession } from "@/lib/auth"
+import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromRequest } from "@/lib/auth"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
@@ -782,32 +782,28 @@ export async function resolveMesaOccupancyCloseActor(
 
   // 2) Cuenta Operativa personal (Salón o Mozo, según ÁREA EFECTIVA real —
   // nunca el body, nunca "rol" solo) — empleado activo del mismo negocio.
-  const operativoToken = request.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
-  if (operativoToken) {
-    const operativoSession = await validateOperationalSession(operativoToken)
-    if (operativoSession) {
-      const empleado = await db.empleado.findFirst({
-        where: { cuentaOperativaId: operativoSession.cuentaOperativaId, negocioId, activo: true, eliminado: false },
-        select: { id: true, areaOperativa: true, rol: true, mesas: { select: { id: true } } },
-      })
-      if (empleado) {
-        const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
-        if (area === "salon") {
-          return { type: "salon", negocioId, actorId: empleado.id, canCloseAnyMesa: true }
-        }
-        if (area === "mozo") {
-          return {
-            type: "mozo",
-            negocioId,
-            actorId: empleado.id,
-            canCloseAnyMesa: false,
-            // Server-side real: Mesa.empleadoId → Empleado (asignación actual,
-            // nunca "mesaAsignada"/"mesaId" del body). Ver Mesa.mesas en el schema.
-            assignedMesaIds: empleado.mesas.map((mesa) => mesa.id),
-          }
-        }
-        // "pyr" / "sin_asignar": no autorizado para cerrar mesas.
+  const cuentaOperativa = await getOperationalAccountFromRequest(request)
+  if (cuentaOperativa) {
+    const empleado = cuentaOperativa.empleados.find(
+      (candidate) => candidate.negocio.id === negocioId && candidate.activo
+    )
+    if (empleado) {
+      const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
+      if (area === "salon") {
+        return { type: "salon", negocioId, actorId: empleado.id, canCloseAnyMesa: true }
       }
+      if (area === "mozo") {
+        return {
+          type: "mozo",
+          negocioId,
+          actorId: empleado.id,
+          canCloseAnyMesa: false,
+          // Server-side real: Mesa.empleadoId → Empleado (asignación actual,
+          // nunca "mesaAsignada"/"mesaId" del body). Ver Mesa.mesas en el schema.
+          assignedMesaIds: empleado.mesas.map((mesa) => mesa.id),
+        }
+      }
+      // "pyr" / "sin_asignar": no autorizado para cerrar mesas.
     }
   }
 

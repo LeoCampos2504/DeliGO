@@ -734,6 +734,7 @@ function isSafeIdempotentPedido(params: {
 export interface PedidoRouteTestHooks {
   beforeNegocioFetch?: () => Promise<void>
   beforeFinalSalonRevalidation?: () => Promise<void>
+  authorizeStaffForNegocio?: typeof isAuthenticatedStaffForNegocio
 }
 
 export async function POST(request: NextRequest) {
@@ -1224,7 +1225,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         // ocupación (nuevo) — se calcula una sola vez por request acá,
         // nunca se repite la consulta más abajo.
         if (MESA_GEOFENCE_MODE === "enforce" && negocioCalibrado) {
-          isStaffOrder = await isAuthenticatedStaffForNegocio(
+          const authorizeStaffForNegocio = testHooks?.authorizeStaffForNegocio ?? isAuthenticatedStaffForNegocio
+          isStaffOrder = await authorizeStaffForNegocio(
             request,
             negocioId,
             sessionUserType,
@@ -1276,6 +1278,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         }
       } catch (geofenceError) {
         console.error("[MesaGeofence] Error evaluando geocerca en pedido:", safeErrorForLog(geofenceError))
+        return NextResponse.json(
+          {
+            error: "No pudimos validar la seguridad de la mesa. Intentá de nuevo.",
+            code: "MESA_AUTH_UNAVAILABLE",
+          },
+          { status: 503 }
+        )
       }
 
       if (geofenceBlockResponse) {

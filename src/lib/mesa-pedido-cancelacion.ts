@@ -35,9 +35,8 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import {
   SESSION_COOKIE_NAME,
-  OPERATIONAL_SESSION_COOKIE_NAME,
   findSesionByToken,
-  validateOperationalSession,
+  getOperationalAccountFromRequest,
 } from "@/lib/auth"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
@@ -135,44 +134,38 @@ export async function resolverActorCancelacionMesa(
   }
 
   // 2) Cuenta Operativa personal (Salón o Mozo, según área EFECTIVA real).
-  const operativoToken = request.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
-  if (operativoToken) {
-    const operativoSession = await validateOperationalSession(operativoToken)
-    if (operativoSession) {
-      autenticadoComoAlguien = true
-      const empleados = await db.empleado.findMany({
-        where: { cuentaOperativaId: operativoSession.cuentaOperativaId, activo: true, eliminado: false },
-        select: { id: true, nombre: true, negocioId: true, areaOperativa: true, rol: true },
+  const cuentaOperativa = await getOperationalAccountFromRequest(request)
+  if (cuentaOperativa) {
+    autenticadoComoAlguien = true
+    const empleados = cuentaOperativa.empleados.filter((empleado) => empleado.activo)
+    const negocioIds = empleados.map((empleado) => empleado.negocio.id)
+    if (negocioIds.length > 0) {
+      const pedido = await db.pedido.findFirst({
+        where: { id: pedidoId, negocioId: { in: negocioIds } },
+        select: { id: true, negocioId: true },
       })
-      const negocioIds = empleados.map((empleado) => empleado.negocioId)
-      if (negocioIds.length > 0) {
-        const pedido = await db.pedido.findFirst({
-          where: { id: pedidoId, negocioId: { in: negocioIds } },
-          select: { id: true, negocioId: true },
-        })
-        if (!pedido) return { ok: false, status: 404, reason: "not_found" }
+      if (!pedido) return { ok: false, status: 404, reason: "not_found" }
 
-        const empleado = empleados.find((candidato) => candidato.negocioId === pedido.negocioId)
-        // No debería poder ser undefined (negocioIds viene de empleados), pero
-        // se trata como "sin permiso" en vez de asumir/lanzar.
-        if (!empleado) return { ok: false, status: 403, reason: "no_permission" }
+      const empleado = empleados.find((candidato) => candidato.negocio.id === pedido.negocioId)
+      // No debería poder ser undefined (negocioIds viene de empleados), pero
+      // se trata como "sin permiso" en vez de asumir/lanzar.
+      if (!empleado) return { ok: false, status: 403, reason: "no_permission" }
 
-        const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
-        if (area === "salon") {
-          return {
-            ok: true,
-            actor: { type: "salon_personal", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
-          }
+      const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
+      if (area === "salon") {
+        return {
+          ok: true,
+          actor: { type: "salon_personal", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
         }
-        if (area === "mozo") {
-          return {
-            ok: true,
-            actor: { type: "mozo", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
-          }
-        }
-        // "pyr" / "sin_asignar": identidad válida, sin permiso para cancelar.
-        return { ok: false, status: 403, reason: "no_permission" }
       }
+      if (area === "mozo") {
+        return {
+          ok: true,
+          actor: { type: "mozo", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
+        }
+      }
+      // "pyr" / "sin_asignar": identidad válida, sin permiso para cancelar.
+      return { ok: false, status: 403, reason: "no_permission" }
     }
   }
 

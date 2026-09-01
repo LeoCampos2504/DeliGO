@@ -376,6 +376,7 @@ export async function getOperationalAccountFromRequest(
           nombre: true,
           codigo: true,
           rol: true,
+          areaOperativa: true,
           activo: true,
           negocio: {
             select: {
@@ -383,6 +384,9 @@ export async function getOperationalAccountFromRequest(
               nombre: true,
               slug: true,
             },
+          },
+          mesas: {
+            select: { id: true },
           },
         },
       },
@@ -514,11 +518,13 @@ export interface OperationalAccount {
     nombre: string
     codigo: string
     rol: string
+    areaOperativa: string
     activo: boolean
     negocio: {
       id: string
       nombre: string
       slug: string
     }
+    mesas: Array<{ id: string }>
   }>
 }
