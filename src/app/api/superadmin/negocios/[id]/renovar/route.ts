@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { createNotification, subscriptionRenewedNotification } from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.4: renovación de suscripción de un negocio por superadmin — expone la
 // nueva fecha de vencimiento; nunca cacheable.
@@ -22,6 +24,9 @@ export async function POST(
   try {
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
     const body = await req.json()
@@ -53,6 +58,16 @@ export async function POST(
         planFechaRenovacion: new Date().toISOString(),
         suspendido: false,
       },
+    })
+
+    await auditLog({
+      userId: user.id,
+      userType: "superadmin",
+      accion: "superadmin.negocio_renovado",
+      recurso: "negocio",
+      recursoId: id,
+      detalle: { nombre: negocio.nombre, planTipo: planTipo || "mensual", nuevoVencimiento: nuevoVencimiento.toISOString() },
+      ip: getClientIp(req),
     })
 
     // Notify negocio about subscription renewal

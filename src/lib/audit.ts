@@ -1,6 +1,7 @@
 // DeliGO - Audit Log Utility
 // Registers who did what and when for security tracking
 
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -24,6 +25,25 @@ export type AuditAction =
   | "negocio.reactivado"
   | "negocio.config_cambiada"
   | "negocio.promocionado"
+  // Superadmin mutations (P2-T06)
+  | "superadmin.backup_creado"
+  | "superadmin.cliente_desbloqueado"
+  | "superadmin.denuncia_eliminada"
+  | "superadmin.deuda_abonada"
+  | "superadmin.limite_deuda_modificado"
+  | "superadmin.negocio_aprobado"
+  | "superadmin.negocio_eliminado"
+  | "superadmin.negocio_promocionado"
+  | "superadmin.negocio_reactivado"
+  | "superadmin.negocio_renovado"
+  | "superadmin.config_promocionados_activos_modificada"
+  | "superadmin.solicitud_destacado_aprobada"
+  | "superadmin.solicitud_destacado_rechazada"
+  | "platform.service_fee_updated"
+  | "resena.moderacion_tomada"
+  | "resena.moderacion_informacion_requerida"
+  | "resena.moderacion_aprobada"
+  | "resena.moderacion_rechazada"
   // Repartidor
   | "repartidor.creado"
   | "repartidor.asociado"
@@ -45,7 +65,7 @@ export type AuditAction =
   | "superadmin.sesion_revocada"
   | "superadmin.anomalia_multiples_registros"
 
-interface AuditLogParams {
+export interface AuditLogParams {
   userId: string
   userType: string
   accion: string
@@ -55,23 +75,34 @@ interface AuditLogParams {
   ip?: string
 }
 
+type AuditLogClient = Pick<Prisma.TransactionClient, "auditLog">
+
+/**
+ * Writes an audit event through the supplied Prisma client. Unlike auditLog,
+ * this helper intentionally propagates errors so callers can keep the audit
+ * write in the same transaction as a destructive mutation.
+ */
+export async function auditLogWithClient(client: AuditLogClient, params: AuditLogParams): Promise<void> {
+  await client.auditLog.create({
+    data: {
+      userId: params.userId,
+      userType: params.userType,
+      accion: params.accion,
+      recurso: params.recurso,
+      recursoId: params.recursoId || "",
+      detalle: JSON.stringify(params.detalle || {}),
+      ip: params.ip || "",
+    },
+  })
+}
+
 /**
  * Log an audit event to the database.
  * This is fire-and-forget — errors are logged but don't fail the main operation.
  */
 export async function auditLog(params: AuditLogParams): Promise<void> {
   try {
-    await db.auditLog.create({
-      data: {
-        userId: params.userId,
-        userType: params.userType,
-        accion: params.accion,
-        recurso: params.recurso,
-        recursoId: params.recursoId || "",
-        detalle: JSON.stringify(params.detalle || {}),
-        ip: params.ip || "",
-      },
-    })
+    await auditLogWithClient(db, params)
   } catch (error) {
     // Don't fail the main operation if audit logging fails
     console.error("[AuditLog] Failed to write audit log:", safeErrorForLog(error))

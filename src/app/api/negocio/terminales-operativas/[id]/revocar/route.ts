@@ -4,6 +4,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { parseStoredGrant } from "@/lib/operaciones-terminal-permissions"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -72,6 +73,9 @@ export async function POST(
     if (!user) {
       return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
     }
+
+    const limit = checkRateLimit("terminalAdminMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return noStore(rateLimitResponse(limit))
 
     const { id } = await params
 

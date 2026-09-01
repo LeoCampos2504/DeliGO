@@ -7,6 +7,8 @@ import { existsSync } from "fs"
 import { exec } from "child_process"
 import { promisify } from "util"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 const execAsync = promisify(exec)
 
@@ -19,6 +21,13 @@ export async function POST(request: NextRequest) {
     const auth = await requireSuperadminSession(request)
     if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
+    }
+
+    const limit = checkRateLimit("superadminBackup", createRateLimitKey(getClientIp(request), auth.admin.id))
+    if (!limit.allowed) {
+      const limitedResponse = rateLimitResponse(limit)
+      limitedResponse.headers.set("Cache-Control", "private, no-store")
+      return limitedResponse
     }
 
     const BACKUP_DIR = join(process.cwd(), "backups")
@@ -106,6 +115,15 @@ export async function POST(request: NextRequest) {
         await unlink(join(BACKUP_DIR, file))
       }
     }
+
+    await auditLog({
+      userId: auth.admin.id,
+      userType: "superadmin",
+      accion: "superadmin.backup_creado",
+      recurso: "backup",
+      detalle: { formato: backupFilename.endsWith(".sql") ? "sql" : backupFilename.endsWith(".json") ? "json" : "db", resultado: "exitoso" },
+      ip: getClientIp(request),
+    })
 
     return NextResponse.json({
       success: true,

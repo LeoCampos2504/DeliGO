@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 export async function POST(
   req: NextRequest,
@@ -12,6 +14,9 @@ export async function POST(
     if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), auth.admin.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
 
@@ -58,6 +63,16 @@ export async function POST(
         },
       }),
     ])
+
+    await auditLog({
+      userId: auth.admin.id,
+      userType: "superadmin",
+      accion: "superadmin.solicitud_destacado_aprobada",
+      recurso: "destacado_solicitud",
+      recursoId: solicitud.id,
+      detalle: { negocioId: solicitud.negocioId, meses: solicitud.meses, dias: solicitud.dias, nuevaFecha: nuevaFecha.toISOString() },
+      ip: getClientIp(req),
+    })
 
     return NextResponse.json({
       mensaje: `Solicitud aprobada. ${solicitud.negocio.nombre} destacado hasta ${nuevaFecha.toLocaleDateString("es-AR")}`,

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   PAIRING_TTL_MS,
   generateOpaqueToken,
@@ -37,6 +38,9 @@ export async function POST(
     if (!user) {
       return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
     }
+
+    const limit = checkRateLimit("terminalAdminActivation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return noStore(rateLimitResponse(limit))
 
     const { id } = await params
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 const LIMITE_MINIMO_DEUDA = 5000
 
@@ -22,6 +24,9 @@ export async function PUT(
   try {
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
 
@@ -50,6 +55,16 @@ export async function PUT(
     await db.negocio.update({
       where: { id },
       data: { limiteDeuda: nuevoLimite },
+    })
+
+    await auditLog({
+      userId: user.id,
+      userType: "superadmin",
+      accion: "superadmin.limite_deuda_modificado",
+      recurso: "negocio",
+      recursoId: id,
+      detalle: { nuevoLimite },
+      ip: getClientIp(req),
     })
 
     return NextResponse.json({

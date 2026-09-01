@@ -77,6 +77,11 @@ export const RATE_LIMITS = {
   googleOauthConsentComplete: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
   superadminReviewModerationAction: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 per superadmin/min
   superadminConfigMutation: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per superadmin/5 min
+  terminalAdminMutation: { maxRequests: 30, windowMs: 5 * 60 * 1000 }, // 30 per admin/IP per 5 min
+  terminalAdminActivation: { maxRequests: 10, windowMs: 15 * 60 * 1000 }, // 10 per admin/IP per 15 min
+  superadminPrivilegedMutation: { maxRequests: 30, windowMs: 5 * 60 * 1000 }, // 30 per admin/IP per 5 min
+  superadminDestructiveMutation: { maxRequests: 5, windowMs: 15 * 60 * 1000 }, // 5 per admin/IP per 15 min
+  superadminBackup: { maxRequests: 2, windowMs: 15 * 60 * 1000 }, // 2 per admin/IP per 15 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)
 } as const
 
@@ -170,7 +175,7 @@ export function createRateLimitKey(ip: string, userId?: string): string {
  * Rate limit response helper — returns 429 with standard headers
  */
 export function rateLimitResponse(result: { retryAfterMs?: number }, message?: string) {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { "Cache-Control": "private, no-store" }
   if (result.retryAfterMs) {
     headers["Retry-After"] = String(Math.ceil(result.retryAfterMs / 1000))
   }

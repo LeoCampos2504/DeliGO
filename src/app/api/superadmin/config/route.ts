@@ -10,6 +10,7 @@ import {
   validatePlatformServiceFee,
 } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 
@@ -94,6 +95,18 @@ export async function PUT(req: NextRequest) {
       data: { promocionadosActivos: body.promocionadosActivos },
       select: { promocionadosActivos: true, tarifaServicio: true, updatedAt: true },
     })
+
+    if (updated.promocionadosActivos !== current.promocionadosActivos) {
+      await auditLog({
+        userId: admin.id,
+        userType: "superadmin",
+        accion: "superadmin.config_promocionados_activos_modificada",
+        recurso: "config_plataforma",
+        recursoId: current.id,
+        detalle: { setting: "promocionadosActivos", oldValue: current.promocionadosActivos, newValue: updated.promocionadosActivos },
+        ip: getClientIp(req),
+      })
+    }
 
     return NextResponse.json(
       {

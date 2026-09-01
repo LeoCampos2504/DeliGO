@@ -10,6 +10,7 @@ import {
   parseStoredGrant,
 } from "@/lib/operaciones-terminal-permissions"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 const MAX_NOMBRE_LENGTH = 60
 
@@ -103,6 +104,9 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
     }
+
+    const limit = checkRateLimit("terminalAdminMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return noStore(rateLimitResponse(limit))
 
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== "object") {

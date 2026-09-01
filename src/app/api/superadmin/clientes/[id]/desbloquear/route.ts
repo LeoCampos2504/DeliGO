@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.4: acción superadmin sobre un cliente bloqueado — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -16,6 +18,9 @@ export async function POST(
     if (!auth.ok) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), auth.admin.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
     const { searchParams } = new URL(req.url)
@@ -81,6 +86,16 @@ export async function POST(
       })
       denunciasEliminadas = result.count
     }
+
+    await auditLog({
+      userId: auth.admin.id,
+      userType: "superadmin",
+      accion: "superadmin.cliente_desbloqueado",
+      recurso: "cliente",
+      recursoId: cliente.id,
+      detalle: { nombre: cliente.nombre, eliminarDenuncias, denunciasEliminadas },
+      ip: getClientIp(req),
+    })
 
     return NextResponse.json({
       ok: true,

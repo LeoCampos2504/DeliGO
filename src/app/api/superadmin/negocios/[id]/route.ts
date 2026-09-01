@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { createNotification, negocioApprovedNotification } from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog, auditLogWithClient } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.4: aprobación/eliminación de un negocio por superadmin — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -22,6 +24,9 @@ export async function POST(
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
+
     const { id } = await params
     const negocio = await db.negocio.findUnique({ where: { id } })
     if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
@@ -40,6 +45,16 @@ export async function POST(
         planFechaInicio: fechaInicio.toISOString(),
         planVencimiento: fechaVencimiento.toISOString(),
       },
+    })
+
+    await auditLog({
+      userId: user.id,
+      userType: "superadmin",
+      accion: "superadmin.negocio_aprobado",
+      recurso: "negocio",
+      recursoId: id,
+      detalle: { nombre: negocio.nombre, slug: negocio.slug, planTipo: "prueba", diasPrueba: 30 },
+      ip: getClientIp(req),
     })
 
     // Notify negocio that they were approved
@@ -82,11 +97,30 @@ export async function DELETE(
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
-    const { id } = await params
-    const negocio = await db.negocio.findUnique({ where: { id } })
-    if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
+    const limit = checkRateLimit("superadminDestructiveMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
-    await db.negocio.delete({ where: { id } })
+    const { id } = await params
+    const deleted = await db.$transaction(async (tx) => {
+      const negocio = await tx.negocio.findUnique({
+        where: { id },
+        select: { id: true, nombre: true, slug: true },
+      })
+      if (!negocio) return null
+
+      await tx.negocio.delete({ where: { id: negocio.id } })
+      await auditLogWithClient(tx, {
+        userId: user.id,
+        userType: "superadmin",
+        accion: "superadmin.negocio_eliminado",
+        recurso: "negocio",
+        recursoId: negocio.id,
+        detalle: { nombre: negocio.nombre, slug: negocio.slug, cascade: true },
+        ip: getClientIp(req),
+      })
+      return negocio
+    })
+    if (!deleted) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
 
     return NextResponse.json({ ok: true, mensaje: "Negocio eliminado" }, { headers: NO_STORE_HEADERS })
   } catch (error) {
