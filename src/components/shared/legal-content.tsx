@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 export function TermsContent() {
   return (
     <div className="space-y-4 text-sm text-muted-foreground">
-      <p><strong>Última actualización:</strong> Marzo 2025</p>
+      <p><strong>Última actualización:</strong> Septiembre 2026</p>
 
       <h3 className="font-semibold text-foreground">1. Aceptación de los términos</h3>
       <p>
@@ -46,13 +46,33 @@ export function TermsContent() {
         <li>La tarifa de servicio vigente se aplica a cada pedido para mantener la plataforma.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">5. Métodos de pago</h3>
+      <h3 className="font-semibold text-foreground">5. Pedidos de Mesa / Salón</h3>
+      <p>
+        DeliGO puede ofrecer a los negocios asociados una funcionalidad de gestión de pedidos de
+        mesa/salón. Esta funcionalidad puede estar disponible en modalidad gratuita, promocional, de
+        prueba o paga, según lo determine DeliGO en cada momento.
+      </p>
+      <p>
+        En el futuro, DeliGO podrá aplicar una tarifa basada en el uso de esta funcionalidad (por
+        ejemplo, según la cantidad de pedidos de mesa procesados), pudiendo existir tramos progresivos
+        y/o un tope máximo por período. Si se activara una tarifa, su estructura vigente será
+        informada al negocio de forma clara antes de aplicarse, incluyendo el valor, la forma de
+        cálculo, los tramos y/o tope si correspondieran, y el período de facturación. Cualquier
+        modificación posterior a esa estructura se comunicará conforme a lo previsto en la sección
+        &quot;Modificaciones&quot; de estos Términos, antes de su entrada en vigencia.
+      </p>
+      <p>
+        DeliGO no aplicará cargos retroactivos por el uso de una funcionalidad que, al momento de
+        utilizarse, haya sido ofrecida como gratuita o sin cargo.
+      </p>
+
+      <h3 className="font-semibold text-foreground">6. Métodos de pago</h3>
       <p>
         Los pagos se realizan directamente al negocio mediante los métodos que este acepte (efectivo
         o transferencia bancaria). DeliGO no gestiona pagos ni realiza cobros en nombre del negocio.
       </p>
 
-      <h3 className="font-semibold text-foreground">6. Reseñas y opiniones</h3>
+      <h3 className="font-semibold text-foreground">7. Reseñas y opiniones</h3>
       <p>
         Podés dejar reseñas sobre los negocios después de cada pedido. Las reseñas deben ser honestas
         y respetuosas. DeliGO se reserva el derecho de eliminar reseñas que contengan:
@@ -64,7 +84,7 @@ export function TermsContent() {
         <li>Contenido falso o engañoso.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">7. Conducta del usuario</h3>
+      <h3 className="font-semibold text-foreground">8. Conducta del usuario</h3>
       <p>No está permitido:</p>
       <ul className="list-disc pl-4 space-y-1">
         <li>Usar la plataforma para fines ilícitos.</li>
@@ -74,13 +94,13 @@ export function TermsContent() {
         <li>Intentar acceder a cuentas ajenas.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">8. Propiedad intelectual</h3>
+      <h3 className="font-semibold text-foreground">9. Propiedad intelectual</h3>
       <p>
         El diseño, logos, marcas y contenido de DeliGO son propiedad de la plataforma. Los logos y
         nombres de los negocios son propiedad de sus respectivos dueños.
       </p>
 
-      <h3 className="font-semibold text-foreground">9. Limitación de responsabilidad</h3>
+      <h3 className="font-semibold text-foreground">10. Limitación de responsabilidad</h3>
       <p>
         DeliGO no se hace responsable por:
       </p>
@@ -91,19 +111,19 @@ export function TermsContent() {
         <li>Pérdidas indirectas derivadas del uso de la plataforma.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">10. Suspensión de cuenta</h3>
+      <h3 className="font-semibold text-foreground">11. Suspensión de cuenta</h3>
       <p>
         DeliGO puede suspender o cancelar tu cuenta si incumplís estos términos, sin perjuicio de
         otras acciones legales que correspondan.
       </p>
 
-      <h3 className="font-semibold text-foreground">11. Modificaciones</h3>
+      <h3 className="font-semibold text-foreground">12. Modificaciones</h3>
       <p>
         Nos reservamos el derecho de modificar estos términos. Te notificaremos con al menos 15 días
         de anticipación antes de que entren en vigencia cambios significativos.
       </p>
 
-      <h3 className="font-semibold text-foreground">12. Ley aplicable</h3>
+      <h3 className="font-semibold text-foreground">13. Ley aplicable</h3>
       <p>
         Estos términos se rigen por las leyes de la República Argentina. Cualquier disputa será
         resuelta por los tribunales competentes de Argentina.
@@ -118,7 +138,7 @@ export function TermsContent() {
 export function PrivacyContent() {
   return (
     <div className="space-y-4 text-sm text-muted-foreground">
-      <p><strong>Última actualización:</strong> Marzo 2025</p>
+      <p><strong>Última actualización:</strong> Septiembre 2026</p>
 
       <h3 className="font-semibold text-foreground">1. Responsable del tratamiento</h3>
       <p>
@@ -135,6 +155,7 @@ export function PrivacyContent() {
         <li><strong>Datos de reseñas:</strong> Calificaciones y comentarios sobre negocios.</li>
         <li><strong>Datos de dispositivo:</strong> Información del navegador, sistema operativo, y preferencias de notificaciones push.</li>
         <li><strong>Datos de autenticación Google:</strong> Si elegís ingresar con Google, recibimos tu nombre y email de Google.</li>
+        <li><strong>Datos operativos y de uso:</strong> Información sobre el uso de la plataforma, incluyendo pedidos procesados (fecha, estado, modalidad —por ejemplo retiro, domicilio o mesa/salón cuando el negocio ofrece esa función—, montos totales), funciones utilizadas del panel y frecuencia de uso.</li>
       </ul>
 
       <h3 className="font-semibold text-foreground">3. Finalidad del tratamiento</h3>
@@ -146,25 +167,54 @@ export function PrivacyContent() {
         <li>Enviar notificaciones sobre tus pedidos y promociones relevantes.</li>
         <li>Cumplir con obligaciones legales y reglamentarias.</li>
         <li>Prevenir fraudes y garantizar la seguridad de la plataforma.</li>
+        <li>Generar estadísticas de uso y operación de la plataforma.</li>
+        <li>Medir costos operativos y planificar la capacidad del servicio.</li>
+        <li>Evaluar, diseñar y revisar la estructura de tarifas y planes comerciales futuros en base a datos reales de uso (ver sección siguiente).</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">4. Base legal</h3>
+      <h3 className="font-semibold text-foreground">4. Análisis de uso, estadísticas y tarifas futuras</h3>
+      <p>
+        Además de lo indicado en el punto anterior, DeliGO puede analizar datos operativos y de uso de
+        la plataforma (por ejemplo, cantidad de pedidos procesados, modalidad de pedido, frecuencia de
+        uso, funciones utilizadas) con el fin de: generar estadísticas agregadas de utilización; medir
+        costos operativos asociados a prestar el servicio; evaluar la sostenibilidad económica de
+        funcionalidades específicas (por ejemplo, pedidos de mesa/salón); y diseñar, simular o revisar
+        en el futuro la estructura de tarifas y planes comerciales de DeliGO.
+      </p>
+      <p>
+        DeliGO recopila y analiza únicamente los datos operativos necesarios y pertinentes para estas
+        finalidades. Este análisis no implica necesariamente identificar operaciones de un negocio o
+        cliente en particular frente a terceros: cuando sea posible, DeliGO prioriza el uso de
+        estadísticas agregadas o anonimizadas para estos fines.
+      </p>
+      <p>
+        Analizar estos datos no genera automáticamente un cargo o cobro: los cargos aplicables, si
+        existieran, se rigen siempre por la tarifa vigente informada previamente conforme a los
+        Términos y Condiciones.
+      </p>
+
+      <h3 className="font-semibold text-foreground">5. Base legal</h3>
       <p>
         El tratamiento de tus datos se basa en tu consentimiento (al registrarte y usar la plataforma),
         en la ejecución del contrato de servicio, y en intereses legítimos de DeliGO para mejorar el servicio.
       </p>
 
-      <h3 className="font-semibold text-foreground">5. Compartir datos con terceros</h3>
+      <h3 className="font-semibold text-foreground">6. Compartir datos con terceros</h3>
       <p>
         <strong>No vendemos tus datos personales.</strong> Compartimos información únicamente con:
       </p>
       <ul className="list-disc pl-4 space-y-1">
         <li><strong>Negocios asociados:</strong> Los datos necesarios para procesar tus pedidos (nombre, dirección de entrega, teléfono).</li>
-        <li><strong>Proveedores de servicio:</strong> Servicios de hosting, almacenamiento de imágenes y autenticación (Google OAuth).</li>
+        <li><strong>Proveedores de servicio:</strong> Servicios de hosting (incluyendo la base de datos), almacenamiento de imágenes, envío de notificaciones por email y autenticación (Google OAuth).</li>
         <li><strong>Autoridades competentes:</strong> Cuando lo exija la ley.</li>
       </ul>
+      <p>
+        Algunos de estos proveedores de servicio pueden procesar o almacenar datos en servidores
+        ubicados fuera de la República Argentina. En esos casos, DeliGO procura que dicho tratamiento
+        cuente con garantías adecuadas conforme a la normativa aplicable.
+      </p>
 
-      <h3 className="font-semibold text-foreground">6. Seguridad de los datos</h3>
+      <h3 className="font-semibold text-foreground">7. Seguridad de los datos</h3>
       <p>
         Implementamos medidas de seguridad técnicas y organizativas para proteger tus datos:
       </p>
@@ -175,14 +225,19 @@ export function PrivacyContent() {
         <li>Acceso restringido a datos personales por personal autorizado.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">7. Conservación de datos</h3>
+      <h3 className="font-semibold text-foreground">8. Conservación de datos</h3>
       <p>
         Conservamos tus datos mientras tengas una cuenta activa. Al eliminar tu cuenta, tus datos
         personales se eliminan dentro de los 30 días, excepto aquellos que debamos conservar por
         obligaciones legales (datos fiscales de pedidos durante 5 años).
       </p>
+      <p>
+        Las estadísticas y análisis agregados que DeliGO elabore a partir de datos operativos pueden
+        conservarse en forma agregada o anonimizada más allá de estos plazos, en la medida en que ya
+        no permitan identificar a un usuario o negocio en particular.
+      </p>
 
-      <h3 className="font-semibold text-foreground">8. Derechos del titular</h3>
+      <h3 className="font-semibold text-foreground">9. Derechos del titular</h3>
       <p>Tenés derecho a:</p>
       <ul className="list-disc pl-4 space-y-1">
         <li><strong>Acceder</strong> a tus datos personales.</li>
@@ -196,17 +251,17 @@ export function PrivacyContent() {
         Para ejercer tus derechos, podés usar las opciones de tu perfil o contactarnos a soporte@deligo.app.
       </p>
 
-      <h3 className="font-semibold text-foreground">9. Menores de edad</h3>
+      <h3 className="font-semibold text-foreground">10. Menores de edad</h3>
       <p>
         DeliGO no está dirigido a menores de 13 años. No recopilamos conscientemente datos de menores.
       </p>
 
-      <h3 className="font-semibold text-foreground">10. Cambios en la política</h3>
+      <h3 className="font-semibold text-foreground">11. Cambios en la política</h3>
       <p>
         Podemos actualizar esta política. Te notificaremos por email o en la app cuando haya cambios significativos.
       </p>
 
-      <h3 className="font-semibold text-foreground">11. Contacto</h3>
+      <h3 className="font-semibold text-foreground">12. Contacto</h3>
       <p>
         Para consultas sobre privacidad: <strong>soporte@deligo.app</strong>
       </p>
