@@ -72,28 +72,52 @@ export async function PUT(
     if (orientacion !== undefined) updateData.orientacion = orientacion
     if (color !== undefined) updateData.color = color
 
-    // Update basic fields
-    await db.seccionCatalogo.update({
-      where: { id },
-      data: updateData,
-    })
+    await db.$transaction(async (tx) => {
+      await tx.seccionCatalogo.update({
+        where: { id },
+        data: updateData,
+      })
 
-    // If productoIds is provided, update the junction table
-    if (productoIds !== undefined) {
-      // Delete existing junction records
-      await db.seccionProducto.deleteMany({ where: { seccionId: id } })
+      if (productoIds === undefined) return
 
-      // Create new junction records
-      if (validProductoIds.ids.length > 0) {
-        await db.seccionProducto.createMany({
-          data: validProductoIds.ids.map((productoId, index) => ({
-            seccionId: id,
-            productoId,
-            orden: index,
-          })),
-        })
+      // SeccionProducto.orden is owned by the dedicated reorder endpoint
+      // (src/app/api/negocio/secciones/[id]/productos/orden/route.ts). This
+      // generic membership update must never treat the submitted array's
+      // ORDER as an instruction — only as a SET. Retained products keep
+      // their existing relative order (read from the DB, not from the
+      // body); genuinely new products append after them. This is the only
+      // way a name/color-only save, or an add/remove, can never silently
+      // undo an explicit reorder.
+      const current = await tx.seccionProducto.findMany({
+        where: { seccionId: id },
+        select: { productoId: true, orden: true },
+      })
+      const newSet = new Set(validProductoIds.ids)
+      const currentIds = new Set(current.map((sp) => sp.productoId))
+
+      const toRemove = current.filter((sp) => !newSet.has(sp.productoId)).map((sp) => sp.productoId)
+      if (toRemove.length > 0) {
+        await tx.seccionProducto.deleteMany({ where: { seccionId: id, productoId: { in: toRemove } } })
       }
-    }
+
+      const retainedInOrder = current
+        .filter((sp) => newSet.has(sp.productoId))
+        .sort((a, b) => a.orden - b.orden)
+        .map((sp) => sp.productoId)
+      const added = validProductoIds.ids.filter((productoId) => !currentIds.has(productoId))
+      const finalOrder = [...retainedInOrder, ...added]
+
+      for (const [orden, productoId] of finalOrder.entries()) {
+        if (currentIds.has(productoId)) {
+          await tx.seccionProducto.update({
+            where: { seccionId_productoId: { seccionId: id, productoId } },
+            data: { orden },
+          })
+        } else {
+          await tx.seccionProducto.create({ data: { seccionId: id, productoId, orden } })
+        }
+      }
+    })
 
     // Return updated seccion with products
     const updated = await db.seccionCatalogo.findUnique({
