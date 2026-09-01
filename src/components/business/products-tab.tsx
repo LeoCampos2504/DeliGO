@@ -668,20 +668,41 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
     },
   })
 
-  // Derived data — merge config categories + product-derived categories
+  // CATALOG-CATEGORY-PILL-REORDER-R1: configCategorias' persisted array order
+  // IS the manual pill order (Negocio.categorias is the only source of
+  // truth — there is no Category entity). Never re-sort it here. Any
+  // category a product references but that isn't in configCategorias yet
+  // (legacy data) is appended at the end, in first-seen order — never
+  // alphabetized — so it stays visible/filterable without disturbing the
+  // order the merchant actually chose.
   const categories = useMemo(() => {
-    const catSet = new Set<string>()
-    for (const c of configCategorias) catSet.add(c)
-    for (const p of productos) catSet.add(p.categoria)
-    catSet.delete("Sin Categoria")
-    return Array.from(catSet).sort()
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const c of configCategorias) {
+      if (!c || c === "Sin Categoria" || seen.has(c)) continue
+      seen.add(c)
+      ordered.push(c)
+    }
+    for (const p of productos) {
+      const c = p.categoria
+      if (!c || c === "Sin Categoria" || seen.has(c)) continue
+      seen.add(c)
+      ordered.push(c)
+    }
+    return ordered
   }, [configCategorias, productos])
 
-  // Handle adding a new category
+  // Handle adding a new category — always appended at the end (never
+  // re-sorted), so a manually-persisted pill order survives category
+  // creation. See CATALOG-CATEGORY-PILL-REORDER-R1.
   const handleAddCategory = (name: string) => {
     const trimmed = name.trim()
     if (!trimmed) return
-    const updated = [...new Set([...configCategorias, trimmed])].sort()
+    if (configCategorias.includes(trimmed)) {
+      toast.error("Esa categoría ya existe")
+      return
+    }
+    const updated = [...configCategorias, trimmed]
     updateCategoriasMutation.mutate(updated)
     setActiveCategory(trimmed)
     setCategoryInput("")
@@ -737,12 +758,62 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
     },
   })
 
+  // CATALOG-CATEGORY-PILL-REORDER-R1: explicit mode, separate from product
+  // reorder mode — moving a category pill never touches Producto.categoria,
+  // Producto.orden, SeccionCatalogo.orden or SeccionProducto.orden. One
+  // PATCH per move, full array body, optimistic update with rollback.
+  const [categoryOrderMode, setCategoryOrderMode] = useState(false)
+  const [categoryOrderList, setCategoryOrderList] = useState<string[]>([])
+
+  const categoryReorderMutation = useMutation({
+    mutationFn: async ({ categorias }: { categorias: string[]; previousCategorias: string[] }) => {
+      const res = await fetch("/api/negocio/categorias/orden", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categorias }),
+      })
+      const result = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) throw new Error(result.error || "Error al ordenar categorías")
+      return result
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["negocio-categorias", negocio.id] })
+      toast.success("Orden de categorías guardado")
+    },
+    onError: (error, variables) => {
+      setCategoryOrderList(variables.previousCategorias)
+      void queryClient.invalidateQueries({ queryKey: ["negocio-categorias", negocio.id] })
+      toast.error(error.message || "No se pudo guardar el orden")
+    },
+  })
+
+  const enterCategoryOrderMode = () => {
+    if (reorderMode || formOpen || otherFormIsDirty) return
+    setCategoryOrderList([...configCategorias])
+    setCategoryOrderMode(true)
+  }
+
+  const moveCategory = (name: string, direction: "up" | "down") => {
+    if (categoryReorderMutation.isPending) return
+    const index = categoryOrderList.indexOf(name)
+    if (index < 0) return
+    const targetIndex = direction === "up" ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= categoryOrderList.length) return
+    const previous = categoryOrderList
+    const next = [...categoryOrderList]
+    const [moved] = next.splice(index, 1)
+    next.splice(targetIndex, 0, moved)
+    setCategoryOrderList(next)
+    categoryReorderMutation.mutate({ categorias: next, previousCategorias: previous })
+  }
+
   // Save product mutation
   const saveMutation = useMutation({
     mutationFn: async (data: ProductFormData & { id?: string }) => {
-      // If the product's category is new, persist it to config first
-      if (data.categoria && data.categoria !== "Sin Categoria" && !configCategorias.includes(data.categoria) && !categories.includes(data.categoria)) {
-        const updated = [...new Set([...configCategorias, data.categoria])].sort()
+      // If the product's category is new, persist it to config first —
+      // appended at the end, never re-sorted (CATALOG-CATEGORY-PILL-REORDER-R1).
+      if (data.categoria && data.categoria !== "Sin Categoria" && !configCategorias.includes(data.categoria)) {
+        const updated = [...configCategorias, data.categoria]
         await fetch(`/api/negocio/categorias`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -1159,7 +1230,7 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
           size="sm"
           className="shrink-0 rounded-lg gap-1.5"
           onClick={() => reorderMode ? setReorderMode(false) : enterReorderMode()}
-          disabled={reorderMutation.isPending || (!reorderMode && (formOpen || otherFormIsDirty || loadingProducts))}
+          disabled={reorderMutation.isPending || categoryOrderMode || (!reorderMode && (formOpen || otherFormIsDirty || loadingProducts))}
           aria-label={reorderMode ? "Salir del modo ordenar productos" : "Ordenar productos"}
         >
           {reorderMode ? <X className="h-3.5 w-3.5" /> : <ListOrdered className="h-3.5 w-3.5" />}
@@ -1167,7 +1238,41 @@ export function ProductsTab({ negocio, mode, onModeChange, onRegisterNavigationG
         </Button>
       </div>
 
-      {!reorderMode ? (
+      {/* CATALOG-CATEGORY-PILL-REORDER-R1: explicit mode toggle, mutually
+          exclusive with product reorder mode. Single category needs no
+          reorder UI. */}
+      {categories.length >= 2 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{categoryOrderMode ? "Ordenando categorías" : "Orden de categorías"}</p>
+            <p className="text-xs text-muted-foreground">
+              {categoryOrderMode
+                ? "Se muestran todas tus categorías. Los cambios se guardan al mover una."
+                : "Definí el orden en que tus categorías aparecen para los clientes."}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={categoryOrderMode ? "outline" : "default"}
+            size="sm"
+            className="shrink-0 rounded-lg gap-1.5"
+            onClick={() => categoryOrderMode ? setCategoryOrderMode(false) : enterCategoryOrderMode()}
+            disabled={categoryReorderMutation.isPending || reorderMode || (!categoryOrderMode && (formOpen || otherFormIsDirty))}
+            aria-label={categoryOrderMode ? "Salir del modo ordenar categorías" : "Ordenar categorías"}
+          >
+            {categoryOrderMode ? <X className="h-3.5 w-3.5" /> : <ListOrdered className="h-3.5 w-3.5" />}
+            {categoryOrderMode ? "Salir" : "Ordenar categorías"}
+          </Button>
+        </div>
+      )}
+
+      {categoryOrderMode ? (
+        <CategoryOrderList
+          categories={categoryOrderList}
+          isPending={categoryReorderMutation.isPending}
+          onMove={moveCategory}
+        />
+      ) : !reorderMode ? (
         <>
           {/* ===== SEARCH BAR ===== */}
           <div className="relative">
@@ -3403,6 +3508,68 @@ function EmptyProducts({ isRopa }: { isRopa: boolean }) {
           </p>
         </>
       )}
+    </div>
+  )
+}
+
+// CATALOG-CATEGORY-PILL-REORDER-R1: arrows-only reorder list for category
+// pills — no drag handle. The list is short (a business's category count),
+// so drag adds complexity without a real accessibility or UX win; arrows
+// are already required for accessibility parity on both desktop and
+// mobile, so they're the only interaction here (matches the audit's own
+// "not obligatory if it adds unnecessary complexity" allowance).
+function CategoryOrderList({
+  categories,
+  isPending,
+  onMove,
+}: {
+  categories: string[]
+  isPending: boolean
+  onMove: (name: string, direction: "up" | "down") => void
+}) {
+  return (
+    <div className="space-y-2" role="list" aria-label="Orden de categorías">
+      {categories.map((cat, index) => {
+        const isFirst = index === 0
+        const isLast = index === categories.length - 1
+        return (
+          <div key={cat} role="listitem" className="flex items-center gap-3 rounded-xl border bg-card p-3">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold"
+              aria-label={`Posición ${index + 1}`}
+            >
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{cat}</span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                onClick={() => onMove(cat, "up")}
+                disabled={isPending || isFirst}
+                aria-label={`Subir ${cat}`}
+                title="Subir"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                onClick={() => onMove(cat, "down")}
+                disabled={isPending || isLast}
+                aria-label={`Bajar ${cat}`}
+                title="Bajar"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
