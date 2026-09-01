@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { createSessionWithClient, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { hashVerificationToken } from "@/lib/email"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-
-const HOURS_24 = 24 * 60 * 60 * 1000
 
 function setSessionCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -27,24 +26,30 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Search across all user types
-    const cliente = await db.cliente.findUnique({ where: { verificationToken: token } })
-    if (cliente) {
-      // Check token age (use emailVerified null as proxy — check createdAt via fechaRegistro)
-      // We use the fact that the user was just created. Check if verificationToken is older than 24h
-      // Since we don't store token creation time, we use fechaRegistro as an approximation
-      if (cliente.fechaRegistro && (Date.now() - cliente.fechaRegistro.getTime()) > HOURS_24 * 30) {
-        // Very old account — likely expired, but we still allow verification for now
-        // A more precise approach would need a tokenIssuedAt field
-      }
+    const tokenHash = hashVerificationToken(token)
+    const now = new Date()
 
-      await db.cliente.update({
-        where: { id: cliente.id },
-        data: { emailVerified: new Date(), verificationToken: null },
+    // New verification tokens are stored as hashes. There is deliberately no
+    // plaintext fallback: legacy rows without freshness metadata fail closed
+    // and the user must request a new email.
+    const clienteOutcome = await db.$transaction(async (tx) => {
+      const cliente = await tx.cliente.findUnique({ where: { verificationToken: tokenHash } })
+      if (!cliente || !cliente.verificationTokenExpiresAt || cliente.verificationTokenExpiresAt <= now) return null
+
+      const claimed = await tx.cliente.updateMany({
+        where: {
+          id: cliente.id,
+          verificationToken: tokenHash,
+          verificationTokenExpiresAt: { gt: now },
+          emailVerified: null,
+        },
+        data: { emailVerified: now, verificationToken: null, verificationTokenExpiresAt: null },
       })
-
-      // Create session for auto-login
-      const sessionToken = await createSession(cliente.id, "cliente")
+      if (claimed.count !== 1) return null
+      return { sessionToken: await createSessionWithClient(tx, cliente.id, "cliente") }
+    })
+    if (clienteOutcome) {
+      const sessionToken = clienteOutcome.sessionToken
 
       const response = renderHtmlPage({
         success: true,
@@ -57,14 +62,31 @@ export async function GET(req: NextRequest) {
       return response
     }
 
-    const negocio = await db.negocio.findUnique({ where: { verificationToken: token } })
-    if (negocio) {
-      await db.negocio.update({
-        where: { id: negocio.id },
-        data: { emailVerified: new Date(), verificationToken: null },
-      })
+    const negocioOutcome = await db.$transaction(async (tx) => {
+      const negocio = await tx.negocio.findUnique({ where: { verificationToken: tokenHash } })
+      if (!negocio || !negocio.verificationTokenExpiresAt || negocio.verificationTokenExpiresAt <= now) return null
 
-      if (!negocio.aprobado) {
+      const claimed = await tx.negocio.updateMany({
+        where: {
+          id: negocio.id,
+          verificationToken: tokenHash,
+          verificationTokenExpiresAt: { gt: now },
+          emailVerified: null,
+        },
+        data: { emailVerified: now, verificationToken: null, verificationTokenExpiresAt: null },
+      })
+      if (claimed.count !== 1) return null
+      return {
+        approved: negocio.aprobado,
+        sessionToken: negocio.aprobado
+          ? await createSessionWithClient(tx, negocio.id, "negocio")
+          : null,
+      }
+    })
+    if (negocioOutcome) {
+      const sessionToken = negocioOutcome.sessionToken
+
+      if (!negocioOutcome.approved) {
         return renderHtmlPage({
           success: true,
           title: "¡Email verificado!",
@@ -73,8 +95,7 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      // Negocio is approved — create session and auto-login
-      const sessionToken = await createSession(negocio.id, "negocio")
+      if (!sessionToken) return invalidVerificationPage()
 
       const response = renderHtmlPage({
         success: true,
@@ -87,15 +108,35 @@ export async function GET(req: NextRequest) {
       return response
     }
 
-    const repartidor = await db.repartidor.findUnique({ where: { verificationToken: token } })
-    if (repartidor) {
-      await db.repartidor.update({
-        where: { id: repartidor.id },
-        data: { emailVerified: new Date(), verificationToken: null },
-      })
+    const repartidorOutcome = await db.$transaction(async (tx) => {
+      const repartidor = await tx.repartidor.findUnique({ where: { verificationToken: tokenHash } })
+      if (!repartidor || !repartidor.verificationTokenExpiresAt || repartidor.verificationTokenExpiresAt <= now) return null
 
-      // Create session for auto-login
-      const sessionToken = await createSession(repartidor.id, "repartidor")
+      const claimed = await tx.repartidor.updateMany({
+        where: {
+          id: repartidor.id,
+          verificationToken: tokenHash,
+          verificationTokenExpiresAt: { gt: now },
+          emailVerified: null,
+        },
+        data: { emailVerified: now, verificationToken: null, verificationTokenExpiresAt: null },
+      })
+      if (claimed.count !== 1) return null
+      if (!repartidor.activo) return { inactive: true, sessionToken: null }
+      return { inactive: false, sessionToken: await createSessionWithClient(tx, repartidor.id, "repartidor") }
+    })
+    if (repartidorOutcome) {
+      if (repartidorOutcome.inactive) {
+        return renderHtmlPage({
+          success: true,
+          title: "Email verificado",
+          message: "Tu email fue verificado. Tu cuenta está pendiente de activación por un administrador.",
+          redirectUrl: "/repartidor",
+        })
+      }
+
+      const sessionToken = repartidorOutcome.sessionToken
+      if (!sessionToken) return invalidVerificationPage()
 
       const response = renderHtmlPage({
         success: true,
@@ -108,20 +149,19 @@ export async function GET(req: NextRequest) {
       return response
     }
 
-    // Token not found
-    return renderHtmlPage({
-      success: false,
-      title: "Enlace inválido",
-      message: "El enlace de verificación no es válido o ya fue utilizado.",
-    })
+    return invalidVerificationPage()
   } catch (error) {
     console.error("Verify email error:", safeErrorForLog(error))
-    return renderHtmlPage({
-      success: false,
-      title: "Error",
-      message: "Ocurrió un error al verificar tu email. Intentá de nuevo.",
-    })
+    return invalidVerificationPage()
   }
+}
+
+function invalidVerificationPage(): NextResponse {
+  return renderHtmlPage({
+    success: false,
+    title: "Enlace inválido",
+    message: "El enlace de verificación no es válido o expiró.",
+  })
 }
 
 function renderHtmlPage(params: {

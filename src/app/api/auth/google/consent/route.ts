@@ -121,8 +121,8 @@ async function acceptForRepartidor(claims: GoogleOAuthPendingClaims): Promise<st
     let accountId = claims.existingAccountId
 
     if (accountId) {
-      const existing = await tx.repartidor.findUnique({ where: { id: accountId } })
-      if (!existing) throw new AccountVanishedError()
+      const existing = await tx.repartidor.findUnique({ where: { id: accountId }, select: { activo: true } })
+      if (!existing || !existing.activo) throw new AccountVanishedError()
     } else {
       // googleId is @unique — Postgres resolves concurrent upserts on it
       // atomically, so a duplicate submit of the same pending token can

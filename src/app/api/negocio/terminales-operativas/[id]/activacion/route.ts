@@ -23,7 +23,7 @@ async function getNegocioAuth(req: NextRequest) {
   if (!token) return null
 
   const user = await getUserFromToken(token)
-  if (!user || user.type !== "negocio") return null
+  if (!user || user.type !== "negocio" || !user.aprobado || user.suspendido) return null
 
   return user
 }

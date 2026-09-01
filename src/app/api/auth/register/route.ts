@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { hashPassword } from "@/lib/auth"
 import { generateSlug } from "@/lib/utils"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
+import { sendVerificationEmail, generateVerificationToken, getVerificationTokenExpiresAt, hashVerificationToken } from "@/lib/email"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { validatePassword } from "@/lib/password-policy"
@@ -91,6 +91,7 @@ async function registerCliente(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
   // Account creation and its legal-acceptance evidence are atomic: if the
   // acceptance record fails to write, the account must not exist either.
   const cliente = await db.$transaction(async (tx) => {
@@ -100,7 +101,8 @@ async function registerCliente(data: {
         email: email.toLowerCase().trim(),
         password: hashedPassword,
         telefono: telefono?.trim() || "",
-        verificationToken,
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
         dispositivoFingerprint: deviceIdentity.deviceId,
       },
     })
@@ -204,6 +206,7 @@ async function registerNegocio(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
   // Account creation and its legal-acceptance evidence are atomic: if the
   // acceptance record fails to write, the account must not exist either.
   const negocio = await db.$transaction(async (tx) => {
@@ -217,7 +220,8 @@ async function registerNegocio(data: {
         rubro,
         aprobado: false,
         categorias: JSON.stringify(["Destacados"]),
-        verificationToken,
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
       },
     })
     await tx.legalAcceptance.create({
@@ -280,6 +284,7 @@ async function registerRepartidor(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
   // Account creation and its legal-acceptance evidence are atomic: if the
   // acceptance record fails to write, the account must not exist either.
   const repartidor = await db.$transaction(async (tx) => {
@@ -289,7 +294,8 @@ async function registerRepartidor(data: {
         email: email.toLowerCase().trim(),
         password: hashedPassword,
         telefono: telefono?.trim() || "",
-        verificationToken,
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
       },
     })
     await tx.legalAcceptance.create({

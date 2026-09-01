@@ -189,6 +189,10 @@ export async function GET(req: NextRequest) {
         })
       }
 
+      if (!repartidor.activo) {
+        return errorRedirect("account_unavailable")
+      }
+
       const hasAcceptance = await db.legalAcceptance.findFirst({
         where: { userId: repartidor.id, userType: "repartidor" },
       })

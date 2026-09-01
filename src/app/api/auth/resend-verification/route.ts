@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
+import { sendVerificationEmail, generateVerificationToken, getVerificationTokenExpiresAt, hashVerificationToken } from "@/lib/email"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Simple in-memory rate limiting: max 1 resend per email per 60 seconds
@@ -91,24 +91,26 @@ export async function POST(req: NextRequest) {
 
     // Generate new token and update user
     const verificationToken = generateVerificationToken()
+    const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
+    const verificationTokenHash = hashVerificationToken(verificationToken)
 
     switch (userType) {
       case "cliente":
         await db.cliente.update({
           where: { id: user.id },
-          data: { verificationToken },
+          data: { verificationToken: verificationTokenHash, verificationTokenExpiresAt },
         })
         break
       case "negocio":
         await db.negocio.update({
           where: { id: user.id },
-          data: { verificationToken },
+          data: { verificationToken: verificationTokenHash, verificationTokenExpiresAt },
         })
         break
       case "repartidor":
         await db.repartidor.update({
           where: { id: user.id },
-          data: { verificationToken },
+          data: { verificationToken: verificationTokenHash, verificationTokenExpiresAt },
         })
         break
     }

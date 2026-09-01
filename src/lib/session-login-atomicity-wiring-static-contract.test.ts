@@ -193,9 +193,13 @@ describe("10-14. Sin cambios en otros flujos (comparación byte a byte contra HE
     expect(read(DEVICE_IDENTITY)).toBe(readAtHead(DEVICE_IDENTITY))
   })
 
-  test("verify-email/route.ts y google/callback/route.ts: idénticos a HEAD (otros call-sites de createSession fuera de alcance)", () => {
-    expect(read(VERIFY_EMAIL)).toBe(readAtHead(VERIFY_EMAIL))
-    expect(read(GOOGLE_CALLBACK)).toBe(readAtHead(GOOGLE_CALLBACK))
+  test("verify-email y google callback permanecen fuera del loginCliente debt, con sus gates P2-T07 explícitos", () => {
+    const verify = read(VERIFY_EMAIL)
+    const google = read(GOOGLE_CALLBACK)
+    expect(verify).toContain("hashVerificationToken(token)")
+    expect(verify).toContain("verificationTokenExpiresAt")
+    expect(verify).toContain('createSessionWithClient(tx, cliente.id, "cliente")')
+    expect(google).toContain("if (!repartidor.activo)")
   })
 })
 
@@ -225,14 +229,13 @@ describe("15-17. auth.ts — createSessionWithClient / createSession wrapper", (
   })
 })
 
-describe("18. createSessionWithClient no se usa fuera de loginCliente", () => {
-  test("único call-site productivo de createSessionWithClient( es src/app/api/auth/login/route.ts", () => {
-    // auth.ts la DEFINE (no cuenta como call-site de uso), login/route.ts la USA.
-    // Los demás flujos de login/verificación/OAuth ya se confirmaron
-    // idénticos a HEAD arriba (10-14), así que estructuralmente no pueden
-    // haber empezado a usarla.
+describe("18. createSessionWithClient — call-sites transaccionales permitidos", () => {
+  test("sólo loginCliente y verify-email usan createSessionWithClient fuera de la implementación", () => {
+    // auth.ts la DEFINE (no cuenta como call-site de uso). P2-T07 añade
+    // verify-email porque el claim del bearer y la sesión deben ser atómicos.
     const loginBody = read(AUTH_LOGIN)
-    const occurrences = loginBody.split("createSessionWithClient(").length - 1
-    expect(occurrences).toBe(1)
+    const verifyBody = read(VERIFY_EMAIL)
+    expect(loginBody.split("createSessionWithClient(").length - 1).toBe(1)
+    expect(verifyBody.split("createSessionWithClient(").length - 1).toBe(3)
   })
 })

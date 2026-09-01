@@ -23,8 +23,9 @@ model Cliente {
   fechaRegistro    DateTime @default(now())
 
   // Email verification
-  emailVerified     DateTime?
-  verificationToken String?   @unique
+  emailVerified              DateTime?
+  verificationToken         String?   @unique
+  verificationTokenExpiresAt DateTime?
 
   // Protección contra clientes maliciosos
   bloqueado              Boolean   @default(false)
@@ -81,8 +82,9 @@ model Negocio {
   suspendido Boolean @default(false)
 
   // Email verification
-  emailVerified     DateTime?
-  verificationToken String?   @unique
+  emailVerified              DateTime?
+  verificationToken         String?   @unique
+  verificationTokenExpiresAt DateTime?
 
   // Personalización visual
   colorPrincipal    String  @default("#FB8C00")
@@ -692,8 +694,9 @@ model Repartidor {
   fechaRegistro    DateTime @default(now())
 
   // Email verification
-  emailVerified     DateTime?
-  verificationToken String?   @unique
+  emailVerified              DateTime?
+  verificationToken         String?   @unique
+  verificationTokenExpiresAt DateTime?
 
   negocios RepartidorNegocio[]
 

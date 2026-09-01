@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto"
+import { createHash, randomBytes } from "crypto"
 import { Resend } from "resend"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -67,8 +67,21 @@ function escapeHtml(value: string): string {
 // Generate verification token
 // ============================================
 
+// A 24-hour window is intentionally more forgiving than password reset (1h)
+// because registration links are commonly opened later, while remaining a
+// bounded bearer credential with explicit server-side expiry.
+export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000
+
 export function generateVerificationToken(): string {
-  return randomUUID()
+  return randomBytes(32).toString("base64url")
+}
+
+export function hashVerificationToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+export function getVerificationTokenExpiresAt(now = new Date()): Date {
+  return new Date(now.getTime() + EMAIL_VERIFICATION_TOKEN_TTL_MS)
 }
 
 // ============================================
