@@ -1251,6 +1251,27 @@ model AuditLog {
 }
 
 // ============================================
+// EVIDENCIA DE ACEPTACIÓN DE TÉRMINOS Y PRIVACIDAD
+// ============================================
+// Append-only: nunca se actualiza ni sobreescribe una fila existente. Una
+// reaceptación futura (ej. tras un cambio material de Términos) crea una
+// fila NUEVA — se conserva el historial completo, nunca se pierde evidencia
+// anterior. userId/userType son polimórficos sin relación FK, mismo patrón
+// que AuditLog — el sujeto puede ser un Cliente, Negocio o Repartidor.
+model LegalAcceptance {
+  id             String   @id @default(cuid())
+  userId         String // who
+  userType       String // cliente, negocio, repartidor
+  termsVersion   String // ver src/lib/legal-versions.ts — nunca confiado del cliente
+  privacyVersion String // ver src/lib/legal-versions.ts — nunca confiado del cliente
+  source         String // flujo donde ocurrió: "register" hoy
+  acceptedAt     DateTime @default(now()) // server-side siempre; nunca desde el cliente
+
+  @@index([userId, userType])
+  @@map("legal_acceptances")
+}
+
+// ============================================
 // NOTIFICACIONES (In-app + Push)
 // ============================================
 model Notificacion {

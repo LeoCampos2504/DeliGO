@@ -137,6 +137,11 @@ export async function GET(req: NextRequest) {
             data: { googleId: googleUser.sub },
           })
         } else {
+          // KNOWN GAP (LEGAL-TERMS-ACCEPTANCE-VERSIONING-R1): see the
+          // identical note on the cliente branch below — this account is
+          // also created with no Terms/Privacy consent step and no
+          // LegalAcceptance record. Tracked as
+          // GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1.
           // Create new repartidor with Google account
           repartidor = await db.repartidor.create({
             data: {
@@ -171,6 +176,13 @@ export async function GET(req: NextRequest) {
             data: { googleId: googleUser.sub },
           })
         } else {
+          // KNOWN GAP (LEGAL-TERMS-ACCEPTANCE-VERSIONING-R1): unlike
+          // /api/auth/register, a brand-new account created here never
+          // passes through the Terms/Privacy checkbox and gets no
+          // LegalAcceptance record. Confirmed real, not yet resolved —
+          // closing it safely needs a consent step before account
+          // creation, which is real new UX, not a drop-in change to this
+          // callback. Tracked as GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1.
           // Create new cliente with Google account
           cliente = await db.cliente.create({
             data: {
