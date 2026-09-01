@@ -70,6 +70,11 @@ export const RATE_LIMITS = {
   // intentos sobre la cuenta de mayor privilegio de la plataforma.
   superadminOAuthStart: { maxRequests: 10, windowMs: 5 * 60 * 1000 },   // 10 per 5 min
   superadminOAuthCallback: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
+  // GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1: consentimiento explícito que
+  // completa el login/registro con Google — mismo tamaño que los buckets de
+  // OAuth de arriba, bucket propio para que no comparta cupo con "register"
+  // ni "login".
+  googleOauthConsentComplete: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
   superadminReviewModerationAction: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 per superadmin/min
   superadminConfigMutation: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per superadmin/5 min
   general: { maxRequests: 60, windowMs: 60 * 1000 },             // 60 per min (default)

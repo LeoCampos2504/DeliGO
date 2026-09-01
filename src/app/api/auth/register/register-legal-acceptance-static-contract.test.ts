@@ -35,8 +35,15 @@ describe("LEGAL-TERMS-ACCEPTANCE-VERSIONING-R1 — static contracts", () => {
     expect(REGISTER).not.toContain("data.userId")
   })
 
-  test("the still-open Google OAuth acceptance gap is acknowledged in source, not silently hidden", () => {
-    expect(OAUTH_CALLBACK).toContain("KNOWN GAP (LEGAL-TERMS-ACCEPTANCE-VERSIONING-R1)")
+  // GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1: el gap documentado acá arriba
+  // (KNOWN GAP) fue cerrado con una implementación real — ver
+  // google-oauth-consent-gate-static-contract.test.ts para el contrato
+  // detallado del nuevo gate. Esta prueba sólo confirma que el comentario
+  // KNOWN GAP, ya resuelto, no sigue afirmando que el problema sigue
+  // abierto.
+  test("the Google OAuth acceptance gap is no longer marked as an open KNOWN GAP — it was closed by GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1", () => {
+    expect(OAUTH_CALLBACK).not.toContain("KNOWN GAP (LEGAL-TERMS-ACCEPTANCE-VERSIONING-R1)")
     expect(OAUTH_CALLBACK).toContain("GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1")
+    expect(OAUTH_CALLBACK).toContain("redirectToConsentGate")
   })
 })
