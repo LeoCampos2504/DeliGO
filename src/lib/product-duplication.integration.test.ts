@@ -183,7 +183,11 @@ describe("PRODUCT-DUPLICATION-R1 — authenticated server-side clone", () => {
     })
     expect(duplicate.agregados.map((item) => item.agregadoId)).toEqual([agregado.id])
     expect(duplicate.ingredientes.map((item) => item.ingredienteId)).toEqual([ingrediente.id])
-    expect(duplicate.seccionItems).toEqual([{ id: duplicate.seccionItems[0].id, seccionId: seccion.id, productoId: duplicate.id, orden: 3 }])
+    // PRODUCT-DUPLICATION-SECTION-POSITION-R1: the source's own SeccionProducto.orden
+    // (3) is never copied — the copy is appended after the section's current
+    // max (which IS 3, the source's own row, since it's the section's only
+    // member here), landing at 4, never tied with the source.
+    expect(duplicate.seccionItems).toEqual([{ id: duplicate.seccionItems[0].id, seccionId: seccion.id, productoId: duplicate.id, orden: 4 }])
     expect(duplicate.promociones).toHaveLength(1)
     expect(duplicate.promociones[0].precioPromo).toBeCloseTo(98.76)
     expect(duplicate.orden).toBeGreaterThan(source.orden)
