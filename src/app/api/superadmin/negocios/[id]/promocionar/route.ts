@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLog } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.4: promoción/destacado de un negocio por superadmin — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -22,6 +24,9 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
     }
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
 
@@ -105,6 +110,16 @@ export async function PUT(
         ordenPromocion: true,
         destacadoHasta: true,
       },
+    })
+
+    await auditLog({
+      userId: user.id,
+      userType: "superadmin",
+      accion: "superadmin.negocio_promocionado",
+      recurso: "negocio",
+      recursoId: updated.id,
+      detalle: { nombre: updated.nombre, slug: updated.slug, promocionado: updated.promocionado, ordenPromocion: updated.ordenPromocion, destacadoHasta: updated.destacadoHasta?.toISOString() ?? null },
+      ip: getClientIp(req),
     })
 
     return NextResponse.json(updated, { headers: NO_STORE_HEADERS })

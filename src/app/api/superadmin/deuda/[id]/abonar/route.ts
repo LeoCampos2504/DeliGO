@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLogWithClient } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.2: abono de deuda de un negocio — dato financiero, nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -26,6 +28,9 @@ export async function POST(
   try {
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
+
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
 
     const { id } = await params
 
@@ -71,6 +76,16 @@ export async function POST(
           deudaAnterior: montoAbonado,
           tipo: "abono_total",
         },
+      })
+
+      await auditLogWithClient(tx, {
+        userId: user.id,
+        userType: "superadmin",
+        accion: "superadmin.deuda_abonada",
+        recurso: "negocio",
+        recursoId: negocio.id,
+        detalle: { negocioNombre: negocio.nombre, montoAbonado, deudaAnterior: montoAbonado, deudaNueva: 0 },
+        ip: getClientIp(req),
       })
 
       return { kind: "abonado" as const, montoAbonado, negocioNombre: negocio.nombre }

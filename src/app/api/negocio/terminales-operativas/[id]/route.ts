@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   isOperacionesProfile,
   resolveEffectiveGrant,
@@ -81,6 +82,9 @@ export async function PATCH(
     if (!user) {
       return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
     }
+
+    const limit = checkRateLimit("terminalAdminMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return noStore(rateLimitResponse(limit))
 
     const { id } = await params
 

@@ -163,7 +163,15 @@ export async function resolveTerminalSession(req: NextRequest): Promise<Terminal
           scopes: true,
           revokedAt: true,
           negocio: {
-            select: { id: true, nombre: true, slug: true, colorPrincipal: true, salonActivo: true },
+            select: {
+              id: true,
+              nombre: true,
+              slug: true,
+              colorPrincipal: true,
+              salonActivo: true,
+              aprobado: true,
+              suspendido: true,
+            },
           },
         },
       },
@@ -178,6 +186,9 @@ export async function resolveTerminalSession(req: NextRequest): Promise<Terminal
   if (!terminal) return null
   if (terminal.revokedAt) return null
   if (terminal.estado !== "activo") return null
+  // Lifecycle authorization is enforced here so every protected terminal
+  // surface fails closed consistently without an extra business query.
+  if (!terminal.negocio.aprobado || terminal.negocio.suspendido) return null
 
   // Refresca lastUsedAt como mucho cada 5 min (best-effort, no bloquea la respuesta).
   await touchLastUsed(session.id, terminal.id, session.lastUsedAt)

@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { auditLogWithClient } from "@/lib/audit"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 const MAX_DENUNCIAS_BEFORE_BLOCK = 3
 const MAX_SERIALIZATION_RETRIES = 3
@@ -58,6 +60,9 @@ export async function DELETE(
       return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
     }
 
+    const limit = checkRateLimit("superadminDestructiveMutation", createRateLimitKey(getClientIp(req), auth.admin.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
+
     const { id } = await params
 
     type DeleteOutcome =
@@ -88,6 +93,15 @@ export async function DELETE(
         // (clienteId=null, pseudonimizada). No existe ningún Cliente real
         // que reconciliar/desbloquear en ese caso — cortar acá.
         if (denuncia.clienteId === null) {
+          await auditLogWithClient(tx, {
+            userId: auth.admin.id,
+            userType: "superadmin",
+            accion: "superadmin.denuncia_eliminada",
+            recurso: "denuncia",
+            recursoId: denuncia.id,
+            detalle: { clienteId: null, clienteNombre: denuncia.clienteNombre, desbloqueado: false, denunciasRestantes: 0 },
+            ip: getClientIp(req),
+          })
           return {
             kind: "deleted" as const,
             clienteNombre: denuncia.clienteNombre,
@@ -175,6 +189,16 @@ export async function DELETE(
             where: { clienteId },
           })
         }
+
+        await auditLogWithClient(tx, {
+          userId: auth.admin.id,
+          userType: "superadmin",
+          accion: "superadmin.denuncia_eliminada",
+          recurso: "denuncia",
+          recursoId: denuncia.id,
+          detalle: { clienteId, clienteNombre: denuncia.clienteNombre, desbloqueado, denunciasRestantes },
+          ip: getClientIp(req),
+        })
 
         return {
           kind: "deleted" as const,

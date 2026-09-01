@@ -4,6 +4,7 @@ import { requireSuperadminSession } from "@/lib/superadmin-auth"
 import { createNotification, negocioSuspendedNotification } from "@/lib/push"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { checkRateLimit, createRateLimitKey, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 
 // Seguridad-6B.5: suspensión de negocio por superadmin — nunca cacheable.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -23,6 +24,9 @@ export async function POST(
     const user = await verifySuperAdmin(req)
     if (!user) return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
 
+    const limit = checkRateLimit("superadminPrivilegedMutation", createRateLimitKey(getClientIp(req), user.id))
+    if (!limit.allowed) return rateLimitResponse(limit)
+
     const { id } = await params
     const negocio = await db.negocio.findUnique({ where: { id } })
     if (!negocio) return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404, headers: NO_STORE_HEADERS })
@@ -33,7 +37,7 @@ export async function POST(
     })
 
     // Audit log
-    await auditLog({ userId: user.id, userType: "superadmin", accion: "negocio.suspendido", recurso: "negocio", recursoId: id, detalle: { suspendido: true } })
+    await auditLog({ userId: user.id, userType: "superadmin", accion: "negocio.suspendido", recurso: "negocio", recursoId: id, detalle: { suspendido: true }, ip: getClientIp(req) })
 
     // Notify negocio that they were suspended
     try {
