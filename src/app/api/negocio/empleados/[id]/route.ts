@@ -16,22 +16,18 @@ function normalizeAreaOperativa(value: unknown): string | null {
     : null
 }
 
-function maskToken(token?: string | null) {
-  if (!token) return null
-  if (token.length <= 8) return "********"
-  return `${token.slice(0, 4)}...${token.slice(-4)}`
-}
-
-// Legacy-Cleanup-1A: ya no se emite ni se regenera ningún Empleado.token —
-// ver PUT más abajo, donde se retiró la rama `regenerateToken:true` que
-// creaba uno nuevo. `token` queda siempre `null` en la respuesta;
-// `tokenMasked` sigue reflejando, enmascarado, un token YA EXISTENTE de antes
-// de esta etapa (nunca en texto plano).
-function serializeEmpleado<T extends { token: string | null }>(empleado: T) {
+// Legacy-Cleanup-2A: el campo físico legacy no forma parte de ninguna respuesta.
+// Se conservan únicamente placeholders nulos para clientes administrativos que
+// todavía esperan la forma histórica del objeto.
+function serializeEmpleado<T extends Record<string, unknown>>(empleado: T) {
+  const { token: _legacyToken, tokenMasked: _legacyTokenMasked, ...safeEmpleado } = empleado as T & {
+    token?: unknown
+    tokenMasked?: unknown
+  }
   return {
-    ...empleado,
+    ...safeEmpleado,
     token: null,
-    tokenMasked: maskToken(empleado.token),
+    tokenMasked: null,
     tokenRevealed: false,
   }
 }

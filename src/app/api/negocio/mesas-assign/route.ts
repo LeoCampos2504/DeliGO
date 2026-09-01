@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { esAreaMozoEfectiva } from "@/lib/area-operativa"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
-type AssignmentAuth =
-  | { kind: "negocio" }
-  | { kind: "mozo"; empleado: { id: string; codigo: string; nombre: string; negocioId: string } }
+type AssignmentAuth = { kind: "negocio" }
 
-// POST — Assign a mozo to a mesa (or unassign)
-// Public endpoint used from the mozo link flow
+// POST — Assign a mozo to a mesa (or unassign) for a business administrator.
+// Personal mozo assignment uses the session-authoritative /api/operativo route.
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -21,7 +18,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "mesaId requerido" }, { status: 400 })
     }
 
-    // Authentication: derive the negocio from session or from the validated token.
+    // Authentication: this administrative route is session-only. Personal mozo
+    // assignment uses /api/operativo/mozo/panel/[slug], whose resolver derives
+    // CuentaOperativa -> Empleado -> Negocio from deligo_operativo_session.
     const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value
     let auth: AssignmentAuth | null = null
     let negocioId: string | null = null
@@ -32,39 +31,6 @@ export async function POST(req: NextRequest) {
       if (user?.type === "negocio") {
         auth = { kind: "negocio" }
         negocioId = user.id
-      }
-    }
-
-    // Seguridad-5E: se retiró la rama que aceptaba tokenSalon/tokenEmpleados
-    // (el token compartido de todo el negocio) como autenticación para esta
-    // acción — confirmado por búsqueda en todo el código que ningún llamador
-    // real la usaba (el único flujo por link legacy, src/app/m/[token]/page.tsx,
-    // ya usa la rama de abajo, el token individual del mozo). Aceptar el
-    // secreto compartido de todo el negocio para asignar/desasignar mesas era
-    // una superficie de autenticación extra, no documentada y sin uso real.
-
-    // 2) Check mozo token (empleado.token) — allows mozos to assign/unassign from their phone.
-    // Guard de transición (Operaciones-1F): el token legacy solo autoriza si el área
-    // efectiva actual del empleado sigue siendo Mozo.
-    if (!auth && typeof body.mozoToken === "string") {
-      const empleado = await db.empleado.findFirst({
-        where: {
-          token: body.mozoToken,
-          activo: true,
-          eliminado: false,
-        },
-        select: {
-          id: true,
-          codigo: true,
-          nombre: true,
-          negocioId: true,
-          rol: true,
-          areaOperativa: true,
-        },
-      })
-      if (empleado && esAreaMozoEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })) {
-        auth = { kind: "mozo", empleado }
-        negocioId = empleado.negocioId
       }
     }
 
@@ -91,15 +57,14 @@ export async function POST(req: NextRequest) {
         where: {
           id: mesaId,
           negocioId,
-          ...(auth.kind === "mozo" ? { empleadoId: auth.empleado.id } : {}),
         },
         data: { empleadoId: null },
       })
 
       if (unassignResult.count === 0) {
         return NextResponse.json(
-          { error: auth.kind === "mozo" ? "Sin acceso a este recurso" : "Mesa no encontrada" },
-          { status: auth.kind === "mozo" ? 403 : 404 }
+          { error: "Mesa no encontrada" },
+          { status: 404 }
         )
       }
 
@@ -127,29 +92,26 @@ export async function POST(req: NextRequest) {
     }
 
     // Assigning — need empleadoCodigo
-    if (auth.kind !== "mozo" && !empleadoCodigoInput) {
+    if (!empleadoCodigoInput) {
       return NextResponse.json({ error: "empleadoCodigo requerido para asignar" }, { status: 400 })
     }
 
     // Find the empleado by codigo using Prisma ORM (avoids PostgreSQL case-sensitivity issues)
-    const mozo =
-      auth.kind === "mozo"
-        ? auth.empleado
-        : await db.empleado.findFirst({
-            where: {
-              codigo: empleadoCodigoInput,
-              negocioId,
-              eliminado: false,
-              rol: "mozo",
-            },
-            select: {
-              id: true,
-              nombre: true,
-              codigo: true,
-              negocioId: true,
-              activo: true,
-            },
-          })
+    const mozo = await db.empleado.findFirst({
+      where: {
+        codigo: empleadoCodigoInput,
+        negocioId,
+        eliminado: false,
+        rol: "mozo",
+      },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        negocioId: true,
+        activo: true,
+      },
+    })
 
     if (!mozo) {
       return NextResponse.json({ error: "Mozo no encontrado" }, { status: 404 })
@@ -159,21 +121,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Mozo inactivo" }, { status: 400 })
     }
 
-    if (auth.kind === "mozo" && empleadoCodigoInput && empleadoCodigoInput !== auth.empleado.codigo) {
-      return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
-    }
-
-    // Bugfix-2 [10]: la restricción OR (solo asignar si está libre o ya es del
-    // mismo mozo) sigue aplicando al self-service del mozo (evita que un mozo le
-    // quite la mesa a otro desde su propio selector), pero el negocio —dueño de
-    // sus propias mesas— puede reasignar directamente a otro mozo.
+    // El negocio —dueño de sus propias mesas— puede reasignar directamente a
+    // otro mozo. El self-service personal usa su propia ruta canónica y aplica
+    // la restricción de ownership allí.
     const assignResult = await db.mesa.updateMany({
       where: {
         id: mesaId,
         negocioId,
-        ...(auth.kind === "mozo"
-          ? { OR: [{ empleadoId: null }, { empleadoId: mozo.id }] }
-          : {}),
       },
       data: { empleadoId: mozo.id },
     })

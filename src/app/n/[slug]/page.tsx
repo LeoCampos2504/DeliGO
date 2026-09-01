@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useRef, Suspense } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { useHydrated } from "@/hooks/use-hydrated"
 import { usePathname, useSearchParams } from "next/navigation"
 
 import {
@@ -27,7 +26,6 @@ import {
   Settings2,
   Armchair,
   ShoppingBag,
-  UserCheck,
   Store,
   MapPin,
   Loader2,
@@ -49,7 +47,6 @@ import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSeccio
 import { CartPanel } from "@/components/cart/cart-panel"
 import { ProductImageGallery } from "@/components/client/product-image-gallery"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
-import { MesaSelectorSheet } from "@/components/business/mesa-selector-sheet"
 import { MesaClienteCuentaPanel } from "@/components/shared/mesa-cliente-cuenta-panel"
 import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
@@ -205,7 +202,6 @@ export default function CatalogoPage({ params }: { params: Promise<{ slug: strin
 
 function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = React.use(params)
-  const hydrated = useHydrated()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const isPreview = searchParams.get("preview") === "true"
@@ -219,13 +215,6 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const isBusinessPreview = isPreview && previewSource === "business"
   const mesaParam = searchParams.get("mesa")
   const mesaNumero = mesaParam ? parseInt(mesaParam, 10) : null
-  const isMesaOrder = !!mesaNumero
-  const mozoParam = searchParams.get("mozo")
-  const mozoTokenStorageKey = mozoParam ? `deligo:mozo-token:${slug}:${mozoParam.toUpperCase()}` : null
-  const storedMozoToken =
-    hydrated && mozoTokenStorageKey && typeof window !== "undefined"
-      ? window.sessionStorage.getItem(mozoTokenStorageKey)
-      : null
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState("Todas")
@@ -239,9 +228,6 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const [addressSelectorOpen, setAddressSelectorOpen] = useState(false)
 
-  // Mozo mesa selection state
-  const [mozoSelectedMesa, setMozoSelectedMesa] = useState<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null } | null>(null)
-  const [mesaSelectorOpen, setMesaSelectorOpen] = useState(false)
 
   // Check for auto-open product from URL (e.g. from promos)
   const autoOpenProductId = searchParams.get("productoId")
@@ -257,10 +243,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     enabled: !!slug,
   })
 
-  // Tarea 20-CORRECCIÓN-1 (Dark Kitchen): `isMesaOrder` (arriba) refleja
-  // ÚNICAMENTE que la URL trae `?mesa=N` — nunca es autoridad de
-  // comportamiento por sí solo (ver auditoría completa en CODEX_REPORT.md,
-  // tabla de usos de `isMesaOrder`). La única fuente de verdad de si ESTE
+  // Tarea 20-CORRECCIÓN-1 (Dark Kitchen): que la URL traiga `?mesa=N` nunca es
+  // autoridad de comportamiento por sí solo. La única fuente de verdad de si ESTE
   // negocio realmente ofrece pedidos de mesa es `negocio.salonHabilitado`
   // (booleano sanitizado, ya deriva de `Negocio.salonActivo` server-side —
   // ver `GET /api/negocios/[slug]`). Se usa para gatear la resolución de
@@ -268,73 +252,6 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   // es el ÚNICO flag real usado para cualquier comportamiento de mesa en
   // esta página (geocerca, cuenta pública, checkout, payload del pedido).
   const salonHabilitadoDelNegocio = !!negocio?.salonHabilitado
-
-  // Fetch mozo info when mozo param is present
-  const { data: mozoData } = useQuery({
-    queryKey: ["mozo-info", mozoParam, negocio?.id, storedMozoToken],
-    queryFn: async () => {
-      if (!negocio?.id) return null
-
-      const fetchPublicMozo = async () => {
-        if (!mozoParam) return null
-        const res = await fetch(`/api/empleados/by-codigo?codigo=${mozoParam}&negocioId=${negocio.id}`)
-        if (!res.ok) return null
-        return res.json() as Promise<{ id: string; nombre: string; codigo: string; token?: null }>
-      }
-
-      const clearStoredMozoToken = () => {
-        if (mozoTokenStorageKey && typeof window !== "undefined") {
-          window.sessionStorage.removeItem(mozoTokenStorageKey)
-        }
-      }
-
-      if (storedMozoToken) {
-        const res = await fetch("/api/mozo", {
-          headers: {
-            Authorization: `Bearer ${storedMozoToken}`,
-          },
-          cache: "no-store",
-        })
-        if (res.ok) {
-          const data = await res.json() as {
-            id: string
-            nombre: string
-            codigo: string
-            negocio?: { id: string }
-          }
-          if (
-            data.negocio?.id === negocio.id &&
-            (!mozoParam || data.codigo === mozoParam.toUpperCase())
-          ) {
-            return {
-              id: data.id,
-              nombre: data.nombre,
-              codigo: data.codigo,
-              token: storedMozoToken,
-            }
-          }
-          clearStoredMozoToken()
-        } else if ([400, 401, 403, 404].includes(res.status)) {
-          clearStoredMozoToken()
-        }
-      }
-
-      return fetchPublicMozo()
-    },
-    enabled: !!negocio?.id && (!!mozoParam || !!storedMozoToken),
-  })
-  const isAuthenticatedMozo = !!mozoData?.token
-
-  // Auto-open mesa selector when mozo enters without a mesa
-  const mozoAutoSelectRef = useRef(false)
-  useEffect(() => {
-    if (isAuthenticatedMozo && !mesaNumero && !mozoSelectedMesa && !mozoAutoSelectRef.current) {
-      mozoAutoSelectRef.current = true
-      // Small delay to let page render first
-      const timer = setTimeout(() => setMesaSelectorOpen(true), 600)
-      return () => clearTimeout(timer)
-    }
-  }, [isAuthenticatedMozo, mesaNumero, mozoSelectedMesa])
 
   // Fetch mesa info when customer enters via ?mesa=X (to get mesaId and mozoAsignado)
   const { data: customerMesaData } = useQuery<{
@@ -349,14 +266,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       // Tarea 20-CORRECCIÓN-1/2: nunca consultar mesas-public para un
       // negocio sin Salón habilitado (ni mientras `negocio` todavía está
       // cargando) — ni siquiera la consulta debe intentarse.
-      if (!shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo, salonHabilitadoDelNegocio })) return null
+      if (!shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo: false, salonHabilitadoDelNegocio })) return null
       const res = await fetch(`/api/negocio/mesas-public?slug=${slug}`)
       if (!res.ok) return null
       const data = await res.json()
       const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
       return found ?? null
     },
-    enabled: shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo, salonHabilitadoDelNegocio }),
+    enabled: shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo: false, salonHabilitadoDelNegocio }),
   })
 
   // Determine the effective mesa number and ID for cart.
@@ -364,9 +281,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   // de mesa en toda la página. El componente `mesaNumero` (URL del
   // cliente) solo cuenta si `salonHabilitadoDelNegocio` es true (false
   // tanto mientras `negocio` carga como cuando el Salón está deshabilitado
-  // — mismo resultado en ambos casos); `mozoSelectedMesa` no se re-gatea
-  // acá porque un mozo autenticado ya implica Salón habilitado (la sesión
-  // de mozo lo exige server-side). Lógica pura extraída a
+  // — mismo resultado en ambos casos). Lógica pura extraída a
   // mesa-checkout-transition.ts (ver sus tests para la matriz completa de
   // transiciones: carga inicial, true/false, refetch en ambos sentidos,
   // cambio de mesa) — nunca se guarda una copia derivada en estado, así
@@ -374,8 +289,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const { effectiveMesaNumero, effectiveMesaId, isEffectiveMesaOrder } = resolveEffectiveMesa({
     mesaNumero,
     salonHabilitadoDelNegocio,
-    mozoSelectedMesaNumero: mozoSelectedMesa?.numero ?? null,
-    mozoSelectedMesaId: mozoSelectedMesa?.id ?? null,
+    mozoSelectedMesaNumero: null,
+    mozoSelectedMesaId: null,
     customerMesaId: customerMesaData?.id ?? null,
   })
 
@@ -424,7 +339,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   // expresión booleana simple, y se salta la optimización de ese
   // useCallback por completo (confirmado reproducible: falla igual en una
   // sola línea). El comportamiento es idéntico en ambas formas.
-  const shouldCheckMesaGeofence = isEffectiveMesaOrder && !isAuthenticatedMozo && !!negocio?.mesaGeofenceReady
+  const shouldCheckMesaGeofence = isEffectiveMesaOrder && !!negocio?.mesaGeofenceReady
 
   const runMesaGeofenceCheck = React.useCallback(async () => {
     if (!mesaNumero) return
@@ -500,7 +415,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
 
   // Auth gate helper: check if user can interact with ordering (not for mesa/mozo).
-  // Tarea 20-CORRECCIÓN-1: usa isEffectiveMesaOrder (nunca isMesaOrder crudo)
+  // Tarea 20-CORRECCIÓN-1: usa únicamente el flag efectivo de mesa
   // para que un negocio sin Salón nunca omita login/ubicación solo porque
   // la URL trae ?mesa=N.
   const canOrder = isEffectiveMesaOrder || (isAuthenticated() && userType() === "cliente")
@@ -667,7 +582,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   }
 
   // Loading state
-  if (!hydrated || isLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="relative h-44">
@@ -758,24 +673,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
         {/* Back button */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-          {mozoParam ? (
-            <button
-              onClick={() => window.history.back()}
-              className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors"
-            >
+          {/* BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §21: this circular back
+              control returns to the authenticated Business Preview when
+              applicable, otherwise to the Client catalog. */}
+          <Link href={isBusinessPreview ? "/negocio" : "/cliente/"}>
+            <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </button>
-          ) : (
-            // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §21: this circular back
-            // control must return to /negocio in an authenticated Business
-            // Preview — the same isBusinessPreview gate as the banner's
-            // "Volver al panel" above, so both in-app exits agree.
-            <Link href={isBusinessPreview ? "/negocio" : "/cliente/"}>
-              <button className="p-2 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/50 transition-colors">
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            </Link>
-          )}
+          </Link>
           <div className="flex gap-2">
             <button
               onClick={() => {
@@ -867,116 +772,9 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       </div>
 
       <div className="max-w-5xl mx-auto">
-      {/* ===== MOZO BANNER (with mesa selector) ===== */}
-      {isAuthenticatedMozo && mozoData && (
-        <div
-          className="mx-4 mt-3 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-300"
-          style={{
-            border: `1.5px solid ${negocio.colorPrincipal}30`,
-          }}
-        >
-          {/* Mozo info row */}
-          <div
-            className="flex items-center gap-2.5 px-4 py-2.5"
-            style={{ backgroundColor: `${negocio.colorPrincipal}08` }}
-          >
-            <UserCheck className="h-4 w-4 shrink-0" style={{ color: negocio.colorPrincipal }} />
-            <span className="text-sm font-semibold" style={{ color: negocio.colorPrincipal }}>
-              Modo mozo — {mozoData.nombre}
-            </span>
-            {(mozoSelectedMesa || mesaNumero) && (
-              <Badge
-                className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-lg"
-                style={{
-                  backgroundColor: `${negocio.colorPrincipal}15`,
-                  color: negocio.colorPrincipal,
-                  border: `1px solid ${negocio.colorPrincipal}25`,
-                }}
-              >
-                Mesa {mozoSelectedMesa?.numero ?? mesaNumero}
-              </Badge>
-            )}
-          </div>
-
-          {/* Mesa selection row — if mesaNumero is already set (from URL), show the mesa directly */}
-          {mesaNumero && isAuthenticatedMozo && mozoData ? (
-            <div
-              className="w-full flex items-center gap-3 px-4 py-3"
-            >
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: `${negocio.colorPrincipal}12` }}
-              >
-                <Armchair
-                  className="h-5 w-5"
-                  style={{ color: negocio.colorPrincipal }}
-                />
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-bold" style={{ color: negocio.colorPrincipal }}>
-                  Mesa {mesaNumero}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Pedido para esta mesa
-                </p>
-              </div>
-            </div>
-          ) : !mozoSelectedMesa ? (
-            <button
-              onClick={() => setMesaSelectorOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors active:scale-[0.99]"
-            >
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: `${negocio.colorPrincipal}12` }}
-              >
-                <Armchair
-                  className="h-5 w-5"
-                  style={{ color: negocio.colorPrincipal }}
-                />
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-bold" style={{ color: negocio.colorPrincipal }}>
-                  Seleccioná una mesa
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Elegí la mesa para tomar el pedido
-                </p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-          ) : (
-            <button
-              onClick={() => setMesaSelectorOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
-            >
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: `${negocio.colorPrincipal}12` }}
-              >
-                <Armchair
-                  className="h-5 w-5"
-                  style={{ color: negocio.colorPrincipal }}
-                />
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-bold" style={{ color: negocio.colorPrincipal }}>
-                  Mesa {mozoSelectedMesa.numero}
-                  {mozoSelectedMesa.nombre ? ` — ${mozoSelectedMesa.nombre}` : ""}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Tocá para cambiar de mesa
-                </p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-          )}
-        </div>
-      )}
-
       {/* ===== MESA BANNER (customer via QR, no mozo) ===== */}
-      {/* Tarea 20-CORRECCIÓN-1: gateado por isEffectiveMesaOrder (el único flag real de mesa), nunca por isMesaOrder crudo — nunca se muestra si el negocio no tiene Salón. */}
-      {isEffectiveMesaOrder && effectiveMesaNumero && !isAuthenticatedMozo && (
+      {/* Tarea 20-CORRECCIÓN-1: gateado por isEffectiveMesaOrder; nunca se muestra si el negocio no tiene Salón. */}
+      {isEffectiveMesaOrder && effectiveMesaNumero && (
         <div
           className="mx-4 mt-3 p-3 rounded-2xl border flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300"
           style={{
@@ -1068,7 +866,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
 
       {/* ===== CUENTA PÚBLICA DE MESA (cliente, 23-B) ===== */}
       {/* Tarea 20-CORRECCIÓN-1: gateado por isEffectiveMesaOrder — nunca se monta el panel si el negocio no tiene Salón. */}
-      {isEffectiveMesaOrder && effectiveMesaNumero && !isAuthenticatedMozo && (
+      {isEffectiveMesaOrder && effectiveMesaNumero && (
         <MesaClienteCuentaPanel slug={slug} mesaNumero={effectiveMesaNumero} colorPrincipal={negocio.colorPrincipal} />
       )}
 
@@ -1293,29 +1091,10 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           isOpen={isOpen}
           mesaNumero={effectiveMesaNumero}
           mesaId={effectiveMesaId}
-          mesaGeofenceReady={!isAuthenticatedMozo && !!negocio?.mesaGeofenceReady}
-          mozoCodigo={isAuthenticatedMozo ? mozoData?.codigo : undefined}
-          mozoNombre={isAuthenticatedMozo ? mozoData?.nombre : undefined}
+          mesaGeofenceReady={!!negocio?.mesaGeofenceReady}
           canOrder={canOrder}
           onRequireAuth={requireAuth}
           onRequireLocation={requireLocation}
-        />
-      )}
-
-      {/* ===== MESA SELECTOR SHEET (for mozos) ===== */}
-      {isAuthenticatedMozo && mozoData?.token && negocio && (
-        <MesaSelectorSheet
-          open={mesaSelectorOpen}
-          onOpenChange={setMesaSelectorOpen}
-          negocioSlug={negocio.slug}
-          negocioId={negocio.id}
-          negocioNombre={negocio.nombre}
-          colorPrincipal={negocio.colorPrincipal}
-          mozoCodigo={mozoData.codigo}
-          mozoNombre={mozoData.nombre}
-          mozoToken={mozoData.token}
-          onMesaSelected={(mesa) => setMozoSelectedMesa(mesa)}
-          selectedMesaId={mozoSelectedMesa?.id}
         />
       )}
 

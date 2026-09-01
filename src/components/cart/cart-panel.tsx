@@ -22,7 +22,6 @@ import {
   Receipt,
   Clock,
   Armchair,
-  UserCheck,
   ExternalLink,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -71,8 +70,6 @@ interface CartPanelProps {
   // decide si vale la pena pedir una lectura fresca de ubicación al
   // confirmar el pedido. Nunca solicita ubicación para Mozo/delivery/retiro.
   mesaGeofenceReady?: boolean
-  mozoCodigo?: string
-  mozoNombre?: string
   canOrder?: boolean
   onRequireAuth?: () => boolean
   onRequireLocation?: () => boolean
@@ -154,7 +151,7 @@ function useDragToDismiss(onDismiss: () => void) {
 // ============================================
 // Main Cart Panel Component
 // ============================================
-export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceReady, mozoCodigo, mozoNombre, canOrder = true, onRequireAuth, onRequireLocation }: CartPanelProps) {
+export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceReady, canOrder = true, onRequireAuth, onRequireLocation }: CartPanelProps) {
   const items = useCartStore((s) => s.items)
   const removeItem = useCartStore((s) => s.removeItem)
   const updateQuantity = useCartStore((s) => s.updateQuantity)
@@ -198,7 +195,6 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   // Track whether delivery is unavailable due to zone
   const [deliveryUnavailable, setDeliveryUnavailable] = useState(false)
   const [metodoPago, setMetodoPago] = useState<"efectivo" | "transferencia">("efectivo")
-  const [empleadoCodigo, setEmpleadoCodigo] = useState(mozoCodigo ?? "")
   const [notas, setNotas] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -210,13 +206,6 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   // (ref), nunca en localStorage/sessionStorage, y nunca se loguea.
   const idempotencyKeyRef = useRef<string | null>(null)
 
-  // Sync empleadoCodigo when mozoCodigo prop arrives asynchronously
-  useEffect(() => {
-    if (mozoCodigo) {
-      setEmpleadoCodigo(mozoCodigo)
-    }
-  }, [mozoCodigo])
-
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
   const storePrecioDelivery = useCartStore((s) => s.precioDelivery)
   const setActiveNegocio = useCartStore((s) => s.setActiveNegocio)
@@ -227,7 +216,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   // el fingerprint del backend).
   useEffect(() => {
     idempotencyKeyRef.current = null
-  }, [items, metodoEntrega, metodoPago, notas, deliveryAddress, empleadoCodigo])
+  }, [items, metodoEntrega, metodoPago, notas, deliveryAddress])
 
   // Delivery zone check state
   const [deliveryZoneInfo, setDeliveryZoneInfo] = useState<{
@@ -404,7 +393,6 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
           lat: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.lat : null,
           lng: metodoEntrega === "domicilio" && deliveryAddress ? deliveryAddress.lng : null,
           mesaNumero: isMesaOrder ? mesaNumero : undefined,
-          empleadoCodigo: isMesaOrder && empleadoCodigo.trim() ? empleadoCodigo.trim() : undefined,
           mesaGeolocation,
         }),
       })
@@ -641,9 +629,6 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
                         deliveryAddress={deliveryAddress}
                         isMesaOrder={isMesaOrder}
                         mesaNumero={mesaNumero}
-                        empleadoCodigo={empleadoCodigo}
-                        mozoCodigo={mozoCodigo}
-                        mozoNombre={mozoNombre}
                         deliveryZoneInfo={deliveryZoneInfo}
                         isOutsideDeliveryZone={isOutsideDeliveryZone ?? false}
                         checkingZone={checkingZone ?? false}
@@ -1036,9 +1021,6 @@ function CartCheckoutStep({
   deliveryAddress,
   isMesaOrder,
   mesaNumero,
-  empleadoCodigo,
-  mozoCodigo,
-  mozoNombre,
   deliveryZoneInfo,
   isOutsideDeliveryZone,
   checkingZone,
@@ -1056,9 +1038,6 @@ function CartCheckoutStep({
   deliveryAddress: DeliveryAddress | null
   isMesaOrder?: boolean
   mesaNumero?: number | null
-  empleadoCodigo?: string
-  mozoCodigo?: string
-  mozoNombre?: string
   deliveryZoneInfo: {
     checked: boolean
     delivery: boolean
@@ -1361,30 +1340,6 @@ function CartCheckoutStep({
           </a>
         </section>
       )}
-      {isMesaOrder && mozoCodigo && (
-        <section>
-          <div
-            className="p-4 rounded-2xl border-2 flex items-center gap-3"
-            style={{
-              borderColor: "#3b82f640",
-              backgroundColor: "#3b82f608",
-            }}
-          >
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-500/10">
-              <UserCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="font-bold text-sm text-blue-700 dark:text-blue-300">
-                {mozoNombre ?? "Mozo"}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Este pedido se cargará a tus estadísticas
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* ===== PAYMENT METHOD ===== */}
       <section>
         <h3 className="font-bold text-sm mb-3">Método de pago</h3>

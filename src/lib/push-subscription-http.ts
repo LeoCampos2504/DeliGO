@@ -17,7 +17,7 @@ export interface ParsedPushSubscriptionShape {
 
 /**
  * Acepta tanto un string JSON (formato legacy enviado por
- * `/api/push/subscribe`, `/api/mozo/push/subscribe`) como un objeto ya
+ * `/api/push/subscribe` y las rutas operativas como un objeto ya
  * parseado, y valida la forma completa: endpoint HTTPS no vacío, keys.p256dh
  * y keys.auth no vacíos, expirationTime `number` finito o `null` (rechaza
  * cualquier otro tipo — un valor previamente tolerado en silencio por los
@@ -114,7 +114,7 @@ export function toNormalizedPushSubscriptionInput(
  * `pushSubscription String?` — `parsePushSubscriptionShape` acepta
  * deliberadamente tanto un string JSON como un objeto ya parseado (rutas
  * operativas), pero las rutas personales (`/api/push/subscribe`,
- * `/api/mozo/push/subscribe`) persistían el valor RAW del body sin
+ * las rutas legacy persistían el valor RAW del body sin
  * canonicalizar: un objeto válido pasaba la validación de forma pero
  * llegaba como objeto a un campo `String?` de Prisma, que fallaba en
  * runtime (500 no controlado, aunque con rollback atómico completo —

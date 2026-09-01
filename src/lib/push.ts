@@ -82,7 +82,7 @@ export interface NavigationTarget {
   cliente?: string   // tab for cliente page
   negocio?: string   // tab for negocio panel
   repartidor?: string // tab for repartidor panel
-  empleado?: string  // tab/section for empleado (mozo PWA at /m/[token])
+  empleado?: string  // tab/section for the personal operative employee PWA
   salon?: string     // tab/section for salon shared display (/s/[token])
   empleados?: string // tab for empleados shared panel (/e/[token])
 }
