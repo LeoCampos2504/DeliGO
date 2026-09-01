@@ -66,13 +66,43 @@ export function TermsContent() {
         utilizarse, haya sido ofrecida como gratuita o sin cargo.
       </p>
 
-      <h3 className="font-semibold text-foreground">6. Métodos de pago</h3>
+      <h3 className="font-semibold text-foreground">6. Programa Negocios Fundadores</h3>
+      <p>
+        DeliGO podrá otorgar a una cantidad limitada de los primeros negocios elegibles que se
+        adhieran a la plataforma la condición de &quot;Negocio Fundador&quot;. La cantidad de
+        negocios que podrán acceder a esta condición todavía no está definida y será comunicada
+        oportunamente.
+      </p>
+      <p>
+        Un Negocio Fundador recibe una bonificación permanente del 100% sobre los cargos propios de
+        DeliGO aplicables al establecimiento beneficiado, mientras mantenga válidamente esa condición.
+        Esto incluye servicios propios de DeliGO presentes o futuros, conforme a las condiciones
+        aplicables en cada caso. Esta bonificación no comprende automáticamente impuestos,
+        retenciones, comisiones de medios de pago ni cargos cobrados directamente por proveedores
+        externos.
+      </p>
+      <p>
+        La condición de Negocio Fundador corresponde específicamente al establecimiento beneficiado y
+        no se extiende automáticamente a otras sucursales o negocios que pueda operar el mismo
+        titular. No puede venderse ni transferirse de forma independiente al negocio. DeliGO podrá
+        verificar la continuidad e identidad del establecimiento para prevenir un uso fraudulento de
+        esta condición.
+      </p>
+      <p>
+        El negocio beneficiado podrá elegir libremente si desea mostrar públicamente su condición de
+        Negocio Fundador. No mostrar ningún distintivo no afecta de ninguna manera la bonificación
+        económica. El distintivo, cuando se muestra, es un reconocimiento de adhesión temprana y no
+        implica publicidad paga, prioridad de posicionamiento ni una recomendación de calidad por
+        parte de DeliGO.
+      </p>
+
+      <h3 className="font-semibold text-foreground">7. Métodos de pago</h3>
       <p>
         Los pagos se realizan directamente al negocio mediante los métodos que este acepte (efectivo
         o transferencia bancaria). DeliGO no gestiona pagos ni realiza cobros en nombre del negocio.
       </p>
 
-      <h3 className="font-semibold text-foreground">7. Reseñas y opiniones</h3>
+      <h3 className="font-semibold text-foreground">8. Reseñas y opiniones</h3>
       <p>
         Podés dejar reseñas sobre los negocios después de cada pedido. Las reseñas deben ser honestas
         y respetuosas. DeliGO se reserva el derecho de eliminar reseñas que contengan:
@@ -84,7 +114,7 @@ export function TermsContent() {
         <li>Contenido falso o engañoso.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">8. Conducta del usuario</h3>
+      <h3 className="font-semibold text-foreground">9. Conducta del usuario</h3>
       <p>No está permitido:</p>
       <ul className="list-disc pl-4 space-y-1">
         <li>Usar la plataforma para fines ilícitos.</li>
@@ -94,13 +124,13 @@ export function TermsContent() {
         <li>Intentar acceder a cuentas ajenas.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">9. Propiedad intelectual</h3>
+      <h3 className="font-semibold text-foreground">10. Propiedad intelectual</h3>
       <p>
         El diseño, logos, marcas y contenido de DeliGO son propiedad de la plataforma. Los logos y
         nombres de los negocios son propiedad de sus respectivos dueños.
       </p>
 
-      <h3 className="font-semibold text-foreground">10. Limitación de responsabilidad</h3>
+      <h3 className="font-semibold text-foreground">11. Limitación de responsabilidad</h3>
       <p>
         DeliGO no se hace responsable por:
       </p>
@@ -111,19 +141,19 @@ export function TermsContent() {
         <li>Pérdidas indirectas derivadas del uso de la plataforma.</li>
       </ul>
 
-      <h3 className="font-semibold text-foreground">11. Suspensión de cuenta</h3>
+      <h3 className="font-semibold text-foreground">12. Suspensión de cuenta</h3>
       <p>
         DeliGO puede suspender o cancelar tu cuenta si incumplís estos términos, sin perjuicio de
         otras acciones legales que correspondan.
       </p>
 
-      <h3 className="font-semibold text-foreground">12. Modificaciones</h3>
+      <h3 className="font-semibold text-foreground">13. Modificaciones</h3>
       <p>
         Nos reservamos el derecho de modificar estos términos. Te notificaremos con al menos 15 días
         de anticipación antes de que entren en vigencia cambios significativos.
       </p>
 
-      <h3 className="font-semibold text-foreground">13. Ley aplicable</h3>
+      <h3 className="font-semibold text-foreground">14. Ley aplicable</h3>
       <p>
         Estos términos se rigen por las leyes de la República Argentina. Cualquier disputa será
         resuelta por los tribunales competentes de Argentina.
@@ -191,6 +221,14 @@ export function PrivacyContent() {
         Analizar estos datos no genera automáticamente un cargo o cobro: los cargos aplicables, si
         existieran, se rigen siempre por la tarifa vigente informada previamente conforme a los
         Términos y Condiciones.
+      </p>
+      <p>
+        Si un negocio participa del Programa Negocios Fundadores (ver Términos y Condiciones) y elige
+        voluntariamente mostrar públicamente esa condición, DeliGO exhibirá el reconocimiento
+        &quot;Negocio Fundador&quot; como parte de la información comercial de su perfil público. Si el
+        negocio elige no mostrarlo, esa condición no se exhibe públicamente. En ningún caso se hace
+        pública la información económica asociada (por ejemplo, el porcentaje de bonificación o los
+        cargos que el negocio no paga).
       </p>
 
       <h3 className="font-semibold text-foreground">5. Base legal</h3>
