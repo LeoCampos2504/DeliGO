@@ -33,7 +33,20 @@ export async function PUT(
     }
 
     const body = await req.json()
-    const { nombre, orientacion, orden, color, productoIds } = body
+
+    // SeccionCatalogo.orden is owned exclusively by the dedicated reorder
+    // endpoint (src/app/api/negocio/secciones/orden/route.ts), which
+    // validates the full section set inside one atomic transaction. This
+    // generic PUT must fail explicitly rather than silently accept a
+    // client-supplied position that bypasses that validation.
+    if (Object.prototype.hasOwnProperty.call(body, "orden")) {
+      return NextResponse.json(
+        { error: "El orden se modifica únicamente desde el endpoint dedicado de reordenamiento" },
+        { status: 400 }
+      )
+    }
+
+    const { nombre, orientacion, color, productoIds } = body
 
     if (nombre !== undefined && !nombre?.trim()) {
       return NextResponse.json(
@@ -57,7 +70,6 @@ export async function PUT(
     const updateData: Record<string, unknown> = {}
     if (nombre !== undefined) updateData.nombre = nombre.trim()
     if (orientacion !== undefined) updateData.orientacion = orientacion
-    if (orden !== undefined) updateData.orden = orden
     if (color !== undefined) updateData.color = color
 
     // Update basic fields

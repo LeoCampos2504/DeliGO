@@ -71,7 +71,6 @@ interface SeccionFormData {
   nombre: string
   orientacion: string
   color: string
-  orden: number
   productoIds: string[]
 }
 
@@ -79,7 +78,6 @@ const defaultFormData: SeccionFormData = {
   nombre: "",
   orientacion: "vertical",
   color: "",
-  orden: 0,
   productoIds: [],
 }
 
@@ -182,24 +180,50 @@ export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionPro
     },
   })
 
-  // Reorder mutation
+  // Reorder mutation — one atomic PATCH with the full ordered ID list,
+  // instead of two independent PUTs swapping positions. Optimistic local
+  // update via the query cache (snapshot -> reorder -> rollback on error),
+  // matching the pattern already used for Product Reorder.
   const reorderMutation = useMutation({
-    mutationFn: async ({ id, orden }: { id: string; orden: number }) => {
-      const res = await fetch(`/api/negocio/secciones/${id}`, {
-        method: "PUT",
+    mutationFn: async (sectionIds: string[]) => {
+      const res = await fetch(`/api/negocio/secciones/orden`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orden }),
+        body: JSON.stringify({ sectionIds }),
       })
-      if (!res.ok) throw new Error("Error reordenando sección")
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Error reordenando secciones")
+      }
       return res.json()
     },
+    onMutate: async (sectionIds) => {
+      await queryClient.cancelQueries({ queryKey: ["negocio-secciones", negocio.id] })
+      const previous = queryClient.getQueryData<Seccion[]>(["negocio-secciones", negocio.id])
+      if (previous) {
+        const byId = new Map(previous.map((seccion) => [seccion.id, seccion]))
+        const next = sectionIds
+          .map((id, index) => {
+            const seccion = byId.get(id)
+            return seccion ? { ...seccion, orden: index } : null
+          })
+          .filter((seccion): seccion is Seccion => seccion !== null)
+        queryClient.setQueryData(["negocio-secciones", negocio.id], next)
+      }
+      return { previous }
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
       setReorderingId(null)
     },
-    onError: () => {
-      toast.error("Error al reordenar las secciones")
+    onError: (err, _sectionIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["negocio-secciones", negocio.id], context.previous)
+      }
+      toast.error(err.message || "Error al reordenar las secciones")
       setReorderingId(null)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
     },
   })
 
@@ -208,7 +232,6 @@ export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionPro
     setEditingSeccion(null)
     const loaded: SeccionFormData = {
       ...defaultFormData,
-      orden: sortedSecciones.length,
       productoIds: [],
     }
     setFormData(loaded)
@@ -222,7 +245,6 @@ export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionPro
       nombre: seccion.nombre,
       orientacion: seccion.orientacion,
       color: seccion.color,
-      orden: seccion.orden,
       productoIds: seccion.productos?.map((sp) => sp.productoId) ?? [],
     }
     setFormData(loaded)
@@ -255,33 +277,21 @@ export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionPro
   }
 
   const handleMoveUp = (index: number) => {
-    if (index === 0) return
-    const current = sortedSecciones[index]
-    const above = sortedSecciones[index - 1]
-    setReorderingId(current.id)
-    reorderMutation.mutate({ id: current.id, orden: above.orden })
-    fetch(`/api/negocio/secciones/${above.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orden: current.orden }),
-    }).then(() => {
-      queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
-    })
+    if (index === 0 || reorderMutation.isPending) return
+    const next = [...sortedSecciones]
+    const moved = next[index]
+    ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+    setReorderingId(moved.id)
+    reorderMutation.mutate(next.map((seccion) => seccion.id))
   }
 
   const handleMoveDown = (index: number) => {
-    if (index === sortedSecciones.length - 1) return
-    const current = sortedSecciones[index]
-    const below = sortedSecciones[index + 1]
-    setReorderingId(current.id)
-    reorderMutation.mutate({ id: current.id, orden: below.orden })
-    fetch(`/api/negocio/secciones/${below.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orden: current.orden }),
-    }).then(() => {
-      queryClient.invalidateQueries({ queryKey: ["negocio-secciones", negocio.id] })
-    })
+    if (index === sortedSecciones.length - 1 || reorderMutation.isPending) return
+    const next = [...sortedSecciones]
+    const moved = next[index]
+    ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+    setReorderingId(moved.id)
+    reorderMutation.mutate(next.map((seccion) => seccion.id))
   }
 
   return (
@@ -339,6 +349,7 @@ export function SeccionesSection({ negocio, onDirtyChange }: SeccionesSectionPro
                 total={sortedSecciones.length}
                 colorPrincipal={negocio.colorPrincipal}
                 isReordering={reorderingId === seccion.id}
+                reorderPending={reorderMutation.isPending}
                 onEdit={() => openEditForm(seccion)}
                 onDelete={() => setDeleteDialog(seccion)}
                 onMoveUp={() => handleMoveUp(index)}
@@ -934,6 +945,7 @@ function SeccionCard({
   total,
   colorPrincipal,
   isReordering,
+  reorderPending,
   onEdit,
   onDelete,
   onMoveUp,
@@ -944,6 +956,7 @@ function SeccionCard({
   total: number
   colorPrincipal: string
   isReordering: boolean
+  reorderPending: boolean
   onEdit: () => void
   onDelete: () => void
   onMoveUp: () => void
@@ -1011,7 +1024,7 @@ function SeccionCard({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 rounded-lg"
-                    disabled={index === 0}
+                    disabled={index === 0 || reorderPending}
                     onClick={onMoveUp}
                   >
                     <ArrowUp className="h-3.5 w-3.5" />
@@ -1020,7 +1033,7 @@ function SeccionCard({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 rounded-lg"
-                    disabled={index === total - 1}
+                    disabled={index === total - 1 || reorderPending}
                     onClick={onMoveDown}
                   >
                     <ArrowDown className="h-3.5 w-3.5" />
