@@ -129,11 +129,20 @@ export function ChatSheet() {
       typingTimeoutRef.current = {}
     }
 
+    // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY —
+    // remove before closing R2): pure read-only trace, no behavior change.
+    console.debug("[P2T18R2] TRACE_STAGE=CHAT_UI_SUBSCRIBER_REGISTERED actorType=" + user.type)
+
     const unsubscribers = [
       client.subscribe("new-message", (message) => {
+        console.debug(
+          "[P2T18R2] TRACE_STAGE=CHAT_SUBSCRIBER_CALLBACK eventId=" + (message?.id ?? "n/a") +
+          " pedidoId=" + (message?.pedidoId ?? "n/a")
+        )
         if (!message?.pedidoId) return
         addMessage(message.pedidoId, message)
         updateConversationLastMessage(message.pedidoId, message)
+        console.debug("[P2T18R2] TRACE_STAGE=CHAT_UI_RENDERED eventId=" + (message?.id ?? "n/a"))
 
         if (message.remitente !== getRemitenteForUserType(user.type)) {
           const conv = conversationsRef.current.find((conversation) => conversation.pedidoId === message.pedidoId)
