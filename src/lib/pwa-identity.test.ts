@@ -15,7 +15,16 @@ const contracts = {
   cliente: {
     id: "/cliente/?pwa=cliente",
     scope: "/cliente",
-    startUrl: "/cliente",
+    // P2-T22C: IOS-PWA-DEBUG-LAUNCH-FIX-R2A intentionally appends
+    // ?iosDebug=1 to Cliente's start_url so every cold PWA launch from the
+    // installed icon carries the real-device diagnostic flag (localStorage
+    // can't cross the Safari -> installed-app storage boundary on iOS — see
+    // src/lib/ios-debug-snapshot.ts's isIosDebugFlagEnabled comment and
+    // src/lib/ios-pwa-debug-launch-static-contract.test.ts, which is the
+    // authoritative contract for this TESTING-only value). This must revert
+    // to "/cliente" together with the rest of that instrumentation before
+    // Production (PWA_DEBUG_START_URL_MUST_BE_REMOVED_BEFORE_PRODUCTION).
+    startUrl: "/cliente?iosDebug=1",
   },
   negocio: {
     id: "/negocio/?pwa=negocio",
