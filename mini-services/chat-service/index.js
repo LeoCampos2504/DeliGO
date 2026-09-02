@@ -144,40 +144,11 @@ function getAuthorizedRoom(user, pedidoId, requiredScope) {
 // by the Internal Publish Bridge so a socket physically joined to a pedido
 // room (e.g. a repartidor with only tracking:publish) cannot receive an
 // event it was never granted the scope to read.
-function getAuthorizedRecipientSockets(connectedUsers, room, requiredScope, traceEventId) {
+function getAuthorizedRecipientSockets(connectedUsers, room, requiredScope) {
   const nowSeconds = Math.floor(Date.now() / 1000)
   const socketIds = []
   for (const [socketId, recipient] of connectedUsers) {
     const grant = recipient.roomGrants.get(room)
-    // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY —
-    // remove before closing R2, see cleanup section of the report): purely
-    // read-only diagnostic trace, gated behind an explicit traceEventId so
-    // every other call site (message-sent/typing/stop-typing legacy relays,
-    // and any test that omits the 4th arg) is byte-for-byte unaffected.
-    if (traceEventId) {
-      const grantExpired = grant ? grant.exp <= nowSeconds : null
-      const scopePresent = grant ? grant.scopes.has(requiredScope) : false
-      const selected = !!grant && grant.exp > nowSeconds && (!requiredScope || scopePresent)
-      const rejectReason = !grant
-        ? "no_grant"
-        : grantExpired
-          ? "grant_expired"
-          : requiredScope && !scopePresent
-            ? "scope_missing"
-            : "none"
-      console.log(
-        "[P2T18R2] TRACE_STAGE=RECIPIENT_EVALUATED eventId=" + traceEventId +
-        " socket=" + socketId.slice(0, 8) +
-        " actorType=" + recipient.actor.userType +
-        " room_physical_membership=" + (recipient.socket.rooms.has(room) ? "SI" : "NO") +
-        " grant_present=" + (grant ? "SI" : "NO") +
-        " grant_expired=" + (grantExpired === null ? "N/A" : grantExpired ? "SI" : "NO") +
-        " required_scope=" + requiredScope +
-        " scope_present=" + (scopePresent ? "SI" : "NO") +
-        " selected=" + (selected ? "SI" : "NO") +
-        " reject_reason=" + rejectReason
-      )
-    }
     if (!grant || grant.exp <= nowSeconds) continue
     if (requiredScope && !grant.scopes.has(requiredScope)) continue
     socketIds.push(socketId)
@@ -317,12 +288,7 @@ function createChatService(options = {}) {
     io,
     eventDedupe,
     trackingCorrelationDedupe,
-    getRecipientSockets: (room, requiredScope, traceEventId) =>
-      getAuthorizedRecipientSockets(connectedUsers, room, requiredScope, traceEventId),
-    // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY): lets
-    // the Internal Publish Bridge log actorType alongside SERVER_EMIT_*
-    // trace lines without handing it the whole connectedUsers map.
-    resolveActorType: (socketId) => connectedUsers.get(socketId)?.actor?.userType || "unknown",
+    getRecipientSockets: (room, requiredScope) => getAuthorizedRecipientSockets(connectedUsers, room, requiredScope),
   })
 
   io.use(async (socket, next) => {
@@ -395,11 +361,6 @@ function createChatService(options = {}) {
     console.log(`[Chat] socket_connected role=${actor.userType} active=${metrics.activeConnections}`)
 
     socket.on("join-order-room", async (capability, acknowledgement) => {
-      // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY —
-      // remove before closing R2): pure read-only trace, no behavior change.
-      console.log(
-        "[P2T18R2] TRACE_STAGE=JOIN_RECEIVED actorType=" + actor.userType + " socket=" + socket.id.slice(0, 8)
-      )
       if (!user.limiters.join.allow()) {
         metrics.rateLimitedEvents += 1
         metrics.roomRejects += 1
@@ -414,36 +375,13 @@ function createChatService(options = {}) {
         const identityMatches = claims.sub === actor.userId && claims.userType === actor.userType && claims.sid === actor.sid
         const scopesAllowed = [...scopes].every((scope) => canUseScope(actor.userType, scope))
         if (!identityMatches || claims.room !== room || !scopes.size || !scopesAllowed) throw new Error(AUTH_REJECT_CODES.CAPABILITY)
-        console.log(
-          "[P2T18R2] TRACE_STAGE=CAPABILITY_VERIFIED actorType=" + actor.userType +
-          " socket=" + socket.id.slice(0, 8) + " room=" + room +
-          " capability_exp=" + claims.exp + " requested_scopes=" + [...scopes].join("|")
-        )
 
         setRoomGrant(user, room, scopes, claims.exp)
-        console.log(
-          "[P2T18R2] TRACE_STAGE=GRANT_REGISTERED actorType=" + actor.userType +
-          " socket=" + socket.id.slice(0, 8) + " room=" + room +
-          " scopes=" + [...scopes].join("|") + " grant_exp=" + claims.exp
-        )
-        console.log(
-          "[P2T18R2] TRACE_STAGE=SOCKET_ROOM_JOINED actorType=" + actor.userType +
-          " socket=" + socket.id.slice(0, 8) + " room=" + room +
-          " adapter_membership_present=" + (socket.rooms.has(room) ? "SI" : "NO")
-        )
         metrics.roomJoins += 1
-        console.log(
-          "[P2T18R2] TRACE_STAGE=JOIN_ACK_SENT actorType=" + actor.userType +
-          " socket=" + socket.id.slice(0, 8) + " room=" + room + " ok=SI"
-        )
         ack(acknowledgement, { ok: true, room, scopes: [...scopes] })
       } catch (error) {
         metrics.roomRejects += 1
         const code = error?.message === AUTH_REJECT_CODES.EXPIRED ? AUTH_REJECT_CODES.EXPIRED : "CAPABILITY_INVALID"
-        console.log(
-          "[P2T18R2] TRACE_STAGE=JOIN_ACK_SENT actorType=" + actor.userType +
-          " socket=" + socket.id.slice(0, 8) + " ok=NO code=" + code
-        )
         ack(acknowledgement, { ok: false, code })
       }
     })

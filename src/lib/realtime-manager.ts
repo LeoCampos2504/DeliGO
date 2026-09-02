@@ -682,9 +682,6 @@ export class RealtimeManager {
     this.capabilityAbortControllers.add(controller)
     try {
       const capability = await this.dependencies.authorizeRoom(record.pedidoId, requestedScopes, { signal: controller.signal })
-      // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY —
-      // remove before closing R2): pure read-only trace, no behavior change.
-      console.debug("[P2T18R2] TRACE_STAGE=AUTHORIZE_HTTP_COMPLETE_AT at=" + new Date().toISOString())
       if (!this.isCurrentRoomOperation(record, epoch, socketGeneration, roomGeneration)) {
         throw new RealtimeStaleOperationError()
       }
@@ -726,16 +723,10 @@ export class RealtimeManager {
         settled = true
         this.dependencies.clearTimeout(timer)
         cleanup()
-        const ok = !!(result && typeof result === "object" && (result as { ok?: unknown }).ok === true)
-        // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY):
-        // pure read-only trace, no behavior change.
-        console.debug("[P2T18R2] TRACE_STAGE=JOIN_ACK_AT ok=" + (ok ? "SI" : "NO") + " at=" + new Date().toISOString())
-        if (ok) resolve()
+        if (result && typeof result === "object" && (result as { ok?: unknown }).ok === true) resolve()
         else reject(new Error("Realtime room join rejected"))
       }
       signal.addEventListener("abort", onAbort, { once: true })
-      // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY): see note above.
-      console.debug("[P2T18R2] TRACE_STAGE=JOIN_EMIT_AT at=" + new Date().toISOString())
       socket.emit("join-order-room", capability, ack)
       void pedidoId
     })
@@ -957,28 +948,10 @@ export class RealtimeManager {
   private attachEventRelay(socket: RealtimeSocketLike, event: RealtimeEventType): void {
     if (socket !== this.socket || this.socketRelayEvents.has(event)) return
     const handler = (...args: unknown[]) => {
-      // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY —
-      // remove before closing R2, see report cleanup section): pure
-      // read-only trace, no behavior change below this block.
-      const rawPayload = args[0] as { id?: string; pedidoId?: string } | undefined
-      console.debug(
-        "[P2T18R2] TRACE_STAGE=CLIENT_RAW_EVENT_RECEIVED event=" + String(event) +
-        " eventId=" + (rawPayload?.id ?? "n/a") + " resourceId=" + (rawPayload?.pedidoId ?? "n/a")
-      )
-      if (socket !== this.socket || this.stopped) {
-        console.debug(
-          "[P2T18R2] TRACE_STAGE=MANAGER_EVENT_DROPPED event=" + String(event) +
-          " reason=" + (socket !== this.socket ? "stale_socket" : "manager_stopped")
-        )
-        return
-      }
+      if (socket !== this.socket || this.stopped) return
       const payload = args[0] as RealtimeEventMap[typeof event]
       const handlers = this.subscriptions.get(event)
-      if (!handlers) {
-        console.debug("[P2T18R2] TRACE_STAGE=MANAGER_EVENT_DROPPED event=" + String(event) + " reason=subscription_absent")
-        return
-      }
-      console.debug("[P2T18R2] TRACE_STAGE=MANAGER_EVENT_ACCEPTED event=" + String(event))
+      if (!handlers) return
       for (const subscriber of [...handlers]) {
         try {
           subscriber(payload)

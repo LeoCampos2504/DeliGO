@@ -284,9 +284,6 @@ function statusForAuth(code) {
 function createInternalPublishHandler(options) {
   const io = options.io
   const getRecipientSockets = options.getRecipientSockets
-  // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY): optional,
-  // read-only — only used by the trace lines added below.
-  const resolveActorType = options.resolveActorType || (() => "unknown")
   const auth = options.auth || createInternalPublishAuth()
   // Three isolated, process-local limiters (one instance each per process —
   // never re-created per request): a global emergency ceiling that runs
@@ -371,13 +368,6 @@ function createInternalPublishHandler(options) {
       sendJson(res, 400, { ok: false, error: "Invalid publish envelope" })
       return
     }
-    // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY — remove
-    // before closing R2): pure read-only trace, no behavior change.
-    console.log(
-      "[P2T18R2] TRACE_STAGE=PUBLISH_RECEIVED eventId=" + envelope.eventId +
-      " type=" + envelope.type + " resourceId=" + String(envelope.resourceId).slice(0, 8) +
-      " occurredAt=" + new Date().toISOString()
-    )
 
     // Per-family budget — only reachable once the envelope is known-valid,
     // so envelope.type is guaranteed to be one of EVENT_MAPPING's keys.
@@ -408,8 +398,6 @@ function createInternalPublishHandler(options) {
       })
       return
     }
-    // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY): see note above.
-    console.log("[P2T18R2] TRACE_STAGE=PUBLISH_ACCEPTED eventId=" + envelope.eventId)
 
     // Tracking-only: bounded best-effort correlation against the legacy
     // location-update socket relay, keyed by the physical GPS sample
@@ -443,20 +431,9 @@ function createInternalPublishHandler(options) {
     // released when nothing was actually delivered.
     let deliveredCount = 0
     try {
-      const recipientSocketIds = getRecipientSockets(room, mapping.requiredRecipientScope, envelope.eventId)
+      const recipientSocketIds = getRecipientSockets(room, mapping.requiredRecipientScope)
       for (const socketId of recipientSocketIds) {
-        // P2-T18-CLIENTE-DELIVERY-PIPELINE-INSTRUMENTATION-R2 (TEMPORARY):
-        // pure read-only trace around the emit call itself — Socket.IO's
-        // emit() does not prove client receipt, only that the server called it.
-        console.log(
-          "[P2T18R2] TRACE_STAGE=SERVER_EMIT_ATTEMPT eventId=" + envelope.eventId +
-          " target_socket=" + socketId.slice(0, 8) + " actorType=" + resolveActorType(socketId)
-        )
         io.to(socketId).emit(mapping.event, envelope.payload)
-        console.log(
-          "[P2T18R2] TRACE_STAGE=SERVER_EMIT_CALLED eventId=" + envelope.eventId +
-          " target_socket=" + socketId.slice(0, 8)
-        )
         deliveredCount += 1
       }
       // Tracking-only: zero authorized recipients (no throw — nobody is
