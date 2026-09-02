@@ -466,12 +466,6 @@ export class RealtimeManager {
       timeout: this.dependencies.socketConnectTimeoutMs,
     })
     this.socket = socket
-    // P2-T18-SOCKET-REGENERATION-EVENT-RELAY-DIAGNOSTIC-R3 (TEMPORARY —
-    // remove before closing R3): pure read-only trace, no behavior change.
-    console.debug(
-      "[P2T18R3] SOCKET_CREATED epoch=" + epoch + " socketGeneration=" + socketGeneration +
-      " socketId=" + ((socket as unknown as { id?: string }).id ?? "not_yet_connected")
-    )
     const connectController = new AbortController()
     this.connectAbortController = connectController
 
@@ -952,22 +946,8 @@ export class RealtimeManager {
   }
 
   private attachEventRelay(socket: RealtimeSocketLike, event: RealtimeEventType): void {
-    // P2-T18-SOCKET-REGENERATION-EVENT-RELAY-DIAGNOSTIC-R3 (TEMPORARY —
-    // remove before closing R3): pure read-only trace, no behavior change
-    // below this block. socket.io-client's real Socket exposes
-    // .listeners()/.id even though RealtimeSocketLike doesn't declare them.
-    const probe = socket as unknown as { id?: string; listeners?: (e: string) => unknown[] }
-    const socketId = probe.id ?? "n/a"
-    console.debug("[P2T18R3] ATTACH_RELAY_ATTEMPT event=" + event + " socketId=" + socketId)
-    if (socket !== this.socket || this.socketRelayEvents.has(event)) {
-      console.debug(
-        "[P2T18R3] ATTACH_RELAY_SKIPPED event=" + event + " socketId=" + socketId +
-        " reason=" + (socket !== this.socket ? "not_current_socket" : "already_in_relay_registry")
-      )
-      return
-    }
+    if (socket !== this.socket || this.socketRelayEvents.has(event)) return
     const handler = (...args: unknown[]) => {
-      console.debug("[P2T18R3] CLIENT_RAW_EVENT_RECEIVED event=" + event + " socketId=" + socketId)
       if (socket !== this.socket || this.stopped) return
       const payload = args[0] as RealtimeEventMap[typeof event]
       const handlers = this.subscriptions.get(event)
@@ -983,19 +963,9 @@ export class RealtimeManager {
     this.addSocketListener(socket, event, handler)
     this.socketRelayEvents.add(event)
     this.socketRelayHandlers.set(event, handler)
-    console.debug(
-      "[P2T18R3] ATTACH_RELAY_DONE event=" + event + " socketId=" + socketId +
-      " realListenerCount=" + (typeof probe.listeners === "function" ? probe.listeners(event).length : "n/a")
-    )
   }
 
   private attachEventRelays(socket: RealtimeSocketLike): void {
-    const probe = socket as unknown as { id?: string }
-    console.debug(
-      "[P2T18R3] ATTACH_ALL_BEGIN socketId=" + (probe.id ?? "n/a") +
-      " subscriptionsKeys=" + [...this.subscriptions.keys()].join("|") +
-      " relayRegistryKeys=" + [...this.socketRelayEvents].join("|")
-    )
     for (const event of this.subscriptions.keys()) this.attachEventRelay(socket, event)
   }
 
