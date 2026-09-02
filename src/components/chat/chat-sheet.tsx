@@ -18,6 +18,7 @@ import {
 } from "@/lib/chat-polling"
 import { createCoverageToken, type ChatRoomCoverageToken } from "@/lib/chat-history-resync"
 import { evaluateReceiptEligibility } from "@/lib/chat-push-presentation"
+import { deriveChatConnectionPresentation } from "@/lib/chat-connection-presentation"
 import type { ChatMessagePresentationCandidate } from "@/hooks/use-chat-message-presentation-commit"
 
 function isDocumentVisible(): boolean {
@@ -88,10 +89,9 @@ export function ChatSheet() {
   const conversationsAbortRef = useRef<AbortController | null>(null)
   const hasLoadedConversationsRef = useRef(false)
 
-  const isConnected = snapshot.state === "connected"
-  const isConnecting = snapshot.state === "connecting" ||
-    snapshot.state === "reauthenticating" || snapshot.state === "reconnecting"
-  const connectionFailed = snapshot.state === "error"
+  // P2-T20: idle/stopped (no active room demand) are deliberate rest states,
+  // never presented as "Sin conexión" — see chat-connection-presentation.ts.
+  const connectionPresentation = deriveChatConnectionPresentation(snapshot.state)
 
   useEffect(() => {
     conversationsRef.current = conversations
@@ -433,27 +433,24 @@ export function ChatSheet() {
                   <div>
                     <h2 className="font-bold text-base">Chats</h2>
                     <p className="text-xs text-muted-foreground">
-                      {isConnected ? (
-                        <span className="text-emerald-500">● Conectado</span>
-                      ) : connectionFailed ? (
+                      {connectionPresentation.tone === "connected" ? (
+                        <span className="text-emerald-500">● {connectionPresentation.label}</span>
+                      ) : connectionPresentation.showRetry ? (
                         <button
                           onClick={handleRetryConnection}
                           className="flex items-center gap-1 text-amber-500 hover:text-amber-600 transition-colors"
                         >
                           <WifiOff className="h-3 w-3" />
-                          Sin conexión · Reintentar
+                          {connectionPresentation.label} · Reintentar
                           <RefreshCw className="h-3 w-3" />
                         </button>
-                      ) : isConnecting ? (
+                      ) : connectionPresentation.tone === "connecting" ? (
                         <span className="flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          Conectando...
+                          {connectionPresentation.label}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1">
-                          <WifiOff className="h-3 w-3" />
-                          Sin conexión
-                        </span>
+                        <span>{connectionPresentation.label}</span>
                       )}
                     </p>
                   </div>
