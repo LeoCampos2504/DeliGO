@@ -141,7 +141,7 @@ export default function HomePage() {
       fallback={
         <div className="min-h-screen flex flex-col bg-background animate-pulse">
           <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/50">
-            <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="max-w-4xl mx-auto px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3">
               <div className="flex items-center justify-between">
                 <Logo size="md" />
                 <Skeleton className="h-9 w-20 rounded-full" />
@@ -505,7 +505,7 @@ function HomePageContent() {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/50">
-          <div className="max-w-4xl mx-auto px-4 py-3">
+          <div className="max-w-4xl mx-auto px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3">
             <div className="flex items-center justify-between">
               <Logo size="md" />
               <Skeleton className="h-9 w-20 rounded-full" />
@@ -588,7 +588,7 @@ function HomePageContent() {
     <div className="min-h-dvh flex flex-col bg-background">
       {/* ===== HEADER ===== */}
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-md border-b border-border/50">
-        <div className="max-w-4xl mx-auto px-4 py-3">
+        <div className="max-w-4xl mx-auto px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3">
           <div className="flex items-center justify-between">
             <Logo size="md" />
             <div className="flex items-center gap-2">
@@ -1234,7 +1234,7 @@ function EmptyState() {
 function ProfilePanelSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
-      <div className="bg-primary/20 px-4 pt-12 pb-16">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-16">
         <div className="flex flex-col items-center">
           <div className="h-20 w-20 rounded-full bg-white/10" />
           <div className="mt-3 h-5 w-32 rounded bg-white/10" />
@@ -1258,7 +1258,7 @@ function ProfilePanelSkeleton() {
 function FavoritesPanelSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
-      <div className="bg-rose-500/10 px-4 pt-10 pb-8">
+      <div className="bg-rose-500/10 px-4 pt-[calc(env(safe-area-inset-top,0px)+2.5rem)] pb-8">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-rose-500/20" />
           <div>
@@ -1291,7 +1291,7 @@ function FavoritesPanelSkeleton() {
 function PromosPanelSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
-      <div className="bg-primary/20 px-4 pt-10 pb-8">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+2.5rem)] pb-8">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-white/10" />
           <div>
@@ -1328,7 +1328,7 @@ function PromosPanelSkeleton() {
 function OrdersPanelSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
-      <div className="bg-primary/20 px-4 pt-12 pb-8">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-8">
         <div className="flex flex-col items-center">
           <div className="h-10 w-10 rounded-full bg-white/10 mb-2" />
           <div className="h-5 w-28 rounded bg-white/10" />

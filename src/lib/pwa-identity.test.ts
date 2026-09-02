@@ -71,6 +71,28 @@ describe("PWA-21-A01 + PWA-22-01 — identidad SSR por rol", () => {
     expect(isPrincipalPwaRole("empleado")).toBe(false)
   })
 
+  // P2-T22B-R2: only "cliente" has been hardened with safe-area-aware top
+  // headers (src/app/cliente/page.tsx and the 4 client-*-panel.tsx files —
+  // see client-headers-safe-area-static-contract.test.ts). Negocio/
+  // Operaciones/Repartidor keep the opaque "default" status bar until they
+  // receive the same audit and hardening.
+  test("statusBarStyle es black-translucent solo para cliente; el resto conserva default", () => {
+    const statusBarStyleByRole: Record<(typeof PRINCIPAL_PWA_ROLES)[number], string> = {
+      cliente: "black-translucent",
+      negocio: "default",
+      operaciones: "default",
+      repartidor: "default",
+    }
+
+    for (const role of PRINCIPAL_PWA_ROLES) {
+      const metadata = getPwaIdentityMetadata(role)
+      expect(metadata.appleWebApp).toMatchObject({
+        capable: true,
+        statusBarStyle: statusBarStyleByRole[role],
+      })
+    }
+  })
+
   test("los manifests existentes conservan id, scope, start_url y display", () => {
     for (const [role, contract] of Object.entries(contracts)) {
       const manifest = JSON.parse(
