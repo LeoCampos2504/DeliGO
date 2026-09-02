@@ -439,8 +439,25 @@ export class RealtimeManager {
     this.detachSocket(true)
     for (const record of this.rooms.values()) this.clearRoomTimer(record)
     this.rooms.clear()
-    this.subscriptions.clear()
-    this.resyncHandlers.clear()
+    // `subscriptions`/`resyncHandlers` are owned by mounted consumer
+    // components (ChatSheet, ChatFab, ChatView, delivery-tracking-map), not
+    // by this transport instance — each consumer already adds/removes its
+    // own entry from its own effect cleanup whenever the actor it cares
+    // about changes. `setActor()` calls stop("actor-change") synchronously,
+    // but React runs a descendant's effects (e.g. ChatSheet, a child of the
+    // provider that owns this manager) before the ancestor's — so a
+    // descendant can already have unsubscribed the outgoing actor's handler
+    // and subscribed the incoming actor's handler by the time this runs.
+    // Clearing unconditionally here would discard that just-registered
+    // incoming subscription, leaving the correctly-authenticated next
+    // socket with no listener to relay to (P2-T18 confirmed root cause —
+    // see P2_T18_SOCKET_REGENERATION_EVENT_RELAY_DIAGNOSTIC_R3.md). Every
+    // other stop reason ends the actor's session outright (no incoming
+    // actor to hand off to), so the full clear stays correct for those.
+    if (reason !== "actor-change") {
+      this.subscriptions.clear()
+      this.resyncHandlers.clear()
+    }
     this.resyncPromise = null
     this.resyncReason = null
     this.connectPromise = null
