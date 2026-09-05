@@ -53,8 +53,26 @@ describe("F-P2-T05-23 — Cliente SettingsSection no longer re-reads a stale pus
     expect(section).toContain("setNotifications(push.isSubscribed)")
   })
 
-  test("pushEnabled bootstrap prop role is preserved (initial value only, never removed)", () => {
-    expect(section).toContain("useState(pushEnabled || push.isSubscribed)")
+  test("P2-T31: SettingsSection no longer seeds from the untrustworthy `pushEnabled` prop (stale React Query cache of the legacy DB column)", () => {
+    // Root cause of the reported Android desync (P2_T31_...md): `pushEnabled`
+    // came from `perfil.pushSubscription` (queryKey "cliente-perfil"), never
+    // invalidated after subscribe()/unsubscribe(), so a stale cached value
+    // could seed `notifications` wrong on remount — and the render-time
+    // reconciliation below could never self-correct a false-positive "ON"
+    // because its own tracking var also defaults to `push.isSubscribed`'s
+    // initial `false`. The seed must come ONLY from the hook.
+    const codeOnly = section
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    expect(codeOnly).not.toContain("pushEnabled")
+    expect(section).toContain("function SettingsSection() {")
+    expect(section).toContain("const [notifications, setNotifications] = useState(push.isSubscribed)")
+  })
+
+  test("P2-T31: the call site no longer passes a pushEnabled prop", () => {
+    expect(src).toContain("<SettingsSection />")
+    expect(src).not.toMatch(/<SettingsSection\s+pushEnabled=/)
   })
 })
 

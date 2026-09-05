@@ -199,7 +199,7 @@ export function ClientProfilePanel() {
         {!perfil.googleId && <PasswordSection />}
 
         {/* Settings */}
-        <SettingsSection pushEnabled={perfil.pushSubscription} />
+        <SettingsSection />
 
         {/* Privacy & Legal */}
         <PrivacyLegalSection />
@@ -967,10 +967,31 @@ function PasswordSection() {
 // ============================================
 // Settings Section
 // ============================================
-function SettingsSection({ pushEnabled }: { pushEnabled: boolean }) {
+function SettingsSection() {
   const { theme, setTheme } = useTheme()
   const push = usePushNotifications()
-  const [notifications, setNotifications] = useState(pushEnabled || push.isSubscribed)
+  // P2-T31: el seed inicial ya NO viene de `perfil.pushSubscription` (un
+  // booleano derivado server-side de la columna legacy `Cliente.
+  // pushSubscription` — ni por-dispositivo ni conocedor de la tabla
+  // normalizada — ver src/app/api/cliente/perfil/route.ts:47) mediante un
+  // prop `pushEnabled` cacheado por React Query (queryKey "cliente-perfil",
+  // NUNCA invalidado tras subscribe()/unsubscribe() acá abajo). Ese prop
+  // podía sobrevivir intacto entre navegaciones aunque el estado real ya
+  // hubiera cambiado, sembrando `notifications` con un valor equivocado al
+  // remontar. Peor: el único mecanismo de autocorrección de abajo (comparar
+  // contra `prevIsSubscribed`) sólo dispara cuando `push.isSubscribed`
+  // (que SIEMPRE arranca en `false`, el default del hook) difiere de su
+  // propio valor previo — así que si el prop sembraba `true` mientras la
+  // verdad real era `false`, la comparación `false !== false` nunca
+  // encontraba discrepancia y el switch quedaba mostrando "activado" para
+  // siempre, sin autocorregirse jamás (reproducido: ver el reporte de
+  // P2-T31). Sembrar únicamente desde `push.isSubscribed` (mismo patrón ya
+  // usado en src/components/business/config-tab.tsx) elimina la asimetría
+  // por completo: el seed y `prevIsSubscribed` arrancan SIEMPRE
+  // consistentes entre sí, así que la comparación de abajo captura
+  // correctamente cualquier resultado que el chequeo asíncrono autoritativo
+  // del hook eventualmente resuelva, en cualquiera de las dos direcciones.
+  const [notifications, setNotifications] = useState(push.isSubscribed)
   // P2-T05 Hardening H3B (F-P2-T05-23): resincroniza `notifications` cuando
   // el hook resuelve su chequeo de estado autoritativo async (o cuando un
   // cambio de actor lo invalida) — mismo idiom ya certificado en

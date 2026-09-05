@@ -1234,12 +1234,23 @@ function PushNotificationsConfig({ color }: { color: string }) {
   const handleToggle = async (val: boolean) => {
     setEnabled(val)
     if (val) {
-      await push.subscribe()
-      if (!push.isSubscribed) {
-        setEnabled(false)
+      // P2-T31: antes se releía `push.isSubscribed` acá después del
+      // `await push.subscribe()`, un closure stale que siempre reflejaba
+      // el valor PREVIO al click (el mismo patrón ya eliminado en
+      // client-profile-panel.tsx vía F-P2-T05-23) — por eso el toggle
+      // podía terminar activado en pantalla aunque `subscribe()` hubiera
+      // fallado, o mostrar el feedback equivocado tras togglear rápido
+      // varias veces. `result.current`/`result.subscribed` vienen SIEMPRE
+      // frescos del propio hook, nunca de este closure.
+      const result = await push.subscribe()
+      if (result.current) {
+        setEnabled(result.subscribed)
       }
     } else {
-      await push.unsubscribe()
+      const result = await push.unsubscribe()
+      if (result.current) {
+        setEnabled(result.subscribed)
+      }
     }
   }
 
