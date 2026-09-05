@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { createSessionWithClient, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { hashVerificationToken } from "@/lib/email"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { notifySuperadmins } from "@/lib/superadmin-notifications"
 
 function setSessionCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -76,6 +77,30 @@ export async function GET(req: NextRequest) {
         data: { emailVerified: now, verificationToken: null, verificationTokenExpiresAt: null },
       })
       if (claimed.count !== 1) return null
+
+      // P2-T26-R2: "negocio pendiente de aprobación" — R1 encontró que este
+      // evento (email verificado, aún sin aprobar) nunca notificaba a
+      // SuperAdmin, a pesar de ser estructuralmente idéntico a
+      // review_moderation (una acción externa que espera revisión) y de
+      // coincidir EXACTAMENTE con la definición de "pendiente" que ya usa
+      // el propio dashboard (aprobado:false && emailVerified:{not:null},
+      // src/app/api/superadmin/dashboard/route.ts). Se dispara acá, no en
+      // el registro: un negocio que nunca verifica su email nunca aparece
+      // en el tab "pendientes", así que notificar antes sería ruido.
+      // Participa de esta misma transacción (igual que la creación de la
+      // cuenta+LegalAcceptance más arriba): el CAS de `claimed` ya garantiza
+      // que este bloque corre como máximo una vez por negocio — un segundo
+      // click sobre el mismo link de verificación falla el CAS (count 0) y
+      // nunca vuelve a notificar.
+      if (!negocio.aprobado) {
+        await notifySuperadmins(tx, {
+          tipo: "negocio_pendiente",
+          titulo: "Nuevo negocio pendiente",
+          cuerpo: `${negocio.nombre} verificó su email y espera aprobación.`,
+          datos: { entityId: negocio.id, navigateTo: "pendientes" },
+        })
+      }
+
       return {
         approved: negocio.aprobado,
         sessionToken: negocio.aprobado

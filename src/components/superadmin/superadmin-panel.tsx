@@ -102,7 +102,7 @@ export function SuperAdminPanel() {
           <div className="flex items-center justify-between">
             <Logo size="sm" />
             <div className="flex items-center gap-1.5">
-              <SuperadminNotificationBell onModeration={() => setActiveTab("moderacion-resenas")} />
+              <SuperadminNotificationBell />
               <Button
                 variant="ghost"
                 size="icon"

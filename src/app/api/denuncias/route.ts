@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { notifySuperadmins } from "@/lib/superadmin-notifications"
 
 // Preset denuncia reasons
 const MOTIVOS_PRESET: Record<string, string> = {
@@ -269,6 +270,27 @@ export async function POST(req: NextRequest) {
 
           bloqueado = false
         }
+
+        // P2-T26-R2: notifica a SuperAdmin de la nueva denuncia — R1 encontró
+        // que este evento nunca notificaba, a pesar de tener un tab
+        // dedicado ("denuncias") y de que la 3ra denuncia auto-bloquea al
+        // cliente sin aviso proactivo. Cada denuncia real y distinta genera
+        // su propia notificación (no se deduplican entre sí — el
+        // `findFirst`/índice único de arriba ya garantiza que ESTA denuncia
+        // en particular es genuinamente nueva, nunca un reintento del mismo
+        // negocio+cliente+pedido). El cuerpo se mantiene mínimo a propósito
+        // (sin motivo/clienteNombre) — el detalle completo vive detrás del
+        // click, en el tab "denuncias". Participa de esta misma transacción
+        // Serializable: si el conflicto de serialización revierte todo el
+        // bloque, la notificación tampoco queda huérfana.
+        await notifySuperadmins(tx, {
+          tipo: "denuncia_nueva",
+          titulo: "Nueva denuncia registrada",
+          cuerpo: bloqueado
+            ? `Un cliente fue bloqueado automáticamente tras acumular ${totalDenuncias} denuncias.`
+            : `${user.nombre} denunció a un cliente (${totalDenuncias}/${MAX_DENUNCIAS_BEFORE_BLOCK}).`,
+          datos: { entityId: denuncia.id, navigateTo: "denuncias", targetClienteId: clienteId, autoBloqueo: bloqueado },
+        })
 
         return { kind: "creada" as const, denuncia, totalDenuncias, bloqueado }
       })

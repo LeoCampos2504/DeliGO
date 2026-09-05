@@ -5,6 +5,7 @@ import { createNotification, orderCancelledByClienteNotification, clientConfirme
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { notifySuperadmins, crossedDebtAlertThreshold } from "@/lib/superadmin-notifications"
 
 // Confirmar recepción es la única operación que procesa tarifa/deuda del pedido
 // (Seguridad-2B). Este error de dominio dispara el rollback completo de la
@@ -261,7 +262,7 @@ export async function PUT(
           if (current.tarifaServicio > 0 && !current.deudaAcumulada) {
             const negocio = await tx.negocio.findUnique({
               where: { id: current.negocioId },
-              select: { deudaTarifa: true, limiteDeuda: true },
+              select: { nombre: true, deudaTarifa: true, limiteDeuda: true },
             })
             if (!negocio) {
               throw new DebtLimitExceededError()
@@ -282,6 +283,60 @@ export async function PUT(
               // Sin cupo de deuda: revertir también la confirmación (throw hace
               // rollback de toda la transacción, incluido el CAS de arriba).
               throw new DebtLimitExceededError()
+            }
+
+            // P2-T26-R2: alerta de deuda a SuperAdmin — R1 encontró que el
+            // cálculo de "conAlerta" (80% del límite) ya existía en el
+            // dashboard, pero nunca se empujaba proactivamente, sólo se veía
+            // al entrar al tab "deudas". Se detecta el CRUCE real
+            // (deudaAntes < 80% <= deudaDespués). Sin esto, cualquier pedido
+            // confirmado mientras la deuda ya está por encima del umbral
+            // re-notificaría en cada uno, generando spam (la "regla más
+            // importante" de esta tarea).
+            //
+            // IMPORTANTE (concurrencia — §14): `deudaDespues` se RELEE acá
+            // DENTRO de esta misma transacción, después del CAS de arriba —
+            // nunca se reutiliza el `negocio.deudaTarifa` leído más arriba
+            // (antes del CAS) sumado aritméticamente. Ese valor temprano
+            // puede quedar desactualizado si otra confirmación concurrente
+            // para el MISMO negocio ya incrementó la deuda entre esa lectura
+            // y este punto — Postgres serializa las escrituras reales a la
+            // fila (el CAS de arriba sólo avanza una vez que la fila está
+            // libre), pero un cálculo aritmético basado en la lectura vieja
+            // podría re-derivar el MISMO "antes→después" que ya disparó la
+            // alerta de la transacción anterior, duplicándola. Releer el
+            // valor verdaderamente comprometido por ESTA transacción (que
+            // Postgres garantiza visible para sí misma) y restarle el propio
+            // incremento conocido da el "antes" real de ESTA transacción en
+            // el orden serial verdadero, sin ambigüedad entre transacciones
+            // concurrentes.
+            //
+            // Como el único camino para que la deuda BAJE es un pago manual
+            // de SuperAdmin (resetea a 0) o una reversión de cancelación,
+            // este chequeo nunca vuelve a dispararse mientras se mantiene
+            // por encima del umbral, y puede volver a dispararse
+            // legítimamente tras un pago seguido de una nueva acumulación.
+            // Participa de esta misma transacción — si el CAS de arriba se
+            // revierte, la alerta tampoco queda huérfana. Deliberadamente NO
+            // se implementa un segundo nivel "limit" (deudaTarifa===
+            // limiteDeuda ya bloquea la confirmación arriba vía
+            // DebtLimitExceededError) — un rechazo repetido no tiene una
+            // transición de estado natural de la cual colgar un dedupe sin
+            // agregar campos nuevos, y el nivel "alert" ya da aviso
+            // anticipado antes de llegar ahí.
+            const negocioTrasIncremento = await tx.negocio.findUniqueOrThrow({
+              where: { id: current.negocioId },
+              select: { deudaTarifa: true },
+            })
+            const deudaDespues = negocioTrasIncremento.deudaTarifa
+            const deudaAntes = deudaDespues - current.tarifaServicio
+            if (crossedDebtAlertThreshold(deudaAntes, deudaDespues, limiteDeuda)) {
+              await notifySuperadmins(tx, {
+                tipo: "negocio_deuda",
+                titulo: "Alerta de deuda",
+                cuerpo: `${negocio.nombre} superó el 80% de su límite de deuda.`,
+                datos: { entityId: current.negocioId, navigateTo: "deudas", level: "alert" },
+              })
             }
           }
 
