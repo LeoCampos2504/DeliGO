@@ -39,16 +39,54 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   listo_para_retirar: ["entregado", "cancelado"], // entregado only if clienteConfirmaRecibido
 }
 
+// P2-T28: punto de pausa SOLO para el test determinista de ownership del
+// state lock (ver src/app/api/negocio/pedidos/[id]/estado/order-estado-lock-ownership.test.ts).
+// Se dispara al principio del `try`, que sólo se alcanza DESPUÉS de un
+// `acquireLock` exitoso (ver más abajo) — mientras esta request sigue
+// pausada acá, sigue sosteniendo `estadoLockKey`.
+export interface PedidoEstadoRouteTestHooks {
+  afterStateLockAcquired?: () => Promise<void>
+}
+
 // PATCH - Update order status
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Concurrency protection: compute lock key before try so it's accessible in finally
   const { id: pedidoId } = await params
+  return handlePedidoEstadoChange(req, pedidoId)
+}
+
+export async function PATCH_FOR_TESTS(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+  testHooks: PedidoEstadoRouteTestHooks
+) {
+  const { id: pedidoId } = await params
+  return handlePedidoEstadoChange(req, pedidoId, testHooks)
+}
+
+async function handlePedidoEstadoChange(
+  req: NextRequest,
+  pedidoId: string,
+  testHooks?: PedidoEstadoRouteTestHooks
+) {
+  // Concurrency protection: compute lock key before try so it's accessible in finally
   const estadoLockKey = `pedido-estado:${pedidoId}`
 
-  // Concurrency protection: prevent double status updates on the same order
+  // Concurrency protection: prevent double status updates on the same order.
+  //
+  // P2-T28 (revisión humana de R2C): a diferencia de `orderLockKey` en
+  // src/app/api/pedidos/route.ts (donde este mismo chequeo vivía DENTRO del
+  // `try`, así que un `acquireLock` fallido igual llegaba al `finally` y
+  // liberaba el lock ajeno — el bug material que R2C corrigió), acá el
+  // chequeo y su `return` temprano viven DESDE SIEMPRE fuera del `try`. Una
+  // request cuyo `acquireLock` falla nunca entra al `try`/`finally` de abajo
+  // — nunca puede ejecutar `releaseLock(estadoLockKey)` — así que no
+  // reproduce el mismo patrón. Confirmado empíricamente, no sólo por
+  // lectura de código (ver
+  // codex-reports/P2_T28_ORDER_STATE_LOCK_OWNERSHIP_HARDENING_R1.md):
+  // FAILED_ACQUIRE_REACHES_FINALLY=NO para este endpoint.
   if (!acquireLock(estadoLockKey)) {
     return noStoreJson(
       { error: "El estado de este pedido se está actualizando. Intentá de nuevo." },
@@ -57,6 +95,8 @@ export async function PATCH(
   }
 
   try {
+    await testHooks?.afterStateLockAcquired?.()
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return noStoreJson({ error: "No autenticado" }, { status: 401 })
