@@ -7,6 +7,11 @@ import { Bell, X, Shield, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import {
+  applicationServerKeyMatches,
+  unsubscribeStalePushSubscription,
+  urlBase64ToUint8Array,
+} from "@/lib/push-subscription-key"
 
 const STORAGE_KEY = "deligo-permissions-prompted"
 
@@ -21,15 +26,29 @@ function isMozoRoute(pathname: string) {
 // Fase 2, requerido para que /api/push/subscribe resuelva sin ambigüedad
 // bajo 2+ cookies de familia coexistiendo. El caller (dentro de
 // PermissionPrompt) siempre pasa `uType` del actor autenticado actual.
-async function savePushSubscription(subscription: PushSubscription, family: string | null): Promise<void> {
+// P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): antes no
+// verificaba `res.ok` en absoluto — no había forma de que el caller supiera
+// si el backend realmente persistió algo, así que tampoco podía decidir un
+// rollback correctamente. Ahora devuelve el resultado REAL del contrato de
+// `/api/push/subscribe` (ver src/app/api/push/subscribe/route.ts: éxito es
+// `NextResponse.json({ ok: true })` con status 200; cualquier falla usa un
+// status no-2xx) — nunca inventa un contrato distinto al real.
+async function savePushSubscription(subscription: PushSubscription, family: string | null): Promise<boolean> {
   const url = family ? `/api/push/subscribe?actorFamily=${family}` : "/api/push/subscribe"
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      subscription: JSON.stringify(subscription),
-    }),
-  })
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: JSON.stringify(subscription),
+      }),
+    })
+    if (!res.ok) return false
+    const data = await res.json().catch(() => ({}))
+    return data.ok === true
+  } catch {
+    return false
+  }
 }
 
 // P2-T05 Stage3R1 (F-P2-T05-12): read-only — NUNCA muta el binding
@@ -161,24 +180,63 @@ export function PermissionPrompt() {
       if (result === "granted") {
         try {
           const registration = await navigator.serviceWorker.ready
-          const existingSubscription = await registration.pushManager.getSubscription()
-          let subscription = existingSubscription
 
-          if (!subscription) {
-            const vapidRes = await fetch("/api/push/vapid-key")
-            if (vapidRes.ok) {
-              const { publicKey } = await vapidRes.json()
-              if (publicKey) {
-                subscription = await registration.pushManager.subscribe({
-                  userVisibleOnly: true,
-                  applicationServerKey: publicKey,
-                })
-              }
-            }
+          // P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): R5
+          // dejaba un gap real acá — si este fetch fallaba y YA había una
+          // subscription física, esa rama la reusaba y la persistía a
+          // ciegas, sin ninguna evidencia de que siguiera siendo compatible
+          // con la VAPID vigente (exactamente el patrón que produjo
+          // `VapidPkHashMismatch` en vivo). "No pude validar" NO es lo
+          // mismo que "es compatible", así que ahora se ABORTA por
+          // completo: la física existente (si la hay) queda intacta —
+          // nunca se destruye sin evidencia de que sea stale — pero
+          // tampoco se reusa/persiste como si estuviera confirmada. El
+          // usuario puede reintentar (el banner reaparece hasta que se
+          // marque `STORAGE_KEY`, y el switch de Perfil/Config sigue
+          // disponible como camino explícito).
+          const vapidRes = await fetch("/api/push/vapid-key")
+          const vapidData = vapidRes.ok ? await vapidRes.json().catch(() => ({})) : {}
+          const publicKey = typeof vapidData.publicKey === "string" ? vapidData.publicKey : null
+          if (!publicKey) return
+
+          const applicationServerKey = urlBase64ToUint8Array(publicKey)
+          let subscription = await registration.pushManager.getSubscription()
+          let createdSubscription = false
+
+          if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)) {
+            // Stale: atada a una key que ya no es la vigente. Nunca se
+            // reusa una subscription sana como colateral — sólo se destruye
+            // físicamente cuando se demostró la incompatibilidad, y sólo se
+            // avanza si la remoción queda CONFIRMADA (no basta el booleano
+            // de unsubscribe() por sí solo — ver
+            // push-subscription-key.ts::unsubscribeStalePushSubscription).
+            const removed = await unsubscribeStalePushSubscription(subscription, () =>
+              registration.pushManager.getSubscription()
+            )
+            if (!removed) return // fail-closed: no crear encima de una que podría seguir viva
+
+            subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: applicationServerKey as BufferSource,
+            })
+            createdSubscription = true
+          } else if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: applicationServerKey as BufferSource,
+            })
+            createdSubscription = true
           }
+          // Camino restante (subscription existía y su key coincide): se
+          // reusa exactamente como está — ni se destruye ni se recrea.
 
-          if (subscription) {
-            await savePushSubscription(subscription, uType)
+          const saved = await savePushSubscription(subscription, uType)
+          if (!saved && createdSubscription) {
+            // Rollback: la física que ESTA operación acaba de crear nunca
+            // llegó a confirmarse server-side — no queda huérfana. Nunca se
+            // toca una subscription SANA preexistente ante un fallo de
+            // backend (createdSubscription es false en ese caso).
+            await subscription.unsubscribe().catch(() => undefined)
           }
         } catch (err) {
           console.error("Push subscription error:", safeErrorForLog(err))

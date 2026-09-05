@@ -39,7 +39,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useInstallPrompt } from "@/hooks/use-install-prompt"
 import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
-import { urlBase64ToUint8Array } from "@/lib/push-subscription-key"
+import {
+  applicationServerKeyMatches,
+  unsubscribeStalePushSubscription,
+  urlBase64ToUint8Array,
+} from "@/lib/push-subscription-key"
 import { getCurrentOperativePushSubscription, performOperativeLogout } from "@/lib/operativo-logout"
 import { cn, formatPrice } from "@/lib/utils"
 
@@ -644,13 +648,39 @@ export default function MozoSalonPanelPage() {
 
       await navigator.serviceWorker.register("/sw.js")
       const registration = await navigator.serviceWorker.ready
+      const applicationServerKey = urlBase64ToUint8Array(publicKey)
       let subscription = await registration.pushManager.getSubscription()
       let createdSubscription = false
+
+      // P2-T31-R5 (VAPID-STALE-SUBSCRIPTION-VALIDATION-EXTENSION): mismo fix
+      // que use-operativo-salon-push.ts (Salón) y use-push-notifications.ts
+      // (R3) — no reusar ciegamente una subscription física atada a una
+      // VAPID key que ya no es la vigente (Apple: `VapidPkHashMismatch`,
+      // confirmado en vivo en R3). Recrearla acá deja que el rollback de
+      // más abajo (si el POST al backend falla) la cubra igual que a una
+      // subscription nueva por-nunca-haber-existido, sin duplicar esa
+      // lógica.
+      //
+      // P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): confirmar
+      // la remoción de verdad (no confiar sólo en el booleano de
+      // unsubscribe()) antes de continuar — mismo criterio que Salón y el
+      // hook personal.
+      if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)) {
+        const removed = await unsubscribeStalePushSubscription(subscription, () =>
+          registration.pushManager.getSubscription()
+        )
+        if (!removed) {
+          throw new Error("No se pudo confirmar la eliminacion de la suscripcion obsoleta")
+        }
+        subscription = null
+      }
 
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
+          // P2-T31-R5: mismo cast que use-push-notifications.ts — gap de
+          // TS/lib.dom pre-existente, sin efecto en runtime.
+          applicationServerKey: applicationServerKey as BufferSource,
         })
         createdSubscription = true
       }

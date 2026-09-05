@@ -6,6 +6,15 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { useAuthStore } from "@/store/auth-store"
 import { createLatestOperationGate } from "./push-operation-guard"
 import { checkPersonalPushStatus } from "./push-personal-status-check"
+import {
+  registerInFlightPersonalPushMutation,
+  waitForInFlightPersonalPushMutation,
+} from "./push-mutation-in-flight-registry"
+import {
+  applicationServerKeyMatches,
+  unsubscribeStalePushSubscription,
+  urlBase64ToUint8Array,
+} from "@/lib/push-subscription-key"
 
 /**
  * P2-T05 Hardening H3B (F-P2-T05-23): resultado explícito y autoritativo de
@@ -162,6 +171,22 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         return { ok: true, subscribed: data.subscribed === true }
       },
       applyIsSubscribed: applySubscribed,
+      // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): antes de leer el estado
+      // físico, espera cualquier subscribe()/unsubscribe() todavía en vuelo
+      // para ESTE actor — incluida una mutación arrancada por una instancia
+      // de este mismo hook YA DESMONTADA (navegación Perfil<->Favoritos u
+      // homólogas en Negocio/Repartidor). Sin esto, un check de un montaje
+      // nuevo puede leer `getSubscription()===null` genuinamente cierto EN
+      // ESE INSTANTE — no porque el usuario nunca haya activado nada, sino
+      // porque la primera activación real (la única que hace SW register +
+      // fetch de VAPID + handshake nuevo con el push service, mucho más
+      // lenta que activaciones posteriores que reusan la subscription física
+      // ya existente) todavía no terminó — y esa conclusión "false" queda
+      // permanente: el propio gate de la instancia vieja ya está invalidado
+      // (por el cleanup del unmount), así que cuando esa mutación huérfana
+      // finalmente sí resuelve, su propio finishMutation ve current:false y
+      // no aplica nada que ningún componente vivo pueda observar.
+      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey),
     })
   }
 
@@ -206,75 +231,136 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // POST a /api/push/subscribe termine.
     const opId = gateRef.current.begin()
     setLoading(true)
-    try {
-      // Request permission
-      const result = await Notification.requestPermission()
-      setPermission(result)
 
-      if (result !== "granted") {
+    // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): el cuerpo real vive en este
+    // `run` interno para poder registrar la promesa (síncronamente, antes de
+    // cualquier `await`) en el registro compartido — ver
+    // push-mutation-in-flight-registry.ts. Si el usuario navega fuera y esta
+    // instancia se desmonta a mitad del `try` de abajo, un checkSubscription()
+    // de la instancia NUEVA (montaje fresco, gate propio) puede esperar esta
+    // misma promesa antes de leer el estado físico, en vez de concluir
+    // prematuramente que nunca hubo ninguna activación.
+    const run = async (): Promise<PushMutationResult> => {
+      try {
+        // Request permission
+        const result = await Notification.requestPermission()
+        setPermission(result)
+
+        if (result !== "granted") {
+          if (gateRef.current.isCurrent(opId)) {
+            toast.error("Necesitás permitir las notificaciones en tu navegador")
+          }
+          return finishMutation(opId, false)
+        }
+
+        // Register service worker
+        const registration = await navigator.serviceWorker.register("/sw.js")
+        await navigator.serviceWorker.ready
+
+        // Get VAPID key
+        const vapidKey = await getVapidKey()
+        if (!vapidKey) {
+          if (gateRef.current.isCurrent(opId)) {
+            toast.error("Las notificaciones push no están configuradas")
+          }
+          return finishMutation(opId, false)
+        }
+
+        // P2-T31-R3 (ANDROID-WEB-PUSH-DELIVERY-CROSS-ENV-AUDIT): reusar la
+        // subscription física existente SOLO si sigue atada a la VAPID
+        // public key VIGENTE del servidor. Reproducido en vivo contra
+        // TESTING: una subscription física vieja (nunca destruida por
+        // SERVER_DETACH_ONLY) seguía siendo reusada acá indefinidamente pese
+        // a que el servidor ya firma con una key distinta — el proveedor Web
+        // Push la rechaza para siempre (Apple: `VapidPkHashMismatch`,
+        // statusCode 400), aunque `subscribe()` reporte éxito y el switch de
+        // la UI quede mostrando "activado" sin que ningún push real vuelva a
+        // llegar. Ver push-subscription-key.ts::applicationServerKeyMatches.
+        const applicationServerKey = urlBase64ToUint8Array(vapidKey)
+        const existingSubscription = await registration.pushManager.getSubscription()
+        const existingKeyIsCurrent = applicationServerKeyMatches(
+          existingSubscription?.options.applicationServerKey ?? null,
+          applicationServerKey
+        )
+
+        let subscription: PushSubscription
+        if (existingSubscription && !existingKeyIsCurrent) {
+          // P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): no
+          // basta con `await existingSubscription.unsubscribe()` — el
+          // booleano que resuelve es ambiguo entre navegadores (¿"no había
+          // nada que remover" vs "la operación en sí falló"?), y este call
+          // site ya SABE que había una subscription viva. Confirmar la
+          // remoción de verdad (re-leer getSubscription()) antes de crear
+          // una nueva encima — si no se puede confirmar, se aborta (throw,
+          // capturado por el catch de abajo -> finishMutation(opId, false))
+          // en vez de arriesgar dos subscriptions físicas simultáneas o
+          // reportar éxito sin poder probarlo.
+          const removed = await unsubscribeStalePushSubscription(existingSubscription, () =>
+            registration.pushManager.getSubscription()
+          )
+          if (!removed) {
+            throw new Error("No se pudo confirmar la eliminación de la subscription obsoleta")
+          }
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: applicationServerKey as BufferSource,
+          })
+        } else if (existingSubscription && existingKeyIsCurrent) {
+          subscription = existingSubscription
+        } else {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            // P2-T31-R3: cast needed only for a pre-existing TS/lib.dom
+            // strictness gap already tolerated elsewhere in this repo —
+            // `Uint8Array<ArrayBufferLike>` vs the DOM `BufferSource` union.
+            // Runtime behavior is unaffected: the browser accepts a
+            // Uint8Array here regardless.
+            applicationServerKey: applicationServerKey as BufferSource,
+          })
+        }
+
+        // Save to server
+        // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
+        // de familia — mismo transporte ?actorFamily= ya certificado en
+        // Fase 2, requerido para que /api/push/subscribe resuelva sin
+        // ambigüedad bajo 2+ cookies de familia coexistiendo.
+        const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"
+        const res = await fetch(subscribeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: JSON.stringify(subscription),
+          }),
+        })
+
+        if (!res.ok) {
+          throw new Error("Error saving subscription")
+        }
+
         if (gateRef.current.isCurrent(opId)) {
-          toast.error("Necesitás permitir las notificaciones en tu navegador")
+          toast.success("Notificaciones activadas 🔔")
+        }
+        return finishMutation(opId, true)
+      } catch (error) {
+        console.error("Push subscribe error:", safeErrorForLog(error))
+        if (gateRef.current.isCurrent(opId)) {
+          toast.error("Error al activar notificaciones")
         }
         return finishMutation(opId, false)
+      } finally {
+        // Cierra `loading` incluso en un `return` temprano de más arriba —
+        // `finishMutation` ya lo hace cuando la operación sigue vigente, pero
+        // dejarlo también acá (idempotente, protegido por el mismo gate) es
+        // la red de seguridad ante cualquier camino de salida futuro que se
+        // agregue sin pasar por `finishMutation`.
+        if (gateRef.current.isCurrent(opId)) setLoading(false)
       }
-
-      // Register service worker
-      const registration = await navigator.serviceWorker.register("/sw.js")
-      await navigator.serviceWorker.ready
-
-      // Get VAPID key
-      const vapidKey = await getVapidKey()
-      if (!vapidKey) {
-        if (gateRef.current.isCurrent(opId)) {
-          toast.error("Las notificaciones push no están configuradas")
-        }
-        return finishMutation(opId, false)
-      }
-
-      // Reuse the browser subscription when it already exists on this origin.
-      const existingSubscription = await registration.pushManager.getSubscription()
-      const subscription = existingSubscription ?? await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: vapidKey,
-      })
-
-      // Save to server
-      // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
-      // de familia — mismo transporte ?actorFamily= ya certificado en
-      // Fase 2, requerido para que /api/push/subscribe resuelva sin
-      // ambigüedad bajo 2+ cookies de familia coexistiendo.
-      const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"
-      const res = await fetch(subscribeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subscription: JSON.stringify(subscription),
-        }),
-      })
-
-      if (!res.ok) {
-        throw new Error("Error saving subscription")
-      }
-
-      if (gateRef.current.isCurrent(opId)) {
-        toast.success("Notificaciones activadas 🔔")
-      }
-      return finishMutation(opId, true)
-    } catch (error) {
-      console.error("Push subscribe error:", safeErrorForLog(error))
-      if (gateRef.current.isCurrent(opId)) {
-        toast.error("Error al activar notificaciones")
-      }
-      return finishMutation(opId, false)
-    } finally {
-      // Cierra `loading` incluso en un `return` temprano de más arriba —
-      // `finishMutation` ya lo hace cuando la operación sigue vigente, pero
-      // dejarlo también acá (idempotente, protegido por el mismo gate) es
-      // la red de seguridad ante cualquier camino de salida futuro que se
-      // agregue sin pasar por `finishMutation`.
-      if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading, finishMutation, actorType])
+
+    const mutationPromise = run()
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+    return mutationPromise
+  }, [isSupported, loading, finishMutation, actorType, actorKey])
 
   const unsubscribe = useCallback(async (): Promise<PushMutationResult> => {
     if (!isSupported || loading) return { current: false, subscribed: isSubscribedRef.current }
@@ -284,57 +370,67 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // que el detach server-side siquiera empiece.
     const opId = gateRef.current.begin()
     setLoading(true)
-    try {
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.getSubscription()
 
-      if (subscription) {
-        // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
-        // de familia — mismo transporte ?actorFamily= ya certificado en
-        // Fase 2, requerido para que /api/push/unsubscribe resuelva sin
-        // ambigüedad bajo 2+ cookies de familia coexistiendo. `actorType`
-        // sigue siendo el del actor autenticado en este momento (esta
-        // acción es explícita del usuario, nunca disparada tras logout).
-        const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"
-        const res = await fetch(unsubscribeUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subscription: JSON.stringify(subscription),
-          }),
-        })
+    // P2-T31-R2: mismo motivo que en subscribe() — registrar la promesa
+    // real en el registro compartido requiere separarla en un `run` interno
+    // para poder capturarla ANTES de devolverla.
+    const run = async (): Promise<PushMutationResult> => {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.getSubscription()
 
-        if (!res.ok) {
-          throw new Error("Error removing subscription")
+        if (subscription) {
+          // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
+          // de familia — mismo transporte ?actorFamily= ya certificado en
+          // Fase 2, requerido para que /api/push/unsubscribe resuelva sin
+          // ambigüedad bajo 2+ cookies de familia coexistiendo. `actorType`
+          // sigue siendo el del actor autenticado en este momento (esta
+          // acción es explícita del usuario, nunca disparada tras logout).
+          const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"
+          const res = await fetch(unsubscribeUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subscription: JSON.stringify(subscription),
+            }),
+          })
+
+          if (!res.ok) {
+            throw new Error("Error removing subscription")
+          }
+
+          // P2-T05 Stage3 (F-P2-T05-02, PHYSICAL_UNSUBSCRIBE_POLICY_FINAL=
+          // SERVER_DETACH_ONLY): deliberadamente NO se destruye la
+          // PushSubscription física del browser acá — el endpoint físico
+          // puede estar legítimamente asociado a otro binding
+          // Personal/Operativo en este mismo origin (multi-bind, MODEL-C1). El
+          // detach del lado del servidor ya ocurrió arriba; el estado local
+          // simplemente deja de considerarse "suscrito" en esta sesión de UI.
         }
 
-        // P2-T05 Stage3 (F-P2-T05-02, PHYSICAL_UNSUBSCRIBE_POLICY_FINAL=
-        // SERVER_DETACH_ONLY): deliberadamente NO se destruye la
-        // PushSubscription física del browser acá — el endpoint físico
-        // puede estar legítimamente asociado a otro binding
-        // Personal/Operativo en este mismo origin (multi-bind, MODEL-C1). El
-        // detach del lado del servidor ya ocurrió arriba; el estado local
-        // simplemente deja de considerarse "suscrito" en esta sesión de UI.
+        if (gateRef.current.isCurrent(opId)) {
+          setPermission("default")
+          toast.success("Notificaciones desactivadas")
+        }
+        return finishMutation(opId, false)
+      } catch (error) {
+        console.error("Push unsubscribe error:", safeErrorForLog(error))
+        if (gateRef.current.isCurrent(opId)) {
+          toast.error("Error al desactivar notificaciones")
+        }
+        // Un detach fallido no cambió nada server-side — se reporta la verdad
+        // vigente (ref siempre fresco) tal cual estaba, sin forzar ningún
+        // valor nuevo.
+        return finishMutation(opId, isSubscribedRef.current)
+      } finally {
+        if (gateRef.current.isCurrent(opId)) setLoading(false)
       }
-
-      if (gateRef.current.isCurrent(opId)) {
-        setPermission("default")
-        toast.success("Notificaciones desactivadas")
-      }
-      return finishMutation(opId, false)
-    } catch (error) {
-      console.error("Push unsubscribe error:", safeErrorForLog(error))
-      if (gateRef.current.isCurrent(opId)) {
-        toast.error("Error al desactivar notificaciones")
-      }
-      // Un detach fallido no cambió nada server-side — se reporta la verdad
-      // vigente (ref siempre fresco) tal cual estaba, sin forzar ningún
-      // valor nuevo.
-      return finishMutation(opId, isSubscribedRef.current)
-    } finally {
-      if (gateRef.current.isCurrent(opId)) setLoading(false)
     }
-  }, [isSupported, loading, finishMutation, actorType])
+
+    const mutationPromise = run()
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+    return mutationPromise
+  }, [isSupported, loading, finishMutation, actorType, actorKey])
 
   return {
     isSupported,

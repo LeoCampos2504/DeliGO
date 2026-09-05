@@ -4,9 +4,18 @@
 // injection. No React/DOM needed (this repo has neither jsdom nor React
 // Testing Library) since `checkPersonalPushStatus` + `LatestOperationGate`
 // are pure and framework-agnostic — this is not a static/grep-only proof.
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { createLatestOperationGate, type LatestOperationGate } from "./push-operation-guard"
 import { checkPersonalPushStatus, type PersonalPushPhysicalSubscription } from "./push-personal-status-check"
+import {
+  __resetInFlightPersonalPushMutationsForTests,
+  registerInFlightPersonalPushMutation,
+  waitForInFlightPersonalPushMutation,
+} from "./push-mutation-in-flight-registry"
+
+afterEach(() => {
+  __resetInFlightPersonalPushMutationsForTests()
+})
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -269,5 +278,140 @@ describe("STATUS_FAILURE_PHYSICAL_FALLBACK_REGRESSION — Stage3R1 behavior pres
 
     expect(applied).toEqual([false])
     expect(fetchCalled).toBe(false)
+  })
+})
+
+// P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): Leonardo's physical Android
+// certification found a DIFFERENT race from A-D above: activate -> switch
+// shows ON -> navigate away -> navigate back -> switch shows OFF, on a
+// FIRST-EVER activation specifically (a subscribe()->deactivate->
+// subscribe() cycle does NOT reproduce it). Races A-D above are all
+// SAME-instance (one shared gate) — this one is NOT: navigating away from
+// the tab that hosts the switch fully unmounts `usePushNotifications()`;
+// navigating back mounts a BRAND NEW instance with its OWN brand-new gate,
+// generation 0, with zero knowledge of a subscribe() the PREVIOUS instance
+// may still have running in the background. A first-ever activation is
+// uniquely slow (permission prompt + fresh Service Worker
+// register()/ready + a VAPID key fetch + a fresh handshake with the push
+// service to mint a physical PushSubscription) compared to any later one
+// (which reuses the already-existing physical subscription instantly) —
+// slow enough that a user can plausibly navigate away and back before it
+// settles.
+describe("RACE E — cross-remount: a fresh mount's status check races an orphaned subscribe() from a PREVIOUS (unmounted) instance", () => {
+  test("WITHOUT waitForInFlightMutation wired (exactly how 989785a calls checkPersonalPushStatus): the fresh mount's check reads 'no physical subscription yet' and applies false — permanently, since nothing ever re-checks", async () => {
+    let physicalSubscriptionExists = false
+    const applied: boolean[] = []
+    const gateB = createLatestOperationGate() // instance B's own, brand-new gate
+
+    // Instance B mounts and starts its status check BEFORE the orphaned
+    // subscribe() (from the already-unmounted instance A) has created the
+    // physical subscription.
+    await checkPersonalPushStatus({
+      gate: gateB,
+      getCurrentSubscription: async () =>
+        physicalSubscriptionExists ? fakeSubscription("https://push.example/E1") : null,
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+      // Deliberately NOT passing `waitForInFlightMutation` — the field did
+      // not exist at commit 989785a, so this IS how the pre-fix hook called
+      // this function.
+    })
+
+    expect(applied).toEqual([false]) // wrong: the real subscribe() succeeds moments later
+
+    // The orphaned subscribe() from instance A finally creates the physical
+    // subscription — but too late; instance B already applied `false` and
+    // nothing observes this.
+    physicalSubscriptionExists = true
+    expect(applied).toEqual([false]) // still stuck — this IS the physically-reported bug
+  })
+
+  test("STALE_STATUS_OVERWRITE_REPRO / WITH waitForInFlightMutation wired to the shared registry (the actual fix): the fresh mount's check waits for the orphaned mutation, then correctly reads the now-settled physical state as subscribed", async () => {
+    const actorKey = "cliente:c1"
+    let physicalSubscriptionExists = false
+    const applied: boolean[] = []
+
+    // Instance A: subscribe() begins (its own gate is irrelevant here — only
+    // the promise it registers in the shared registry matters, exactly as
+    // use-push-notifications.ts's subscribe() now does).
+    const subscribeDone = deferred<void>()
+    const mutationPromise = subscribeDone.promise.then(() => {
+      physicalSubscriptionExists = true // the mutation's real-world side effect
+    })
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+
+    // Instance A unmounts here (user navigates away) — its own gate becomes
+    // irrelevant from this point on; the orphaned mutationPromise keeps
+    // running regardless of any component's lifecycle.
+
+    // Instance B mounts (user navigates back) and starts its OWN status
+    // check, wired with waitForInFlightMutation exactly as
+    // use-push-notifications.ts's checkSubscription() now does.
+    const gateB = createLatestOperationGate()
+    const checkB = checkPersonalPushStatus({
+      gate: gateB,
+      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey),
+      getCurrentSubscription: async () =>
+        physicalSubscriptionExists ? fakeSubscription("https://push.example/E1") : null,
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+    })
+
+    // The orphaned subscribe() finally settles — AFTER instance B's check
+    // already started waiting on it.
+    subscribeDone.resolve()
+    await checkB
+
+    expect(applied).toEqual([true]) // correctly reflects the real, now-settled state
+  })
+
+  test("STALE_STATUS_AFTER_UNSUBSCRIBE_REPRO — symmetric case: a fresh mount's check waits for an orphaned unsubscribe() before concluding subscribed=false", async () => {
+    const actorKey = "cliente:c1"
+    // Physical subscription still exists when instance B mounts (the
+    // orphaned unsubscribe()'s SERVER_DETACH_ONLY policy never destroys it
+    // physically) — the check must not conclude `true` just because the
+    // physical endpoint is still there while a detach is in flight server-side.
+    let backendStillBound = true
+    const applied: boolean[] = []
+
+    const unsubscribeDone = deferred<void>()
+    const mutationPromise = unsubscribeDone.promise.then(() => {
+      backendStillBound = false // the server-side detach's real-world effect
+    })
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+
+    const gateB = createLatestOperationGate()
+    const checkB = checkPersonalPushStatus({
+      gate: gateB,
+      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey),
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: true, subscribed: backendStillBound }),
+      applyIsSubscribed: (v) => applied.push(v),
+    })
+
+    unsubscribeDone.resolve()
+    await checkB
+
+    expect(applied).toEqual([false])
+  })
+
+  test("no in-flight mutation for this actor: the check proceeds immediately without waiting (matches the observed passing case — activate/deactivate/activate before navigating)", async () => {
+    const applied: boolean[] = []
+    const gate = createLatestOperationGate()
+    let waited = false
+
+    await checkPersonalPushStatus({
+      gate,
+      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation("cliente:c1"),
+      getCurrentSubscription: async () => {
+        waited = true // reached the physical read — the wait did not block anything
+        return fakeSubscription("https://push.example/E1")
+      },
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+    })
+
+    expect(waited).toBe(true)
+    expect(applied).toEqual([true])
   })
 })

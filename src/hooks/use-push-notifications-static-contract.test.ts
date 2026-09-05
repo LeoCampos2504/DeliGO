@@ -305,8 +305,125 @@ describe("F-P2-T18-AUTH02 — use-push-notifications actorFamily selector propag
   })
 
   test("subscribe() and unsubscribe() depend on actorType in their useCallback deps array — a fresh actor never reuses a stale selector", () => {
-    expect(src).toContain("}, [isSupported, loading, finishMutation, actorType])")
-    const depsOccurrences = [...src.matchAll(/\}, \[isSupported, loading, finishMutation, actorType\]\)/g)]
+    // P2-T31-R2: `actorKey` was added to both deps arrays alongside
+    // `actorType` — subscribe()/unsubscribe() now also reference `actorKey`
+    // directly (to register with the in-flight-mutation registry, see
+    // push-mutation-in-flight-registry.ts), so a stale `actorKey` closure
+    // would register under the WRONG actor's key just as surely as a stale
+    // `actorType` would build the wrong URL.
+    expect(src).toContain("}, [isSupported, loading, finishMutation, actorType, actorKey])")
+    const depsOccurrences = [...src.matchAll(/\}, \[isSupported, loading, finishMutation, actorType, actorKey\]\)/g)]
     expect(depsOccurrences.length).toBe(2)
+  })
+})
+
+// P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): a fresh mount's status check
+// must not draw a conclusion from `getCurrentSubscription()` while a
+// subscribe()/unsubscribe() from a PREVIOUS (already-unmounted) instance is
+// still completing — see push-mutation-in-flight-registry.ts and the
+// DIRECT_BEHAVIORAL races in push-personal-status-check.test.ts (RACE E) for
+// the actual repro. This describe only certifies the WIRING: that
+// subscribe()/unsubscribe() register themselves and checkSubscription()
+// consults the registry, using the real production module (never a
+// hand-rolled substitute).
+describe("P2-T31-R2 — first-subscribe/remount in-flight-mutation wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+  const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+
+  test("both mutations import from the real production registry module, never a local reimplementation", () => {
+    expect(src).toContain('from "./push-mutation-in-flight-registry"')
+    expect(src).toContain("registerInFlightPersonalPushMutation")
+    expect(src).toContain("waitForInFlightPersonalPushMutation")
+  })
+
+  test("subscribe()/unsubscribe() register their real mutation promise (the one they return), not a decoy", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      expect(body).toContain("const mutationPromise = run()")
+      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise)")
+      expect(body).toContain("return mutationPromise")
+    }
+  })
+
+  test("registration happens BEFORE the mutation is returned to the caller — a status check started right after calling subscribe()/unsubscribe() can already see it", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      const registerIdx = body.indexOf("registerInFlightPersonalPushMutation(actorKey, mutationPromise)")
+      const returnIdx = body.indexOf("return mutationPromise")
+      expect(registerIdx).toBeGreaterThan(-1)
+      expect(returnIdx).toBeGreaterThan(registerIdx)
+    }
+  })
+
+  test("checkSubscription() wires waitForInFlightMutation to the SAME actorKey used by Race C, calling into the real registry function", () => {
+    expect(checkSubscriptionBody).toContain("waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey)")
+  })
+})
+
+// P2-T31-R3 (ANDROID-WEB-PUSH-DELIVERY-CROSS-ENV-AUDIT): reproduced live
+// against TESTING that a stale physical PushSubscription (bound to an old
+// VAPID public key — Apple: `VapidPkHashMismatch`, statusCode 400) was being
+// silently reused forever by subscribe()'s `existingSubscription ?? ...`
+// pattern, with no check against the CURRENT server VAPID key — see
+// push-subscription-key.ts::applicationServerKeyMatches and the P2_T31_R3
+// report for the full evidence chain.
+describe("P2-T31-R3 — subscribe() validates an existing physical subscription's VAPID key before reusing it", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+
+  test("imports the real conversion/comparison helpers from push-subscription-key.ts, never a local reimplementation", () => {
+    expect(src).toContain('from "@/lib/push-subscription-key"')
+    expect(src).toContain("applicationServerKeyMatches")
+    expect(src).toContain("urlBase64ToUint8Array")
+  })
+
+  test("the VAPID key is converted via urlBase64ToUint8Array before being used, both for comparison AND for a fresh subscribe()", () => {
+    expect(subscribeBody).toContain("const applicationServerKey = urlBase64ToUint8Array(vapidKey)")
+  })
+
+  test("an existing physical subscription's key is compared against the current key before deciding whether to reuse it", () => {
+    expect(subscribeBody).toContain("applicationServerKeyMatches(")
+    expect(subscribeBody).toContain("existingSubscription?.options.applicationServerKey ?? null")
+  })
+
+  test("a stale (mismatched) existing subscription goes through confirmed removal (P2-T31-R5A) before a fresh one is created — never silently reused", () => {
+    // Stripped of comments, so a mention inside an explanatory comment
+    // cannot make this pass for the wrong reason.
+    const codeOnly = subscribeBody
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    const removalCallIdx = codeOnly.indexOf("await unsubscribeStalePushSubscription(existingSubscription")
+    const guardIdx = codeOnly.lastIndexOf(
+      "if (existingSubscription && !existingKeyIsCurrent)",
+      removalCallIdx === -1 ? undefined : removalCallIdx
+    )
+    expect(removalCallIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeLessThan(removalCallIdx)
+  })
+
+  test("P2-T31-R5A: an unconfirmed removal aborts (throws) instead of proceeding to create a subscription on top of a possibly-still-live one", () => {
+    const codeOnly = subscribeBody
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    const removalCallIdx = codeOnly.indexOf("await unsubscribeStalePushSubscription(existingSubscription")
+    const throwIdx = codeOnly.indexOf("throw new Error(", removalCallIdx)
+    expect(removalCallIdx).toBeGreaterThan(-1)
+    expect(throwIdx).toBeGreaterThan(removalCallIdx)
+  })
+
+  test("the reuse decision requires BOTH an existing subscription AND a matching key — a matched-but-absent subscription can never be reused", () => {
+    expect(subscribeBody).toContain("existingSubscription && existingKeyIsCurrent")
+  })
+})
+
+describe("P2-T31-R5A — subscribe() confirms stale-subscription removal via the real shared helper, never a local reimplementation", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("imports unsubscribeStalePushSubscription from push-subscription-key.ts alongside the R3 helpers", () => {
+    expect(src).toContain("unsubscribeStalePushSubscription")
+    expect(src).toContain('from "@/lib/push-subscription-key"')
   })
 })

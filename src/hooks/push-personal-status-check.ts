@@ -18,6 +18,15 @@ export interface PersonalPushStatusCheckDeps {
   getCurrentSubscription: () => Promise<PersonalPushPhysicalSubscription | null>
   fetchStatus: (subscriptionJson: string) => Promise<{ ok: boolean; subscribed: boolean }>
   applyIsSubscribed: (value: boolean) => void
+  // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): optional — when provided,
+  // awaited BEFORE the first physical read. Lets a status check for a given
+  // actor wait out a subscribe()/unsubscribe() still in flight for that same
+  // actor from a DIFFERENT (possibly already-unmounted) component instance,
+  // so `getCurrentSubscription()` never races ahead of a mutation the user
+  // is genuinely waiting on — see push-mutation-in-flight-registry.ts for
+  // why this can't be solved by `gate` alone. Optional and defaulted to a
+  // no-op wait so every existing caller/test keeps its exact prior behavior.
+  waitForInFlightMutation?: () => Promise<void>
 }
 
 /**
@@ -39,8 +48,18 @@ export interface PersonalPushStatusCheckDeps {
  * mutates server state.
  */
 export async function checkPersonalPushStatus(deps: PersonalPushStatusCheckDeps): Promise<void> {
-  const { gate, getCurrentSubscription, fetchStatus, applyIsSubscribed } = deps
+  const { gate, getCurrentSubscription, fetchStatus, applyIsSubscribed, waitForInFlightMutation } = deps
   const opId = gate.begin()
+
+  // P2-T31-R2: wait out any mutation already in flight for this actor
+  // BEFORE touching physical state — a `subscribe()` that hasn't created
+  // its PushSubscription yet is indistinguishable, to a plain physical
+  // read, from "never subscribed". Doesn't consume the mutation's own
+  // outcome: once it settles (whatever the outcome), the normal
+  // authoritative read below still runs and decides for itself.
+  if (waitForInFlightMutation) {
+    await waitForInFlightMutation()
+  }
 
   let subscription: PersonalPushPhysicalSubscription | null
   try {
