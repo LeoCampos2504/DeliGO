@@ -142,7 +142,14 @@ export async function checkPersonalPushStatus(deps: PersonalPushStatusCheckDeps)
     trace("ENDPOINT_RECHECK_RESULT", { opId, error: "throw" })
     return
   }
-  trace("ENDPOINT_RECHECK_RESULT", { opId, endpointStillMatches: currentSubscription?.endpoint === endpoint })
+  // P2-T31-R7 (DEBUG HYGIENE): named `physicalStillMatches`, NOT
+  // `endpointStillMatches` — the tracer's sanitizer (push-debug-trace.ts)
+  // redacts any field whose NAME contains "endpoint" as a blanket defense
+  // against ever persisting the real endpoint, with no way to know from the
+  // name alone that THIS particular field is a plain boolean carrying no
+  // endpoint data at all. Renaming avoids the false-positive redaction
+  // without weakening that protection for genuinely endpoint-shaped fields.
+  trace("ENDPOINT_RECHECK_RESULT", { opId, physicalStillMatches: currentSubscription?.endpoint === endpoint })
   if (currentSubscription?.endpoint !== endpoint) return
 
   if (gate.isCurrent(opId)) {

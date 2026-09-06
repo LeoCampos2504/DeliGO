@@ -165,6 +165,31 @@ describe("PushDebugPanel — no secrets rendered", () => {
     expect(code).not.toContain("SESSION_COOKIE_NAME")
     expect(code).not.toContain("document.cookie")
   })
+
+  // P2-T31-R7 (DEBUG HYGIENE): F-P2-T31-RAW-ACTOR-ID-EXPOSED-01 — a physical
+  // trace Leonardo copied showed `actorFamily=cliente:<raw internal id>`
+  // because this call site used to pass `actorKey` (the composite
+  // `${family}:${id}`) straight into the snapshot's `actorFamily` field.
+  test("passes the plain actorFamily prop (role name only) into the snapshot, never the composite actorKey", () => {
+    const snapshotCallStart = code.indexOf("await collectPushDebugSnapshot({")
+    const snapshotCallEnd = code.indexOf("mutationInFlight:", snapshotCallStart)
+    const snapshotCallArgs = code.slice(snapshotCallStart, snapshotCallEnd)
+    expect(snapshotCallArgs).toMatch(/\bactorFamily,/)
+    expect(snapshotCallArgs).not.toContain("actorFamily: actorKey")
+  })
+
+  test("derives actorFingerprint via the real fingerprintActorId helper, never a local reimplementation", () => {
+    expect(code).toContain('from "@/lib/push-debug-snapshot"')
+    expect(code).toContain("fingerprintActorId")
+    expect(code).toContain("actorFingerprint: authUserId ? fingerprintActorId(authUserId) : null")
+  })
+
+  test("actorKey (the composite family:id key) is still used ONLY for the internal mutation-registry lookup, never displayed", () => {
+    const occurrences = [...code.matchAll(/actorKey/g)]
+    // Exactly: the declaration itself + the one safe internal lookup use.
+    expect(occurrences.length).toBe(2)
+    expect(code).toContain("hasInFlightPersonalPushMutationForDebug(actorKey)")
+  })
 })
 
 describe("PushDebugPanel — refresh always does a fresh read (no accidental caching)", () => {

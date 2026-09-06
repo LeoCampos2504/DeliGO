@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
 import {
   collectPushDebugSnapshot,
+  fingerprintActorId,
   formatPushDebugSnapshot,
   type PushDebugSnapshot,
 } from "@/lib/push-debug-snapshot"
@@ -113,7 +114,13 @@ export function PushDebugPanel({ actorFamily, hookIsSubscribed, hookLoading, uiS
     try {
       const result = await collectPushDebugSnapshot({
         now: () => new Date().toISOString(),
-        actorFamily: actorKey,
+        // P2-T31-R7 (DEBUG HYGIENE): `actorFamily` must be the role name
+        // ONLY — a physical trace Leonardo copied showed the raw actor id
+        // here (`actorFamily=cliente:<raw id>`) because this used to pass
+        // `actorKey` (the composite `${family}:${id}` used internally for
+        // the mutation-registry lookup below). Never display that key.
+        actorFamily,
+        actorFingerprint: authUserId ? fingerprintActorId(authUserId) : null,
         authHasHydrated,
         pathname: window.location.pathname,
         visibilityState: document.visibilityState,

@@ -211,6 +211,28 @@ describe("no secret fields / endpoint fingerprint only", () => {
     expect(e.fields.endpointFingerprint).toBe("ab12cd34")
   })
 
+  // P2-T31-R7 (DEBUG HYGIENE): F-P2-T31-ENDPOINT-BOOLEAN-FALSE-POSITIVE-01 —
+  // a physical trace showed `endpointStillMatches=REDACTED` even though that
+  // field is a plain boolean carrying no endpoint data — the blanket
+  // "contains endpoint" rule caught it purely by NAME. Renamed the real call
+  // site to `physicalStillMatches` (push-personal-status-check.ts) rather
+  // than weakening the sanitizer's name-based rule, which stays in place for
+  // any genuinely endpoint-shaped field name.
+  test("a boolean field named 'physicalStillMatches' (no 'endpoint' in the name) passes through untouched", () => {
+    armPushDebugTrace()
+    recordPushDebugEvent("ENDPOINT_RECHECK_RESULT", { physicalStillMatches: true })
+    const e = getPushDebugTraceEvents().find((ev) => ev.event === "ENDPOINT_RECHECK_RESULT")!
+    expect(e.fields.physicalStillMatches).toBe(true)
+  })
+
+  test("the sanitizer's name-based rule still catches any OTHER field whose name contains 'endpoint' — the rule itself wasn't weakened, only the one false-positive call site was renamed", () => {
+    armPushDebugTrace()
+    recordPushDebugEvent("X", { endpointStillMatches: true, physicalEndpoint: "https://leak.example" })
+    const e = getPushDebugTraceEvents().find((ev) => ev.event === "X")!
+    expect(e.fields.endpointStillMatches).toBe("REDACTED")
+    expect(e.fields.physicalEndpoint).toBe("REDACTED")
+  })
+
   test("fields named cookie/token/secret/password/authorization/p256dh/jwt/session/email are redacted", () => {
     armPushDebugTrace()
     recordPushDebugEvent("X", {

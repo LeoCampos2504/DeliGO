@@ -452,7 +452,11 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
       {push.isSupported && (
         <div className="rounded-2xl bg-card border border-border/50 p-4 space-y-3">
           <h3 className="font-semibold text-sm flex items-center gap-2">
-            {push.isSubscribed ? (
+            {!push.statusResolved ? (
+              // P2-T31-R7: sin conclusión autoritativa todavía, ni ON ni OFF
+              // son correctos — Bell atenuado en vez de BellOff.
+              <Bell className="h-4 w-4 text-muted-foreground" />
+            ) : push.isSubscribed ? (
               <Bell className="h-4 w-4 text-primary" />
             ) : (
               <BellOff className="h-4 w-4 text-muted-foreground" />
@@ -463,22 +467,32 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
             <div>
               <p className="text-sm font-medium">Notificaciones push</p>
               <p className="text-xs text-muted-foreground">
-                {push.isSubscribed
+                {!push.statusResolved
+                  ? "Comprobando estado..."
+                  : push.isSubscribed
                   ? "Recibí alertas de nuevos pedidos"
                   : "Activá para recibir alertas de entregas"}
               </p>
             </div>
-            <Switch
-              checked={push.isSubscribed}
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  push.subscribe()
-                } else {
-                  push.unsubscribe()
-                }
-              }}
-              disabled={push.loading}
-            />
+            {push.statusResolved ? (
+              <Switch
+                checked={push.isSubscribed}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    push.subscribe()
+                  } else {
+                    push.unsubscribe()
+                  }
+                }}
+                disabled={push.loading}
+              />
+            ) : (
+              // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca
+              // renderizar el Switch en "Desactivado" mientras no exista una
+              // conclusión autoritativa — sería un OFF falso que después
+              // cambia solo a ON.
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+            )}
           </div>
           <PushDebugPanel
             actorFamily="repartidor"

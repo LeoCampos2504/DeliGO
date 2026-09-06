@@ -1267,7 +1267,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
       <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}15` }}>
-            {enabled ? (
+            {!push.statusResolved ? (
+              // P2-T31-R7: mientras no haya conclusión autoritativa todavía,
+              // ni el ícono ON ni el OFF son correctos — usar el estado
+              // neutral (mismo Bell que ON, pero atenuado) en vez de BellOff.
+              <Bell className="h-5 w-5 text-muted-foreground" />
+            ) : enabled ? (
               <Bell className="h-5 w-5" style={{ color }} />
             ) : (
               <BellOff className="h-5 w-5 text-muted-foreground" />
@@ -1280,17 +1285,26 @@ function PushNotificationsConfig({ color }: { color: string }) {
                 ? "Procesando..."
                 : !push.isSupported
                 ? "No disponibles en este navegador"
+                : !push.statusResolved
+                ? "Comprobando estado..."
                 : enabled
                 ? "Recibirás notificaciones de nuevos pedidos"
                 : "No recibirás notificaciones"}
             </p>
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={handleToggle}
-          disabled={!push.isSupported || push.loading}
-        />
+        {push.isSupported && !push.statusResolved ? (
+          // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca mostrar
+          // el Switch en "Desactivado" mientras no exista una conclusión
+          // autoritativa — sería un OFF falso que después cambia solo a ON.
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+        ) : (
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={!push.isSupported || push.loading}
+          />
+        )}
       </div>
 
       {!push.isSupported && (

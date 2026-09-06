@@ -67,10 +67,11 @@ describe("F-P2-T05-13 — PERSONAL_PUSH_UI_STATUS_SOURCE=SERVER_ACTOR_ENDPOINT_B
     expect(checkSubscriptionBody).toContain("fetch(statusUrl")
     expect(checkSubscriptionBody).toContain('"/api/push/status"')
     expect(checkSubscriptionBody).toContain('method: "POST"')
-    // P2-T05 Hardening H3B (F-P2-T05-23): `applyIsSubscribed` ahora apunta al
-    // wrapper `applySubscribed` (mantiene también el ref siempre-fresco),
-    // nunca directo a `setIsSubscribed` — ver F-P2-T05-23 describe abajo.
-    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applySubscribed")
+    // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): `applyIsSubscribed`
+    // points to the `applyStatusResult` wrapper — applies the value via the
+    // same always-fresh `applySubscribed` AND marks `statusResolved=true` —
+    // never directly to `setIsSubscribed`/`applySubscribed` bare.
+    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applyStatusResult")
   })
 
   test("CHECK_SUBSCRIPTION_AUTO_REGISTERS=NO: neither checkSubscription's wiring nor the status orchestration ever calls /api/push/subscribe", () => {
@@ -501,5 +502,60 @@ describe("P2-T31-R6A — diagnostic tracer wiring is purely additive", () => {
     expect(mountEffect).toContain('recordPushDebugEvent("PUSH_HOOK_UNMOUNT")')
     expect(mountEffect).toContain("return () => {")
     expect(mountEffect).toContain("gateRef.current.invalidate()")
+  })
+})
+
+// P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): F-P2-T31-INITIAL-STATE-
+// FLICKER-01 — Leonardo's physical C4 cold-launch traces on iPhone showed the
+// switch render OFF then flip to ON ~300-430ms later, because `isSubscribed`'s
+// initial `false` was indistinguishable from an authoritative "not
+// subscribed". `statusResolved` disambiguates the two — see
+// use-push-notifications-status-resolved.test.ts for the DIRECT BEHAVIORAL
+// coverage (races, remount, actor change); these are the structural/wiring
+// checks only.
+describe("P2-T31-R7 — statusResolved wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("statusResolved is exported from the hook's return type and value, defaulting to false", () => {
+    expect(src).toContain("statusResolved: boolean")
+    expect(src).toContain("const [statusResolved, setStatusResolved] = useState(false)")
+    expect(src).toMatch(/return\s*\{[^}]*statusResolved[^}]*\}/)
+  })
+
+  test("applyStatusResult is the ONLY function that can set statusResolved(true) from the status-check path, and always applies via the real applySubscribed first", () => {
+    const wrapperStart = src.indexOf("const applyStatusResult = useCallback(")
+    const wrapperEnd = src.indexOf("const checkSubscription = async")
+    const wrapperBody = src.slice(wrapperStart, wrapperEnd)
+    expect(wrapperBody).toContain("applySubscribed(value)")
+    expect(wrapperBody).toContain("setStatusResolved(true)")
+    // applySubscribed must run BEFORE marking resolved, never after.
+    expect(wrapperBody.indexOf("applySubscribed(value)")).toBeLessThan(wrapperBody.indexOf("setStatusResolved(true)"))
+  })
+
+  test("checkSubscription wires applyStatusResult (never the bare applySubscribed) into checkPersonalPushStatus", () => {
+    const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applyStatusResult")
+    expect(checkSubscriptionBody).not.toContain("applyIsSubscribed: applySubscribed")
+  })
+
+  test("finishMutation also marks statusResolved(true) when the mutation is current — a completed subscribe()/unsubscribe() resolves state at least as authoritatively as the initial check", () => {
+    const finishIdx = src.indexOf("const finishMutation = useCallback(")
+    const finishBody = src.slice(finishIdx, src.indexOf("const subscribe = useCallback"))
+    expect(finishBody).toContain("setStatusResolved(true)")
+  })
+
+  test("the actor-change effect resets statusResolved(false) — a new actor has no authoritative result yet", () => {
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).toContain("setStatusResolved(false)")
+  })
+
+  test("statusResolved is never reset to false anywhere except the actor-change effect (never inside subscribe/unsubscribe/finishMutation)", () => {
+    const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+    const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+    expect(subscribeBody).not.toContain("setStatusResolved(false)")
+    expect(unsubscribeBody).not.toContain("setStatusResolved(false)")
+    const allFalseResets = [...src.matchAll(/setStatusResolved\(false\)/g)]
+    expect(allFalseResets.length).toBe(1)
   })
 })

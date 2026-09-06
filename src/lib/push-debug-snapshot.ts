@@ -12,17 +12,35 @@
 // match / backend binding / mutation arbitration / actor identity) disagrees
 // with the others at the exact moment a flaky switch state is observed.
 
-/** Small non-cryptographic fingerprint — FNV-1a 32-bit, 8 hex chars. Lets two
- * snapshots be compared ("did the physical endpoint change?") without ever
- * displaying the real push endpoint URL (which would leak enough to send a
- * push to this exact device from outside this app). */
-export function fingerprintPushEndpoint(endpoint: string): string {
+/** Small non-cryptographic fingerprint — FNV-1a 32-bit, 8 hex chars. */
+function fnv1aFingerprint(value: string): string {
   let hash = 0x811c9dc5
-  for (let index = 0; index < endpoint.length; index += 1) {
-    hash ^= endpoint.charCodeAt(index)
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
     hash = Math.imul(hash, 0x01000193)
   }
   return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
+/** Lets two snapshots be compared ("did the physical endpoint change?")
+ * without ever displaying the real push endpoint URL (which would leak
+ * enough to send a push to this exact device from outside this app). */
+export function fingerprintPushEndpoint(endpoint: string): string {
+  return fnv1aFingerprint(endpoint)
+}
+
+/**
+ * P2-T31-R7 (DEBUG HYGIENE): lets two snapshots be compared ("did the
+ * signed-in actor change?") without ever displaying the raw DB id — a
+ * physical trace Leonardo copied showed `actorFamily=cliente:<raw id>`
+ * because the panel was passing a composite `${family}:${id}` key straight
+ * into the snapshot's `actorFamily` field. `actorFamily` must only ever
+ * carry the role name (`"cliente"` / `"negocio"` / `"repartidor"`); this
+ * fingerprint is the ONLY safe way to still distinguish "same actor" from "a
+ * different actor of the same role" across two captures.
+ */
+export function fingerprintActorId(actorId: string): string {
+  return fnv1aFingerprint(actorId)
 }
 
 export interface PushDebugPhysicalSubscription {
@@ -47,7 +65,11 @@ export interface PushDebugBackendStatusResult {
 
 export interface PushDebugSnapshotDeps {
   now: () => string
+  // P2-T31-R7 (DEBUG HYGIENE): role name ONLY ("cliente"/"negocio"/
+  // "repartidor") — NEVER a raw actor id or a composite `${family}:${id}`
+  // key. Use `actorFingerprint` below to distinguish actors safely.
   actorFamily: string | null
+  actorFingerprint?: string | null
   authHasHydrated: boolean
   pathname: string
   visibilityState: string
@@ -68,6 +90,7 @@ export interface PushDebugSnapshotDeps {
 export interface PushDebugSnapshot {
   timestamp: string
   actorFamily: string
+  actorFingerprint: string
   authHasHydrated: boolean
   path: string
   visibility: string
@@ -163,6 +186,7 @@ export async function collectPushDebugSnapshot(deps: PushDebugSnapshotDeps): Pro
   return {
     timestamp: deps.now(),
     actorFamily: deps.actorFamily ?? "null",
+    actorFingerprint: deps.actorFingerprint ?? "n/a",
     authHasHydrated: deps.authHasHydrated,
     path: deps.pathname,
     visibility: deps.visibilityState,
@@ -200,6 +224,7 @@ export function formatPushDebugSnapshot(snapshot: PushDebugSnapshot): string {
     "PUSH_DEBUG_VERSION=1",
     `timestamp=${snapshot.timestamp}`,
     `actorFamily=${snapshot.actorFamily}`,
+    `actorFingerprint=${snapshot.actorFingerprint}`,
     `authHasHydrated=${snapshot.authHasHydrated}`,
     `path=${snapshot.path}`,
     `visibility=${snapshot.visibility}`,

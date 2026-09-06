@@ -44,6 +44,20 @@ export interface PushMutationResult {
 interface UsePushNotificationsReturn {
   isSupported: boolean
   isSubscribed: boolean
+  // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): `false` is used as
+  // the initial value of `isSubscribed` for BOTH "authoritatively not
+  // subscribed" and "no authoritative result yet" — those are not the same
+  // thing, and a consumer that renders `isSubscribed` directly during the
+  // unresolved window shows a false OFF that then flips to ON once the real
+  // (already-true) result lands moments later. `statusResolved` disambiguates
+  // this explicitly: `false` until the FIRST authoritative conclusion has
+  // actually been applied (initial mount check, or — once mounted — any
+  // subscribe()/unsubscribe() completion), `true` from then on. Consumers
+  // must treat `isSubscribed` as meaningless while `statusResolved` is
+  // `false` — render a neutral/loading state instead of ON or OFF. See
+  // F-P2-T31-INITIAL-STATE-FLICKER-01 (physical evidence: Leonardo's C4
+  // cold-launch traces on iPhone, ~300-430ms mount→resolve window).
+  statusResolved: boolean
   permission: NotificationPermission | "default"
   subscribe: () => Promise<PushMutationResult>
   unsubscribe: () => Promise<PushMutationResult>
@@ -53,6 +67,14 @@ interface UsePushNotificationsReturn {
 export function usePushNotifications(): UsePushNotificationsReturn {
   const [isSupported, setIsSupported] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(false)
+  // P2-T31-R7: starts unresolved on every fresh mount (and again on every
+  // actor change) — becomes `true` only once an authoritative conclusion
+  // (from the initial status check OR a completed subscribe()/unsubscribe())
+  // has actually been applied for the CURRENT operation/actor. Never flips
+  // back to `false` on its own after that point — see finishMutation and
+  // applyStatusResult below for the only two places that set it `true`, and
+  // the actor-change effect for the only place that resets it.
+  const [statusResolved, setStatusResolved] = useState(false)
   const [permission, setPermission] = useState<NotificationPermission | "default">("default")
   const [loading, setLoading] = useState(false)
 
@@ -146,6 +168,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // (P2-T05 Hardening H3B precommit review, F-P2-T05-15 — hallazgo real).
     gateRef.current.invalidate()
     applySubscribed(false)
+    // P2-T31-R7: a new actor has no authoritative result yet — back to
+    // unresolved until THIS actor's own check (triggered below) concludes.
+    // Consumers must go back to a neutral/loading render, not OFF, for this
+    // new actor's own initial window.
+    setStatusResolved(false)
     setLoading(false)
     if (isSupported) {
       checkSubscription()
@@ -166,6 +193,24 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       recordPushDebugEvent("AUTH_HYDRATED", { actorFamily: actorType, source: "hook" })
     }
   }, [authHasHydrated, actorType])
+
+  // P2-T31-R7: the ONLY place that resolves the initial/actor-scoped status
+  // check into a UI-visible conclusion. Deliberately distinct from the bare
+  // `applySubscribed` (used by finishMutation for subscribe()/unsubscribe())
+  // so a status check and a mutation both drive `statusResolved` from their
+  // own call sites, without either one needing to know about the other's
+  // existence. `checkPersonalPushStatus` only ever invokes its
+  // `applyIsSubscribed` dependency from a branch it has ALREADY confirmed is
+  // still the current operation (see STATUS_APPLY vs STATUS_DISCARDED_STALE
+  // in push-personal-status-check.ts) — so this can never mark `resolved`
+  // for a stale/superseded check.
+  const applyStatusResult = useCallback(
+    (value: boolean) => {
+      applySubscribed(value)
+      setStatusResolved(true)
+    },
+    [applySubscribed]
+  )
 
   // P2-T05 Stage3R1 (F-P2-T05-13): la existencia física de la subscription
   // ya NO es, por sí sola, la fuente de verdad de "activado" — desde
@@ -207,7 +252,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         const data = await res.json()
         return { ok: true, subscribed: data.subscribed === true }
       },
-      applyIsSubscribed: applySubscribed,
+      applyIsSubscribed: applyStatusResult,
       // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): antes de leer el estado
       // físico, espera cualquier subscribe()/unsubscribe() todavía en vuelo
       // para ESTE actor — incluida una mutación arrancada por una instancia
@@ -254,6 +299,13 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       if (current) {
         applySubscribed(subscribed)
         setLoading(false)
+        // P2-T31-R7: a completed mutation is itself an authoritative
+        // conclusion — if the initial status check hadn't resolved yet for
+        // some reason, a live subscribe()/unsubscribe() the user just
+        // performed is at least as authoritative. Idempotent once already
+        // `true` (the overwhelmingly common case, since mutations are
+        // user-triggered well after Perfil has mounted).
+        setStatusResolved(true)
       }
       return { current, subscribed: current ? subscribed : isSubscribedRef.current }
     },
@@ -506,6 +558,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   return {
     isSupported,
     isSubscribed,
+    statusResolved,
     permission,
     subscribe,
     unsubscribe,

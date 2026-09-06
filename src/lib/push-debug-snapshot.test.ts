@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   collectPushDebugSnapshot,
+  fingerprintActorId,
   fingerprintPushEndpoint,
   formatPushDebugSnapshot,
   type PushDebugSnapshotDeps,
@@ -38,6 +39,36 @@ function baseDeps(overrides: Partial<PushDebugSnapshotDeps> = {}): PushDebugSnap
     ...overrides,
   }
 }
+
+// P2-T31-R7 (DEBUG HYGIENE): F-P2-T31-RAW-ACTOR-ID-EXPOSED-01 — a physical
+// trace Leonardo copied showed `actorFamily=cliente:<raw internal id>`
+// because the panel used to pass the composite `${family}:${id}` key
+// straight into this field. `actorFingerprint` is the safe replacement for
+// distinguishing "same actor" across two captures.
+describe("fingerprintActorId", () => {
+  test("deterministic — same actor id always produces the same fingerprint", () => {
+    const a = fingerprintActorId("cliente-internal-id-12345")
+    const b = fingerprintActorId("cliente-internal-id-12345")
+    expect(a).toBe(b)
+  })
+
+  test("different actor ids produce different fingerprints", () => {
+    const a = fingerprintActorId("actor-A")
+    const b = fingerprintActorId("actor-B")
+    expect(a).not.toBe(b)
+  })
+
+  test("never includes any substring of the real actor id", () => {
+    const actorId = "cliente-internal-db-id-abcdef123456"
+    const fp = fingerprintActorId(actorId)
+    expect(actorId).not.toContain(fp)
+    expect(fp.length).toBe(8)
+  })
+
+  test("is 8 lowercase hex characters, same shape as fingerprintPushEndpoint", () => {
+    expect(fingerprintActorId("any-id")).toMatch(/^[0-9a-f]{8}$/)
+  })
+})
 
 describe("fingerprintPushEndpoint", () => {
   test("deterministic — same input always produces the same fingerprint", () => {
@@ -83,6 +114,18 @@ describe("collectPushDebugSnapshot — happy path", () => {
     expect(snapshot.mutationInFlight).toBe(false)
     expect(snapshot.uiSwitch).toBe(true)
     expect(snapshot.error).toBe("none")
+  })
+
+  test("P2-T31-R7: actorFingerprint defaults to 'n/a' when the caller doesn't supply one", async () => {
+    const snapshot = await collectPushDebugSnapshot(baseDeps())
+    expect(snapshot.actorFingerprint).toBe("n/a")
+  })
+
+  test("P2-T31-R7: actorFingerprint round-trips the caller-supplied fingerprint, never the raw actor id", async () => {
+    const fp = fingerprintActorId("cliente-internal-db-id-999")
+    const snapshot = await collectPushDebugSnapshot(baseDeps({ actorFingerprint: fp }))
+    expect(snapshot.actorFingerprint).toBe(fp)
+    expect(JSON.stringify(snapshot)).not.toContain("cliente-internal-db-id-999")
   })
 
   test("never includes the real endpoint anywhere in the snapshot", async () => {
@@ -219,6 +262,7 @@ describe("formatPushDebugSnapshot", () => {
     for (const key of [
       "timestamp",
       "actorFamily",
+      "actorFingerprint",
       "path",
       "visibility",
       "permission",

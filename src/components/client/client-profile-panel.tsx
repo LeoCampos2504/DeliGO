@@ -1086,17 +1086,28 @@ function SettingsSection() {
                   ? "Procesando..."
                   : !push.isSupported
                   ? "No disponibles en este navegador"
+                  : !push.statusResolved
+                  ? "Comprobando estado..."
                   : notifications
                   ? "Activadas"
                   : "Desactivadas"}
               </p>
             </div>
           </div>
-          <Switch
-            checked={notifications}
-            onCheckedChange={handleToggleNotifications}
-            disabled={!push.isSupported || push.loading}
-          />
+          {push.isSupported && !push.statusResolved ? (
+            // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): mientras no
+            // exista todavía una conclusión autoritativa, NUNCA renderizar el
+            // Switch como "Desactivado" — sería un OFF falso que después
+            // cambia solo a ON (el flicker físico que Leonardo capturó en
+            // iPhone). Un loader neutral no afirma ni ON ni OFF.
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+          ) : (
+            <Switch
+              checked={notifications}
+              onCheckedChange={handleToggleNotifications}
+              disabled={!push.isSupported || push.loading}
+            />
+          )}
         </div>
         <PushDebugPanel
           actorFamily="cliente"

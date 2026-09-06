@@ -536,4 +536,20 @@ describe("P2-T31-R6A — trace wiring is observational only, never changes the o
     expect(src).toContain("fingerprintPushEndpoint(subscription.endpoint)")
     expect(src).not.toMatch(/trace\([^)]*endpoint:\s*subscription\.endpoint/)
   })
+
+  // P2-T31-R7 (DEBUG HYGIENE): F-P2-T31-ENDPOINT-BOOLEAN-FALSE-POSITIVE-01 —
+  // the field name `endpointStillMatches` was getting redacted by
+  // push-debug-trace.ts's blanket "contains endpoint" sanitizer rule despite
+  // being a plain boolean with no endpoint data. Renamed to
+  // `physicalStillMatches` so it survives sanitization while the rule itself
+  // (protecting genuinely endpoint-shaped fields) stays intact.
+  test("ENDPOINT_RECHECK_RESULT traces the boolean as physicalStillMatches, never the old endpointStillMatches name that the sanitizer would redact", () => {
+    const src = require("fs").readFileSync(require("path").join(__dirname, "push-personal-status-check.ts"), "utf-8")
+    const codeOnly = src
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    expect(codeOnly).toContain("physicalStillMatches: currentSubscription?.endpoint === endpoint")
+    expect(codeOnly).not.toContain("endpointStillMatches")
+  })
 })
