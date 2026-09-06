@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import {
   __resetInFlightPersonalPushMutationsForTests,
+  hasInFlightPersonalPushMutationForDebug,
   registerInFlightPersonalPushMutation,
   waitForInFlightPersonalPushMutation,
 } from "./push-mutation-in-flight-registry"
@@ -161,5 +162,62 @@ describe("registerInFlightPersonalPushMutation — self-cleanup after settling",
 
   test("a null key is a safe no-op to register (never throws, never registers anything waitable elsewhere)", () => {
     expect(() => registerInFlightPersonalPushMutation(null, Promise.resolve())).not.toThrow()
+  })
+})
+
+// P2-T31-R6 (INTERMITTENT-IPHONE-PUSH-LIFECYCLE-DIAGNOSTIC): the read-only
+// debug accessor must never wait, never consume, and never mutate the
+// registry — only report the current boolean.
+describe("hasInFlightPersonalPushMutationForDebug — read-only, never mutates", () => {
+  test("false when nothing is registered", () => {
+    expect(hasInFlightPersonalPushMutationForDebug("cliente:c1")).toBe(false)
+  })
+
+  test("false for a null key", () => {
+    expect(hasInFlightPersonalPushMutationForDebug(null)).toBe(false)
+  })
+
+  test("true while a mutation is registered for that exact key", () => {
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("cliente:c1", d.promise)
+    expect(hasInFlightPersonalPushMutationForDebug("cliente:c1")).toBe(true)
+    d.resolve()
+  })
+
+  test("false for a different key even while another key has one in flight", () => {
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("cliente:c1", d.promise)
+    expect(hasInFlightPersonalPushMutationForDebug("cliente:c2")).toBe(false)
+    d.resolve()
+  })
+
+  test("calling it repeatedly does not consume/clear the entry — a real wait still blocks afterwards", async () => {
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("cliente:c1", d.promise)
+    hasInFlightPersonalPushMutationForDebug("cliente:c1")
+    hasInFlightPersonalPushMutationForDebug("cliente:c1")
+
+    let resolved = false
+    const waitPromise = waitForInFlightPersonalPushMutation("cliente:c1").then(() => {
+      resolved = true
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    d.resolve()
+    await waitPromise
+    expect(resolved).toBe(true)
+  })
+
+  test("becomes false again once the mutation settles", async () => {
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("cliente:c1", d.promise)
+    expect(hasInFlightPersonalPushMutationForDebug("cliente:c1")).toBe(true)
+    d.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(hasInFlightPersonalPushMutationForDebug("cliente:c1")).toBe(false)
   })
 })

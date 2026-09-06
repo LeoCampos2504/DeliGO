@@ -7,11 +7,14 @@
 // dependencies and a shared `LatestOperationGate` also used by its own
 // subscribe()/unsubscribe() mutations.
 import type { LatestOperationGate } from "./push-operation-guard"
+import { fingerprintPushEndpoint } from "@/lib/push-debug-snapshot"
 
 export interface PersonalPushPhysicalSubscription {
   endpoint: string
   toJSON(): unknown
 }
+
+export type PushDebugTraceFn = (event: string, fields?: Record<string, unknown>) => void
 
 export interface PersonalPushStatusCheckDeps {
   gate: LatestOperationGate
@@ -27,6 +30,13 @@ export interface PersonalPushStatusCheckDeps {
   // why this can't be solved by `gate` alone. Optional and defaulted to a
   // no-op wait so every existing caller/test keeps its exact prior behavior.
   waitForInFlightMutation?: () => Promise<void>
+  // P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): optional, diagnostic-only.
+  // Synchronous, never awaited, never allowed to influence any branch below
+  // — see push-debug-trace.ts::recordPushDebugEvent, which is itself a
+  // fail-safe no-op unless a TESTING session has explicitly armed tracing.
+  // Defaulted to a no-op so every existing caller/test keeps working
+  // unmodified without passing this field.
+  trace?: PushDebugTraceFn
 }
 
 /**
@@ -49,7 +59,9 @@ export interface PersonalPushStatusCheckDeps {
  */
 export async function checkPersonalPushStatus(deps: PersonalPushStatusCheckDeps): Promise<void> {
   const { gate, getCurrentSubscription, fetchStatus, applyIsSubscribed, waitForInFlightMutation } = deps
+  const trace: PushDebugTraceFn = deps.trace ?? (() => {})
   const opId = gate.begin()
+  trace("STATUS_CHECK_START", { opId })
 
   // P2-T31-R2: wait out any mutation already in flight for this actor
   // BEFORE touching physical state — a `subscribe()` that hasn't created
@@ -58,34 +70,66 @@ export async function checkPersonalPushStatus(deps: PersonalPushStatusCheckDeps)
   // outcome: once it settles (whatever the outcome), the normal
   // authoritative read below still runs and decides for itself.
   if (waitForInFlightMutation) {
+    trace("MUTATION_WAIT_START", { opId })
     await waitForInFlightMutation()
+    trace("MUTATION_WAIT_END", { opId })
   }
 
   let subscription: PersonalPushPhysicalSubscription | null
   try {
     subscription = await getCurrentSubscription()
   } catch {
-    if (gate.isCurrent(opId)) applyIsSubscribed(false)
+    trace("PHYSICAL_SUBSCRIPTION_READ", { opId, physicalPresent: false, error: "throw" })
+    if (gate.isCurrent(opId)) {
+      trace("STATUS_APPLY", { opId, candidateValue: false, gateCurrent: true, reason: "getCurrentSubscription_threw" })
+      applyIsSubscribed(false)
+    } else {
+      trace("STATUS_DISCARDED_STALE", { opId, candidateValue: false, gateCurrent: false, reason: "getCurrentSubscription_threw" })
+    }
     return
   }
 
+  trace("PHYSICAL_SUBSCRIPTION_READ", {
+    opId,
+    physicalPresent: subscription !== null,
+    endpointFingerprint: subscription ? fingerprintPushEndpoint(subscription.endpoint) : null,
+  })
+
   if (!subscription) {
-    if (gate.isCurrent(opId)) applyIsSubscribed(false)
+    if (gate.isCurrent(opId)) {
+      trace("STATUS_APPLY", { opId, candidateValue: false, gateCurrent: true, reason: "no_physical_subscription" })
+      applyIsSubscribed(false)
+    } else {
+      trace("STATUS_DISCARDED_STALE", { opId, candidateValue: false, gateCurrent: false, reason: "no_physical_subscription" })
+    }
     return
   }
 
   const endpoint = subscription.endpoint
 
   let result: { ok: boolean; subscribed: boolean }
+  trace("BACKEND_STATUS_START", { opId })
   try {
     result = await fetchStatus(JSON.stringify(subscription.toJSON()))
   } catch {
-    if (gate.isCurrent(opId)) applyIsSubscribed(false)
+    trace("BACKEND_STATUS_RESULT", { opId, ok: false, error: "throw" })
+    if (gate.isCurrent(opId)) {
+      trace("STATUS_APPLY", { opId, candidateValue: false, gateCurrent: true, reason: "fetchStatus_threw" })
+      applyIsSubscribed(false)
+    } else {
+      trace("STATUS_DISCARDED_STALE", { opId, candidateValue: false, gateCurrent: false, reason: "fetchStatus_threw" })
+    }
     return
   }
+  trace("BACKEND_STATUS_RESULT", { opId, ok: result.ok, backendSubscribed: result.subscribed })
 
   if (!result.ok) {
-    if (gate.isCurrent(opId)) applyIsSubscribed(false)
+    if (gate.isCurrent(opId)) {
+      trace("STATUS_APPLY", { opId, candidateValue: false, gateCurrent: true, reason: "backend_not_ok" })
+      applyIsSubscribed(false)
+    } else {
+      trace("STATUS_DISCARDED_STALE", { opId, candidateValue: false, gateCurrent: false, reason: "backend_not_ok" })
+    }
     return
   }
 
@@ -95,11 +139,16 @@ export async function checkPersonalPushStatus(deps: PersonalPushStatusCheckDeps)
   } catch {
     // Cannot confirm the endpoint is still relevant — discard silently
     // rather than risk applying a possibly-stale result.
+    trace("ENDPOINT_RECHECK_RESULT", { opId, error: "throw" })
     return
   }
+  trace("ENDPOINT_RECHECK_RESULT", { opId, endpointStillMatches: currentSubscription?.endpoint === endpoint })
   if (currentSubscription?.endpoint !== endpoint) return
 
   if (gate.isCurrent(opId)) {
+    trace("STATUS_APPLY", { opId, candidateValue: result.subscribed === true, gateCurrent: true, reason: "server_authoritative_result" })
     applyIsSubscribed(result.subscribed === true)
+  } else {
+    trace("STATUS_DISCARDED_STALE", { opId, candidateValue: result.subscribed === true, gateCurrent: false, reason: "server_authoritative_result" })
   }
 }

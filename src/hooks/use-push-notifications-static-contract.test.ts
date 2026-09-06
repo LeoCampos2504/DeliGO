@@ -427,3 +427,79 @@ describe("P2-T31-R5A — subscribe() confirms stale-subscription removal via the
     expect(src).toContain('from "@/lib/push-subscription-key"')
   })
 })
+
+// P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): this hook is instrumented
+// with `recordPushDebugEvent` calls at every real lifecycle point, but §21 of
+// the task explicitly forbids any functional change — no delay, no retry, no
+// new gate/actor-resolution behavior. These tests certify the wiring exists
+// AND that every describe block above (unmodified) still proves the exact
+// same subscribe/unsubscribe/status/gate/actor/loading contracts as before
+// R6A — i.e. tracing was added, nothing else changed.
+describe("P2-T31-R6A — diagnostic tracer wiring is purely additive", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+  const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+
+  test("imports the real tracer module, never a local reimplementation", () => {
+    expect(src).toContain('from "@/lib/push-debug-trace"')
+    expect(src).toContain("recordPushDebugEvent")
+    expect(src).toContain("setPushDebugTraceContext")
+  })
+
+  test("checkSubscription passes the real recordPushDebugEvent as `trace` into checkPersonalPushStatus", () => {
+    expect(checkSubscriptionBody).toContain("trace: recordPushDebugEvent")
+  })
+
+  test("subscribe()/unsubscribe() emit START and FINISH events bracketing the real mutation", () => {
+    expect(subscribeBody).toContain('recordPushDebugEvent("SUBSCRIBE_START"')
+    expect(subscribeBody).toContain('recordPushDebugEvent("SUBSCRIBE_FINISH"')
+    expect(unsubscribeBody).toContain('recordPushDebugEvent("UNSUBSCRIBE_START"')
+    expect(unsubscribeBody).toContain('recordPushDebugEvent("UNSUBSCRIBE_FINISH"')
+  })
+
+  test("subscribe() never traces the raw endpoint — only fingerprintPushEndpoint(...)", () => {
+    expect(subscribeBody).toContain("fingerprintPushEndpoint(")
+    expect(subscribeBody).not.toMatch(/recordPushDebugEvent\([^)]*endpoint:\s*(existingSubscription|subscription)\.endpoint/)
+  })
+
+  test("a new authHasHydrated selector exists and is read-only — never appears inside an `if` that gates subscribe/unsubscribe/status decisions", () => {
+    expect(src).toContain("const authHasHydrated = useAuthStore((s) => s._hasHydrated)")
+    // The only conditional uses of authHasHydrated must be the observational
+    // AUTH_HYDRATED effect — never a guard around checkSubscription/
+    // subscribe/unsubscribe/finishMutation.
+    const hydratedGuards = [...src.matchAll(/if\s*\([^)]*authHasHydrated[^)]*\)/g)].map((m) => m[0])
+    for (const guard of hydratedGuards) {
+      expect(guard).toContain("wasHydratedRef.current")
+    }
+  })
+
+  test("AUTH_HYDRATED fires from its own dedicated effect, never inside the mount or actorKey effects (kept structurally separate so it cannot change their timing)", () => {
+    const mountEffectStart = src.indexOf("const supported =")
+    const mountEffect = src.slice(mountEffectStart, src.indexOf("}, [])", mountEffectStart) + "}, [])".length)
+    expect(mountEffect).not.toContain("AUTH_HYDRATED")
+
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).not.toContain("AUTH_HYDRATED")
+
+    expect(src).toContain('recordPushDebugEvent("AUTH_HYDRATED"')
+  })
+
+  test("HOOK_IS_SUBSCRIBED_CHANGED is gated on an actual value change, never fired unconditionally", () => {
+    const applyIdx = src.indexOf("const applySubscribed = useCallback")
+    const applyEnd = src.indexOf("}, [])", applyIdx) + "}, [])".length
+    const applyBody = src.slice(applyIdx, applyEnd)
+    expect(applyBody).toContain("if (isSubscribedRef.current !== value)")
+    expect(applyBody).toContain('recordPushDebugEvent("HOOK_IS_SUBSCRIBED_CHANGED"')
+  })
+
+  test("PUSH_HOOK_MOUNT/UNMOUNT wrap the existing mount effect body without altering its return/cleanup contract", () => {
+    const mountEffectStart = src.indexOf("const supported =")
+    const mountEffect = src.slice(src.lastIndexOf("useEffect(() => {", mountEffectStart), src.indexOf("}, [])", mountEffectStart) + "}, [])".length)
+    expect(mountEffect).toContain('recordPushDebugEvent("PUSH_HOOK_MOUNT")')
+    expect(mountEffect).toContain('recordPushDebugEvent("PUSH_HOOK_UNMOUNT")')
+    expect(mountEffect).toContain("return () => {")
+    expect(mountEffect).toContain("gateRef.current.invalidate()")
+  })
+})

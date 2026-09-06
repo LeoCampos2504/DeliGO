@@ -15,6 +15,11 @@ import {
   unsubscribeStalePushSubscription,
   urlBase64ToUint8Array,
 } from "@/lib/push-subscription-key"
+import {
+  fingerprintPushEndpoint,
+  recordPushDebugEvent,
+  setPushDebugTraceContext,
+} from "@/lib/push-debug-trace"
 
 /**
  * P2-T05 Hardening H3B (F-P2-T05-23): resultado explícito y autoritativo de
@@ -71,6 +76,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // valor — esa decisión sigue siendo 100% del gate.
   const isSubscribedRef = useRef(false)
   const applySubscribed = useCallback((value: boolean) => {
+    // P2-T31-R6A: purely observational — fires only on an actual change,
+    // never influences the assignment itself.
+    if (isSubscribedRef.current !== value) {
+      recordPushDebugEvent("HOOK_IS_SUBSCRIBED_CHANGED", { oldValue: isSubscribedRef.current, newValue: value })
+    }
     isSubscribedRef.current = value
     setIsSubscribed(value)
   }, [])
@@ -85,7 +95,16 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const actorKey = actorId && actorType ? `${actorType}:${actorId}` : null
   const isFirstActorKeyRef = useRef(true)
 
+  // P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): purely observational —
+  // feeds the diagnostic tracer so a physical capture can show exactly when
+  // auth hydration finished relative to the first status check. NEVER read
+  // by any branch below that decides subscribe/unsubscribe/status behavior
+  // — see AUTH_HYDRATION_PUSH_RACE in the R6 report, which this exists to
+  // help confirm or rule out with real evidence, not to fix yet.
+  const authHasHydrated = useAuthStore((s) => s._hasHydrated)
+
   useEffect(() => {
+    recordPushDebugEvent("PUSH_HOOK_MOUNT")
     // Check if push is supported
     const supported = "serviceWorker" in navigator && "PushManager" in window
     setIsSupported(supported)
@@ -99,6 +118,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // invalidada — ninguna respuesta tardía puede aplicar sobre un
     // componente que ya no representa el estado actual.
     return () => {
+      recordPushDebugEvent("PUSH_HOOK_UNMOUNT")
       gateRef.current.invalidate()
     }
   }, [])
@@ -111,6 +131,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       isFirstActorKeyRef.current = false
       return
     }
+    recordPushDebugEvent("ACTOR_KEY_CHANGED", { actorFamily: actorType })
     // P2-T05 Stage3R2 (Race C): el actor autenticado cambió — cualquier
     // lectura/mutación en vuelo pertenecía al actor anterior y nunca puede
     // decidir el estado visible del actor nuevo. Invalidar el gate ya evita
@@ -131,6 +152,21 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
   }, [actorKey])
 
+  // P2-T31-R6A: purely observational context sync for the tracer — never
+  // used by any decision logic. Kept as its own effect, entirely AFTER the
+  // two effects above, so it never changes their timing/ordering.
+  useEffect(() => {
+    setPushDebugTraceContext({ actorFamily: actorType, authHasHydrated })
+  }, [actorType, authHasHydrated])
+
+  const wasHydratedRef = useRef(false)
+  useEffect(() => {
+    if (authHasHydrated && !wasHydratedRef.current) {
+      wasHydratedRef.current = true
+      recordPushDebugEvent("AUTH_HYDRATED", { actorFamily: actorType, source: "hook" })
+    }
+  }, [authHasHydrated, actorType])
+
   // P2-T05 Stage3R1 (F-P2-T05-13): la existencia física de la subscription
   // ya NO es, por sí sola, la fuente de verdad de "activado" — desde
   // SERVER_DETACH_ONLY (F-P2-T05-02) la subscription física puede seguir
@@ -149,6 +185,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // titularidad de `loading` de una mutación en vuelo (F-P2-T05-15,
   // STATUS_CHECK_CAN_STEAL_MUTATION_LOADING_OWNERSHIP=NO estructuralmente).
   const checkSubscription = async () => {
+    recordPushDebugEvent("AUTH_STATE_OBSERVED", { actorFamily: actorType, authHasHydrated, source: "hook" })
     await checkPersonalPushStatus({
       gate: gateRef.current,
       getCurrentSubscription: async () => {
@@ -187,6 +224,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       // finalmente sí resuelve, su propio finishMutation ve current:false y
       // no aplica nada que ningún componente vivo pueda observar.
       waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey),
+      trace: recordPushDebugEvent,
     })
   }
 
@@ -231,6 +269,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // POST a /api/push/subscribe termine.
     const opId = gateRef.current.begin()
     setLoading(true)
+    recordPushDebugEvent("SUBSCRIBE_START", { opId })
 
     // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): el cuerpo real vive en este
     // `run` interno para poder registrar la promesa (síncronamente, antes de
@@ -258,7 +297,9 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         await navigator.serviceWorker.ready
 
         // Get VAPID key
+        recordPushDebugEvent("VAPID_FETCH_START", { opId })
         const vapidKey = await getVapidKey()
+        recordPushDebugEvent("VAPID_FETCH_RESULT", { opId, fetched: !!vapidKey })
         if (!vapidKey) {
           if (gateRef.current.isCurrent(opId)) {
             toast.error("Las notificaciones push no están configuradas")
@@ -282,6 +323,12 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           existingSubscription?.options.applicationServerKey ?? null,
           applicationServerKey
         )
+        recordPushDebugEvent("SUBSCRIBE_PHYSICAL_EXISTING", {
+          opId,
+          existingPresent: !!existingSubscription,
+          endpointFingerprint: existingSubscription ? fingerprintPushEndpoint(existingSubscription.endpoint) : null,
+        })
+        recordPushDebugEvent("VAPID_MATCH_RESULT", { opId, existingKeyIsCurrent })
 
         let subscription: PushSubscription
         if (existingSubscription && !existingKeyIsCurrent) {
@@ -295,9 +342,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           // capturado por el catch de abajo -> finishMutation(opId, false))
           // en vez de arriesgar dos subscriptions físicas simultáneas o
           // reportar éxito sin poder probarlo.
+          recordPushDebugEvent("SUBSCRIBE_STALE_REMOVE_START", { opId })
           const removed = await unsubscribeStalePushSubscription(existingSubscription, () =>
             registration.pushManager.getSubscription()
           )
+          recordPushDebugEvent("SUBSCRIBE_STALE_REMOVE_RESULT", { opId, removed })
           if (!removed) {
             throw new Error("No se pudo confirmar la eliminación de la subscription obsoleta")
           }
@@ -318,6 +367,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
             applicationServerKey: applicationServerKey as BufferSource,
           })
         }
+        recordPushDebugEvent("SUBSCRIBE_NEW_PHYSICAL_RESULT", {
+          opId,
+          endpointFingerprint: fingerprintPushEndpoint(subscription.endpoint),
+          reused: !!(existingSubscription && existingKeyIsCurrent),
+        })
 
         // Save to server
         // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
@@ -325,6 +379,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         // Fase 2, requerido para que /api/push/subscribe resuelva sin
         // ambigüedad bajo 2+ cookies de familia coexistiendo.
         const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"
+        recordPushDebugEvent("SUBSCRIBE_BACKEND_START", { opId })
         const res = await fetch(subscribeUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -332,6 +387,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
             subscription: JSON.stringify(subscription),
           }),
         })
+        recordPushDebugEvent("SUBSCRIBE_BACKEND_RESULT", { opId, httpStatus: res.status, ok: res.ok })
 
         if (!res.ok) {
           throw new Error("Error saving subscription")
@@ -340,12 +396,19 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         if (gateRef.current.isCurrent(opId)) {
           toast.success("Notificaciones activadas 🔔")
         }
+        recordPushDebugEvent("SUBSCRIBE_FINISH", { opId, current: gateRef.current.isCurrent(opId), subscribed: true })
         return finishMutation(opId, true)
       } catch (error) {
         console.error("Push subscribe error:", safeErrorForLog(error))
         if (gateRef.current.isCurrent(opId)) {
           toast.error("Error al activar notificaciones")
         }
+        recordPushDebugEvent("SUBSCRIBE_FINISH", {
+          opId,
+          current: gateRef.current.isCurrent(opId),
+          subscribed: false,
+          errorClass: error instanceof Error ? error.name : "unknown",
+        })
         return finishMutation(opId, false)
       } finally {
         // Cierra `loading` incluso en un `return` temprano de más arriba —
@@ -370,6 +433,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // que el detach server-side siquiera empiece.
     const opId = gateRef.current.begin()
     setLoading(true)
+    recordPushDebugEvent("UNSUBSCRIBE_START", { opId })
 
     // P2-T31-R2: mismo motivo que en subscribe() — registrar la promesa
     // real en el registro compartido requiere separarla en un `run` interno
@@ -394,6 +458,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
               subscription: JSON.stringify(subscription),
             }),
           })
+          recordPushDebugEvent("UNSUBSCRIBE_BACKEND_RESULT", { opId, httpStatus: res.status, ok: res.ok })
 
           if (!res.ok) {
             throw new Error("Error removing subscription")
@@ -412,12 +477,18 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           setPermission("default")
           toast.success("Notificaciones desactivadas")
         }
+        recordPushDebugEvent("UNSUBSCRIBE_FINISH", { opId, current: gateRef.current.isCurrent(opId), subscribed: false })
         return finishMutation(opId, false)
       } catch (error) {
         console.error("Push unsubscribe error:", safeErrorForLog(error))
         if (gateRef.current.isCurrent(opId)) {
           toast.error("Error al desactivar notificaciones")
         }
+        recordPushDebugEvent("UNSUBSCRIBE_FINISH", {
+          opId,
+          current: gateRef.current.isCurrent(opId),
+          errorClass: error instanceof Error ? error.name : "unknown",
+        })
         // Un detach fallido no cambió nada server-side — se reporta la verdad
         // vigente (ref siempre fresco) tal cual estaba, sin forzar ningún
         // valor nuevo.

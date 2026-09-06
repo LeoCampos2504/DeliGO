@@ -83,6 +83,8 @@ import { useAuthStore } from "@/store/auth-store"
 import { useCartStore } from "@/store/cart-store"
 import { useNavStore } from "@/store/nav-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { TermsContent as SharedTermsContent, PrivacyContent as SharedPrivacyContent, CookiesContent as SharedCookiesContent } from "@/components/shared/legal-content"
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
@@ -1001,6 +1003,12 @@ function SettingsSection() {
   // haya disparado ella misma (p.ej. el chequeo de montaje).
   const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
   if (push.isSubscribed !== prevIsSubscribed) {
+    recordPushDebugEvent("UI_SWITCH_CHANGED", {
+      role: "cliente",
+      oldValue: prevIsSubscribed,
+      newValue: push.isSubscribed,
+      hookValue: push.isSubscribed,
+    })
     setPrevIsSubscribed(push.isSubscribed)
     setNotifications(push.isSubscribed)
   }
@@ -1090,6 +1098,12 @@ function SettingsSection() {
             disabled={!push.isSupported || push.loading}
           />
         </div>
+        <PushDebugPanel
+          actorFamily="cliente"
+          hookIsSubscribed={push.isSubscribed}
+          hookLoading={push.loading}
+          uiSwitch={notifications}
+        />
       </div>
     </SectionCard>
   )

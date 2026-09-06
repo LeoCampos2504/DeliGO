@@ -27,6 +27,8 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useAuthStore } from "@/store/auth-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { toast } from "sonner"
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
@@ -167,6 +169,23 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
   const authUser = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const push = usePushNotifications()
+
+  // P2-T31-R6A: Repartidor renders `push.isSubscribed` directly (no local
+  // mirror state like Cliente/Negocio) — this ref+effect exists solely to
+  // detect an actual value change for the diagnostic tracer, purely
+  // observational, never influences rendering.
+  const prevUiSwitchRef = useRef(push.isSubscribed)
+  useEffect(() => {
+    if (prevUiSwitchRef.current !== push.isSubscribed) {
+      recordPushDebugEvent("UI_SWITCH_CHANGED", {
+        role: "repartidor",
+        oldValue: prevUiSwitchRef.current,
+        newValue: push.isSubscribed,
+        hookValue: push.isSubscribed,
+      })
+      prevUiSwitchRef.current = push.isSubscribed
+    }
+  }, [push.isSubscribed])
 
   const [nombre, setNombre] = useState(perfil?.nombre ?? "")
   const [telefono, setTelefono] = useState(perfil?.telefono ?? "")
@@ -461,6 +480,12 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
               disabled={push.loading}
             />
           </div>
+          <PushDebugPanel
+            actorFamily="repartidor"
+            hookIsSubscribed={push.isSubscribed}
+            hookLoading={push.loading}
+            uiSwitch={push.isSubscribed}
+          />
         </div>
       )}
 

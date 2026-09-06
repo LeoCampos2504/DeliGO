@@ -42,6 +42,8 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { ImageUpload } from "@/components/shared/image-upload"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { DeliveryZonesSection } from "./delivery-zones-section"
 import { TerminalesOperativasSection } from "./terminales-operativas-section"
 
@@ -1227,6 +1229,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
   // síncrono dentro de un efecto.
   const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
   if (push.isSubscribed !== prevIsSubscribed) {
+    recordPushDebugEvent("UI_SWITCH_CHANGED", {
+      role: "negocio",
+      oldValue: prevIsSubscribed,
+      newValue: push.isSubscribed,
+      hookValue: push.isSubscribed,
+    })
     setPrevIsSubscribed(push.isSubscribed)
     setEnabled(push.isSubscribed)
   }
@@ -1300,6 +1308,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
           </p>
         </div>
       )}
+      <PushDebugPanel
+        actorFamily="negocio"
+        hookIsSubscribed={push.isSubscribed}
+        hookLoading={push.loading}
+        uiSwitch={enabled}
+      />
     </div>
   )
 }

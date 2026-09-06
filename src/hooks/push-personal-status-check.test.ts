@@ -415,3 +415,125 @@ describe("RACE E — cross-remount: a fresh mount's status check races an orphan
     expect(applied).toEqual([true])
   })
 })
+
+// P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): the optional `trace` dep
+// must be purely observational — every existing race test above already
+// proves the OUTCOME is unaffected (none of them pass `trace`, and all still
+// pass unmodified). These tests prove the wiring itself: the right events
+// fire, in the right order, without changing what applyIsSubscribed receives.
+describe("P2-T31-R6A — trace wiring is observational only, never changes the outcome", () => {
+  test("a normal successful check emits START -> BACKEND_START -> BACKEND_RESULT -> APPLY, in order, and still applies the same value as without trace", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const traced: { event: string; fields?: Record<string, unknown> }[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+      trace: (event, fields) => traced.push({ event, fields }),
+    })
+
+    expect(applied).toEqual([true])
+    const names = traced.map((t) => t.event)
+    expect(names).toEqual([
+      "STATUS_CHECK_START",
+      "PHYSICAL_SUBSCRIPTION_READ",
+      "BACKEND_STATUS_START",
+      "BACKEND_STATUS_RESULT",
+      "ENDPOINT_RECHECK_RESULT",
+      "STATUS_APPLY",
+    ])
+  })
+
+  test("no physical subscription: emits PHYSICAL_SUBSCRIPTION_READ(physicalPresent=false) then STATUS_APPLY(false), never touches BACKEND_STATUS_START", async () => {
+    const gate = createLatestOperationGate()
+    const traced: { event: string; fields?: Record<string, unknown> }[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => null,
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: () => {},
+      trace: (event, fields) => traced.push({ event, fields }),
+    })
+
+    expect(traced.map((t) => t.event)).toEqual(["STATUS_CHECK_START", "PHYSICAL_SUBSCRIPTION_READ", "STATUS_APPLY"])
+    expect(traced[1].fields?.physicalPresent).toBe(false)
+    expect(traced[2].fields?.candidateValue).toBe(false)
+  })
+
+  test("a stale (superseded) result emits STATUS_DISCARDED_STALE instead of STATUS_APPLY, and never calls applyIsSubscribed", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const traced: { event: string; fields?: Record<string, unknown> }[] = []
+    let getSubCallCount = 0
+    const getSub = deferred<PersonalPushPhysicalSubscription | null>()
+    const fetchStatusDeferred = deferred<{ ok: boolean; subscribed: boolean }>()
+
+    const checkPromise = checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => {
+        getSubCallCount += 1
+        if (getSubCallCount === 1) return getSub.promise
+        return fakeSubscription("https://push.example/E1")
+      },
+      fetchStatus: async () => fetchStatusDeferred.promise,
+      applyIsSubscribed: (v) => applied.push(v),
+      trace: (event, fields) => traced.push({ event, fields }),
+    })
+
+    getSub.resolve(fakeSubscription("https://push.example/E1"))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    gate.invalidate() // a newer operation supersedes this one (Race A/C style)
+    fetchStatusDeferred.resolve({ ok: true, subscribed: true })
+    await checkPromise
+
+    expect(applied).toEqual([]) // outcome unchanged from the no-trace races above
+    expect(traced.some((t) => t.event === "STATUS_DISCARDED_STALE")).toBe(true)
+    expect(traced.some((t) => t.event === "STATUS_APPLY")).toBe(false)
+  })
+
+  test("mutation wait emits MUTATION_WAIT_START before MUTATION_WAIT_END, only when waitForInFlightMutation is provided", async () => {
+    const gate = createLatestOperationGate()
+    const traced: string[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      waitForInFlightMutation: async () => {},
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: () => {},
+      trace: (event) => traced.push(event),
+    })
+
+    expect(traced.indexOf("MUTATION_WAIT_START")).toBeGreaterThan(-1)
+    expect(traced.indexOf("MUTATION_WAIT_END")).toBeGreaterThan(traced.indexOf("MUTATION_WAIT_START"))
+  })
+
+  test("omitting `trace` entirely still works exactly as before (default no-op)", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: true, subscribed: false }),
+      applyIsSubscribed: (v) => applied.push(v),
+    })
+    expect(applied).toEqual([false])
+  })
+
+  test("PHYSICAL_SUBSCRIPTION_READ never carries the raw endpoint — only a fingerprint field", () => {
+    // Structural guarantee documented here for a reader of this file only —
+    // the actual redaction/sanitization is push-debug-trace.ts's job and is
+    // covered exhaustively in push-debug-trace.test.ts. This test just
+    // confirms this module passes a fingerprint field, never the endpoint
+    // itself, to the injected trace function.
+    const src = require("fs").readFileSync(require("path").join(__dirname, "push-personal-status-check.ts"), "utf-8")
+    expect(src).toContain("fingerprintPushEndpoint(subscription.endpoint)")
+    expect(src).not.toMatch(/trace\([^)]*endpoint:\s*subscription\.endpoint/)
+  })
+})

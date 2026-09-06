@@ -83,3 +83,17 @@ export function waitForInFlightPersonalPushMutation(key: string | null): Promise
 export function __resetInFlightPersonalPushMutationsForTests(): void {
   inFlightMutations.clear()
 }
+
+/**
+ * P2-T31-R6 (INTERMITTENT-IPHONE-PUSH-LIFECYCLE-DIAGNOSTIC): read-only
+ * diagnostic accessor — reports whether a mutation is CURRENTLY registered
+ * for `key`, without waiting for it, consuming it, or touching the registry
+ * in any way. Exists solely so the push debug panel can display
+ * `mutationInFlight` as one field of a snapshot; never used by real
+ * subscribe()/unsubscribe()/status-check lifecycle code, which must keep
+ * using `waitForInFlightPersonalPushMutation` instead.
+ */
+export function hasInFlightPersonalPushMutationForDebug(key: string | null): boolean {
+  if (!key) return false
+  return inFlightMutations.has(key)
+}
