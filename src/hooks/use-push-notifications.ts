@@ -65,6 +65,67 @@ export function pushMutationFailureMessage(error: unknown, fallback: string): st
   return fallback
 }
 
+// P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
+// a physical Android trace showed the gap between VAPID_MATCH_RESULT and
+// SUBSCRIBE_NEW_PHYSICAL_RESULT completely unexplained — no result AND no
+// error was ever recorded for the `registration.pushManager.subscribe(...)`
+// call itself, so it was impossible to tell whether it threw, is still
+// genuinely pending, or something else swallowed the outcome. Bounded to the
+// same 6 safe categories the task requires — never the raw `error.message`,
+// which could carry endpoint/environment detail.
+export type PushPhysicalSubscribeErrorClass =
+  | "NotAllowedError"
+  | "AbortError"
+  | "InvalidStateError"
+  | "NotSupportedError"
+  | "NetworkError"
+  | "Other"
+
+export function classifyPushSubscribeError(error: unknown): PushPhysicalSubscribeErrorClass {
+  if (error instanceof Error) {
+    switch (error.name) {
+      case "NotAllowedError":
+      case "AbortError":
+      case "InvalidStateError":
+      case "NotSupportedError":
+      case "NetworkError":
+        return error.name
+      default:
+        return "Other"
+    }
+  }
+  return "Other"
+}
+
+/**
+ * Isolates the ONE await that R12's Android trace proved is the exact point
+ * where a subscribe() attempt can go dark: `PushManager.subscribe()` itself.
+ * Brackets it with a START/RESULT/ERROR trace (unconditional, like every
+ * other trace call in this file) so the NEXT physical capture can show
+ * directly whether this call threw, and with what error class, instead of
+ * inferring it indirectly from a gap in the timeline. Rethrows unchanged —
+ * every existing catch/finally/toast/finishMutation behavior in subscribe()
+ * is untouched.
+ */
+export async function createPhysicalPushSubscription(
+  registration: ServiceWorkerRegistration,
+  applicationServerKey: BufferSource,
+  opId: number
+): Promise<PushSubscription> {
+  recordPushDebugEvent("SUBSCRIBE_PHYSICAL_CREATE_START", { opId })
+  try {
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey,
+    })
+    recordPushDebugEvent("SUBSCRIBE_PHYSICAL_CREATE_RESULT", { opId })
+    return subscription
+  } catch (error) {
+    recordPushDebugEvent("SUBSCRIBE_PHYSICAL_CREATE_ERROR", { opId, errorClass: classifyPushSubscribeError(error) })
+    throw error
+  }
+}
+
 interface UsePushNotificationsReturn {
   isSupported: boolean
   isSubscribed: boolean
@@ -334,7 +395,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       // (por el cleanup del unmount), así que cuando esa mutación huérfana
       // finalmente sí resuelve, su propio finishMutation ve current:false y
       // no aplica nada que ningún componente vivo pueda observar.
-      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey),
+      waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey, recordPushDebugEvent),
       trace: recordPushDebugEvent,
     })
   }
@@ -468,22 +529,16 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           if (!removed) {
             throw new Error("No se pudo confirmar la eliminación de la subscription obsoleta")
           }
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: applicationServerKey as BufferSource,
-          })
+          subscription = await createPhysicalPushSubscription(registration, applicationServerKey as BufferSource, opId)
         } else if (existingSubscription && existingKeyIsCurrent) {
           subscription = existingSubscription
         } else {
-          subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            // P2-T31-R3: cast needed only for a pre-existing TS/lib.dom
-            // strictness gap already tolerated elsewhere in this repo —
-            // `Uint8Array<ArrayBufferLike>` vs the DOM `BufferSource` union.
-            // Runtime behavior is unaffected: the browser accepts a
-            // Uint8Array here regardless.
-            applicationServerKey: applicationServerKey as BufferSource,
-          })
+          // P2-T31-R3: cast needed only for a pre-existing TS/lib.dom
+          // strictness gap already tolerated elsewhere in this repo —
+          // `Uint8Array<ArrayBufferLike>` vs the DOM `BufferSource` union.
+          // Runtime behavior is unaffected: the browser accepts a
+          // Uint8Array here regardless.
+          subscription = await createPhysicalPushSubscription(registration, applicationServerKey as BufferSource, opId)
         }
         recordPushDebugEvent("SUBSCRIBE_NEW_PHYSICAL_RESULT", {
           opId,
@@ -539,7 +594,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
 
     const mutationPromise = run()
-    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)
     return mutationPromise
   }, [isSupported, loading, finishMutation, actorType, actorKey])
 
@@ -617,7 +672,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
 
     const mutationPromise = run()
-    registerInFlightPersonalPushMutation(actorKey, mutationPromise)
+    registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)
     return mutationPromise
   }, [isSupported, loading, finishMutation, actorType, actorKey])
 

@@ -221,3 +221,86 @@ describe("hasInFlightPersonalPushMutationForDebug — read-only, never mutates",
     expect(hasInFlightPersonalPushMutationForDebug("cliente:c1")).toBe(false)
   })
 })
+
+// P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
+// a physical Android trace showed `waitForInFlightPersonalPushMutation`
+// resolving near-instantly right after a subscribe() whose own physical
+// creation never completed — leaving no way to tell, from that trace alone,
+// whether a registration ever actually happened for the key being waited
+// on. These tests certify the new (optional, DI'd, never a hidden import)
+// trace calls directly against a plain mock — never touching the real
+// push-debug-trace module's armed state.
+describe("optional trace wiring — MUTATION_REGISTRY_SET/RELEASE/WAIT_FOUND/WAIT_NOT_FOUND", () => {
+  function collectingTrace() {
+    const calls: Array<{ event: string; fields?: Record<string, unknown> }> = []
+    return { calls, trace: (event: string, fields?: Record<string, unknown>) => calls.push({ event, fields }) }
+  }
+
+  test("register() with a trace fn records MUTATION_REGISTRY_SET with actor family + opId, never the actor id", () => {
+    const { calls, trace } = collectingTrace()
+    registerInFlightPersonalPushMutation("cliente:c1", Promise.resolve(), 5, trace)
+
+    expect(calls).toEqual([{ event: "MUTATION_REGISTRY_SET", fields: { actorFamily: "cliente", opId: 5 } }])
+  })
+
+  test("no trace fn passed is a safe no-op (every existing caller/test keeps working unmodified)", () => {
+    expect(() => registerInFlightPersonalPushMutation("cliente:c1", Promise.resolve())).not.toThrow()
+  })
+
+  test("settling the registered promise records MUTATION_REGISTRY_RELEASE with the SAME actor family + opId", async () => {
+    const { calls, trace } = collectingTrace()
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("negocio:n9", d.promise, 12, trace)
+    d.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls).toEqual([
+      { event: "MUTATION_REGISTRY_SET", fields: { actorFamily: "negocio", opId: 12 } },
+      { event: "MUTATION_REGISTRY_RELEASE", fields: { actorFamily: "negocio", opId: 12 } },
+    ])
+  })
+
+  test("an OLDER promise settling after being overwritten records NO release (only the current entry's settlement releases)", async () => {
+    const { calls, trace } = collectingTrace()
+    const first = deferred<void>()
+    registerInFlightPersonalPushMutation("cliente:c1", first.promise, 1, trace)
+    registerInFlightPersonalPushMutation("cliente:c1", Promise.resolve(), 2, trace)
+    first.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.filter((c) => c.event === "MUTATION_REGISTRY_RELEASE")).toEqual([
+      { event: "MUTATION_REGISTRY_RELEASE", fields: { actorFamily: "cliente", opId: 2 } },
+    ])
+  })
+
+  test("waiting with nothing registered records WAIT_NOT_FOUND, never WAIT_FOUND", async () => {
+    const { calls, trace } = collectingTrace()
+    await waitForInFlightPersonalPushMutation("cliente:c1", trace)
+
+    expect(calls).toEqual([{ event: "MUTATION_REGISTRY_WAIT_NOT_FOUND", fields: { actorFamily: "cliente" } }])
+  })
+
+  test("waiting on a real pending mutation records WAIT_FOUND with the REGISTERED mutation's own opId — proves whether a wait actually had something to wait on", async () => {
+    const { calls, trace } = collectingTrace()
+    const d = deferred<void>()
+    registerInFlightPersonalPushMutation("repartidor:r3", d.promise, 42)
+
+    const waitPromise = waitForInFlightPersonalPushMutation("repartidor:r3", trace)
+    expect(calls).toEqual([{ event: "MUTATION_REGISTRY_WAIT_FOUND", fields: { actorFamily: "repartidor", opId: 42 } }])
+
+    d.resolve()
+    await waitPromise
+  })
+
+  test("actor family extraction never includes the actor DB id portion of the key", () => {
+    const { calls, trace } = collectingTrace()
+    registerInFlightPersonalPushMutation("negocio:actual-db-id-12345", Promise.resolve(), undefined, trace)
+
+    const setCall = calls.find((c) => c.event === "MUTATION_REGISTRY_SET")
+    expect(setCall?.fields?.actorFamily).toBe("negocio")
+    expect(JSON.stringify(setCall)).not.toContain("actual-db-id-12345")
+  })
+})

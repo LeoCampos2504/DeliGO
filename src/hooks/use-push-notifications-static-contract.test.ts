@@ -346,14 +346,14 @@ describe("P2-T31-R2 — first-subscribe/remount in-flight-mutation wiring", () =
   test("subscribe()/unsubscribe() register their real mutation promise (the one they return), not a decoy", () => {
     for (const body of [subscribeBody, unsubscribeBody]) {
       expect(body).toContain("const mutationPromise = run()")
-      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise)")
+      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
       expect(body).toContain("return mutationPromise")
     }
   })
 
   test("registration happens BEFORE the mutation is returned to the caller — a status check started right after calling subscribe()/unsubscribe() can already see it", () => {
     for (const body of [subscribeBody, unsubscribeBody]) {
-      const registerIdx = body.indexOf("registerInFlightPersonalPushMutation(actorKey, mutationPromise)")
+      const registerIdx = body.indexOf("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
       const returnIdx = body.indexOf("return mutationPromise")
       expect(registerIdx).toBeGreaterThan(-1)
       expect(returnIdx).toBeGreaterThan(registerIdx)
@@ -361,7 +361,20 @@ describe("P2-T31-R2 — first-subscribe/remount in-flight-mutation wiring", () =
   })
 
   test("checkSubscription() wires waitForInFlightMutation to the SAME actorKey used by Race C, calling into the real registry function", () => {
-    expect(checkSubscriptionBody).toContain("waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey)")
+    expect(checkSubscriptionBody).toContain(
+      "waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey, recordPushDebugEvent)"
+    )
+  })
+
+  // P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
+  // register/wait now forward opId/trace so a physical capture can show
+  // whether a mutation was ever actually registered for the key being
+  // waited on, rather than that being unobservable.
+  test("register/wait calls forward opId and the real tracer — not silently dropped", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
+    }
+    expect(checkSubscriptionBody).toContain("recordPushDebugEvent")
   })
 })
 

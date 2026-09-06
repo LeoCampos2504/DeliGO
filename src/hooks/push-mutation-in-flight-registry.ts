@@ -37,7 +37,34 @@
 // Deliberately pure/framework-agnostic (like push-operation-guard.ts) so it
 // stays directly unit-testable without jsdom/React Testing Library (this
 // repo has neither).
-const inFlightMutations = new Map<string, Promise<unknown>>()
+//
+// P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
+// a physical Android trace showed `waitForInFlightPersonalPushMutation`
+// resolving near-instantly on a same-process remount right after a
+// `subscribe()` whose own physical creation never completed (no
+// SUBSCRIBE_NEW_PHYSICAL_RESULT/SUBSCRIBE_FINISH ever recorded) — meaning
+// the registry had nothing to wait for. The diagnostic trace calls below
+// (`MUTATION_REGISTRY_SET/RELEASE/WAIT_FOUND/WAIT_NOT_FOUND`) exist so the
+// NEXT physical capture can show directly whether a registration ever
+// happened for that mutation's key at all, rather than requiring this to be
+// inferred indirectly. `trace` stays an optional, DI'd dependency (never a
+// direct import of push-debug-trace.ts) so this module keeps working exactly
+// as before for every existing caller/test that doesn't pass it, and stays
+// testable with a plain mock instead of the real trace module's armed state.
+type MutationRegistryTraceFn = (event: string, fields?: Record<string, unknown>) => void
+
+interface InFlightMutationEntry {
+  promise: Promise<unknown>
+  opId?: number
+}
+
+const inFlightMutations = new Map<string, InFlightMutationEntry>()
+
+// Never the actor DB id — only the family/role portion of `${actorType}:${actorId}`.
+function actorFamilyFromKey(key: string): string {
+  const separatorIndex = key.indexOf(":")
+  return separatorIndex === -1 ? key : key.slice(0, separatorIndex)
+}
 
 /**
  * Registers `promise` as the current in-flight mutation for `key`. If a
@@ -48,15 +75,28 @@ const inFlightMutations = new Map<string, Promise<unknown>>()
  * only if it is still THIS promise (a newer one may have already replaced
  * it), so cleanup never destroys a newer mutation's entry.
  */
-export function registerInFlightPersonalPushMutation(key: string | null, promise: Promise<unknown>): void {
+export function registerInFlightPersonalPushMutation(
+  key: string | null,
+  promise: Promise<unknown>,
+  opId?: number,
+  trace?: MutationRegistryTraceFn
+): void {
   if (!key) return
-  inFlightMutations.set(key, promise)
+  const entry: InFlightMutationEntry = { promise, opId }
+  inFlightMutations.set(key, entry)
+  trace?.("MUTATION_REGISTRY_SET", { actorFamily: actorFamilyFromKey(key), opId: opId ?? null })
   promise.then(
     () => {
-      if (inFlightMutations.get(key) === promise) inFlightMutations.delete(key)
+      if (inFlightMutations.get(key) === entry) {
+        inFlightMutations.delete(key)
+        trace?.("MUTATION_REGISTRY_RELEASE", { actorFamily: actorFamilyFromKey(key), opId: opId ?? null })
+      }
     },
     () => {
-      if (inFlightMutations.get(key) === promise) inFlightMutations.delete(key)
+      if (inFlightMutations.get(key) === entry) {
+        inFlightMutations.delete(key)
+        trace?.("MUTATION_REGISTRY_RELEASE", { actorFamily: actorFamilyFromKey(key), opId: opId ?? null })
+      }
     }
   )
 }
@@ -69,11 +109,15 @@ export function registerInFlightPersonalPushMutation(key: string | null, promise
  * read of physical/server state afterwards, never adopt the mutation's own
  * outcome directly.
  */
-export function waitForInFlightPersonalPushMutation(key: string | null): Promise<void> {
+export function waitForInFlightPersonalPushMutation(key: string | null, trace?: MutationRegistryTraceFn): Promise<void> {
   if (!key) return Promise.resolve()
   const pending = inFlightMutations.get(key)
-  if (!pending) return Promise.resolve()
-  return pending.then(
+  if (!pending) {
+    trace?.("MUTATION_REGISTRY_WAIT_NOT_FOUND", { actorFamily: actorFamilyFromKey(key) })
+    return Promise.resolve()
+  }
+  trace?.("MUTATION_REGISTRY_WAIT_FOUND", { actorFamily: actorFamilyFromKey(key), opId: pending.opId ?? null })
+  return pending.promise.then(
     () => undefined,
     () => undefined
   )
