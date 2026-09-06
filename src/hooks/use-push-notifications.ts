@@ -41,6 +41,30 @@ export interface PushMutationResult {
   subscribed: boolean
 }
 
+// P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): F-P2-T31-R8-04 —
+// physical evidence showed subscribe()/unsubscribe() failing silently-feeling
+// under a real 429 from the shared rate limiter: the generic "Error al
+// activar/desactivar notificaciones" toast fired (FAILURE_FEEDBACK_PRESENT
+// was already SI structurally), but gave no indication of WHY, or that
+// retrying shortly would work — easy to miss during a rapid toggle burst.
+// Carries the real HTTP status through the existing throw/catch flow (no new
+// control paths) so the catch block can choose a specific, honest message
+// for a rate-limit rejection without exposing any internal detail.
+export class PushMutationHttpError extends Error {
+  readonly httpStatus: number
+  constructor(message: string, httpStatus: number) {
+    super(message)
+    this.httpStatus = httpStatus
+  }
+}
+
+export function pushMutationFailureMessage(error: unknown, fallback: string): string {
+  if (error instanceof PushMutationHttpError && error.httpStatus === 429) {
+    return "Demasiados intentos. Esperá unos segundos e intentá nuevamente."
+  }
+  return fallback
+}
+
 interface UsePushNotificationsReturn {
   isSupported: boolean
   isSubscribed: boolean
@@ -58,6 +82,18 @@ interface UsePushNotificationsReturn {
   // F-P2-T31-INITIAL-STATE-FLICKER-01 (physical evidence: Leonardo's C4
   // cold-launch traces on iPhone, ~300-430ms mount→resolve window).
   statusResolved: boolean
+  // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): `true` when the
+  // most recent status check reached an INCONCLUSIVE outcome (network
+  // exception, or the backend responding non-2xx — most notably a 429 from
+  // the shared rate limiter) rather than a real answer. Distinct from
+  // `!statusResolved` alone: that covers BOTH "still actively checking for
+  // the first time" and "checked, but couldn't get an answer" — consumers
+  // that want to show a different neutral message for the latter ("No se
+  // pudo comprobar" vs "Comprobando estado...") can do so via this flag.
+  // Cleared back to `false` the moment any real conclusion (true or false)
+  // is applied, or on actor change. Never true at the same time as
+  // `statusResolved` — an inconclusive check never resolves.
+  statusCheckError: boolean
   permission: NotificationPermission | "default"
   subscribe: () => Promise<PushMutationResult>
   unsubscribe: () => Promise<PushMutationResult>
@@ -75,6 +111,8 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // applyStatusResult below for the only two places that set it `true`, and
   // the actor-change effect for the only place that resets it.
   const [statusResolved, setStatusResolved] = useState(false)
+  // P2-T31-R8: see UsePushNotificationsReturn.statusCheckError doc above.
+  const [statusCheckError, setStatusCheckError] = useState(false)
   const [permission, setPermission] = useState<NotificationPermission | "default">("default")
   const [loading, setLoading] = useState(false)
 
@@ -173,6 +211,10 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     // Consumers must go back to a neutral/loading render, not OFF, for this
     // new actor's own initial window.
     setStatusResolved(false)
+    // P2-T31-R8: a stale "couldn't check" from the PREVIOUS actor is
+    // meaningless for this new one — clear it so the new actor's own check
+    // gets a clean neutral "checking" render, not a leftover error message.
+    setStatusCheckError(false)
     setLoading(false)
     if (isSupported) {
       checkSubscription()
@@ -208,9 +250,25 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     (value: boolean) => {
       applySubscribed(value)
       setStatusResolved(true)
+      // P2-T31-R8: a real conclusion (true OR false) clears any leftover
+      // "couldn't check" flag from an earlier inconclusive attempt.
+      setStatusCheckError(false)
     },
     [applySubscribed]
   )
+
+  // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): the counterpart
+  // to `applyStatusResult` for the INCONCLUSIVE case — see
+  // push-personal-status-check.ts's `applyStatusUnresolved` dependency.
+  // Deliberately never touches `isSubscribed`/`statusResolved`: an
+  // inconclusive check (network exception, non-2xx backend response — most
+  // notably a 429 from the shared rate limiter) is not evidence of
+  // anything, so the UI must stay exactly as unresolved as it already was.
+  // No retry is scheduled here — the next real attempt is the next mount or
+  // actor change, matching the existing (non-polling) lifecycle.
+  const handleStatusUnresolved = useCallback(() => {
+    setStatusCheckError(true)
+  }, [])
 
   // P2-T05 Stage3R1 (F-P2-T05-13): la existencia física de la subscription
   // ya NO es, por sí sola, la fuente de verdad de "activado" — desde
@@ -248,11 +306,19 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subscription: subscriptionJson }),
         })
-        if (!res.ok) return { ok: false, subscribed: false }
+        if (!res.ok) {
+          // P2-T31-R8: forward httpStatus/Retry-After for diagnostics only —
+          // checkPersonalPushStatus never treats a non-ok response as
+          // "not subscribed" (see applyStatusUnresolved below).
+          const retryAfterHeader = res.headers.get("Retry-After")
+          const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : undefined
+          return { ok: false, subscribed: false, httpStatus: res.status, retryAfterMs }
+        }
         const data = await res.json()
-        return { ok: true, subscribed: data.subscribed === true }
+        return { ok: true, subscribed: data.subscribed === true, httpStatus: res.status }
       },
       applyIsSubscribed: applyStatusResult,
+      applyStatusUnresolved: handleStatusUnresolved,
       // P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): antes de leer el estado
       // físico, espera cualquier subscribe()/unsubscribe() todavía en vuelo
       // para ESTE actor — incluida una mutación arrancada por una instancia
@@ -442,7 +508,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         recordPushDebugEvent("SUBSCRIBE_BACKEND_RESULT", { opId, httpStatus: res.status, ok: res.ok })
 
         if (!res.ok) {
-          throw new Error("Error saving subscription")
+          throw new PushMutationHttpError("Error saving subscription", res.status)
         }
 
         if (gateRef.current.isCurrent(opId)) {
@@ -453,7 +519,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       } catch (error) {
         console.error("Push subscribe error:", safeErrorForLog(error))
         if (gateRef.current.isCurrent(opId)) {
-          toast.error("Error al activar notificaciones")
+          toast.error(pushMutationFailureMessage(error, "Error al activar notificaciones"))
         }
         recordPushDebugEvent("SUBSCRIBE_FINISH", {
           opId,
@@ -513,7 +579,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           recordPushDebugEvent("UNSUBSCRIBE_BACKEND_RESULT", { opId, httpStatus: res.status, ok: res.ok })
 
           if (!res.ok) {
-            throw new Error("Error removing subscription")
+            throw new PushMutationHttpError("Error removing subscription", res.status)
           }
 
           // P2-T05 Stage3 (F-P2-T05-02, PHYSICAL_UNSUBSCRIBE_POLICY_FINAL=
@@ -534,7 +600,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       } catch (error) {
         console.error("Push unsubscribe error:", safeErrorForLog(error))
         if (gateRef.current.isCurrent(opId)) {
-          toast.error("Error al desactivar notificaciones")
+          toast.error(pushMutationFailureMessage(error, "Error al desactivar notificaciones"))
         }
         recordPushDebugEvent("UNSUBSCRIBE_FINISH", {
           opId,
@@ -559,6 +625,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     isSupported,
     isSubscribed,
     statusResolved,
+    statusCheckError,
     permission,
     subscribe,
     unsubscribe,

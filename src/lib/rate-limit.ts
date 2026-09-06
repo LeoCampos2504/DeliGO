@@ -54,7 +54,40 @@ export const RATE_LIMITS = {
   // fixture) without being unbounded. Must be revisited with real traffic
   // data before this ships to Production.
   orderBusiness: { maxRequests: 30, windowMs: 5 * 60 * 1000 },  // 30 per negocioId/5min, ALL actors combined
-  push: { maxRequests: 10, windowMs: 60 * 1000 },               // 10 per min
+  // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): replaces the old
+  // single `push` bucket (10/min, shared by status+subscribe+unsubscribe,
+  // all keyed identically by `${ip}:${user.id}`) — physical evidence from
+  // Leonardo's iPhone stress test showed real HTTP 429s during ordinary
+  // interactive use (repeated Perfil visits + a few rapid ON/OFF toggles),
+  // NOT automated abuse. Root cause: every Perfil/Configuración mount fires
+  // one read-only status check (`checkPersonalPushStatus`), and the R6/R6A/
+  // R6B diagnostic panel's own "ACTUALIZAR ESTADO" button ALSO calls the
+  // same status endpoint, plus `permission-prompt.tsx` independently polls
+  // it too (DIV-03, a separate known gap) — all sharing the SAME 10-request
+  // budget as the deliberate subscribe()/unsubscribe() clicks. A handful of
+  // navigations plus a few toggles comfortably exceeds 10 requests/min
+  // without any automation at all.
+  //
+  // Split into two independent buckets:
+  //   - `pushStatus`: read-only, side-effect-free (one indexed lookup by
+  //     owner+endpoint — see /api/push/status/route.ts). Generous on
+  //     purpose: mounts/remounts/cold-launches/diagnostic-panel refreshes
+  //     are all legitimate, frequent, and harmless to allow liberally. 60/min
+  //     (1/sec sustained) comfortably covers 10+ remounts, several cold
+  //     launches, and repeated diagnostic-panel refreshes within a test
+  //     session, while still bounding a genuine flood (a real client has no
+  //     reason to poll faster than about once a second).
+  //   - `pushMutation`: subscribe+unsubscribe combined (each is a real DB
+  //     write via push-subscription-repository, already protected by its
+  //     own transaction/CAS logic — R2/R3/R5/R5A remain untouched). Raised
+  //     from 10 to 20/min — comfortably covers ~10 rapid human ON/OFF
+  //     toggles (20 requests) in one minute, which the physical evidence
+  //     showed was NOT an unreasonable thing for Leonardo to do while
+  //     testing, while still capping sustained automated subscribe/
+  //     unsubscribe spam far below what an abuse script would need to do
+  //     any real damage (each write is already serialized/idempotent).
+  pushStatus: { maxRequests: 60, windowMs: 60 * 1000 },         // 60 per min — read-only status checks
+  pushMutation: { maxRequests: 20, windowMs: 60 * 1000 },       // 20 per min — subscribe+unsubscribe combined
   password: { maxRequests: 3, windowMs: 15 * 60 * 1000 },       // 3 per 15 min
   upload: { maxRequests: 20, windowMs: 60 * 1000 },              // 20 per min
   operativoInvite: { maxRequests: 10, windowMs: 15 * 60 * 1000 }, // 10 per 15 min

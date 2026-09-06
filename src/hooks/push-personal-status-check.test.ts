@@ -247,20 +247,16 @@ describe("UNMOUNT_STALE_STATUS_TEST — a pending check resolving after unmount 
 })
 
 describe("STATUS_FAILURE_PHYSICAL_FALLBACK_REGRESSION — Stage3R1 behavior preserved", () => {
-  test("a failed status fetch still applies false, never infers true from physical existence", async () => {
-    const gate = createLatestOperationGate()
-    const applied: boolean[] = []
-
-    await checkPersonalPushStatus({
-      gate,
-      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
-      fetchStatus: async () => ({ ok: false, subscribed: false }),
-      applyIsSubscribed: (v) => applied.push(v),
-    })
-
-    expect(applied).toEqual([false])
-  })
-
+  // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): this test used to
+  // assert a failed status fetch applies an authoritative `false` — that WAS
+  // the bug physical evidence exposed (a 429 rate-limit rejection is not
+  // evidence of "not subscribed", and the pre-R8 contract told the user
+  // their subscription was gone when the server-side binding never moved).
+  // The Stage3R1 invariant this describe protects — "never infer TRUE from
+  // physical existence alone" — is unchanged; a non-ok backend response now
+  // stays UNRESOLVED (applies nothing) instead of asserting FALSE. See
+  // "P2-T31-R8 — status errors never resolve to a false conclusion" below
+  // for the direct behavioral coverage of the new contract.
   test("no physical subscription -> false, status endpoint never called", async () => {
     const gate = createLatestOperationGate()
     const applied: boolean[] = []
@@ -551,5 +547,169 @@ describe("P2-T31-R6A — trace wiring is observational only, never changes the o
       .join("\n")
     expect(codeOnly).toContain("physicalStillMatches: currentSubscription?.endpoint === endpoint")
     expect(codeOnly).not.toContain("endpointStillMatches")
+  })
+})
+
+// P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): F-P2-T31-R8-03 —
+// physical evidence (Leonardo's iPhone stress test) showed a real HTTP 429
+// from the shared push rate limiter while the actor's server-side binding
+// remained `true` the entire time — yet the pre-R8 contract mapped that
+// non-ok response to an authoritative `false`, telling the user their
+// subscription was gone when it never moved. These tests certify the fixed
+// contract directly: NONE of the three inconclusive outcomes (thrown
+// exception reading the physical subscription, thrown exception calling the
+// backend, non-2xx backend response) may ever call `applyIsSubscribed` —
+// only `applyStatusUnresolved` — and a genuinely confirmed absence (no
+// physical subscription) or a real backend answer still resolve exactly as
+// before.
+describe("P2-T31-R8 — status errors never resolve to a false conclusion", () => {
+  test("getCurrentSubscription() throwing calls applyStatusUnresolved('getCurrentSubscription_threw'), never applyIsSubscribed", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: string[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => {
+        throw new Error("SW API failure")
+      },
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason) => unresolved.push(reason),
+    })
+
+    expect(applied).toEqual([])
+    expect(unresolved).toEqual(["getCurrentSubscription_threw"])
+  })
+
+  test("fetchStatus() throwing (network failure) calls applyStatusUnresolved('fetchStatus_threw'), never applyIsSubscribed", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: string[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => {
+        throw new Error("network down")
+      },
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason) => unresolved.push(reason),
+    })
+
+    expect(applied).toEqual([])
+    expect(unresolved).toEqual(["fetchStatus_threw"])
+  })
+
+  test("REPRODUCTION: backend responds 429 (ok=false) — calls applyStatusUnresolved('backend_not_ok') with httpStatus/retryAfterMs forwarded, never applyIsSubscribed(false)", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: { reason: string; detail?: { httpStatus?: number; retryAfterMs?: number } }[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: false, subscribed: false, httpStatus: 429, retryAfterMs: 15000 }),
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason, detail) => unresolved.push({ reason, detail }),
+    })
+
+    expect(applied).toEqual([]) // the exact pre-R8 bug: this used to be [false]
+    expect(unresolved).toEqual([{ reason: "backend_not_ok", detail: { httpStatus: 429, retryAfterMs: 15000 } }])
+  })
+
+  test("a genuinely confirmed absence (no physical subscription) still resolves to authoritative false — this is a FACT, not an error", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: string[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => null,
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason) => unresolved.push(reason),
+    })
+
+    expect(applied).toEqual([false])
+    expect(unresolved).toEqual([])
+  })
+
+  test("a real backend answer (200, subscribed=true) still resolves to authoritative true, unaffected by the error-path change", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: string[] = []
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: true, subscribed: true }),
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason) => unresolved.push(reason),
+    })
+
+    expect(applied).toEqual([true])
+    expect(unresolved).toEqual([])
+  })
+
+  test("a STALE (superseded) inconclusive result calls NEITHER applyIsSubscribed NOR applyStatusUnresolved — a newer operation already owns the outcome", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+    const unresolved: string[] = []
+    const getSub = deferred<PersonalPushPhysicalSubscription | null>()
+    const fetchStatusDeferred = deferred<{ ok: boolean; subscribed: boolean; httpStatus?: number }>()
+
+    const checkPromise = checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => getSub.promise,
+      fetchStatus: async () => fetchStatusDeferred.promise,
+      applyIsSubscribed: (v) => applied.push(v),
+      applyStatusUnresolved: (reason) => unresolved.push(reason),
+    })
+
+    getSub.resolve(fakeSubscription("https://push.example/E1"))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    gate.invalidate() // a newer operation supersedes this one before the 429 arrives
+
+    fetchStatusDeferred.resolve({ ok: false, subscribed: false, httpStatus: 429 })
+    await checkPromise
+
+    expect(applied).toEqual([])
+    expect(unresolved).toEqual([]) // superseded — not even the "unresolved" signal fires
+  })
+
+  test("omitting applyStatusUnresolved entirely still works (default no-op) — every pre-R8 caller/test keeps working unmodified", async () => {
+    const gate = createLatestOperationGate()
+    const applied: boolean[] = []
+
+    await expect(
+      checkPersonalPushStatus({
+        gate,
+        getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+        fetchStatus: async () => ({ ok: false, subscribed: false, httpStatus: 429 }),
+        applyIsSubscribed: (v) => applied.push(v),
+        // applyStatusUnresolved deliberately omitted
+      })
+    ).resolves.toBeUndefined()
+
+    expect(applied).toEqual([])
+  })
+
+  test("STATUS_UNRESOLVED is traced (not STATUS_APPLY) for all three inconclusive outcomes", async () => {
+    const traced: string[] = []
+    const gate = createLatestOperationGate()
+
+    await checkPersonalPushStatus({
+      gate,
+      getCurrentSubscription: async () => fakeSubscription("https://push.example/E1"),
+      fetchStatus: async () => ({ ok: false, subscribed: false, httpStatus: 429 }),
+      applyIsSubscribed: () => {},
+      trace: (event) => traced.push(event),
+    })
+
+    expect(traced).toContain("STATUS_UNRESOLVED")
+    expect(traced).not.toContain("STATUS_APPLY")
   })
 })

@@ -234,12 +234,16 @@ describe("F-P2-T05-15 — stale operations cannot own loading/toast (auxiliary s
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Necesitás permitir las notificaciones")
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Las notificaciones push no están configuradas")
     toastCallSitesAreGated(subscribeBody, "toast.success(\"Notificaciones activadas")
-    toastCallSitesAreGated(subscribeBody, "toast.error(\"Error al activar notificaciones")
+    // P2-T31-R8: the failure toast now routes its message through
+    // pushMutationFailureMessage (so a 429 gets a specific, honest message
+    // — see the F-P2-T31-R8-04 describe below) — same gating contract,
+    // different literal call-site text.
+    toastCallSitesAreGated(subscribeBody, "toast.error(pushMutationFailureMessage(error, \"Error al activar notificaciones")
   })
 
   test("unsubscribe(): every toast.error/toast.success call site is gated by isCurrent(opId)", () => {
     toastCallSitesAreGated(unsubscribeBody, "toast.success(\"Notificaciones desactivadas")
-    toastCallSitesAreGated(unsubscribeBody, "toast.error(\"Error al desactivar notificaciones")
+    toastCallSitesAreGated(unsubscribeBody, "toast.error(pushMutationFailureMessage(error, \"Error al desactivar notificaciones")
   })
 
   test("CURRENT_SUCCESS_CLEARS_LOADING / CURRENT_FAILURE_CLEARS_LOADING: setLoading(false) only runs when isCurrent(opId), both in finishMutation and the finally net", () => {
@@ -557,5 +561,80 @@ describe("P2-T31-R7 — statusResolved wiring", () => {
     expect(unsubscribeBody).not.toContain("setStatusResolved(false)")
     const allFalseResets = [...src.matchAll(/setStatusResolved\(false\)/g)]
     expect(allFalseResets.length).toBe(1)
+  })
+})
+
+// P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): F-P2-T31-R8-03 —
+// physical evidence showed a real 429 backend rejection mapped to an
+// authoritative `false` pre-R8, which is exactly the bug (429 is not
+// evidence of "not subscribed"). `statusCheckError` is the wiring that lets
+// consumers distinguish "still checking" from "checked, inconclusive" — see
+// push-personal-status-check.test.ts for the direct behavioral coverage of
+// the underlying contract these wiring checks assume.
+describe("P2-T31-R8 — statusCheckError wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("statusCheckError is exported from the hook's return type and value, defaulting to false", () => {
+    expect(src).toContain("statusCheckError: boolean")
+    expect(src).toContain("const [statusCheckError, setStatusCheckError] = useState(false)")
+    expect(src).toMatch(/return\s*\{[^}]*statusCheckError[^}]*\}/)
+  })
+
+  test("checkSubscription wires handleStatusUnresolved as applyStatusUnresolved into checkPersonalPushStatus", () => {
+    const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+    expect(checkSubscriptionBody).toContain("applyStatusUnresolved: handleStatusUnresolved")
+  })
+
+  test("handleStatusUnresolved only ever sets statusCheckError(true) — never touches isSubscribed/statusResolved/loading", () => {
+    const handlerStart = src.indexOf("const handleStatusUnresolved = useCallback(")
+    const handlerEnd = src.indexOf("const checkSubscription = async")
+    const handlerBody = src.slice(handlerStart, handlerEnd)
+    expect(handlerBody).toContain("setStatusCheckError(true)")
+    expect(handlerBody).not.toContain("applySubscribed")
+    expect(handlerBody).not.toContain("setStatusResolved")
+    expect(handlerBody).not.toContain("setLoading")
+  })
+
+  test("applyStatusResult clears statusCheckError(false) whenever a real conclusion lands", () => {
+    const wrapperStart = src.indexOf("const applyStatusResult = useCallback(")
+    const wrapperEnd = src.indexOf("const handleStatusUnresolved = useCallback(")
+    const wrapperBody = src.slice(wrapperStart, wrapperEnd)
+    expect(wrapperBody).toContain("setStatusCheckError(false)")
+  })
+
+  test("the actor-change effect also resets statusCheckError(false) — a stale error from the PREVIOUS actor must not leak into the new one's render", () => {
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).toContain("setStatusCheckError(false)")
+  })
+
+  test("statusCheckError is never set true anywhere except handleStatusUnresolved", () => {
+    const allTrueSets = [...src.matchAll(/setStatusCheckError\(true\)/g)]
+    expect(allTrueSets.length).toBe(1)
+  })
+})
+
+// P2-T31-R8: F-P2-T31-R8-04 — clearer, honest feedback on a 429 mutation
+// rejection instead of the same generic message every other failure gets.
+// See use-push-notifications-mutation-failure-message.test.ts for the
+// direct behavioral coverage of pushMutationFailureMessage itself.
+describe("P2-T31-R8 — mutation failure message wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+
+  test("both mutations throw PushMutationHttpError (carrying the real res.status), never a bare Error, on a non-ok backend response", () => {
+    expect(subscribeBody).toContain("throw new PushMutationHttpError(\"Error saving subscription\", res.status)")
+    expect(unsubscribeBody).toContain("throw new PushMutationHttpError(\"Error removing subscription\", res.status)")
+  })
+
+  test("both catch blocks route their error toast through pushMutationFailureMessage, never a bare literal string", () => {
+    expect(subscribeBody).toContain("toast.error(pushMutationFailureMessage(error, \"Error al activar notificaciones\"))")
+    expect(unsubscribeBody).toContain("toast.error(pushMutationFailureMessage(error, \"Error al desactivar notificaciones\"))")
+  })
+
+  test("PushMutationHttpError and pushMutationFailureMessage are exported (real, directly-testable module exports, not local-only helpers)", () => {
+    expect(src).toContain("export class PushMutationHttpError")
+    expect(src).toContain("export function pushMutationFailureMessage")
   })
 })

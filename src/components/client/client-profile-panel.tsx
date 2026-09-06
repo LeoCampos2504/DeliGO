@@ -1087,7 +1087,9 @@ function SettingsSection() {
                   : !push.isSupported
                   ? "No disponibles en este navegador"
                   : !push.statusResolved
-                  ? "Comprobando estado..."
+                  ? push.statusCheckError
+                    ? "No se pudo comprobar"
+                    : "Comprobando estado..."
                   : notifications
                   ? "Activadas"
                   : "Desactivadas"}
@@ -1100,7 +1102,15 @@ function SettingsSection() {
             // Switch como "Desactivado" — sería un OFF falso que después
             // cambia solo a ON (el flicker físico que Leonardo capturó en
             // iPhone). Un loader neutral no afirma ni ON ni OFF.
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+            // P2-T31-R8: si el chequeo ya concluyó de forma inconclusa (p.ej.
+            // 429 del rate limiter), un spinner GIRANDO sugiere falsamente
+            // que sigue en curso — usar el mismo ícono de alerta ya
+            // disponible en este archivo, quieto, en su lugar.
+            push.statusCheckError ? (
+              <AlertTriangle className="h-4 w-4 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+            )
           ) : (
             <Switch
               checked={notifications}

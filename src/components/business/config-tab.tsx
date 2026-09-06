@@ -1286,7 +1286,9 @@ function PushNotificationsConfig({ color }: { color: string }) {
                 : !push.isSupported
                 ? "No disponibles en este navegador"
                 : !push.statusResolved
-                ? "Comprobando estado..."
+                ? push.statusCheckError
+                  ? "No se pudo comprobar"
+                  : "Comprobando estado..."
                 : enabled
                 ? "Recibirás notificaciones de nuevos pedidos"
                 : "No recibirás notificaciones"}
@@ -1297,7 +1299,14 @@ function PushNotificationsConfig({ color }: { color: string }) {
           // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca mostrar
           // el Switch en "Desactivado" mientras no exista una conclusión
           // autoritativa — sería un OFF falso que después cambia solo a ON.
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+          // P2-T31-R8: un chequeo ya concluido de forma inconclusa (p.ej. 429)
+          // usa el mismo ícono de alerta ya disponible acá, quieto — un
+          // spinner girando sugeriría falsamente que sigue en curso.
+          push.statusCheckError ? (
+            <AlertCircle className="h-5 w-5 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
+          ) : (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+          )
         ) : (
           <Switch
             checked={enabled}

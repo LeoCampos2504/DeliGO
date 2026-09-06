@@ -35,11 +35,15 @@ describe("Cliente (client-profile-panel.tsx) — never renders a false OFF while
     expect(loaderIdx).toBeLessThan(switchIdx) // the neutral branch comes first in the ternary
   })
 
-  test("the neutral branch never sets checked={false} or any OFF-implying prop — it's a Loader2, not a Switch", () => {
+  test("the neutral branch never sets checked={false} or any OFF-implying prop — it's Loader2/AlertTriangle, not a Switch", () => {
     const gateIdx = section.indexOf("push.isSupported && !push.statusResolved")
-    const neutralBranchEnd = section.indexOf(") : (", gateIdx)
+    const neutralBranchEnd = section.indexOf("<Switch", gateIdx)
     const neutralBranch = section.slice(gateIdx, neutralBranchEnd)
+    // P2-T31-R8: the neutral branch is now itself a nested ternary — Loader2
+    // while actively checking, AlertTriangle once a check concluded
+    // inconclusively (statusCheckError) — but NEVER a Switch either way.
     expect(neutralBranch).toContain("Loader2")
+    expect(neutralBranch).toContain("AlertTriangle")
     expect(neutralBranch).not.toContain("<Switch")
   })
 
@@ -68,11 +72,12 @@ describe("Negocio (config-tab.tsx) — same contract, independently verified", (
     expect(loaderIdx).toBeLessThan(switchIdx)
   })
 
-  test("the neutral branch is a Loader2, never a Switch with checked={false}", () => {
+  test("the neutral branch is Loader2/AlertCircle, never a Switch with checked={false}", () => {
     const gateIdx = section.indexOf("push.isSupported && !push.statusResolved")
-    const neutralBranchEnd = section.indexOf(") : (", gateIdx)
+    const neutralBranchEnd = section.indexOf("<Switch", gateIdx)
     const neutralBranch = section.slice(gateIdx, neutralBranchEnd)
     expect(neutralBranch).toContain("Loader2")
+    expect(neutralBranch).toContain("AlertCircle")
     expect(neutralBranch).not.toContain("<Switch")
   })
 
@@ -110,11 +115,15 @@ describe("Repartidor (profile-tab.tsx) — same contract, no local mirror but st
     expect(loaderIdx).toBeGreaterThan(switchIdx) // Loader2 is the ELSE branch here (resolved ? Switch : Loader2)
   })
 
-  test("the neutral (unresolved) branch is a Loader2, never a bare Switch bound to push.isSubscribed", () => {
-    const gateIdx = code.indexOf("{push.statusResolved ? (")
-    const elseIdx = code.indexOf(") : (", gateIdx)
-    const neutralBranch = code.slice(elseIdx, code.indexOf(")}", elseIdx))
+  test("the neutral (unresolved) branch is Loader2/AlertCircle, never a bare Switch bound to push.isSubscribed", () => {
+    const neutralStart = code.indexOf(") : push.statusCheckError ? (")
+    expect(neutralStart).toBeGreaterThan(-1)
+    const neutralBranch = code.slice(neutralStart, code.indexOf(")}", neutralStart))
+    // P2-T31-R8: the unresolved branch is itself a nested ternary —
+    // AlertCircle once a check concluded inconclusively (statusCheckError),
+    // Loader2 while still actively checking — never a Switch either way.
     expect(neutralBranch).toContain("Loader2")
+    expect(neutralBranch).toContain("AlertCircle")
     expect(neutralBranch).not.toContain("<Switch")
   })
 
@@ -132,6 +141,49 @@ describe("Repartidor (profile-tab.tsx) — same contract, no local mirror but st
     const desactivadoIdx = code.indexOf("Activá para recibir alertas de entregas")
     expect(textIdx).toBeGreaterThan(-1)
     expect(textIdx).toBeLessThan(desactivadoIdx)
+  })
+})
+
+// P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): distinguishes
+// "still actively checking" (Loader2, spinning) from "checked, but couldn't
+// get an answer" (AlertTriangle/AlertCircle, static) — a spinner that never
+// stops would falsely suggest the check is still in progress after a 429
+// already concluded it inconclusively.
+describe("statusCheckError — distinct neutral state, independently verified per role", () => {
+  test("Cliente shows 'No se pudo comprobar' (not 'Comprobando estado...') when statusCheckError is true", () => {
+    const src = read("src/components/client/client-profile-panel.tsx")
+    const code = stripComments(src)
+    expect(code).toContain("No se pudo comprobar")
+    expect(code).toContain("push.statusCheckError")
+    const textBlockStart = code.indexOf("push.loading")
+    const textBlockEnd = code.indexOf("</p>", textBlockStart)
+    const textBlock = code.slice(textBlockStart, textBlockEnd)
+    expect(textBlock.indexOf("push.statusCheckError")).toBeLessThan(textBlock.indexOf('"Comprobando estado..."'))
+  })
+
+  test("Negocio shows 'No se pudo comprobar'", () => {
+    const src = read("src/components/business/config-tab.tsx")
+    const code = stripComments(src)
+    expect(code).toContain("No se pudo comprobar")
+  })
+
+  test("Repartidor shows 'No se pudo comprobar'", () => {
+    const src = read("src/components/repartidor/profile-tab.tsx")
+    const code = stripComments(src)
+    expect(code).toContain("No se pudo comprobar")
+  })
+
+  test("all three use a STATIC icon (not animate-spin) for the statusCheckError state — a spinning icon would falsely imply the check is still running", () => {
+    for (const path of [
+      "src/components/client/client-profile-panel.tsx",
+      "src/components/business/config-tab.tsx",
+      "src/components/repartidor/profile-tab.tsx",
+    ]) {
+      const code = stripComments(read(path))
+      const errorIconMatch = code.match(/<Alert(Triangle|Circle)[^/]*\/>/)
+      expect(errorIconMatch).not.toBeNull()
+      expect(errorIconMatch![0]).not.toContain("animate-spin")
+    }
   })
 })
 

@@ -468,7 +468,9 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
               <p className="text-sm font-medium">Notificaciones push</p>
               <p className="text-xs text-muted-foreground">
                 {!push.statusResolved
-                  ? "Comprobando estado..."
+                  ? push.statusCheckError
+                    ? "No se pudo comprobar"
+                    : "Comprobando estado..."
                   : push.isSubscribed
                   ? "Recibí alertas de nuevos pedidos"
                   : "Activá para recibir alertas de entregas"}
@@ -486,6 +488,12 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
                 }}
                 disabled={push.loading}
               />
+            ) : push.statusCheckError ? (
+              // P2-T31-R8: un chequeo ya concluido de forma inconclusa (p.ej.
+              // 429) usa el mismo ícono de alerta ya disponible en este
+              // archivo, quieto — un spinner girando sugeriría falsamente
+              // que sigue en curso.
+              <AlertCircle className="h-4 w-4 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
             ) : (
               // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca
               // renderizar el Switch en "Desactivado" mientras no exista una
