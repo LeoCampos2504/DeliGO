@@ -234,16 +234,25 @@ describe("F-P2-T05-15 — stale operations cannot own loading/toast (auxiliary s
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Necesitás permitir las notificaciones")
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Las notificaciones push no están configuradas")
     toastCallSitesAreGated(subscribeBody, "toast.success(\"Notificaciones activadas")
-    // P2-T31-R8: the failure toast now routes its message through
-    // pushMutationFailureMessage (so a 429 gets a specific, honest message
-    // — see the F-P2-T31-R8-04 describe below) — same gating contract,
-    // different literal call-site text.
-    toastCallSitesAreGated(subscribeBody, "toast.error(pushMutationFailureMessage(error, \"Error al activar notificaciones")
+    // P2-T31-R13: the failure-path toast no longer lives inline inside
+    // subscribe()/unsubscribe() (it moved into the shared, directly-testable
+    // `reportMutationFailureSafely` helper — see its own describe below, and
+    // P2_T31_R13_ANDROID_PUSHMANAGER_ABORTERROR_AND_STALE_UI_ROOT_CAUSE.md for
+    // why an unguarded console.error/toast.error could silently break the
+    // mutation's unconditional finish contract). The gating condition itself
+    // is still textually present at the call site, passed as data.
+    expect(subscribeBody).toContain(
+      'gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al activar notificaciones") : null'
+    )
   })
 
   test("unsubscribe(): every toast.error/toast.success call site is gated by isCurrent(opId)", () => {
     toastCallSitesAreGated(unsubscribeBody, "toast.success(\"Notificaciones desactivadas")
-    toastCallSitesAreGated(unsubscribeBody, "toast.error(pushMutationFailureMessage(error, \"Error al desactivar notificaciones")
+    // P2-T31-R13: see the subscribe() test above for why this moved out of
+    // an inline gated toast.error call.
+    expect(unsubscribeBody).toContain(
+      'gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al desactivar notificaciones") : null'
+    )
   })
 
   test("CURRENT_SUCCESS_CLEARS_LOADING / CURRENT_FAILURE_CLEARS_LOADING: setLoading(false) only runs when isCurrent(opId), both in finishMutation and the finally net", () => {
@@ -642,8 +651,11 @@ describe("P2-T31-R8 — mutation failure message wiring", () => {
   })
 
   test("both catch blocks route their error toast through pushMutationFailureMessage, never a bare literal string", () => {
-    expect(subscribeBody).toContain("toast.error(pushMutationFailureMessage(error, \"Error al activar notificaciones\"))")
-    expect(unsubscribeBody).toContain("toast.error(pushMutationFailureMessage(error, \"Error al desactivar notificaciones\"))")
+    // P2-T31-R13: the toast.error call itself now lives inside the shared
+    // reportMutationFailureSafely helper (see its own describe below) — the
+    // call site still passes the message through pushMutationFailureMessage.
+    expect(subscribeBody).toContain('pushMutationFailureMessage(error, "Error al activar notificaciones")')
+    expect(unsubscribeBody).toContain('pushMutationFailureMessage(error, "Error al desactivar notificaciones")')
   })
 
   test("PushMutationHttpError and pushMutationFailureMessage are exported (real, directly-testable module exports, not local-only helpers)", () => {

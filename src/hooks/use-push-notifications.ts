@@ -65,6 +65,46 @@ export function pushMutationFailureMessage(error: unknown, fallback: string): st
   return fallback
 }
 
+// P2-T31-R13 (ANDROID-PUSHMANAGER-ABORTERROR-AND-STALE-UI-ROOT-CAUSE): a
+// physical Android trace proved `SUBSCRIBE_FINISH`/`finishMutation` — every
+// other comment in this file describes them as the mutation's unconditional,
+// single point of exit — never ran after a real `PushManager.subscribe()`
+// AbortError. `safeErrorForLog`/`pushMutationFailureMessage`/`gate.isCurrent`
+// are all pure functions, audited and provably safe for any input — that
+// rules them out with certainty, by elimination narrowing the secondary
+// exception to one of the two native/third-party calls below
+// (`console.error`/`toast.error`), though WHICH of the two was never
+// directly observed and is deliberately never asserted as settled (P2-T31-
+// R13A). That silently broke every caller's `await push.subscribe(); if
+// (result.current) setNotifications(result.subscribed)` correction
+// (client-profile-panel.tsx, config-tab.tsx) — the optimistic switch stayed
+// stuck ON forever while the hook itself correctly reported `false`, a real
+// stale-UI bug independent of whatever external condition caused the
+// AbortError itself.
+//
+// P2-T31-R13A (PUSH-FAILURE-REPORTING-HARDENING): R13's first version
+// wrapped both calls in ONE shared try/catch — enough to guarantee
+// `finishMutation` always runs, but NOT enough to guarantee `toast.error`
+// is still attempted if `console.error` itself throws first (contract
+// requirement E). Each call now gets its OWN independent failure boundary:
+// logging failing can never skip the toast attempt, and neither can ever
+// escape this function or prevent the caller's finish/trace from running.
+export function reportMutationFailureSafely(logPrefix: string, error: unknown, toastMessageIfCurrent: string | null): void {
+  try {
+    console.error(logPrefix, safeErrorForLog(error))
+  } catch {
+    // Never let logging itself prevent the toast attempt below or the
+    // caller's finishMutation from running.
+  }
+  if (toastMessageIfCurrent !== null) {
+    try {
+      toast.error(toastMessageIfCurrent)
+    } catch {
+      // Never let the toast itself prevent the caller's finishMutation.
+    }
+  }
+}
+
 // P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
 // a physical Android trace showed the gap between VAPID_MATCH_RESULT and
 // SUBSCRIBE_NEW_PHYSICAL_RESULT completely unexplained — no result AND no
@@ -572,10 +612,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         recordPushDebugEvent("SUBSCRIBE_FINISH", { opId, current: gateRef.current.isCurrent(opId), subscribed: true })
         return finishMutation(opId, true)
       } catch (error) {
-        console.error("Push subscribe error:", safeErrorForLog(error))
-        if (gateRef.current.isCurrent(opId)) {
-          toast.error(pushMutationFailureMessage(error, "Error al activar notificaciones"))
-        }
+        reportMutationFailureSafely(
+          "Push subscribe error:",
+          error,
+          gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al activar notificaciones") : null
+        )
         recordPushDebugEvent("SUBSCRIBE_FINISH", {
           opId,
           current: gateRef.current.isCurrent(opId),
@@ -653,10 +694,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         recordPushDebugEvent("UNSUBSCRIBE_FINISH", { opId, current: gateRef.current.isCurrent(opId), subscribed: false })
         return finishMutation(opId, false)
       } catch (error) {
-        console.error("Push unsubscribe error:", safeErrorForLog(error))
-        if (gateRef.current.isCurrent(opId)) {
-          toast.error(pushMutationFailureMessage(error, "Error al desactivar notificaciones"))
-        }
+        reportMutationFailureSafely(
+          "Push unsubscribe error:",
+          error,
+          gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al desactivar notificaciones") : null
+        )
         recordPushDebugEvent("UNSUBSCRIBE_FINISH", {
           opId,
           current: gateRef.current.isCurrent(opId),

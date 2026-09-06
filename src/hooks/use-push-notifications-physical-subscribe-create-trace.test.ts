@@ -100,6 +100,32 @@ describe("createPhysicalPushSubscription — throw path", () => {
     expect(events.some((e) => e.event === "SUBSCRIBE_PHYSICAL_CREATE_RESULT")).toBe(false)
   })
 
+  test("P2-T31-R13: a real PushManager AbortError rejection classifies exactly as AbortError, matching the physical Android capture", async () => {
+    // Mirrors the exact DOMException shape the browser raised in the R13
+    // physical trace: SUBSCRIBE_PHYSICAL_CREATE_START -> ERROR (errorClass=
+    // AbortError) in ~287ms, no RESULT, no backend call ever attempted.
+    const domExceptionLike = Object.assign(new Error("Registration failed - push service error"), {
+      name: "AbortError",
+    })
+    const registration = fakeRegistration(async () => {
+      throw domExceptionLike
+    })
+
+    let caught: unknown
+    try {
+      await createPhysicalPushSubscription(registration, new Uint8Array([1, 2, 3]), 2)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBe(domExceptionLike)
+    const events = getPushDebugTraceEvents()
+    expect(events.map((e) => e.event)).toEqual(["SUBSCRIBE_PHYSICAL_CREATE_START", "SUBSCRIBE_PHYSICAL_CREATE_ERROR"])
+    expect(events[1].fields.errorClass).toBe("AbortError")
+    // Never the raw message — bounded to the safe class only.
+    expect(JSON.stringify(events[1])).not.toContain("Registration failed")
+  })
+
   test("pending forever (never settles) never records RESULT or ERROR — matches the exact unexplained gap from the Android physical trace", async () => {
     const registration = fakeRegistration(() => new Promise(() => {}))
 
