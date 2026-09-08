@@ -761,8 +761,11 @@ export function ChatView({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border/50 bg-card">
+      {/* Header — P2-T31-R24: `pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]`
+          keeps the back button (the only way to leave a conversation) below
+          the iOS status bar/Dynamic Island — same idiom already used across
+          the app. env() resolves to 0 on Android/no-notch — no branch. */}
+      <div className="shrink-0 px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 border-b border-border/50 bg-card">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"

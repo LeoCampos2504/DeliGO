@@ -622,6 +622,21 @@ body.ios-device .ios-chat-keyboard-backdrop {
   }
 }
 
+/* P2-T31-R24: the Chat Sheet is full-bleed on iOS (viewport-fit=cover,
+   already global) — its background/banner should keep extending to top:0,
+   but its own built-in close (X) button (Radix's default `top-4 right-4`
+   inside sheet.tsx, scoped here to ONLY this Sheet via the pre-existing
+   `data-ios-debug-role="chat-sheet"` marker on its SheetContent) must stay
+   below the status bar/Dynamic Island — same scoped pattern as the mesa-
+   cuenta-dialog rule above, no other Sheet in the app is affected.
+   env(safe-area-inset-top) resolves to 0 on Android/no-notch, so this is a
+   no-op there (no user-agent branch). */
+@media (max-width: 639px) {
+  [data-ios-debug-role="chat-sheet"] [data-slot="sheet-close"] {
+    top: calc(1rem + env(safe-area-inset-top, 0px));
+  }
+}
+
 /* Focus ring override for orange theme */
 .focus-ring-orange:focus-visible {
   outline: 2px solid #FB8C00;

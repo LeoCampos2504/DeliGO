@@ -423,8 +423,14 @@ export function ChatSheet() {
           />
         ) : (
           <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="px-4 py-4 border-b border-border/50">
+            {/* Header — P2-T31-R24: `pt-[calc(env(safe-area-inset-top,0px)+1rem)]`
+                keeps the "Chats" title/status (the only close affordance
+                besides the Sheet's own X, see globals.css) below the iOS
+                status bar/Dynamic Island, same idiom already used across
+                the app (client-favorites-panel.tsx, cliente/page.tsx).
+                env() resolves to 0 on Android/no-notch — no branch, no
+                behavior change there. */}
+            <div className="px-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-4 border-b border-border/50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
