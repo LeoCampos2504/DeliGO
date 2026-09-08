@@ -162,8 +162,10 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
   // Bugfix-2 [6]: PWA propia para DeliGO Operaciones — hasta ahora /operaciones
   // no tenía entrada en ROLE_CONFIGS ni en getRoleFromPath, así que caía en el
   // fallback "cliente" (manifest, theme-color, ícono y título de la PWA de
-  // cliente). Reusa los íconos de "negocio" (no se generaron imágenes nuevas,
-  // por ser el activo existente más afín a un panel operativo de negocio).
+  // cliente).
+  // DELIGO-BRANDING-R1: Operaciones reusaba los íconos de "negocio" (no
+  // existía un asset propio). Con el ícono rojo dedicado de Operaciones ya
+  // provisto, deja de reusar el de Negocio.
   operaciones: {
     id: "operaciones",
     name: "DeliGO Operaciones",
@@ -175,8 +177,8 @@ export const ROLE_CONFIGS: Record<DeliGORole, RoleConfig> = {
     manifestFile: "/manifest-operaciones.json",
     startUrl: "/operaciones",
     loginUrl: "/operaciones/ingresar",
-    icon192: "/icon-negocio-192x192.png",
-    icon512: "/icon-negocio-512x512.png",
+    icon192: "/icon-operaciones-192x192.png",
+    icon512: "/icon-operaciones-512x512.png",
     gradientFrom: "from-indigo-500",
     gradientTo: "to-blue-600",
     shadowColor: "shadow-indigo-500/20",

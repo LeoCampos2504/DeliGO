@@ -2,6 +2,21 @@
 // DeliGO - Service Worker
 // ============================================
 
+// DELIGO-BRANDING-R1: se sube la versión porque este deploy reemplaza el
+// contenido de los icon-{rol}-192x192.png/512x512.png servidos bajo el mismo
+// nombre de archivo de siempre. La regla de abajo que pretende servir
+// "manifest files or PWA icons" siempre en red (nunca cacheados) sólo
+// matchea el string "manifest" en la URL — el chequeo `includes("icon-192")`/
+// `includes("icon-512")` NUNCA es true para estos nombres reales
+// (`icon-cliente-192x192.png` no contiene el substring literal "icon-192":
+// después de "icon-" sigue "cliente-192x192", no "192"), así que estos PNG
+// en realidad caen en la rama cache-first de assets estáticos más abajo. Sin
+// subir `CACHE_NAME`, un cliente que ya tenía el ícono viejo en caché lo
+// seguiría sirviendo indefinidamente pese al deploy. Ver
+// `codex-reports/DELIGO_BRANDING_R1_PWA_ROLE_ICON_REFRESH.md` — el bug del
+// substring roto en sí NO se corrige acá (fuera de alcance de este refresh
+// de branding), sólo se fuerza la invalidación real vía el bump de versión.
+//
 // Bugfix-4D: se sube la versión porque este deploy cambia lógica real de
 // push/notificationclick (no solo el cache de assets) — subir el número
 // fuerza que `activate` borre cualquier caché vieja apenas el SW nuevo tome
@@ -9,7 +24,7 @@
 // a `skipWaiting()` y `activate` ya llama a `clients.claim()`, así que el SW
 // nuevo se activa e instala solo con el próximo deploy — no requiere que el
 // usuario borre datos ni reinstale la PWA.
-const CACHE_NAME = "deligo-v14";
+const CACHE_NAME = "deligo-v15";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/cliente/"];
