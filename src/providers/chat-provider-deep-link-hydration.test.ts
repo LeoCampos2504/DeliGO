@@ -20,7 +20,7 @@ afterAll(() => {
 
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
-const { useChatDeepLink } = await import("./chat-provider")
+const { useChatDeepLink, useChatActorReset } = await import("./chat-provider")
 const { useChatStore } = await import("@/store/chat-store")
 const { useAuthStore } = await import("@/store/auth-store")
 
@@ -228,6 +228,190 @@ describe("P2-T31-R23A — la carrera de hidratación de auth ya NO descarta el d
     expect(params.get("tab")).toBe("pedidos")
     expect(params.get("foo")).toBe("bar")
 
+    harness.unmount()
+  })
+})
+
+// P2-T31-R23C — reproduce, con el `useChatDeepLink` real y exportado
+// MONTADO JUNTO a `useChatActorReset` (también exportado sólo para test,
+// P2-T31-R23C), EN EL MISMO ORDEN que `ChatProvider` real, la causa raíz
+// PROBADA en P2_T31_R23B_CHAT_PUSH_TAP_RUNTIME_URL_CONSUMPTION_ROOT_CAUSE_AUDIT.md:
+// `useChatActorReset` trataba la transición `null -> actor real` de la
+// primera hidratación como un cambio de actor genuino y llamaba
+// `useChatStore.getState().reset()` en el MISMO commit en que
+// `useChatDeepLink` acababa de abrir el chat, borrándolo de inmediato. El
+// fix distingue esa transición inicial de un cambio de actor real
+// (`real -> null` o `real A -> real B`), que sigue reseteando el
+// chat-store como debe.
+function createJointHarness() {
+  const hostDiv = document.createElement("div")
+  document.body.appendChild(hostDiv)
+  const root = createRoot(hostDiv)
+
+  function JointHarness() {
+    // EXACTO mismo orden de llamada que ChatProvider() en producción.
+    useChatDeepLink()
+    useChatActorReset()
+    return null
+  }
+
+  function mount() {
+    act(() => {
+      root.render(React.createElement(JointHarness))
+    })
+  }
+
+  function unmount() {
+    act(() => {
+      root.unmount()
+    })
+    hostDiv.remove()
+  }
+
+  return { mount, unmount }
+}
+
+const SENTINEL_CONVERSATION = {
+  pedidoId: "sentinel",
+  negocioNombre: "Sentinel",
+  negocioSlug: "sentinel",
+  clienteNombre: "Sentinel",
+  estado: "activo",
+  total: 0,
+  metodoEntrega: "delivery",
+  metodoPago: "efectivo",
+  fecha: "2026-09-08",
+  lastMessage: null,
+  lastMessageDate: null,
+  lastMessageRemitente: null,
+  unreadCount: 0,
+  negocioLogoUrl: null,
+}
+
+function markSentinelConversation() {
+  useChatStore.setState({ conversations: [SENTINEL_CONVERSATION] })
+}
+
+function wasChatStoreReset() {
+  return useChatStore.getState().conversations.length === 0
+}
+
+const NEGOCIO_USER_2 = { id: "negocio-2", type: "negocio", nombre: "Negocio Dos" }
+
+describe("P2-T31-R23C — useChatActorReset ya no borra el chat que useChatDeepLink acaba de abrir en el mismo commit", () => {
+  test("R23C_ROOT_CAUSE_REPRO: null -> actor real EN EL MISMO COMMIT (el escenario real de auth-store.ts) ya NO borra el chat abierto por deep-link", () => {
+    setUrl("/negocio?chat=pedido-r23c")
+    const harness = createJointHarness()
+    harness.mount()
+    expect(chatState()).toEqual({ isSheetOpen: false, activePedidoId: null })
+
+    // user + _hasHydrated en el MISMO act() — mismo commit de React,
+    // igual que la rehidratación síncrona real de auth-store.ts.
+    act(() => setAuth(NEGOCIO_USER, true))
+
+    expect(chatState()).toEqual({ isSheetOpen: true, activePedidoId: "pedido-r23c" })
+    expect(window.location.search).toBe("")
+
+    harness.unmount()
+  })
+
+  test("persistencia final tras un ciclo adicional de efectos: el chat SIGUE abierto, no sólo se abrió en algún instante intermedio", () => {
+    setUrl("/negocio?chat=persistencia-r23c")
+    const harness = createJointHarness()
+    harness.mount()
+    act(() => setAuth(NEGOCIO_USER, true))
+    // Flush de un ciclo adicional (focus, no cambia actorKey) para
+    // confirmar el estado FINAL, no sólo el intermedio.
+    act(() => window.dispatchEvent(new Event("focus")))
+    expect(chatState()).toEqual({ isSheetOpen: true, activePedidoId: "persistencia-r23c" })
+    harness.unmount()
+  })
+
+  test("A. primer mount sin usuario (undefined -> null) NO resetea el chat-store", () => {
+    markSentinelConversation()
+    const harness = createJointHarness()
+    harness.mount() // user=null desde beforeEach
+    expect(wasChatStoreReset()).toBe(false)
+    harness.unmount()
+  })
+
+  test("B. null -> actor real (primera hidratación) NO resetea el chat-store", () => {
+    const harness = createJointHarness()
+    harness.mount()
+    markSentinelConversation()
+    act(() => setAuth(NEGOCIO_USER, true))
+    expect(wasChatStoreReset()).toBe(false)
+    harness.unmount()
+  })
+
+  test("C. actor real -> mismo actor real (nueva referencia de objeto, misma clave) NO resetea el chat-store", () => {
+    setAuth(NEGOCIO_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    markSentinelConversation()
+    act(() => setAuth({ ...NEGOCIO_USER }, true))
+    expect(wasChatStoreReset()).toBe(false)
+    harness.unmount()
+  })
+
+  test("D. actor real -> null (logout) SI resetea el chat-store", () => {
+    setAuth(NEGOCIO_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    markSentinelConversation()
+    act(() => useAuthStore.getState().logout())
+    expect(wasChatStoreReset()).toBe(true)
+    harness.unmount()
+  })
+
+  test("E. actor real A -> actor real B (mismo rol, otro id) SI resetea el chat-store", () => {
+    setAuth(NEGOCIO_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    markSentinelConversation()
+    act(() => setAuth(NEGOCIO_USER_2, true))
+    expect(wasChatStoreReset()).toBe(true)
+    harness.unmount()
+  })
+
+  test("F. actor real Cliente -> actor real Negocio (cambio de rol) SI resetea el chat-store", () => {
+    setAuth(CLIENTE_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    markSentinelConversation()
+    act(() => setAuth(NEGOCIO_USER, true))
+    expect(wasChatStoreReset()).toBe(true)
+    harness.unmount()
+  })
+
+  test("G. logout resetea EXACTAMENTE una vez — un re-render posterior sin cambio de actor no vuelve a resetear", () => {
+    setAuth(NEGOCIO_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    act(() => useAuthStore.getState().logout())
+    markSentinelConversation() // sentinel puesto DESPUÉS del logout
+    act(() => window.dispatchEvent(new Event("focus"))) // no cambia actorKey
+    expect(wasChatStoreReset()).toBe(false)
+    harness.unmount()
+  })
+
+  test("H. tras un logout real, null -> actor B NO dispara un segundo reset innecesario (el chat-store ya quedó limpio en el logout)", () => {
+    setAuth(NEGOCIO_USER, true)
+    const harness = createJointHarness()
+    harness.mount()
+    act(() => useAuthStore.getState().logout())
+    markSentinelConversation()
+    act(() => setAuth(NEGOCIO_USER_2, true))
+    expect(wasChatStoreReset()).toBe(false)
+    harness.unmount()
+  })
+
+  test("I. store ya hidratado con un actor real ANTES del primer efecto: no dispara un reset accidental al montar", () => {
+    setAuth(NEGOCIO_USER, true)
+    markSentinelConversation()
+    const harness = createJointHarness()
+    harness.mount() // primer efecto: previous=undefined, el guard evita el reset
+    expect(wasChatStoreReset()).toBe(false)
     harness.unmount()
   })
 })

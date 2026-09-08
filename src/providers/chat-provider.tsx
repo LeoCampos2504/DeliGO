@@ -80,13 +80,30 @@ export function useChatDeepLink() {
   }, [openConversation, setSheetOpen, isAuthenticated, userType, authHasHydrated])
 }
 
-function useChatActorReset() {
+// P2-T31-R23C: `previousActorKeyRef.current` distingue tres estados —
+// `undefined` (todavía no se observó ningún valor, primer efecto),
+// `null` (se observó auth ya resuelta sin usuario), y una clave real
+// `"tipo:id"`. El reset sólo debe correr cuando el actor ANTERIOR ya
+// era real y CAMBIÓ a otro valor (logout `real -> null`, o `real A ->
+// real B`) — nunca en la transición `null -> real` de la primera
+// hidratación de `auth-store`, que no es un cambio de actor sino la
+// resolución inicial de identidad. Sin el chequeo `!== null`, esa
+// transición inicial disparaba `reset()` en el MISMO commit de React
+// en que `useChatDeepLink` (llamado antes, arriba) acababa de abrir el
+// chat vía deep-link, borrándolo de inmediato — causa raíz PROBADA en
+// P2_T31_R23B_CHAT_PUSH_TAP_RUNTIME_URL_CONSUMPTION_ROOT_CAUSE_AUDIT.md.
+// Exportado (P2-T31-R23C), igual que `useChatDeepLink` en R23A,
+// exclusivamente para poder montarlo junto a `useChatDeepLink` en un
+// test de DOM real, en el mismo orden que `ChatProvider` — el
+// comportamiento en producción no cambia.
+export function useChatActorReset() {
   const user = useAuthStore((state) => state.user)
   const actorKey = user ? `${user.type}:${user.id}` : null
   const previousActorKeyRef = useRef<string | null | undefined>(undefined)
 
   useEffect(() => {
-    if (previousActorKeyRef.current !== undefined && previousActorKeyRef.current !== actorKey) {
+    const previous = previousActorKeyRef.current
+    if (previous !== undefined && previous !== null && previous !== actorKey) {
       useChatStore.getState().reset()
     }
     previousActorKeyRef.current = actorKey
