@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { toast } from "sonner"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { useAuthStore } from "@/store/auth-store"
-import { createLatestOperationGate } from "./push-operation-guard"
-import { checkPersonalPushStatus } from "./push-personal-status-check"
+import { createLatestOperationGate, type LatestOperationGate } from "./push-operation-guard"
+import { checkPersonalPushStatus, type PushDebugTraceFn } from "./push-personal-status-check"
 import {
   registerInFlightPersonalPushMutation,
   waitForInFlightPersonalPushMutation,
@@ -164,6 +164,181 @@ export async function createPhysicalPushSubscription(
     recordPushDebugEvent("SUBSCRIBE_PHYSICAL_CREATE_ERROR", { opId, errorClass: classifyPushSubscribeError(error) })
     throw error
   }
+}
+
+// P2-T31-R19 (ANDROID-PUSHMANAGER-ABORTERROR-SINGLE-RETRY-HARDENING): a
+// physical Android trace (R13, then again cross-role in R18 for Negocio,
+// same failure class both times) proved `PushManager.subscribe()` can
+// reject with `AbortError` — a generic, catch-all rejection per the W3C
+// Push API spec, most plausibly a transient failure of the browser's own
+// internal registration handshake with its push service (never confirmed,
+// never Android-specific — see R13 §5). This wraps
+// `createPhysicalPushSubscription` with AT MOST one additional physical
+// attempt, gated EXCLUSIVELY by `errorClass === "AbortError"` — every
+// other error rethrows immediately, completely unchanged from before this
+// task. `MAX_PHYSICAL_SUBSCRIBE_ATTEMPTS_PER_USER_ACTION` bounds the TOTAL
+// number of `registration.pushManager.subscribe()` calls this can ever
+// make for one user action to exactly 2 — never a loop, never a third
+// attempt, never recursive, no delay (R19 §11: no evidence a delay helps).
+//
+// Before ANY retry, this ALWAYS re-reads `getSubscription()` first (R19
+// §6-7): if the browser actually created a subscription despite the
+// rejected promise, that existing physical subscription is reused exactly
+// as-is — a second `subscribe()` call is never made on top of a live one.
+// If that recovered subscription's key doesn't match the VAPID key
+// currently in use (validated with the same `applicationServerKeyMatches`
+// the rest of this file already trusts for stale-key detection elsewhere),
+// OR if the recheck read itself throws, this FAILS CLOSED — rethrows the
+// ORIGINAL `AbortError` without ever attempting a second physical
+// creation or touching/destroying the ambiguous subscription found (that
+// decision belongs exclusively to the existing stale-key-removal flow at
+// the top of `subscribe()`, never invented here). Only a confirmed `null`
+// recheck authorizes the single retry attempt.
+//
+// This never touches the mutation gate/registry (no new `opId`, no new
+// `gate.begin()`) — both physical attempts belong to the SAME high-level
+// operation the caller already started; `MUTATION_REGISTRY_SET`/`RELEASE`
+// and the `SUBSCRIBE_FINISH`/failure-state contract of R13A are entirely
+// unaffected and still apply exactly once, at the caller's existing call
+// site, regardless of which branch below resolves or throws — including
+// backend subscribe, which the caller only ever attempts once, AFTER this
+// resolves (same structural guarantee R12 already proved for a throw).
+export const MAX_PHYSICAL_SUBSCRIBE_ATTEMPTS_PER_USER_ACTION = 2
+
+export async function createPhysicalPushSubscriptionWithAbortRecovery(
+  registration: ServiceWorkerRegistration,
+  applicationServerKey: Uint8Array,
+  opId: number
+): Promise<PushSubscription> {
+  try {
+    return await createPhysicalPushSubscription(registration, applicationServerKey as BufferSource, opId)
+  } catch (error) {
+    if (classifyPushSubscribeError(error) !== "AbortError") {
+      throw error
+    }
+
+    recordPushDebugEvent("SUBSCRIBE_ABORT_RECHECK_START", { opId })
+    let recheck: PushSubscription | null
+    try {
+      recheck = await registration.pushManager.getSubscription()
+    } catch (recheckError) {
+      recordPushDebugEvent("SUBSCRIBE_ABORT_RECHECK_ERROR", {
+        opId,
+        errorClass: recheckError instanceof Error ? recheckError.name : "unknown",
+      })
+      // Cannot confirm the physical state after the abort — never retry
+      // blindly. Fail closed with the ORIGINAL AbortError.
+      throw error
+    }
+
+    if (recheck) {
+      const keyIsCurrent = applicationServerKeyMatches(recheck.options.applicationServerKey, applicationServerKey)
+      recordPushDebugEvent("SUBSCRIBE_ABORT_RECHECK_RESULT", {
+        opId,
+        found: true,
+        endpointFingerprint: fingerprintPushEndpoint(recheck.endpoint),
+        keyIsCurrent,
+      })
+      if (keyIsCurrent) {
+        // The browser DID create a subscription despite the rejected
+        // promise — reuse it exactly. Never a second subscribe() call.
+        return recheck
+      }
+      // Found, but stale/unconfirmable against the current VAPID key: fail
+      // closed. See the function-level comment — never destroyed/replaced
+      // from inside a recovery path.
+      throw error
+    }
+
+    recordPushDebugEvent("SUBSCRIBE_ABORT_RECHECK_RESULT", { opId, found: false, keyIsCurrent: null })
+
+    recordPushDebugEvent("SUBSCRIBE_PHYSICAL_RETRY_START", { opId })
+    try {
+      // Same cast rationale as createPhysicalPushSubscription's caller
+      // (P2-T31-R3): Uint8Array<ArrayBufferLike> vs the DOM BufferSource
+      // union — a pre-existing TS/lib.dom strictness gap, runtime-neutral.
+      const retried = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey as BufferSource,
+      })
+      recordPushDebugEvent("SUBSCRIBE_PHYSICAL_RETRY_RESULT", { opId })
+      return retried
+    } catch (retryError) {
+      recordPushDebugEvent("SUBSCRIBE_PHYSICAL_RETRY_ERROR", {
+        opId,
+        errorClass: classifyPushSubscribeError(retryError),
+      })
+      throw retryError
+    }
+  }
+}
+
+// P2-T31-R19R (ABORTERROR-RETRY-STALE-ACTOR-BACKEND-GUARD): R19's retry
+// window (up to 2 physical attempts + a defensive recheck, all awaited in
+// sequence) can span long enough for the actor to change / log out / a
+// newer mutation to start while this operation is still resolving —
+// exactly the same races R2/R13A already guard for everywhere else in this
+// file. Before R19R, the ONE thing that was NOT gated on staleness was the
+// backend bind itself: `fetch(subscribeUrl...)` ran unconditionally, and
+// only `finishMutation` decided afterward whether the RESULT got applied to
+// UI state — the write to the server had already happened regardless. That
+// gap is not new to R19 (the exact same unconditional fetch existed before
+// R19 too, for the single-attempt case) — R19 only made the window it could
+// occur in longer.
+//
+// `gate.isCurrent(opId)` is the SAME canonical signal `finishMutation`
+// already trusts — actor changes route through `gate.invalidate()`
+// (see the `actorKey` effect below), never a separate actor-identity
+// comparison, so checking the gate alone is sufficient and avoids
+// duplicating that authority. This check is the LAST synchronous statement
+// before the only `fetch` call site in `subscribe()` — nothing between the
+// check and the network call can yield to the event loop, so no actor
+// change/newer-mutation can slip in between "confirmed current" and
+// "request sent" (an interleaving check with an `await` in between would
+// not have this guarantee).
+//
+// A stale result here is NOT an error — no toast, no thrown exception, no
+// "operation cancelled" message invented. It resolves through the EXACT
+// same `finishMutation(opId, false)` path every other stale branch in this
+// file already uses, which itself already ignores the passed value for a
+// non-current opId. The physical `PushSubscription` obtained by the caller
+// is deliberately left untouched: it belongs to the browser/origin, not to
+// this one operation, and the actor that superseded this operation can
+// reconcile it through its own normal subscribe()/status-check flow.
+export interface BindPhysicalPushSubscriptionToBackendDeps {
+  gate: LatestOperationGate
+  opId: number
+  actorType: string | null
+  subscription: PushSubscription
+  postSubscribe: (subscribeUrl: string, body: string) => Promise<{ ok: boolean; status: number }>
+  trace?: PushDebugTraceFn
+}
+
+export interface BindPhysicalPushSubscriptionToBackendResult {
+  /** `false` means the backend was never contacted — the operation was
+   * already stale by the time this ran. Never an error on its own. */
+  posted: boolean
+  ok: boolean
+  status?: number
+}
+
+export async function bindPhysicalPushSubscriptionToBackend(
+  deps: BindPhysicalPushSubscriptionToBackendDeps
+): Promise<BindPhysicalPushSubscriptionToBackendResult> {
+  const trace = deps.trace ?? (() => {})
+
+  if (!deps.gate.isCurrent(deps.opId)) {
+    trace("SUBSCRIBE_BACKEND_SKIPPED_STALE", { opId: deps.opId, actorFamily: deps.actorType })
+    return { posted: false, ok: false }
+  }
+
+  // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito de
+  // familia — mismo transporte ?actorFamily= ya certificado en Fase 2.
+  const subscribeUrl = deps.actorType ? `/api/push/subscribe?actorFamily=${deps.actorType}` : "/api/push/subscribe"
+  trace("SUBSCRIBE_BACKEND_START", { opId: deps.opId })
+  const res = await deps.postSubscribe(subscribeUrl, JSON.stringify({ subscription: JSON.stringify(deps.subscription) }))
+  trace("SUBSCRIBE_BACKEND_RESULT", { opId: deps.opId, httpStatus: res.status, ok: res.ok })
+  return { posted: true, ok: res.ok, status: res.status }
 }
 
 interface UsePushNotificationsReturn {
@@ -569,16 +744,15 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           if (!removed) {
             throw new Error("No se pudo confirmar la eliminación de la subscription obsoleta")
           }
-          subscription = await createPhysicalPushSubscription(registration, applicationServerKey as BufferSource, opId)
+          // P2-T31-R19: at most one automatic retry, exclusively for
+          // AbortError, with a defensive getSubscription() recheck first —
+          // see the function's own doc comment for the full contract.
+          subscription = await createPhysicalPushSubscriptionWithAbortRecovery(registration, applicationServerKey, opId)
         } else if (existingSubscription && existingKeyIsCurrent) {
           subscription = existingSubscription
         } else {
-          // P2-T31-R3: cast needed only for a pre-existing TS/lib.dom
-          // strictness gap already tolerated elsewhere in this repo —
-          // `Uint8Array<ArrayBufferLike>` vs the DOM `BufferSource` union.
-          // Runtime behavior is unaffected: the browser accepts a
-          // Uint8Array here regardless.
-          subscription = await createPhysicalPushSubscription(registration, applicationServerKey as BufferSource, opId)
+          // P2-T31-R19: same AbortError recovery as the branch above.
+          subscription = await createPhysicalPushSubscriptionWithAbortRecovery(registration, applicationServerKey, opId)
         }
         recordPushDebugEvent("SUBSCRIBE_NEW_PHYSICAL_RESULT", {
           opId,
@@ -586,24 +760,35 @@ export function usePushNotifications(): UsePushNotificationsReturn {
           reused: !!(existingSubscription && existingKeyIsCurrent),
         })
 
-        // Save to server
-        // P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): selector explícito
-        // de familia — mismo transporte ?actorFamily= ya certificado en
-        // Fase 2, requerido para que /api/push/subscribe resuelva sin
-        // ambigüedad bajo 2+ cookies de familia coexistiendo.
-        const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"
-        recordPushDebugEvent("SUBSCRIBE_BACKEND_START", { opId })
-        const res = await fetch(subscribeUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subscription: JSON.stringify(subscription),
-          }),
+        // Save to server — P2-T31-R19R: gated on the operation still being
+        // current, checked with zero `await` between the check and the
+        // network call. See bindPhysicalPushSubscriptionToBackend's own doc
+        // comment for the full contract.
+        const bindResult = await bindPhysicalPushSubscriptionToBackend({
+          gate: gateRef.current,
+          opId,
+          actorType,
+          subscription,
+          postSubscribe: (subscribeUrl, body) =>
+            fetch(subscribeUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body,
+            }).then((res) => ({ ok: res.ok, status: res.status })),
+          trace: recordPushDebugEvent,
         })
-        recordPushDebugEvent("SUBSCRIBE_BACKEND_RESULT", { opId, httpStatus: res.status, ok: res.ok })
 
-        if (!res.ok) {
-          throw new PushMutationHttpError("Error saving subscription", res.status)
+        if (!bindResult.posted) {
+          // Stale: a newer operation/actor already owns this hook instance.
+          // Never an error — same silent-discard contract every other stale
+          // branch in this file already uses. The physical subscription is
+          // deliberately left untouched (see the function-level comment).
+          recordPushDebugEvent("SUBSCRIBE_FINISH", { opId, current: false, subscribed: false })
+          return finishMutation(opId, false)
+        }
+
+        if (!bindResult.ok) {
+          throw new PushMutationHttpError("Error saving subscription", bindResult.status ?? 0)
         }
 
         if (gateRef.current.isCurrent(opId)) {

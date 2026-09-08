@@ -306,16 +306,34 @@ describe("F-P2-T18-AUTH02 — use-push-notifications actorFamily selector propag
 
   test("all three call sites (status, subscribe, unsubscribe) build their URL from actorType with the same ternary shape", () => {
     expect(src).toContain('const statusUrl = actorType ? `/api/push/status?actorFamily=${actorType}` : "/api/push/status"')
-    expect(src).toContain('const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"')
+    // P2-T31-R19R (ABORTERROR-RETRY-STALE-ACTOR-BACKEND-GUARD): the subscribe
+    // URL construction moved from inline in subscribe() into the extracted,
+    // directly-testable `bindPhysicalPushSubscriptionToBackend` — the ternary
+    // shape and its source (the SAME `actorType` the caller passes through
+    // its `deps.actorType`) are unchanged, only the enclosing function is
+    // different, so this checks the new (real, executed) location.
+    expect(src).toContain('const subscribeUrl = deps.actorType ? `/api/push/subscribe?actorFamily=${deps.actorType}` : "/api/push/subscribe"')
     expect(src).toContain('const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"')
-    // P2-T18-BLOCKER-AUTH2-R13-R3-R1 (M9 gap closure): the three checks above
-    // only proved each URL variable is DECLARED — mirroring the consumption
-    // checks that already exist for unsubscribeUrl ("fetch(unsubscribeUrl",
+    // P2-T18-BLOCKER-AUTH2-R13-R3-R1 (M9 gap closure): the checks above only
+    // prove each URL variable is DECLARED — mirroring the consumption checks
+    // that already exist for unsubscribeUrl ("fetch(unsubscribeUrl",
     // F-P2-T05-02 describe above) and statusUrl ("fetch(statusUrl",
-    // F-P2-T05-13 describe above), this proves subscribe()'s fetch actually
-    // CONSUMES subscribeUrl rather than a bare literal (R13-R3 mutant M9
-    // survived because this was missing).
+    // F-P2-T05-13 describe above), this proves the computed `subscribeUrl` is
+    // actually CONSUMED end-to-end rather than a bare literal at either link
+    // of the chain (R13-R3 mutant M9 survived because this was missing):
+    // `bindPhysicalPushSubscriptionToBackend` passes the computed value into
+    // its injected `postSubscribe`, and subscribe()'s real `postSubscribe`
+    // implementation feeds that exact parameter straight into `fetch(...)`.
+    expect(src).toContain("deps.postSubscribe(subscribeUrl")
     expect(src).toContain("fetch(subscribeUrl")
+  })
+
+  test("subscribe() passes its own actorType through to bindPhysicalPushSubscriptionToBackend — never a disconnected/stale selector", () => {
+    const callIdx = src.indexOf("await bindPhysicalPushSubscriptionToBackend({")
+    expect(callIdx).toBeGreaterThan(-1)
+    const callBody = src.slice(callIdx, src.indexOf("})", callIdx))
+    expect(callBody).toContain("actorType,")
+    expect(callBody).toContain("gate: gateRef.current,")
   })
 
   test("subscribe() and unsubscribe() depend on actorType in their useCallback deps array — a fresh actor never reuses a stale selector", () => {
@@ -645,8 +663,12 @@ describe("P2-T31-R8 — mutation failure message wiring", () => {
   const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
   const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
 
-  test("both mutations throw PushMutationHttpError (carrying the real res.status), never a bare Error, on a non-ok backend response", () => {
-    expect(subscribeBody).toContain("throw new PushMutationHttpError(\"Error saving subscription\", res.status)")
+  test("both mutations throw PushMutationHttpError (carrying the real backend status), never a bare Error, on a non-ok backend response", () => {
+    // P2-T31-R19R: subscribe()'s backend call moved behind
+    // bindPhysicalPushSubscriptionToBackend (see its own describe below) —
+    // the status still flows from the real HTTP response, now via
+    // `bindResult.status` rather than a bare `res` in scope here.
+    expect(subscribeBody).toContain("throw new PushMutationHttpError(\"Error saving subscription\", bindResult.status ?? 0)")
     expect(unsubscribeBody).toContain("throw new PushMutationHttpError(\"Error removing subscription\", res.status)")
   })
 
