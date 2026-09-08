@@ -29,9 +29,26 @@ const ChatSheet = dynamic(
 // (`client.navigate()`) a una nueva notificación de chat, no hay garantía de
 // que ChatProvider se desmonte/remonte — así que hace falta releer la URL al
 // recuperar el foco/visibilidad, no solo al montar.
-function useChatDeepLink() {
+// Exportado (P2-T31-R23A) exclusivamente para poder montarlo aislado en
+// tests reales de DOM (happy-dom + react-dom/client) sin arrastrar
+// ChatFab/ChatSheet (`next/dynamic`, `ssr:false`) — el comportamiento del
+// hook en sí, y su uso dentro de `ChatProvider` más abajo, no cambian.
+export function useChatDeepLink() {
   const { openConversation, setSheetOpen } = useChatStore()
   const { isAuthenticated, userType } = useAuthStore()
+  // P2-T31-R23A: `isAuthenticated()`/`userType()` leen el store de auth
+  // ANTES de que termine de hidratarse en un arranque en frío (exactamente
+  // el escenario de abrir la PWA desde un tap de notificación) — sin este
+  // selector, el efecto de abajo podía correr una única vez con
+  // `isAuthenticated()===false` (usuario todavía no rehidratado desde
+  // localStorage) y nunca reintentar, descartando el deep-link `?chat=`
+  // para siempre en silencio. Ver
+  // P2_T31_R23_CHAT_PUSH_NOTIFICATION_TAP_DEEPLINK_ROOT_CAUSE_AUDIT.md.
+  // Agregarlo a las dependencias del efecto hace que `consumeChatParam()`
+  // se vuelva a ejecutar exactamente cuando la hidratación termina — el
+  // guard `if (!chatPedidoId) return` ya evita un doble consumo si el
+  // parámetro ya se había limpiado en una corrida anterior.
+  const authHasHydrated = useAuthStore((state) => state._hasHydrated)
 
   useEffect(() => {
     function consumeChatParam() {
@@ -60,7 +77,7 @@ function useChatDeepLink() {
       window.removeEventListener("focus", consumeChatParam)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [openConversation, setSheetOpen, isAuthenticated, userType])
+  }, [openConversation, setSheetOpen, isAuthenticated, userType, authHasHydrated])
 }
 
 function useChatActorReset() {
