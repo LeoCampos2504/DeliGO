@@ -22,6 +22,10 @@ let notificacionCreateCalls: Array<{ userId: string; userType: string }>
 let webpushBehavior: Map<string, "success" | 404 | 410 | 500 | "network">
 let webpushCallLog: string[]
 let webpushOptionsLog: Array<Record<string, unknown> | undefined>
+// P2-T31-R22A: captura del payload REAL (JSON.stringify(enrichedPushPayload))
+// enviado a webpush.sendNotification — permite verificar `data.role` sin
+// tocar el mock existente de `web-push`, `@/lib/db` ni requerir una DB real.
+let webpushPayloadLog: Array<{ data?: { role?: string; type?: string } }>
 let concurrencyGate: ReturnType<typeof createConcurrencyGate> | null
 /** Fires exactly once, right after a `findUnique` read resolves its return
  * value but before the caller sees it, to simulate a genuine race: the
@@ -121,6 +125,11 @@ mock.module("web-push", () => ({
       // "success") falla por defecto, nunca succeeds silenciosamente.
       webpushCallLog.push(subscription.endpoint)
       webpushOptionsLog.push(options)
+      try {
+        webpushPayloadLog.push(_payload ? JSON.parse(_payload) : {})
+      } catch {
+        webpushPayloadLog.push({})
+      }
       if (!subscription.endpoint.startsWith("https://push.example/")) {
         throw new Error("simulated network failure (unrecognized endpoint outside this test's fixture domain)")
       }
@@ -187,6 +196,7 @@ beforeEach(() => {
   webpushBehavior = new Map()
   webpushCallLog = []
   webpushOptionsLog = []
+  webpushPayloadLog = []
   concurrencyGate = null
   raceOnNextRead = null
 })
@@ -824,6 +834,60 @@ describe("Core owner mapping coverage (cliente/negocio/repartidor/empleado, chan
     ])
     const targets = await push.resolveCorePushTargets("cliente", "n1", null)
     expect(targets.length).toBe(0)
+  })
+})
+
+// ============================================
+// P2-T31-R22A — data.role coverage (§12 del mandato R22A)
+// ============================================
+// R22 encontró que `enrichedPushPayload.data.role` (agregado por
+// `personalRoleFor(userType)`) es EXACTAMENTE el campo que el Service
+// Worker necesita para enrutar el ícono de notificación por destinatario
+// real, pero no tenía cobertura DIRECTA (sólo se infería indirectamente).
+// Estos tests verifican, contra el payload REAL enviado a
+// `webpush.sendNotification` (no una re-implementación), que `data.role`
+// llega con el valor correcto para cada uno de los 3 roles "core" — el
+// mismo contrato que el fixture del Service Worker en
+// `sw-push-role-icon-routing.test.ts` asume como entrada real.
+describe("createNotification -> enrichedPushPayload.data.role (P2-T31-R22A)", () => {
+  test.each(["cliente", "negocio", "repartidor"] as const)(
+    "%s: el payload real enviado a webpush.sendNotification lleva data.role = %s",
+    async (ownerType) => {
+      normalizedByOwner.set(ownerKey(ownerType, "owner-1", "default"), [
+        { endpoint: EP("ROLE_E1"), p256dh: "p1", auth: "a1", expirationTime: null },
+      ])
+      await push.createNotification({
+        userId: "owner-1",
+        userType: ownerType,
+        tipo: "order_update",
+        titulo: "t",
+        cuerpo: "b",
+        pushSubscription: null,
+        pushPayload: { title: "t", body: "b", data: { type: "order_update" } },
+        awaitPush: true,
+      })
+      expect(webpushPayloadLog.length).toBe(1)
+      expect(webpushPayloadLog[0]?.data?.role).toBe(ownerType)
+      expect(webpushPayloadLog[0]?.data?.type).toBe("order_update")
+    }
+  )
+
+  test("empleado (no es un rol 'personal' de subscribe/PWA propia) no recibe data.role", async () => {
+    normalizedByOwner.set(ownerKey("empleado", "owner-1", "default"), [
+      { endpoint: EP("ROLE_E2"), p256dh: "p1", auth: "a1", expirationTime: null },
+    ])
+    await push.createNotification({
+      userId: "owner-1",
+      userType: "empleado",
+      tipo: "review",
+      titulo: "t",
+      cuerpo: "b",
+      pushSubscription: null,
+      pushPayload: { title: "t", body: "b", data: { type: "review" } },
+      awaitPush: true,
+    })
+    expect(webpushPayloadLog.length).toBe(1)
+    expect(webpushPayloadLog[0]?.data?.role).toBeUndefined()
   })
 })
 

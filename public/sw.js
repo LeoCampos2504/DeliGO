@@ -395,19 +395,47 @@ self.addEventListener("push", (event) => {
     const title = data.title || "DeliGO";
     const notifType = data.data?.type || "general";
 
+    // P2-T31-R22/R22A: causa raíz probada — `order_update`/`review`/`chat`
+    // son notifType REALMENTE compartidos entre Cliente/Negocio/Repartidor
+    // (ej. todo el ciclo de vida del pedido visto por el Cliente usa
+    // `order_update`, el mismo tipo que Negocio recibe para lo suyo), así
+    // que resolver el ícono SÓLO por `notifType` le da a un Cliente el
+    // ícono de Negocio (y viceversa para Negocio+chat) — reproducido y
+    // probado ejecutando este mismo archivo en R22 (ver
+    // P2_T31_R22_ANDROID_PUSH_NOTIFICATION_ICON_ROUTING_ROOT_CAUSE_AUDIT.md).
+    // `data.role` (agregado por `createNotification`::`personalRoleFor` en
+    // push.ts) ya identifica al destinatario REAL, y ya se entrega de forma
+    // confiable — es el mismo campo que `notificationclick` más abajo ya usa
+    // para navegar al rol correcto. Se usa PRIMERO acá; el `notifType` legacy
+    // sigue intacto como fallback exclusivamente para los tipos que no
+    // llevan `role` (salon/mozo/empleado/operaciones, o cualquier payload
+    // viejo ya encolado sin este campo) — nunca se elimina ni se reordena su
+    // propio comportamiento interno.
+    const ROLE_ICON = {
+      cliente: "/icon-cliente-192x192.png",
+      negocio: "/icon-negocio-192x192.png",
+      repartidor: "/icon-repartidor-192x192.png",
+    };
+    const recipientRole = data.data?.role;
+
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
-    let icon = "/icon-cliente-192x192.png";
-    if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
-      icon = "/icon-salon-192x192.png";
-    } else if (notifType === "operaciones_order_cancelled") {
-      icon = data.data?.area === "salon"
-        ? "/icon-salon-192x192.png"
-        : "/icon-empleado-192x192.png";
-    } else if (notifType === "mesa_order_ready") {
-      icon = "/icon-mozo-192x192.png";
-    } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
-      icon = "/icon-negocio-192x192.png";
+    let icon;
+    if (recipientRole && ROLE_ICON[recipientRole]) {
+      icon = ROLE_ICON[recipientRole];
+    } else {
+      icon = "/icon-cliente-192x192.png";
+      if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
+        icon = "/icon-salon-192x192.png";
+      } else if (notifType === "operaciones_order_cancelled") {
+        icon = data.data?.area === "salon"
+          ? "/icon-salon-192x192.png"
+          : "/icon-empleado-192x192.png";
+      } else if (notifType === "mesa_order_ready") {
+        icon = "/icon-mozo-192x192.png";
+      } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
+        icon = "/icon-negocio-192x192.png";
+      }
     }
 
     // Bugfix-4D: causa raíz confirmada del deep link roto. Este objeto es la
