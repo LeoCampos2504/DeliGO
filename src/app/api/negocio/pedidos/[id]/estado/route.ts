@@ -9,7 +9,7 @@ import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-no
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
+import { NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, CANONICAL_ACCEPTED_STATE, CANONICAL_WAITING_DRIVER_STATE, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -33,12 +33,20 @@ function noStoreJson<T>(data: T, init?: ResponseInit) {
 }
 
 // P2-T29A: la tabla local `VALID_TRANSITIONS` fue reemplazada por la
-// autoridad compartida `order-transitions.ts` (ACTIVE_FORWARD_TRANSITIONS +
-// canTransitionToCancelled) — mismo comportamiento observable, sin la
-// tercera/cuarta copia independiente de estas reglas que la auditoría P2-T29
-// encontró duplicadas entre este archivo, operaciones/pyr/estado,
-// operaciones/salon/estado y negocio/pedidos (PUT). Ver
+// autoridad compartida `order-transitions.ts` — sin la tercera/cuarta copia
+// independiente de estas reglas que la auditoría P2-T29 encontró duplicadas
+// entre este archivo, operaciones/pyr/estado, operaciones/salon/estado y
+// negocio/pedidos (PUT). Ver
 // codex-reports/P2_T29A_ORDER_TRANSITION_AUTHORITY_CAS_AND_CONCURRENCY_TESTS.md.
+//
+// P2-T29B: este endpoint (domicilio/retiro) pasa a validar contra
+// NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS — el grafo NUEVO (aceptado/
+// esperando_repartidor) con las aristas LEGACY todavía aceptadas para
+// compatibilidad durante el rollout (recibido->preparando directo,
+// preparando->en_camino directo). Operaciones/PyR, Operaciones/Salón y
+// Repartidor NO se tocan en T29B — siguen en ACTIVE_FORWARD_TRANSITIONS,
+// sin ningún cambio de comportamiento. Ver
+// codex-reports/P2_T29B_NEGOCIO_ACCEPTED_PREPARING_WAITING_DRIVER_FLOW.md.
 
 // P2-T28: punto de pausa SOLO para el test determinista de ownership del
 // state lock (ver src/app/api/negocio/pedidos/[id]/estado/order-estado-lock-ownership.test.ts).
@@ -150,8 +158,8 @@ async function handlePedidoEstadoChange(
     const metodoEntregaTipado = pedido.metodoEntrega as MetodoEntrega
     const esTransicionValida =
       estado === "cancelado"
-        ? canTransitionToCancelled(currentEstado)
-        : isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, metodoEntregaTipado, currentEstado, estado)
+        ? canTransitionToCancelled(currentEstado, "rollout")
+        : isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, metodoEntregaTipado, currentEstado, estado)
     if (!esTransicionValida) {
       return noStoreJson(
         { error: `Transición no válida: ${currentEstado} → ${estado}` },
@@ -292,8 +300,15 @@ async function handlePedidoEstadoChange(
 
     const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
 
+    // P2-T29B: "aceptado"/"esperando_repartidor" NO tienen todavía copy propio
+    // en orderUpdateNotification — enviar ahí caería al fallback genérico
+    // "Tu pedido cambió a: aceptado", exactamente la notificación nueva que
+    // la tarea explícitamente difiere a T29D. "preparando" ya tiene su
+    // mensaje existente y sigue enviándose sin cambios.
+    const isNewT29StateWithoutClientCopy = estado === CANONICAL_ACCEPTED_STATE || estado === CANONICAL_WAITING_DRIVER_STATE
+
     // Send notification to the client about order status update
-    if (pedido.clienteId) {
+    if (pedido.clienteId && !isNewT29StateWithoutClientCopy) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },

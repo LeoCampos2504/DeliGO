@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const estado = searchParams.get("estado") // "activos" or "historial"
 
-    const activeStatuses = ["recibido", "confirmado", "preparando", "en_camino", "listo_para_retirar"]
+    // P2-T29B: "aceptado"/"esperando_repartidor" son alcanzables ahora para
+    // domicilio/retiro — deben seguir contando como "activos" para el
+    // cliente, o el pedido desaparecería de su lista mientras transiciona.
+    const activeStatuses = ["recibido", "confirmado", "aceptado", "preparando", "esperando_repartidor", "en_camino", "listo_para_retirar"]
 
     const where: Record<string, unknown> = {
       clienteId: cliente.id,

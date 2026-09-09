@@ -155,7 +155,12 @@ interface RepeatOrderResponse {
   totalOriginal: number
 }
 
-const ACTIVE_STATUSES = ["recibido", "confirmado", "preparando", "en_camino", "listo_para_retirar"]
+// P2-T29B: consistente con el filtro real server-side en
+// src/app/api/cliente/pedidos/route.ts — este array no se usa directamente
+// en este archivo hoy (la clasificación activa/historial la hace la API vía
+// ?estado=activos|historial), se mantiene sincronizado por si algo lo
+// consume en el futuro.
+const ACTIVE_STATUSES = ["recibido", "confirmado", "aceptado", "preparando", "esperando_repartidor", "en_camino", "listo_para_retirar"]
 const HISTORY_STATUSES = ["entregado", "cancelado"]
 
 // Status timeline steps for active orders
@@ -972,7 +977,12 @@ function ActiveOrderCard({
   }, [showHighlight, pedido.id])
 
   const canCancel = (() => {
-    if (pedido.estado !== "recibido" && pedido.estado !== "confirmado") return false
+    // P2-T29B: `aceptado` (domicilio/retiro) pasa a ser un estado
+    // realmente alcanzable — CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO=SI ya
+    // estaba decidido (order-transitions.ts), esto lo hace usable de
+    // verdad: sin este gate, el backend ya aceptaría la cancelación pero
+    // el botón nunca aparecería.
+    if (pedido.estado !== "recibido" && pedido.estado !== "confirmado" && pedido.estado !== "aceptado") return false
     const tolerancia = pedido.toleranciaCancelacion ?? 5
     if (tolerancia <= 0) return false // negocio doesn't allow cancellation
     const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()

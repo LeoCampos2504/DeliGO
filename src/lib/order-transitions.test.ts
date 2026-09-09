@@ -15,6 +15,7 @@ import {
   CANONICAL_WAITING_DRIVER_STATE,
   CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO,
   MESA_PASA_POR_ACEPTADO,
+  NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS,
   TARGET_FORWARD_TRANSITIONS,
   canTransitionToCancelled,
   isTerminalEstado,
@@ -130,6 +131,45 @@ describe("P2-T29A — isTerminalEstado", () => {
     for (const estado of ["recibido", "aceptado", "preparando", "esperando_repartidor", "en_camino", "listo_para_retirar"]) {
       expect(isTerminalEstado(estado)).toBe(false)
     }
+  })
+})
+
+describe("P2-T29B — NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS — grafo nuevo + compatibilidad legacy", () => {
+  test("DOMICILIO nuevo: recibido→aceptado, aceptado→preparando, preparando→esperando_repartidor", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "aceptado")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "aceptado", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "esperando_repartidor")).toBe(true)
+  })
+  test("DOMICILIO legacy: recibido→preparando y preparando→en_camino siguen válidos durante el rollout", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "en_camino")).toBe(true)
+  })
+  test("RETIRO nuevo: recibido→aceptado, aceptado→preparando, preparando→listo_para_retirar", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "aceptado")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "aceptado", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "preparando", "listo_para_retirar")).toBe(true)
+  })
+  test("RETIRO legacy: recibido→preparando sigue válido durante el rollout", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "preparando")).toBe(true)
+  })
+  test("MESA: recibido→preparando válido, recibido→aceptado INVÁLIDO (MESA_PASA_POR_ACEPTADO=false)", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "mesa", "recibido", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "mesa", "recibido", "aceptado")).toBe(false)
+  })
+  test("no permite saltos/retrocesos ni combinaciones cruzadas prohibidas", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "listo_para_retirar")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "preparando", "esperando_repartidor")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "esperando_repartidor")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "listo_para_retirar")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "aceptado", "recibido")).toBe(false)
+  })
+  test("waiting driver boundary: esperando_repartidor NUNCA es origen de ninguna transición de Negocio — el avance a en_camino es exclusivo de T29C", () => {
+    expect(Object.keys(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS.domicilio)).not.toContain(CANONICAL_WAITING_DRIVER_STATE)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "esperando_repartidor", "en_camino")).toBe(false)
+  })
+  test("cliente puede cancelar desde aceptado bajo el grafo de rollout (misma política que target)", () => {
+    expect(canTransitionToCancelled(CANONICAL_ACCEPTED_STATE, "rollout")).toBe(true)
+    expect(canTransitionToCancelled(CANONICAL_WAITING_DRIVER_STATE, "rollout")).toBe(true)
   })
 })
 

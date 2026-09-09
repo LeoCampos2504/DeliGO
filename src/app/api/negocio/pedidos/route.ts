@@ -26,7 +26,10 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
 // autoridad compartida `order-transitions.ts` — esta ruta es exclusiva de
 // mesa (ver el `where` de abajo), así que sólo el subgrafo `mesa` aplica.
 
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"]
+// P2-T29B: incluye los 2 estados nuevos (domicilio/retiro) para que un
+// pedido en `aceptado`/`esperando_repartidor` siga contando como "activo"
+// acá — mesa nunca alcanza estos valores, así que no tiene efecto para ella.
+const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar", "aceptado", "esperando_repartidor"]
 
 // GET - List orders for the negocio
 export async function GET(req: NextRequest) {

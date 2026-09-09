@@ -12,7 +12,10 @@ interface StatusBadgeProps {
 const statusColorMap: Record<string, string> = {
   recibido: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   confirmado: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  // P2-T29B: nuevos estados de domicilio/retiro (order-transitions.ts).
+  aceptado: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   preparando: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  esperando_repartidor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
   en_camino: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   listo_para_retirar: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
   entregado: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
