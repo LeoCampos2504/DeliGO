@@ -37,8 +37,6 @@ import {
   Building,
   Navigation,
   Copy,
-  Info,
-  Crosshair,
   Loader2,
 } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -76,7 +74,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import L from "leaflet"
+import { AddressForm, type DireccionRecord } from "@/components/location/address-form"
 import { cn, formatPrice, timeAgo, statusLabel, statusEmoji } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/store/auth-store"
@@ -481,18 +479,20 @@ function PersonalInfoSection({ perfil }: { perfil: PerfilData }) {
 function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcciones: Direccion[]; autoOpenForm?: boolean; onFormOpened?: () => void }) {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [alias, setAlias] = useState("")
-  const [direccion, setDireccion] = useState("")
-  const [referencia, setReferencia] = useState("")
-  const [lat, setLat] = useState<number | null>(null)
-  const [lng, setLng] = useState<number | null>(null)
   const queryClient = useQueryClient()
+  // P2-T32 (Problema A): deep-link determinista a esta sección cuando se
+  // llega con intención explícita de agregar dirección — nunca en
+  // navegación normal a Perfil, nunca por click manual en "Agregar" (esos
+  // casos jamás marcan pendingScrollRef). Se limpia después de disparar
+  // una vez, sin loop de scroll permanente.
+  const pendingScrollRef = useRef(false)
 
-  // Auto-open form when navigating from home page
+  // Auto-open form when navigating from home page with address intent
   useEffect(() => {
     if (autoOpenForm && !showForm) {
       // Use microtask to avoid calling setState synchronously in effect
       const timer = setTimeout(() => {
+        pendingScrollRef.current = true
         setShowForm(true)
         onFormOpened?.()
       }, 100)
@@ -500,74 +500,15 @@ function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcci
     }
   }, [autoOpenForm, showForm])
 
-  const addMutation = useMutation({
-    mutationFn: async (data: { alias: string; direccion: string; referencia: string; lat?: number | null; lng?: number | null }) => {
-      const res = await fetch("/api/cliente/direcciones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error)
-      }
-      return res.json()
-    },
-    onSuccess: (data, variables) => {
-      // If no delivery address is set, auto-select the newly added one
-      const currentAddress = useCartStore.getState().deliveryAddress
-      if (!currentAddress && (variables.lat !== null && variables.lng !== null)) {
-        const newId = data?.direccion?.id
-        useCartStore.getState().setDeliveryAddress({
-          lat: variables.lat ?? -26.1856,
-          lng: variables.lng ?? -58.1732,
-          direccion: variables.direccion,
-          referencia: variables.referencia,
-          alias: variables.alias,
-          direccionId: newId,
-        })
-      }
-      queryClient.invalidateQueries({ queryKey: ["cliente-perfil"] })
-      queryClient.invalidateQueries({ queryKey: ["cliente-direcciones"] })
-      resetForm()
-      toast.success("Dirección agregada")
-    },
-    onError: (error: Error) => toast.error(error.message),
-  })
-
-  const editMutation = useMutation({
-    mutationFn: async (data: { id: string; alias: string; direccion: string; referencia: string; lat?: number | null; lng?: number | null }) => {
-      const res = await fetch("/api/cliente/direcciones", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error)
-      }
-      return res.json()
-    },
-    onSuccess: (_data, variables) => {
-      // If the edited address is the currently selected delivery address, update the cart store
-      const currentAddress = useCartStore.getState().deliveryAddress
-      if (currentAddress?.direccionId === variables.id) {
-        useCartStore.getState().setDeliveryAddress({
-          lat: variables.lat ?? -26.1856,
-          lng: variables.lng ?? -58.1732,
-          direccion: variables.direccion,
-          referencia: variables.referencia,
-          alias: variables.alias,
-          direccionId: variables.id,
-        })
-      }
-      queryClient.invalidateQueries({ queryKey: ["cliente-perfil"] })
-      queryClient.invalidateQueries({ queryKey: ["cliente-direcciones"] })
-      resetForm()
-      toast.success("Dirección actualizada")
-    },
-    onError: (error: Error) => toast.error(error.message),
-  })
+  // Scroll sólo se dispara DESPUÉS de que showForm ya renderizó (el target
+  // — esta sección con el formulario abierto — ya existe en el DOM),
+  // nunca antes. No depende de altura fija ni de un timeout mágico.
+  useEffect(() => {
+    if (showForm && pendingScrollRef.current) {
+      pendingScrollRef.current = false
+      document.getElementById("mis-direcciones")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [showForm])
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -595,38 +536,48 @@ function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcci
   const resetForm = () => {
     setShowForm(false)
     setEditingId(null)
-    setAlias("")
-    setDireccion("")
-    setReferencia("")
-    setLat(null)
-    setLng(null)
   }
 
   const startEdit = (dir: Direccion) => {
     setEditingId(dir.id)
-    setAlias(dir.alias)
-    setDireccion(dir.direccion)
-    setReferencia(dir.referencia)
-    setLat(dir.lat)
-    setLng(dir.lng)
     setShowForm(true)
   }
 
-  const handleSubmit = () => {
-    if (!alias.trim()) {
-      toast.error("El alias es obligatorio")
-      return
-    }
-    // Either direccion text or coordinates must be present (coords take priority)
-    if (!direccion.trim() && (lat === null || lng === null)) {
-      toast.error("Ingresá una dirección o seleccioná la ubicación en el mapa")
-      return
-    }
+  // P2-T32: única rama de post-procesamiento tras un submit exitoso de la
+  // autoridad compartida (AddressForm) — el payload/validación/API ya
+  // ocurrieron ahí; acá sólo se preserva el efecto secundario que Perfil
+  // siempre tuvo (auto-seleccionar si no había dirección, o refrescar el
+  // carrito si se editó la dirección actualmente seleccionada).
+  const handleFormSuccess = (direccion: DireccionRecord) => {
+    const currentAddress = useCartStore.getState().deliveryAddress
     if (editingId) {
-      editMutation.mutate({ id: editingId, alias, direccion, referencia, lat, lng })
+      if (currentAddress?.direccionId === editingId) {
+        useCartStore.getState().setDeliveryAddress({
+          lat: direccion.lat ?? -26.1856,
+          lng: direccion.lng ?? -58.1732,
+          direccion: direccion.direccion,
+          referencia: direccion.referencia,
+          alias: direccion.alias,
+          direccionId: direccion.id,
+        })
+      }
+      toast.success("Dirección actualizada")
     } else {
-      addMutation.mutate({ alias, direccion, referencia, lat, lng })
+      if (!currentAddress && direccion.lat !== null && direccion.lng !== null) {
+        useCartStore.getState().setDeliveryAddress({
+          lat: direccion.lat,
+          lng: direccion.lng,
+          direccion: direccion.direccion,
+          referencia: direccion.referencia,
+          alias: direccion.alias,
+          direccionId: direccion.id,
+        })
+      }
+      toast.success("Dirección agregada")
     }
+    queryClient.invalidateQueries({ queryKey: ["cliente-perfil"] })
+    queryClient.invalidateQueries({ queryKey: ["cliente-direcciones"] })
+    resetForm()
   }
 
   const getAliasIcon = (alias: string) => {
@@ -636,8 +587,11 @@ function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcci
     return MapPin
   }
 
+  const editingAddress = editingId ? direcciones.find((d) => d.id === editingId) : undefined
+
   return (
     <SectionCard
+      id="mis-direcciones"
       icon={MapPin}
       title="Mis Direcciones"
       badge={direcciones.length > 0 ? String(direcciones.length) : undefined}
@@ -743,7 +697,7 @@ function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcci
         ))}
       </div>
 
-      {/* Add/Edit form */}
+      {/* Add/Edit form — misma autoridad compartida que el modal de checkout */}
       <AnimatePresence>
         {showForm && (
           <motion.div
@@ -755,90 +709,23 @@ function AddressesSection({ direcciones, autoOpenForm, onFormOpened }: { direcci
             <p className="text-xs font-semibold text-muted-foreground">
               {editingId ? "Editar dirección" : "Nueva dirección"}
             </p>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Alias *</Label>
-              <Input
-                value={alias}
-                onChange={(e) => setAlias(e.target.value)}
-                className="h-9 text-sm"
-                placeholder="Ej: Casa, Trabajo..."
-              />
-              <p className="text-[10px] text-muted-foreground">Este nombre aparecerá al seleccionar la dirección</p>
-            </div>
-
-            {/* Map picker for coordinates */}
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Navigation className="h-3 w-3 text-primary" />
-                Ubicación en el mapa
-              </Label>
-              <AddressMapPicker
-                lat={lat}
-                lng={lng}
-                direccion={direccion}
-                onCoordsChange={(newLat, newLng) => { setLat(newLat); setLng(newLng) }}
-                onDireccionChange={setDireccion}
-              />
-              {lat !== null && lng !== null && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 border border-border/30">
-                  <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {lat.toFixed(6)}, {lng.toFixed(6)}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
-                <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                  Las coordenadas del mapa tienen prioridad sobre la dirección escrita para calcular distancias de delivery.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Dirección</Label>
-              <Input
-                value={direccion}
-                onChange={(e) => setDireccion(e.target.value)}
-                className="h-9 text-sm"
-                placeholder="Calle, número, barrio..."
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Referencia (opcional)</Label>
-              <Input
-                value={referencia}
-                onChange={(e) => setReferencia(e.target.value)}
-                className="h-9 text-sm"
-                placeholder="Piso, depto, entre calles..."
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 text-xs flex-1"
-                onClick={handleSubmit}
-                disabled={addMutation.isPending || editMutation.isPending}
-              >
-                <Check className="h-3.5 w-3.5" />
-                {editingId
-                  ? editMutation.isPending
-                    ? "Guardando..."
-                    : "Guardar cambios"
-                  : addMutation.isPending
-                  ? "Agregando..."
-                  : "Agregar dirección"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={resetForm}
-              >
-                <X className="h-3.5 w-3.5" />
-                Cancelar
-              </Button>
-            </div>
+            <AddressForm
+              mode={editingId ? "edit" : "create"}
+              addressId={editingId ?? undefined}
+              initialValues={
+                editingAddress
+                  ? {
+                      alias: editingAddress.alias,
+                      direccion: editingAddress.direccion,
+                      referencia: editingAddress.referencia,
+                      lat: editingAddress.lat,
+                      lng: editingAddress.lng,
+                    }
+                  : undefined
+              }
+              onSuccess={handleFormSuccess}
+              onCancel={resetForm}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -1457,15 +1344,17 @@ function SectionCard({
   badge,
   action,
   children,
+  id,
 }: {
   icon: React.ElementType
   title: string
   badge?: string
   action?: React.ReactNode
   children: React.ReactNode
+  id?: string
 }) {
   return (
-    <Card className="border-border/50 shadow-sm overflow-hidden">
+    <Card id={id} className="border-border/50 shadow-sm overflow-hidden">
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1508,257 +1397,6 @@ function InfoRow({
         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
         <p className={cn("text-sm truncate", valueClass)}>{value}</p>
       </div>
-    </div>
-  )
-}
-
-// ============================================
-// Address Map Picker (Lightweight Leaflet for profile form)
-// ============================================
-
-// Fix Leaflet default icon paths
-delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-})
-
-function AddressMapPicker({
-  lat,
-  lng,
-  direccion,
-  onCoordsChange,
-  onDireccionChange,
-}: {
-  lat: number | null
-  lng: number | null
-  direccion: string
-  onCoordsChange: (lat: number, lng: number) => void
-  onDireccionChange: (dir: string) => void
-}) {
-  const mapContainerRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<L.Map | null>(null)
-  const markerRef = useRef<L.Marker | null>(null)
-  const [isMapReady, setIsMapReady] = useState(false)
-  const [isLocating, setIsLocating] = useState(false)
-  const [gpsUsed, setGpsUsed] = useState(false)
-  const gpsAutoRequestedRef = useRef(false)
-  const coordsRef = useRef<[number, number]>(
-    lat !== null && lng !== null ? [lat, lng] : [-26.1856, -58.1732]
-  )
-
-  // Reverse geocoding function — defined before useEffect so it can be used inside
-  const reverseGeocode = async (latlng: [number, number]) => {
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latlng[0]}&lon=${latlng[1]}&format=json&accept-language=es`,
-        { headers: { "User-Agent": "DeliGO-App/1.0" } }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        if (data.display_name) {
-          const parts = data.display_name.split(",")
-          const simplified = parts.slice(0, Math.min(3, parts.length)).join(",").trim()
-          onDireccionChange(simplified)
-        }
-      }
-    } catch {
-      // silently fail
-    }
-  }
-
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return
-
-    const initialCoords: [number, number] =
-      lat !== null && lng !== null ? [lat, lng] : [-26.1856, -58.1732]
-
-    const map = L.map(mapContainerRef.current, {
-      center: initialCoords,
-      zoom: 14,
-      zoomControl: true,
-      attributionControl: true,
-    })
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(map)
-
-    const customIcon = L.divIcon({
-      html: `<div style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3))">
-        <svg width="28" height="36" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#FB8C00"/>
-          <circle cx="14" cy="13" r="6" fill="white"/>
-        </svg>
-      </div>`,
-      className: "custom-map-marker",
-      iconSize: [28, 36],
-      iconAnchor: [14, 36],
-    })
-
-    const marker = L.marker(initialCoords, {
-      icon: customIcon,
-      draggable: true,
-    }).addTo(map)
-
-    marker.on("dragend", () => {
-      const pos = marker.getLatLng()
-      const newCoords: [number, number] = [
-        Math.round(pos.lat * 1000000) / 1000000,
-        Math.round(pos.lng * 1000000) / 1000000,
-      ]
-      coordsRef.current = newCoords
-      onCoordsChange(newCoords[0], newCoords[1])
-      reverseGeocode(newCoords)
-    })
-
-    map.on("click", (e: L.LeafletMouseEvent) => {
-      const newCoords: [number, number] = [
-        Math.round(e.latlng.lat * 1000000) / 1000000,
-        Math.round(e.latlng.lng * 1000000) / 1000000,
-      ]
-      marker.setLatLng(newCoords)
-      coordsRef.current = newCoords
-      onCoordsChange(newCoords[0], newCoords[1])
-      reverseGeocode(newCoords)
-    })
-
-    setTimeout(() => map.invalidateSize(), 200)
-    mapInstanceRef.current = map
-    markerRef.current = marker
-    setTimeout(() => setIsMapReady(true), 0)
-
-    // Auto-request GPS if no initial coordinates set
-    if (lat === null && lng === null && !gpsAutoRequestedRef.current) {
-      gpsAutoRequestedRef.current = true
-      setTimeout(() => {
-        if (navigator.geolocation && mapInstanceRef.current) {
-          setIsLocating(true)
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const newCoords: [number, number] = [
-                Math.round(position.coords.latitude * 1000000) / 1000000,
-                Math.round(position.coords.longitude * 1000000) / 1000000,
-              ]
-              coordsRef.current = newCoords
-              onCoordsChange(newCoords[0], newCoords[1])
-              if (mapInstanceRef.current && markerRef.current) {
-                mapInstanceRef.current.setView(newCoords, 16)
-                markerRef.current.setLatLng(newCoords)
-              }
-              reverseGeocode(newCoords)
-              setGpsUsed(true)
-              setIsLocating(false)
-            },
-            () => {
-              // Auto-request failed — user will see the manual CTA button
-              setIsLocating(false)
-            },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-          )
-        }
-      }, 800)
-    }
-
-    return () => {
-      map.remove()
-      mapInstanceRef.current = null
-      markerRef.current = null
-    }
-  }, [])
-
-  // Update marker position when lat/lng props change (e.g., editing an address)
-  useEffect(() => {
-    if (lat !== null && lng !== null && mapInstanceRef.current && markerRef.current) {
-      const newCoords: [number, number] = [lat, lng]
-      markerRef.current.setLatLng(newCoords)
-      mapInstanceRef.current.setView(newCoords, 15)
-      coordsRef.current = newCoords
-    }
-  }, [lat, lng])
-
-  const handleGetLocation = () => {
-    if (!navigator.geolocation) return
-    setIsLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const newCoords: [number, number] = [
-          Math.round(position.coords.latitude * 1000000) / 1000000,
-          Math.round(position.coords.longitude * 1000000) / 1000000,
-        ]
-        coordsRef.current = newCoords
-        onCoordsChange(newCoords[0], newCoords[1])
-        if (mapInstanceRef.current && markerRef.current) {
-          mapInstanceRef.current.setView(newCoords, 16)
-          markerRef.current.setLatLng(newCoords)
-        }
-        reverseGeocode(newCoords)
-        setGpsUsed(true)
-        setIsLocating(false)
-      },
-      () => { setIsLocating(false) },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    )
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="relative isolate rounded-xl overflow-hidden border border-border/50">
-        <div
-          ref={mapContainerRef}
-          className="w-full h-[200px] bg-muted/30"
-          style={{ zIndex: 0 }}
-        />
-        {/* GPS button overlay */}
-        <button
-          onClick={handleGetLocation}
-          disabled={isLocating}
-          className="absolute top-2 right-2 z-[1000] w-9 h-9 rounded-lg bg-background border border-border shadow-md flex items-center justify-center hover:bg-muted active:scale-95 transition-all"
-          title="Mi ubicación"
-        >
-          {isLocating ? (
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          ) : (
-            <Crosshair className="h-4 w-4 text-primary" />
-          )}
-        </button>
-        {!isMapReady && (
-          <div className="absolute inset-0 bg-muted/50 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        )}
-      </div>
-      {/* GPS CTA — Prominent button when no initial coordinates */}
-      {lat === null && lng === null && !gpsUsed && (
-        <button
-          onClick={handleGetLocation}
-          disabled={isLocating}
-          className="w-full flex items-center justify-center gap-2.5 h-11 rounded-xl font-bold text-white text-sm transition-all active:scale-[0.98] bg-primary"
-          style={{
-            boxShadow: "0 4px 14px hsl(var(--primary) / 0.3)",
-          }}
-        >
-          {isLocating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Obteniendo ubicación...
-            </>
-          ) : (
-            <>
-              <Crosshair className="h-4 w-4" />
-              Usar mi ubicación actual
-            </>
-          )}
-        </button>
-      )}
-      {gpsUsed && (
-        <p className="text-[10px] text-muted-foreground text-center">
-          Arrastrá el marcador para ajustar la posición si es necesario.
-        </p>
-      )}
     </div>
   )
 }

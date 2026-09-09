@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useMemo, useEffect, useRef, Suspense } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { usePathname, useSearchParams } from "next/navigation"
 
 import {
@@ -56,8 +56,8 @@ import { getCatalogoPathActual } from "@/lib/cliente-catalog-navigation"
 import dynamic from "next/dynamic"
 import { toast } from "sonner"
 
-const LocationPickerModal = dynamic(
-  () => import("@/components/location/location-picker-modal").then((mod) => mod.LocationPickerModal),
+const ClientAddressModal = dynamic(
+  () => import("@/components/location/client-address-modal").then((mod) => mod.ClientAddressModal),
   { ssr: false }
 )
 const AddressSelectorSheet = dynamic(
@@ -413,6 +413,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
   const addItem = useCartStore((s) => s.addItem)
   const cartTotal = useCartStore((s) => s.total())
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
+  const setDeliveryAddress = useCartStore((s) => s.setDeliveryAddress)
+  const queryClient = useQueryClient()
 
   // Auth gate helper: check if user can interact with ordering (not for mesa/mozo).
   // Tarea 20-CORRECCIÓN-1: usa únicamente el flag efectivo de mesa
@@ -1141,12 +1143,25 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         initialRole="cliente"
       />
 
-      {/* ===== LOCATION PICKER MODAL ===== */}
-      <LocationPickerModal
+      {/* ===== CLIENT ADDRESS MODAL (P2-T32: misma autoridad de formulario que Perfil) ===== */}
+      <ClientAddressModal
         open={locationPickerOpen}
         onOpenChange={setLocationPickerOpen}
-        required={!deliveryAddress}
         colorPrincipal={negocio?.colorPrincipal}
+        onCreated={(direccion) => {
+          // Auto-selecciona la dirección recién creada para ESTE checkout,
+          // usando el id real devuelto por el backend (nunca por posición
+          // en una lista) — el carrito/items no se tocan.
+          setDeliveryAddress({
+            lat: direccion.lat ?? -26.1856,
+            lng: direccion.lng ?? -58.1732,
+            direccion: direccion.direccion,
+            referencia: direccion.referencia,
+            alias: direccion.alias,
+            direccionId: direccion.id,
+          })
+          queryClient.invalidateQueries({ queryKey: ["cliente-direcciones"] })
+        }}
       />
 
       {/* ===== ADDRESS SELECTOR SHEET ===== */}
