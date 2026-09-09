@@ -335,10 +335,13 @@ describe("P2-T29B — cancelación desde aceptado (Negocio)", () => {
 // P2-T29B-R1: feedback físico del operador — preparando->esperando_repartidor
 // (domicilio) ahora envía UNA notificación dedicada al Cliente
 // ("Buscando delivery" / "El local está esperando un delivery para tu
-// pedido."), nunca el fallback genérico con el estado crudo. `aceptado`
-// sigue sin notificación propia (diferida a T29D, sin cambios en este task).
+// pedido."), nunca el fallback genérico con el estado crudo.
+// P2-T29D: `aceptado` deja de estar mudo — residual cerrado con copy
+// explícito decidido por el operador ("${negocio} aceptó tu pedido",
+// mismo estilo que confirmado/preparando, ver src/lib/push.ts). Aplica a
+// domicilio Y retiro (mesa nunca alcanza `aceptado`).
 describe("P2-T29B-R1 — notificación Cliente 'Buscando delivery' (preparando→esperando_repartidor)", () => {
-  test("domicilio: aceptado no genera notificación nueva; preparando conserva su copy existente sin cambios; esperando_repartidor genera exactamente 1 con el copy dedicado", async () => {
+  test("domicilio: aceptado genera exactamente 1 notificación 'aceptó tu pedido'; preparando conserva su copy existente sin cambios; esperando_repartidor genera exactamente 1 con el copy dedicado", async () => {
     const negocio = await ensureNegocio("notif-dom-flow")
     const productoId = await ensureProducto(negocio.id)
     const negocioSession = await createSession(negocio.id, "negocio")
@@ -347,7 +350,11 @@ describe("P2-T29B-R1 — notificación Cliente 'Buscando delivery' (preparando�
 
     const toAceptado = await cambiar(pedido.id, { estado: "aceptado" }, negocioSession)
     expect(toAceptado.status).toBe(200)
-    expect(await clienteNotifications(pedido.id, pedido.clienteId)).toHaveLength(0)
+    const afterAceptado = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(afterAceptado).toHaveLength(1)
+    expect(afterAceptado[0].titulo).toBe("Actualización de pedido")
+    expect(afterAceptado[0].cuerpo).toBe(`${negocio.nombre} aceptó tu pedido`)
+    expect(afterAceptado[0].cuerpo).not.toContain("aceptado")
 
     const toPreparando = await cambiar(pedido.id, { estado: "preparando" }, negocioSession)
     expect(toPreparando.status).toBe(200)
@@ -363,6 +370,9 @@ describe("P2-T29B-R1 — notificación Cliente 'Buscando delivery' (preparando�
     expect(waitingDriverNotifs).toHaveLength(1)
     expect(waitingDriverNotifs[0].cuerpo).toBe("El local está esperando un delivery para tu pedido.")
     expect(waitingDriverNotifs[0].cuerpo).not.toContain("esperando_repartidor")
+    // Total acumulado: 1 de aceptado + 1 de preparando (ya existente, sin
+    // cambios) + 1 de esperando_repartidor — nunca duplicado.
+    expect(notifs).toHaveLength(3)
   })
 
   test("retiro: la transición a esperando_repartidor es rechazada (400) y nunca genera la notificación de 'Buscando delivery'", async () => {
@@ -395,5 +405,82 @@ describe("P2-T29B-R1 — notificación Cliente 'Buscando delivery' (preparando�
     const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
     const waitingDriverNotifs = notifs.filter((n) => n.titulo === "Buscando delivery")
     expect(waitingDriverNotifs).toHaveLength(1)
+  })
+})
+
+// P2-T29D: residual identificado por auditoría de cierre de T29 — el único
+// requisito del diseño original de T29D (P2_T29_ESPERANDO_REPARTIDOR_
+// ACCEPTANCE_REDESIGN_AUDIT_AND_DESIGN.md §10) que T29B/T29B-R1 dejaron
+// deliberadamente sin cerrar. Copy decidido explícitamente por el operador
+// (no inventado): "${negocio} aceptó tu pedido", mismo estilo que las
+// entradas ya existentes de confirmado/preparando en orderUpdateNotification.
+describe("P2-T29D — notificación Cliente 'aceptó tu pedido' (recibido→aceptado)", () => {
+  test("retiro: recibido→aceptado también genera exactamente 1 notificación (aplica a domicilio Y retiro por decisión del operador)", async () => {
+    const negocio = await ensureNegocio("t29d-ret-aceptado")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "retiro", `198.51.100.${randomUUID().slice(0, 8)}`)
+
+    const res = await cambiar(pedido.id, { estado: "aceptado" }, negocioSession)
+    expect(res.status).toBe(200)
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(notifs).toHaveLength(1)
+    expect(notifs[0].cuerpo).toBe(`${negocio.nombre} aceptó tu pedido`)
+  })
+
+  test("mesa: nunca alcanza aceptado (400), por lo tanto 0 notificaciones de este tipo", async () => {
+    const negocio = await ensureNegocio("t29d-mesa-noaccept")
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await db.pedido.create({
+      data: {
+        negocioId: negocio.id,
+        negocioSlug: `${prefix}slug`,
+        negocioNombre: `${prefix}negocio`,
+        clienteNombre: "Cliente Test",
+        total: 1000,
+        totalProductos: 1000,
+        metodoEntrega: "mesa",
+        mesaNumero: 1,
+        estado: "recibido",
+        idempotencyKey: `${prefix}${randomUUID()}`,
+      },
+    })
+
+    const res = await cambiar(pedido.id, { estado: "aceptado" }, negocioSession)
+    expect(res.status).toBe(400)
+    // Mesa nunca tiene clienteId asignado por este helper de fixtures — igual
+    // se confirma que el pedido no avanzó y por ende no hay side effect alguno.
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedido.id } })
+    expect(fresh.estado).toBe("recibido")
+  })
+
+  test("CAS loser no genera notificación adicional; double tap concurrente produce exactamente 1 total", async () => {
+    const negocio = await ensureNegocio("t29d-cas-race")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "domicilio", `198.51.100.${randomUUID().slice(0, 8)}`)
+
+    const [resA, resB] = await Promise.all([
+      cambiar(pedido.id, { estado: "aceptado" }, negocioSession),
+      cambiar(pedido.id, { estado: "aceptado" }, negocioSession),
+    ])
+    const statuses = [resA.status, resB.status].sort()
+    expect(statuses).toEqual([200, 409])
+
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(notifs).toHaveLength(1)
+    expect(notifs[0].cuerpo).toBe(`${negocio.nombre} aceptó tu pedido`)
+  })
+
+  test("legacy compat: recibido→preparando directo (sin pasar por aceptado) nunca genera esta notificación", async () => {
+    const negocio = await ensureNegocio("t29d-legacy-direct")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "domicilio", `198.51.100.${randomUUID().slice(0, 8)}`)
+
+    const res = await cambiar(pedido.id, { estado: "preparando" }, negocioSession)
+    expect(res.status).toBe(200)
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(notifs.filter((n) => n.cuerpo === `${negocio.nombre} aceptó tu pedido`)).toHaveLength(0)
   })
 })
