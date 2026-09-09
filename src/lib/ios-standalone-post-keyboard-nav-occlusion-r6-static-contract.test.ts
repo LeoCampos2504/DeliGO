@@ -48,9 +48,14 @@ const BOTTOM_NAV = join(process.cwd(), "src", "components", "shared", "bottom-na
 const GLOBALS_CSS = join(process.cwd(), "src", "app", "globals.css")
 const IOS_KEYBOARD_FIX = join(process.cwd(), "src", "components", "pwa", "ios-keyboard-fix.tsx")
 
-const debugPanelSource = readFileSync(DEBUG_PANEL, "utf8")
-const bottomNavSource = readFileSync(BOTTOM_NAV, "utf8")
-const globalsCssSource = readFileSync(GLOBALS_CSS, "utf8")
+// Normalizado a LF: ver misma nota en
+// ios-standalone-degraded-viewport-dock-fallback-r8-static-contract.test.ts
+// — algunos regex de este archivo anclan \n literales o acotan un
+// presupuesto de caracteres que un checkout CRLF (core.autocrlf=true)
+// excede sólo por los \r intercalados, sin cambio real en el código.
+const debugPanelSource = readFileSync(DEBUG_PANEL, "utf8").replace(/\r\n/g, "\n")
+const bottomNavSource = readFileSync(BOTTOM_NAV, "utf8").replace(/\r\n/g, "\n")
+const globalsCssSource = readFileSync(GLOBALS_CSS, "utf8").replace(/\r\n/g, "\n")
 
 function rect(over: Partial<RectGeometry> = {}): RectGeometry {
   return { top: 689, left: 12, right: 378, bottom: 755, width: 366, height: 66, ...over }

@@ -36,6 +36,10 @@ const CHAT_FAB = join(process.cwd(), "src", "components", "chat", "chat-fab.tsx"
 const LOCATION_MAP_PICKER = join(process.cwd(), "src", "components", "location", "location-map-picker.tsx")
 const CLIENT_PROFILE_PANEL = join(process.cwd(), "src", "components", "client", "client-profile-panel.tsx")
 const LOCATION_PICKER_INLINE = join(process.cwd(), "src", "components", "business", "location-picker-inline.tsx")
+// P2-T32 extrajo el mapa+botón GPS de Perfil (antes inline en
+// CLIENT_PROFILE_PANEL) a esta autoridad compartida, reusada también por el
+// modal de checkout — el wrapper `isolate` auditado aquí viajó con él.
+const ADDRESS_MAP_PICKER = join(process.cwd(), "src", "components", "location", "address-map-picker.tsx")
 
 // Misma relación de renderizado de WebKit confirmada en R3/R4 por el
 // dataset real: un `position:fixed; bottom:Npx` con
@@ -179,7 +183,7 @@ describe("IOS-STANDALONE-FINAL-VISUAL-FIX-R4 — auditoría de stacking (§10/§
   // stacking context raíz en vez de quedar contenido dentro de su propio
   // mapa. Fix: `isolate` (aísla el contexto de stacking) en el wrapper.
   test("los 3 wrappers de mapa con botón GPS (z-[1000]) están aislados con `isolate` — su z-index ya no puede competir con BottomNav/ChatFab", () => {
-    for (const file of [LOCATION_MAP_PICKER, CLIENT_PROFILE_PANEL, LOCATION_PICKER_INLINE]) {
+    for (const file of [LOCATION_MAP_PICKER, ADDRESS_MAP_PICKER, LOCATION_PICKER_INLINE]) {
       const source = readFileSync(file, "utf-8")
       expect(source).toMatch(/z-\[1000\]/) // el botón GPS sigue existiendo
       expect(source).toMatch(/className="relative isolate /) // su wrapper ahora lo aísla
