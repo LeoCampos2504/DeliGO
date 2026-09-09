@@ -17,6 +17,7 @@ import { formatPrice } from "@/lib/utils"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useSoloDeliveryCoverage } from "@/hooks/use-solo-delivery-coverage"
+import { getClienteCatalogoPath } from "@/lib/cliente-catalog-navigation"
 
 // ============================================
 // Types
@@ -333,7 +334,7 @@ function NegocioFullSlide({
         <div className="px-4 pb-3 -mt-10 relative z-10">
           <div className="flex items-end gap-3">
             {/* Logo */}
-            <Link href={`/n/${negocio.slug}`} className="shrink-0 group/logo">
+            <Link href={getClienteCatalogoPath(negocio.slug)} className="shrink-0 group/logo">
               <div
                 className="w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] rounded-2xl border-[3px] border-background shadow-lg overflow-hidden flex items-center justify-center transition-transform group-hover/logo:scale-105"
                 style={{
@@ -361,7 +362,7 @@ function NegocioFullSlide({
 
             {/* Name + Info */}
             <div className="flex-1 min-w-0 pb-1">
-              <Link href={`/n/${negocio.slug}`} className="group/name">
+              <Link href={getClienteCatalogoPath(negocio.slug)} className="group/name">
                 <h3 className="font-bold text-base sm:text-lg truncate group-hover/name:text-primary transition-colors leading-tight">
                   {negocio.nombre}
                   <ChevronRight className="inline h-4 w-4 ml-0.5 opacity-0 -translate-x-1 group-hover/name:opacity-60 group-hover/name:translate-x-0 transition-all" />
@@ -476,7 +477,7 @@ function NegocioFullSlide({
 
           {/* "Ver menú completo" CTA */}
           <Link
-            href={`/n/${negocio.slug}`}
+            href={getClienteCatalogoPath(negocio.slug)}
             className="mt-3 flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl bg-primary/5 hover:bg-primary/10 text-primary text-sm font-semibold transition-colors group/cta"
           >
             Ver menú completo
@@ -489,7 +490,7 @@ function NegocioFullSlide({
       {!hasProducts && (
         <div className="px-4 pb-4">
           <Link
-            href={`/n/${negocio.slug}`}
+            href={getClienteCatalogoPath(negocio.slug)}
             className="mt-2 flex items-center justify-center gap-1.5 w-full py-3 rounded-xl bg-primary/5 hover:bg-primary/10 text-primary text-sm font-semibold transition-colors group/cta"
           >
             Visitar {negocio.nombre}
@@ -558,7 +559,7 @@ function ProductCard({
 
   return (
     <Link
-      href={`/n/${negocioSlug}`}
+      href={getClienteCatalogoPath(negocioSlug)}
       className="group/product"
     >
       <div className={cn(

@@ -30,9 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Seguridad-6A: mismo tipo/clave que /api/push/subscribe (ya lo tenía),
-    // para que ninguno de los dos quede sin límite de intentos.
+    // para que ninguno de los dos quede sin límite de intentos. P2-T31-R8:
+    // ambos comparten el bucket `pushMutation`, separado de `pushStatus` —
+    // ver rate-limit.ts para el rationale completo.
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:${user.id}`)
+    const rl = checkRateLimit("pushMutation", `${ip}:${user.id}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }

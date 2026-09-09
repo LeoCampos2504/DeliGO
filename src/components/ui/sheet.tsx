@@ -72,7 +72,18 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+        {/* P2-T31-R24: `data-slot="sheet-close"` added purely as a scoped
+            CSS hook (no visual/behavioral change here) — mirrors dialog.tsx's
+            own built-in close button, which already carries `data-slot=
+            "dialog-close"`. Lets a specific Sheet consumer (chat, via
+            `[data-ios-debug-role="chat-sheet"]` in globals.css) reposition
+            just its own close button below the iOS safe area without
+            touching this shared component's default `top-4 right-4` for
+            every other Sheet in the app. */}
+        <SheetPrimitive.Close
+          data-slot="sheet-close"
+          className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+        >
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

@@ -3,10 +3,11 @@ import { db } from "@/lib/db"
 import { hashPassword } from "@/lib/auth"
 import { generateSlug } from "@/lib/utils"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
-import { sendVerificationEmail, generateVerificationToken } from "@/lib/email"
+import { sendVerificationEmail, generateVerificationToken, getVerificationTokenExpiresAt, hashVerificationToken } from "@/lib/email"
 import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identity"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { validatePassword } from "@/lib/password-policy"
+import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from "@/lib/legal-versions"
 
 export async function POST(req: NextRequest) {
   try {
@@ -90,15 +91,31 @@ async function registerCliente(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
-  const cliente = await db.cliente.create({
-    data: {
-      nombre: nombre.trim(),
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      telefono: telefono?.trim() || "",
-      verificationToken,
-      dispositivoFingerprint: deviceIdentity.deviceId,
-    },
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
+  // Account creation and its legal-acceptance evidence are atomic: if the
+  // acceptance record fails to write, the account must not exist either.
+  const cliente = await db.$transaction(async (tx) => {
+    const created = await tx.cliente.create({
+      data: {
+        nombre: nombre.trim(),
+        email: email.toLowerCase().trim(),
+        password: hashedPassword,
+        telefono: telefono?.trim() || "",
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
+        dispositivoFingerprint: deviceIdentity.deviceId,
+      },
+    })
+    await tx.legalAcceptance.create({
+      data: {
+        userId: created.id,
+        userType: "cliente",
+        termsVersion: CURRENT_TERMS_VERSION,
+        privacyVersion: CURRENT_PRIVACY_VERSION,
+        source: "register",
+      },
+    })
+    return created
   })
 
   // Send verification email (non-blocking)
@@ -189,18 +206,34 @@ async function registerNegocio(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
-  const negocio = await db.negocio.create({
-    data: {
-      slug,
-      nombre: nombre_local.trim(),
-      usuario: usuario.trim(),
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      rubro,
-      aprobado: false,
-      categorias: JSON.stringify(["Destacados"]),
-      verificationToken,
-    },
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
+  // Account creation and its legal-acceptance evidence are atomic: if the
+  // acceptance record fails to write, the account must not exist either.
+  const negocio = await db.$transaction(async (tx) => {
+    const created = await tx.negocio.create({
+      data: {
+        slug,
+        nombre: nombre_local.trim(),
+        usuario: usuario.trim(),
+        email: email.toLowerCase().trim(),
+        password: hashedPassword,
+        rubro,
+        aprobado: false,
+        categorias: JSON.stringify(["Destacados"]),
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
+      },
+    })
+    await tx.legalAcceptance.create({
+      data: {
+        userId: created.id,
+        userType: "negocio",
+        termsVersion: CURRENT_TERMS_VERSION,
+        privacyVersion: CURRENT_PRIVACY_VERSION,
+        source: "register",
+      },
+    })
+    return created
   })
 
   // Send verification email (non-blocking)
@@ -251,14 +284,30 @@ async function registerRepartidor(data: {
 
   const hashedPassword = await hashPassword(password)
   const verificationToken = generateVerificationToken()
-  const repartidor = await db.repartidor.create({
-    data: {
-      nombre: nombre.trim(),
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      telefono: telefono?.trim() || "",
-      verificationToken,
-    },
+  const verificationTokenExpiresAt = getVerificationTokenExpiresAt()
+  // Account creation and its legal-acceptance evidence are atomic: if the
+  // acceptance record fails to write, the account must not exist either.
+  const repartidor = await db.$transaction(async (tx) => {
+    const created = await tx.repartidor.create({
+      data: {
+        nombre: nombre.trim(),
+        email: email.toLowerCase().trim(),
+        password: hashedPassword,
+        telefono: telefono?.trim() || "",
+        verificationToken: hashVerificationToken(verificationToken),
+        verificationTokenExpiresAt,
+      },
+    })
+    await tx.legalAcceptance.create({
+      data: {
+        userId: created.id,
+        userType: "repartidor",
+        termsVersion: CURRENT_TERMS_VERSION,
+        privacyVersion: CURRENT_PRIVACY_VERSION,
+        source: "register",
+      },
+    })
+    return created
   })
 
   // Send verification email (non-blocking)

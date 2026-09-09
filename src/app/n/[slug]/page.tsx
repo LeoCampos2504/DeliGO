@@ -629,7 +629,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     <div className="min-h-screen bg-background pb-24">
       {/* ===== PREVIEW BANNER ===== */}
       {isPreview && (
-        <div className="sticky top-0 z-50 bg-amber-500 text-white px-4 py-2.5 flex items-center justify-between gap-3 shadow-lg">
+        <div className="sticky top-0 z-50 bg-amber-500 text-white px-4 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] flex items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center gap-2 min-w-0">
             <Eye className="h-4 w-4 shrink-0" />
             <span className="text-sm font-bold truncate">Estás en modo vista previa</span>
@@ -672,7 +672,14 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
 
         {/* Back button */}
-        <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
+        {/* P2-T22: hero background stays edge-to-edge (this row's own
+            positioning does not push the hero container down); the
+            interactive controls inside it are what must clear the
+            notch/Dynamic Island, via the same env(safe-area-inset-top)
+            technique already used by bottom-nav.tsx's bottom dock and
+            mesa-cuenta-dialog.tsx's close button (env(...,0px) resolves to
+            0 on desktop/non-notched devices, so this is a no-op there). */}
+        <div className="absolute top-[calc(env(safe-area-inset-top,0px)+0.75rem)] left-3 right-3 flex items-center justify-between z-10">
           {/* BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §21: this circular back
               control returns to the authenticated Business Preview when
               applicable, otherwise to the Client catalog. */}

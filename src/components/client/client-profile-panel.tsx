@@ -83,6 +83,8 @@ import { useAuthStore } from "@/store/auth-store"
 import { useCartStore } from "@/store/cart-store"
 import { useNavStore } from "@/store/nav-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { TermsContent as SharedTermsContent, PrivacyContent as SharedPrivacyContent, CookiesContent as SharedCookiesContent } from "@/components/shared/legal-content"
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
@@ -199,7 +201,7 @@ export function ClientProfilePanel() {
         {!perfil.googleId && <PasswordSection />}
 
         {/* Settings */}
-        <SettingsSection pushEnabled={perfil.pushSubscription} />
+        <SettingsSection />
 
         {/* Privacy & Legal */}
         <PrivacyLegalSection />
@@ -224,7 +226,7 @@ function ProfileHeader({ perfil, initials }: { perfil: PerfilData; initials: str
   })
 
   return (
-    <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-12 pb-16 overflow-hidden">
+    <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-16 overflow-hidden">
       {/* Decorative elements */}
       <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/2" />
       <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/2" />
@@ -967,10 +969,31 @@ function PasswordSection() {
 // ============================================
 // Settings Section
 // ============================================
-function SettingsSection({ pushEnabled }: { pushEnabled: boolean }) {
+function SettingsSection() {
   const { theme, setTheme } = useTheme()
   const push = usePushNotifications()
-  const [notifications, setNotifications] = useState(pushEnabled || push.isSubscribed)
+  // P2-T31: el seed inicial ya NO viene de `perfil.pushSubscription` (un
+  // booleano derivado server-side de la columna legacy `Cliente.
+  // pushSubscription` — ni por-dispositivo ni conocedor de la tabla
+  // normalizada — ver src/app/api/cliente/perfil/route.ts:47) mediante un
+  // prop `pushEnabled` cacheado por React Query (queryKey "cliente-perfil",
+  // NUNCA invalidado tras subscribe()/unsubscribe() acá abajo). Ese prop
+  // podía sobrevivir intacto entre navegaciones aunque el estado real ya
+  // hubiera cambiado, sembrando `notifications` con un valor equivocado al
+  // remontar. Peor: el único mecanismo de autocorrección de abajo (comparar
+  // contra `prevIsSubscribed`) sólo dispara cuando `push.isSubscribed`
+  // (que SIEMPRE arranca en `false`, el default del hook) difiere de su
+  // propio valor previo — así que si el prop sembraba `true` mientras la
+  // verdad real era `false`, la comparación `false !== false` nunca
+  // encontraba discrepancia y el switch quedaba mostrando "activado" para
+  // siempre, sin autocorregirse jamás (reproducido: ver el reporte de
+  // P2-T31). Sembrar únicamente desde `push.isSubscribed` (mismo patrón ya
+  // usado en src/components/business/config-tab.tsx) elimina la asimetría
+  // por completo: el seed y `prevIsSubscribed` arrancan SIEMPRE
+  // consistentes entre sí, así que la comparación de abajo captura
+  // correctamente cualquier resultado que el chequeo asíncrono autoritativo
+  // del hook eventualmente resuelva, en cualquiera de las dos direcciones.
+  const [notifications, setNotifications] = useState(push.isSubscribed)
   // P2-T05 Hardening H3B (F-P2-T05-23): resincroniza `notifications` cuando
   // el hook resuelve su chequeo de estado autoritativo async (o cuando un
   // cambio de actor lo invalida) — mismo idiom ya certificado en
@@ -980,6 +1003,12 @@ function SettingsSection({ pushEnabled }: { pushEnabled: boolean }) {
   // haya disparado ella misma (p.ej. el chequeo de montaje).
   const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
   if (push.isSubscribed !== prevIsSubscribed) {
+    recordPushDebugEvent("UI_SWITCH_CHANGED", {
+      role: "cliente",
+      oldValue: prevIsSubscribed,
+      newValue: push.isSubscribed,
+      hookValue: push.isSubscribed,
+    })
     setPrevIsSubscribed(push.isSubscribed)
     setNotifications(push.isSubscribed)
   }
@@ -1057,18 +1086,45 @@ function SettingsSection({ pushEnabled }: { pushEnabled: boolean }) {
                   ? "Procesando..."
                   : !push.isSupported
                   ? "No disponibles en este navegador"
+                  : !push.statusResolved
+                  ? push.statusCheckError
+                    ? "No se pudo comprobar"
+                    : "Comprobando estado..."
                   : notifications
                   ? "Activadas"
                   : "Desactivadas"}
               </p>
             </div>
           </div>
-          <Switch
-            checked={notifications}
-            onCheckedChange={handleToggleNotifications}
-            disabled={!push.isSupported || push.loading}
-          />
+          {push.isSupported && !push.statusResolved ? (
+            // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): mientras no
+            // exista todavía una conclusión autoritativa, NUNCA renderizar el
+            // Switch como "Desactivado" — sería un OFF falso que después
+            // cambia solo a ON (el flicker físico que Leonardo capturó en
+            // iPhone). Un loader neutral no afirma ni ON ni OFF.
+            // P2-T31-R8: si el chequeo ya concluyó de forma inconclusa (p.ej.
+            // 429 del rate limiter), un spinner GIRANDO sugiere falsamente
+            // que sigue en curso — usar el mismo ícono de alerta ya
+            // disponible en este archivo, quieto, en su lugar.
+            push.statusCheckError ? (
+              <AlertTriangle className="h-4 w-4 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+            )
+          ) : (
+            <Switch
+              checked={notifications}
+              onCheckedChange={handleToggleNotifications}
+              disabled={!push.isSupported || push.loading}
+            />
+          )}
         </div>
+        <PushDebugPanel
+          actorFamily="cliente"
+          hookIsSubscribed={push.isSubscribed}
+          hookLoading={push.loading}
+          uiSwitch={notifications}
+        />
       </div>
     </SectionCard>
   )
@@ -1650,7 +1706,7 @@ function AddressMapPicker({
 
   return (
     <div className="space-y-2">
-      <div className="relative rounded-xl overflow-hidden border border-border/50">
+      <div className="relative isolate rounded-xl overflow-hidden border border-border/50">
         <div
           ref={mapContainerRef}
           className="w-full h-[200px] bg-muted/30"
@@ -1714,7 +1770,7 @@ function ProfileSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
       {/* Header skeleton */}
-      <div className="bg-primary/20 px-4 pt-12 pb-16">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-16">
         <div className="flex flex-col items-center">
           <div className="h-20 w-20 rounded-full bg-white/10" />
           <div className="mt-3 h-5 w-32 rounded bg-white/10" />

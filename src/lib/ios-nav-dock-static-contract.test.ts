@@ -105,16 +105,40 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(firstChildRuleBody).not.toMatch(/padding-bottom/)
   })
 
-  test("J. IOSKeyboardFix (position-restore) e IOS-24-POSITION-FIX no fueron tocados por esta tarea", () => {
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: this test originally
+  // protected IOSKeyboardFix from growing any nav-specific coupling at all.
+  // R8 explicitly and deliberately breaks that isolation in one controlled
+  // way — writing --ios-dock-nav-top/--ios-dock-fab-top so the dock can stay
+  // inside WebKit's actual paintable viewport when it degrades — see
+  // ios-standalone-degraded-viewport-dock-fallback-r8-static-contract.test.ts
+  // for the tests that protect THAT specific, authorized surface. The
+  // invariant this test still protects: no DOM coupling (still never
+  // createPortal, never queries the nav element directly, never imports
+  // bottom-nav.tsx) — only the CSS custom-property channel.
+  test("J. IOSKeyboardFix (position-restore) e IOS-24-POSITION-FIX no fueron tocados por esta tarea; el acoplamiento con el nav está limitado al canal de CSS custom properties de R8 (sin DOM directo)", () => {
     const source = readFileSync(IOS_KEYBOARD_FIX, "utf-8")
     expect(source).toContain("preFocusScrollY")
-    expect(source).not.toMatch(/createPortal|bottom-nav/)
+    expect(source).not.toMatch(/createPortal/)
+    expect(source).not.toMatch(/from ["']@\/components\/shared\/bottom-nav["']/)
+    expect(source).not.toMatch(/querySelector\(['"]\.ios-bottom-nav/)
   })
 
-  test("K. Chat (chat-sheet/chat-view/sheet.tsx) no fue modificado por este fix", () => {
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: chat-sheet.tsx ahora usa
+  // createPortal deliberadamente (el filler de fondo del teclado se porta
+  // a document.body para escapar del overflow-hidden de SheetContent — ver
+  // ios-standalone-final-visual-fix-r4-static-contract.test.ts) — una
+  // excepción acotada y justificada, no una reintroducción del acoplamiento
+  // que este test protegía originalmente. Nunca debe referenciar
+  // literalmente "bottom-nav", y chat-view.tsx/sheet.tsx (nunca tocados por
+  // ninguna de las dos tareas) siguen prohibiendo ambos por completo.
+  test("K. Chat no referencia bottom-nav; chat-view.tsx y sheet.tsx tampoco usan createPortal (sólo chat-sheet.tsx, por el filler del teclado)", () => {
     for (const file of [CHAT_SHEET, CHAT_VIEW, UI_SHEET]) {
       const source = readFileSync(file, "utf-8")
-      expect(source).not.toMatch(/bottom-nav|createPortal/)
+      expect(source).not.toMatch(/bottom-nav/)
+    }
+    for (const file of [CHAT_VIEW, UI_SHEET]) {
+      const source = readFileSync(file, "utf-8")
+      expect(source).not.toMatch(/createPortal/)
     }
   })
 
@@ -164,13 +188,69 @@ describe("IOS-24-NAV-DOCK — contrato estático del floating dock", () => {
     expect(source).not.toMatch(/\bpb-safe\b|\bmb-safe\b/)
   })
 
-  test("R. fuente única de bottom: sólo existe una regla en globals.css que fije `bottom` para .ios-bottom-nav (fuera de la ocultación por teclado, que no usa bottom)", () => {
+  // IOS-STANDALONE-REAL-DEVICE-FIX-R3: real standalone-PWA device data
+  // proved a second, deliberately scoped rule is required — see the
+  // "iOS standalone PWA: compensate stale visualViewport.offsetTop" block
+  // in globals.css. The invariant this test protects ("no duplicated/
+  // conflicting bottom formula can silently drift in") still holds: there
+  // are now exactly TWO bottom-setting blocks for .ios-bottom-nav, the
+  // original base rule (protected verbatim by tests L/M/N/O above) and
+  // ONE additional rule scoped to `@media (display-mode: standalone)` that
+  // only subtracts the residual visual-viewport offset on top of the same
+  // base formula — never a second, independent formula.
+  // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: a real device
+  // certified the recovery experiment fails (R7) — the third rule below is
+  // the deliberate, gated (.ios-dock-degraded) fallback that keeps the dock
+  // inside WebKit's actual paintable viewport instead of continuing to
+  // target a physical screen edge the reduced viewport can't reliably
+  // paint into. It sets `bottom: auto` (matching this test's own
+  // \bbottom\s*: pattern) specifically to CEDE authority to `top` — not a
+  // second/competing bottom formula. Count intentionally raised from 2 to
+  // 3; the invariant (no undocumented fourth formula silently drifting in)
+  // still holds.
+  test("R. exactamente tres reglas en globals.css fijan `bottom` para .ios-bottom-nav: la base, la compensación de standalone y el fallback degradado de R8 (nunca una cuarta/independiente)", () => {
     const css = readFileSync(GLOBALS_CSS, "utf-8")
     const blockPattern = /[^{}]*\.ios-bottom-nav[^{]*\{[^}]*\}/g
     const blocks = css.match(blockPattern) ?? []
     const blocksSettingBottom = blocks.filter((block) => /\bbottom\s*:/.test(block))
-    expect(blocksSettingBottom.length).toBe(1)
+    expect(blocksSettingBottom.length).toBe(3)
     expect(blocksSettingBottom[0]).toContain("body.ios-device .ios-bottom-nav")
+    expect(blocksSettingBottom[1]).toContain("body.ios-device .ios-bottom-nav")
+    expect(blocksSettingBottom[2]).toContain("body.ios-device.ios-dock-degraded .ios-bottom-nav")
+    expect(blocksSettingBottom[2]).toMatch(/bottom:\s*auto/)
+  })
+
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: la variable cambió de
+  // --visual-viewport-offset-top (compartida, actualizada dentro del rAF
+  // de updateViewportState — probado que puede quedar hasta un frame
+  // atrasada durante un scroll rápido) a --ios-dock-visual-offset-top
+  // (dedicada, escrita sincrónicamente en el propio handler del evento
+  // nativo de visualViewport — ver ios-keyboard-fix.tsx). La fórmula base
+  // y el resto de la invariante no cambian.
+  test("R2. la regla de compensación de standalone está dentro de @media (display-mode: standalone) y resta --ios-dock-visual-offset-top (sincrónica) sobre la MISMA fórmula base (nunca una fórmula independiente)", () => {
+    const css = readFileSync(GLOBALS_CSS, "utf-8").replace(/\r\n/g, "\n")
+    const mediaStart = css.indexOf("@media (display-mode: standalone)")
+    expect(mediaStart).toBeGreaterThan(-1)
+    // Encuentra el "}" de cierre del bloque @media contando llaves desde su
+    // propio "{" — robusto frente a llaves anidadas (las reglas internas).
+    const openBraceIdx = css.indexOf("{", mediaStart)
+    let depth = 0
+    let closeIdx = -1
+    for (let i = openBraceIdx; i < css.length; i++) {
+      if (css[i] === "{") depth++
+      else if (css[i] === "}") {
+        depth--
+        if (depth === 0) {
+          closeIdx = i
+          break
+        }
+      }
+    }
+    expect(closeIdx).toBeGreaterThan(openBraceIdx)
+    const mediaBlock = css.slice(mediaStart, closeIdx)
+    expect(mediaBlock).toContain(".ios-bottom-nav")
+    expect(mediaBlock).toMatch(/env\(safe-area-max-inset-bottom,\s*34px\)\s*\+\s*8px\s*-\s*var\(--ios-dock-visual-offset-top,\s*0px\)/)
+    expect(mediaBlock).toContain(".ios-chat-fab")
   })
 
   test("sanity check: el detector de transform en el shell encuentra un caso sintético que sí lo usa", () => {

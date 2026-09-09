@@ -94,7 +94,7 @@ export function ClientFavoritesPanel() {
     <div className="flex-1 bg-background">
       {/* Header */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-md border-b border-border/50">
-        <div className="max-w-2xl mx-auto px-4 py-4">
+        <div className="max-w-2xl mx-auto px-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center">

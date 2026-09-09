@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     const negocioId = user.id
     const body = await req.json()
-    const { nombre, orientacion, orden, color, productoIds } = body
+    const { nombre, orientacion, color, productoIds } = body
 
     if (!nombre?.trim()) {
       return NextResponse.json(
@@ -80,26 +80,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
-    const seccion = await db.seccionCatalogo.create({
-      data: {
-        nombre: nombre.trim(),
-        orientacion: orientacion || "vertical",
-        orden: orden || 0,
-        color: color || "",
-        negocioId,
-      },
-    })
-
-    // If productoIds is provided, create junction records
-    if (validProductoIds.ids.length > 0) {
-      await db.seccionProducto.createMany({
-        data: validProductoIds.ids.map((productoId, index) => ({
-          seccionId: seccion.id,
-          productoId,
-          orden: index,
-        })),
+    // SeccionCatalogo.orden is never trusted from the client — a new section
+    // always appends to the end (max active orden + 1), computed inside the
+    // same transaction as the insert to avoid a create-time race. See
+    // src/app/api/negocio/secciones/orden/route.ts, the only endpoint that
+    // may otherwise write orden.
+    const seccion = await db.$transaction(async (tx) => {
+      const maxOrder = await tx.seccionCatalogo.aggregate({
+        where: { negocioId },
+        _max: { orden: true },
       })
-    }
+
+      const created = await tx.seccionCatalogo.create({
+        data: {
+          nombre: nombre.trim(),
+          orientacion: orientacion || "vertical",
+          orden: (maxOrder._max.orden ?? -1) + 1,
+          color: color || "",
+          negocioId,
+        },
+      })
+
+      if (validProductoIds.ids.length > 0) {
+        await tx.seccionProducto.createMany({
+          data: validProductoIds.ids.map((productoId, index) => ({
+            seccionId: created.id,
+            productoId,
+            orden: index,
+          })),
+        })
+      }
+
+      return created
+    })
 
     // Return the created seccion with products
     const seccionWithProducts = await db.seccionCatalogo.findUnique({

@@ -30,11 +30,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
     }
 
-    // Mismo bucket que subscribe/unsubscribe — este endpoint es read-only
-    // pero comparte la autoridad de abuso existente en vez de introducir un
-    // bucket nuevo para un uso acotado a mounts, no a polling.
+    // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): own bucket,
+    // separate from subscribe/unsubscribe — this endpoint is read-only and
+    // is called far more often (every Perfil/Configuración mount/remount,
+    // plus the diagnostic panel's own refresh), so it must not share a
+    // budget with the deliberate mutation clicks it would otherwise starve.
+    // See rate-limit.ts::RATE_LIMITS.pushStatus for the full rationale.
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:${user.id}`)
+    const rl = checkRateLimit("pushStatus", `${ip}:${user.id}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }

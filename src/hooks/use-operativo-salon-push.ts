@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { getPwaCapabilities, type PwaCapabilities } from "@/lib/pwa-capabilities"
-import { urlBase64ToUint8Array } from "@/lib/push-subscription-key"
+import {
+  applicationServerKeyMatches,
+  unsubscribeStalePushSubscription,
+  urlBase64ToUint8Array,
+} from "@/lib/push-subscription-key"
 import { getCurrentOperativePushSubscription } from "@/lib/operativo-logout"
 
 export type OperativoSalonPushState =
@@ -137,13 +141,42 @@ export function useOperativoSalonPush(slug: string) {
 
       await navigator.serviceWorker.register("/sw.js")
       const registration = await navigator.serviceWorker.ready
+      const applicationServerKey = urlBase64ToUint8Array(publicKey)
       let subscription = await registration.pushManager.getSubscription()
       let createdSubscription = false
+
+      // P2-T31-R5 (VAPID-STALE-SUBSCRIPTION-VALIDATION-EXTENSION): antes se
+      // reusaba cualquier subscription física existente sin validar nunca su
+      // `applicationServerKey` contra la VAPID key vigente — el mismo gap
+      // que R3 confirmó en vivo (Apple: `VapidPkHashMismatch`) para
+      // use-push-notifications.ts. Sólo se destruye físicamente cuando se
+      // demuestra la incompatibilidad — nunca una subscription sana. Al
+      // marcar `createdSubscription = true` en este caso, la subscription
+      // recreada queda cubierta por el MISMO rollback ya existente más abajo
+      // si el POST al backend falla — sin duplicar esa lógica.
+      //
+      // P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): un simple
+      // `await subscription.unsubscribe()` no basta — su booleano de retorno
+      // es ambiguo entre navegadores, y este call site ya sabe que había una
+      // subscription viva. Se confirma la remoción de verdad antes de
+      // continuar; si no puede confirmarse, se aborta (throw) en vez de
+      // arriesgar dos subscriptions físicas simultáneas.
+      if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)) {
+        const removed = await unsubscribeStalePushSubscription(subscription, () =>
+          registration.pushManager.getSubscription()
+        )
+        if (!removed) {
+          throw new Error("No se pudo confirmar la eliminacion de la suscripcion obsoleta")
+        }
+        subscription = null
+      }
 
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
+          // P2-T31-R5: mismo cast que use-push-notifications.ts — gap de
+          // TS/lib.dom pre-existente, sin efecto en runtime.
+          applicationServerKey: applicationServerKey as BufferSource,
         })
         createdSubscription = true
       }

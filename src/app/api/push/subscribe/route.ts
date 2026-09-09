@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     // Rate limit
     const ip = getClientIp(req)
-    const rl = checkRateLimit("push", `${ip}:${user.id}`)
+    const rl = checkRateLimit("pushMutation", `${ip}:${user.id}`)
     if (!rl.allowed) {
       return rateLimitResponse(rl)
     }

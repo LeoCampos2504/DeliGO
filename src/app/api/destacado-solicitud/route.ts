@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { notifySuperadmins } from "@/lib/superadmin-notifications"
 
 const PRECIO_DIA = 500
 const PRECIO_MES = 10000
@@ -68,6 +69,26 @@ export async function POST(req: NextRequest) {
         estado: "pendiente",
       },
     })
+
+    // P2-T26-R2: notifica a SuperAdmin de la nueva solicitud — R1 encontró
+    // este evento sin ninguna notificación pese al tab dedicado
+    // "solicitudes-destacado". Este endpoint no usa una transacción (nunca
+    // la usó, ni antes de este cambio), así que la notificación es
+    // best-effort DESPUÉS de la creación real — un fallo acá nunca debe
+    // impedir que la solicitud (ya persistida) se devuelva como exitosa al
+    // negocio. El `existingPending` chequeado arriba ya garantiza que esta
+    // solicitud es la única activa de este negocio — no hace falta dedupe
+    // adicional.
+    try {
+      await notifySuperadmins(db, {
+        tipo: "destacado_solicitud",
+        titulo: "Nueva solicitud de destacado",
+        cuerpo: `${user.nombre} solicitó destacar su local.`,
+        datos: { entityId: solicitud.id, navigateTo: "solicitudes-destacado", negocioId: user.id },
+      })
+    } catch (notifyError) {
+      console.error("[Notificaciones] Failed to notify superadmins of destacado solicitud:", safeErrorForLog(notifyError))
+    }
 
     return NextResponse.json({ solicitud }, { status: 201 })
   } catch (error) {

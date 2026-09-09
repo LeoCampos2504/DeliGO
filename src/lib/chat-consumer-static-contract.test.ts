@@ -80,7 +80,11 @@ describe("Shared realtime Chat consumer contract", () => {
 // See CODEX_REPORT.md for the full design rationale each letter here locks in.
 describe("Chat polling B2 — cadence ownership and UI-state-only gating contract", () => {
   test("A. ChatFab is the sole /api/chat/no-leidos owner — present in chat-fab.tsx, absent from chat-sheet.tsx and conversation-list.tsx", () => {
-    expect(chatFab()).toContain('fetch("/api/chat/no-leidos"')
+    // P2-T20: P2-T18-BLOCKER-AUTH2-R13-R2 variable-ized the URL (the
+    // ?actorFamily= selector), so the endpoint is no longer a single frozen
+    // fetch("...") literal — asserted as two separate, still-precise facts.
+    expect(chatFab()).toContain('"/api/chat/no-leidos"')
+    expect(chatFab()).toContain("await fetch(url,")
     expect(chatSheet()).not.toContain("/api/chat/no-leidos")
     expect(conversationList()).not.toContain("/api/chat/no-leidos")
   })
@@ -96,7 +100,9 @@ describe("Chat polling B2 — cadence ownership and UI-state-only gating contrac
   })
 
   test("D. ChatSheet is the one that fetches /api/chat/conversaciones", () => {
-    expect(chatSheet()).toContain('fetch("/api/chat/conversaciones"')
+    // P2-T20: same variable-ized URL as test A above — see that comment.
+    expect(chatSheet()).toContain('"/api/chat/conversaciones"')
+    expect(chatSheet()).toContain("await fetch(url,")
   })
 
   test("E. ChatSheet populates both conversations and archived from the same /conversaciones response", () => {
@@ -333,11 +339,18 @@ describe("P2-T18 — own-actor filtering for user-typing and messages-read", () 
   })
 
   test("F-P1-02: user-stop-typing is untouched — removeTypingUser's existing filter already makes a self-echo stop a safe no-op", () => {
+    // P2-T20: rewritten with the same indexOf-distance idiom as the sibling
+    // user-typing/messages-read tests above — the previous version embedded
+    // a literal "\n" between the two lines, which never matches this file's
+    // actual CRLF line endings (a pre-existing, unrelated line-ending
+    // mismatch, not a lost contract; the CRLF form of the same snippet is
+    // present verbatim).
     const source = chatSheet()
-    expect(source).toContain(
-      'client.subscribe("user-stop-typing", (data) => {\n' +
-        "        removeTypingUser(data.pedidoId, data.userId)",
-    )
+    const subscribeIndex = source.indexOf('client.subscribe("user-stop-typing", (data) => {')
+    expect(subscribeIndex).toBeGreaterThan(-1)
+    const removeIndex = source.indexOf("removeTypingUser(data.pedidoId, data.userId)", subscribeIndex)
+    expect(removeIndex).toBeGreaterThan(subscribeIndex)
+    expect(removeIndex - subscribeIndex).toBeLessThan(120)
   })
 
   test("F-P1-01: messages-read no longer has an empty body — a same-actor readBy clears this tab's own unread badge locally", () => {

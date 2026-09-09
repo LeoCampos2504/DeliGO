@@ -3,6 +3,7 @@ import {
   getPwaIdentityMetadata,
   getPwaIdentityViewport,
 } from "@/lib/pwa-identity"
+import { PushDebugTraceBootstrap } from "@/components/shared/push-debug-trace-bootstrap"
 
 export const metadata: Metadata = getPwaIdentityMetadata("negocio")
 export const viewport: Viewport = getPwaIdentityViewport("negocio")
@@ -10,5 +11,10 @@ export const viewport: Viewport = getPwaIdentityViewport("negocio")
 export default function NegocioLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return children
+  return (
+    <>
+      {children}
+      <PushDebugTraceBootstrap />
+    </>
+  )
 }

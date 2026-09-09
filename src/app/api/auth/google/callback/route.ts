@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import {
+  type GoogleOAuthAccountType,
+  signGoogleOAuthPendingIdentity,
+  setGoogleOAuthPendingCookie,
+} from "@/lib/google-oauth-pending"
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
@@ -52,6 +57,41 @@ export async function GET(req: NextRequest) {
       const redirectUrl = new URL(basePath, APP_URL)
       redirectUrl.searchParams.set("auth_error", errorType)
       return NextResponse.redirect(redirectUrl.toString())
+    }
+
+    // GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1: redirect used for a brand-new
+    // Google identity, or an existing one with zero persisted
+    // LegalAcceptance evidence, instead of creating an account/session here.
+    // The signed pending cookie is the only place sub/email/accountType/
+    // existingAccountId travel — never a query param, never the URL.
+    const redirectToConsentGate = async (identity: {
+      sub: string
+      email: string
+      name: string
+      accountType: GoogleOAuthAccountType
+      existingAccountId: string | null
+    }) => {
+      const token = await signGoogleOAuthPendingIdentity(identity)
+      const consentUrl = new URL("/auth/google/consentimiento", APP_URL)
+      const response = NextResponse.redirect(consentUrl.toString())
+      setGoogleOAuthPendingCookie(response, token)
+      // These one-time cookies are already consumed by this callback — clear
+      // them exactly like the normal success path does below.
+      response.cookies.set("google_oauth_state", "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      })
+      response.cookies.set("google_oauth_role", "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      })
+      return response
     }
 
     // Handle user denial
@@ -125,30 +165,45 @@ export async function GET(req: NextRequest) {
       })
 
       if (!repartidor) {
-        // Try to find by email and link the Google account
-        repartidor = await db.repartidor.findUnique({
+        // Try to find by email and link the Google account. Linking alone
+        // never writes legal evidence — it only adds a sign-in method to an
+        // account that already exists.
+        const byEmail = await db.repartidor.findUnique({
           where: { email: googleUser.email.toLowerCase() },
         })
-
-        if (repartidor) {
-          // Link Google account to existing email account
+        if (byEmail) {
           repartidor = await db.repartidor.update({
-            where: { id: repartidor.id },
+            where: { id: byEmail.id },
             data: { googleId: googleUser.sub },
           })
-        } else {
-          // Create new repartidor with Google account
-          repartidor = await db.repartidor.create({
-            data: {
-              nombre: googleUser.name,
-              email: googleUser.email.toLowerCase(),
-              password: null,
-              googleId: googleUser.sub,
-              telefono: "",
-              emailVerified: new Date(),
-            },
-          })
         }
+      }
+
+      if (!repartidor) {
+        return redirectToConsentGate({
+          sub: googleUser.sub,
+          email: googleUser.email,
+          name: googleUser.name,
+          accountType: "repartidor",
+          existingAccountId: null,
+        })
+      }
+
+      if (!repartidor.activo) {
+        return errorRedirect("account_unavailable")
+      }
+
+      const hasAcceptance = await db.legalAcceptance.findFirst({
+        where: { userId: repartidor.id, userType: "repartidor" },
+      })
+      if (!hasAcceptance) {
+        return redirectToConsentGate({
+          sub: googleUser.sub,
+          email: googleUser.email,
+          name: googleUser.name,
+          accountType: "repartidor",
+          existingAccountId: repartidor.id,
+        })
       }
 
       userId = repartidor.id
@@ -159,30 +214,41 @@ export async function GET(req: NextRequest) {
       })
 
       if (!cliente) {
-        // Try to find by email and link the Google account
-        cliente = await db.cliente.findUnique({
+        // Try to find by email and link the Google account. Linking alone
+        // never writes legal evidence — it only adds a sign-in method to an
+        // account that already exists.
+        const byEmail = await db.cliente.findUnique({
           where: { email: googleUser.email.toLowerCase() },
         })
-
-        if (cliente) {
-          // Link Google account to existing email account
+        if (byEmail) {
           cliente = await db.cliente.update({
-            where: { id: cliente.id },
+            where: { id: byEmail.id },
             data: { googleId: googleUser.sub },
           })
-        } else {
-          // Create new cliente with Google account
-          cliente = await db.cliente.create({
-            data: {
-              nombre: googleUser.name,
-              email: googleUser.email.toLowerCase(),
-              password: null,
-              googleId: googleUser.sub,
-              telefono: "",
-              emailVerified: new Date(),
-            },
-          })
         }
+      }
+
+      if (!cliente) {
+        return redirectToConsentGate({
+          sub: googleUser.sub,
+          email: googleUser.email,
+          name: googleUser.name,
+          accountType: "cliente",
+          existingAccountId: null,
+        })
+      }
+
+      const hasAcceptance = await db.legalAcceptance.findFirst({
+        where: { userId: cliente.id, userType: "cliente" },
+      })
+      if (!hasAcceptance) {
+        return redirectToConsentGate({
+          sub: googleUser.sub,
+          email: googleUser.email,
+          name: googleUser.name,
+          accountType: "cliente",
+          existingAccountId: cliente.id,
+        })
       }
 
       userId = cliente.id

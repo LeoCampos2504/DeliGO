@@ -332,6 +332,264 @@ body.ios-device .ios-bottom-nav {
   bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px);
 }
 
+/* ─── iOS bottom-dock shared safe-area authority ───
+   IOS-MOBILE-FIX-AND-REAL-DEVICE-INSTRUMENTATION-R1: BottomNav and ChatFab
+   used to read two different safe-area authorities on iOS — BottomNav the
+   static footprint above, ChatFab the raw dynamic env(safe-area-inset-bottom).
+   That mismatch (confirmed independently by both the Claude and Codex iOS
+   diagnostics, codex-reports/IOS_MOBILE_INDEPENDENT_DIAGNOSTIC_CLAUDE_R1.md
+   and codex-reports/IOS_MOBILE_VIEWPORT_NAV_INPUT_DIAGNOSTIC_R2.md) is what
+   let the chat FAB drift down and overlap the "Perfil" tab whenever the
+   Safari toolbar was visible. --ios-bottom-safe-footprint below is
+   deliberately defined with the exact same formula BottomNav's own rule
+   already inlines above — kept as a literal duplicate rather than
+   refactored into a shared reference so the existing
+   IOS-24-NAV-SAFEAREA-STABILITY contract tests (which assert that exact
+   literal text) stay untouched; ios-nav-dock-static-contract.test.ts now
+   also asserts these two formulas can never read differently. ─── */
+body.ios-device {
+  --ios-bottom-safe-footprint: env(safe-area-max-inset-bottom, 34px);
+  --ios-bottom-nav-height: 4rem;
+  --ios-bottom-dock-gap: 8px;
+  --ios-chat-fab-gap-above-nav: 12px;
+}
+
+/* ─── iOS chat FAB: same static safe-area authority + explicit dock metrics ───
+   bottom = footprint + nav's own gap + nav's own height + a fixed clearance
+   above the nav, instead of the old independent "5rem + dynamic env()"
+   guess. This guarantees the FAB sits above BottomNav by a constant amount
+   regardless of Safari toolbar state, since both now anchor to the same
+   static footprint. Scoped to body.ios-device only — non-iOS keeps the
+   dynamic base Tailwind class in chat-fab.tsx unmodified (same override
+   pattern already used for the nav dock above). ─── */
+body.ios-device .ios-chat-fab {
+  bottom: calc(
+    var(--ios-bottom-safe-footprint) + var(--ios-bottom-dock-gap) +
+    var(--ios-bottom-nav-height) + var(--ios-chat-fab-gap-above-nav)
+  );
+}
+
+/* ─── Hide chat FAB when iOS keyboard opens ───
+   Mirrors the BottomNav rule above exactly (visibility + pointer-events,
+   never transform) so both bottom-dock elements share one keyboard-
+   visibility policy. Replaces the previous ios-keyboard-hide /
+   keyboard-hide-when-editing classes on ChatFab, which had no matching CSS
+   rule anywhere in the codebase and therefore never actually hid it. ─── */
+html.ios-device.ios-keyboard-open .ios-chat-fab,
+body.ios-device.ios-keyboard-open .ios-chat-fab {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ─── iOS standalone PWA: compensate stale visualViewport.offsetTop ───
+   IOS-STANDALONE-REAL-DEVICE-FIX-R3: a real installed-PWA iPhone capture
+   (iOS 18.7, Safari 26.0.1, standalone=true) proved BottomNav/ChatFab
+   visually float ~68px above their resting position for a window after
+   the on-screen keyboard closes. Their `bottom` formula never changes
+   (computedBottom stayed "42px"/"118px" through the whole capture) — the
+   bug is that WebKit leaves `visualViewport.offsetTop` stuck at a stale,
+   residual value (68px observed, decaying to 0 only once the user makes
+   an actual scroll gesture) instead of resetting it to 0 once the
+   keyboard is gone. That decay-to-0 moment is exactly what the operator
+   saw as "the nav moved while scrolling." The real capture's own numbers
+   prove the compensation below restores the correct physical distance:
+   baseline (offsetTop=0) → nav.rect.bottom=755, 797-755=42; stale state
+   (offsetTop=68) → nav.rect.bottom=687, 797-687=110 (wrong, should stay
+   42, off by exactly the 68px residual). Subtracting the current visual
+   viewport offset from the static `bottom` value cancels that residual.
+   Scoped to display-mode:standalone only: IOS_MOBILE_REAL_DEVICE_R2's
+   Safari-tab capture matched the UNcompensated formula in 165/165 real
+   snapshots with no stale residual ever observed there — applying this
+   in Safari tab would move an already-correct nav for no reason. Placed
+   after the base rules above so it wins the cascade in standalone
+   contexts without !important. Never applies while keyboard is open
+   (both elements are visibility:hidden then, per the rule above — no
+   compensation is needed or visible while hidden).
+   IOS-STANDALONE-FINAL-VISUAL-FIX-R4: switched from
+   --visual-viewport-offset-top to --ios-dock-visual-offset-top. A second
+   real standalone capture proved the shared variable (only updated
+   inside IOSKeyboardFix's requestAnimationFrame-batched
+   updateViewportState) can itself go stale by a full frame or more
+   during a fast scroll fling, briefly compensating for the WRONG
+   residual and pushing the dock to within ~1px of the true screen edge
+   (partial clipping) — real numbers: offsetTop=41.34 while `bottom` was
+   still compensating for a stale ~66px. --ios-dock-visual-offset-top is
+   written synchronously in the native visualViewport resize/scroll
+   handler itself (ios-keyboard-fix.tsx), never deferred through that
+   extra animation-frame hop — the general keyboard-detection pipeline
+   (CSS classes, --ios-keyboard-offset, the stabilization wait before
+   scroll-restore) keeps its own rAF/stabilization timing unchanged,
+   since that batching exists for unrelated, legitimate reasons. ─── */
+@media (display-mode: standalone) {
+  body.ios-device .ios-bottom-nav {
+    bottom: calc(env(safe-area-max-inset-bottom, 34px) + 8px - var(--ios-dock-visual-offset-top, 0px));
+  }
+
+  body.ios-device .ios-chat-fab {
+    bottom: calc(
+      var(--ios-bottom-safe-footprint) + var(--ios-bottom-dock-gap) +
+      var(--ios-bottom-nav-height) + var(--ios-chat-fab-gap-above-nav) -
+      var(--ios-dock-visual-offset-top, 0px)
+    );
+  }
+}
+
+/* ─── R8: degraded-viewport dock fallback ───
+   IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: R7 certified, on a
+   real device, that the tested WebKit recovery technique cannot force
+   visualViewport.height back to baseline after the first keyboard cycle
+   (729 -> 729, unchanged) — R6's hit-testing had already proven the
+   resulting visual clipping is not a DOM occluder, not z-index, not
+   backdrop/filter compositing. The remaining, evidence-grounded
+   explanation: the lower ~68px of the LAYOUT viewport falls outside the
+   region WebKit is currently treating as paintable, so no `bottom`-based
+   compensation targeting the physical screen edge can ever be fully
+   correct there.
+   ios-keyboard-fix.tsx computes and writes `--ios-dock-nav-top`/
+   `--ios-dock-fab-top` (see resolveIosDockPlacement in
+   src/lib/ios-dock-viewport-state.ts for the pure derivation) and toggles
+   `ios-dock-degraded` on <html>/<body> ONLY when a real, tolerance-checked
+   viewport-height deficit is detected with the keyboard already closed —
+   never merely because standalone mode is active. `top` (not `bottom`) is
+   used deliberately: unlike `bottom`, `top` maps directly and linearly to
+   rect.top for a `position:fixed` element on this WebKit build, with no
+   innerHeight/offsetTop inversion needed — sidestepping the exact
+   `bottom`-property quirk that made R3-R5's compensation formula fragile
+   in the first place. `bottom: auto` here is what makes this the sole
+   positioning authority while degraded — the R3-R5 `bottom` calc above
+   keeps computing (harmlessly unused) rather than needing to be
+   conditionally disabled in JS, so healthy-mode behavior is completely
+   unaffected. Higher selector specificity than the block above (an extra
+   class) means this always wins on its own, regardless of source order,
+   whenever `ios-dock-degraded` is present. ─── */
+@media (display-mode: standalone) {
+  body.ios-device.ios-dock-degraded .ios-bottom-nav {
+    top: var(--ios-dock-nav-top);
+    bottom: auto;
+  }
+
+  body.ios-device.ios-dock-degraded .ios-chat-fab {
+    top: var(--ios-dock-fab-top);
+    bottom: auto;
+  }
+}
+
+/* ─── R6: TEMPORARY diagnostic-only nav paint probes (query-flag gated) ───
+   IOS-STANDALONE-POST-KEYBOARD-NAV-OCCLUSION-R6: R5's real-device evidence
+   showed geometry (navPhysicalFullyVisible) can be PASS while the operator
+   still visually sees BottomNav partially hidden after a keyboard close —
+   a paint/compositing symptom geometry alone can't diagnose. These two
+   diagnostics only ever activate behind ?iosDebug=1 (and, for the solid
+   probe, additionally &navPaintProbe=solid) — see bottom-nav.tsx, gated
+   the same way IOSViewportDebugPanel already gates itself. Neither is ever
+   present for a normal user with no query flag.
+   `outline` (not `border`/`box-shadow`) is used deliberately: it paints
+   outside the box without participating in layout at all, so it cannot
+   change the nav's own size or the FAB's 10px gap above it. The 3 markers
+   are absolutely positioned INSIDE the nav's own `overflow-hidden` box
+   (never outside it) so they can't leak into surrounding layout, and are
+   non-interactive (`pointer-events:none` implied by not being interactive
+   content, no click handlers). Purpose (§11): when the operator sees the
+   nav visually disappear, these markers show whether the WHOLE nav box
+   vanished together, or only part of it (matching the operator's own
+   "partially covered" report) — direct visual evidence a screenshot alone
+   can't give without a fixed reference point. ─── */
+.ios-nav-debug-outline {
+  outline: 1px solid #ff2d55;
+  outline-offset: -1px;
+}
+
+.ios-nav-debug-marker {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: #ff2d55;
+  pointer-events: none;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ios-nav-debug-marker-top {
+  top: 2px;
+}
+
+.ios-nav-debug-marker-middle {
+  top: calc(50% - 2px);
+}
+
+.ios-nav-debug-marker-bottom {
+  bottom: 2px;
+}
+
+/* §12: forces an opaque background and strips any inherited backdrop/
+   regular filter, to discriminate hypothesis H3/H4 (backdrop/filter
+   compositing) from a real DOM occluder or a WebKit fixed-layer repaint
+   bug (H10) — see the task's own A/B protocol in codex-reports/
+   IOS_STANDALONE_POST_KEYBOARD_NAV_OCCLUSION_R6.md. BottomNav's own
+   `bg-card` is already a fully opaque color (#FFFFFF / #1A1A1A, no alpha —
+   see the `--card` tokens near the top of this file) and carries no
+   backdrop-filter of its own; this rule exists to rule the hypothesis out
+   with certainty even against any unexpected inherited/ancestor filter,
+   not because source review found one on the nav itself. ─── */
+.ios-nav-paint-probe-solid {
+  background: var(--card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ─── iOS Chat: keyboard-region background coverage ───
+   IOS-STANDALONE-REAL-DEVICE-FIX-R3: real standalone capture proved
+   ChatOverlay and ChatSheet always match each other exactly (0px
+   top/bottom/height difference in 146/146 real paired snapshots, R2) —
+   so their mismatch was never the cause of the operator's real,
+   confirmed symptom (client-page content visible below the Chat
+   composer while the keyboard is open). The actual mechanism: while the
+   keyboard is open, both fixed surfaces are shifted by WebKit's visual
+   viewport pan (visualViewport.offsetTop, 403px observed) and their
+   bottom edge lands at the *visible* boundary
+   (innerHeight - offsetTop = 394 observed), short of the true device
+   bottom (innerHeight = 797) by exactly that residual. The gap between
+   394 and 797 is real, physical screen space that neither Sheet nor
+   Overlay paints — so whatever sits behind them (the normal client page,
+   full height, unclipped) can show through it.
+   This filler does not move the composer or any content — it only adds
+   a non-interactive background-colored layer under everything, anchored
+   to the true fixed-viewport bottom and pushed further down by exactly
+   `visualViewport.offsetTop` (a negative `bottom` compensation — the
+   mirror image of the dock compensation above) so its own bottom edge
+   always reaches the true device bottom, with its height equal to that
+   same residual — i.e., it fills exactly the gap and nothing more.
+   Height (and therefore visible area) is 0 whenever offsetTop is 0
+   (keyboard closed, or normal Safari-tab states where this residual
+   either doesn't occur or self-resolves) — safe by construction, so this
+   is NOT scoped to standalone only; it is a no-op everywhere else.
+   IOS-STANDALONE-FINAL-VISUAL-FIX-R4: real device evidence proved this
+   never painted past the visible content boundary as a CHILD of
+   SheetContent — `overflow-hidden` on SheetContent clips descendant paint
+   regardless of the descendant's own `position:fixed` (clipping happens
+   in the paint/clip tree, independent of the positioning scheme that
+   escapes normal LAYOUT flow). Portaled directly to document.body from
+   chat-sheet.tsx instead — a sibling of Radix's own Sheet portal tree,
+   never a descendant of anything that clips — same category of fix
+   BottomNav already uses portal-to-body for. z-index raised from 0 to 45
+   (BottomNav's z-40 < this < Chat's z-50) because as a document.body-level
+   portal it now competes directly against ordinary page content in the
+   root stacking context, where z-index:auto content could otherwise win
+   on DOM order alone. Element only exists in the DOM while ChatSheet
+   itself is open (see chat-sheet.tsx) — no permanent layer, no effect on
+   the normal client page, BottomNav, ChatFab, or any other drawer. ─── */
+body.ios-device .ios-chat-keyboard-backdrop {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * var(--visual-viewport-offset-top, 0px));
+  height: var(--visual-viewport-offset-top, 0px);
+  background: var(--background);
+  pointer-events: none;
+  z-index: 45;
+}
+
 /* ─── iOS viewport height — use instead of h-screen / 100vh ───
    IOS-24-FIX-A: root layout and Chat/Sidebar/Orders sheets no longer use
    this — they rely on native 100dvh instead, since --visual-viewport-height
@@ -360,6 +618,21 @@ body.ios-device .ios-bottom-nav {
    Radix's close button below the top safe area without changing other dialogs. */
 @media (max-width: 639px) {
   .mesa-cuenta-dialog-content > [data-slot="dialog-close"] {
+    top: calc(1rem + env(safe-area-inset-top, 0px));
+  }
+}
+
+/* P2-T31-R24: the Chat Sheet is full-bleed on iOS (viewport-fit=cover,
+   already global) — its background/banner should keep extending to top:0,
+   but its own built-in close (X) button (Radix's default `top-4 right-4`
+   inside sheet.tsx, scoped here to ONLY this Sheet via the pre-existing
+   `data-ios-debug-role="chat-sheet"` marker on its SheetContent) must stay
+   below the status bar/Dynamic Island — same scoped pattern as the mesa-
+   cuenta-dialog rule above, no other Sheet in the app is affected.
+   env(safe-area-inset-top) resolves to 0 on Android/no-notch, so this is a
+   no-op there (no user-agent branch). */
+@media (max-width: 639px) {
+  [data-ios-debug-role="chat-sheet"] [data-slot="sheet-close"] {
     top: calc(1rem + env(safe-area-inset-top, 0px));
   }
 }

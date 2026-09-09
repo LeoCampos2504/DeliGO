@@ -40,8 +40,54 @@ export const RATE_LIMITS = {
   reviewModerationReview: { maxRequests: 1, windowMs: 24 * 60 * 60 * 1000 }, // 1 per negocio+reseña/day
   reviewModerationBusinessInformation: { maxRequests: 10, windowMs: 60 * 60 * 1000 }, // 10 per negocio/hour
   reviewModerationEvidenceUpload: { maxRequests: 20, windowMs: 60 * 60 * 1000 }, // 20 per negocio/hour
-  order: { maxRequests: 5, windowMs: 5 * 60 * 1000 },           // 5 per 5 min
-  push: { maxRequests: 10, windowMs: 60 * 1000 },               // 10 per min
+  // P2-T25-R2: replaces the old single "order" bucket (keyed by session-token
+  // -or-IP fallback — R1 proved a new login/session reset it for free, see
+  // codex-reports/P2_T25_ORDER_ABUSE_RESISTANCE_AUDIT_R1.md) with three
+  // INDEPENDENT buckets, all of which must allow a request (see
+  // src/app/api/pedidos/route.ts). Numbers below are the R1-recommended
+  // TESTING starting point, not empirically-tuned Production values.
+  orderAccount: { maxRequests: 5, windowMs: 5 * 60 * 1000 },    // 5 per clienteId/5min — survives new sessions/devices
+  orderIp: { maxRequests: 15, windowMs: 5 * 60 * 1000 },        // 15 per IP/5min — applies unconditionally, not just to guests
+  // BUSINESS_BUCKET_PRODUCTION_VALIDATION_REQUIRED=SI — 30/5min is a TESTING
+  // starting point only, sized to be generous enough for the existing
+  // integration suites (each creates well under 30 pedidos per negocio
+  // fixture) without being unbounded. Must be revisited with real traffic
+  // data before this ships to Production.
+  orderBusiness: { maxRequests: 30, windowMs: 5 * 60 * 1000 },  // 30 per negocioId/5min, ALL actors combined
+  // P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): replaces the old
+  // single `push` bucket (10/min, shared by status+subscribe+unsubscribe,
+  // all keyed identically by `${ip}:${user.id}`) — physical evidence from
+  // Leonardo's iPhone stress test showed real HTTP 429s during ordinary
+  // interactive use (repeated Perfil visits + a few rapid ON/OFF toggles),
+  // NOT automated abuse. Root cause: every Perfil/Configuración mount fires
+  // one read-only status check (`checkPersonalPushStatus`), and the R6/R6A/
+  // R6B diagnostic panel's own "ACTUALIZAR ESTADO" button ALSO calls the
+  // same status endpoint, plus `permission-prompt.tsx` independently polls
+  // it too (DIV-03, a separate known gap) — all sharing the SAME 10-request
+  // budget as the deliberate subscribe()/unsubscribe() clicks. A handful of
+  // navigations plus a few toggles comfortably exceeds 10 requests/min
+  // without any automation at all.
+  //
+  // Split into two independent buckets:
+  //   - `pushStatus`: read-only, side-effect-free (one indexed lookup by
+  //     owner+endpoint — see /api/push/status/route.ts). Generous on
+  //     purpose: mounts/remounts/cold-launches/diagnostic-panel refreshes
+  //     are all legitimate, frequent, and harmless to allow liberally. 60/min
+  //     (1/sec sustained) comfortably covers 10+ remounts, several cold
+  //     launches, and repeated diagnostic-panel refreshes within a test
+  //     session, while still bounding a genuine flood (a real client has no
+  //     reason to poll faster than about once a second).
+  //   - `pushMutation`: subscribe+unsubscribe combined (each is a real DB
+  //     write via push-subscription-repository, already protected by its
+  //     own transaction/CAS logic — R2/R3/R5/R5A remain untouched). Raised
+  //     from 10 to 20/min — comfortably covers ~10 rapid human ON/OFF
+  //     toggles (20 requests) in one minute, which the physical evidence
+  //     showed was NOT an unreasonable thing for Leonardo to do while
+  //     testing, while still capping sustained automated subscribe/
+  //     unsubscribe spam far below what an abuse script would need to do
+  //     any real damage (each write is already serialized/idempotent).
+  pushStatus: { maxRequests: 60, windowMs: 60 * 1000 },         // 60 per min — read-only status checks
+  pushMutation: { maxRequests: 20, windowMs: 60 * 1000 },       // 20 per min — subscribe+unsubscribe combined
   password: { maxRequests: 3, windowMs: 15 * 60 * 1000 },       // 3 per 15 min
   upload: { maxRequests: 20, windowMs: 60 * 1000 },              // 20 per min
   operativoInvite: { maxRequests: 10, windowMs: 15 * 60 * 1000 }, // 10 per 15 min
@@ -70,6 +116,11 @@ export const RATE_LIMITS = {
   // intentos sobre la cuenta de mayor privilegio de la plataforma.
   superadminOAuthStart: { maxRequests: 10, windowMs: 5 * 60 * 1000 },   // 10 per 5 min
   superadminOAuthCallback: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
+  // GOOGLE-OAUTH-TERMS-ACCEPTANCE-GATE-R1: consentimiento explícito que
+  // completa el login/registro con Google — mismo tamaño que los buckets de
+  // OAuth de arriba, bucket propio para que no comparta cupo con "register"
+  // ni "login".
+  googleOauthConsentComplete: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per 5 min
   superadminReviewModerationAction: { maxRequests: 30, windowMs: 60 * 1000 }, // 30 per superadmin/min
   superadminConfigMutation: { maxRequests: 10, windowMs: 5 * 60 * 1000 }, // 10 per superadmin/5 min
   terminalAdminMutation: { maxRequests: 30, windowMs: 5 * 60 * 1000 }, // 30 per admin/IP per 5 min
@@ -116,24 +167,38 @@ startCleanup()
 /**
  * Check rate limit for a given type and key.
  * Returns { allowed: boolean, remaining: number, resetAt: number }
+ *
+ * P2-T25-R2: optional `dryRun` inspects the bucket WITHOUT incrementing it —
+ * added so a caller that must check several independent buckets for the same
+ * request (see the order-creation account/IP/business buckets in
+ * src/app/api/pedidos/route.ts) can peek all of them first and only commit
+ * (consume real quota) once every bucket has already agreed to allow the
+ * request. Without this, a request rejected by the LAST-checked bucket would
+ * have already burned one unit of every EARLIER-checked bucket for nothing.
+ * Every existing caller is unaffected: `dryRun` defaults to false/absent, and
+ * the non-dryRun code path below is byte-for-byte the same logic as before.
  */
 export function checkRateLimit(
   type: RateLimitType,
-  key: string
+  key: string,
+  options?: { dryRun?: boolean }
 ): { allowed: boolean; remaining: number; resetAt: number; retryAfterMs?: number } {
   const config = RATE_LIMITS[type]
   const now = Date.now()
+  const dryRun = options?.dryRun ?? false
 
   if (!stores.has(type)) {
+    if (dryRun) return { allowed: true, remaining: config.maxRequests, resetAt: now + config.windowMs }
     stores.set(type, new Map())
   }
   const store = stores.get(type)!
 
   const entry = store.get(key)
 
-  // No entry or expired window — create new
+  // No entry or expired window
   if (!entry || now > entry.resetAt) {
     const resetAt = now + config.windowMs
+    if (dryRun) return { allowed: true, remaining: config.maxRequests, resetAt }
     store.set(key, { count: 1, resetAt })
     return { allowed: true, remaining: config.maxRequests - 1, resetAt }
   }
@@ -142,6 +207,10 @@ export function checkRateLimit(
   if (entry.count >= config.maxRequests) {
     const retryAfterMs = entry.resetAt - now
     return { allowed: false, remaining: 0, resetAt: entry.resetAt, retryAfterMs }
+  }
+
+  if (dryRun) {
+    return { allowed: true, remaining: config.maxRequests - entry.count - 1, resetAt: entry.resetAt }
   }
 
   entry.count++

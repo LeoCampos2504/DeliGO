@@ -899,7 +899,7 @@ function RepeatLastOrderCard({
 // ============================================
 function OrdersHeader() {
   return (
-    <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-12 pb-8 overflow-hidden">
+    <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-8 overflow-hidden">
       {/* Decorative elements */}
       <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/2" />
       <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/2" />
@@ -1575,7 +1575,7 @@ function SectionCard({
 function OrdersSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
-      <div className="bg-primary/20 px-4 pt-12 pb-8">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+3rem)] pb-8">
         <div className="flex flex-col items-center">
           <div className="h-10 w-10 rounded-full bg-white/10 mb-2" />
           <div className="mt-1 h-5 w-32 rounded bg-white/10" />

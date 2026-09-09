@@ -735,6 +735,19 @@ export interface PedidoRouteTestHooks {
   beforeNegocioFetch?: () => Promise<void>
   beforeFinalSalonRevalidation?: () => Promise<void>
   authorizeStaffForNegocio?: typeof isAuthenticatedStaffForNegocio
+  // P2-T25-R2B: punto de pausa SOLO para el test determinista de la ventana
+  // de carrera entre actores distintos con la misma Idempotency-Key nueva
+  // (ver src/app/api/pedidos/order-rate-limit-buckets.integration.test.ts).
+  // Se dispara justo antes del precheck no transaccional de idempotencia,
+  // el mismo punto donde vive la ventana de carrera.
+  beforeIdempotencyPrecheck?: () => Promise<void>
+  // P2-T25-R2C: punto de pausa SOLO para el test determinista del bug de
+  // ownership del order lock — se dispara justo DESPUÉS de adquirir
+  // `orderLockKey` con éxito, mientras esta request todavía lo sostiene,
+  // para poder lanzar requests concurrentes (mismo actor) contra la misma
+  // key y comprobar que ninguna puede entrar a la sección crítica ni
+  // liberar el lock ajeno mientras el dueño sigue activo.
+  afterOrderLockAcquired?: () => Promise<void>
 }
 
 export async function POST(request: NextRequest) {
@@ -750,13 +763,39 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
   const ip = getClientIp(request)
   const rlKey = request.cookies.get(SESSION_COOKIE_NAME)?.value || ip
   const orderLockKey = `order:${rlKey}`
+  // P2-T25-R2C (revisión humana de R2B): `releaseLock` no verifica ownership
+  // (ver src/lib/concurrency.ts — es un `Map.delete(key)` liso). Antes de
+  // este fix, cuando `acquireLock(orderLockKey)` fallaba (lock ya sostenido
+  // por OTRA request concurrente con la misma sesión/IP) y esta request
+  // retornaba 409, el `finally` de abajo igual ejecutaba
+  // `releaseLock(orderLockKey)` incondicionalmente — liberando el lock AJENO
+  // que la otra request todavía necesitaba, en vez de no hacer nada.
+  // Confirmado empíricamente (ver
+  // codex-reports/P2_T25_R2C_ORDER_LOCK_OWNERSHIP_RELEASE_RACE.md) que esto
+  // permitía a una tercera request entrar a la sección crítica mientras la
+  // primera seguía en curso. `orderLockAcquired` sólo pasa a `true`
+  // DESPUÉS de un `acquireLock` exitoso — nunca antes — para que el
+  // `finally` sepa con certeza si ESTA request es la dueña del lock antes de
+  // liberarlo. Mismo patrón ya usado abajo para `idempotencyLockKey`.
+  let orderLockAcquired = false
+  // P2-T25-R2B: lock adicional, scoped a (negocioId, idempotencyKey) — sólo
+  // se le asigna un valor (más abajo) DESPUÉS de adquirirlo con éxito, nunca
+  // antes, para que el `finally` de abajo jamás libere un lock que esta
+  // request no llegó a sostener.
+  let idempotencyLockKey: string | null = null
 
   try {
-    // Rate limit orders
-    const rl = checkRateLimit("order", rlKey)
-    if (!rl.allowed) {
-      return rateLimitResponse(rl, "Estás haciendo muchos pedidos. Esperá un momento.")
-    }
+    // P2-T25-R2: the old single rate limit here (session-token-or-IP,
+    // 5/5min) was replaced by three independent buckets — see the
+    // account/IP/business check further below, once clienteId and negocioId
+    // are both known and validated. Removing it from this early position
+    // (rather than leaving it as a redundant fourth check) avoids two
+    // different, overlapping rate-limit decisions for the same request; the
+    // concurrency lock below still runs this early on purpose — it protects
+    // against a same-tab double-submit race, an orthogonal concern to
+    // request volume, and R1 found no evidence that its per-session key
+    // reopens the (now closed) account-volume bypass — see
+    // codex-reports/P2_T25_R2_ORDER_ABUSE_HARDENING.md section 12.
 
     // Concurrency protection: prevent double orders from the same user/session
     if (!acquireLock(orderLockKey)) {
@@ -765,6 +804,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         { status: 409 }
       )
     }
+    orderLockAcquired = true
+    await testHooks?.afterOrderLockAcquired?.()
 
     // Idempotency-Key: validación barata de formato antes de cualquier trabajo
     // pesado. `null` = no vino (modo legacy, sin cambios de comportamiento).
@@ -1105,6 +1146,137 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         { status: 401 }
       )
     }
+
+    // ============================================
+    // P2-T25-R2: independent account/IP/business rate-limit buckets
+    // ============================================
+    // Placed here — not at the top of the function — because this is the
+    // earliest point where negocioId is both known AND validated (aprobado,
+    // not suspended, ver arriba) and clienteId is fully resolved (or
+    // legitimately null for a mesa guest, ver el chequeo de auth justo
+    // arriba). Nada de esto quema ningún bucket para un payload inválido,
+    // un negocio inexistente, o un actor sin autenticación cuando la exige
+    // (todos esos casos ya retornaron antes de llegar acá). Ningún efecto
+    // secundario (Pedido, stock, PedidoEvento, push) ocurre todavía.
+    //
+    // Los tres buckets son independientes por diseño — ninguno reemplaza a
+    // los otros:
+    //  - orderAccount (clienteId): sobrevive un logout/login o una sesión
+    //    nueva, porque la clave es la CUENTA, nunca el token de sesión
+    //    (cierra el bypass que R1 confirmó empíricamente). No aplica a un
+    //    pedido de mesa sin cuenta (clienteId null) — ver GUEST_MESA abajo.
+    //  - orderIp: aplica siempre, autenticado o no — cierra el bypass de
+    //    "otra cuenta desde la misma IP" que R1 también confirmó.
+    //  - orderBusiness (negocioId): agregado entre TODOS los actores —
+    //    cierra el ataque distribuido contra un comercio específico.
+    //
+    // checkRateLimit() incrementa el contador en la misma llamada que
+    // inspecciona (RATE_LIMIT_CHECK_MUTATES_COUNTER=SI) — por eso primero se
+    // hace un `dryRun` de los tres (sin mutar nada) y sólo si LOS aplicables
+    // permitirían el request se confirman de verdad (`dryRun` ausente). Sin
+    // esto, un request rechazado por el último bucket revisado habría
+    // consumido igual una unidad real de los buckets anteriores para nada.
+    //
+    // P2-T25-R2A (revisión humana de R2): un replay idempotente EXACTO
+    // (mismo negocioId+Idempotency-Key) nunca crea un Pedido nuevo — la
+    // resolución de más abajo, sin cambios, devuelve el pedido existente
+    // (200) o rechaza un conflicto de actor/contenido (409,
+    // PedidoIdempotencyConflictError). Ninguna de las dos rutas genera
+    // trabajo operativo nuevo para el negocio. `orderBusiness` existe
+    // específicamente para acotar el volumen de pedidos NUEVOS contra un
+    // comercio — confirmado empíricamente (ver
+    // codex-reports/P2_T25_R2A_IDEMPOTENCY_SHARED_BUCKET_SEMANTICS_FIX.md)
+    // que sin este chequeo, replayear una única orden real ya aceptada
+    // agota igual el bucket compartido y bloquea pedidos NUEVOS legítimos de
+    // terceros — sin que el atacante haya creado un solo pedido adicional.
+    // `orderAccount`/`orderIp` SÍ se siguen consumiendo en cada intento,
+    // replay o no: existen para acotar el VOLUMEN DE REQUESTS crudo contra
+    // el endpoint (parseo de JSON, re-validación de producto/precio, una
+    // lectura a DB — trabajo real aunque no cree un pedido), así que un
+    // flood de replays sigue topando con esos dos tarde o temprano.
+    //
+    // Esta es una lectura simple, no transaccional, de mejor esfuerzo — NUNCA
+    // decide el resultado HTTP real (eso lo sigue haciendo, sin cambios, la
+    // resolución de idempotencia dentro de la transacción más abajo, con su
+    // propio unique constraint + isSafeIdempotentPedido) ni reemplaza esa
+    // lógica. En la ventana angosta donde dos requests casi simultáneos con
+    // la MISMA key nueva llegan antes de que cualquiera de los dos haga
+    // commit, ambos verían "no existe todavía" acá y pasarían por los 3
+    // buckets como hoy — cuesta como máximo una unidad extra de
+    // orderBusiness en esa ventana transitoria, nunca un Pedido duplicado
+    // (la transacción, sin tocar, sigue siendo la única autoridad atómica).
+    //
+    // P2-T25-R2B (revisión humana de R2A): esa última frase — "como máximo
+    // una unidad extra" — resultó ser una extrapolación no probada. Se
+    // confirmó empíricamente (ver
+    // codex-reports/P2_T25_R2B_CONCURRENT_IDEMPOTENCY_BUSINESS_BUCKET_RACE.md)
+    // que la ventana de arriba NO está acotada a 2 actores: nada en el
+    // código serializa a actores DISTINTOS que comparten la misma
+    // Idempotency-Key nueva — cada uno corre bajo su propio `orderLockKey`
+    // (session-o-IP, ver arriba), que es una clave DIFERENTE por actor, así
+    // que ese lock nunca los serializa entre sí. Con N actores concurrentes
+    // (cuentas/IPs distintas) el precheck de abajo puede devolver "no
+    // existe" para los N antes de que cualquiera haga commit, consumiendo N
+    // unidades reales de `orderBusiness` — escala con N, no con un tope
+    // arquitectónico independiente de N — mientras la DB (unique
+    // constraint + transacción, sin cambios) sigue garantizando 1 solo
+    // Pedido creado.
+    //
+    // Fix: un lock adicional, scoped exactamente igual que la autoridad real
+    // de idempotencia — (negocioId, idempotencyKey) — usando el mismo
+    // primitivo en memoria `acquireLock`/`releaseLock` ya usado arriba (sin
+    // infraestructura nueva). Sólo el primer actor en llegar por cada
+    // (negocioId, idempotencyKey) puede evaluar el precheck y decidir el
+    // bucket de negocio; cualquier otro actor que llegue mientras ese lock
+    // sigue tomado recibe 409 de inmediato, sin haber tocado
+    // `orderBusiness` ni la DB. El lock se libera en el `finally` de abajo
+    // en cuanto la resolución (creación o idempotencia, éxito o error)
+    // termina — un reintento normal del cliente, fuera de esta ventana de
+    // milisegundos, nunca lo nota. No aplica cuando no vino Idempotency-Key
+    // (`idempotencyKey` null): sin key no hay precheck ni bucket compartido
+    // que proteger, cada request crea legítimamente un Pedido nuevo propio.
+    if (idempotencyKey) {
+      const candidateIdempotencyLockKey = `order-idempotency:${negocioId}:${idempotencyKey}`
+      if (!acquireLock(candidateIdempotencyLockKey)) {
+        return NextResponse.json(
+          {
+            error:
+              "Ya hay un pedido con esta clave de idempotencia en proceso. Esperá un momento e intentá de nuevo.",
+          },
+          { status: 409 }
+        )
+      }
+      // Sólo se asigna DESPUÉS de adquirirlo con éxito — ver comentario en
+      // la declaración de arriba sobre por qué eso importa para el `finally`.
+      idempotencyLockKey = candidateIdempotencyLockKey
+    }
+
+    await testHooks?.beforeIdempotencyPrecheck?.()
+
+    const existingIdempotentPedido = idempotencyKey
+      ? await db.pedido.findFirst({ where: { negocioId, idempotencyKey }, select: { id: true } })
+      : null
+    const isExactReplayAttempt = existingIdempotentPedido !== null
+
+    const orderIpKey = ip
+    const orderBusinessKey = negocioId
+    const orderAccountPeek = clienteId ? checkRateLimit("orderAccount", clienteId, { dryRun: true }) : null
+    const orderIpPeek = checkRateLimit("orderIp", orderIpKey, { dryRun: true })
+    const orderBusinessPeek = isExactReplayAttempt
+      ? null
+      : checkRateLimit("orderBusiness", orderBusinessKey, { dryRun: true })
+
+    const firstBlockedPeek = [orderAccountPeek, orderIpPeek, orderBusinessPeek].find(
+      (peek): peek is NonNullable<typeof peek> => peek !== null && !peek.allowed
+    )
+    if (firstBlockedPeek) {
+      return rateLimitResponse(firstBlockedPeek, "Estás haciendo muchos pedidos. Esperá un momento.")
+    }
+
+    // All applicable buckets would allow — now actually consume one unit of each.
+    if (clienteId) checkRateLimit("orderAccount", clienteId)
+    checkRateLimit("orderIp", orderIpKey)
+    if (!isExactReplayAttempt) checkRateLimit("orderBusiness", orderBusinessKey)
 
     // Resolve mesa from numero if mesa order
     let mesaId: string | null = pedidoInput.mesaId
@@ -1851,8 +2023,14 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       { status: 500 }
     )
   } finally {
-    // Always release the lock, even on error
-    releaseLock(orderLockKey)
+    // P2-T25-R2C: sólo se libera si ESTA request adquirió el lock con éxito
+    // (ver comentario en la declaración de `orderLockAcquired` más arriba) —
+    // antes de este fix se liberaba incondicionalmente, pudiendo cortar el
+    // lock de otra request activa.
+    if (orderLockAcquired) releaseLock(orderLockKey)
+    // P2-T25-R2B: mismo criterio — sólo se libera si esta request lo llegó a
+    // adquirir con éxito.
+    if (idempotencyLockKey) releaseLock(idempotencyLockKey)
   }
 }
 

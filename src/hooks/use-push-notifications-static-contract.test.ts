@@ -67,10 +67,11 @@ describe("F-P2-T05-13 — PERSONAL_PUSH_UI_STATUS_SOURCE=SERVER_ACTOR_ENDPOINT_B
     expect(checkSubscriptionBody).toContain("fetch(statusUrl")
     expect(checkSubscriptionBody).toContain('"/api/push/status"')
     expect(checkSubscriptionBody).toContain('method: "POST"')
-    // P2-T05 Hardening H3B (F-P2-T05-23): `applyIsSubscribed` ahora apunta al
-    // wrapper `applySubscribed` (mantiene también el ref siempre-fresco),
-    // nunca directo a `setIsSubscribed` — ver F-P2-T05-23 describe abajo.
-    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applySubscribed")
+    // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): `applyIsSubscribed`
+    // points to the `applyStatusResult` wrapper — applies the value via the
+    // same always-fresh `applySubscribed` AND marks `statusResolved=true` —
+    // never directly to `setIsSubscribed`/`applySubscribed` bare.
+    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applyStatusResult")
   })
 
   test("CHECK_SUBSCRIPTION_AUTO_REGISTERS=NO: neither checkSubscription's wiring nor the status orchestration ever calls /api/push/subscribe", () => {
@@ -233,12 +234,25 @@ describe("F-P2-T05-15 — stale operations cannot own loading/toast (auxiliary s
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Necesitás permitir las notificaciones")
     toastCallSitesAreGated(subscribeBody, "toast.error(\"Las notificaciones push no están configuradas")
     toastCallSitesAreGated(subscribeBody, "toast.success(\"Notificaciones activadas")
-    toastCallSitesAreGated(subscribeBody, "toast.error(\"Error al activar notificaciones")
+    // P2-T31-R13: the failure-path toast no longer lives inline inside
+    // subscribe()/unsubscribe() (it moved into the shared, directly-testable
+    // `reportMutationFailureSafely` helper — see its own describe below, and
+    // P2_T31_R13_ANDROID_PUSHMANAGER_ABORTERROR_AND_STALE_UI_ROOT_CAUSE.md for
+    // why an unguarded console.error/toast.error could silently break the
+    // mutation's unconditional finish contract). The gating condition itself
+    // is still textually present at the call site, passed as data.
+    expect(subscribeBody).toContain(
+      'gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al activar notificaciones") : null'
+    )
   })
 
   test("unsubscribe(): every toast.error/toast.success call site is gated by isCurrent(opId)", () => {
     toastCallSitesAreGated(unsubscribeBody, "toast.success(\"Notificaciones desactivadas")
-    toastCallSitesAreGated(unsubscribeBody, "toast.error(\"Error al desactivar notificaciones")
+    // P2-T31-R13: see the subscribe() test above for why this moved out of
+    // an inline gated toast.error call.
+    expect(unsubscribeBody).toContain(
+      'gateRef.current.isCurrent(opId) ? pushMutationFailureMessage(error, "Error al desactivar notificaciones") : null'
+    )
   })
 
   test("CURRENT_SUCCESS_CLEARS_LOADING / CURRENT_FAILURE_CLEARS_LOADING: setLoading(false) only runs when isCurrent(opId), both in finishMutation and the finally net", () => {
@@ -292,21 +306,382 @@ describe("F-P2-T18-AUTH02 — use-push-notifications actorFamily selector propag
 
   test("all three call sites (status, subscribe, unsubscribe) build their URL from actorType with the same ternary shape", () => {
     expect(src).toContain('const statusUrl = actorType ? `/api/push/status?actorFamily=${actorType}` : "/api/push/status"')
-    expect(src).toContain('const subscribeUrl = actorType ? `/api/push/subscribe?actorFamily=${actorType}` : "/api/push/subscribe"')
+    // P2-T31-R19R (ABORTERROR-RETRY-STALE-ACTOR-BACKEND-GUARD): the subscribe
+    // URL construction moved from inline in subscribe() into the extracted,
+    // directly-testable `bindPhysicalPushSubscriptionToBackend` — the ternary
+    // shape and its source (the SAME `actorType` the caller passes through
+    // its `deps.actorType`) are unchanged, only the enclosing function is
+    // different, so this checks the new (real, executed) location.
+    expect(src).toContain('const subscribeUrl = deps.actorType ? `/api/push/subscribe?actorFamily=${deps.actorType}` : "/api/push/subscribe"')
     expect(src).toContain('const unsubscribeUrl = actorType ? `/api/push/unsubscribe?actorFamily=${actorType}` : "/api/push/unsubscribe"')
-    // P2-T18-BLOCKER-AUTH2-R13-R3-R1 (M9 gap closure): the three checks above
-    // only proved each URL variable is DECLARED — mirroring the consumption
-    // checks that already exist for unsubscribeUrl ("fetch(unsubscribeUrl",
+    // P2-T18-BLOCKER-AUTH2-R13-R3-R1 (M9 gap closure): the checks above only
+    // prove each URL variable is DECLARED — mirroring the consumption checks
+    // that already exist for unsubscribeUrl ("fetch(unsubscribeUrl",
     // F-P2-T05-02 describe above) and statusUrl ("fetch(statusUrl",
-    // F-P2-T05-13 describe above), this proves subscribe()'s fetch actually
-    // CONSUMES subscribeUrl rather than a bare literal (R13-R3 mutant M9
-    // survived because this was missing).
+    // F-P2-T05-13 describe above), this proves the computed `subscribeUrl` is
+    // actually CONSUMED end-to-end rather than a bare literal at either link
+    // of the chain (R13-R3 mutant M9 survived because this was missing):
+    // `bindPhysicalPushSubscriptionToBackend` passes the computed value into
+    // its injected `postSubscribe`, and subscribe()'s real `postSubscribe`
+    // implementation feeds that exact parameter straight into `fetch(...)`.
+    expect(src).toContain("deps.postSubscribe(subscribeUrl")
     expect(src).toContain("fetch(subscribeUrl")
   })
 
+  test("subscribe() passes its own actorType through to bindPhysicalPushSubscriptionToBackend — never a disconnected/stale selector", () => {
+    const callIdx = src.indexOf("await bindPhysicalPushSubscriptionToBackend({")
+    expect(callIdx).toBeGreaterThan(-1)
+    const callBody = src.slice(callIdx, src.indexOf("})", callIdx))
+    expect(callBody).toContain("actorType,")
+    expect(callBody).toContain("gate: gateRef.current,")
+  })
+
   test("subscribe() and unsubscribe() depend on actorType in their useCallback deps array — a fresh actor never reuses a stale selector", () => {
-    expect(src).toContain("}, [isSupported, loading, finishMutation, actorType])")
-    const depsOccurrences = [...src.matchAll(/\}, \[isSupported, loading, finishMutation, actorType\]\)/g)]
+    // P2-T31-R2: `actorKey` was added to both deps arrays alongside
+    // `actorType` — subscribe()/unsubscribe() now also reference `actorKey`
+    // directly (to register with the in-flight-mutation registry, see
+    // push-mutation-in-flight-registry.ts), so a stale `actorKey` closure
+    // would register under the WRONG actor's key just as surely as a stale
+    // `actorType` would build the wrong URL.
+    expect(src).toContain("}, [isSupported, loading, finishMutation, actorType, actorKey])")
+    const depsOccurrences = [...src.matchAll(/\}, \[isSupported, loading, finishMutation, actorType, actorKey\]\)/g)]
     expect(depsOccurrences.length).toBe(2)
+  })
+})
+
+// P2-T31-R2 (FIRST-SUBSCRIBE-REMOUNT-STATE): a fresh mount's status check
+// must not draw a conclusion from `getCurrentSubscription()` while a
+// subscribe()/unsubscribe() from a PREVIOUS (already-unmounted) instance is
+// still completing — see push-mutation-in-flight-registry.ts and the
+// DIRECT_BEHAVIORAL races in push-personal-status-check.test.ts (RACE E) for
+// the actual repro. This describe only certifies the WIRING: that
+// subscribe()/unsubscribe() register themselves and checkSubscription()
+// consults the registry, using the real production module (never a
+// hand-rolled substitute).
+describe("P2-T31-R2 — first-subscribe/remount in-flight-mutation wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+  const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+
+  test("both mutations import from the real production registry module, never a local reimplementation", () => {
+    expect(src).toContain('from "./push-mutation-in-flight-registry"')
+    expect(src).toContain("registerInFlightPersonalPushMutation")
+    expect(src).toContain("waitForInFlightPersonalPushMutation")
+  })
+
+  test("subscribe()/unsubscribe() register their real mutation promise (the one they return), not a decoy", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      expect(body).toContain("const mutationPromise = run()")
+      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
+      expect(body).toContain("return mutationPromise")
+    }
+  })
+
+  test("registration happens BEFORE the mutation is returned to the caller — a status check started right after calling subscribe()/unsubscribe() can already see it", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      const registerIdx = body.indexOf("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
+      const returnIdx = body.indexOf("return mutationPromise")
+      expect(registerIdx).toBeGreaterThan(-1)
+      expect(returnIdx).toBeGreaterThan(registerIdx)
+    }
+  })
+
+  test("checkSubscription() wires waitForInFlightMutation to the SAME actorKey used by Race C, calling into the real registry function", () => {
+    expect(checkSubscriptionBody).toContain(
+      "waitForInFlightMutation: () => waitForInFlightPersonalPushMutation(actorKey, recordPushDebugEvent)"
+    )
+  })
+
+  // P2-T31-R12 (ANDROID-FIRST-SUBSCRIBE-PHYSICAL-CREATION-FAILURE-DIAGNOSTIC):
+  // register/wait now forward opId/trace so a physical capture can show
+  // whether a mutation was ever actually registered for the key being
+  // waited on, rather than that being unobservable.
+  test("register/wait calls forward opId and the real tracer — not silently dropped", () => {
+    for (const body of [subscribeBody, unsubscribeBody]) {
+      expect(body).toContain("registerInFlightPersonalPushMutation(actorKey, mutationPromise, opId, recordPushDebugEvent)")
+    }
+    expect(checkSubscriptionBody).toContain("recordPushDebugEvent")
+  })
+})
+
+// P2-T31-R3 (ANDROID-WEB-PUSH-DELIVERY-CROSS-ENV-AUDIT): reproduced live
+// against TESTING that a stale physical PushSubscription (bound to an old
+// VAPID public key — Apple: `VapidPkHashMismatch`, statusCode 400) was being
+// silently reused forever by subscribe()'s `existingSubscription ?? ...`
+// pattern, with no check against the CURRENT server VAPID key — see
+// push-subscription-key.ts::applicationServerKeyMatches and the P2_T31_R3
+// report for the full evidence chain.
+describe("P2-T31-R3 — subscribe() validates an existing physical subscription's VAPID key before reusing it", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+
+  test("imports the real conversion/comparison helpers from push-subscription-key.ts, never a local reimplementation", () => {
+    expect(src).toContain('from "@/lib/push-subscription-key"')
+    expect(src).toContain("applicationServerKeyMatches")
+    expect(src).toContain("urlBase64ToUint8Array")
+  })
+
+  test("the VAPID key is converted via urlBase64ToUint8Array before being used, both for comparison AND for a fresh subscribe()", () => {
+    expect(subscribeBody).toContain("const applicationServerKey = urlBase64ToUint8Array(vapidKey)")
+  })
+
+  test("an existing physical subscription's key is compared against the current key before deciding whether to reuse it", () => {
+    expect(subscribeBody).toContain("applicationServerKeyMatches(")
+    expect(subscribeBody).toContain("existingSubscription?.options.applicationServerKey ?? null")
+  })
+
+  test("a stale (mismatched) existing subscription goes through confirmed removal (P2-T31-R5A) before a fresh one is created — never silently reused", () => {
+    // Stripped of comments, so a mention inside an explanatory comment
+    // cannot make this pass for the wrong reason.
+    const codeOnly = subscribeBody
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    const removalCallIdx = codeOnly.indexOf("await unsubscribeStalePushSubscription(existingSubscription")
+    const guardIdx = codeOnly.lastIndexOf(
+      "if (existingSubscription && !existingKeyIsCurrent)",
+      removalCallIdx === -1 ? undefined : removalCallIdx
+    )
+    expect(removalCallIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeLessThan(removalCallIdx)
+  })
+
+  test("P2-T31-R5A: an unconfirmed removal aborts (throws) instead of proceeding to create a subscription on top of a possibly-still-live one", () => {
+    const codeOnly = subscribeBody
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n")
+    const removalCallIdx = codeOnly.indexOf("await unsubscribeStalePushSubscription(existingSubscription")
+    const throwIdx = codeOnly.indexOf("throw new Error(", removalCallIdx)
+    expect(removalCallIdx).toBeGreaterThan(-1)
+    expect(throwIdx).toBeGreaterThan(removalCallIdx)
+  })
+
+  test("the reuse decision requires BOTH an existing subscription AND a matching key — a matched-but-absent subscription can never be reused", () => {
+    expect(subscribeBody).toContain("existingSubscription && existingKeyIsCurrent")
+  })
+})
+
+describe("P2-T31-R5A — subscribe() confirms stale-subscription removal via the real shared helper, never a local reimplementation", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("imports unsubscribeStalePushSubscription from push-subscription-key.ts alongside the R3 helpers", () => {
+    expect(src).toContain("unsubscribeStalePushSubscription")
+    expect(src).toContain('from "@/lib/push-subscription-key"')
+  })
+})
+
+// P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): this hook is instrumented
+// with `recordPushDebugEvent` calls at every real lifecycle point, but §21 of
+// the task explicitly forbids any functional change — no delay, no retry, no
+// new gate/actor-resolution behavior. These tests certify the wiring exists
+// AND that every describe block above (unmodified) still proves the exact
+// same subscribe/unsubscribe/status/gate/actor/loading contracts as before
+// R6A — i.e. tracing was added, nothing else changed.
+describe("P2-T31-R6A — diagnostic tracer wiring is purely additive", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+  const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+
+  test("imports the real tracer module, never a local reimplementation", () => {
+    expect(src).toContain('from "@/lib/push-debug-trace"')
+    expect(src).toContain("recordPushDebugEvent")
+    expect(src).toContain("setPushDebugTraceContext")
+  })
+
+  test("checkSubscription passes the real recordPushDebugEvent as `trace` into checkPersonalPushStatus", () => {
+    expect(checkSubscriptionBody).toContain("trace: recordPushDebugEvent")
+  })
+
+  test("subscribe()/unsubscribe() emit START and FINISH events bracketing the real mutation", () => {
+    expect(subscribeBody).toContain('recordPushDebugEvent("SUBSCRIBE_START"')
+    expect(subscribeBody).toContain('recordPushDebugEvent("SUBSCRIBE_FINISH"')
+    expect(unsubscribeBody).toContain('recordPushDebugEvent("UNSUBSCRIBE_START"')
+    expect(unsubscribeBody).toContain('recordPushDebugEvent("UNSUBSCRIBE_FINISH"')
+  })
+
+  test("subscribe() never traces the raw endpoint — only fingerprintPushEndpoint(...)", () => {
+    expect(subscribeBody).toContain("fingerprintPushEndpoint(")
+    expect(subscribeBody).not.toMatch(/recordPushDebugEvent\([^)]*endpoint:\s*(existingSubscription|subscription)\.endpoint/)
+  })
+
+  test("a new authHasHydrated selector exists and is read-only — never appears inside an `if` that gates subscribe/unsubscribe/status decisions", () => {
+    expect(src).toContain("const authHasHydrated = useAuthStore((s) => s._hasHydrated)")
+    // The only conditional uses of authHasHydrated must be the observational
+    // AUTH_HYDRATED effect — never a guard around checkSubscription/
+    // subscribe/unsubscribe/finishMutation.
+    const hydratedGuards = [...src.matchAll(/if\s*\([^)]*authHasHydrated[^)]*\)/g)].map((m) => m[0])
+    for (const guard of hydratedGuards) {
+      expect(guard).toContain("wasHydratedRef.current")
+    }
+  })
+
+  test("AUTH_HYDRATED fires from its own dedicated effect, never inside the mount or actorKey effects (kept structurally separate so it cannot change their timing)", () => {
+    const mountEffectStart = src.indexOf("const supported =")
+    const mountEffect = src.slice(mountEffectStart, src.indexOf("}, [])", mountEffectStart) + "}, [])".length)
+    expect(mountEffect).not.toContain("AUTH_HYDRATED")
+
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).not.toContain("AUTH_HYDRATED")
+
+    expect(src).toContain('recordPushDebugEvent("AUTH_HYDRATED"')
+  })
+
+  test("HOOK_IS_SUBSCRIBED_CHANGED is gated on an actual value change, never fired unconditionally", () => {
+    const applyIdx = src.indexOf("const applySubscribed = useCallback")
+    const applyEnd = src.indexOf("}, [])", applyIdx) + "}, [])".length
+    const applyBody = src.slice(applyIdx, applyEnd)
+    expect(applyBody).toContain("if (isSubscribedRef.current !== value)")
+    expect(applyBody).toContain('recordPushDebugEvent("HOOK_IS_SUBSCRIBED_CHANGED"')
+  })
+
+  test("PUSH_HOOK_MOUNT/UNMOUNT wrap the existing mount effect body without altering its return/cleanup contract", () => {
+    const mountEffectStart = src.indexOf("const supported =")
+    const mountEffect = src.slice(src.lastIndexOf("useEffect(() => {", mountEffectStart), src.indexOf("}, [])", mountEffectStart) + "}, [])".length)
+    expect(mountEffect).toContain('recordPushDebugEvent("PUSH_HOOK_MOUNT")')
+    expect(mountEffect).toContain('recordPushDebugEvent("PUSH_HOOK_UNMOUNT")')
+    expect(mountEffect).toContain("return () => {")
+    expect(mountEffect).toContain("gateRef.current.invalidate()")
+  })
+})
+
+// P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): F-P2-T31-INITIAL-STATE-
+// FLICKER-01 — Leonardo's physical C4 cold-launch traces on iPhone showed the
+// switch render OFF then flip to ON ~300-430ms later, because `isSubscribed`'s
+// initial `false` was indistinguishable from an authoritative "not
+// subscribed". `statusResolved` disambiguates the two — see
+// use-push-notifications-status-resolved.test.ts for the DIRECT BEHAVIORAL
+// coverage (races, remount, actor change); these are the structural/wiring
+// checks only.
+describe("P2-T31-R7 — statusResolved wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("statusResolved is exported from the hook's return type and value, defaulting to false", () => {
+    expect(src).toContain("statusResolved: boolean")
+    expect(src).toContain("const [statusResolved, setStatusResolved] = useState(false)")
+    expect(src).toMatch(/return\s*\{[^}]*statusResolved[^}]*\}/)
+  })
+
+  test("applyStatusResult is the ONLY function that can set statusResolved(true) from the status-check path, and always applies via the real applySubscribed first", () => {
+    const wrapperStart = src.indexOf("const applyStatusResult = useCallback(")
+    const wrapperEnd = src.indexOf("const checkSubscription = async")
+    const wrapperBody = src.slice(wrapperStart, wrapperEnd)
+    expect(wrapperBody).toContain("applySubscribed(value)")
+    expect(wrapperBody).toContain("setStatusResolved(true)")
+    // applySubscribed must run BEFORE marking resolved, never after.
+    expect(wrapperBody.indexOf("applySubscribed(value)")).toBeLessThan(wrapperBody.indexOf("setStatusResolved(true)"))
+  })
+
+  test("checkSubscription wires applyStatusResult (never the bare applySubscribed) into checkPersonalPushStatus", () => {
+    const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+    expect(checkSubscriptionBody).toContain("applyIsSubscribed: applyStatusResult")
+    expect(checkSubscriptionBody).not.toContain("applyIsSubscribed: applySubscribed")
+  })
+
+  test("finishMutation also marks statusResolved(true) when the mutation is current — a completed subscribe()/unsubscribe() resolves state at least as authoritatively as the initial check", () => {
+    const finishIdx = src.indexOf("const finishMutation = useCallback(")
+    const finishBody = src.slice(finishIdx, src.indexOf("const subscribe = useCallback"))
+    expect(finishBody).toContain("setStatusResolved(true)")
+  })
+
+  test("the actor-change effect resets statusResolved(false) — a new actor has no authoritative result yet", () => {
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).toContain("setStatusResolved(false)")
+  })
+
+  test("statusResolved is never reset to false anywhere except the actor-change effect (never inside subscribe/unsubscribe/finishMutation)", () => {
+    const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+    const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+    expect(subscribeBody).not.toContain("setStatusResolved(false)")
+    expect(unsubscribeBody).not.toContain("setStatusResolved(false)")
+    const allFalseResets = [...src.matchAll(/setStatusResolved\(false\)/g)]
+    expect(allFalseResets.length).toBe(1)
+  })
+})
+
+// P2-T31-R8 (PUSH-RATE-LIMIT-429-STATE-CONSISTENCY-FIX): F-P2-T31-R8-03 —
+// physical evidence showed a real 429 backend rejection mapped to an
+// authoritative `false` pre-R8, which is exactly the bug (429 is not
+// evidence of "not subscribed"). `statusCheckError` is the wiring that lets
+// consumers distinguish "still checking" from "checked, inconclusive" — see
+// push-personal-status-check.test.ts for the direct behavioral coverage of
+// the underlying contract these wiring checks assume.
+describe("P2-T31-R8 — statusCheckError wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+
+  test("statusCheckError is exported from the hook's return type and value, defaulting to false", () => {
+    expect(src).toContain("statusCheckError: boolean")
+    expect(src).toContain("const [statusCheckError, setStatusCheckError] = useState(false)")
+    expect(src).toMatch(/return\s*\{[^}]*statusCheckError[^}]*\}/)
+  })
+
+  test("checkSubscription wires handleStatusUnresolved as applyStatusUnresolved into checkPersonalPushStatus", () => {
+    const checkSubscriptionBody = src.slice(src.indexOf("const checkSubscription ="), src.indexOf("const getVapidKey ="))
+    expect(checkSubscriptionBody).toContain("applyStatusUnresolved: handleStatusUnresolved")
+  })
+
+  test("handleStatusUnresolved only ever sets statusCheckError(true) — never touches isSubscribed/statusResolved/loading", () => {
+    const handlerStart = src.indexOf("const handleStatusUnresolved = useCallback(")
+    const handlerEnd = src.indexOf("const checkSubscription = async")
+    const handlerBody = src.slice(handlerStart, handlerEnd)
+    expect(handlerBody).toContain("setStatusCheckError(true)")
+    expect(handlerBody).not.toContain("applySubscribed")
+    expect(handlerBody).not.toContain("setStatusResolved")
+    expect(handlerBody).not.toContain("setLoading")
+  })
+
+  test("applyStatusResult clears statusCheckError(false) whenever a real conclusion lands", () => {
+    const wrapperStart = src.indexOf("const applyStatusResult = useCallback(")
+    const wrapperEnd = src.indexOf("const handleStatusUnresolved = useCallback(")
+    const wrapperBody = src.slice(wrapperStart, wrapperEnd)
+    expect(wrapperBody).toContain("setStatusCheckError(false)")
+  })
+
+  test("the actor-change effect also resets statusCheckError(false) — a stale error from the PREVIOUS actor must not leak into the new one's render", () => {
+    const actorKeyEffectIdx = src.indexOf("[actorKey]")
+    const actorEffectBody = src.slice(src.lastIndexOf("useEffect(() => {", actorKeyEffectIdx), actorKeyEffectIdx)
+    expect(actorEffectBody).toContain("setStatusCheckError(false)")
+  })
+
+  test("statusCheckError is never set true anywhere except handleStatusUnresolved", () => {
+    const allTrueSets = [...src.matchAll(/setStatusCheckError\(true\)/g)]
+    expect(allTrueSets.length).toBe(1)
+  })
+})
+
+// P2-T31-R8: F-P2-T31-R8-04 — clearer, honest feedback on a 429 mutation
+// rejection instead of the same generic message every other failure gets.
+// See use-push-notifications-mutation-failure-message.test.ts for the
+// direct behavioral coverage of pushMutationFailureMessage itself.
+describe("P2-T31-R8 — mutation failure message wiring", () => {
+  const src = read("src/hooks/use-push-notifications.ts")
+  const subscribeBody = src.slice(src.indexOf("const subscribe = useCallback"), src.indexOf("const unsubscribe = useCallback"))
+  const unsubscribeBody = src.slice(src.indexOf("const unsubscribe = useCallback"), src.lastIndexOf("return {"))
+
+  test("both mutations throw PushMutationHttpError (carrying the real backend status), never a bare Error, on a non-ok backend response", () => {
+    // P2-T31-R19R: subscribe()'s backend call moved behind
+    // bindPhysicalPushSubscriptionToBackend (see its own describe below) —
+    // the status still flows from the real HTTP response, now via
+    // `bindResult.status` rather than a bare `res` in scope here.
+    expect(subscribeBody).toContain("throw new PushMutationHttpError(\"Error saving subscription\", bindResult.status ?? 0)")
+    expect(unsubscribeBody).toContain("throw new PushMutationHttpError(\"Error removing subscription\", res.status)")
+  })
+
+  test("both catch blocks route their error toast through pushMutationFailureMessage, never a bare literal string", () => {
+    // P2-T31-R13: the toast.error call itself now lives inside the shared
+    // reportMutationFailureSafely helper (see its own describe below) — the
+    // call site still passes the message through pushMutationFailureMessage.
+    expect(subscribeBody).toContain('pushMutationFailureMessage(error, "Error al activar notificaciones")')
+    expect(unsubscribeBody).toContain('pushMutationFailureMessage(error, "Error al desactivar notificaciones")')
+  })
+
+  test("PushMutationHttpError and pushMutationFailureMessage are exported (real, directly-testable module exports, not local-only helpers)", () => {
+    expect(src).toContain("export class PushMutationHttpError")
+    expect(src).toContain("export function pushMutationFailureMessage")
   })
 })

@@ -14,7 +14,9 @@
 // A diferencia de esos contratos, el scope de 2D-B NO son directorios
 // completos (src/lib/**, src/hooks/**, src/components/** y src/app/**
 // contienen muchos archivos ajenos a este batch) sino una lista explícita
-// de los 13 archivos realmente migrados en 2D-B.
+// de los archivos realmente migrados en 2D-B (originalmente 13; 12 desde
+// P2-T15, que retiró use-shared-push-notifications.ts por código muerto —
+// sin consumidores tras el retiro de los paneles /e/[token] y /s/[token]).
 //
 // El heurístico de "variable de error" se extiende respecto de los
 // contratos anteriores para cubrir los 2 patrones reales encontrados en
@@ -36,7 +38,6 @@ const SCOPE_FILES = [
   join(process.cwd(), "src", "components", "shared", "permission-prompt.tsx"),
   join(process.cwd(), "src", "components", "shared", "section-error-boundary.tsx"),
   join(process.cwd(), "src", "hooks", "use-push-notifications.ts"),
-  join(process.cwd(), "src", "hooks", "use-shared-push-notifications.ts"),
   join(process.cwd(), "src", "lib", "audit.ts"),
   join(process.cwd(), "src", "lib", "cloudinary.ts"),
   join(process.cwd(), "src", "lib", "mesa-pedido-cancelacion.ts"),

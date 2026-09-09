@@ -2,6 +2,21 @@
 // DeliGO - Service Worker
 // ============================================
 
+// DELIGO-BRANDING-R1: se sube la versión porque este deploy reemplaza el
+// contenido de los icon-{rol}-192x192.png/512x512.png servidos bajo el mismo
+// nombre de archivo de siempre. La regla de abajo que pretende servir
+// "manifest files or PWA icons" siempre en red (nunca cacheados) sólo
+// matchea el string "manifest" en la URL — el chequeo `includes("icon-192")`/
+// `includes("icon-512")` NUNCA es true para estos nombres reales
+// (`icon-cliente-192x192.png` no contiene el substring literal "icon-192":
+// después de "icon-" sigue "cliente-192x192", no "192"), así que estos PNG
+// en realidad caen en la rama cache-first de assets estáticos más abajo. Sin
+// subir `CACHE_NAME`, un cliente que ya tenía el ícono viejo en caché lo
+// seguiría sirviendo indefinidamente pese al deploy. Ver
+// `codex-reports/DELIGO_BRANDING_R1_PWA_ROLE_ICON_REFRESH.md` — el bug del
+// substring roto en sí NO se corrige acá (fuera de alcance de este refresh
+// de branding), sólo se fuerza la invalidación real vía el bump de versión.
+//
 // Bugfix-4D: se sube la versión porque este deploy cambia lógica real de
 // push/notificationclick (no solo el cache de assets) — subir el número
 // fuerza que `activate` borre cualquier caché vieja apenas el SW nuevo tome
@@ -9,7 +24,7 @@
 // a `skipWaiting()` y `activate` ya llama a `clients.claim()`, así que el SW
 // nuevo se activa e instala solo con el próximo deploy — no requiere que el
 // usuario borre datos ni reinstale la PWA.
-const CACHE_NAME = "deligo-v14";
+const CACHE_NAME = "deligo-v15";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/cliente/"];
@@ -380,19 +395,47 @@ self.addEventListener("push", (event) => {
     const title = data.title || "DeliGO";
     const notifType = data.data?.type || "general";
 
+    // P2-T31-R22/R22A: causa raíz probada — `order_update`/`review`/`chat`
+    // son notifType REALMENTE compartidos entre Cliente/Negocio/Repartidor
+    // (ej. todo el ciclo de vida del pedido visto por el Cliente usa
+    // `order_update`, el mismo tipo que Negocio recibe para lo suyo), así
+    // que resolver el ícono SÓLO por `notifType` le da a un Cliente el
+    // ícono de Negocio (y viceversa para Negocio+chat) — reproducido y
+    // probado ejecutando este mismo archivo en R22 (ver
+    // P2_T31_R22_ANDROID_PUSH_NOTIFICATION_ICON_ROUTING_ROOT_CAUSE_AUDIT.md).
+    // `data.role` (agregado por `createNotification`::`personalRoleFor` en
+    // push.ts) ya identifica al destinatario REAL, y ya se entrega de forma
+    // confiable — es el mismo campo que `notificationclick` más abajo ya usa
+    // para navegar al rol correcto. Se usa PRIMERO acá; el `notifType` legacy
+    // sigue intacto como fallback exclusivamente para los tipos que no
+    // llevan `role` (salon/mozo/empleado/operaciones, o cualquier payload
+    // viejo ya encolado sin este campo) — nunca se elimina ni se reordena su
+    // propio comportamiento interno.
+    const ROLE_ICON = {
+      cliente: "/icon-cliente-192x192.png",
+      negocio: "/icon-negocio-192x192.png",
+      repartidor: "/icon-repartidor-192x192.png",
+    };
+    const recipientRole = data.data?.role;
+
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
-    let icon = "/icon-cliente-192x192.png";
-    if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
-      icon = "/icon-salon-192x192.png";
-    } else if (notifType === "operaciones_order_cancelled") {
-      icon = data.data?.area === "salon"
-        ? "/icon-salon-192x192.png"
-        : "/icon-empleado-192x192.png";
-    } else if (notifType === "mesa_order_ready") {
-      icon = "/icon-mozo-192x192.png";
-    } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
-      icon = "/icon-negocio-192x192.png";
+    let icon;
+    if (recipientRole && ROLE_ICON[recipientRole]) {
+      icon = ROLE_ICON[recipientRole];
+    } else {
+      icon = "/icon-cliente-192x192.png";
+      if (notifType === "salon_new_order" || notifType === "operaciones_salon_new_order") {
+        icon = "/icon-salon-192x192.png";
+      } else if (notifType === "operaciones_order_cancelled") {
+        icon = data.data?.area === "salon"
+          ? "/icon-salon-192x192.png"
+          : "/icon-empleado-192x192.png";
+      } else if (notifType === "mesa_order_ready") {
+        icon = "/icon-mozo-192x192.png";
+      } else if (notifType === "new_order" || notifType === "order_update" || notifType === "review" || notifType === "account_update") {
+        icon = "/icon-negocio-192x192.png";
+      }
     }
 
     // Bugfix-4D: causa raíz confirmada del deep link roto. Este objeto es la

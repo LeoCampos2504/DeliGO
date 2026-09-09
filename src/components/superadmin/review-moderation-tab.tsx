@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, FileText, Loader2, MessageSquareWarning, ShieldCheck, X } from "lucide-react"
 import { toast } from "sonner"
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { evidenceTimelineEntry } from "@/lib/review-moderation-evidence-ui"
+import { useSuperAdminStore } from "@/store/superadmin-store"
 
 type Status = "PENDIENTE" | "EN_REVISION" | "REQUIERE_INFORMACION" | "APROBADA" | "RECHAZADA" | "RESTAURADA_AUTOMATICAMENTE"
 type Evidence = { id: string; nombrePresentacion: string; mimeType: string; bytes: number; createdAt: string }
@@ -26,9 +27,23 @@ export function ReviewModerationTab() {
   const client = useQueryClient()
   const [status, setStatus] = useState<string>("todos")
   const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<string | null>(null)
+  // P2-T26-R2: deep-link desde la campana — si se llegó a este tab con una
+  // solicitud concreta pendiente (ver superadmin-notification-bell.tsx), el
+  // valor inicial de `selected` la toma directamente del store (lazy
+  // initializer — corre una sola vez, al montar; este componente se
+  // desmonta/remonta en cada cambio de tab, así que "al montar" es
+  // exactamente "al llegar a este tab"). Evita sincronizar estado externo
+  // hacia estado local dentro de un efecto (regla react-hooks/set-state-in-effect).
+  const [selected, setSelected] = useState<string | null>(() => useSuperAdminStore.getState().pendingEntityId)
   const [action, setAction] = useState<"PEDIR_INFORMACION" | "APROBAR" | "RECHAZAR" | null>(null)
   const [text, setText] = useState("")
+  const clearPendingEntity = useSuperAdminStore((state) => state.clearPendingEntity)
+  // Limpia el store externo (nunca estado local) una vez consumido al
+  // montar — así un cambio de tab posterior no relacionado con una
+  // notificación no hereda esta misma entidad por error.
+  useEffect(() => {
+    clearPendingEntity()
+  }, [clearPendingEntity])
   const list = useQuery<{ items: Item[]; total: number; page: number; limit: number }>({
     queryKey: ["moderation-list", status, page],
     queryFn: async () => {
@@ -42,6 +57,7 @@ export function ReviewModerationTab() {
   const detail = useQuery<Detail>({
     queryKey: ["moderation-detail", selected],
     enabled: !!selected,
+    retry: false,
     queryFn: async () => {
       const response = await fetch(`/api/superadmin/solicitudes-revision-resenas/${selected}`)
       if (!response.ok) throw new Error("No se pudo cargar el expediente")
@@ -83,7 +99,11 @@ export function ReviewModerationTab() {
       {!items.length && <div className="rounded-xl border p-8 text-center text-sm text-muted-foreground">No hay solicitudes para este filtro.</div>}
     </div>}
     {(list.data?.total ?? 0) > 20 && <div className="flex justify-between"><Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Anterior</Button><Button variant="outline" disabled={items.length < 20} onClick={() => setPage(page + 1)}>Siguiente</Button></div>}
-    <Dialog open={!!selected} onOpenChange={(isOpen) => { if (!isOpen) { setSelected(null); setAction(null); setText("") } }}>
+    {/* P2-T26-R2 §20: fallback seguro — si la solicitud (preseleccionada por
+        notificación, o cualquier otra) ya no existe/no carga, `open` se
+        resuelve a false en vez de quedar colgado en "Cargando expediente…"
+        indefinidamente; nunca un 500/crash visible. */}
+    <Dialog open={!!selected && !detail.isError} onOpenChange={(isOpen) => { if (!isOpen) { setSelected(null); setAction(null); setText("") } }}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader><DialogTitle>Expediente de moderación</DialogTitle><DialogDescription>Datos de revisión, sin información personal del cliente.</DialogDescription></DialogHeader>
         {detail.isLoading ? <p>Cargando expediente…</p> : detail.data && <div className="space-y-4">

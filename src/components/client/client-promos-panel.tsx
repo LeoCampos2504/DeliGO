@@ -185,7 +185,7 @@ export function ClientPromosPanel({ deliveryPrecios, hasDeliveryAddress }: Clien
   return (
     <div className="flex-1 bg-background">
       {/* Header */}
-      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-10 pb-8 overflow-hidden">
+      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-primary/70 px-4 pt-[calc(env(safe-area-inset-top,0px)+2.5rem)] pb-8 overflow-hidden">
         {/* Decorative elements */}
         <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/2" />
@@ -499,7 +499,7 @@ function PromosSkeleton() {
   return (
     <div className="flex-1 bg-background animate-pulse">
       {/* Header skeleton */}
-      <div className="bg-primary/20 px-4 pt-10 pb-8">
+      <div className="bg-primary/20 px-4 pt-[calc(env(safe-area-inset-top,0px)+2.5rem)] pb-8">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-white/10" />
           <div>

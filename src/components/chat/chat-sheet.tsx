@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from "react"
+import { createPortal } from "react-dom"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useChatStore } from "@/store/chat-store"
 import { useAuthStore } from "@/store/auth-store"
@@ -17,6 +18,7 @@ import {
 } from "@/lib/chat-polling"
 import { createCoverageToken, type ChatRoomCoverageToken } from "@/lib/chat-history-resync"
 import { evaluateReceiptEligibility } from "@/lib/chat-push-presentation"
+import { deriveChatConnectionPresentation } from "@/lib/chat-connection-presentation"
 import type { ChatMessagePresentationCandidate } from "@/hooks/use-chat-message-presentation-commit"
 
 function isDocumentVisible(): boolean {
@@ -87,10 +89,9 @@ export function ChatSheet() {
   const conversationsAbortRef = useRef<AbortController | null>(null)
   const hasLoadedConversationsRef = useRef(false)
 
-  const isConnected = snapshot.state === "connected"
-  const isConnecting = snapshot.state === "connecting" ||
-    snapshot.state === "reauthenticating" || snapshot.state === "reconnecting"
-  const connectionFailed = snapshot.state === "error"
+  // P2-T20: idle/stopped (no active room demand) are deliberate rest states,
+  // never presented as "Sin conexión" — see chat-connection-presentation.ts.
+  const connectionPresentation = deriveChatConnectionPresentation(snapshot.state)
 
   useEffect(() => {
     conversationsRef.current = conversations
@@ -376,12 +377,40 @@ export function ChatSheet() {
 
   if (!user || user.type === "repartidor") return null
 
+  // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: the keyboard-region backdrop filler
+  // used to be the first child of SheetContent (R3), but real standalone
+  // device evidence proved it never painted past y≈394 out of a 797px
+  // screen — SheetContent has `overflow-hidden`, and CSS overflow clipping
+  // applies to the paint/clip tree regardless of a descendant's own
+  // `position:fixed`, so the filler was clipped to the exact same shifted
+  // boundary as the content it was meant to extend past. Portaled directly
+  // to document.body instead — a sibling of Radix's own Sheet portal tree,
+  // not a descendant of the clipping SheetContent — same pattern BottomNav
+  // already uses for the same category of reason. Its own CSS rule in
+  // globals.css (.ios-chat-keyboard-backdrop) is unchanged: still a no-op
+  // (0 height) whenever there's no residual visual-viewport offset, still
+  // only mounted while the Sheet itself is open.
+  const keyboardBackdrop =
+    isSheetOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="ios-chat-keyboard-backdrop"
+            aria-hidden="true"
+            data-ios-debug-role="chat-keyboard-backdrop"
+          />,
+          document.body
+        )
+      : null
+
   return (
-    <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
-      >
+    <>
+      {keyboardBackdrop}
+      <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-0 flex flex-col overflow-hidden h-dvh"
+          data-ios-debug-role="chat-sheet"
+        >
         <SheetTitle className="sr-only">Chat de pedidos</SheetTitle>
         <SheetDescription className="sr-only">Conversaciones de chat sobre tus pedidos</SheetDescription>
         {activePedidoId ? (
@@ -394,8 +423,14 @@ export function ChatSheet() {
           />
         ) : (
           <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="px-4 py-4 border-b border-border/50">
+            {/* Header — P2-T31-R24: `pt-[calc(env(safe-area-inset-top,0px)+1rem)]`
+                keeps the "Chats" title/status (the only close affordance
+                besides the Sheet's own X, see globals.css) below the iOS
+                status bar/Dynamic Island, same idiom already used across
+                the app (client-favorites-panel.tsx, cliente/page.tsx).
+                env() resolves to 0 on Android/no-notch — no branch, no
+                behavior change there. */}
+            <div className="px-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-4 border-b border-border/50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -404,27 +439,24 @@ export function ChatSheet() {
                   <div>
                     <h2 className="font-bold text-base">Chats</h2>
                     <p className="text-xs text-muted-foreground">
-                      {isConnected ? (
-                        <span className="text-emerald-500">● Conectado</span>
-                      ) : connectionFailed ? (
+                      {connectionPresentation.tone === "connected" ? (
+                        <span className="text-emerald-500">● {connectionPresentation.label}</span>
+                      ) : connectionPresentation.showRetry ? (
                         <button
                           onClick={handleRetryConnection}
                           className="flex items-center gap-1 text-amber-500 hover:text-amber-600 transition-colors"
                         >
                           <WifiOff className="h-3 w-3" />
-                          Sin conexión · Reintentar
+                          {connectionPresentation.label} · Reintentar
                           <RefreshCw className="h-3 w-3" />
                         </button>
-                      ) : isConnecting ? (
+                      ) : connectionPresentation.tone === "connecting" ? (
                         <span className="flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          Conectando...
+                          {connectionPresentation.label}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1">
-                          <WifiOff className="h-3 w-3" />
-                          Sin conexión
-                        </span>
+                        <span>{connectionPresentation.label}</span>
                       )}
                     </p>
                   </div>
@@ -436,8 +468,9 @@ export function ChatSheet() {
             <ConversationList />
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }
 

@@ -31,4 +31,13 @@ describe("P2-T07 F-T07-02 — central inactive-courier contract", () => {
       expect(source).toContain("SESSION_COOKIE_NAME")
     }
   })
+
+  test("Google callback and consent cannot create a session for an inactive existing courier", () => {
+    const callback = read("src/app/api/auth/google/callback/route.ts")
+    const consent = read("src/app/api/auth/google/consent/route.ts")
+    expect(callback).toContain('if (!repartidor.activo)')
+    expect(callback).toContain('errorRedirect("account_unavailable")')
+    expect(consent).toContain("select: { activo: true }")
+    expect(consent).toContain("if (!existing || !existing.activo) throw new AccountVanishedError()")
+  })
 })

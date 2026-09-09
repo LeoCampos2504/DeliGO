@@ -3,7 +3,8 @@
 // replaced via mock.module before the route is imported (same pattern as
 // src/app/api/operativo/mozo/panel/[slug]/push-subscription/route.test.ts).
 // @/lib/rate-limit is real (pure, no I/O) — tests use distinct IPs to stay
-// under the 10/min "push" bucket.
+// under the 20/min "pushMutation" bucket (P2-T31-R8: split from the old
+// shared "push" bucket — see rate-limit.ts for the rationale).
 //
 // The mocked db simulates a per-row store for cliente/negocio/repartidor/
 // superAdmin PLUS a normalized push_subscriptions store, with an atomic

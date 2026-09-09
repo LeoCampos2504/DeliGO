@@ -15,6 +15,12 @@ const contracts = {
   cliente: {
     id: "/cliente/?pwa=cliente",
     scope: "/cliente",
+    // PRE-T29-FIX-MANIFEST-CLIENTE-IOSDEBUG-FLAG-TESTING (F-PRE-T29-02):
+    // reverted the IOS-PWA-DEBUG-LAUNCH-FIX-R2A/P2-T22C start_url override —
+    // it made every new Cliente PWA install launch with the diagnostic
+    // panel on by default, which is Production-visible. The manual gate
+    // (/cliente?iosDebug=1, see ios-pwa-debug-launch-static-contract.test.ts)
+    // still works; it's just no longer baked into the manifest.
     startUrl: "/cliente",
   },
   negocio: {
@@ -60,6 +66,28 @@ describe("PWA-21-A01 + PWA-22-01 — identidad SSR por rol", () => {
     expect(isPrincipalPwaRole("mozo")).toBe(false)
     expect(isPrincipalPwaRole("salon")).toBe(false)
     expect(isPrincipalPwaRole("empleado")).toBe(false)
+  })
+
+  // P2-T22B-R2: only "cliente" has been hardened with safe-area-aware top
+  // headers (src/app/cliente/page.tsx and the 4 client-*-panel.tsx files —
+  // see client-headers-safe-area-static-contract.test.ts). Negocio/
+  // Operaciones/Repartidor keep the opaque "default" status bar until they
+  // receive the same audit and hardening.
+  test("statusBarStyle es black-translucent solo para cliente; el resto conserva default", () => {
+    const statusBarStyleByRole: Record<(typeof PRINCIPAL_PWA_ROLES)[number], string> = {
+      cliente: "black-translucent",
+      negocio: "default",
+      operaciones: "default",
+      repartidor: "default",
+    }
+
+    for (const role of PRINCIPAL_PWA_ROLES) {
+      const metadata = getPwaIdentityMetadata(role)
+      expect(metadata.appleWebApp).toMatchObject({
+        capable: true,
+        statusBarStyle: statusBarStyleByRole[role],
+      })
+    }
   })
 
   test("los manifests existentes conservan id, scope, start_url y display", () => {

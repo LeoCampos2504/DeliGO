@@ -1,6 +1,11 @@
 "use client"
 
 import { useEffect } from "react"
+import {
+  resolveIosDockPlacement,
+  resolveIosDockViewportMode,
+  type DockViewportMode,
+} from "@/lib/ios-dock-viewport-state"
 import { decideScrollRestore, resolveCycleStart } from "@/lib/ios-scroll-restore-decision"
 
 /**
@@ -25,11 +30,43 @@ import { decideScrollRestore, resolveCycleStart } from "@/lib/ios-scroll-restore
  *    `window.scrollY` does not — it stays at the position iOS scrolled to.
  *    See src/lib/ios-scroll-restore-decision.ts for the pure decision logic
  *    (unit tested) — this effect is only the impure DOM/event shell around it.
- * 5. Cleans up everything on unmount
+ * 5. IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: on the affected
+ *    standalone-PWA WebKit build, visualViewport.height itself never
+ *    recovers to baseline after the first keyboard cycle (R7 certified a
+ *    tested recovery technique fails deterministically on a real device —
+ *    that experiment has been removed, not replaced with another attempt
+ *    at forcing WebKit). Toggles `ios-dock-degraded` on <html>/<body> and
+ *    writes `--ios-dock-nav-top`/`--ios-dock-fab-top` so BottomNav/ChatFab
+ *    reposition entirely inside whatever region IS currently paintable,
+ *    instead of continuing to target the physical screen bottom the
+ *    reduced viewport can no longer reliably paint into. See
+ *    src/lib/ios-dock-viewport-state.ts for the pure mode/placement logic.
+ * 6. Cleans up everything on unmount
  *
  * Components should use CSS classes driven by `ios-keyboard-open`,
  * NOT their own JS keyboard detection. This is the single source of truth.
  */
+
+// IOS-STANDALONE-REAL-DEVICE-FIX-R3 §18: read-only diagnostic snapshot of
+// the last restore decision, for the TEMPORARY iosDebug panel only — never
+// read by any application code, never changes control flow or timing of
+// the restore logic itself (see the single write site below, right after
+// decideScrollRestore already runs). Declared here (the writer) rather
+// than imported from the diagnostic library, so this file's only import
+// stays ios-scroll-restore-decision — the diagnostic panel defines its own
+// matching shape defensively when it reads window.__iosScrollRestoreDebug.
+declare global {
+  interface Window {
+    __iosScrollRestoreDebug?: {
+      preFocusScrollY: number | null
+      currentScrollYAtDecision: number
+      shouldRestore: boolean
+      restoreReason: string | null
+      restoreTargetScrollY: number | null
+      decidedAt: number
+    }
+  }
+}
 
 const EDITABLE_SELECTOR =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"], [contenteditable=""]'
@@ -41,6 +78,23 @@ const STABLE_FRAMES_REQUIRED = 6 // consecutive rAF frames with no material view
 const STABLE_TOLERANCE_PX = 1
 const STABLE_MAX_FRAMES = 180 // ~3s at 60fps hard safety cap — never loops forever
 const RESTORE_MAX_RETRIES = 1 // at most one bounded follow-up scrollTo if WebKit re-adjusts a frame later
+// IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5: how many animation frames
+// to keep re-reading the live visualViewport.offsetTop after any real vv
+// event, to catch WebKit's own continuous interpolation between its
+// throttled/coalesced event dispatches. ~250ms at 60fps — comfortably
+// longer than every real transient episode measured (max 103ms) with
+// margin, self-terminating (never an always-on loop).
+const DOCK_OFFSET_POLL_FRAMES = 15
+
+// IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: the design heights the
+// degraded-mode placement targets — matches the CSS design constants
+// already established in globals.css (--ios-bottom-nav-height: 4rem,
+// ChatFab's h-14/w-14) rather than reading getBoundingClientRect() (which
+// this impure shell never touches for any other calculation either — every
+// existing formula in this file is driven by visualViewport state, not DOM
+// measurement, and R8 keeps that same discipline).
+const DEGRADED_NAV_HEIGHT_PX = 64
+const DEGRADED_FAB_HEIGHT_PX = 56
 
 function isIOSDevice(): boolean {
   if (typeof navigator === "undefined") return false
@@ -65,9 +119,29 @@ export function IOSKeyboardFix() {
     const vv = window.visualViewport
     const keyboardThreshold = 80
 
+    // The real pre-keyboard visualViewport.height, captured once at mount
+    // (before any editable focus has ever happened this session). R7
+    // certified, on a real device, that WebKit cannot be reliably forced
+    // back to this value after the first keyboard cycle (recovery attempt:
+    // 729 -> 729, unchanged) — this baseline is now used only to detect the
+    // resulting DEGRADED_POST_KEYBOARD dock mode below, never to attempt
+    // recovering the viewport itself.
+    const initialViewportHeight = vv?.height ?? window.innerHeight
+    // display-mode doesn't change without a reload, so a single read at
+    // mount (same idiom as initialViewportHeight above) is sufficient.
+    const isStandalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false
+
     let rafId = 0
     let hasEditableFocus = isEditableTarget(document.activeElement)
     let lastKeyboardOpen = false
+    // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: the single
+    // authority for which dock mode is active — written ONLY inside
+    // updateViewportState (see updateDockMode below), read by
+    // applyDockPlacement (called both from there and from the existing R5
+    // synchronous offset-polling machinery, for placement freshness during
+    // active scroll — see updateDockVisualOffsetSync). Never decided in two
+    // places.
+    let currentDockMode: DockViewportMode = "HEALTHY"
 
     // IOS-24-POSITION-FIX cycle state — a "keyboard cycle" runs from the
     // first editable focus until the keyboard is confirmed closed and the
@@ -154,6 +228,18 @@ export function IOSKeyboardFix() {
             toleranceRestorePx: RESTORE_TOLERANCE_PX,
           })
 
+          // Diagnostic-only — see the Window.__iosScrollRestoreDebug
+          // declaration above. Pure observability, no effect on `decision`
+          // or on what happens next.
+          window.__iosScrollRestoreDebug = {
+            preFocusScrollY: capturedPreFocusScrollY,
+            currentScrollYAtDecision: window.scrollY,
+            shouldRestore: decision.shouldRestore,
+            restoreReason: decision.shouldRestore ? null : decision.reason,
+            restoreTargetScrollY: decision.shouldRestore ? decision.target : null,
+            decidedAt: Date.now(),
+          }
+
           if (decision.shouldRestore) {
             performRestore(decision.target)
           }
@@ -201,6 +287,12 @@ export function IOSKeyboardFix() {
       )
 
       setKeyboardClasses(keyboardOpen)
+      // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: resolved from the
+      // SAME keyboardOpen value setKeyboardClasses just applied — atomic
+      // with the visibility:hidden/visible transition, so the nav is never
+      // revealed for even one frame at the wrong (healthy) placement before
+      // switching to the degraded one (§17).
+      updateDockMode(keyboardOpen)
 
       // IOS-24-POSITION-FIX: keyboard just transitioned open -> closed
       // while a restore cycle is active. keyboardOpen can only be false
@@ -211,6 +303,55 @@ export function IOSKeyboardFix() {
         waitForViewportStableThenMaybeRestore()
       }
       lastKeyboardOpen = keyboardOpen
+    }
+
+    // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: writes the
+    // degraded-mode nav/FAB `top` targets as CSS custom properties, or
+    // clears them outside degraded mode — see resolveIosDockPlacement's own
+    // derivation comment for why `top` (not `bottom`) is used. Never reads
+    // or writes anything else; the healthy dock's own `bottom`-based
+    // compensation (R3-R5, globals.css) is untouched and simply loses the
+    // cascade to the higher-specificity `.ios-dock-degraded` rule when this
+    // is active (`bottom: auto` there — see globals.css) — exactly one
+    // property authoritatively controls position at any given time, never
+    // both simultaneously.
+    const applyDockPlacement = () => {
+      if (currentDockMode !== "DEGRADED_POST_KEYBOARD") {
+        root.style.removeProperty("--ios-dock-nav-top")
+        root.style.removeProperty("--ios-dock-fab-top")
+        return
+      }
+      const placement = resolveIosDockPlacement({
+        offsetTop: vv?.offsetTop ?? 0,
+        visualViewportHeight: vv?.height ?? window.innerHeight,
+        navHeightPx: DEGRADED_NAV_HEIGHT_PX,
+        fabHeightPx: DEGRADED_FAB_HEIGHT_PX,
+      })
+      root.style.setProperty("--ios-dock-nav-top", `${placement.navTopPx}px`)
+      root.style.setProperty("--ios-dock-fab-top", `${placement.fabTopPx}px`)
+    }
+
+    // The single authority (§29-31) for MODE: only ever called from
+    // updateViewportState, immediately after setKeyboardClasses, using the
+    // exact same keyboardOpen value — never re-decided anywhere else.
+    // Placement FRESHNESS during active scroll (offsetTop changing quickly)
+    // is handled separately by re-running applyDockPlacement from the
+    // existing R5 synchronous polling window (updateDockVisualOffsetSync
+    // below) — that reuses currentDockMode as already decided here, it
+    // never re-evaluates the mode itself.
+    const updateDockMode = (keyboardOpen: boolean) => {
+      const nextMode = resolveIosDockViewportMode({
+        keyboardOpen,
+        isStandalone,
+        baselineViewportHeight: initialViewportHeight,
+        currentViewportHeight: vv?.height ?? window.innerHeight,
+      })
+      currentDockMode = nextMode
+      const degraded = nextMode === "DEGRADED_POST_KEYBOARD"
+      for (const el of [root, body]) {
+        el.classList.toggle("ios-dock-degraded", degraded)
+      }
+      applyDockPlacement()
     }
 
     const scheduleUpdate = () => {
@@ -244,7 +385,84 @@ export function IOSKeyboardFix() {
       scheduleUpdate()
     }
 
+    // IOS-STANDALONE-FINAL-VISUAL-FIX-R4: a real standalone-PWA capture
+    // proved --visual-viewport-offset-top (updated only inside
+    // updateViewportState, which scheduleUpdate defers by one
+    // requestAnimationFrame) can lag the *actual*, current
+    // visualViewport.offsetTop by a full frame or more during a fast
+    // scroll fling — several native `scroll` events can fire before that
+    // rAF callback runs. The standalone dock compensation (globals.css)
+    // subtracts this value from BottomNav/ChatFab's `bottom`, so a stale
+    // value briefly renders the dock at the wrong physical position —
+    // real numbers observed: offsetTop=41.34 while the CSS was still
+    // compensating for a stale ~66px, leaving the dock only ~17px (then,
+    // one event later, ~0.66px) from the true bottom edge — a visible
+    // partial disappearance. --ios-dock-visual-offset-top is a SEPARATE,
+    // synchronously-updated variable dedicated to that compensation only
+    // — written directly here, in the native event handler itself,
+    // before scheduleUpdate's rAF hop, so it can never be more than one
+    // real browser event behind. The general keyboard-detection pipeline
+    // (CSS classes, --ios-keyboard-offset, the stabilization wait) keeps
+    // its existing rAF/stabilization semantics unchanged — those exist
+    // for good reasons (avoiding class-toggle flicker, racing the restore
+    // logic) that don't apply to this single, idempotent style write.
+    const updateDockVisualOffsetSync = () => {
+      root.style.setProperty("--ios-dock-visual-offset-top", `${vv?.offsetTop ?? 0}px`)
+      // IOS-STANDALONE-DEGRADED-VIEWPORT-DOCK-FALLBACK-R8: reuses this same
+      // synchronous-write + rAF-polling window (never a second, new polling
+      // mechanism — see the task's own explicit "no another rAF offset
+      // polling increase" constraint) to keep the degraded-mode nav/FAB
+      // `top` targets fresh against live offsetTop during active scroll.
+      // Placement-only refresh — never re-decides currentDockMode itself
+      // (see updateDockMode, the single mode authority).
+      applyDockPlacement()
+    }
+
+    // IOS-STANDALONE-NAV-PHYSICAL-COORDINATE-FIX-R5: real standalone data
+    // proved the R4 synchronous write above is still not enough during a
+    // fast scroll fling — not because the JS write is delayed, but because
+    // WebKit's own `visualViewport` `scroll`/`resize` EVENTS are throttled/
+    // coalesced and do not fire on every compositor frame while the visual
+    // viewport is actively panning. Independently re-derived from the full
+    // R4 payload: 91% of keyboard-closed samples already matched the
+    // design target (42px, median exactly 42) proving the compensation
+    // FORMULA itself is correct — removing it was proven to REINTRODUCE a
+    // sustained ~110px floating bug (offsetTop=68 held for many real
+    // samples). The remaining error is 3 brief episodes (max 103ms, max
+    // 52px) exactly at the moments the browser's own event dispatch lags
+    // behind its continuously-interpolating internal value — confirmed by
+    // cross-checking computedBottom against what it should read for the
+    // CURRENT offsetTop: the actual CSS value matches what the PREVIOUS
+    // event's offsetTop would have produced, every single time, in both
+    // magnitude and sign.
+    // Fix: a short, self-terminating rAF-polling window (not an always-on
+    // loop) that re-reads the live visualViewport.offsetTop every frame
+    // for DOCK_OFFSET_POLL_FRAMES frames after any real vv event — closing
+    // the gap between sparse events without polling indefinitely. Fully
+    // independent of the keyboard-detection pipeline's own rAF/
+    // stabilization timing, which is untouched.
+    let dockOffsetPollRafId = 0
+    let dockOffsetPollFramesLeft = 0
+
+    const pollDockOffsetTick = () => {
+      dockOffsetPollRafId = 0
+      updateDockVisualOffsetSync()
+      dockOffsetPollFramesLeft -= 1
+      if (dockOffsetPollFramesLeft > 0) {
+        dockOffsetPollRafId = window.requestAnimationFrame(pollDockOffsetTick)
+      }
+    }
+
+    const startDockOffsetPolling = () => {
+      dockOffsetPollFramesLeft = DOCK_OFFSET_POLL_FRAMES
+      if (!dockOffsetPollRafId) {
+        dockOffsetPollRafId = window.requestAnimationFrame(pollDockOffsetTick)
+      }
+    }
+
     const handleViewportChange = () => {
+      updateDockVisualOffsetSync()
+      startDockOffsetPolling()
       hasEditableFocus = isEditableTarget(document.activeElement)
       scheduleUpdate()
     }
@@ -272,6 +490,7 @@ export function IOSKeyboardFix() {
     // Initial state
     setKeyboardClasses(false)
     updateViewportState()
+    updateDockVisualOffsetSync()
 
     // Event listeners
     document.addEventListener("focusin", handleFocusIn)
@@ -288,6 +507,7 @@ export function IOSKeyboardFix() {
     return () => {
       if (rafId) window.cancelAnimationFrame(rafId)
       if (stabilizeRafId) window.cancelAnimationFrame(stabilizeRafId)
+      if (dockOffsetPollRafId) window.cancelAnimationFrame(dockOffsetPollRafId)
 
       document.removeEventListener("focusin", handleFocusIn)
       document.removeEventListener("focusout", handleFocusOut)
@@ -301,13 +521,17 @@ export function IOSKeyboardFix() {
       document.removeEventListener("wheel", handleWheel)
 
       for (const el of [root, body]) {
-        el.classList.remove("ios-keyboard-open", "keyboard-open", "ios-device")
+        el.classList.remove("ios-keyboard-open", "keyboard-open", "ios-device", "ios-dock-degraded")
       }
 
       root.style.removeProperty("--visual-viewport-height")
       root.style.removeProperty("--visual-viewport-width")
       root.style.removeProperty("--visual-viewport-offset-top")
       root.style.removeProperty("--ios-keyboard-offset")
+      root.style.removeProperty("--ios-dock-visual-offset-top")
+      root.style.removeProperty("--ios-dock-nav-top")
+      root.style.removeProperty("--ios-dock-fab-top")
+      delete window.__iosScrollRestoreDebug
     }
   }, [])
 

@@ -27,6 +27,8 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useAuthStore } from "@/store/auth-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { toast } from "sonner"
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, passwordCodePointLength } from "@/lib/password-policy-constants"
 
@@ -167,6 +169,23 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
   const authUser = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const push = usePushNotifications()
+
+  // P2-T31-R6A: Repartidor renders `push.isSubscribed` directly (no local
+  // mirror state like Cliente/Negocio) — this ref+effect exists solely to
+  // detect an actual value change for the diagnostic tracer, purely
+  // observational, never influences rendering.
+  const prevUiSwitchRef = useRef(push.isSubscribed)
+  useEffect(() => {
+    if (prevUiSwitchRef.current !== push.isSubscribed) {
+      recordPushDebugEvent("UI_SWITCH_CHANGED", {
+        role: "repartidor",
+        oldValue: prevUiSwitchRef.current,
+        newValue: push.isSubscribed,
+        hookValue: push.isSubscribed,
+      })
+      prevUiSwitchRef.current = push.isSubscribed
+    }
+  }, [push.isSubscribed])
 
   const [nombre, setNombre] = useState(perfil?.nombre ?? "")
   const [telefono, setTelefono] = useState(perfil?.telefono ?? "")
@@ -433,7 +452,11 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
       {push.isSupported && (
         <div className="rounded-2xl bg-card border border-border/50 p-4 space-y-3">
           <h3 className="font-semibold text-sm flex items-center gap-2">
-            {push.isSubscribed ? (
+            {!push.statusResolved ? (
+              // P2-T31-R7: sin conclusión autoritativa todavía, ni ON ni OFF
+              // son correctos — Bell atenuado en vez de BellOff.
+              <Bell className="h-4 w-4 text-muted-foreground" />
+            ) : push.isSubscribed ? (
               <Bell className="h-4 w-4 text-primary" />
             ) : (
               <BellOff className="h-4 w-4 text-muted-foreground" />
@@ -444,23 +467,47 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
             <div>
               <p className="text-sm font-medium">Notificaciones push</p>
               <p className="text-xs text-muted-foreground">
-                {push.isSubscribed
+                {!push.statusResolved
+                  ? push.statusCheckError
+                    ? "No se pudo comprobar"
+                    : "Comprobando estado..."
+                  : push.isSubscribed
                   ? "Recibí alertas de nuevos pedidos"
                   : "Activá para recibir alertas de entregas"}
               </p>
             </div>
-            <Switch
-              checked={push.isSubscribed}
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  push.subscribe()
-                } else {
-                  push.unsubscribe()
-                }
-              }}
-              disabled={push.loading}
-            />
+            {push.statusResolved ? (
+              <Switch
+                checked={push.isSubscribed}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    push.subscribe()
+                  } else {
+                    push.unsubscribe()
+                  }
+                }}
+                disabled={push.loading}
+              />
+            ) : push.statusCheckError ? (
+              // P2-T31-R8: un chequeo ya concluido de forma inconclusa (p.ej.
+              // 429) usa el mismo ícono de alerta ya disponible en este
+              // archivo, quieto — un spinner girando sugeriría falsamente
+              // que sigue en curso.
+              <AlertCircle className="h-4 w-4 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
+            ) : (
+              // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca
+              // renderizar el Switch en "Desactivado" mientras no exista una
+              // conclusión autoritativa — sería un OFF falso que después
+              // cambia solo a ON.
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+            )}
           </div>
+          <PushDebugPanel
+            actorFamily="repartidor"
+            hookIsSubscribed={push.isSubscribed}
+            hookLoading={push.loading}
+            uiSwitch={push.isSubscribed}
+          />
         </div>
       )}
 

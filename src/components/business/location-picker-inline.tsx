@@ -219,7 +219,7 @@ export function LocationPickerInline({
 
   return (
     <div className="space-y-3">
-      <div className="relative rounded-xl overflow-hidden border border-border/50" style={{ height: 250 }}>
+      <div className="relative isolate rounded-xl overflow-hidden border border-border/50" style={{ height: 250 }}>
         <div ref={mapRef} className="w-full h-full" />
 
         {/* GPS button overlay */}

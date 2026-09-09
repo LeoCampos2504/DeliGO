@@ -42,6 +42,8 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { ImageUpload } from "@/components/shared/image-upload"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { PushDebugPanel } from "@/components/shared/push-debug-panel"
+import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { DeliveryZonesSection } from "./delivery-zones-section"
 import { TerminalesOperativasSection } from "./terminales-operativas-section"
 
@@ -1227,6 +1229,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
   // síncrono dentro de un efecto.
   const [prevIsSubscribed, setPrevIsSubscribed] = useState(push.isSubscribed)
   if (push.isSubscribed !== prevIsSubscribed) {
+    recordPushDebugEvent("UI_SWITCH_CHANGED", {
+      role: "negocio",
+      oldValue: prevIsSubscribed,
+      newValue: push.isSubscribed,
+      hookValue: push.isSubscribed,
+    })
     setPrevIsSubscribed(push.isSubscribed)
     setEnabled(push.isSubscribed)
   }
@@ -1234,12 +1242,23 @@ function PushNotificationsConfig({ color }: { color: string }) {
   const handleToggle = async (val: boolean) => {
     setEnabled(val)
     if (val) {
-      await push.subscribe()
-      if (!push.isSubscribed) {
-        setEnabled(false)
+      // P2-T31: antes se releía `push.isSubscribed` acá después del
+      // `await push.subscribe()`, un closure stale que siempre reflejaba
+      // el valor PREVIO al click (el mismo patrón ya eliminado en
+      // client-profile-panel.tsx vía F-P2-T05-23) — por eso el toggle
+      // podía terminar activado en pantalla aunque `subscribe()` hubiera
+      // fallado, o mostrar el feedback equivocado tras togglear rápido
+      // varias veces. `result.current`/`result.subscribed` vienen SIEMPRE
+      // frescos del propio hook, nunca de este closure.
+      const result = await push.subscribe()
+      if (result.current) {
+        setEnabled(result.subscribed)
       }
     } else {
-      await push.unsubscribe()
+      const result = await push.unsubscribe()
+      if (result.current) {
+        setEnabled(result.subscribed)
+      }
     }
   }
 
@@ -1248,7 +1267,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
       <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}15` }}>
-            {enabled ? (
+            {!push.statusResolved ? (
+              // P2-T31-R7: mientras no haya conclusión autoritativa todavía,
+              // ni el ícono ON ni el OFF son correctos — usar el estado
+              // neutral (mismo Bell que ON, pero atenuado) en vez de BellOff.
+              <Bell className="h-5 w-5 text-muted-foreground" />
+            ) : enabled ? (
               <Bell className="h-5 w-5" style={{ color }} />
             ) : (
               <BellOff className="h-5 w-5 text-muted-foreground" />
@@ -1261,17 +1285,35 @@ function PushNotificationsConfig({ color }: { color: string }) {
                 ? "Procesando..."
                 : !push.isSupported
                 ? "No disponibles en este navegador"
+                : !push.statusResolved
+                ? push.statusCheckError
+                  ? "No se pudo comprobar"
+                  : "Comprobando estado..."
                 : enabled
                 ? "Recibirás notificaciones de nuevos pedidos"
                 : "No recibirás notificaciones"}
             </p>
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={handleToggle}
-          disabled={!push.isSupported || push.loading}
-        />
+        {push.isSupported && !push.statusResolved ? (
+          // P2-T31-R7 (PUSH-INITIAL-UNKNOWN-STATE-FLICKER-FIX): nunca mostrar
+          // el Switch en "Desactivado" mientras no exista una conclusión
+          // autoritativa — sería un OFF falso que después cambia solo a ON.
+          // P2-T31-R8: un chequeo ya concluido de forma inconclusa (p.ej. 429)
+          // usa el mismo ícono de alerta ya disponible acá, quieto — un
+          // spinner girando sugeriría falsamente que sigue en curso.
+          push.statusCheckError ? (
+            <AlertCircle className="h-5 w-5 text-muted-foreground" aria-label="No se pudo comprobar el estado de notificaciones" />
+          ) : (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Comprobando estado de notificaciones" />
+          )
+        ) : (
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={!push.isSupported || push.loading}
+          />
+        )}
       </div>
 
       {!push.isSupported && (
@@ -1289,6 +1331,12 @@ function PushNotificationsConfig({ color }: { color: string }) {
           </p>
         </div>
       )}
+      <PushDebugPanel
+        actorFamily="negocio"
+        hookIsSubscribed={push.isSubscribed}
+        hookLoading={push.loading}
+        uiSwitch={enabled}
+      />
     </div>
   )
 }

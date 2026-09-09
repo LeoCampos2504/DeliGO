@@ -21,6 +21,11 @@ let sweepCalls: string[]
 let notificacionCreateCalls: Array<{ userId: string; userType: string }>
 let webpushBehavior: Map<string, "success" | 404 | 410 | 500 | "network">
 let webpushCallLog: string[]
+let webpushOptionsLog: Array<Record<string, unknown> | undefined>
+// P2-T31-R22A: captura del payload REAL (JSON.stringify(enrichedPushPayload))
+// enviado a webpush.sendNotification — permite verificar `data.role` sin
+// tocar el mock existente de `web-push`, `@/lib/db` ni requerir una DB real.
+let webpushPayloadLog: Array<{ data?: { role?: string; type?: string } }>
 let concurrencyGate: ReturnType<typeof createConcurrencyGate> | null
 /** Fires exactly once, right after a `findUnique` read resolves its return
  * value but before the caller sees it, to simulate a genuine race: the
@@ -108,13 +113,23 @@ mock.module("web-push", () => ({
   default: {
     setVapidDetails: () => {},
     generateVAPIDKeys: () => ({ publicKey: "pub", privateKey: "priv" }),
-    sendNotification: async (subscription: { endpoint: string }) => {
+    sendNotification: async (
+      subscription: { endpoint: string },
+      _payload?: string,
+      options?: Record<string, unknown>
+    ) => {
       // Sólo se controla el resultado para endpoints del propio fixture de
       // este archivo (`https://push.example/...`) — cualquier otro endpoint
       // (p.ej. el sentinel TEST-NET-3 de push-log-sanitization.test.ts, que
       // corre en la MISMA suite de `bun test` y necesita un fallo real, no
       // "success") falla por defecto, nunca succeeds silenciosamente.
       webpushCallLog.push(subscription.endpoint)
+      webpushOptionsLog.push(options)
+      try {
+        webpushPayloadLog.push(_payload ? JSON.parse(_payload) : {})
+      } catch {
+        webpushPayloadLog.push({})
+      }
       if (!subscription.endpoint.startsWith("https://push.example/")) {
         throw new Error("simulated network failure (unrecognized endpoint outside this test's fixture domain)")
       }
@@ -180,6 +195,8 @@ beforeEach(() => {
   notificacionCreateCalls = []
   webpushBehavior = new Map()
   webpushCallLog = []
+  webpushOptionsLog = []
+  webpushPayloadLog = []
   concurrencyGate = null
   raceOnNextRead = null
 })
@@ -300,6 +317,160 @@ describe("sendPushToTargets — per-endpoint failure isolation (P1-P4)", () => {
     await push.sendPushToTargets(targets, { title: "t", body: "b" })
     expect(webpushCallLog.filter((e) => e === EP("E1")).length).toBe(1)
     expect(webpushCallLog.filter((e) => e === EP("E2")).length).toBe(1)
+  })
+})
+
+// ============================================
+// R15R (corrección de R15): delivery-priority hardening acotado por tipo,
+// nunca global "por comodidad" — sólo los `NotificationType` genuinamente
+// time-sensitive (coordinación de pedido en curso, carrera entre
+// repartidores, comida que se enfría) piden `urgency:"high"`; el resto
+// conserva el default "normal" de la librería. No se fuerza ningún `TTL`
+// explícito — R15 lo fijaba en 24h, acortando el default real de la
+// librería (2419200s / 28 días, ver DEFAULT_TTL en
+// node_modules/web-push/src/web-push-lib.js), un cambio de retención sin
+// relación con el problema de urgencia y sin decisión de producto separada
+// que lo autorice. No es la causa raíz PROBADA del incidente closed-PWA
+// (ver P2_T31_R15R_PREDEPLOY_EVIDENCE_CORRECTION_AND_PUSH_PRIORITY_SCOPE.md),
+// pero es un hardening real, acotado y de bajo riesgo.
+// ============================================
+describe("sendPushNotification — R15R scoped delivery-priority options", () => {
+  test("R15R-1: a time-sensitive type (order_update) requests urgency=high and no explicit TTL", async () => {
+    webpushBehavior.set(EP("E1"), "success")
+    await push.sendPushNotification(sub("E1"), { title: "t", body: "b", data: { type: "order_update" } })
+    expect(webpushOptionsLog.length).toBe(1)
+    expect(webpushOptionsLog[0]).toEqual({ urgency: "high" })
+  })
+
+  test("R15R-2: every genuinely time-sensitive type requests urgency=high (new_order, new_delivery, chat, mesa_order_ready, salon_new_order, operaciones_salon_new_order, operaciones_order_cancelled)", async () => {
+    const timeSensitiveTypes = [
+      "order_update",
+      "new_order",
+      "new_delivery",
+      "chat",
+      "mesa_order_ready",
+      "salon_new_order",
+      "operaciones_salon_new_order",
+      "operaciones_order_cancelled",
+    ] as const
+    for (const type of timeSensitiveTypes) {
+      webpushBehavior.set(EP(`TS-${type}`), "success")
+      await push.sendPushNotification(sub(`TS-${type}`), { title: "t", body: "b", data: { type } })
+    }
+    expect(webpushOptionsLog.length).toBe(timeSensitiveTypes.length)
+    for (const options of webpushOptionsLog) {
+      expect(options).toEqual({ urgency: "high" })
+    }
+  })
+
+  test("R15R-3: a non-time-sensitive type (review) keeps the library's normal/default urgency — no options object forced", async () => {
+    webpushBehavior.set(EP("E1"), "success")
+    await push.sendPushNotification(sub("E1"), { title: "t", body: "b", data: { type: "review" } })
+    expect(webpushOptionsLog.length).toBe(1)
+    expect(webpushOptionsLog[0]).toBeUndefined()
+  })
+
+  test("R15R-4: account_update, review_request and a missing/unknown type also stay non-urgent", async () => {
+    const nonUrgentTypes = ["account_update", "review_request", "general"] as const
+    for (const type of nonUrgentTypes) {
+      webpushBehavior.set(EP(`NU-${type}`), "success")
+      await push.sendPushNotification(sub(`NU-${type}`), { title: "t", body: "b", data: { type } })
+    }
+    webpushBehavior.set(EP("NU-none"), "success")
+    await push.sendPushNotification(sub("NU-none"), { title: "t", body: "b" })
+    expect(webpushOptionsLog.length).toBe(nonUrgentTypes.length + 1)
+    for (const options of webpushOptionsLog) {
+      expect(options).toBeUndefined()
+    }
+  })
+
+  test("R15R-5: fan-out to multiple targets requests the same priority options for every target, based on payload type", async () => {
+    webpushBehavior.set(EP("E1"), "success")
+    webpushBehavior.set(EP("E2"), "success")
+    await push.sendPushToTargets(
+      [
+        { endpoint: EP("E1"), raw: sub("E1") },
+        { endpoint: EP("E2"), raw: sub("E2") },
+      ],
+      { title: "t", body: "b", data: { type: "new_order" } }
+    )
+    expect(webpushOptionsLog.length).toBe(2)
+    for (const options of webpushOptionsLog) {
+      expect(options).toEqual({ urgency: "high" })
+    }
+  })
+})
+
+// ============================================
+// R15R: provider success observability is TESTING-only (R15 had left it
+// enabled in every environment, outside the TESTING-only scope R15 itself
+// had been authorized for) and now carries the provider's own statusCode.
+// ============================================
+describe("sendPushNotification — provider success observability (TESTING-only)", () => {
+  const originalEnv = process.env.RAILWAY_ENVIRONMENT_NAME
+
+  beforeEach(() => {
+    delete process.env.RAILWAY_ENVIRONMENT_NAME
+  })
+
+  test("R15R-6: TESTING -> a successful send leaves an observability trail (type + actorFamily + safe fingerprint + provider status, never the raw endpoint)", async () => {
+    process.env.RAILWAY_ENVIRONMENT_NAME = "TESTING"
+    webpushBehavior.set(EP("E1"), "success")
+    const originalLog = console.log
+    const logs: unknown[][] = []
+    console.log = (...args: unknown[]) => { logs.push(args) }
+    try {
+      await push.sendPushNotification(
+        sub("E1"),
+        { title: "t", body: "b", data: { type: "order_update" } },
+        { model: "cliente", id: "c1" }
+      )
+    } finally {
+      console.log = originalLog
+      if (originalEnv === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
+      else process.env.RAILWAY_ENVIRONMENT_NAME = originalEnv
+    }
+    const line = logs.map((a) => a.join(" ")).find((l) => l.includes("[Push] Enviado OK"))
+    expect(line).toBeDefined()
+    expect(line).toContain("tipo=order_update")
+    expect(line).toContain("actorFamily=cliente")
+    expect(line).toContain("providerStatus=201")
+    expect(line).not.toContain(EP("E1"))
+  })
+
+  test("R15R-7: Production -> a successful send leaves no observability trail at all", async () => {
+    process.env.RAILWAY_ENVIRONMENT_NAME = "production"
+    webpushBehavior.set(EP("E1"), "success")
+    const originalLog = console.log
+    const logs: unknown[][] = []
+    console.log = (...args: unknown[]) => { logs.push(args) }
+    try {
+      await push.sendPushNotification(
+        sub("E1"),
+        { title: "t", body: "b", data: { type: "order_update" } },
+        { model: "cliente", id: "c1" }
+      )
+    } finally {
+      console.log = originalLog
+      if (originalEnv === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
+      else process.env.RAILWAY_ENVIRONMENT_NAME = originalEnv
+    }
+    expect(logs.some((a) => a.join(" ").includes("[Push] Enviado OK"))).toBe(false)
+  })
+
+  test("R15R-8: environment variable absent (e.g. local dev) -> no observability trail, fail-closed", async () => {
+    webpushBehavior.set(EP("E1"), "success")
+    const originalLog = console.log
+    const logs: unknown[][] = []
+    console.log = (...args: unknown[]) => { logs.push(args) }
+    try {
+      await push.sendPushNotification(sub("E1"), { title: "t", body: "b", data: { type: "order_update" } })
+    } finally {
+      console.log = originalLog
+      if (originalEnv === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME
+      else process.env.RAILWAY_ENVIRONMENT_NAME = originalEnv
+    }
+    expect(logs.some((a) => a.join(" ").includes("[Push] Enviado OK"))).toBe(false)
   })
 })
 
@@ -663,6 +834,60 @@ describe("Core owner mapping coverage (cliente/negocio/repartidor/empleado, chan
     ])
     const targets = await push.resolveCorePushTargets("cliente", "n1", null)
     expect(targets.length).toBe(0)
+  })
+})
+
+// ============================================
+// P2-T31-R22A — data.role coverage (§12 del mandato R22A)
+// ============================================
+// R22 encontró que `enrichedPushPayload.data.role` (agregado por
+// `personalRoleFor(userType)`) es EXACTAMENTE el campo que el Service
+// Worker necesita para enrutar el ícono de notificación por destinatario
+// real, pero no tenía cobertura DIRECTA (sólo se infería indirectamente).
+// Estos tests verifican, contra el payload REAL enviado a
+// `webpush.sendNotification` (no una re-implementación), que `data.role`
+// llega con el valor correcto para cada uno de los 3 roles "core" — el
+// mismo contrato que el fixture del Service Worker en
+// `sw-push-role-icon-routing.test.ts` asume como entrada real.
+describe("createNotification -> enrichedPushPayload.data.role (P2-T31-R22A)", () => {
+  test.each(["cliente", "negocio", "repartidor"] as const)(
+    "%s: el payload real enviado a webpush.sendNotification lleva data.role = %s",
+    async (ownerType) => {
+      normalizedByOwner.set(ownerKey(ownerType, "owner-1", "default"), [
+        { endpoint: EP("ROLE_E1"), p256dh: "p1", auth: "a1", expirationTime: null },
+      ])
+      await push.createNotification({
+        userId: "owner-1",
+        userType: ownerType,
+        tipo: "order_update",
+        titulo: "t",
+        cuerpo: "b",
+        pushSubscription: null,
+        pushPayload: { title: "t", body: "b", data: { type: "order_update" } },
+        awaitPush: true,
+      })
+      expect(webpushPayloadLog.length).toBe(1)
+      expect(webpushPayloadLog[0]?.data?.role).toBe(ownerType)
+      expect(webpushPayloadLog[0]?.data?.type).toBe("order_update")
+    }
+  )
+
+  test("empleado (no es un rol 'personal' de subscribe/PWA propia) no recibe data.role", async () => {
+    normalizedByOwner.set(ownerKey("empleado", "owner-1", "default"), [
+      { endpoint: EP("ROLE_E2"), p256dh: "p1", auth: "a1", expirationTime: null },
+    ])
+    await push.createNotification({
+      userId: "owner-1",
+      userType: "empleado",
+      tipo: "review",
+      titulo: "t",
+      cuerpo: "b",
+      pushSubscription: null,
+      pushPayload: { title: "t", body: "b", data: { type: "review" } },
+      awaitPush: true,
+    })
+    expect(webpushPayloadLog.length).toBe(1)
+    expect(webpushPayloadLog[0]?.data?.role).toBeUndefined()
   })
 })
 

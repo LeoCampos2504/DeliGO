@@ -6,6 +6,8 @@
 import webpush from "web-push"
 import type { PushSubscription } from "@prisma/client"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { fingerprintPushEndpoint } from "@/lib/push-debug-snapshot"
+import { isPushDebugAllowedEnvironment } from "@/lib/push-testing-guard"
 import {
   arePushSubscriptionsEquivalent,
   parsePushSubscriptionShape,
@@ -49,6 +51,30 @@ export type NotificationType =
   | "salon_new_order"
   | "operaciones_salon_new_order"
   | "operaciones_order_cancelled"
+
+// P2-T31-R15R: inventario completo de `NotificationType` realmente producido
+// por las fábricas de payload de este archivo (ver PUSH_TYPE_URGENCY_MATRIX
+// en P2_T31_R15R_PREDEPLOY_EVIDENCE_CORRECTION_AND_PUSH_PRIORITY_SCOPE.md).
+// `urgency:"high"` sólo se pide para los tipos donde una entrega diferida
+// tiene un costo operativo real y medible (coordinación de pedido en curso,
+// carrera entre repartidores, comida que se enfría) — nunca global "por
+// comodidad". `general` es un valor de tipo alcanzable pero sin fábrica de
+// payload real en este archivo (sólo aparece en fixtures de test); se trata
+// como no-urgente por default, igual que reseñas/cuenta.
+const TIME_SENSITIVE_NOTIFICATION_TYPES: ReadonlySet<NotificationType> = new Set([
+  "order_update",
+  "new_order",
+  "new_delivery",
+  "chat",
+  "mesa_order_ready",
+  "salon_new_order",
+  "operaciones_salon_new_order",
+  "operaciones_order_cancelled",
+])
+
+export function isTimeSensitivePushType(type: NotificationType | undefined): boolean {
+  return type !== undefined && TIME_SENSITIVE_NOTIFICATION_TYPES.has(type)
+}
 
 export interface PushNotificationPayload {
   title: string
@@ -699,7 +725,41 @@ export async function sendPushNotification(
   let subscription: { endpoint?: string } | null = null
   try {
     subscription = JSON.parse(subscriptionJson)
-    await webpush.sendNotification(subscription, JSON.stringify(payload))
+    // R15R (corrección de R15): sin `urgency` explícito, web-push manda
+    // "normal" (default documentado de la librería/RFC 8030), y un push
+    // service puede diferir esa entrega mientras el dispositivo está en
+    // Doze/ahorro de batería — causa conocida de entregas diferidas con la
+    // app cerrada en Android. `urgency: "high"` sólo se pide para tipos
+    // genuinamente time-sensitive (ver TIME_SENSITIVE_NOTIFICATION_TYPES
+    // arriba) — nunca global "por comodidad": reseñas/cuenta no pierden nada
+    // real por una entrega no urgente. NO se fuerza un `TTL` explícito: la
+    // librería ya aplica por default 2419200s (28 días, ver
+    // node_modules/web-push/src/web-push-lib.js DEFAULT_TTL) — mucho más
+    // retención que cualquier valor corto que este archivo pudiera inventar
+    // sin una decisión de producto separada; forzar 24h aquí sería un
+    // cambio de retención no relacionado con el problema de urgencia. Esto
+    // sigue siendo hardening documentado, NO una causa raíz probada del
+    // fallo closed-PWA de R15 (ver ANDROID_CLOSED_PWA_FAILURE_ROOT_CAUSE_STATUS
+    // en el reporte).
+    const type = payload.data?.type
+    const options = isTimeSensitivePushType(type) ? { urgency: "high" as const } : undefined
+    const result = await webpush.sendNotification(subscription, JSON.stringify(payload), options)
+    // R15 (F-PAYMENTS-PAUSE-ANDROID-CLOSED-PWA-01): antes de esta línea, un
+    // envío EXITOSO no dejaba ningún rastro en logs — sólo las fallas se
+    // logueaban, así que un push que el proveedor aceptó pero que nunca se
+    // mostró en el dispositivo era indistinguible, desde los logs del
+    // servidor, de un push que nunca se intentó. R15R: este log se restringe
+    // a TESTING (mismo guard que el resto del panel de diagnóstico de push,
+    // `isPushDebugAllowedEnvironment`) — R15 lo había dejado corriendo en
+    // todos los ambientes, fuera del alcance TESTING-only que la propia
+    // tarea R15 había autorizado. Mismo criterio de redacción que el resto
+    // de este archivo (nunca el endpoint completo, nunca el body/headers del
+    // proveedor).
+    if (isPushDebugAllowedEnvironment()) {
+      console.log(
+        `[Push] Enviado OK (tipo=${type ?? "unknown"} actorFamily=${cleanupExpired?.model ?? "n/a"} endpointFingerprint=${fingerprintPushEndpoint(getPushSubscriptionEndpoint(subscriptionJson) ?? "unknown")} providerStatus=${result.statusCode})`
+      )
+    }
     return true
   } catch (error: unknown) {
     const err = error as { statusCode?: number; message?: string; body?: string }

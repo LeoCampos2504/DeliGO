@@ -117,3 +117,149 @@ describe("PermissionPrompt — F-P2-T18-AUTH02 actorFamily selector propagation"
     expect(src2).toContain('const url = family ? `/api/push/status?actorFamily=${family}` : "/api/push/status"')
   })
 })
+
+// P2-T31-R5 (VAPID-STALE-SUBSCRIPTION-VALIDATION-EXTENSION): R4 found that
+// handleAccept's own subscribe path (the ONLY place in this file that
+// creates a PushSubscription) reused an existing physical subscription
+// blindly, with the exact same gap R3 confirmed live for
+// use-push-notifications.ts (Apple: `VapidPkHashMismatch`). This locks in
+// the ported fix — same shared helper, no duplicated comparison logic.
+//
+// P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING) rewrote this
+// block further: a failed VAPID fetch now ABORTS entirely instead of
+// falling back to an unvalidated reuse, stale removal is CONFIRMED (not
+// just the raw unsubscribe() boolean) before recreating, and the backend
+// POST's real result now decides whether to roll back a subscription this
+// operation itself created. The describe below reflects that final shape.
+describe("P2-T31-R5/R5A — handleAccept validates an existing subscription's VAPID key before reusing it", () => {
+  const src = read("src/components/shared/permission-prompt.tsx")
+  const handleAcceptStart = src.indexOf("const handleAccept")
+  const handleAcceptEnd = src.indexOf("const handleDismiss")
+  const handleAcceptBody = src.slice(handleAcceptStart, handleAcceptEnd)
+  const codeOnly = handleAcceptBody
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n")
+
+  test("imports the real shared helpers from push-subscription-key.ts, never a local reimplementation", () => {
+    expect(src).toContain('from "@/lib/push-subscription-key"')
+    expect(src).toContain("applicationServerKeyMatches")
+    expect(src).toContain("urlBase64ToUint8Array")
+    expect(src).toContain("unsubscribeStalePushSubscription") // P2-T31-R5A
+  })
+
+  test("the VAPID key is fetched BEFORE getSubscription() — the fetch is not gated behind whether a subscription already exists", () => {
+    const vapidFetchIdx = codeOnly.indexOf('await fetch("/api/push/vapid-key")')
+    const getSubscriptionIdx = codeOnly.indexOf("await registration.pushManager.getSubscription()")
+    expect(vapidFetchIdx).toBeGreaterThan(-1)
+    expect(getSubscriptionIdx).toBeGreaterThan(vapidFetchIdx)
+  })
+
+  test("an existing physical subscription's key is compared against the current key before deciding whether to reuse it", () => {
+    expect(codeOnly).toContain("applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)")
+  })
+
+  test("a stale (mismatched) existing subscription goes through CONFIRMED removal (unsubscribeStalePushSubscription) before a fresh one is created — never silently reused", () => {
+    const guardIdx = codeOnly.indexOf(
+      "if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey))"
+    )
+    const removalCallIdx = codeOnly.indexOf("await unsubscribeStalePushSubscription(subscription")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(removalCallIdx).toBeGreaterThan(guardIdx)
+  })
+
+  test("EXPLICIT_REENABLE_PATH_STILL_SAVES=SI: a resolved subscription (reused or recreated) is still saved to the backend, and the REAL result decides what happens next", () => {
+    expect(codeOnly).toContain("const saved = await savePushSubscription(subscription, uType)")
+  })
+})
+
+// P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): closes 3 gaps
+// found reviewing R5 before deploy — see the task's own §0 objective.
+describe("P2-T31-R5A — VAPID fetch failure aborts without reuse or destruction", () => {
+  const src = read("src/components/shared/permission-prompt.tsx")
+  const handleAcceptStart = src.indexOf("const handleAccept")
+  const handleAcceptEnd = src.indexOf("const handleDismiss")
+  const handleAcceptBody = src.slice(handleAcceptStart, handleAcceptEnd)
+  const codeOnly = handleAcceptBody
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n")
+
+  test("PERMISSION_PROMPT_VAPID_FETCH_FAILURE_POLICY=ABORT_WITHOUT_REUSE_OR_DESTRUCTION: a null publicKey returns immediately, before getSubscription() is even called", () => {
+    const publicKeyCheckIdx = codeOnly.indexOf("if (!publicKey) return")
+    const getSubscriptionIdx = codeOnly.indexOf("await registration.pushManager.getSubscription()")
+    expect(publicKeyCheckIdx).toBeGreaterThan(-1)
+    expect(getSubscriptionIdx).toBeGreaterThan(publicKeyCheckIdx)
+  })
+
+  test("UNVALIDATED_SUBSCRIPTION_DESTRUCTION=NO: unsubscribeStalePushSubscription/subscription.unsubscribe() are never reachable before the publicKey guard", () => {
+    const publicKeyCheckIdx = codeOnly.indexOf("if (!publicKey) return")
+    const beforeGuard = codeOnly.slice(0, publicKeyCheckIdx)
+    expect(beforeGuard).not.toContain("unsubscribe")
+  })
+
+  test("no savePushSubscription call is reachable when publicKey is null (the early return precedes it)", () => {
+    const publicKeyCheckIdx = codeOnly.indexOf("if (!publicKey) return")
+    const saveCallIdx = codeOnly.indexOf("await savePushSubscription(")
+    expect(publicKeyCheckIdx).toBeGreaterThan(-1)
+    expect(saveCallIdx).toBeGreaterThan(publicKeyCheckIdx)
+  })
+})
+
+describe("P2-T31-R5A — backend ACK is real, never assumed", () => {
+  const src = read("src/components/shared/permission-prompt.tsx")
+  const saveFnStart = src.indexOf("async function savePushSubscription")
+  const saveFnEnd = src.indexOf("async function checkExistingPushSubscriptionStatus")
+  const saveFnBody = src.slice(saveFnStart, saveFnEnd)
+
+  test("PERMISSION_PROMPT_BACKEND_ACK_REQUIRED=SI: savePushSubscription now returns Promise<boolean>, derived from the REAL /api/push/subscribe contract ({ok:true} on success)", () => {
+    expect(saveFnBody).toContain("Promise<boolean>")
+    expect(saveFnBody).toContain("if (!res.ok) return false")
+    expect(saveFnBody).toContain('return data.ok === true')
+  })
+
+  test("a thrown/rejected fetch inside savePushSubscription resolves to false, never propagates as an unhandled rejection", () => {
+    expect(saveFnBody).toMatch(/catch\s*\{\s*return false\s*\}/)
+  })
+
+  test("PERMISSION_PROMPT_SUCCESS_AFTER_BACKEND_ACK=SI: handleAccept captures the real boolean result rather than firing-and-forgetting the save", () => {
+    const handleAcceptStart = src.indexOf("const handleAccept")
+    const handleAcceptEnd = src.indexOf("const handleDismiss")
+    const handleAcceptBody = src.slice(handleAcceptStart, handleAcceptEnd)
+    expect(handleAcceptBody).toContain("const saved = await savePushSubscription(subscription, uType)")
+  })
+})
+
+describe("P2-T31-R5A — rollback only touches a subscription THIS operation created", () => {
+  const src = read("src/components/shared/permission-prompt.tsx")
+  const handleAcceptStart = src.indexOf("const handleAccept")
+  const handleAcceptEnd = src.indexOf("const handleDismiss")
+  const handleAcceptBody = src.slice(handleAcceptStart, handleAcceptEnd)
+  const codeOnly = handleAcceptBody
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n")
+
+  test("PERMISSION_PROMPT_NEW_SUB_ROLLBACK=SI: createdSubscription is tracked and gates the rollback — a backend failure never rolls back a pre-existing healthy subscription", () => {
+    const assignments = [...codeOnly.matchAll(/createdSubscription = true/g)]
+    expect(assignments.length).toBe(2) // stale-replacement branch AND absent-subscription branch — never the healthy-reuse branch
+    expect(codeOnly).toContain("let createdSubscription = false")
+    const rollbackGuardIdx = codeOnly.indexOf("if (!saved && createdSubscription)")
+    expect(rollbackGuardIdx).toBeGreaterThan(-1)
+    expect(codeOnly.slice(rollbackGuardIdx)).toContain("await subscription.unsubscribe().catch(() => undefined)")
+  })
+
+  test("EXISTING_HEALTHY_SUB_BACKEND_FAILURE_POLICY: the healthy-reuse branch (key matches) never sets createdSubscription, so a backend failure there can never trigger a physical rollback", () => {
+    // The healthy-reuse path is the implicit fallthrough (neither the stale
+    // branch nor the `else if (!subscription)` branch runs) — it must be
+    // the ONLY path that does not touch `createdSubscription` at all.
+    const staleBranchIdx = codeOnly.indexOf(
+      "if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)) {"
+    )
+    const elseIfAbsentIdx = codeOnly.indexOf("} else if (!subscription) {")
+    const rollbackGuardIdx = codeOnly.indexOf("if (!saved && createdSubscription)")
+    expect(staleBranchIdx).toBeGreaterThan(-1)
+    expect(elseIfAbsentIdx).toBeGreaterThan(staleBranchIdx)
+    expect(rollbackGuardIdx).toBeGreaterThan(elseIfAbsentIdx)
+  })
+})

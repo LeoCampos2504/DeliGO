@@ -106,6 +106,7 @@ function createHarness(overrides: Partial<RealtimeManagerDependencies> = {}) {
 
 const actor = { userId: "user-1", userType: "cliente" as const }
 const repartidorActor = { userId: "repartidor-1", userType: "repartidor" as const }
+const negocioActor = { userId: "negocio-1", userType: "negocio" as const }
 
 describe("RealtimeManager", () => {
   test("caches snapshots and notifies only when observable state changes", async () => {
@@ -528,10 +529,18 @@ describe("RealtimeManager", () => {
   test("reauthenticates once and re-establishes the room after auth expiry", async () => {
     const harness = createHarness()
     harness.manager.setActor(actor)
-    const lease = await harness.manager.getClient().acquireOrderRoom("pedido-3", ["chat:read"])
+    const lease = await harness.manager.getClient().acquireOrderRoom("pedido-3", ["chat:read", "chat:typing"])
     const firstSocket = harness.sockets[0]
     const received: string[] = []
-    const unsubscribe = harness.manager.getClient().subscribe("new-message", () => received.push("message"))
+    const typingReceived: string[] = []
+    const unsubscribe = harness.manager.getClient().subscribe("new-message", (msg) => received.push(msg.id ?? "unknown"))
+    const unsubscribeTyping = harness.manager.getClient().subscribe("user-typing", () => typingReceived.push("typing"))
+
+    // T1 (first socket event delivery) — the generation the whole rest of
+    // this test's reconnects are measured against.
+    firstSocket.emitFromServer("new-message", { id: "gen1" })
+    expect(received).toEqual(["gen1"])
+
     firstSocket.emitFromServer("realtime-auth-expired", { code: "TOKEN_EXPIRED" })
     firstSocket.emitFromServer("realtime-auth-expired", { code: "TOKEN_EXPIRED" })
     firstSocket.emitFromServer("disconnect")
@@ -542,10 +551,159 @@ describe("RealtimeManager", () => {
     expect(harness.sockets).toHaveLength(2)
     expect(harness.manager.getConnectionState()).toBe("connected")
     expect(harness.sockets[1].clientEvents.filter((event) => event === "join-order-room")).toHaveLength(1)
+    // T8 — the replaced (stale) socket can never deliver again.
     firstSocket.emitFromServer("new-message", { id: "stale" })
-    expect(received).toEqual([])
+    expect(received).toEqual(["gen1"])
+
+    // T2/T9 — a brand-new socket after a same-actor auth-expiry reconnect
+    // delivers exactly like the first one (P2-T18-R3's confirmed-correct
+    // regression guard — this must never flip to FAIL).
+    const secondSocket = harness.sockets[1]
+    expect(secondSocket.listenerCount("new-message")).toBe(1)
+    secondSocket.emitFromServer("new-message", { id: "gen2" })
+    expect(received).toEqual(["gen1", "gen2"])
+    // T10 — typing survives the same reconnect via the same relay mechanism.
+    secondSocket.emitFromServer("user-typing", { userId: "other", pedidoId: "pedido-3" })
+    expect(typingReceived).toEqual(["typing"])
+
+    // T3 — a THIRD generation (another same-actor auth-expiry cycle) keeps
+    // delivering; the old (second) socket goes stale exactly like the first.
+    secondSocket.emitFromServer("realtime-auth-expired", { code: "TOKEN_EXPIRED" })
+    secondSocket.emitFromServer("realtime-auth-expired", { code: "TOKEN_EXPIRED" })
+    secondSocket.emitFromServer("disconnect")
+    await flush()
+    await flush()
+
+    expect(harness.sockets).toHaveLength(3)
+    const thirdSocket = harness.sockets[2]
+    expect(thirdSocket.listenerCount("new-message")).toBe(1)
+    secondSocket.emitFromServer("new-message", { id: "stale-gen2" })
+    expect(received).toEqual(["gen1", "gen2"])
+    thirdSocket.emitFromServer("new-message", { id: "gen3" })
+    expect(received).toEqual(["gen1", "gen2", "gen3"])
+
     lease.release()
     unsubscribe()
+    unsubscribeTyping()
+    harness.manager.stop()
+  })
+
+  test("P2-T18-R1: an incoming actor's subscription survives stop(\"actor-change\") even when the outgoing actor's teardown races it", async () => {
+    // Reproduces the exact real-world ordering: ChatSheet (a child of
+    // RealtimeProvider) unsubscribes the outgoing actor and subscribes the
+    // incoming actor in its own effect BEFORE RealtimeProvider's effect
+    // calls manager.setActor() — see P2_T18_SOCKET_REGENERATION_EVENT_
+    // RELAY_DIAGNOSTIC_R3.md section J. Before the fix, setActor's
+    // stop("actor-change") unconditionally cleared `subscriptions`,
+    // discarding the incoming actor's just-added handler.
+    const harness = createHarness()
+    harness.manager.setActor(negocioActor)
+    await harness.manager.ensureConnected()
+    const negocioReceived: string[] = []
+    const negocioUnsub = harness.manager.getClient().subscribe("new-message", () => negocioReceived.push("negocio"))
+    await flush()
+
+    // Child effect: cleanup old actor's handler, subscribe new actor's handler.
+    negocioUnsub()
+    const clienteReceived: string[] = []
+    const clienteUnsub = harness.manager.getClient().subscribe("new-message", () => clienteReceived.push("cliente"))
+
+    // Parent effect (runs after, per React's child-before-parent ordering).
+    harness.manager.setActor(actor)
+    await harness.manager.ensureConnected()
+    await flush()
+
+    const newSocket = harness.sockets[harness.sockets.length - 1]
+    expect(newSocket.listenerCount("new-message")).toBe(1)
+    newSocket.emitFromServer("new-message", { id: "post-switch" })
+
+    expect(negocioReceived).toEqual([])
+    expect(clienteReceived).toEqual(["cliente"])
+
+    clienteUnsub()
+    harness.manager.stop()
+  })
+
+  test("P2-T18-R1: actor switch survives the reverse ordering (setActor before the consumer resubscribes)", async () => {
+    const harness = createHarness()
+    harness.manager.setActor(negocioActor)
+    await harness.manager.ensureConnected()
+    const negocioReceived: string[] = []
+    const negocioUnsub = harness.manager.getClient().subscribe("new-message", () => negocioReceived.push("negocio"))
+    await flush()
+
+    // Parent effect runs first this time.
+    harness.manager.setActor(actor)
+    // Consumer's own effect cleanup/setup runs after.
+    negocioUnsub()
+    const clienteReceived: string[] = []
+    const clienteUnsub = harness.manager.getClient().subscribe("new-message", () => clienteReceived.push("cliente"))
+    await harness.manager.ensureConnected()
+    await flush()
+
+    const newSocket = harness.sockets[harness.sockets.length - 1]
+    expect(newSocket.listenerCount("new-message")).toBe(1)
+    newSocket.emitFromServer("new-message", { id: "post-switch-reverse" })
+
+    expect(negocioReceived).toEqual([])
+    expect(clienteReceived).toEqual(["cliente"])
+
+    clienteUnsub()
+    harness.manager.stop()
+  })
+
+  test("logout (setActor(null)) still fully clears subscriptions and resync handlers", async () => {
+    const harness = createHarness()
+    harness.manager.setActor(actor)
+    await harness.manager.ensureConnected()
+    harness.manager.getClient().subscribe("new-message", () => {})
+    harness.manager.getClient().registerResync(() => {})
+    expect((harness.manager as unknown as { subscriptions: Map<string, unknown> }).subscriptions.size).toBe(1)
+    expect((harness.manager as unknown as { resyncHandlers: Set<unknown> }).resyncHandlers.size).toBe(1)
+
+    harness.manager.setActor(null)
+
+    expect((harness.manager as unknown as { subscriptions: Map<string, unknown> }).subscriptions.size).toBe(0)
+    expect((harness.manager as unknown as { resyncHandlers: Set<unknown> }).resyncHandlers.size).toBe(0)
+  })
+
+  test("provider-unmount and session-invalid still fully clear subscriptions", async () => {
+    for (const reason of ["provider-unmount", "session-invalid"] as const) {
+      const harness = createHarness()
+      harness.manager.setActor(actor)
+      await harness.manager.ensureConnected()
+      harness.manager.getClient().subscribe("new-message", () => {})
+      expect((harness.manager as unknown as { subscriptions: Map<string, unknown> }).subscriptions.size).toBe(1)
+
+      harness.manager.stop(reason)
+
+      expect((harness.manager as unknown as { subscriptions: Map<string, unknown> }).subscriptions.size).toBe(0)
+    }
+  })
+
+  test("P2-T18-R1: tracking's repartidor-location relay survives the same actor-switch race as chat", async () => {
+    const harness = createHarness()
+    harness.manager.setActor(negocioActor)
+    await harness.manager.ensureConnected()
+    const negocioReceived: string[] = []
+    const negocioUnsub = harness.manager.getClient().subscribe("repartidor-location", () => negocioReceived.push("negocio"))
+    await flush()
+
+    negocioUnsub()
+    const clienteReceived: string[] = []
+    const clienteUnsub = harness.manager.getClient().subscribe("repartidor-location", () => clienteReceived.push("cliente"))
+    harness.manager.setActor(actor)
+    await harness.manager.ensureConnected()
+    await flush()
+
+    const newSocket = harness.sockets[harness.sockets.length - 1]
+    expect(newSocket.listenerCount("repartidor-location")).toBe(1)
+    newSocket.emitFromServer("repartidor-location", { pedidoId: "pedido-track", lat: 0, lng: 0, timestamp: "now" })
+
+    expect(negocioReceived).toEqual([])
+    expect(clienteReceived).toEqual(["cliente"])
+
+    clienteUnsub()
     harness.manager.stop()
   })
 

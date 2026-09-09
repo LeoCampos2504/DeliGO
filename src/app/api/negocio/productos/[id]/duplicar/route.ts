@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
@@ -10,6 +11,14 @@ import {
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
+
+// PRODUCT-DUPLICATION-SECTION-POSITION-R1: same P2034/40P01 -> 409 mapping
+// already certified for productos/orden, secciones/orden and
+// secciones/[id]/productos/orden.
+function isTransactionConflict(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) return error.code === "P2034"
+  return error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01")
+}
 
 type JsonArrayResult =
   | { ok: true; value: unknown[] }
@@ -240,11 +249,32 @@ export async function POST(
         })
       }
       if (source.seccionItems.length > 0) {
+        // PRODUCT-DUPLICATION-SECTION-POSITION-R1: never copy the source's
+        // own SeccionProducto.orden — that creates a tie with the source
+        // itself. Each section has its own order namespace, so the copy's
+        // position inside a section is computed independently, from a
+        // fresh max read INSIDE this transaction (never the value read
+        // before the transaction started, and never Producto.orden or any
+        // other section's max). Serializable isolation (see $transaction
+        // options below) is what actually prevents two concurrent
+        // duplications from both computing the same "next" value.
+        const uniqueSeccionIds = [...new Set(source.seccionItems.map((item) => item.seccionId))]
+        const maxOrders = await Promise.all(
+          uniqueSeccionIds.map((seccionId) =>
+            tx.seccionProducto.aggregate({
+              where: { seccionId },
+              _max: { orden: true },
+            })
+          )
+        )
+        const maxOrderBySeccion = new Map(
+          uniqueSeccionIds.map((seccionId, index) => [seccionId, maxOrders[index]._max.orden ?? -1])
+        )
         await tx.seccionProducto.createMany({
           data: source.seccionItems.map((item) => ({
             productoId: producto.id,
             seccionId: item.seccionId,
-            orden: item.orden,
+            orden: (maxOrderBySeccion.get(item.seccionId) ?? -1) + 1,
           })),
         })
       }
@@ -274,7 +304,7 @@ export async function POST(
           promociones: true,
         },
       })
-    }, { timeout: 30_000 })
+    }, { timeout: 30_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await auditLog({
       userId: negocioId,
@@ -296,6 +326,12 @@ export async function POST(
       precioPromo,
     }, { status: 201 })
   } catch (error) {
+    if (isTransactionConflict(error)) {
+      return NextResponse.json(
+        { error: "El catálogo cambió mientras se duplicaba. Volvé a intentar." },
+        { status: 409 }
+      )
+    }
     console.error("Error duplicating producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al duplicar producto" },
