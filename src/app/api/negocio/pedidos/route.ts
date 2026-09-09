@@ -7,6 +7,7 @@ import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-no
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -21,13 +22,9 @@ function safeParseJSON(value: unknown, fallback: unknown = []) {
   return value
 }
 
-// Valid state transitions
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  recibido: ["preparando", "cancelado"],
-  preparando: ["en_camino", "listo_para_retirar", "cancelado"],
-  en_camino: ["cancelado"], // business cannot mark entregado for delivery
-  listo_para_retirar: ["entregado", "cancelado"],
-}
+// P2-T29A: la tabla local `VALID_TRANSITIONS` fue reemplazada por la
+// autoridad compartida `order-transitions.ts` — esta ruta es exclusiva de
+// mesa (ver el `where` de abajo), así que sólo el subgrafo `mesa` aplica.
 
 const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"]
 
@@ -228,18 +225,13 @@ export async function PUT(req: NextRequest) {
       )
     }
 
-    const allowedTransitions = VALID_TRANSITIONS[currentEstado]
-    if (!allowedTransitions || !allowedTransitions.includes(estado)) {
+    const esTransicionValida =
+      estado === "cancelado"
+        ? canTransitionToCancelled(currentEstado)
+        : isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, "mesa", currentEstado, estado)
+    if (!esTransicionValida) {
       return NextResponse.json(
         { error: `Transición no válida: ${currentEstado} → ${estado}` },
-        { status: 400 }
-      )
-    }
-
-    // Validate: preparando → en_camino only for delivery
-    if (currentEstado === "preparando" && estado === "en_camino" && pedido.metodoEntrega !== "domicilio") {
-      return NextResponse.json(
-        { error: "Solo pedidos con delivery pueden pasar a 'en camino'" },
         { status: 400 }
       )
     }
@@ -328,9 +320,22 @@ export async function PUT(req: NextRequest) {
         },
       })
     } else {
-      updated = await db.pedido.update({
-        where: { id: pedidoId },
+      // P2-T29A: CAS real (antes: `update()` plano — ver la misma corrección
+      // en negocio/pedidos/[id]/estado/route.ts). Esta ruta ya exige
+      // metodoEntrega:"mesa" en el WHERE de lectura de arriba; se repite acá
+      // por robustez propia del CAS, sin depender de esa lectura previa.
+      const cas = await db.pedido.updateMany({
+        where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: currentEstado },
         data: updateData,
+      })
+      if (cas.count !== 1) {
+        return NextResponse.json(
+          { error: "El pedido cambió en otro dispositivo. Actualizá el panel." },
+          { status: 409 }
+        )
+      }
+      updated = await db.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
         include: {
           items: {
             include: {

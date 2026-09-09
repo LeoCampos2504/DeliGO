@@ -5,6 +5,7 @@ import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
+import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -19,20 +20,12 @@ const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_reti
 // Estados destino aceptados en el body.
 const ESTADOS_DESTINO = ["preparando", "en_camino", "listo_para_retirar", "entregado", "cancelado"] as const
 
-// Transiciones permitidas por método de entrega (no-mesa). Confirmadas contra los
-// endpoints existentes (domicilio no llega a listo/entregado; retiro no usa en_camino).
-const TRANSICIONES: Record<"domicilio" | "retiro", Record<string, string[]>> = {
-  domicilio: {
-    recibido: ["preparando", "cancelado"],
-    preparando: ["en_camino", "cancelado"],
-    en_camino: ["cancelado"],
-  },
-  retiro: {
-    recibido: ["preparando", "cancelado"],
-    preparando: ["listo_para_retirar", "cancelado"],
-    listo_para_retirar: ["entregado", "cancelado"],
-  },
-}
+// P2-T29A: la tabla local `TRANSICIONES` fue reemplazada por la autoridad
+// compartida `order-transitions.ts` (ACTIVE_FORWARD_TRANSITIONS +
+// canTransitionToCancelled) — mismo comportamiento exacto (domicilio no
+// llega a listo/entregado; retiro no usa en_camino), sin esta segunda copia
+// independiente de las mismas reglas que negocio/pedidos/[id]/estado ya
+// tenía. Ver codex-reports/P2_T29A_ORDER_TRANSITION_AUTHORITY_CAS_AND_CONCURRENCY_TESTS.md.
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -119,8 +112,11 @@ export async function PATCH(
     }
 
     // 4) Validar que la transición sea estructuralmente permitida para el método.
-    const allowed = TRANSICIONES[metodo][pedido.estado] ?? []
-    if (!allowed.includes(estado)) return badRequest("Transición no permitida")
+    const transicionPermitida =
+      estado === "cancelado"
+        ? canTransitionToCancelled(pedido.estado)
+        : isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, metodo, pedido.estado, estado)
+    if (!transicionPermitida) return badRequest("Transición no permitida")
 
     const estadoAnterior = pedido.estado
 
