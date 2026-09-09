@@ -5,6 +5,7 @@ import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { CANONICAL_WAITING_DRIVER_STATE, LEGACY_AVAILABLE_DELIVERY_STATE } from "@/lib/order-transitions"
 
 const DEFAULT_AUTO_CANCEL_MINUTES = 30
 const MIN_AUTO_CANCEL_MINUTES = 5
@@ -99,15 +100,18 @@ export async function POST(req: NextRequest) {
     // Find old unclaimed delivery orders
     const threshold = new Date(Date.now() - maxMinutes * 60 * 1000)
 
+    // P2-T29C: "esperando respuesta de repartidor" pasa de `en_camino` (legacy,
+    // overloaded) a `esperando_repartidor` (canónico) + el legacy preservado
+    // por compatibilidad — ver isAvailableForDriverAcceptance en order-transitions.ts.
     const oldUnclaimed = await db.pedido.findMany({
       where: {
         negocioId: { in: negocioIds },
-        estado: "en_camino",
+        estado: { in: [CANONICAL_WAITING_DRIVER_STATE, LEGACY_AVAILABLE_DELIVERY_STATE] },
         metodoEntrega: "domicilio",
         repartidorId: null,
         fecha: { lt: threshold },
       },
-      select: { id: true, negocioId: true },
+      select: { id: true, negocioId: true, estado: true },
     })
 
     if (oldUnclaimed.length === 0) {
@@ -128,11 +132,15 @@ export async function POST(req: NextRequest) {
         // DESPUÉS de que `$transaction` resuelve true — nunca dentro del callback, para
         // no contar un pedido cuya transacción termine revirtiéndose.
         const cancelled = await db.$transaction(async (tx) => {
+          // Mismo criterio que aceptar/route.ts: el CAS compara contra el
+          // valor exacto de `estado` leído en el findMany de arriba (nunca
+          // un `estado: { in: [...] }` ambiguo en la escritura) — canónico y
+          // legacy son ramas explícitas por construcción.
           const cas = await tx.pedido.updateMany({
             where: {
               id: candidato.id,
               negocioId: candidato.negocioId,
-              estado: "en_camino",
+              estado: candidato.estado,
               metodoEntrega: "domicilio",
               repartidorId: null,
             },
@@ -156,7 +164,7 @@ export async function POST(req: NextRequest) {
             data: {
               pedidoId: candidato.id,
               estado: "cancelado",
-              estadoAnterior: "en_camino",
+              estadoAnterior: candidato.estado,
               userType: "sistema",
               nota: `Auto-cancelado: sin respuesta por ${maxMinutes} min`,
             },

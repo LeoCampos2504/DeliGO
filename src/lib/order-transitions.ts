@@ -26,6 +26,19 @@ export type MetodoEntrega = "domicilio" | "retiro" | "mesa"
 export const CANONICAL_ACCEPTED_STATE = "aceptado" as const
 export const CANONICAL_WAITING_DRIVER_STATE = "esperando_repartidor" as const
 
+// P2-T29C: antes de T29C, "disponible para que un repartidor lo tome" se
+// representaba con `en_camino` + `repartidorId=null` (ver
+// ACTIVE_FORWARD_TRANSITIONS abajo). T29C introduce `esperando_repartidor`
+// como el estado CANÓNICO de disponibilidad y reduce `en_camino` a
+// "ya asignado, en viaje" — pero NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS
+// (abajo) sigue aceptando la arista legacy `preparando->en_camino` directa
+// durante el rollout (compatibilidad hacia atrás para un cliente HTTP viejo
+// en caché), así que un pedido puede llegar a `en_camino`+`repartidorId=null`
+// incluso DESPUÉS del deploy de T29C. `LEGACY_AVAILABLE_DELIVERY_STATE`
+// nombra explícitamente ese único caso de compatibilidad — nunca se agrega
+// un tercer valor ni se generaliza a otros estados.
+export const LEGACY_AVAILABLE_DELIVERY_STATE = "en_camino" as const
+
 // Decisiones de producto ya cerradas (P2-T29 audit + operador) — no abiertas,
 // no re-preguntar. Documentadas aquí como valores nombrados y cubiertas por
 // test puro, aunque T29A no las active todavía en ninguna API.
@@ -157,4 +170,17 @@ const CANCELLABLE_STATES_TARGET = [
 export function canTransitionToCancelled(estado: string, graph: "active" | "target" | "rollout" = "active"): boolean {
   const list = graph === "active" ? CANCELLABLE_STATES_ACTIVE : CANCELLABLE_STATES_TARGET
   return list.includes(estado)
+}
+
+// P2-T29C: único punto de verdad para "¿este pedido es una oferta de
+// delivery visible para Repartidor?" — usado tanto por el filtro de
+// disponibilidad (GET /api/repartidor/pedidos) como por la validación previa
+// a la aceptación CAS (POST /api/repartidor/pedidos/[id]/aceptar) y por
+// auto-cancel, así los 3 call sites nunca pueden divergir sobre qué cuenta
+// como "disponible". Sólo domicilio; nunca retiro/mesa (MESA_PASA_POR_
+// ACEPTADO=false ya establece que mesa no tiene ventana de disponibilidad
+// remota — retiro tampoco expone repartidor).
+export function isAvailableForDriverAcceptance(estado: string, metodoEntrega: MetodoEntrega): boolean {
+  if (metodoEntrega !== "domicilio") return false
+  return estado === CANONICAL_WAITING_DRIVER_STATE || estado === LEGACY_AVAILABLE_DELIVERY_STATE
 }

@@ -364,8 +364,25 @@ async function handlePedidoEstadoChange(
       }
     }
 
-    // Notify repartidores when order goes to en_camino (delivery)
-    if (estado === "en_camino" && pedido.metodoEntrega === "domicilio") {
+    // P2-T29C: "hay un nuevo delivery disponible para tomar" pasa a
+    // dispararse cuando el pedido entra en `esperando_repartidor` (el
+    // momento real en que se vuelve visible/aceptable para Repartidor desde
+    // T29C) — antes se disparaba en `en_camino`, que en el modelo viejo
+    // significaba exactamente lo mismo ("negocio empezó a buscar
+    // repartidor"). Se preserva la condición legacy (`en_camino` directo
+    // desde `preparando`) porque NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS
+    // todavía acepta esa arista durante el rollout — un pedido legacy así
+    // creado sigue necesitando avisar a los repartidores, o quedaría
+    // disponible en la query (ver repartidor/pedidos/route.ts) pero sin que
+    // nadie se entere. Nunca se disparan ambas para el mismo pedido: son
+    // transiciones mutuamente excluyentes (esperando_repartidor->en_camino,
+    // la aceptación real de Repartidor, ocurre en un endpoint DISTINTO —
+    // repartidor/pedidos/[id]/aceptar/route.ts — que nunca pasa por acá).
+    const isCanonicalNewAvailability =
+      estado === CANONICAL_WAITING_DRIVER_STATE && currentEstado === "preparando" && pedido.metodoEntrega === "domicilio"
+    const isLegacyDirectAvailability = estado === "en_camino" && pedido.metodoEntrega === "domicilio"
+
+    if (isCanonicalNewAvailability || isLegacyDirectAvailability) {
       try {
         const repartidores = await db.repartidorNegocio.findMany({
           where: { negocioId },

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { isAvailableForDriverAcceptance, type MetodoEntrega } from "@/lib/order-transitions"
 
 // POST - Repartidor accepts a pending delivery order
 // This uses optimistic concurrency: only accept if no other repartidor has claimed it yet
@@ -53,19 +54,15 @@ export async function POST(
     }
 
     // Check order is eligible for acceptance:
-    // - Must be "en_camino" (business already approved it for delivery)
+    // - Must be waiting for a driver: `esperando_repartidor` (canónico) o,
+    //   por compatibilidad legacy durante el rollout de T29C,
+    //   `en_camino`+repartidorId=null (ver isAvailableForDriverAcceptance)
     // - Must be a delivery order (domicilio)
     // - Must NOT already have a repartidor assigned
-    if (pedido.estado !== "en_camino") {
+    const metodoEntregaTipado = pedido.metodoEntrega as MetodoEntrega
+    if (!isAvailableForDriverAcceptance(pedido.estado, metodoEntregaTipado)) {
       return NextResponse.json(
         { error: "El pedido no está disponible para aceptar (estado: " + pedido.estado + ")" },
-        { status: 400 }
-      )
-    }
-
-    if (pedido.metodoEntrega !== "domicilio") {
-      return NextResponse.json(
-        { error: "El pedido no es de delivery" },
         { status: 400 }
       )
     }
@@ -83,16 +80,24 @@ export async function POST(
       select: { nombre: true },
     })
 
+    // P2-T29C: el CAS compara contra el ÚNICO valor exacto de `estado` leído
+    // arriba (nunca un `estado: { in: [...] }` ambiguo en la escritura) —
+    // canónico y legacy son ramas explícitas por construcción, no una unión
+    // ambigua: `pedido.estado` ya es uno solo de los dos valores permitidos
+    // por `isAvailableForDriverAcceptance`, y el WHERE lo compara tal cual.
+    const estadoOrigen = pedido.estado
+
     // Optimistic concurrency: update only if repartidorId is still null
     const updated = await db.pedido.updateMany({
       where: {
         id: pedidoId,
         negocioId: pedido.negocioId,
-        estado: "en_camino",
+        estado: estadoOrigen,
         metodoEntrega: "domicilio",
         repartidorId: null, // Only if nobody claimed it yet
       },
       data: {
+        estado: "en_camino",
         repartidorId: user.id,
         repartidorNombre: repartidor?.nombre || "Repartidor",
         repartidorAceptaFecha: new Date(),
@@ -100,7 +105,7 @@ export async function POST(
     })
 
     if (updated.count === 0) {
-      // Another repartidor beat us to it
+      // Another repartidor beat us to it (or the order changed state/was cancelled)
       return NextResponse.json(
         { error: "El pedido ya fue aceptado por otro repartidor" },
         { status: 409 }
@@ -112,7 +117,7 @@ export async function POST(
       data: {
         pedidoId,
         estado: "en_camino",
-        estadoAnterior: "en_camino",
+        estadoAnterior: estadoOrigen,
         userId: user.id,
         userType: "repartidor",
         nota: "Pedido aceptado por repartidor",

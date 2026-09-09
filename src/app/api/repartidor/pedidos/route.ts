@@ -4,6 +4,17 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isTrackingCoreEligible } from "@/lib/realtime-policy"
+import { CANONICAL_WAITING_DRIVER_STATE, LEGACY_AVAILABLE_DELIVERY_STATE } from "@/lib/order-transitions"
+
+// P2-T29C: "disponible" pasa de `en_camino`+`repartidorId=null` (legacy,
+// overloaded) a `esperando_repartidor`+`repartidorId=null` (canónico). Se
+// preserva el estado legacy en el filtro — no como un tercer significado
+// nuevo, sino porque NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS todavía
+// permite la arista directa `preparando->en_camino` durante el rollout
+// (compatibilidad con un cliente HTTP viejo en caché) — un pedido así
+// creado DESPUÉS del deploy de T29C debe seguir siendo visible para
+// Repartidor, o quedaría atascado sin que nadie pueda tomarlo.
+const AVAILABLE_DELIVERY_ESTADOS = [CANONICAL_WAITING_DRIVER_STATE, LEGACY_AVAILABLE_DELIVERY_STATE]
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -58,8 +69,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (filter === "disponibles") {
-      // Pending orders: en_camino + no repartidor assigned
-      where.estado = "en_camino"
+      // Pending orders: waiting for a driver (canonical + legacy-compat), no repartidor assigned
+      where.estado = { in: AVAILABLE_DELIVERY_ESTADOS }
       where.repartidorId = null
     } else if (filter === "mios") {
       // My orders: accepted by this repartidor, still active
@@ -69,7 +80,7 @@ export async function GET(req: NextRequest) {
       // All: both available and mine
       where.OR = [
         {
-          estado: "en_camino",
+          estado: { in: AVAILABLE_DELIVERY_ESTADOS },
           repartidorId: null,
         },
         {
