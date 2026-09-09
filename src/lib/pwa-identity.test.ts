@@ -15,16 +15,13 @@ const contracts = {
   cliente: {
     id: "/cliente/?pwa=cliente",
     scope: "/cliente",
-    // P2-T22C: IOS-PWA-DEBUG-LAUNCH-FIX-R2A intentionally appends
-    // ?iosDebug=1 to Cliente's start_url so every cold PWA launch from the
-    // installed icon carries the real-device diagnostic flag (localStorage
-    // can't cross the Safari -> installed-app storage boundary on iOS — see
-    // src/lib/ios-debug-snapshot.ts's isIosDebugFlagEnabled comment and
-    // src/lib/ios-pwa-debug-launch-static-contract.test.ts, which is the
-    // authoritative contract for this TESTING-only value). This must revert
-    // to "/cliente" together with the rest of that instrumentation before
-    // Production (PWA_DEBUG_START_URL_MUST_BE_REMOVED_BEFORE_PRODUCTION).
-    startUrl: "/cliente?iosDebug=1",
+    // PRE-T29-FIX-MANIFEST-CLIENTE-IOSDEBUG-FLAG-TESTING (F-PRE-T29-02):
+    // reverted the IOS-PWA-DEBUG-LAUNCH-FIX-R2A/P2-T22C start_url override —
+    // it made every new Cliente PWA install launch with the diagnostic
+    // panel on by default, which is Production-visible. The manual gate
+    // (/cliente?iosDebug=1, see ios-pwa-debug-launch-static-contract.test.ts)
+    // still works; it's just no longer baked into the manifest.
+    startUrl: "/cliente",
   },
   negocio: {
     id: "/negocio/?pwa=negocio",

@@ -2,30 +2,41 @@
 
 // ============================================
 // IOS-PWA-DEBUG-LAUNCH-FIX-R2A — contrato estático focal
+// (corregido por PRE-T29-FIX-MANIFEST-CLIENTE-IOSDEBUG-FLAG-TESTING, F-PRE-T29-02)
 // ============================================
-// Protege el fix real de esta tarea: el manifest de cliente en TESTING
-// declara start_url con ?iosDebug=1 incluido, para que la PWA instalada
-// lance directo al modo de diagnóstico sin depender de localStorage
-// cruzando el límite Safari -> app instalada (ese cruce no puede
-// funcionar en WebKit/iOS — son contextos de storage separados).
-// No protege ningún comportamiento de layout — cero archivos de UI/CSS
-// fueron tocados por esta tarea.
-// TEMPORARY_TESTING_DIAGNOSTIC_ONLY=SI — este contrato entero debe
-// eliminarse junto con el resto de la instrumentación antes de promover a
-// Producción (ver PWA_DEBUG_START_URL_MUST_BE_REMOVED_BEFORE_PRODUCTION).
+// R2A había embebido ?iosDebug=1 directamente en el start_url del manifest
+// de Cliente para que la PWA instalada lanzara directo al modo de
+// diagnóstico, evitando depender de localStorage cruzando el límite
+// Safari -> app instalada (ese cruce no puede funcionar en WebKit/iOS —
+// son contextos de storage separados). Eso resultó ser Production-visible:
+// cualquier instalación NUEVA de la PWA Cliente hecha después de promover
+// ese manifest habría abierto con el panel de diagnóstico activado por
+// defecto (F-PRE-T29-02, encontrado durante
+// PRE-T29-PROMOTE-CERTIFIED-TESTING-TO-MAIN-AND-PRODUCTION).
+//
+// Esta tarea revierte el manifest a su start_url normal (`/cliente`, sin
+// query param) SIN eliminar el mecanismo de diagnóstico: el panel y
+// `isIosDebugFlagEnabled` siguen leyendo `?iosDebug=1` de la URL en
+// tiempo de ejecución, así que un operador/tester puede seguir activándolo
+// manualmente navegando a `/cliente?iosDebug=1` — sólo deja de estar
+// activado POR DEFECTO en cada lanzamiento en frío desde el ícono
+// instalado. No protege ningún comportamiento de layout — cero archivos
+// de UI/CSS fueron tocados por esta tarea.
 
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "fs"
 import { join } from "path"
+import { isIosDebugFlagEnabled } from "./ios-debug-snapshot"
 
 const MANIFEST_CLIENTE = join(process.cwd(), "public", "manifest-cliente.json")
 const DEBUG_PANEL = join(process.cwd(), "src", "components", "pwa", "ios-viewport-debug-panel.tsx")
 const DEBUG_SNAPSHOT_LIB = join(process.cwd(), "src", "lib", "ios-debug-snapshot.ts")
 
 describe("IOS-PWA-DEBUG-LAUNCH-FIX-R2A — start_url de diagnóstico en TESTING", () => {
-  test("A. manifest-cliente.json start_url incluye ?iosDebug=1", () => {
+  test("A. manifest-cliente.json start_url es /cliente — el debug panel ya NO está activado por defecto", () => {
     const manifest = JSON.parse(readFileSync(MANIFEST_CLIENTE, "utf-8"))
-    expect(manifest.start_url).toBe("/cliente?iosDebug=1")
+    expect(manifest.start_url).toBe("/cliente")
+    expect(manifest.start_url).not.toContain("iosDebug")
   })
 
   test("B. display/scope/icons del manifest no fueron alterados por este fix", () => {
@@ -68,8 +79,13 @@ describe("IOS-PWA-DEBUG-LAUNCH-FIX-R2A — start_url de diagnóstico en TESTING"
     expect(codeOnly).toContain("export function isIosDebugFlagEnabled(search: string): boolean {")
   })
 
-  test("F. sanity: un manifest sintético con start_url distinto falla el check A (el test realmente detecta drift)", () => {
-    const synthetic = { start_url: "/cliente" }
-    expect(synthetic.start_url).not.toBe("/cliente?iosDebug=1")
+  test("F. sanity: un manifest sintético con el flag de debug hardcodeado falla el check A (el test realmente detecta drift)", () => {
+    const synthetic = { start_url: "/cliente?iosDebug=1" }
+    expect(synthetic.start_url).not.toBe("/cliente")
+  })
+
+  test("G. acceso manual /cliente?iosDebug=1 sigue funcionando — el panel no fue eliminado ni desactivado", () => {
+    expect(isIosDebugFlagEnabled("?iosDebug=1")).toBe(true)
+    expect(isIosDebugFlagEnabled("")).toBe(false)
   })
 })
