@@ -104,30 +104,38 @@ const ICON = {
   empleado: "/icon-empleado-192x192.png",
 }
 
+// P2-T36: `badge` ya NO hereda `icon` (era `badge: data.badge || icon`,
+// siempre el mismo PNG full-color que el ícono grande de rol — mal
+// candidato para el badge monocromático pequeño que Android compone). Sin
+// override explícito del payload, TODOS los roles comparten el mismo badge
+// neutro de DeliGO — el badge nunca necesitó codificar el rol, sólo `icon`
+// lo hace.
+const DELIGO_BADGE = "/badge-deligo-monochrome-96x96.png"
+
 describe("P2-T31-R22A — Service Worker push icon routing prioriza data.role sobre notifType", () => {
   describe("CLIENTE — role=cliente gana sobre cualquier notifType compartido", () => {
-    test("cliente + order_update -> icon/badge Cliente (el bug físico exacto de R22)", () => {
+    test("cliente + order_update -> icon Cliente, badge compartido DeliGO (el bug físico exacto de R22, badge realineado por P2-T36)", () => {
       const sw = loadServiceWorker()
       firePush(sw, payload("order_update", { role: "cliente" }))
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.cliente)
-      expect(options.badge).toBe(ICON.cliente)
+      expect(options.badge).toBe(DELIGO_BADGE)
     })
 
-    test("cliente + review -> icon/badge Cliente", () => {
+    test("cliente + review -> icon Cliente, badge compartido DeliGO", () => {
       const sw = loadServiceWorker()
       firePush(sw, payload("review", { role: "cliente" }))
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.cliente)
-      expect(options.badge).toBe(ICON.cliente)
+      expect(options.badge).toBe(DELIGO_BADGE)
     })
 
-    test("cliente + chat -> icon/badge Cliente", () => {
+    test("cliente + chat -> icon Cliente, badge compartido DeliGO", () => {
       const sw = loadServiceWorker()
       firePush(sw, payload("chat", { role: "cliente" }))
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.cliente)
-      expect(options.badge).toBe(ICON.cliente)
+      expect(options.badge).toBe(DELIGO_BADGE)
     })
 
     test("cliente + review_request -> icon Cliente", () => {
@@ -156,12 +164,12 @@ describe("P2-T31-R22A — Service Worker push icon routing prioriza data.role so
       expect(lastCall(sw).options.icon).toBe(ICON.negocio)
     })
 
-    test("negocio + chat -> icon/badge Negocio (antes rompía al default Cliente)", () => {
+    test("negocio + chat -> icon Negocio (antes rompía al default Cliente), badge compartido DeliGO", () => {
       const sw = loadServiceWorker()
       firePush(sw, payload("chat", { role: "negocio" }))
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.negocio)
-      expect(options.badge).toBe(ICON.negocio)
+      expect(options.badge).toBe(DELIGO_BADGE)
     })
 
     test("negocio + account_update -> icon Negocio", () => {
@@ -172,12 +180,12 @@ describe("P2-T31-R22A — Service Worker push icon routing prioriza data.role so
   })
 
   describe("REPARTIDOR — role=repartidor gana sobre cualquier notifType compartido", () => {
-    test("repartidor + new_delivery -> icon/badge Repartidor (antes rompía al default Cliente)", () => {
+    test("repartidor + new_delivery -> icon Repartidor (antes rompía al default Cliente), badge compartido DeliGO", () => {
       const sw = loadServiceWorker()
       firePush(sw, payload("new_delivery", { role: "repartidor" }))
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.repartidor)
-      expect(options.badge).toBe(ICON.repartidor)
+      expect(options.badge).toBe(DELIGO_BADGE)
     })
 
     test("repartidor + order_update -> icon Repartidor (antes rompía a Negocio)", () => {
@@ -289,6 +297,30 @@ describe("P2-T31-R22A — Service Worker push icon routing prioriza data.role so
       const { options } = lastCall(sw)
       expect(options.icon).toBe(ICON.negocio)
       expect(options.badge).toBe(customBadge)
+    })
+  })
+
+  describe("P2-T36 — badge ya NO hereda automáticamente icon (era `badge: data.badge || icon`)", () => {
+    test("sin role, sin override, notifType legacy -> badge sigue siendo el compartido DeliGO, nunca el icon full-color de rol", () => {
+      const sw = loadServiceWorker()
+      firePush(sw, payload("new_order"))
+      const { options } = lastCall(sw)
+      expect(options.icon).toBe(ICON.negocio)
+      expect(options.badge).toBe(DELIGO_BADGE)
+      expect(options.badge).not.toBe(options.icon)
+    })
+
+    test("el badge compartido es el MISMO valor sin importar el rol destinatario — nunca codifica el rol, a diferencia de icon", () => {
+      const sw = loadServiceWorker()
+      firePush(sw, payload("order_update", { role: "cliente" }))
+      const badgeCliente = lastCall(sw).options.badge
+      firePush(sw, payload("new_order", { role: "negocio" }))
+      const badgeNegocio = lastCall(sw).options.badge
+      firePush(sw, payload("new_delivery", { role: "repartidor" }))
+      const badgeRepartidor = lastCall(sw).options.badge
+      expect(badgeCliente).toBe(DELIGO_BADGE)
+      expect(badgeNegocio).toBe(DELIGO_BADGE)
+      expect(badgeRepartidor).toBe(DELIGO_BADGE)
     })
   })
 })
