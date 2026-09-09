@@ -155,17 +155,75 @@ interface RepeatOrderResponse {
   totalOriginal: number
 }
 
-const ACTIVE_STATUSES = ["recibido", "confirmado", "preparando", "en_camino", "listo_para_retirar"]
+// P2-T29B: consistente con el filtro real server-side en
+// src/app/api/cliente/pedidos/route.ts — este array no se usa directamente
+// en este archivo hoy (la clasificación activa/historial la hace la API vía
+// ?estado=activos|historial), se mantiene sincronizado por si algo lo
+// consume en el futuro.
+const ACTIVE_STATUSES = ["recibido", "confirmado", "aceptado", "preparando", "esperando_repartidor", "en_camino", "listo_para_retirar"]
 const HISTORY_STATUSES = ["entregado", "cancelado"]
 
-// Status timeline steps for active orders
-const TIMELINE_STEPS = [
-  { key: "recibido", label: "Recibido", emoji: "📩" },
-  { key: "confirmado", label: "Confirmado", emoji: "✅" },
-  { key: "preparando", label: "Preparando", emoji: "👨‍🍳" },
-  { key: "en_camino", label: "En camino", emoji: "🛵" },
-  { key: "listo_para_retirar", label: "Listo", emoji: "📦" },
-]
+// P2-T29B-R1: mapping explícito estado -> índice de paso, independiente de
+// findIndex sobre un array de labels — así "aceptado"/"esperando_repartidor"
+// (ausentes en cualquier lista literal anterior) ya no apagan la barra de
+// progreso. Un índice por debajo del actual se muestra completado aunque el
+// pedido nunca haya pasado literalmente por ese estado (legacy
+// recibido->preparando->en_camino salta esperando_repartidor sin apagar el
+// paso "Buscando delivery" — feedback físico del operador, P2-T29B-R1 §7).
+export const DOMICILIO_STEP_INDEX: Record<string, number> = {
+  recibido: 0,
+  confirmado: 0, // legacy: ningún flujo activo hoy emite este estado
+  aceptado: 0,
+  preparando: 1,
+  esperando_repartidor: 2,
+  en_camino: 3,
+  listo_para_retirar: 4, // domicilio no debería llegar acá; se preserva por compat
+  entregado: 4,
+}
+
+export const RETIRO_STEP_INDEX: Record<string, number> = {
+  recibido: 0,
+  aceptado: 0,
+  confirmado: 1, // legacy: ningún flujo activo hoy emite este estado
+  preparando: 2,
+  listo_para_retirar: 3,
+  entregado: 3,
+}
+
+// Primer nodo dinámico (decisión del operador, P2-T29B-R1 §5): una vez que
+// el negocio aceptó (cualquier estado posterior a recibido/confirmado), el
+// nodo "Recibido" pasa a mostrarse como "Aceptado" EN EL MISMO lugar —
+// nunca coexisten como dos nodos separados.
+function firstTimelineStepMeta(estado: string): { label: string; emoji: string } {
+  const isAcceptedOrLater = estado !== "recibido" && estado !== "confirmado"
+  return isAcceptedOrLater ? { label: "Aceptado", emoji: "✅" } : { label: "Recibido", emoji: "📩" }
+}
+
+// Domicilio: exactamente 5 posiciones visuales (decisión del operador,
+// P2-T29B-R1 §3) — nunca 6.
+export function domicilioTimelineSteps(estado: string) {
+  const first = firstTimelineStepMeta(estado)
+  return [
+    { key: "recibido", label: first.label, emoji: first.emoji },
+    { key: "preparando", label: "Preparando", emoji: "👨‍🍳" },
+    { key: "esperando_repartidor", label: "Buscando delivery", emoji: "🔍" },
+    { key: "en_camino", label: "En camino", emoji: "🛵" },
+    { key: "listo_para_retirar", label: "Listo", emoji: "📦" },
+  ]
+}
+
+// Retiro: mismo layout de 4 posiciones que ya existía (no se introduce
+// "Buscando delivery" — no corresponde a este flujo, P2-T29B-R1 §8), sólo se
+// corrige que "aceptado" ya no apague la timeline.
+export function retiroTimelineSteps(estado: string) {
+  const first = firstTimelineStepMeta(estado)
+  return [
+    { key: "recibido", label: first.label, emoji: first.emoji },
+    { key: "confirmado", label: "Confirmado", emoji: "✅" },
+    { key: "preparando", label: "Preparando", emoji: "👨‍🍳" },
+    { key: "listo_para_retirar", label: "Listo", emoji: "📦" },
+  ]
+}
 
 // ============================================
 // Main Orders Panel Component
@@ -972,7 +1030,12 @@ function ActiveOrderCard({
   }, [showHighlight, pedido.id])
 
   const canCancel = (() => {
-    if (pedido.estado !== "recibido" && pedido.estado !== "confirmado") return false
+    // P2-T29B: `aceptado` (domicilio/retiro) pasa a ser un estado
+    // realmente alcanzable — CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO=SI ya
+    // estaba decidido (order-transitions.ts), esto lo hace usable de
+    // verdad: sin este gate, el backend ya aceptaría la cancelación pero
+    // el botón nunca aparecería.
+    if (pedido.estado !== "recibido" && pedido.estado !== "confirmado" && pedido.estado !== "aceptado") return false
     const tolerancia = pedido.toleranciaCancelacion ?? 5
     if (tolerancia <= 0) return false // negocio doesn't allow cancellation
     const tiempoTranscurrido = Date.now() - new Date(pedido.fecha).getTime()
@@ -1005,15 +1068,14 @@ function ActiveOrderCard({
     onError: (error: Error) => toast.error(error.message),
   })
 
-  // Get current step index in timeline
-  const currentStepIndex = TIMELINE_STEPS.findIndex((s) => s.key === pedido.estado)
   const isDelivery = pedido.metodoEntrega === "domicilio"
 
-  // Adjust timeline: if pickup, skip "en_camino"
+  // P2-T29B-R1: mapping explícito por estado (ver DOMICILIO_STEP_INDEX /
+  // RETIRO_STEP_INDEX arriba) en vez de findIndex sobre el array de labels.
   const relevantSteps = isDelivery
-    ? TIMELINE_STEPS
-    : TIMELINE_STEPS.filter((s) => s.key !== "en_camino")
-  const adjustedStepIndex = relevantSteps.findIndex((s) => s.key === pedido.estado)
+    ? domicilioTimelineSteps(pedido.estado)
+    : retiroTimelineSteps(pedido.estado)
+  const adjustedStepIndex = (isDelivery ? DOMICILIO_STEP_INDEX : RETIRO_STEP_INDEX)[pedido.estado] ?? -1
 
   return (
     <SectionCard

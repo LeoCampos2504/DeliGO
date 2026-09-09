@@ -122,7 +122,11 @@ function parseItemField(value: unknown, fallback: unknown) {
   return value
 }
 
-const activeStatuses = ["recibido", "preparando", "en_camino", "listo_para_retirar"]
+// P2-T29B: "aceptado"/"esperando_repartidor" son los 2 estados nuevos de
+// domicilio/retiro — "en_camino" se conserva por compatibilidad legacy
+// (pedidos creados antes de T29B, o el camino directo todavía aceptado por
+// la API). Ver src/lib/order-transitions.ts (NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS).
+const activeStatuses = ["recibido", "aceptado", "preparando", "esperando_repartidor", "en_camino", "listo_para_retirar"]
 const historyStatuses = ["entregado", "cancelado"]
 
 const rejectReasonsRestaurant = [
@@ -292,27 +296,35 @@ export function OrdersTab({ negocio }: OrdersTabProps) {
   }, [focusPedidoId, focusResolved, isLoading, nonMesaOrders])
 
   // Handle status transitions
+  // P2-T29B: este tab nunca muestra pedidos de mesa (ver `nonMesaOrders`
+  // más abajo, filtrado antes de llegar acá) — mesa sigue su propio flujo
+  // sin cambios en salon-tab.tsx, así que `order.metodoEntrega` acá sólo
+  // vale "domicilio" o "retiro". El nuevo flujo (recibido->aceptado-
+  // >preparando->esperando_repartidor para domicilio, ...->listo_para_
+  // retirar para retiro) es el único que la UI ofrece; "en_camino" queda
+  // como estado legacy visible-sin-acción para pedidos creados antes de
+  // T29B (VER order-transitions.ts, NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS).
   const getNextAction = (order: Pedido) => {
     switch (order.estado) {
       case "recibido":
-        return { label: "Preparando", nextStatus: "preparando", icon: Clock }
+        return { label: "Aceptar pedido", nextStatus: "aceptado", icon: CheckCircle2 }
+      case "aceptado":
+        return { label: "Preparar", nextStatus: "preparando", icon: Clock }
       case "preparando":
         if (order.metodoEntrega === "domicilio") {
-          return { label: "En camino", nextStatus: "en_camino", icon: Bike }
-        }
-        // Mesa orders go directly to "listo"
-        if (order.metodoEntrega === "mesa") {
-          return { label: "Listo para servir", nextStatus: "listo_para_retirar", icon: Armchair }
+          return { label: "Buscar repartidor", nextStatus: "esperando_repartidor", icon: Bike }
         }
         return { label: "Listo para retirar", nextStatus: "listo_para_retirar", icon: PackageCheck }
+      case "esperando_repartidor":
+        // Sin acción de Negocio — el avance a en_camino es exclusivo de la
+        // aceptación real de un Repartidor (P2-T29C, todavía no implementada).
+        return null
       case "en_camino":
-        // Delivery: business CANNOT mark as entregado — client + repartidor handle that
+        // Legacy: pedidos que llegaron a en_camino por el camino viejo
+        // (creados antes de T29B). Delivery: Negocio NUNCA marca entregado
+        // — cliente + repartidor lo hacen.
         return null
       case "listo_para_retirar":
-        // Mesa orders: business can mark as entregado directly (no client confirmation needed)
-        if (order.metodoEntrega === "mesa") {
-          return { label: "Entregado", nextStatus: "entregado", icon: CheckCircle2 }
-        }
         // Pickup: only allow entregado after client confirms receipt
         if (order.clienteConfirmaRecibido) {
           return { label: "Entregado", nextStatus: "entregado", icon: PackageCheck }
@@ -1013,6 +1025,11 @@ function OrderCard({
                 {Icon && <Icon className="h-3 w-3" />}
                 {nextAction.label}
               </Button>
+            )}
+            {!nextAction && order.estado === "esperando_repartidor" && (
+              <div className="flex-1 text-center text-[11px] text-muted-foreground py-2 px-3 rounded-xl bg-muted/50">
+                Buscando repartidor...
+              </div>
             )}
             {!nextAction && order.estado === "en_camino" && (
               <div className="flex-1 text-center text-[11px] text-muted-foreground py-2 px-3 rounded-xl bg-muted/50">

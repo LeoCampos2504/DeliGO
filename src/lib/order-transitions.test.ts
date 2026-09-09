@@ -14,9 +14,12 @@ import {
   CANONICAL_ACCEPTED_STATE,
   CANONICAL_WAITING_DRIVER_STATE,
   CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO,
+  LEGACY_AVAILABLE_DELIVERY_STATE,
   MESA_PASA_POR_ACEPTADO,
+  NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS,
   TARGET_FORWARD_TRANSITIONS,
   canTransitionToCancelled,
+  isAvailableForDriverAcceptance,
   isTerminalEstado,
   isValidForwardTransition,
 } from "./order-transitions"
@@ -133,6 +136,45 @@ describe("P2-T29A — isTerminalEstado", () => {
   })
 })
 
+describe("P2-T29B — NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS — grafo nuevo + compatibilidad legacy", () => {
+  test("DOMICILIO nuevo: recibido→aceptado, aceptado→preparando, preparando→esperando_repartidor", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "aceptado")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "aceptado", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "esperando_repartidor")).toBe(true)
+  })
+  test("DOMICILIO legacy: recibido→preparando y preparando→en_camino siguen válidos durante el rollout", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "en_camino")).toBe(true)
+  })
+  test("RETIRO nuevo: recibido→aceptado, aceptado→preparando, preparando→listo_para_retirar", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "aceptado")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "aceptado", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "preparando", "listo_para_retirar")).toBe(true)
+  })
+  test("RETIRO legacy: recibido→preparando sigue válido durante el rollout", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "preparando")).toBe(true)
+  })
+  test("MESA: recibido→preparando válido, recibido→aceptado INVÁLIDO (MESA_PASA_POR_ACEPTADO=false)", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "mesa", "recibido", "preparando")).toBe(true)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "mesa", "recibido", "aceptado")).toBe(false)
+  })
+  test("no permite saltos/retrocesos ni combinaciones cruzadas prohibidas", () => {
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "preparando", "listo_para_retirar")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "preparando", "esperando_repartidor")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "recibido", "esperando_repartidor")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "retiro", "recibido", "listo_para_retirar")).toBe(false)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "aceptado", "recibido")).toBe(false)
+  })
+  test("waiting driver boundary: esperando_repartidor NUNCA es origen de ninguna transición de Negocio — el avance a en_camino es exclusivo de T29C", () => {
+    expect(Object.keys(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS.domicilio)).not.toContain(CANONICAL_WAITING_DRIVER_STATE)
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", "esperando_repartidor", "en_camino")).toBe(false)
+  })
+  test("cliente puede cancelar desde aceptado bajo el grafo de rollout (misma política que target)", () => {
+    expect(canTransitionToCancelled(CANONICAL_ACCEPTED_STATE, "rollout")).toBe(true)
+    expect(canTransitionToCancelled(CANONICAL_WAITING_DRIVER_STATE, "rollout")).toBe(true)
+  })
+})
+
 describe("P2-T29A — ACTIVE_FORWARD_TRANSITIONS — grafo vigente hoy (sin aceptado/esperando_repartidor)", () => {
   test("domicilio: recibido→preparando→en_camino", () => {
     expect(isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, "domicilio", "recibido", "preparando")).toBe(true)
@@ -163,5 +205,42 @@ describe("P2-T29A — ACTIVE_FORWARD_TRANSITIONS — grafo vigente hoy (sin acep
     expect(isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, "domicilio", "preparando", "listo_para_retirar")).toBe(false)
     expect(isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, "retiro", "preparando", "en_camino")).toBe(false)
     expect(isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, "mesa", "preparando", "en_camino")).toBe(false)
+  })
+})
+
+describe("P2-T29C — isAvailableForDriverAcceptance (autoridad única de disponibilidad Repartidor)", () => {
+  test("nombre canónico preservado", () => {
+    expect(LEGACY_AVAILABLE_DELIVERY_STATE).toBe("en_camino")
+  })
+
+  test("domicilio + esperando_repartidor (canónico) -> disponible", () => {
+    expect(isAvailableForDriverAcceptance(CANONICAL_WAITING_DRIVER_STATE, "domicilio")).toBe(true)
+  })
+
+  test("domicilio + en_camino (legacy compat) -> disponible", () => {
+    expect(isAvailableForDriverAcceptance(LEGACY_AVAILABLE_DELIVERY_STATE, "domicilio")).toBe(true)
+  })
+
+  test("domicilio + aceptado/preparando/entregado/cancelado -> NO disponible", () => {
+    for (const estado of ["recibido", CANONICAL_ACCEPTED_STATE, "preparando", "entregado", "cancelado"]) {
+      expect(isAvailableForDriverAcceptance(estado, "domicilio")).toBe(false)
+    }
+  })
+
+  test("retiro nunca es disponible, ni siquiera con esperando_repartidor/en_camino (no debería ocurrir, pero el helper nunca lo expone)", () => {
+    expect(isAvailableForDriverAcceptance(CANONICAL_WAITING_DRIVER_STATE, "retiro")).toBe(false)
+    expect(isAvailableForDriverAcceptance(LEGACY_AVAILABLE_DELIVERY_STATE, "retiro")).toBe(false)
+  })
+
+  test("mesa nunca es disponible (MESA_PASA_POR_ACEPTADO=false, sin ventana de repartidor)", () => {
+    expect(isAvailableForDriverAcceptance(CANONICAL_WAITING_DRIVER_STATE, "mesa")).toBe(false)
+    expect(isAvailableForDriverAcceptance(LEGACY_AVAILABLE_DELIVERY_STATE, "mesa")).toBe(false)
+  })
+
+  test("esperando_repartidor->en_camino ya es una arista válida del grafo objetivo (Repartidor la produce, Negocio nunca)", () => {
+    expect(isValidForwardTransition(TARGET_FORWARD_TRANSITIONS, "domicilio", CANONICAL_WAITING_DRIVER_STATE, "en_camino")).toBe(true)
+    // NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS deliberadamente NO tiene esta arista —
+    // Negocio nunca puede producir este avance manualmente (waiting driver boundary).
+    expect(isValidForwardTransition(NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, "domicilio", CANONICAL_WAITING_DRIVER_STATE, "en_camino")).toBe(false)
   })
 })

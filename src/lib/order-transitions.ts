@@ -26,6 +26,19 @@ export type MetodoEntrega = "domicilio" | "retiro" | "mesa"
 export const CANONICAL_ACCEPTED_STATE = "aceptado" as const
 export const CANONICAL_WAITING_DRIVER_STATE = "esperando_repartidor" as const
 
+// P2-T29C: antes de T29C, "disponible para que un repartidor lo tome" se
+// representaba con `en_camino` + `repartidorId=null` (ver
+// ACTIVE_FORWARD_TRANSITIONS abajo). T29C introduce `esperando_repartidor`
+// como el estado CANÓNICO de disponibilidad y reduce `en_camino` a
+// "ya asignado, en viaje" — pero NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS
+// (abajo) sigue aceptando la arista legacy `preparando->en_camino` directa
+// durante el rollout (compatibilidad hacia atrás para un cliente HTTP viejo
+// en caché), así que un pedido puede llegar a `en_camino`+`repartidorId=null`
+// incluso DESPUÉS del deploy de T29C. `LEGACY_AVAILABLE_DELIVERY_STATE`
+// nombra explícitamente ese único caso de compatibilidad — nunca se agrega
+// un tercer valor ni se generaliza a otros estados.
+export const LEGACY_AVAILABLE_DELIVERY_STATE = "en_camino" as const
+
 // Decisiones de producto ya cerradas (P2-T29 audit + operador) — no abiertas,
 // no re-preguntar. Documentadas aquí como valores nombrados y cubiertas por
 // test puro, aunque T29A no las active todavía en ninguna API.
@@ -64,10 +77,46 @@ export const ACTIVE_FORWARD_TRANSITIONS: ForwardGraph = {
   },
 }
 
+// Grafo de ROLLOUT de Negocio para P2-T29B — el ÚNICO grafo que
+// negocio/pedidos/[id]/estado/route.ts (domicilio/retiro) consume a partir
+// de T29B. Combina, para cada origen, la arista NUEVA (hacia aceptado/
+// esperando_repartidor) con la arista LEGACY que ya existía (recibido-
+// >preparando directo, preparando->en_camino directo) — ambas coexisten
+// durante el rollout porque un pedido creado hoy y uno creado después del
+// deploy pueden competir por la MISMA transición sin que ninguno se rompa.
+// La UI nueva sólo ofrece botones para el camino nuevo; el camino legacy
+// sigue aceptado a nivel de API por si algo (un cliente HTTP viejo, un
+// reintento) todavía lo envía. Mesa es idéntico a ACTIVE_FORWARD_TRANSITIONS
+// (nunca tuvo camino legacy que preservar aquí, y nunca recibe `aceptado`:
+// MESA_PASA_POR_ACEPTADO=false). Deliberadamente NO incluye ninguna entrada
+// con origen `esperando_repartidor` — ese avance (->en_camino) es exclusivo
+// de la aceptación de Repartidor (T29C), nunca una acción de Negocio.
+export const NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS: ForwardGraph = {
+  domicilio: {
+    recibido: [CANONICAL_ACCEPTED_STATE, "preparando"], // nuevo + legacy
+    [CANONICAL_ACCEPTED_STATE]: ["preparando"],
+    preparando: [CANONICAL_WAITING_DRIVER_STATE, "en_camino"], // nuevo + legacy
+  },
+  retiro: {
+    recibido: [CANONICAL_ACCEPTED_STATE, "preparando"], // nuevo + legacy
+    [CANONICAL_ACCEPTED_STATE]: ["preparando"],
+    preparando: ["listo_para_retirar"],
+    listo_para_retirar: ["entregado"],
+  },
+  mesa: {
+    recibido: ["preparando"],
+    preparando: ["listo_para_retirar"],
+    listo_para_retirar: ["entregado"],
+  },
+}
+
 // Grafo OBJETIVO (P2-T29) — con `aceptado`/`esperando_repartidor`. MESA
 // deliberadamente NO recibe `aceptado` (MESA_PASA_POR_ACEPTADO=false): no
 // existe la ventana de decisión remota que ese estado expone en
-// domicilio/retiro (ver el audit, §2). Sin uso productivo en T29A.
+// domicilio/retiro (ver el audit, §2). Sin uso productivo en T29A; a partir
+// de T29B, `NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS` (arriba) es el grafo
+// realmente activo para Negocio — este sigue siendo la referencia pura del
+// grafo FINAL (sin las aristas legacy de compatibilidad).
 export const TARGET_FORWARD_TRANSITIONS: ForwardGraph = {
   domicilio: {
     recibido: [CANONICAL_ACCEPTED_STATE],
@@ -106,9 +155,11 @@ export function isValidForwardTransition(
 }
 
 // Estados no-terminales desde los que hoy se permite cancelar (idéntico para
-// las 3 modalidades: cualquier no-terminal). `target` agrega los 2 estados
-// nuevos, reflejando CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO — sin uso productivo
-// en T29A, sólo para test puro.
+// las 3 modalidades: cualquier no-terminal). `target`/`rollout` agregan los
+// 2 estados nuevos, reflejando CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO — la
+// política de cancelación es la MISMA en el grafo objetivo y en el rollout
+// de T29B (nunca cambia entre una fase y otra, sólo qué transiciones hacia
+// ADELANTE están activas cambia).
 const CANCELLABLE_STATES_ACTIVE = ["recibido", "preparando", "en_camino", "listo_para_retirar"]
 const CANCELLABLE_STATES_TARGET = [
   ...CANCELLABLE_STATES_ACTIVE,
@@ -116,7 +167,20 @@ const CANCELLABLE_STATES_TARGET = [
   CANONICAL_WAITING_DRIVER_STATE,
 ]
 
-export function canTransitionToCancelled(estado: string, graph: "active" | "target" = "active"): boolean {
-  const list = graph === "target" ? CANCELLABLE_STATES_TARGET : CANCELLABLE_STATES_ACTIVE
+export function canTransitionToCancelled(estado: string, graph: "active" | "target" | "rollout" = "active"): boolean {
+  const list = graph === "active" ? CANCELLABLE_STATES_ACTIVE : CANCELLABLE_STATES_TARGET
   return list.includes(estado)
+}
+
+// P2-T29C: único punto de verdad para "¿este pedido es una oferta de
+// delivery visible para Repartidor?" — usado tanto por el filtro de
+// disponibilidad (GET /api/repartidor/pedidos) como por la validación previa
+// a la aceptación CAS (POST /api/repartidor/pedidos/[id]/aceptar) y por
+// auto-cancel, así los 3 call sites nunca pueden divergir sobre qué cuenta
+// como "disponible". Sólo domicilio; nunca retiro/mesa (MESA_PASA_POR_
+// ACEPTADO=false ya establece que mesa no tiene ventana de disponibilidad
+// remota — retiro tampoco expone repartidor).
+export function isAvailableForDriverAcceptance(estado: string, metodoEntrega: MetodoEntrega): boolean {
+  if (metodoEntrega !== "domicilio") return false
+  return estado === CANONICAL_WAITING_DRIVER_STATE || estado === LEGACY_AVAILABLE_DELIVERY_STATE
 }

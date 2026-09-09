@@ -70,7 +70,10 @@ export function statusEmoji(status: string): string {
   const map: Record<string, string> = {
     recibido: "📩",
     confirmado: "✅",
+    // P2-T29B: nuevos estados de domicilio/retiro (order-transitions.ts).
+    aceptado: "✅",
     preparando: "👨‍🍳",
+    esperando_repartidor: "🔍",
     en_camino: "🛵",
     listo_para_retirar: "📦",
     entregado: "🎉",
@@ -86,7 +89,11 @@ export function statusLabel(status: string): string {
   const map: Record<string, string> = {
     recibido: "Recibido",
     confirmado: "Confirmado",
+    // P2-T29B: nuevos estados de domicilio/retiro (order-transitions.ts) —
+    // nunca mostrar el string raw con guión bajo al usuario.
+    aceptado: "Aceptado",
     preparando: "Preparando",
+    esperando_repartidor: "Buscando repartidor",
     en_camino: "En camino",
     listo_para_retirar: "Listo para retirar",
     entregado: "Entregado",

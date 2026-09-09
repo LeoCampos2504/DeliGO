@@ -867,6 +867,25 @@ export function orderUpdateNotification(
   }
 }
 
+// P2-T29B-R1: copy dedicado para la transición domicilio
+// preparando -> esperando_repartidor (feedback físico del operador — antes
+// esta transición no enviaba notificación al Cliente porque T29B difería su
+// copy). Reusa tipo "order_update" (misma ruta de navegación que el resto
+// de actualizaciones de pedido para Cliente) y el mismo `tag` que
+// orderUpdateNotification para agrupar/reemplazar notificaciones del mismo
+// pedido en vez de apilarlas.
+export function waitingDriverNotification(pedidoId: string): PushNotificationPayload {
+  return {
+    title: "Buscando delivery",
+    body: "El local está esperando un delivery para tu pedido.",
+    tag: `order-${pedidoId}`,
+    data: {
+      type: "order_update",
+      pedidoId,
+    },
+  }
+}
+
 export function newOrderNotification(
   pedidoId: string,
   clienteNombre: string,

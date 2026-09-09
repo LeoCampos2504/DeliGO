@@ -46,8 +46,11 @@ export async function PUT(
     }
 
     if (action === "cancelar") {
-      // Can only cancel if still in early stages
-      const cancellableStatuses = ["recibido", "confirmado"]
+      // Can only cancel if still in early stages.
+      // P2-T29B: `aceptado` pasa a ser realmente alcanzable (domicilio/
+      // retiro) — CLIENTE_PUEDE_CANCELAR_EN_ACEPTADO=SI ya estaba decidido
+      // en la autoridad (order-transitions.ts) desde T29A, ahora se activa acá.
+      const cancellableStatuses = ["recibido", "confirmado", "aceptado"]
 
       // Check cancellation tolerance time (regla de negocio, no financiera — se evalúa
       // con los datos ya leídos antes de esta acción; no cambia por concurrencia).
