@@ -842,6 +842,13 @@ export function orderUpdateNotification(
 ): PushNotificationPayload {
   const statusMessages: Record<string, string> = {
     confirmado: `${negocioNombre} confirmó tu pedido`,
+    // P2-T29D: residual identificado en la auditoría de cierre de T29
+    // (P2_T29_ESPERANDO_REPARTIDOR_ACCEPTANCE_REDESIGN_AUDIT_AND_DESIGN.md
+    // §10) — T29B/T29B-R1 lo dejaron deliberadamente mudo ("diferido a
+    // T29D"). Copy decidido explícitamente por el operador (no inventado):
+    // mismo estilo que confirmado/preparando, aplica a domicilio Y retiro
+    // (mesa nunca alcanza `aceptado`, MESA_PASA_POR_ACEPTADO=false).
+    aceptado: `${negocioNombre} aceptó tu pedido`,
     preparando: `${negocioNombre} está preparando tu pedido`,
     en_camino: "Tu pedido está en camino 🛵",
     listo_para_retirar: "Tu pedido está listo para retirar 📦",

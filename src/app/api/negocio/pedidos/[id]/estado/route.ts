@@ -9,7 +9,7 @@ import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-no
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, CANONICAL_ACCEPTED_STATE, CANONICAL_WAITING_DRIVER_STATE, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
+import { NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, CANONICAL_WAITING_DRIVER_STATE, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -300,12 +300,10 @@ async function handlePedidoEstadoChange(
 
     const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
 
-    // P2-T29B: "aceptado" NO tiene todavía copy propio en
-    // orderUpdateNotification — enviar ahí caería al fallback genérico
-    // "Tu pedido cambió a: aceptado", exactamente la notificación nueva que
-    // la tarea explícitamente difiere a T29D. "preparando" ya tiene su
-    // mensaje existente y sigue enviándose sin cambios.
-    const isAcceptedWithoutClientCopy = estado === CANONICAL_ACCEPTED_STATE
+    // P2-T29D: "aceptado" ya tiene copy propio en orderUpdateNotification
+    // (residual cerrado — ver src/lib/push.ts) y fluye por el mismo camino
+    // genérico que "confirmado"/"preparando", sin necesitar ningún branch
+    // especial acá.
 
     // P2-T29B-R1: "esperando_repartidor" SÍ tiene copy dedicado ahora
     // (waitingDriverNotification, feedback físico del operador) — pero SÓLO
@@ -318,8 +316,7 @@ async function handlePedidoEstadoChange(
     const isWaitingDriverState = estado === CANONICAL_WAITING_DRIVER_STATE
     const isWaitingDriverNotifiable =
       isWaitingDriverState && currentEstado === "preparando" && pedido.metodoEntrega === "domicilio"
-    const suppressClientNotification =
-      isAcceptedWithoutClientCopy || (isWaitingDriverState && !isWaitingDriverNotifiable)
+    const suppressClientNotification = isWaitingDriverState && !isWaitingDriverNotifiable
 
     // Send notification to the client about order status update
     if (pedido.clienteId && !suppressClientNotification) {
