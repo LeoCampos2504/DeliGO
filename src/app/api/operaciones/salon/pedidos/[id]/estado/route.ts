@@ -4,19 +4,22 @@ import { requireOperacionesArea, hasTerminalScope } from "@/lib/operaciones-term
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import type { OperacionesScope } from "@/lib/operaciones-terminal-permissions"
+import { ACTIVE_FORWARD_TRANSITIONS } from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 // Mensaje genérico de conflicto: no revela negocio, IDs, estados de otros pedidos ni concurrencia.
 const CONFLICT_MESSAGE = "El pedido ya cambió o no puede actualizarse. Actualizá el panel."
 
-// Transición → estado actual requerido (subset estricto de pedidos de mesa).
-// Coincide con VALID_TRANSITIONS del proyecto para mesa:
-//   recibido → preparando · preparando → listo_para_retirar · listo_para_retirar → entregado
-const REQUIRED_CURRENT: Record<string, string> = {
-  preparando: "recibido",
-  listo_para_retirar: "preparando",
-  entregado: "listo_para_retirar",
-}
+// P2-T29A: la tabla local `REQUIRED_CURRENT` (transición → estado actual
+// requerido) fue reemplazada por la autoridad compartida
+// `order-transitions.ts` (ACTIVE_FORWARD_TRANSITIONS.mesa) — mismo grafo
+// exacto (recibido→preparando→listo_para_retirar→entregado), invertido aquí
+// mediante REQUIRED_CURRENT_BY_TARGET (derivado, no una copia manual).
+const REQUIRED_CURRENT_BY_TARGET: Record<string, string> = Object.fromEntries(
+  Object.entries(ACTIVE_FORWARD_TRANSITIONS.mesa).flatMap(([from, targets]) =>
+    targets.map((to) => [to, from])
+  )
+)
 
 // Transición → scope requerido.
 const REQUIRED_SCOPE: Record<string, OperacionesScope> = {
@@ -63,7 +66,7 @@ export async function PATCH(
     }
 
     // 2) Transición soportada por esta ruta operativa.
-    const requiredCurrent = REQUIRED_CURRENT[estado]
+    const requiredCurrent = REQUIRED_CURRENT_BY_TARGET[estado]
     const requiredScope = REQUIRED_SCOPE[estado]
     if (!requiredCurrent || !requiredScope) {
       return conflict()

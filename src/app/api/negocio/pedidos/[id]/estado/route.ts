@@ -9,6 +9,7 @@ import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-no
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -31,13 +32,13 @@ function noStoreJson<T>(data: T, init?: ResponseInit) {
   return response
 }
 
-// Valid state transitions
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  recibido: ["preparando", "cancelado"],
-  preparando: ["en_camino", "listo_para_retirar", "cancelado"],
-  en_camino: ["cancelado"], // business cannot mark entregado for delivery — client + repartidor handle that
-  listo_para_retirar: ["entregado", "cancelado"], // entregado only if clienteConfirmaRecibido
-}
+// P2-T29A: la tabla local `VALID_TRANSITIONS` fue reemplazada por la
+// autoridad compartida `order-transitions.ts` (ACTIVE_FORWARD_TRANSITIONS +
+// canTransitionToCancelled) — mismo comportamiento observable, sin la
+// tercera/cuarta copia independiente de estas reglas que la auditoría P2-T29
+// encontró duplicadas entre este archivo, operaciones/pyr/estado,
+// operaciones/salon/estado y negocio/pedidos (PUT). Ver
+// codex-reports/P2_T29A_ORDER_TRANSITION_AUTHORITY_CAS_AND_CONCURRENCY_TESTS.md.
 
 // P2-T28: punto de pausa SOLO para el test determinista de ownership del
 // state lock (ver src/app/api/negocio/pedidos/[id]/estado/order-estado-lock-ownership.test.ts).
@@ -146,22 +147,14 @@ async function handlePedidoEstadoChange(
       )
     }
 
-    const allowedTransitions = VALID_TRANSITIONS[currentEstado]
-    if (!allowedTransitions || !allowedTransitions.includes(estado)) {
+    const metodoEntregaTipado = pedido.metodoEntrega as MetodoEntrega
+    const esTransicionValida =
+      estado === "cancelado"
+        ? canTransitionToCancelled(currentEstado)
+        : isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, metodoEntregaTipado, currentEstado, estado)
+    if (!esTransicionValida) {
       return noStoreJson(
         { error: `Transición no válida: ${currentEstado} → ${estado}` },
-        { status: 400 }
-      )
-    }
-
-    // Validate: preparando → en_camino only for delivery orders
-    if (
-      currentEstado === "preparando" &&
-      estado === "en_camino" &&
-      pedido.metodoEntrega !== "domicilio"
-    ) {
-      return noStoreJson(
-        { error: "Solo pedidos con delivery pueden pasar a 'en camino'" },
         { status: 400 }
       )
     }
@@ -254,9 +247,24 @@ async function handlePedidoEstadoChange(
         },
       })
     } else {
-      updated = await db.pedido.update({
+      // P2-T29A: CAS real (antes: `update()` plano, sin condición de estado —
+      // dependía ÚNICAMENTE del lock process-local de arriba para exclusión
+      // mutua, inseguro ante múltiples instancias/workers de Railway). La
+      // condición `estado: currentEstado` en el WHERE es la autoridad final;
+      // el lock process-local queda como guard suplementario, no reemplazado.
+      const casWhere: Record<string, unknown> = { id: pedidoId, negocioId, estado: currentEstado }
+      if (estado === "entregado" && pedido.metodoEntrega !== "mesa") {
+        casWhere.clienteConfirmaRecibido = true
+      }
+      const cas = await db.pedido.updateMany({ where: casWhere, data: updateData })
+      if (cas.count !== 1) {
+        return noStoreJson(
+          { error: "El pedido cambió en otro dispositivo. Actualizá el panel." },
+          { status: 409 }
+        )
+      }
+      updated = await db.pedido.findUniqueOrThrow({
         where: { id: pedidoId },
-        data: updateData,
         include: {
           items: {
             include: {
