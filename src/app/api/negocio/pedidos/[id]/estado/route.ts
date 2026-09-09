@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { createNotification, orderUpdateNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, waitingDriverNotification, newDeliveryNotification, reviewRequestNotification } from "@/lib/push"
 import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
@@ -300,21 +300,37 @@ async function handlePedidoEstadoChange(
 
     const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
 
-    // P2-T29B: "aceptado"/"esperando_repartidor" NO tienen todavía copy propio
-    // en orderUpdateNotification — enviar ahí caería al fallback genérico
+    // P2-T29B: "aceptado" NO tiene todavía copy propio en
+    // orderUpdateNotification — enviar ahí caería al fallback genérico
     // "Tu pedido cambió a: aceptado", exactamente la notificación nueva que
     // la tarea explícitamente difiere a T29D. "preparando" ya tiene su
     // mensaje existente y sigue enviándose sin cambios.
-    const isNewT29StateWithoutClientCopy = estado === CANONICAL_ACCEPTED_STATE || estado === CANONICAL_WAITING_DRIVER_STATE
+    const isAcceptedWithoutClientCopy = estado === CANONICAL_ACCEPTED_STATE
+
+    // P2-T29B-R1: "esperando_repartidor" SÍ tiene copy dedicado ahora
+    // (waitingDriverNotification, feedback físico del operador) — pero SÓLO
+    // para la transición real domicilio preparando->esperando_repartidor.
+    // NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS ya garantiza que sea la única
+    // forma de llegar a este estado desde este endpoint (retiro no tiene
+    // arista hacia esperando_repartidor), pero se valida explícitamente acá
+    // para no depender únicamente de esa autoridad y así nunca caer en el
+    // fallback genérico con el estado crudo si algo cambiara.
+    const isWaitingDriverState = estado === CANONICAL_WAITING_DRIVER_STATE
+    const isWaitingDriverNotifiable =
+      isWaitingDriverState && currentEstado === "preparando" && pedido.metodoEntrega === "domicilio"
+    const suppressClientNotification =
+      isAcceptedWithoutClientCopy || (isWaitingDriverState && !isWaitingDriverNotifiable)
 
     // Send notification to the client about order status update
-    if (pedido.clienteId && !isNewT29StateWithoutClientCopy) {
+    if (pedido.clienteId && !suppressClientNotification) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        const payload = orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
+        const payload = isWaitingDriverNotifiable
+          ? waitingDriverNotification(pedidoId)
+          : orderUpdateNotification(pedidoId, pedido.negocioNombre, estado)
         await createNotification({
           userId: pedido.clienteId,
           userType: "cliente",

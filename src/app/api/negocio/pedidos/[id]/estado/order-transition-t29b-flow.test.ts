@@ -114,9 +114,17 @@ async function cleanup() {
     await db.negocio.deleteMany({ where: { id: { in: negocioIds } } })
   }
   if (clienteIds.length) {
+    await db.notificacion.deleteMany({ where: { userId: { in: clienteIds } } }).catch(() => {})
     await db.sesion.deleteMany({ where: { userId: { in: clienteIds } } })
     await db.cliente.deleteMany({ where: { id: { in: clienteIds } } })
   }
+}
+
+async function clienteNotifications(pedidoId: string, clienteId: string) {
+  return db.notificacion.findMany({
+    where: { pedidoId, userId: clienteId, userType: "cliente" },
+    orderBy: { createdAt: "asc" },
+  })
 }
 
 beforeAll(async () => {
@@ -321,5 +329,71 @@ describe("P2-T29B — cancelación desde aceptado (Negocio)", () => {
     expect(res.status).toBe(200)
     const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedido.id } })
     expect(fresh.estado).toBe("cancelado")
+  })
+})
+
+// P2-T29B-R1: feedback físico del operador — preparando->esperando_repartidor
+// (domicilio) ahora envía UNA notificación dedicada al Cliente
+// ("Buscando delivery" / "El local está esperando un delivery para tu
+// pedido."), nunca el fallback genérico con el estado crudo. `aceptado`
+// sigue sin notificación propia (diferida a T29D, sin cambios en este task).
+describe("P2-T29B-R1 — notificación Cliente 'Buscando delivery' (preparando→esperando_repartidor)", () => {
+  test("domicilio: aceptado no genera notificación nueva; preparando conserva su copy existente sin cambios; esperando_repartidor genera exactamente 1 con el copy dedicado", async () => {
+    const negocio = await ensureNegocio("notif-dom-flow")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "domicilio", `198.51.100.${randomUUID().slice(0, 8)}`)
+    expect(pedido.clienteId).toBeTruthy()
+
+    const toAceptado = await cambiar(pedido.id, { estado: "aceptado" }, negocioSession)
+    expect(toAceptado.status).toBe(200)
+    expect(await clienteNotifications(pedido.id, pedido.clienteId)).toHaveLength(0)
+
+    const toPreparando = await cambiar(pedido.id, { estado: "preparando" }, negocioSession)
+    expect(toPreparando.status).toBe(200)
+    // "preparando" ya tenía copy propio antes de T29B-R1 (sin cambios, fuera
+    // de alcance de esta tarea) — sólo se verifica que no sea el copy nuevo.
+    const afterPreparando = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(afterPreparando.filter((n) => n.titulo === "Buscando delivery")).toHaveLength(0)
+
+    const toEsperando = await cambiar(pedido.id, { estado: "esperando_repartidor" }, negocioSession)
+    expect(toEsperando.status).toBe(200)
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    const waitingDriverNotifs = notifs.filter((n) => n.titulo === "Buscando delivery")
+    expect(waitingDriverNotifs).toHaveLength(1)
+    expect(waitingDriverNotifs[0].cuerpo).toBe("El local está esperando un delivery para tu pedido.")
+    expect(waitingDriverNotifs[0].cuerpo).not.toContain("esperando_repartidor")
+  })
+
+  test("retiro: la transición a esperando_repartidor es rechazada (400) y nunca genera la notificación de 'Buscando delivery'", async () => {
+    const negocio = await ensureNegocio("notif-ret-noaccept")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "retiro", `198.51.100.${randomUUID().slice(0, 8)}`)
+    await db.pedido.update({ where: { id: pedido.id }, data: { estado: "preparando" } })
+
+    const res = await cambiar(pedido.id, { estado: "esperando_repartidor" }, negocioSession)
+    expect(res.status).toBe(400)
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    expect(notifs.filter((n) => n.titulo === "Buscando delivery")).toHaveLength(0)
+  })
+
+  test("race: dos requests concurrentes preparando→esperando_repartidor — 1 sola notificación 'Buscando delivery', 0 duplicados", async () => {
+    const negocio = await ensureNegocio("notif-cas-esperando")
+    const productoId = await ensureProducto(negocio.id)
+    const negocioSession = await createSession(negocio.id, "negocio")
+    const pedido = await crearYObtenerPedido(negocio.id, productoId, "domicilio", `198.51.100.${randomUUID().slice(0, 8)}`)
+    await db.pedido.update({ where: { id: pedido.id }, data: { estado: "preparando" } })
+
+    const [resA, resB] = await Promise.all([
+      cambiar(pedido.id, { estado: "esperando_repartidor" }, negocioSession),
+      cambiar(pedido.id, { estado: "esperando_repartidor" }, negocioSession),
+    ])
+    const statuses = [resA.status, resB.status].sort()
+    expect(statuses).toEqual([200, 409])
+
+    const notifs = await clienteNotifications(pedido.id, pedido.clienteId)
+    const waitingDriverNotifs = notifs.filter((n) => n.titulo === "Buscando delivery")
+    expect(waitingDriverNotifs).toHaveLength(1)
   })
 })
