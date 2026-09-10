@@ -5,6 +5,7 @@ import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, chatMessageNotification } from "@/lib/push"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS_NO_MESA } from "@/lib/order-transitions"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: mensajes de un pedido activo
@@ -37,9 +38,6 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // la transicion de estado del pedido se revalida ATOMICAMENTE (SELECT ... FOR UPDATE) en la
 // misma transaccion que crea el mensaje, igual que ya hace la Terminal Operativa, para que
 // un pedido que se finaliza entre la lectura y la escritura no permita crear un mensaje.
-
-// Mismos estados activos no-mesa que GET /api/operativo/pyr/pedidos.
-const ESTADOS_ACTIVOS_NO_MESA = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 
 // Limite fijo y seguro de mensajes devueltos (sin paginacion de cliente en esta etapa).
 // Mismo valor que ya usa la Terminal Operativa PyR para esta misma conversacion.

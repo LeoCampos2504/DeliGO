@@ -54,8 +54,9 @@ interface PedidoItem {
 }
 
 interface PedidoAcciones {
+  puedeAceptarPedido: boolean
   puedeIniciarPreparacion: boolean
-  puedeMarcarEnCamino: boolean
+  puedeBuscarRepartidor: boolean
   puedeMarcarListoParaRetirar: boolean
   puedeMarcarEntregado: boolean
   puedeCancelar: boolean
@@ -75,8 +76,9 @@ interface PedidoPyR {
 function normalizeAcciones(raw: unknown): PedidoAcciones {
   const a = (raw ?? {}) as Record<string, unknown>
   return {
+    puedeAceptarPedido: a.puedeAceptarPedido === true,
     puedeIniciarPreparacion: a.puedeIniciarPreparacion === true,
-    puedeMarcarEnCamino: a.puedeMarcarEnCamino === true,
+    puedeBuscarRepartidor: a.puedeBuscarRepartidor === true,
     puedeMarcarListoParaRetirar: a.puedeMarcarListoParaRetirar === true,
     puedeMarcarEntregado: a.puedeMarcarEntregado === true,
     puedeCancelar: a.puedeCancelar === true,
@@ -119,10 +121,20 @@ const STATUS_CONFIG: Record<
     chipColor: "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
     icon: AlertCircle,
   },
+  aceptado: {
+    label: "Aceptado",
+    chipColor: "bg-teal-100 text-teal-700 dark:bg-teal-950/30 dark:text-teal-300",
+    icon: CheckCircle2,
+  },
   preparando: {
     label: "Preparando",
     chipColor: "bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300",
     icon: Flame,
+  },
+  esperando_repartidor: {
+    label: "Buscando repartidor",
+    chipColor: "bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300",
+    icon: Bike,
   },
   en_camino: {
     label: "En camino",
@@ -742,8 +754,9 @@ function PedidoAcciones({
   }
 
   const hasAnyAction =
+    a.puedeAceptarPedido ||
     a.puedeIniciarPreparacion ||
-    a.puedeMarcarEnCamino ||
+    a.puedeBuscarRepartidor ||
     a.puedeMarcarListoParaRetirar ||
     a.puedeMarcarEntregado ||
     a.puedeCancelar
@@ -751,6 +764,16 @@ function PedidoAcciones({
 
   return (
     <div className="mt-4 space-y-2">
+      {a.puedeAceptarPedido && (
+        <Button
+          className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
+          disabled={saving}
+          onClick={() => onAction(pedido.id, "aceptado")}
+        >
+          {saving ? Spinner : <CheckCircle2 className="h-4 w-4" />}
+          Aceptar pedido
+        </Button>
+      )}
       {a.puedeIniciarPreparacion && (
         <Button
           className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
@@ -761,14 +784,14 @@ function PedidoAcciones({
           Empezar preparación
         </Button>
       )}
-      {a.puedeMarcarEnCamino && (
+      {a.puedeBuscarRepartidor && (
         <Button
           className="w-full rounded-xl gap-1.5 h-10 text-sm font-semibold"
           disabled={saving}
-          onClick={() => onAction(pedido.id, "en_camino")}
+          onClick={() => onAction(pedido.id, "esperando_repartidor")}
         >
           {saving ? Spinner : <Bike className="h-4 w-4" />}
-          Marcar en camino
+          Buscar repartidor
         </Button>
       )}
       {a.puedeMarcarListoParaRetirar && (

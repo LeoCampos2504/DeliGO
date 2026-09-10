@@ -8,36 +8,33 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { CANONICAL_ACCEPTED_STATE } from "@/lib/order-transitions"
 
 // ============================================
-// DeliGO Operaciones — PyR personal: iniciar preparación (Operaciones-1P.1)
+// DeliGO Operaciones — PyR personal: aceptar pedido (P2-T42)
 // ============================================
 // Acción FIJA (no un endpoint genérico de estados): transición única
-//   aceptado → preparando  para un pedido no-mesa (domicilio/retiro) del negocio autorizado.
+//   recibido → aceptado  para un pedido no-mesa (domicilio/retiro) del negocio autorizado.
 // Identidad: EXCLUSIVAMENTE cuenta personal (deligo_operativo_session) con área efectiva
 // "pyr". No usa cookie/APIs/scopes de terminal.
 //
 // El `id` del pedido viene SOLO del parámetro de ruta. El estado destino es fijo en
-// servidor ("preparando"). El `slug` (query) solo selecciona el negocio a autorizar; no
+// servidor ("aceptado"). El `slug` (query) solo selecciona el negocio a autorizar; no
 // autoriza por sí solo: el resolver valida sesión → cuenta → negocio(slug) → empleado
 // vinculado → área efectiva "pyr". Nunca se aceptan estado/negocioId/pedidoId/clienteId/
 // empleadoId/terminalId/metodoEntrega/repartidorId/mesaId desde body/query/headers.
 //
-// P2-T42: el origen del CAS pasa de "recibido" a "aceptado" — el paso de aceptación
-// explícita (ver `.../pedidos/[id]/aceptar/route.ts`, nuevo) ahora antecede a este, igual
-// que ya hace Negocio desde P2-T29B (recibido→aceptado→preparando). El endpoint terminal
-// equivalente (`operaciones/pyr/pedidos/[id]/estado`) sigue aceptando además, a nivel de
-// API, la arista legacy recibido→preparando directa (rollout, ver order-transitions.ts) —
-// pero esta ruta personal fija es de UN SOLO origen posible, así que se actualiza al
-// origen canónico nuevo sin necesidad de aceptar ambos.
-//
-// Fuente terminal reutilizada (ver CODEX_REPORT.md): el único endpoint terminal real que
-// gestiona esta transición para PyR no-mesa es un PATCH genérico multi-estado. Esta ruta
-// personal reutiliza EXACTAMENTE, para el caso fijo aceptado→preparando: el mismo CAS
-// (id + negocioId + metodoEntrega != "mesa" + estado = "aceptado"), la misma auditoría
-// (logPedidoEstadoChange, best-effort, actor personal) y la misma notificación al cliente
-// (orderUpdateNotification + createNotification, best-effort, tipo "order_update"), sin
-// crear ningún helper, tipo, payload ni canal nuevo.
+// P2-T42: inserta el paso de aceptación explícita que ya usa Negocio desde P2-T29B
+// (recibido→aceptado→preparando en vez de recibido→preparando directo) — el modelo
+// canónico vigente, ver `src/lib/order-transitions.ts` (`PYR_ROLLOUT_FORWARD_TRANSITIONS`,
+// alias de `NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS`, reutilizado sin copiarlo por
+// `operaciones/pyr/pedidos/[id]/estado`, el endpoint Terminal equivalente). Reutiliza
+// EXACTAMENTE el mismo CAS (id + negocioId + metodoEntrega != "mesa" + estado="recibido"),
+// la misma auditoría (logPedidoEstadoChange, best-effort, actor personal) y la misma
+// notificación al cliente (orderUpdateNotification — ya tiene copy propio para "aceptado",
+// ver push.ts P2-T29D — + createNotification, best-effort, tipo "order_update") que ya usan
+// `preparar`/`buscar-repartidor`, sin crear ningún helper, tipo, payload ni canal nuevo.
+// Sin notificación a repartidores en este paso (igual que Negocio: sólo
+// preparando->esperando_repartidor dispara esa notificación).
 
-const CONFLICT_MESSAGE = "El pedido ya no está disponible para iniciar la preparación."
+const CONFLICT_MESSAGE = "El pedido ya no está disponible para aceptarlo."
 
 function conflict() {
   return NextResponse.json({ ok: false, error: CONFLICT_MESSAGE }, { status: 409 })
@@ -80,20 +77,20 @@ export async function POST(
     })
     if (!pedido) return noStore(conflict())
 
-    // 4) CAS atómico: solo si sigue en "aceptado". La decisión final es SIEMPRE el
+    // 4) CAS atómico: solo si sigue en "recibido". La decisión final es SIEMPRE el
     //    resultado de updateMany (nunca una lectura previa + update libre).
     const result = await db.pedido.updateMany({
       where: {
         id,
         negocioId,
         metodoEntrega: { not: "mesa" },
-        estado: CANONICAL_ACCEPTED_STATE,
+        estado: "recibido",
       },
-      data: { estado: "preparando" },
+      data: { estado: CANONICAL_ACCEPTED_STATE },
     })
 
     if (result.count !== 1) {
-      // Ya no está en "aceptado" (carrera perdida) o cambió entre la lectura y el CAS.
+      // Ya no está en "recibido" (carrera perdida) o cambió entre la lectura y el CAS.
       return noStore(conflict())
     }
 
@@ -102,25 +99,26 @@ export async function POST(
     try {
       await logPedidoEstadoChange({
         pedidoId: id,
-        estadoNuevo: "preparando",
-        estadoAnterior: CANONICAL_ACCEPTED_STATE,
+        estadoNuevo: CANONICAL_ACCEPTED_STATE,
+        estadoAnterior: "recibido",
         userId: auth.cuenta.id,
         userType: "cuenta_operativa",
       })
     } catch {
-      console.error("[OperativoPyR] Falló la auditoría de inicio de preparación")
+      console.error("[OperativoPyR] Falló la auditoría de aceptación de pedido")
     }
 
     // 6) Notificación existente al cliente (best-effort), reutilizando exactamente el
-    //    mismo helper de payload y el mismo tipo que el flujo terminal. Solo al cliente del
-    //    pedido; nunca a mozos, terminales, empleados ni al negocio.
+    //    mismo helper de payload (ya tiene copy para "aceptado") y el mismo tipo que el
+    //    flujo terminal. Solo al cliente del pedido; nunca a mozos, terminales, empleados
+    //    ni al negocio.
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        const payload = orderUpdateNotification(id, pedido.negocioNombre, "preparando")
+        const payload = orderUpdateNotification(id, pedido.negocioNombre, CANONICAL_ACCEPTED_STATE)
         await createNotification({
           userId: pedido.clienteId,
           userType: "cliente",
@@ -134,14 +132,14 @@ export async function POST(
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
         })
       } catch {
-        console.error("[OperativoPyR] Falló la notificación de inicio de preparación")
+        console.error("[OperativoPyR] Falló la notificación de aceptación de pedido")
       }
     }
 
     // 7) Respuesta mínima: nunca se devuelve el pedido completo.
     return noStore(NextResponse.json({ ok: true, pedido: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al iniciar preparación:", safeErrorForLog(error))
+    console.error("[OperativoPyR] Error al aceptar pedido:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

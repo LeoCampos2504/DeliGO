@@ -8,6 +8,7 @@ import { uploadImage, uploadFile } from "@/lib/cloudinary"
 import { writeFile, mkdir } from "fs/promises"
 import { existsSync } from "fs"
 import { join } from "path"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS } from "@/lib/order-transitions"
 
 // ============================================
 // Bugfix-4 [16]: adjuntar PDF/imagen al chat de un pedido PyR desde
@@ -28,7 +29,6 @@ import { join } from "path"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 const UNAVAILABLE_MESSAGE = "Este pedido ya no está disponible para mensajes. Volvé a Pedidos y reseñas."
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 const MAX_TEXTO_LEN = 2000
 const MAX_CHAT_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB, igual que /api/upload
 const MAX_CHAT_FILE_SIZE = 5 * 1024 * 1024 // 5MB, igual que /api/upload

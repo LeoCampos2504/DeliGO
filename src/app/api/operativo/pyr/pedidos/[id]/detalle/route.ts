@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { groupIngredientesQuitados } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS_NO_MESA } from "@/lib/order-transitions"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: detalle de un pedido activo (SOLO LECTURA)
@@ -17,7 +18,6 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // pedido que no cumple ese alcance responde 404 (no revela si existe en otro negocio, en
 // otro estado o de mesa). Sin mutaciones (no hay POST/PATCH/PUT/DELETE en este archivo).
 
-const ESTADOS_ACTIVOS_NO_MESA = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 
 function safeParseJSON(value: unknown, fallback: unknown = []) {
   if (!value) return fallback
