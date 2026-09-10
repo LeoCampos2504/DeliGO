@@ -486,15 +486,15 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
       if (!auth.ok) expect(auth.status).toBe(404)
     })
 
-    test("5. mozo nunca puede cancelar vía Terminal Operativa (área 'mozo' no existe en terminales)", async () => {
+    test("5. mozo nunca puede cancelar vía Terminal Operativa (área 'mozo' no existe en terminales; P2-T41: Terminal tampoco puede cancelar)", async () => {
       const mesaId = await crearMesa(negocioId, empleadoMozo1Id)
       const ocupacionId = await crearOcupacion(negocioId, mesaId)
       const pedidoId = await crearPedidoMesa({ negocioId, mesaId, ocupacionMesaId: ocupacionId, estado: "recibido" })
       const rawToken = await crearSesionTerminal(terminalSalonId)
       const req = reqConCookies({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
       const auth = await resolverActorCancelacionMesa(req, pedidoId)
-      expect(auth.ok).toBe(true)
-      if (auth.ok) expect(auth.actor.type).not.toBe("mozo")
+      expect(auth.ok).toBe(false)
+      if (!auth.ok) expect(auth.status).toBe(403)
     })
   })
 
@@ -571,18 +571,19 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
   })
 
   describe("D. Permisos — Salón terminal", () => {
-    test("1. terminal con área salon del mismo negocio puede cancelar", async () => {
+    test("1. P2-T41: terminal con área salon del mismo negocio NUNCA puede cancelar (Terminal Operativa es de solo lectura para esta acción)", async () => {
       const mesaId = await crearMesa(negocioId)
       const ocupacionId = await crearOcupacion(negocioId, mesaId)
       const pedidoId = await crearPedidoMesa({ negocioId, mesaId, ocupacionMesaId: ocupacionId, estado: "listo_para_retirar" })
       const rawToken = await crearSesionTerminal(terminalSalonId)
       const req = reqConCookies({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
       const auth = await resolverActorCancelacionMesa(req, pedidoId)
-      expect(auth.ok).toBe(true)
-      if (!auth.ok) return
-      expect(auth.actor.type).toBe("salon_terminal")
-      const resultado = await cancelarPedidoMesa({ pedidoId, motivo: "Terminal cancela por error de carga", actor: auth.actor })
-      expect(resultado.kind).toBe("ok")
+      expect(auth.ok).toBe(false)
+      if (auth.ok) return
+      expect(auth.status).toBe(403)
+      expect(await db.pedidoEvento.count({ where: { pedidoId } })).toBe(0)
+      const pedido = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+      expect(pedido.estado).toBe("listo_para_retirar")
     })
 
     test("2. terminal revocada -> 401", async () => {
@@ -607,7 +608,7 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
       if (!auth.ok) expect(auth.status).toBe(401)
     })
 
-    test("4. terminal de OTRO negocio -> 404", async () => {
+    test("4. terminal de OTRO negocio -> 403 (P2-T41: se deniega antes de resolver el pedido; nunca llega a distinguir 404 de negocio ajeno)", async () => {
       const terminalAjena = await crearTerminal(negocioAjenoId, ["salon"])
       const mesaId = await crearMesa(negocioId)
       const ocupacionId = await crearOcupacion(negocioId, mesaId)
@@ -616,7 +617,7 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
       const req = reqConCookies({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
       const auth = await resolverActorCancelacionMesa(req, pedidoId)
       expect(auth.ok).toBe(false)
-      if (!auth.ok) expect(auth.status).toBe(404)
+      if (!auth.ok) expect(auth.status).toBe(403)
     })
 
     test("5. terminal sin área salon (solo pyr) nunca resuelve como salon_terminal", async () => {
@@ -889,17 +890,17 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
       expect(await db.pedidoEvento.count({ where: { pedidoId } })).toBe(0)
     })
 
-    test("5. terminal de Salón se identifica específicamente como 'salon_terminal', nunca genérico", async () => {
+    test("5. P2-T41: terminal de Salón nunca resuelve como actor de cancelación y no genera evento de auditoría", async () => {
       const mesaId = await crearMesa(negocioId)
       const ocupacionId = await crearOcupacion(negocioId, mesaId)
       const pedidoId = await crearPedidoMesa({ negocioId, mesaId, ocupacionMesaId: ocupacionId, estado: "recibido" })
       const rawToken = await crearSesionTerminal(terminalSalonId)
       const req = reqConCookies({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
       const auth = await resolverActorCancelacionMesa(req, pedidoId)
-      expect(auth.ok).toBe(true)
-      if (!auth.ok) return
-      expect(auth.actor.type).toBe("salon_terminal")
-      expect(auth.actor.actorId).toBe(terminalSalonId)
+      expect(auth.ok).toBe(false)
+      if (auth.ok) return
+      expect(auth.status).toBe(403)
+      expect(await db.pedidoEvento.count({ where: { pedidoId } })).toBe(0)
     })
 
     test("6. no se guarda ningún objeto de sesión completo — solo motivo, actorId y tipo ya normalizados", async () => {

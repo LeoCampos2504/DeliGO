@@ -68,10 +68,15 @@ export {
 // campos son strings libres, sin constraint de DB — ver auditoría de
 // schema.prisma en CODEX_REPORT.md). "negocio"/"vendedor"/"sistema" (valores
 // ya usados por los 4 endpoints de cancelación existentes) no se reutilizan
-// para mesa a propósito: se necesitan 4 valores distintos y auditables para
-// separar Salón personal de Salón terminal, cosa que ningún valor existente
-// permite.
-export type MesaPedidoCancelActorType = "negocio_admin" | "salon_personal" | "salon_terminal" | "mozo"
+// para mesa a propósito: se necesitan valores distintos y auditables.
+//
+// P2-T41: "salon_terminal" se retiró de este union porque Terminal Operativa
+// (dispositivo compartido) ya nunca resuelve como actor de cancelación —
+// ver sección 3 de `resolverActorCancelacionMesa`. Cancelaciones históricas
+// previas al fix pueden seguir teniendo ese string en `canceladoPor`/
+// `PedidoEvento.userType` (campos libres, sin constraint de DB), pero ningún
+// código nuevo puede volver a producirlo.
+export type MesaPedidoCancelActorType = "negocio_admin" | "salon_personal" | "mozo"
 
 export interface MesaPedidoCancelActor {
   type: MesaPedidoCancelActorType
@@ -169,27 +174,14 @@ export async function resolverActorCancelacionMesa(
     }
   }
 
-  // 3) Terminal Operativa — únicamente área "salon" (Mozo nunca opera por
-  // terminal en el proyecto; PyR nunca cancela mesa — sección 9E).
+  // 3) Terminal Operativa — P2-T41: Terminal Operativa (dispositivo
+  // compartido, no ligado a una persona) nunca está autorizada a cancelar
+  // pedidos de mesa, sin importar su área/perfil/scopes. La cancelación
+  // queda reservada a Negocio dueño, Cuenta Operativa personal de Salón
+  // (empleado identificado) y Mozo. Esto revierte, por decisión explícita
+  // del operador, la autorización que 23-A1 le daba a `salon_terminal`.
   const terminalAuth = await requireOperacionesArea(request, "salon")
-  if (terminalAuth.ok) {
-    autenticadoComoAlguien = true
-    const pedido = await db.pedido.findFirst({
-      where: { id: pedidoId, negocioId: terminalAuth.context.negocio.id },
-      select: PEDIDO_SCOPE_SELECT,
-    })
-    if (!pedido) return { ok: false, status: 404, reason: "not_found" }
-    return {
-      ok: true,
-      actor: {
-        type: "salon_terminal",
-        negocioId: terminalAuth.context.negocio.id,
-        actorId: terminalAuth.context.terminal.id,
-        nombre: terminalAuth.context.terminal.nombre,
-      },
-    }
-  }
-  if (terminalAuth.response.status === 403) {
+  if (terminalAuth.ok || terminalAuth.response.status === 403) {
     autenticadoComoAlguien = true
   }
 

@@ -153,6 +153,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!actor) {
     return jsonNoStore({ error: "No autenticado" }, { status: 401 })
   }
+  // P2-T41: Terminal Operativa nunca puede ejecutar el cierre COMERCIAL
+  // (esta ruta) — mueve dinero/pedidos/tickets. Conserva sí, sin cambios,
+  // el cierre TÉCNICO (`mesas/[id]/ocupacion`), que no toca nada de eso.
+  if (actor.type === "salon_terminal") {
+    logMesaOccupancyCloseEvent({
+      negocioId: ocupacion.negocioId,
+      mesaNumero: mesa.numero,
+      actorType: actor.type,
+      outcome: "forbidden",
+      revokedCredentials: 0,
+    })
+    return jsonNoStore({ error: "No autorizado para cerrar la cuenta", code: "MESA_CUENTA_FORBIDDEN" }, { status: 403 })
+  }
   if (actor.type === "mozo" && !actor.assignedMesaIds.includes(mesa.id)) {
     logMesaOccupancyCloseEvent({
       negocioId: ocupacion.negocioId,

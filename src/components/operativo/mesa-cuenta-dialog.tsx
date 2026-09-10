@@ -62,6 +62,13 @@ interface MesaCuentaDialogProps {
   mesaId: string
   mesaNumero: number
   className?: string
+  // P2-T41: la UI nunca es la autoridad — el servidor ya deniega el POST de
+  // cierre para actores sin permiso (ver ocupaciones/[id]/cuenta/route.ts).
+  // Este prop solo evita mostrar una acción que el servidor va a rechazar,
+  // para hosts que ya saben que su actor no puede cerrar (ej.: Terminal
+  // Operativa en /operaciones/salon). Default true para no romper ningún
+  // consumidor existente (Negocio/admin, Salón personal, Mozo).
+  canClose?: boolean
 }
 
 function formatFechaHora(iso: string): string {
@@ -82,7 +89,7 @@ async function parseErrorCode(res: Response): Promise<{ code?: string; error?: s
   }
 }
 
-export function MesaCuentaDialog({ mesaId, mesaNumero, className }: MesaCuentaDialogProps) {
+export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = true }: MesaCuentaDialogProps) {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<Status>("idle")
   const [cuenta, setCuenta] = useState<CuentaResponse | null>(null)
@@ -398,7 +405,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className }: MesaCuentaDi
                           {cuenta.closed ? "Imprimir" : "Imprimir vista previa"}
                         </Button>
                       )}
-                      {!cuenta.closed && (
+                      {!cuenta.closed && canClose && (
                         <Button
                           className="w-full gap-1.5 rounded-xl sm:w-auto"
                           disabled={!cuenta.puedeCerrar}

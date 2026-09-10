@@ -84,10 +84,10 @@ describe("23-A2 — contrato de integración: las cuatro superficies", () => {
     expect(src).not.toMatch(/fetch\(\s*[`'"]\/api\/operaciones\/pedidos/)
   })
 
-  test("Salón terminal: integra el componente compartido directamente (superficie propia, sin drawer compartido)", () => {
+  test("Salón terminal (P2-T41): YA NO integra el componente de cancelación — Terminal Operativa es de solo lectura para 'Cancelar pedido', denegado server-side en resolverActorCancelacionMesa", () => {
     const src = read(SURFACES.salonTerminal)
-    expect(src).toContain('import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"')
-    expect(src).toContain("<CancelarPedidoMesaDialog")
+    expect(src).not.toContain('import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"')
+    expect(src).not.toContain("<CancelarPedidoMesaDialog")
     expect(src).not.toMatch(/fetch\(\s*[`'"]\/api\/operaciones\/pedidos/)
   })
 
