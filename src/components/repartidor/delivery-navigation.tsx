@@ -206,7 +206,11 @@ export function DeliveryNavigation({
         {route?.nextInstruction && <p className="flex items-start gap-2 rounded-xl bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-800 dark:text-blue-200"><Route className="mt-0.5 h-4 w-4 shrink-0" /> {route.nextInstruction}</p>}
         {!route && currentCoordinate && hasDestinationCoordinates && !routeError && <p className="text-xs text-muted-foreground">Calculando ruta…</p>}
         {routeError && <p className="text-xs text-amber-700 dark:text-amber-400">{routeError}. Podés continuar con Google Maps.</p>}
-        {!trackingEligible && <p className="text-xs text-muted-foreground">Tu dispositivo puede pausar la ubicación en segundo plano.</p>}
+        <p className="text-xs text-muted-foreground">
+          {trackingEligible
+            ? "Tu dispositivo puede pausar la ubicación en segundo plano."
+            : "El seguimiento no está disponible para este pedido."}
+        </p>
 
         <div className="flex gap-2">
           {mapsUrl && <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex-1"><Button variant="outline" className="h-11 w-full gap-2 rounded-xl"><Navigation className="h-4 w-4" /> Abrir en Google Maps</Button></a>}
