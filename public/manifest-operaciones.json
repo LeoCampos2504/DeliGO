@@ -14,8 +14,8 @@
   "icons": [
     { "src": "/icon-operaciones-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-operaciones-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-operaciones-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon-operaciones-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-operaciones-maskable-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-operaciones-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "capture_links": "existing-client-navigate",
   "launch_handler": {

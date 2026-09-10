@@ -14,8 +14,9 @@
 // subir `CACHE_NAME`, un cliente que ya tenía el ícono viejo en caché lo
 // seguiría sirviendo indefinidamente pese al deploy. Ver
 // `codex-reports/DELIGO_BRANDING_R1_PWA_ROLE_ICON_REFRESH.md` — el bug del
-// substring roto en sí NO se corrige acá (fuera de alcance de este refresh
-// de branding), sólo se fuerza la invalidación real vía el bump de versión.
+// substring roto en sí se corrigió recién en P2-T36 (ver más abajo,
+// `isPwaBrandingAsset`) — en R1 seguía sin tocarse, sólo se forzaba la
+// invalidación real vía el bump de versión.
 //
 // Bugfix-4D: se sube la versión porque este deploy cambia lógica real de
 // push/notificationclick (no solo el cache de assets) — subir el número
@@ -24,7 +25,14 @@
 // a `skipWaiting()` y `activate` ya llama a `clients.claim()`, así que el SW
 // nuevo se activa e instala solo con el próximo deploy — no requiere que el
 // usuario borre datos ni reinstale la PWA.
-const CACHE_NAME = "deligo-v15";
+//
+// P2-T36 (F-P2-T36-02): se sube la versión otra vez porque este deploy
+// corrige el bug de substring documentado arriba (ver `isPwaBrandingAsset`
+// en el handler `fetch`) Y agrega assets nuevos (maskable + badge) — un
+// cliente que ya tenía un ícono viejo cacheado bajo la rama cache-first
+// (por el bug de substring, nunca invalidado por esa regla) debe purgarlo
+// también, no sólo dejar de repetir el bug hacia adelante.
+const CACHE_NAME = "deligo-v16";
 
 // Assets to pre-cache on install
 const PRE_CACHE_URLS = ["/cliente/"];
@@ -254,11 +262,21 @@ self.addEventListener("fetch", (event) => {
   // Skip Next.js HMR/WebSocket requests
   if (request.url.includes("/_next/") && request.url.includes("hmr")) return;
 
-  // NEVER cache manifest files or PWA icons — Chrome must always fetch fresh copies
+  // NEVER cache manifest files or PWA icons/badges — Chrome must always
+  // fetch fresh copies. F-P2-T36-02 fix: matching the FULL URL against the
+  // literal substrings "icon-192"/"icon-512" never matched real filenames
+  // (`icon-cliente-192x192.png` contains "cliente-192x192" right after
+  // "icon-", never the literal substring "icon-192") — these assets silently
+  // fell through to the cache-first branch below and could get stuck stale
+  // indefinitely without a `CACHE_NAME` bump. Match the pathname's actual
+  // "/icon-*.png" / "/badge-*.png" prefix instead — a real, explicit pattern
+  // instead of an accidental substring, and one that also covers the new
+  // maskable/badge assets added in P2-T36 by construction.
+  const pathname = new URL(request.url).pathname;
+  const isPwaBrandingAsset = /^\/(icon|badge)-/.test(pathname) && pathname.endsWith(".png");
   if (
     request.url.includes("manifest") ||
-    request.url.includes("icon-192") ||
-    request.url.includes("icon-512")
+    isPwaBrandingAsset
   ) {
     event.respondWith(
       fetch(request).catch(() => safeCacheMatch(request)).then((r) => r || new Response("", { status: 503 }))
@@ -418,6 +436,15 @@ self.addEventListener("push", (event) => {
     };
     const recipientRole = data.data?.role;
 
+    // P2-T36: `badge` (el pequeño ícono monocromático que Android compone
+    // sobre la propia notificación/status bar) NUNCA debe ser el mismo PNG
+    // full-color que `icon` — Android lo recorta/tiñe igual, así que un PNG
+    // a color rinde mal ahí. Se usa un ÚNICO badge neutro de DeliGO para
+    // todos los roles (Android no necesita que el badge codifique el rol,
+    // sólo `icon` lo hace) — extraído mecánicamente del propio glyph "D"
+    // blanco de icon-cliente-512x512.png (sin rediseño, sin color nuevo).
+    const DELIGO_BADGE = "/badge-deligo-monochrome-96x96.png";
+
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
     let icon;
@@ -454,7 +481,7 @@ self.addEventListener("push", (event) => {
     const options = {
       body: data.body || "",
       icon: data.icon || icon,
-      badge: data.badge || icon,
+      badge: data.badge || DELIGO_BADGE,
       tag: data.tag || undefined,
       vibrate: [100, 50, 100],
       data: {

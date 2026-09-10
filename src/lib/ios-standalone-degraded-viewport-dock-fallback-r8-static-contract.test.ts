@@ -33,9 +33,15 @@ const IOS_KEYBOARD_FIX = join(process.cwd(), "src", "components", "pwa", "ios-ke
 const DEBUG_PANEL = join(process.cwd(), "src", "components", "pwa", "ios-viewport-debug-panel.tsx")
 const GLOBALS_CSS = join(process.cwd(), "src", "app", "globals.css")
 
-const keyboardFixSource = readFileSync(IOS_KEYBOARD_FIX, "utf8")
-const debugPanelSource = readFileSync(DEBUG_PANEL, "utf8")
-const globalsCssSource = readFileSync(GLOBALS_CSS, "utf8")
+// Normalizado a LF: los blocks-regex de este archivo anclan comentarios y
+// llaves de cierre con saltos de línea literales — en un checkout con
+// core.autocrlf=true (CRLF real en disco) esos mismos anclajes fallan por
+// el \r intercalado, sin que el invariante estructural protegido haya
+// cambiado. Normalizar UNA vez aquí protege todos los regex del archivo
+// sin debilitar ninguno (siguen fallando si el código real cambia).
+const keyboardFixSource = readFileSync(IOS_KEYBOARD_FIX, "utf8").replace(/\r\n/g, "\n")
+const debugPanelSource = readFileSync(DEBUG_PANEL, "utf8").replace(/\r\n/g, "\n")
+const globalsCssSource = readFileSync(GLOBALS_CSS, "utf8").replace(/\r\n/g, "\n")
 
 // ────────────────────────────────────────────────────────────────────────
 describe("1. Prueba definitiva de que la recuperación de R7 falló (§2)", () => {

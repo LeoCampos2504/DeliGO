@@ -14,8 +14,8 @@
   "icons": [
     { "src": "/icon-negocio-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-negocio-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-negocio-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon-negocio-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-negocio-maskable-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-negocio-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "capture_links": "existing-client-navigate",
   "launch_handler": {
