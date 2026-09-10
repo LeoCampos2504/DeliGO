@@ -151,6 +151,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       )
     }
 
+    if (result.status === "pending_orders") {
+      return jsonNoStore(
+        { error: "Hay pedidos de esta ocupación todavía no entregados ni cancelados.", code: "MESA_OCCUPANCY_CLOSE_PENDING_ORDERS", pedidosPendientes: result.pendingCount },
+        { status: 409 }
+      )
+    }
+    if (result.status === "billable_account") {
+      return jsonNoStore(
+        { error: "La cuenta tiene consumo y requiere cierre comercial.", code: "MESA_OCCUPANCY_CLOSE_BILLABLE_ACCOUNT" },
+        { status: 409 }
+      )
+    }
+
     // "inconsistent"
     return jsonNoStore({ error: "Estado de ocupación inconsistente" }, { status: 409 })
   } catch (error) {

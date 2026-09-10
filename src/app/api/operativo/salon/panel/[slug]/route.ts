@@ -54,6 +54,7 @@ export async function GET(
           zona: true,
           capacidad: true,
           activa: true,
+          ocupacionActualId: true,
           // Solo el nombre/código visibles del mozo asignado (sin IDs internos).
           empleado: { select: { nombre: true, codigo: true } },
         },
@@ -71,6 +72,8 @@ export async function GET(
         orderBy: [{ fecha: "asc" }, { id: "asc" }],
         select: {
           id: true,
+          mesaId: true,
+          ocupacionMesaId: true,
           mesaNumero: true,
           estado: true,
           total: true,
@@ -78,16 +81,31 @@ export async function GET(
       }),
     ])
 
-    // Mapa mesaNumero → pedidos activos.
-    const ordersByMesa = new Map<number, { id: string; estado: string; total: number }[]>()
+    // La ocupación actual es la única superficie operativa de la mesa. Los
+    // pedidos anteriores siguen visibles como revisión, pero nunca se
+    // mezclan ni se reasignan a la ocupación nueva.
+    const ordersByMesa = new Map<string, { id: string; estado: string; total: number }[]>()
+    const previousByMesa = new Map<string, { id: string; estado: string; total: number; reason: string }[]>()
+    const pedidosSinOcupacionVinculada: { id: string; mesaNumero: number | null; estado: string; total: number; reason: string }[] = []
     for (const order of orders) {
-      if (order.mesaNumero === null || order.mesaNumero === undefined) continue
-      if (!ordersByMesa.has(order.mesaNumero)) ordersByMesa.set(order.mesaNumero, [])
-      ordersByMesa.get(order.mesaNumero)!.push({ id: order.id, estado: order.estado, total: order.total })
+      const mesaId = order.mesaId
+      const mesa = mesaId ? mesas.find((candidate) => candidate.id === mesaId) : undefined
+      if (!mesa || !mesaId || !order.ocupacionMesaId) {
+        pedidosSinOcupacionVinculada.push({ id: order.id, mesaNumero: order.mesaNumero, estado: order.estado, total: order.total, reason: "Sin ocupación vinculada" })
+        continue
+      }
+      if (mesa.ocupacionActualId === order.ocupacionMesaId) {
+        if (!ordersByMesa.has(mesaId)) ordersByMesa.set(mesaId, [])
+        ordersByMesa.get(mesaId)!.push({ id: order.id, estado: order.estado, total: order.total })
+      } else {
+        if (!previousByMesa.has(mesaId)) previousByMesa.set(mesaId, [])
+        previousByMesa.get(mesaId)!.push({ id: order.id, estado: order.estado, total: order.total, reason: "Pedido de ocupación anterior · requiere revisión" })
+      }
     }
 
     const mesasOut = mesas.map((mesa) => {
-      const pedidosActivos = ordersByMesa.get(mesa.numero) ?? []
+      const pedidosActivos = ordersByMesa.get(mesa.id) ?? []
+      const pedidosAnteriores = previousByMesa.get(mesa.id) ?? []
       return {
         id: mesa.id,
         numero: mesa.numero,
@@ -101,6 +119,7 @@ export async function GET(
         pedidosActivos,
         pedidosActivosCount: pedidosActivos.length,
         pedidosActivosTotal: pedidosActivos.reduce((sum, order) => sum + order.total, 0),
+        pedidosAnteriores,
       }
     })
 
@@ -117,9 +136,11 @@ export async function GET(
         resumen: {
           mesasActivas: mesasOut.length,
           mesasConPedidos: mesasOut.filter((mesa) => mesa.pedidosActivosCount > 0).length,
-          pedidosActivos: orders.length,
+          pedidosActivos: orders.filter((order) => order.ocupacionMesaId && mesas.some((mesa) => mesa.id === order.mesaId && mesa.ocupacionActualId === order.ocupacionMesaId)).length,
+          pedidosAnteriores: orders.length - orders.filter((order) => order.ocupacionMesaId && mesas.some((mesa) => mesa.id === order.mesaId && mesa.ocupacionActualId === order.ocupacionMesaId)).length,
         },
         mesas: mesasOut,
+        pedidosSinOcupacionVinculada,
       })
     )
   } catch (error) {

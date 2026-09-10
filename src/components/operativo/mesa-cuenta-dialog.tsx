@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2, Receipt, Printer, Lock, AlertTriangle } from "lucide-react"
+import { Loader2, Receipt, Printer, Lock, AlertTriangle, Banknote, CreditCard } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { buttonVariants } from "@/components/ui/button"
@@ -55,6 +55,7 @@ type CuentaResponse = CuentaMesaResult & {
   mesa: { numero: number }
   negocio: { nombre: string }
 }
+type MetodoPago = "efectivo" | "transferencia"
 
 type Status = "idle" | "loading" | "ready" | "empty" | "unauthorized" | "forbidden" | "error"
 
@@ -95,6 +96,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
   const [cuenta, setCuenta] = useState<CuentaResponse | null>(null)
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [metodoPago, setMetodoPago] = useState<MetodoPago | null>(null)
   // P2 corrección (Bloqueo 4): id de la última ocupación CERRADA de esta
   // mesa (si existe), informado por el mismo endpoint técnico de estado
   // (P0-D.3A, extendido). Permite ofrecer "Ver último ticket cerrado" de
@@ -136,6 +138,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
   async function loadCuenta() {
     setStatus("loading")
     setCuenta(null)
+    setMetodoPago(null)
     setLastClosedOcupacionId(null)
 
     const occupancyStatus = await fetchMesaOccupancyStatus(mesaId).catch(() => ({ kind: "error" as const }))
@@ -168,7 +171,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
       const res = await fetch(`/api/operaciones/ocupaciones/${cuenta.ocupacion.id}/cuenta`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(cuenta.totalGeneral > 0 ? { metodoPago } : {}),
       })
 
       if (res.status === 401) {
@@ -371,6 +374,32 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
                     <span>{formatPrice(cuenta.totalGeneral)}</span>
                   </div>
 
+                  {!cuenta.closed && canClose && cuenta.totalGeneral > 0 && (
+                    <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3 print:hidden">
+                      <p className="text-xs font-semibold">Método de pago al cerrar la cuenta</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["efectivo", "transferencia"] as const).map((method) => (
+                          <Button
+                            key={method}
+                            type="button"
+                            variant={metodoPago === method ? "default" : "outline"}
+                            className="gap-1.5 rounded-lg text-xs"
+                            onClick={() => setMetodoPago(method)}
+                          >
+                            {method === "efectivo" ? <Banknote className="h-3.5 w-3.5" /> : <CreditCard className="h-3.5 w-3.5" />}
+                            {method === "efectivo" ? "Efectivo" : "Transferencia"}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {cuenta.closed && cuenta.estadoPago === "confirmado" && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      Pago confirmado: {cuenta.metodoPago === "efectivo" ? "Efectivo" : "Transferencia"}
+                    </p>
+                  )}
+
                   <p className="text-center text-xs text-muted-foreground">
                     {cuenta.closed ? "Cuenta cerrada" : "Vista previa — todavía no se cerró la cuenta"}
                   </p>
@@ -408,7 +437,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
                       {!cuenta.closed && canClose && (
                         <Button
                           className="w-full gap-1.5 rounded-xl sm:w-auto"
-                          disabled={!cuenta.puedeCerrar}
+                          disabled={!cuenta.puedeCerrar || (cuenta.totalGeneral > 0 && !metodoPago)}
                           onClick={() => setConfirmCloseOpen(true)}
                         >
                           <Lock className="h-4 w-4" />

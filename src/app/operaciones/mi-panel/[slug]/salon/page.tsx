@@ -66,6 +66,13 @@ interface PedidoActivo {
   total: number
 }
 
+interface PedidoAnterior {
+  id: string
+  estado: string
+  total: number
+  reason: string
+}
+
 interface MesaSalon {
   id: string
   numero: number
@@ -77,6 +84,7 @@ interface MesaSalon {
   pedidosActivos: PedidoActivo[]
   pedidosActivosCount: number
   pedidosActivosTotal: number
+  pedidosAnteriores: PedidoAnterior[]
 }
 
 interface SalonData {
@@ -863,6 +871,12 @@ export default function SalonPersonalPage() {
                         </div>
                       ) : (
                         <p className="text-[11px] text-muted-foreground px-1">Sin pedidos activos</p>
+                      )}
+                      {mesa.pedidosAnteriores.length > 0 && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+                          <p className="font-semibold">{mesa.pedidosAnteriores.length} pedido(s) de ocupación anterior</p>
+                          <p className="mt-0.5">Requiere revisión. No se mezcla ni se opera desde esta ocupación.</p>
+                        </div>
                       )}
                       <div className="pt-1 border-t border-border/50 flex items-center justify-between gap-2 flex-wrap">
                         <MesaOccupancyControl

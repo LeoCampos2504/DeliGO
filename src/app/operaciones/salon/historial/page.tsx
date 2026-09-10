@@ -50,6 +50,9 @@ interface PedidoHistorial {
   fecha: string
   entregadoFecha: string | null
   total: number
+  notas: string | null
+  metodoPagoCuenta: string | null
+  pagoConfirmadoEnCuenta: string | null
   empleadoNombre: string | null
   clienteNombre: string | null
   items: PedidoItem[]
@@ -491,6 +494,10 @@ function HistorialView({
                       Entregado: {formatDateTime(selectedPedido.entregadoFecha)}
                     </p>
                   )}
+                  {selectedPedido.metodoPagoCuenta && selectedPedido.pagoConfirmadoEnCuenta && (
+                    <p className="text-xs text-muted-foreground">Pago confirmado: {selectedPedido.metodoPagoCuenta === "efectivo" ? "Efectivo" : "Transferencia"}</p>
+                  )}
+                  {selectedPedido.notas && <p className="text-xs text-muted-foreground">Nota: {selectedPedido.notas}</p>}
 
                   <div className="space-y-2 pt-1">
                     {selectedPedido.items.map((item) => (

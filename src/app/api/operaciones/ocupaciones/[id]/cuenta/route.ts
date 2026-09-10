@@ -5,7 +5,7 @@ import {
   closeMesaOccupancyComercial,
   logMesaOccupancyCloseEvent,
 } from "@/lib/mesa-occupancy"
-import { buildCuentaMesa, type CuentaPedidoInput } from "@/lib/mesa-cuenta"
+import { buildCuentaMesa, METODOS_PAGO_MESA, withCuentaMesaPayment, type CuentaPedidoInput, type MetodoPagoMesa } from "@/lib/mesa-cuenta"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ============================================
@@ -40,7 +40,10 @@ function jsonNoStore(body: unknown, init?: { status?: number }) {
 async function resolveOcupacionContext(ocupacionId: string) {
   const ocupacion = await db.sesionOcupacionMesa.findUnique({
     where: { id: ocupacionId },
-    select: { id: true, negocioId: true, mesaId: true, estado: true, iniciadaEn: true, cerradaEn: true },
+    select: {
+      id: true, negocioId: true, mesaId: true, estado: true, iniciadaEn: true, cerradaEn: true,
+      metodoPago: true, pagoConfirmadoEn: true,
+    },
   })
   if (!ocupacion) return null
 
@@ -53,7 +56,7 @@ async function resolveOcupacionContext(ocupacionId: string) {
   return { ocupacion, mesa }
 }
 
-async function loadCuenta(ocupacionId: string, negocioId: string) {
+async function loadCuenta(ocupacionId: string, negocioId: string, payment: { metodoPago: string | null; pagoConfirmadoEn: Date | null }) {
   const pedidos = await db.pedido.findMany({
     where: { ocupacionMesaId: ocupacionId, negocioId, metodoEntrega: "mesa" },
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
@@ -62,6 +65,7 @@ async function loadCuenta(ocupacionId: string, negocioId: string) {
       estado: true,
       fecha: true,
       total: true,
+      notas: true,
       items: {
         select: {
           id: true,
@@ -83,10 +87,11 @@ async function loadCuenta(ocupacionId: string, negocioId: string) {
     estado: pedido.estado,
     fecha: pedido.fecha,
     total: pedido.total,
+    notas: pedido.notas,
     items: pedido.items,
   }))
 
-  return buildCuentaMesa(input)
+  return withCuentaMesaPayment(buildCuentaMesa(input), payment)
 }
 
 async function serializeOcupacion(ocupacionId: string, fallback: {
@@ -125,7 +130,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const negocio = await db.negocio.findUnique({ where: { id: ocupacion.negocioId }, select: { nombre: true } })
-  const cuenta = await loadCuenta(ocupacionId, ocupacion.negocioId)
+  const cuenta = await loadCuenta(ocupacionId, ocupacion.negocioId, ocupacion)
 
   return jsonNoStore({
     ok: true,
@@ -177,6 +182,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return jsonNoStore({ error: "No autorizado para esta mesa", code: "MESA_CUENTA_FORBIDDEN" }, { status: 403 })
   }
 
+  const body = await request.json().catch(() => null)
+  const rawMetodoPago = body && typeof body === "object" && !Array.isArray(body)
+    ? (body as Record<string, unknown>).metodoPago
+    : undefined
+  if (rawMetodoPago !== undefined && (typeof rawMetodoPago !== "string" || !METODOS_PAGO_MESA.includes(rawMetodoPago as MetodoPagoMesa))) {
+    return jsonNoStore({ error: "Método de pago inválido", code: "MESA_CUENTA_METODO_PAGO_INVALIDO" }, { status: 400 })
+  }
+  const metodoPago = rawMetodoPago as MetodoPagoMesa | undefined
+
   try {
     // P2 corrección (Bloqueo 1): la comprobación de pedidos pendientes y el
     // cierre técnico ocurren dentro de esta ÚNICA llamada — una sola
@@ -190,6 +204,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       expectedOcupacionId: ocupacionId,
       actorType: actor.type,
       actorId: actor.actorId,
+      paymentMethod: metodoPago,
     })
 
     logMesaOccupancyCloseEvent({
@@ -210,6 +225,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         { status: 409 }
       )
     }
+    if (result.status === "billable_account") {
+      return jsonNoStore({ error: "La cuenta tiene consumo y requiere cierre comercial.", code: "MESA_CUENTA_FACTURABLE" }, { status: 409 })
+    }
+    if (result.status === "payment_required") {
+      return jsonNoStore({ error: "Seleccioná un método de pago para cerrar una cuenta con consumo.", code: "MESA_CUENTA_METODO_PAGO_REQUERIDO" }, { status: 400 })
+    }
     if (result.status === "occupancy_changed") {
       return jsonNoStore(
         {
@@ -228,7 +249,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // tal cual quedó, para que el cliente muestre/imprima el ticket sin un
     // segundo round-trip.
     const negocio = await db.negocio.findUnique({ where: { id: ocupacion.negocioId }, select: { nombre: true } })
-    const cuenta = await loadCuenta(ocupacionId, ocupacion.negocioId)
+    const finalPayment = await db.sesionOcupacionMesa.findUnique({
+      where: { id: ocupacionId },
+      select: { metodoPago: true, pagoConfirmadoEn: true },
+    })
+    const cuenta = await loadCuenta(ocupacionId, ocupacion.negocioId, finalPayment ?? ocupacion)
 
     return jsonNoStore({
       ok: true,

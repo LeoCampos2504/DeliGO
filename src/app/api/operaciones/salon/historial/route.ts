@@ -78,6 +78,8 @@ export async function GET(req: NextRequest) {
         fecha: true,
         entregadoFecha: true,
         total: true,
+        notas: true,
+        ocupacionMesa: { select: { metodoPago: true, pagoConfirmadoEn: true } },
         // Solo nombres visibles (no IDs de empleado/cliente, ni teléfonos/contacto).
         clienteNombre: true,
         empleadoNombre: true,
@@ -106,6 +108,9 @@ export async function GET(req: NextRequest) {
       fecha: p.fecha,
       entregadoFecha: p.entregadoFecha,
       total: p.total,
+      notas: p.notas,
+      metodoPagoCuenta: p.ocupacionMesa?.metodoPago ?? null,
+      pagoConfirmadoEnCuenta: p.ocupacionMesa?.pagoConfirmadoEn?.toISOString() ?? null,
       clienteNombre: p.clienteNombre,
       empleadoNombre: p.empleadoNombre,
       items: p.items.map((item) => ({

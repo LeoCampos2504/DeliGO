@@ -1341,7 +1341,7 @@ function CartCheckoutStep({
         </section>
       )}
       {/* ===== PAYMENT METHOD ===== */}
-      <section>
+      {!isMesaOrder && <section>
         <h3 className="font-bold text-sm mb-3">Método de pago</h3>
         <div className="grid grid-cols-2 gap-2.5">
           <button
@@ -1456,7 +1456,7 @@ function CartCheckoutStep({
             </p>
           </div>
         )}
-      </section>
+      </section>}
 
       {/* ===== ORDER NOTES ===== */}
       <section>

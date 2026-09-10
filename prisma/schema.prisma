@@ -950,6 +950,13 @@ model SesionOcupacionMesa {
   motivoCierre   String?
   cerradaPorId   String?
 
+  // P2-T46-R1: único hecho de pago/cierre comercial de esta ocupación.
+  // Nullable para no inventar pagos históricos ni backfillear ocupaciones.
+  metodoPago            String?
+  pagoConfirmadoEn      DateTime?
+  pagoConfirmadoPorTipo String?
+  pagoConfirmadoPorId   String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

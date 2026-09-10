@@ -5,6 +5,8 @@ import { Loader2, Receipt, RefreshCw } from "lucide-react"
 import { fetchMesaClienteCuenta, type MesaClienteCuentaActiva, type MesaClienteCuentaOutcome } from "@/lib/mesa-cliente-cuenta-client"
 import { computeMesaClienteCuentaUiState } from "@/lib/mesa-cliente-cuenta-ui"
 import { formatPrice } from "@/lib/utils"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
 
 // ============================================
 // DeliGO — Panel público de cuenta de mesa para el cliente (23-B)
@@ -37,6 +39,7 @@ export function MesaClienteCuentaPanel({ slug, mesaNumero, colorPrincipal }: Mes
   const [lastGoodCuenta, setLastGoodCuenta] = useState<MesaClienteCuentaActiva | null>(null)
   const [lastGoodSessionKey, setLastGoodSessionKey] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const sessionKeyRef = useRef(sessionKey)
   const mountedRef = useRef(true)
@@ -157,7 +160,10 @@ export function MesaClienteCuentaPanel({ slug, mesaNumero, colorPrincipal }: Mes
   // state.kind === "activa"
   const { cuenta } = state
   return (
-    <div
+    <>
+    <button
+      type="button"
+      onClick={() => setDetailOpen(true)}
       className="mx-4 mt-3 p-3 rounded-2xl border flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-300"
       style={{ backgroundColor: `${accent}10`, borderColor: `${accent}30` }}
       aria-live="polite"
@@ -181,6 +187,19 @@ export function MesaClienteCuentaPanel({ slug, mesaNumero, colorPrincipal }: Mes
           {state.stale ? " · actualizando…" : ""}
         </p>
       </div>
-    </div>
+      <span className="text-xs font-semibold" style={{ color: accent }}>Ver</span>
+    </button>
+    <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Detalle de tu cuenta · Mesa {cuenta.mesaNumero}</DialogTitle>
+        </DialogHeader>
+        <div>
+          <MesaAccountDetail cuenta={cuenta} />
+          <p className="text-xs text-muted-foreground">El pago se registra únicamente al cerrar la cuenta desde el personal del local.</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

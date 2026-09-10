@@ -84,6 +84,8 @@ export interface ThermalTicket {
   pedidos: ThermalTicketPedido[]
   /** Total autoritativo recibido del servidor — nunca recalculado acá. */
   totalGeneral: number
+  /** Solo se imprime cuando el servidor confirmó el pago de la ocupación. */
+  metodoPago?: "efectivo" | "transferencia" | null
   leyenda: ThermalTicketLeyenda
 }
 

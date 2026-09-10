@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "20", 10)
 
     const where: Record<string, unknown> = { negocioId }
+    const currentMesaSurface = estado === "activos" && metodoEntrega === "mesa"
 
     if (estado === "activos") {
       where.estado = { in: ESTADOS_ACTIVOS }
@@ -95,6 +96,7 @@ export async function GET(req: NextRequest) {
       db.pedido.findMany({
         where,
         include: {
+          ocupacionMesa: { select: { id: true, metodoPago: true, pagoConfirmadoEn: true } },
           items: {
             include: {
               producto: {
@@ -116,8 +118,10 @@ export async function GET(req: NextRequest) {
     ])
 
     // Parse JSON fields in items & strip clienteTelefono
-    const pedidosParsed = pedidos.map(({ clienteTelefono, ...p }) => ({
+    const pedidosParsedAll = pedidos.map(({ clienteTelefono, ...p }) => ({
       ...p,
+      metodoPagoCuenta: p.ocupacionMesa?.metodoPago ?? null,
+      pagoConfirmadoEnCuenta: p.ocupacionMesa?.pagoConfirmadoEn?.toISOString() ?? null,
       items: p.items.map((item) => {
         const parsed = {
           ...item,
@@ -134,8 +138,23 @@ export async function GET(req: NextRequest) {
       }),
     }))
 
+    let pedidosParsed = pedidosParsedAll
+    let pedidosAnteriores: typeof pedidosParsedAll = []
+    if (currentMesaSurface) {
+      const mesasActuales = await db.mesa.findMany({ where: { negocioId }, select: { id: true, ocupacionActualId: true } })
+      const currentOccupationByMesa = new Map(mesasActuales.map((mesa) => [mesa.id, mesa.ocupacionActualId]))
+      pedidosParsed = pedidosParsedAll
+        .filter((pedido) => Boolean(pedido.mesaId && pedido.ocupacionMesaId && currentOccupationByMesa.get(pedido.mesaId) === pedido.ocupacionMesaId))
+        .map((pedido) => ({ ...pedido, occupationSurface: "current" as const }))
+      const currentIds = new Set(pedidosParsed.map((pedido) => pedido.id))
+      pedidosAnteriores = pedidosParsedAll
+        .filter((pedido) => !currentIds.has(pedido.id))
+        .map((pedido) => ({ ...pedido, occupationSurface: pedido.ocupacionMesaId ? "previous" as const : "unlinked" as const }))
+    }
+
     return NextResponse.json({
       pedidos: pedidosParsed,
+      ...(currentMesaSurface ? { pedidosAnteriores } : {}),
       pagination: {
         page,
         limit,

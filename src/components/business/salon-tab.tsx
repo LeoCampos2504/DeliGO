@@ -133,6 +133,9 @@ interface PedidoMesa {
   fecha: string
   metodoEntrega: string
   mesaNumero: number | null
+  notas?: string | null
+  metodoPagoCuenta?: "efectivo" | "transferencia" | null
+  pagoConfirmadoEnCuenta?: string | null
   items: Array<{
     id: string
     nombre: string
@@ -779,6 +782,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   })
 
   const mesaOrders: PedidoMesa[] = mesaOrdersData?.pedidos ?? []
+  const mesaOrdersAnteriores: PedidoMesa[] = mesaOrdersData?.pedidosAnteriores ?? []
 
   const applyMesaUpdate = useCallback((updatedMesa: Mesa) => {
     queryClient.setQueryData<Mesa[]>(["mesas", negocio.id], (old) =>
@@ -1037,6 +1041,12 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   return (
     <div className="space-y-4">
+      {mesaOrdersAnteriores.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+          <span className="font-semibold">{mesaOrdersAnteriores.length} pedido(s) fuera de la ocupación actual.</span>{" "}
+          Quedan separados para revisión y no se mezclan con el salón operativo.
+        </div>
+      )}
       {/* Status summary bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
@@ -2135,6 +2145,11 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
                         {order.items.length} {order.items.length === 1 ? "item" : "items"}
                         {order.clienteNombre && ` · ${order.clienteNombre}`}
                       </p>
+                      {order.metodoPagoCuenta && order.pagoConfirmadoEnCuenta && (
+                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          Pago: {order.metodoPagoCuenta === "efectivo" ? "Efectivo" : "Transferencia"}
+                        </p>
+                      )}
                     </div>
                     <span className="text-xs font-bold shrink-0">{formatPrice(order.total)}</span>
                   </div>
