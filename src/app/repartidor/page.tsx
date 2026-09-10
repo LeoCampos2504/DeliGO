@@ -10,6 +10,7 @@ import {
   cleanRepartidorOAuthCallbackParams,
   readRepartidorOAuthCallback,
 } from "@/lib/repartidor-oauth-callback"
+import { REPARTIDOR_POST_LOGIN_PATH } from "@/lib/repartidor-post-login-navigation"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -141,7 +142,11 @@ function RepartidorLoginForm() {
       })
 
       toast.success(`🛵 ¡Bienvenido, ${data.user.nombre}!`)
-      router.replace("/")
+      // P2-T02-B1: nunca "/" — la raíz redirige incondicionalmente a Cliente
+      // (src/app/page.tsx), lo que sacaba a un Repartidor recién autenticado
+      // de la PWA standalone DeliGO Delivery. Mismo defecto y misma solución
+      // ya aplicada a Negocio (negocio-post-login-navigation.ts).
+      router.replace(REPARTIDOR_POST_LOGIN_PATH)
     } catch {
       toast.error("Error de conexión. Intentá de nuevo.")
     } finally {
