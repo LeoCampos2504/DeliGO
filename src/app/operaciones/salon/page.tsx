@@ -41,7 +41,6 @@ import {
 import { Logo } from "@/components/shared/logo"
 import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-control"
 import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
-import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
@@ -822,7 +821,8 @@ function SalonView({
                   allowClose={false}
                 />
                 {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-                <MesaCuentaDialog mesaId={selectedMesaObj.id} mesaNumero={selectedMesaObj.numero} />
+                {/* P2-T41: Terminal Operativa es de solo lectura para el cierre comercial — el servidor ya lo deniega (403), y canClose={false} evita mostrar una acción que sería rechazada. */}
+                <MesaCuentaDialog mesaId={selectedMesaObj.id} mesaNumero={selectedMesaObj.numero} canClose={false} />
               </div>
             )}
             {selectedOrders.length === 0 ? (
@@ -847,7 +847,6 @@ function SalonView({
                     capacidades={data.capacidades}
                     saving={actingIds.has(order.id)}
                     onAction={onAction}
-                    onCancelled={onRefresh}
                   />
                 ))}
               </div>
@@ -998,13 +997,11 @@ function PedidoCard({
   capacidades,
   saving,
   onAction,
-  onCancelled,
 }: {
   order: PedidoPanel
   capacidades: Capacidades
   saving: boolean
   onAction: (pedidoId: string, estado: string) => void
-  onCancelled: () => void
 }) {
   const cfg = STATUS_CONFIG[order.estado]
   const StatusIcon = cfg?.icon ?? Clock
@@ -1099,8 +1096,9 @@ function PedidoCard({
         })}
       </div>
 
-      <div className="flex items-center gap-2">
-        {action && (
+      {/* P2-T41: Terminal Operativa es de solo lectura para "Cancelar pedido" — el servidor ya lo deniega (403); no se muestra una acción que sería rechazada. */}
+      {action && (
+        <div className="flex items-center gap-2">
           <Button
             size="sm"
             className="flex-1 rounded-xl gap-1.5 h-9 text-sm font-semibold"
@@ -1110,16 +1108,8 @@ function PedidoCard({
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {action.label}
           </Button>
-        )}
-        <CancelarPedidoMesaDialog
-          pedidoId={order.id}
-          estado={order.estado}
-          metodoEntrega="mesa"
-          referencia={order.mesaNumero != null ? `Mesa ${order.mesaNumero}` : undefined}
-          onCancelled={onCancelled}
-          className={cn("h-9", action ? "flex-1" : "w-full")}
-        />
-      </div>
+        </div>
+      )}
     </div>
   )
 }

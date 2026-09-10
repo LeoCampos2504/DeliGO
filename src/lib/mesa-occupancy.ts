@@ -752,6 +752,12 @@ export type MesaOccupancyCloseActor =
   | { type: "negocio"; negocioId: string; actorId: string; canCloseAnyMesa: true }
   | { type: "salon"; negocioId: string; actorId: string; canCloseAnyMesa: true }
   | { type: "mozo"; negocioId: string; actorId: string; canCloseAnyMesa: false; assignedMesaIds: string[] }
+  // P2-T41: Terminal Operativa (dispositivo compartido) se identifica con su
+  // propio tipo — nunca genérico "salon" — para que los llamadores puedan
+  // negar explícitamente el cierre COMERCIAL (`ocupaciones/[id]/cuenta`
+  // POST) sin afectar el cierre TÉCNICO (`mesas/[id]/ocupacion`), que
+  // conserva esta capacidad por fuera del alcance de esta tarea.
+  | { type: "salon_terminal"; negocioId: string; actorId: string; canCloseAnyMesa: true }
 
 /**
  * Resuelve quién está pidiendo cerrar una ocupación, exclusivamente desde
@@ -809,10 +815,13 @@ export async function resolveMesaOccupancyCloseActor(
 
   // 3) Terminal Operativa — misma regla que ya usa Salón vía terminal (área
   // "salon" + su scope base de lectura). `requireOperacionesArea` nunca se
-  // modificó; solo se reutiliza.
+  // modificó; solo se reutiliza. P2-T41: se identifica con su propio tipo
+  // ("salon_terminal", nunca "salon" genérico) para que el llamador del
+  // cierre COMERCIAL pueda negarle esa mutación específica sin tocar el
+  // cierre técnico ni la resolución de Cuenta Operativa personal.
   const terminalAuth = await requireOperacionesArea(request, "salon")
   if (terminalAuth.ok && terminalAuth.context.negocio.id === negocioId) {
-    return { type: "salon", negocioId, actorId: terminalAuth.context.terminal.id, canCloseAnyMesa: true }
+    return { type: "salon_terminal", negocioId, actorId: terminalAuth.context.terminal.id, canCloseAnyMesa: true }
   }
 
   return null
@@ -938,7 +947,7 @@ async function closeMesaOccupancyCore(
     negocioId: string
     mesaId: string
     expectedOcupacionId: string
-    actorType: "negocio" | "salon" | "mozo"
+    actorType: "negocio" | "salon" | "salon_terminal" | "mozo"
     actorId: string
     now: Date
   },
@@ -1050,7 +1059,7 @@ export async function closeMesaOccupancy(params: {
   negocioId: string
   mesaId: string
   expectedOcupacionId: string
-  actorType: "negocio" | "salon" | "mozo"
+  actorType: "negocio" | "salon" | "salon_terminal" | "mozo"
   actorId: string
   now?: Date
 }): Promise<MesaOccupancyCloseResult> {
@@ -1192,7 +1201,7 @@ export function logMesaOccupancyOrderEvent(details: {
 export function logMesaOccupancyCloseEvent(details: {
   negocioId: string
   mesaNumero: number
-  actorType: "negocio" | "salon" | "mozo"
+  actorType: "negocio" | "salon" | "salon_terminal" | "mozo"
   outcome: "closed" | "no_active" | "occupancy_changed" | "forbidden" | "inconsistent" | "error" | "pending_orders"
   revokedCredentials: number
 }) {
