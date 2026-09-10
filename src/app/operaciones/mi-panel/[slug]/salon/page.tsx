@@ -150,6 +150,10 @@ export default function SalonPersonalPage() {
   const [focusResolved, setFocusResolved] = useState(false)
 
   const [state, setState] = useState<PageState>({ status: "loading" })
+  // Versión de la última lectura exitosa del panel. Se comparte únicamente como
+  // señal de revalidación con MesaOccupancyControl: la ocupación se sigue
+  // resolviendo por su endpoint canónico server-side, nunca desde pedidos.
+  const [occupationRefreshKey, setOccupationRefreshKey] = useState(0)
   // Pedidos con una acción personal ("preparar" o "marcar_listo") en curso. `accionesEnCurso`
   // (estado React) SOLO renderiza (qué spinner/etiqueta mostrar y qué botón deshabilitar).
   // `accionesEnCursoRef` cumple dos roles: (1) guardia SÍNCRONA por pedido — bloquea doble
@@ -398,6 +402,10 @@ export default function SalonPersonalPage() {
             mesas: Array.isArray(data.mesas) ? data.mesas : [],
           },
         })
+        // El polling del panel también debe revalidar el estado de ocupación.
+        // Esto cubre la transición sin ocupación → ocupación activa aunque la
+        // mesa ya estuviera montada y no cambie su React key.
+        setOccupationRefreshKey((current) => current + 1)
       } catch {
         // Abort/respuesta superada: no tocar estado. Error de red en silencioso:
         // conservar los datos visibles; en carga inicial/manual mostrar error.
@@ -863,6 +871,7 @@ export default function SalonPersonalPage() {
                           onClosed={() => void loadPanel({ silent: true })}
                           onAccessDenied={() => void loadPanel({ silent: true })}
                           allowClose={false}
+                          refreshKey={occupationRefreshKey}
                         />
                         {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
                         <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />

@@ -54,6 +54,11 @@ interface MesaOccupancyControlProps {
   // reflejar el estado real. Default `true`: no rompe ningún otro montaje
   // existente que no pase esta prop.
   allowClose?: boolean
+  // Señal opcional del host para revalidar la autoridad canónica de ocupación
+  // después de su propio polling/invalidation. El valor no autoriza nada: solo
+  // vuelve a ejecutar el GET server-side para evitar congelar un estado `none`
+  // que era cierto al montar pero quedó obsoleto mientras la vista seguía abierta.
+  refreshKey?: number
 }
 
 function formatHora(iso: string): string | null {
@@ -70,6 +75,7 @@ export function MesaOccupancyControl({
   onAccessDenied,
   className,
   allowClose = true,
+  refreshKey = 0,
 }: MesaOccupancyControlProps) {
   const [status, setStatus] = useState<Status>("loading")
   const [occupancy, setOccupancy] = useState<MesaOccupancyInfo | null>(null)
@@ -88,9 +94,14 @@ export function MesaOccupancyControl({
     onAccessDenied?.()
   }
 
+  // El aviso de 403 se rearma solo para otra mesa. Si el host revalida por
+  // polling y el mismo 403 persiste, no se debe generar un ciclo de refresh.
+  useEffect(() => {
+    accessDeniedNotifiedRef.current = false
+  }, [mesaId])
+
   useEffect(() => {
     mountedRef.current = true
-    accessDeniedNotifiedRef.current = false
     const controller = new AbortController()
 
     fetchMesaOccupancyStatus(mesaId, controller.signal)
@@ -115,7 +126,7 @@ export function MesaOccupancyControl({
       mountedRef.current = false
       controller.abort()
     }
-  }, [mesaId])
+  }, [mesaId, refreshKey])
 
   async function handleConfirmClose() {
     if (closing) return
