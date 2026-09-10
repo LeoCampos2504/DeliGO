@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS } from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 const LIST_LIMIT = 100
 
 // ============================================

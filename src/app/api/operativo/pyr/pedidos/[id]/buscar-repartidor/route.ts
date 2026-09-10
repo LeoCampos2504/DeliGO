@@ -2,38 +2,53 @@ import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
-import { createNotification, newDeliveryNotification, orderUpdateNotification } from "@/lib/push"
+import { createNotification, newDeliveryNotification, waitingDriverNotification } from "@/lib/push"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { CANONICAL_WAITING_DRIVER_STATE } from "@/lib/order-transitions"
 
 // ============================================
-// DeliGO Operaciones — PyR personal: marcar en camino (Operaciones-1R)
+// DeliGO Operaciones — PyR personal: buscar repartidor (P2-T42, reemplaza "marcar en camino")
 // ============================================
 // Acción FIJA (no un endpoint genérico de estados): transición única
-//   preparando → en_camino  para un pedido de DOMICILIO del negocio autorizado.
+//   preparando → esperando_repartidor  para un pedido de DOMICILIO del negocio autorizado.
 // Identidad: EXCLUSIVAMENTE cuenta personal (deligo_operativo_session) con área efectiva
 // "pyr". No usa cookie/APIs/scopes de terminal.
 //
 // El `id` del pedido viene SOLO del parámetro de ruta. El estado destino es fijo en
-// servidor ("en_camino"). El `slug` (query) solo selecciona el negocio a autorizar; no
-// autoriza por sí solo: el resolver valida sesión → cuenta → negocio(slug) → empleado
-// vinculado → área efectiva "pyr". Nunca se aceptan estado/negocioId/pedidoId/clienteId/
-// empleadoId/terminalId/metodoEntrega/repartidorId/mesaId desde body/query/headers.
+// servidor ("esperando_repartidor"). El `slug` (query) solo selecciona el negocio a
+// autorizar; no autoriza por sí solo: el resolver valida sesión → cuenta → negocio(slug) →
+// empleado vinculado → área efectiva "pyr". Nunca se aceptan estado/negocioId/pedidoId/
+// clienteId/empleadoId/terminalId/metodoEntrega/repartidorId/mesaId desde body/query/
+// headers.
+//
+// P2-T42: reemplaza al retirado `.../pedidos/[id]/en-camino/route.ts` — ese endpoint hacía
+// preparando→en_camino directo (PyR "marcaba en camino" manualmente y notificaba a TODOS
+// los repartidores activos a la vez), el mismo modelo pre-P2-T29C que Negocio ya dejó atrás:
+// avanzar a `en_camino` es ahora EXCLUSIVO de la aceptación atómica real de un Repartidor
+// (`POST /api/repartidor/pedidos/[id]/aceptar`, single-winner CAS), nunca una acción manual
+// de quien gestiona el pedido. El paso correcto para quien gestiona el pedido es hacerlo
+// DISPONIBLE (`esperando_repartidor`) — mismo modelo canónico que ya usa Negocio desde
+// P2-T29B/C (ver `src/lib/order-transitions.ts`, `CANONICAL_WAITING_DRIVER_STATE`). El
+// endpoint terminal equivalente (`operaciones/pyr/pedidos/[id]/estado`) sigue aceptando
+// además, a nivel de API, la arista legacy preparando→en_camino directa (rollout) — pero
+// esta ruta personal fija es de UN SOLO destino posible, así que se actualiza al destino
+// canónico nuevo sin necesidad de aceptar ambos.
 //
 // Fuente terminal reutilizada (ver CODEX_REPORT.md): el único endpoint terminal real que
-// gestiona esta transición para PyR no-mesa es un PATCH genérico multi-estado, cuya tabla
-// TRANSICIONES confirma preparando → en_camino EXCLUSIVAMENTE para "domicilio" (retiro no
-// usa "en_camino" en absoluto). Esta ruta personal reutiliza EXACTAMENTE, para el caso fijo
-// preparando→en_camino de domicilio: el mismo CAS (id + negocioId + metodoEntrega:
-// "domicilio" + estado="preparando"), la misma auditoría (logPedidoEstadoChange,
-// best-effort, actor personal), la misma notificación AL CLIENTE
-// (orderUpdateNotification + createNotification, best-effort, tipo "order_update") y —
-// Operaciones-1R.1 — la misma notificación existente A REPARTIDORES ACTIVOS del negocio
-// (misma consulta db.repartidorNegocio.findMany({ where: { negocioId } }) + filtro
-// repartidor.activo en el loop, mismo helper newDeliveryNotification + createNotification,
-// best-effort, tipo "new_delivery"). Sin crear ningún helper, tipo, payload ni canal nuevo.
+// gestiona esta transición para PyR no-mesa es un PATCH genérico multi-estado. Esta ruta
+// personal reutiliza EXACTAMENTE, para el caso fijo preparando→esperando_repartidor de
+// domicilio: el mismo CAS (id + negocioId + metodoEntrega: "domicilio" + estado="preparando"),
+// la misma auditoría (logPedidoEstadoChange, best-effort, actor personal), la misma
+// notificación A REPARTIDORES ACTIVOS del negocio (misma consulta
+// db.repartidorNegocio.findMany({ where: { negocioId } }) + filtro repartidor.activo en el
+// loop, mismo helper newDeliveryNotification + createNotification, best-effort, tipo
+// "new_delivery") y, para el cliente, el mismo copy dedicado que ya usa Negocio para este
+// estado (waitingDriverNotification — nunca el genérico orderUpdateNotification, que no
+// tiene copy para "esperando_repartidor"). Sin crear ningún helper, tipo, payload ni canal
+// nuevo.
 
-const CONFLICT_MESSAGE = "El pedido ya no está disponible para marcarlo en camino."
+const CONFLICT_MESSAGE = "El pedido ya no está disponible para buscar un repartidor."
 
 function conflict() {
   return NextResponse.json({ ok: false, error: CONFLICT_MESSAGE }, { status: 409 })
@@ -85,7 +100,7 @@ export async function POST(
         metodoEntrega: "domicilio",
         estado: "preparando",
       },
-      data: { estado: "en_camino" },
+      data: { estado: CANONICAL_WAITING_DRIVER_STATE },
     })
 
     if (result.count !== 1) {
@@ -98,25 +113,26 @@ export async function POST(
     try {
       await logPedidoEstadoChange({
         pedidoId: id,
-        estadoNuevo: "en_camino",
+        estadoNuevo: CANONICAL_WAITING_DRIVER_STATE,
         estadoAnterior: "preparando",
         userId: auth.cuenta.id,
         userType: "cuenta_operativa",
       })
     } catch {
-      console.error("[OperativoPyR] Falló la auditoría de marcado en camino")
+      console.error("[OperativoPyR] Falló la auditoría de búsqueda de repartidor")
     }
 
-    // 6) Notificación existente al cliente (best-effort), reutilizando exactamente el
-    //    mismo helper de payload y el mismo tipo que el flujo terminal. Solo al cliente del
-    //    pedido; nunca a mozos, repartidores, terminales, empleados ni al negocio.
+    // 6) Notificación existente al cliente (best-effort), reutilizando exactamente el mismo
+    //    copy dedicado que ya usa Negocio para este estado (nunca el genérico, que no tiene
+    //    texto para "esperando_repartidor"). Solo al cliente del pedido; nunca a mozos,
+    //    terminales, empleados ni al negocio.
     if (pedido.clienteId) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        const payload = orderUpdateNotification(id, pedido.negocioNombre, "en_camino")
+        const payload = waitingDriverNotification(id)
         await createNotification({
           userId: pedido.clienteId,
           userType: "cliente",
@@ -130,7 +146,7 @@ export async function POST(
           cleanupExpired: { model: "cliente", id: pedido.clienteId },
         })
       } catch {
-        console.error("[OperativoPyR] Falló la notificación de marcado en camino")
+        console.error("[OperativoPyR] Falló la notificación de búsqueda de repartidor")
       }
     }
 
@@ -164,13 +180,13 @@ export async function POST(
         }
       }
     } catch {
-      console.error("[OperativoPyR] Falló la notificación a repartidores de marcado en camino")
+      console.error("[OperativoPyR] Falló la notificación a repartidores de búsqueda de repartidor")
     }
 
     // 8) Respuesta mínima: nunca se devuelve el pedido completo.
     return noStore(NextResponse.json({ ok: true, pedido: { id } }))
   } catch (error) {
-    console.error("[OperativoPyR] Error al marcar en camino:", safeErrorForLog(error))
+    console.error("[OperativoPyR] Error al buscar repartidor:", safeErrorForLog(error))
     return noStore(NextResponse.json({ ok: false, error: "Error del servidor" }, { status: 500 }))
   }
 }

@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { logPedidoEstadoChange } from "@/lib/audit"
-import { createNotification, orderUpdateNotification, newDeliveryNotification } from "@/lib/push"
+import { createNotification, orderUpdateNotification, newDeliveryNotification, waitingDriverNotification } from "@/lib/push"
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
-import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
+import {
+  NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS as PYR_ROLLOUT_FORWARD_TRANSITIONS,
+  CANONICAL_ACCEPTED_STATE,
+  CANONICAL_WAITING_DRIVER_STATE,
+  canTransitionToCancelled,
+  isValidForwardTransition,
+} from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -16,16 +22,24 @@ const CONFLICT_MESSAGE = "El pedido cambió en otro dispositivo. Actualizá el p
 const MAX_MOTIVO_LEN = 300
 
 // Estados activos no-mesa elegibles para gestionar.
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
+const ESTADOS_ACTIVOS = ["recibido", CANONICAL_ACCEPTED_STATE, "preparando", CANONICAL_WAITING_DRIVER_STATE, "en_camino", "listo_para_retirar"] as const
 // Estados destino aceptados en el body.
-const ESTADOS_DESTINO = ["preparando", "en_camino", "listo_para_retirar", "entregado", "cancelado"] as const
+const ESTADOS_DESTINO = [CANONICAL_ACCEPTED_STATE, "preparando", CANONICAL_WAITING_DRIVER_STATE, "en_camino", "listo_para_retirar", "entregado", "cancelado"] as const
 
 // P2-T29A: la tabla local `TRANSICIONES` fue reemplazada por la autoridad
-// compartida `order-transitions.ts` (ACTIVE_FORWARD_TRANSITIONS +
+// compartida `order-transitions.ts` (en ese momento ACTIVE_FORWARD_TRANSITIONS +
 // canTransitionToCancelled) — mismo comportamiento exacto (domicilio no
 // llega a listo/entregado; retiro no usa en_camino), sin esta segunda copia
 // independiente de las mismas reglas que negocio/pedidos/[id]/estado ya
 // tenía. Ver codex-reports/P2_T29A_ORDER_TRANSITION_AUTHORITY_CAS_AND_CONCURRENCY_TESTS.md.
+//
+// P2-T42: se reemplaza `ACTIVE_FORWARD_TRANSITIONS` (sin `aceptado`/
+// `esperando_repartidor`) por el mismo grafo de rollout que ya usa Negocio
+// (`PYR_ROLLOUT_FORWARD_TRANSITIONS`, alias de `NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS`
+// — mismo objeto, sin copiarlo) — PyR gestiona el mismo ciclo de vida de
+// domicilio/retiro, así que reutiliza la misma autoridad. `canTransitionToCancelled`
+// pasa a usar el grafo `"rollout"` (incluye aceptado/esperando_repartidor como
+// estados cancelables), igual que ya hace Negocio.
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -114,8 +128,8 @@ export async function PATCH(
     // 4) Validar que la transición sea estructuralmente permitida para el método.
     const transicionPermitida =
       estado === "cancelado"
-        ? canTransitionToCancelled(pedido.estado)
-        : isValidForwardTransition(ACTIVE_FORWARD_TRANSITIONS, metodo, pedido.estado, estado)
+        ? canTransitionToCancelled(pedido.estado, "rollout")
+        : isValidForwardTransition(PYR_ROLLOUT_FORWARD_TRANSITIONS, metodo, pedido.estado, estado)
     if (!transicionPermitida) return badRequest("Transición no permitida")
 
     const estadoAnterior = pedido.estado
@@ -185,14 +199,27 @@ export async function PATCH(
 
     const cancellationPushEndpoints = estado === "cancelado" ? new Set<string>() : undefined
 
+    // P2-T42: mismo tratamiento que ya usa Negocio (negocio/pedidos/[id]/estado)
+    // para `esperando_repartidor` — copy dedicado (`waitingDriverNotification`)
+    // SOLO para la transición real domicilio preparando->esperando_repartidor;
+    // cualquier otro origen queda silenciado en vez de caer en el fallback
+    // genérico con el estado crudo (orderUpdateNotification no tiene copy para
+    // "esperando_repartidor").
+    const isWaitingDriverState = estado === CANONICAL_WAITING_DRIVER_STATE
+    const isWaitingDriverNotifiable =
+      isWaitingDriverState && estadoAnterior === "preparando" && metodo === "domicilio"
+    const suppressClientNotification = isWaitingDriverState && !isWaitingDriverNotifiable
+
     // 7) Notificaciones best-effort, solo las ya existentes y aplicables a no-mesa.
-    if (pedido.clienteId) {
+    if (pedido.clienteId && !suppressClientNotification) {
       try {
         const cliente = await db.cliente.findUnique({
           where: { id: pedido.clienteId },
           select: { pushSubscription: true },
         })
-        const payload = orderUpdateNotification(id, pedido.negocioNombre, estado)
+        const payload = isWaitingDriverNotifiable
+          ? waitingDriverNotification(id)
+          : orderUpdateNotification(id, pedido.negocioNombre, estado)
         await createNotification({
           userId: pedido.clienteId,
           userType: "cliente",
@@ -211,7 +238,18 @@ export async function PATCH(
       }
     }
 
-    if (estado === "en_camino" && metodo === "domicilio") {
+    // P2-T42: "hay un nuevo delivery disponible" pasa a dispararse en
+    // `esperando_repartidor` (el momento real en que se vuelve visible para
+    // Repartidor) — se preserva la condición legacy (`en_camino` directo
+    // desde `preparando`, todavía aceptada por PYR_ROLLOUT_FORWARD_TRANSITIONS
+    // durante el rollout) porque un pedido que llegó así igual necesita avisar
+    // a los repartidores. Nunca se disparan ambas para el mismo pedido (son
+    // transiciones mutuamente excluyentes). Mismo criterio exacto que ya usa
+    // Negocio (negocio/pedidos/[id]/estado).
+    const isCanonicalNewAvailability = isWaitingDriverNotifiable
+    const isLegacyDirectAvailability = estado === "en_camino" && metodo === "domicilio"
+
+    if (isCanonicalNewAvailability || isLegacyDirectAvailability) {
       try {
         const repartidores = await db.repartidorNegocio.findMany({
           where: { negocioId },

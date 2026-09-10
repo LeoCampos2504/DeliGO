@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation"
 import {
   AlertTriangle,
   ArrowLeft,
+  Bike,
   CheckCircle2,
   ClipboardList,
   Eye,
@@ -16,7 +17,6 @@ import {
   Play,
   RefreshCw,
   Star,
-  Truck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -34,22 +34,26 @@ import {
 // ============================================
 // Identidad: EXCLUSIVAMENTE cuenta personal. Usa solo GET /api/operativo/pyr/pedidos?slug=...,
 // GET /api/operativo/pyr/pedidos/[id]/detalle?slug=... (detalle de un pedido, bajo demanda),
-// POST /api/operativo/pyr/pedidos/[id]/preparar, POST
-// /api/operativo/pyr/pedidos/[id]/listo-para-retiro, POST
-// /api/operativo/pyr/pedidos/[id]/en-camino y POST
+// POST /api/operativo/pyr/pedidos/[id]/aceptar, POST /api/operativo/pyr/pedidos/[id]/preparar,
+// POST /api/operativo/pyr/pedidos/[id]/listo-para-retiro, POST
+// /api/operativo/pyr/pedidos/[id]/buscar-repartidor y POST
 // /api/operativo/pyr/pedidos/[id]/entregar. No usa APIs de terminal ni APIs
-// administrativas, no consulta módulos de Mozo o Salón. Existen CUATRO acciones de
-// mutación fijas: recibido → preparando (cualquier no-mesa); exclusivamente para retiro,
-// preparando → listo_para_retirar y listo_para_retirar → entregado; exclusivamente para
-// domicilio, preparando → en_camino (por pedido). Refresco automático estándar (1G.1):
-// 15 s con pestaña visible + focus + visibilitychange, sin solapamiento, salida atómica
-// ante pérdida de área/sesión, guardia de generación contra respuestas fuera de orden.
-// Mismas protecciones de concurrencia validadas en los paneles personales de Salón y
-// Mozo: guardia síncrona compartida por pedido (las cuatro acciones usan la MISMA
-// barrera — un pedido no puede tener dos acciones en vuelo a la vez), barrera global de
-// refresh, mutationContextGenRef para descartar respuestas tardías tras una salida
-// global. Sin actualización optimista: el estado final siempre se vuelve a consultar
-// desde el servidor tras la mutación.
+// administrativas, no consulta módulos de Mozo o Salón. Existen SEIS acciones de
+// mutación fijas (P2-T42 agrega "aceptar" y retira "en_camino" en favor de
+// "buscar-repartidor" — mismo modelo canónico que ya usa Negocio desde P2-T29B/T29C, ver
+// src/lib/order-transitions.ts): recibido → aceptado (cualquier no-mesa); aceptado →
+// preparando (cualquier no-mesa); exclusivamente para retiro, preparando →
+// listo_para_retirar y listo_para_retirar → entregado; exclusivamente para domicilio,
+// preparando → esperando_repartidor (hacer disponible para un Repartidor — el avance real
+// a en_camino es exclusivo de la aceptación atómica de Repartidor, nunca una acción de
+// PyR). Refresco automático estándar (1G.1): 15 s con pestaña visible + focus +
+// visibilitychange, sin solapamiento, salida atómica ante pérdida de área/sesión, guardia
+// de generación contra respuestas fuera de orden. Mismas protecciones de concurrencia
+// validadas en los paneles personales de Salón y Mozo: guardia síncrona compartida por
+// pedido (las seis acciones usan la MISMA barrera — un pedido no puede tener dos acciones
+// en vuelo a la vez), barrera global de refresh, mutationContextGenRef para descartar
+// respuestas tardías tras una salida global. Sin actualización optimista: el estado final
+// siempre se vuelve a consultar desde el servidor tras la mutación.
 //
 // UX-1: esta pantalla es ahora la raíz de PyR (/pyr redirige acá). Reseñas vive en
 // /pyr/resenas, accesible desde la tarjeta "Ver reseñas" de abajo. El detalle de un
@@ -97,7 +101,9 @@ function formatDateTime(dateStr: string): string {
 
 const ESTADO_LABELS: Record<string, string> = {
   recibido: "Recibido",
+  aceptado: "Aceptado",
   preparando: "Preparando",
+  esperando_repartidor: "Buscando repartidor",
   en_camino: "En camino",
   listo_para_retirar: "Listo para retirar",
 }
@@ -107,21 +113,28 @@ const METODO_LABELS: Record<string, string> = {
   retiro: "Retiro",
 }
 
-// Únicas cuatro acciones personales de PyR (Operaciones-1P.1 + 1Q + 1R + 1S). El endpoint y
-// el mensaje de error genérico se seleccionan SOLO desde este mapa literal y tipado — no se
-// construye una API genérica de estados ni se acepta "action"/"estado" desde el cliente
-// (URL, input, query, localStorage o props externas). El servidor sigue siendo la fuente
-// final de autorización y transición (CAS por estado esperado en cada endpoint).
-type PedidoAction = "preparar" | "listo_para_retiro" | "en_camino" | "entregar"
+// Únicas seis acciones personales de PyR (Operaciones-1P.1 + 1Q + 1R + 1S + P2-T42). El
+// endpoint y el mensaje de error genérico se seleccionan SOLO desde este mapa literal y
+// tipado — no se construye una API genérica de estados ni se acepta "action"/"estado"
+// desde el cliente (URL, input, query, localStorage o props externas). El servidor sigue
+// siendo la fuente final de autorización y transición (CAS por estado esperado en cada
+// endpoint). P2-T42: "en_camino" se retira en favor de "buscar_repartidor" y se agrega
+// "aceptar" — mismo modelo canónico que ya usa Negocio (ver order-transitions.ts).
+type PedidoAction = "aceptar" | "preparar" | "listo_para_retiro" | "buscar_repartidor" | "entregar"
 
 const ACTION_CONFIG: Record<
   PedidoAction,
   {
-    endpointSegment: "preparar" | "listo-para-retiro" | "en-camino" | "entregar"
+    endpointSegment: "aceptar" | "preparar" | "listo-para-retiro" | "buscar-repartidor" | "entregar"
     errorGenerico: string
     labelEnCurso: string
   }
 > = {
+  aceptar: {
+    endpointSegment: "aceptar",
+    errorGenerico: "No se pudo aceptar el pedido.",
+    labelEnCurso: "Aceptando…",
+  },
   preparar: {
     endpointSegment: "preparar",
     errorGenerico: "No se pudo iniciar la preparación.",
@@ -132,10 +145,10 @@ const ACTION_CONFIG: Record<
     errorGenerico: "No se pudo marcar el pedido listo para retirar.",
     labelEnCurso: "Marcando listo…",
   },
-  en_camino: {
-    endpointSegment: "en-camino",
-    errorGenerico: "No se pudo marcar el pedido en camino.",
-    labelEnCurso: "Marcando en camino…",
+  buscar_repartidor: {
+    endpointSegment: "buscar-repartidor",
+    errorGenerico: "No se pudo buscar un repartidor para el pedido.",
+    labelEnCurso: "Buscando repartidor…",
   },
   entregar: {
     endpointSegment: "entregar",
@@ -550,10 +563,11 @@ export default function PyRPedidosActivosPage() {
     }
   }
 
+  const handleAceptarPedido = (pedidoId: string) => handlePedidoAction(pedidoId, "aceptar")
   const handleComenzarPreparacion = (pedidoId: string) => handlePedidoAction(pedidoId, "preparar")
   const handleMarcarListoParaRetiro = (pedidoId: string) =>
     handlePedidoAction(pedidoId, "listo_para_retiro")
-  const handleMarcarEnCamino = (pedidoId: string) => handlePedidoAction(pedidoId, "en_camino")
+  const handleBuscarRepartidor = (pedidoId: string) => handlePedidoAction(pedidoId, "buscar_repartidor")
   const handleConfirmarEntrega = (pedidoId: string) => handlePedidoAction(pedidoId, "entregar")
 
   if (state.status === "loading") {
@@ -668,10 +682,11 @@ export default function PyRPedidosActivosPage() {
       <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2.5 flex items-start gap-2">
         <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
-          Podés iniciar la preparación de pedidos recibidos, marcar listos para retirar los
-          pedidos de retiro en preparación, marcar en camino los pedidos de domicilio en
-          preparación y confirmar la entrega de pedidos de retiro listos para retirar. Las
-          demás acciones todavía no están disponibles desde acá.
+          Podés aceptar pedidos recibidos, iniciar la preparación de pedidos aceptados,
+          marcar listos para retirar los pedidos de retiro en preparación, buscar un
+          repartidor para los pedidos de domicilio en preparación y confirmar la entrega de
+          pedidos de retiro listos para retirar. Las demás acciones todavía no están
+          disponibles desde acá.
         </p>
       </div>
 
@@ -755,6 +770,28 @@ export default function PyRPedidosActivosPage() {
                     size="sm"
                     className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
                     style={{ backgroundColor: accent }}
+                    onClick={() => handleAceptarPedido(pedido.id)}
+                    disabled={mutatingPedidoIds.has(pedido.id)}
+                  >
+                    {mutatingPedidoIds.has(pedido.id) ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {ACTION_CONFIG.aceptar.labelEnCurso}
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Aceptar pedido
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {pedido.estado === "aceptado" && (
+                  <Button
+                    size="sm"
+                    className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
+                    style={{ backgroundColor: accent }}
                     onClick={() => handleComenzarPreparacion(pedido.id)}
                     disabled={mutatingPedidoIds.has(pedido.id)}
                   >
@@ -799,21 +836,28 @@ export default function PyRPedidosActivosPage() {
                     size="sm"
                     className="h-8 w-full gap-1.5 rounded-lg text-xs font-semibold text-white"
                     style={{ backgroundColor: accent }}
-                    onClick={() => handleMarcarEnCamino(pedido.id)}
+                    onClick={() => handleBuscarRepartidor(pedido.id)}
                     disabled={mutatingPedidoIds.has(pedido.id)}
                   >
                     {mutatingPedidoIds.has(pedido.id) ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {ACTION_CONFIG.en_camino.labelEnCurso}
+                        {ACTION_CONFIG.buscar_repartidor.labelEnCurso}
                       </>
                     ) : (
                       <>
-                        <Truck className="h-3.5 w-3.5" />
-                        Marcar en camino
+                        <Bike className="h-3.5 w-3.5" />
+                        Buscar repartidor
                       </>
                     )}
                   </Button>
+                )}
+
+                {pedido.metodoEntrega === "domicilio" && pedido.estado === "esperando_repartidor" && (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                    <Info className="h-3.5 w-3.5 shrink-0" />
+                    Buscando repartidor…
+                  </div>
                 )}
 
                 {pedido.puedeConfirmarEntrega === true && (

@@ -68,6 +68,7 @@ mock.module("@/lib/push", () => ({
   createNotification: async () => {},
   orderUpdateNotification: () => ({ title: "t", body: "b" }),
   newDeliveryNotification: () => ({ title: "t2", body: "b2" }),
+  waitingDriverNotification: () => ({ title: "t3", body: "b3" }),
 }))
 
 mock.module("@/lib/pedido-cancelacion-financiera", () => ({
@@ -105,13 +106,13 @@ beforeEach(() => {
 })
 
 describe("P2-T29A — operaciones/pyr/estado usa la autoridad compartida", () => {
-  test("domicilio: recibido→preparando sigue aceptado (200)", async () => {
+  test("domicilio: recibido→preparando sigue aceptado (200) — arista legacy preservada por el rollout", async () => {
     const res = await callPatch("p1", { estado: "preparando" })
     expect(res.status).toBe(200)
     expect(updateManyLastArgs).toMatchObject({ where: { id: "p1", negocioId: "negocio-1", metodoEntrega: { not: "mesa" }, estado: "recibido" } })
   })
 
-  test("domicilio: preparando→en_camino sigue aceptado (200)", async () => {
+  test("domicilio: preparando→en_camino sigue aceptado (200) — arista legacy preservada por el rollout", async () => {
     pedidoRecord!.estado = "preparando"
     const res = await callPatch("p1", { estado: "en_camino" })
     expect(res.status).toBe(200)
@@ -138,5 +139,49 @@ describe("P2-T29A — operaciones/pyr/estado usa la autoridad compartida", () =>
     updateManyCount = 0
     const res = await callPatch("p1", { estado: "preparando" })
     expect(res.status).toBe(409)
+  })
+})
+
+describe("P2-T42 — operaciones/pyr/estado adopta el modelo canónico aceptado/esperando_repartidor", () => {
+  test("domicilio: recibido→aceptado (paso nuevo) es aceptado (200)", async () => {
+    const res = await callPatch("p1", { estado: "aceptado" })
+    expect(res.status).toBe(200)
+    expect(updateManyLastArgs).toMatchObject({ where: { id: "p1", negocioId: "negocio-1", metodoEntrega: { not: "mesa" }, estado: "recibido" } })
+  })
+
+  test("retiro: recibido→aceptado también es aceptado (200) — no exclusivo de domicilio", async () => {
+    pedidoRecord = { ...pedidoRecord!, metodoEntrega: "retiro" }
+    const res = await callPatch("p1", { estado: "aceptado" })
+    expect(res.status).toBe(200)
+  })
+
+  test("domicilio: aceptado→preparando es aceptado (200)", async () => {
+    pedidoRecord!.estado = "aceptado"
+    const res = await callPatch("p1", { estado: "preparando" })
+    expect(res.status).toBe(200)
+  })
+
+  test("domicilio: preparando→esperando_repartidor (paso nuevo) es aceptado (200)", async () => {
+    pedidoRecord!.estado = "preparando"
+    const res = await callPatch("p1", { estado: "esperando_repartidor" })
+    expect(res.status).toBe(200)
+  })
+
+  test("retiro: preparando→esperando_repartidor sigue rechazado (400) — retiro nunca tiene esa arista", async () => {
+    pedidoRecord = { ...pedidoRecord!, metodoEntrega: "retiro", estado: "preparando" }
+    const res = await callPatch("p1", { estado: "esperando_repartidor" })
+    expect(res.status).toBe(400)
+  })
+
+  test("cancelado desde aceptado es aceptado (200) — el grafo rollout habilita cancelación en el estado nuevo", async () => {
+    pedidoRecord!.estado = "aceptado"
+    const res = await callPatch("p1", { estado: "cancelado", motivo: "cliente se arrepintió" })
+    expect(res.status).toBe(200)
+  })
+
+  test("cancelado desde esperando_repartidor es aceptado (200)", async () => {
+    pedidoRecord!.estado = "esperando_repartidor"
+    const res = await callPatch("p1", { estado: "cancelado", motivo: "sin stock" })
+    expect(res.status).toBe(200)
   })
 })

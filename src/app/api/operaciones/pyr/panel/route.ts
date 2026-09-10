@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS_NO_MESA } from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
-
-// Estados activos reales de pedidos no-mesa (mismos que `ESTADOS_ACTIVOS` del proyecto).
-// `en_camino` aplica solo a domicilio; mesa queda excluido por `metodoEntrega`.
-const ESTADOS_ACTIVOS_NO_MESA = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 
 // Límite fijo y seguro de pedidos activos devueltos (sin paginación de cliente en esta etapa).
 const PANEL_LIMIT = 100
@@ -40,15 +37,16 @@ export async function GET(req: NextRequest) {
     // Capacidad de gestión derivada en servidor (habilita acciones por pedido más abajo).
     const puedeGestionarPedido = hasTerminalScope(auth.context, "pyr.pedidos.gestionar")
 
-    // Solo pedidos del negocio, NO-mesa y en estados activos. Orden FIFO operativo
-    // (más antiguos primero) con `id` como desempate determinista. Límite fijo.
+    // Solo pedidos del negocio, NO-mesa y en estados activos. P2-T42: orden
+    // newest-first (más nuevos primero, antes FIFO oldest-first) con `id`
+    // como desempate determinista. Límite fijo.
     const pedidos = await db.pedido.findMany({
       where: {
         negocioId,
         metodoEntrega: { not: "mesa" },
         estado: { in: [...ESTADOS_ACTIVOS_NO_MESA] },
       },
-      orderBy: [{ fecha: "asc" }, { id: "asc" }],
+      orderBy: [{ fecha: "desc" }, { id: "desc" }],
       take: PANEL_LIMIT,
       select: {
         id: true,
@@ -87,9 +85,15 @@ export async function GET(req: NextRequest) {
       clienteNombre: p.clienteNombre,
       // Acciones derivadas SOLO en servidor (UX). El PATCH revalida todo igualmente.
       // No se expone `clienteConfirmaRecibido` crudo ni datos financieros.
+      // P2-T42: se inserta el paso explícito de aceptación (recibido->aceptado)
+      // antes de "Empezar preparación" (ahora aceptado->preparando), y
+      // "Marcar en camino" se retira en favor de "Buscar repartidor"
+      // (preparando->esperando_repartidor) — mismo modelo canónico que ya usa
+      // Negocio desde P2-T29B/T29C (ver order-transitions.ts).
       acciones: {
-        puedeIniciarPreparacion: puedeGestionarPedido && p.estado === "recibido",
-        puedeMarcarEnCamino:
+        puedeAceptarPedido: puedeGestionarPedido && p.estado === "recibido",
+        puedeIniciarPreparacion: puedeGestionarPedido && p.estado === "aceptado",
+        puedeBuscarRepartidor:
           puedeGestionarPedido && p.metodoEntrega === "domicilio" && p.estado === "preparando",
         puedeMarcarListoParaRetirar:
           puedeGestionarPedido && p.metodoEntrega === "retiro" && p.estado === "preparando",

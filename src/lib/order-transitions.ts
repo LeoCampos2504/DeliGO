@@ -47,6 +47,23 @@ export const MESA_PASA_POR_ACEPTADO = false
 
 export const TERMINAL_ESTADOS = ["entregado", "cancelado"] as const
 
+// P2-T42: única fuente de verdad de "¿este pedido no-mesa está activo para
+// PyR?" — antes de esta tarea, la MISMA lista literal (sin `aceptado` ni
+// `esperando_repartidor`) estaba copiada de forma idéntica en 10 archivos
+// distintos (paneles, listados, detalle, mensajes/adjuntos — Terminal y
+// Empleado), reproduciendo exactamente el mismo patrón de duplicación que
+// motivó extraer `order-transitions.ts` en P2-T29A. Se consolida acá para
+// que agregar un estado activo nuevo (como acá) nunca vuelva a requerir
+// tocar 10 archivos a mano ni arriesgue que alguno quede desincronizado.
+export const PYR_ACTIVE_ESTADOS_NO_MESA = [
+  "recibido",
+  CANONICAL_ACCEPTED_STATE,
+  "preparando",
+  CANONICAL_WAITING_DRIVER_STATE,
+  "en_camino",
+  "listo_para_retirar",
+] as const
+
 export function isTerminalEstado(estado: string): boolean {
   return (TERMINAL_ESTADOS as readonly string[]).includes(estado)
 }
@@ -77,18 +94,26 @@ export const ACTIVE_FORWARD_TRANSITIONS: ForwardGraph = {
   },
 }
 
-// Grafo de ROLLOUT de Negocio para P2-T29B — el ÚNICO grafo que
-// negocio/pedidos/[id]/estado/route.ts (domicilio/retiro) consume a partir
-// de T29B. Combina, para cada origen, la arista NUEVA (hacia aceptado/
-// esperando_repartidor) con la arista LEGACY que ya existía (recibido-
-// >preparando directo, preparando->en_camino directo) — ambas coexisten
-// durante el rollout porque un pedido creado hoy y uno creado después del
-// deploy pueden competir por la MISMA transición sin que ninguno se rompa.
-// La UI nueva sólo ofrece botones para el camino nuevo; el camino legacy
-// sigue aceptado a nivel de API por si algo (un cliente HTTP viejo, un
-// reintento) todavía lo envía. Mesa es idéntico a ACTIVE_FORWARD_TRANSITIONS
-// (nunca tuvo camino legacy que preservar aquí, y nunca recibe `aceptado`:
-// MESA_PASA_POR_ACEPTADO=false). Deliberadamente NO incluye ninguna entrada
+// Grafo de ROLLOUT para pedidos domicilio/retiro — originalmente exclusivo
+// de negocio/pedidos/[id]/estado/route.ts (T29B), y desde P2-T42 REUTILIZADO
+// tal cual (mismo objeto, sin copia) por operaciones/pyr/pedidos/[id]/estado
+// (Terminal) y por los endpoints fijos operativo/pyr/pedidos/[id]/{aceptar,
+// preparar,buscar-repartidor} (Empleado) — PyR gestiona el MISMO ciclo de
+// vida de domicilio/retiro que Negocio, así que comparte la MISMA autoridad
+// de transición en vez de duplicarla (el nombre `NEGOCIO_...` quedó como
+// histórico; renombrarlo tocaría innecesariamente los call-sites ya
+// existentes de Negocio). Combina, para cada origen, la arista NUEVA (hacia
+// aceptado/esperando_repartidor) con la arista LEGACY que ya existía
+// (recibido->preparando directo, preparando->en_camino directo) — ambas
+// coexisten durante el rollout porque un pedido creado hoy y uno creado
+// después del deploy pueden competir por la MISMA transición sin que ninguno
+// se rompa. La UI nueva (Negocio y, desde P2-T42, PyR) sólo ofrece botones
+// para el camino nuevo; el camino legacy sigue aceptado a nivel de API por
+// si algo (un cliente HTTP viejo, un reintento) todavía lo envía. Mesa es
+// idéntico a ACTIVE_FORWARD_TRANSITIONS (nunca tuvo camino legacy que
+// preservar aquí, y nunca recibe `aceptado`: MESA_PASA_POR_ACEPTADO=false;
+// PyR nunca gestiona mesa de todos modos, ver `metodoEntrega: { not: "mesa" }`
+// en sus propios endpoints). Deliberadamente NO incluye ninguna entrada
 // con origen `esperando_repartidor` — ese avance (->en_camino) es exclusivo
 // de la aceptación de Repartidor (T29C), nunca una acción de Negocio.
 export const NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS: ForwardGraph = {

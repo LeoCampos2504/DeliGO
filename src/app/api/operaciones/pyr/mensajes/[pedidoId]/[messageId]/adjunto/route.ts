@@ -4,6 +4,7 @@ import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 import { resolveAdjuntoBytes } from "@/lib/chat-adjunto-stream"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS } from "@/lib/order-transitions"
 
 // ============================================
 // DeliGO Operaciones - Terminal PyR: adjunto de un mensaje (SOLO LECTURA, proxy autorizado)
@@ -27,9 +28,6 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // cookies, scopes ni endpoints entre personal y Terminal.
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
-
-// Mismo conjunto de estados activos que GET /api/operaciones/pyr/mensajes/[pedidoId].
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 
 function notFound() {
   return NextResponse.json(

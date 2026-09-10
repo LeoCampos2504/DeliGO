@@ -3,14 +3,12 @@ import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { createNotification, chatMessageNotification } from "@/lib/push"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS } from "@/lib/order-transitions"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
 // Mensaje genérico de no-disponibilidad: no revela existencia, pertenencia ni estado interno.
 const UNAVAILABLE_MESSAGE = "Este pedido ya no está disponible para mensajes. Volvé a Pedidos y reseñas."
-
-// Estados activos no-mesa con conversación habilitada.
-const ESTADOS_ACTIVOS = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 
 // Límite fijo de mensajes devueltos (más recientes, en orden ascendente). El chat legacy no
 // pagina; aquí se acota por seguridad/rendimiento. Documentado en CODEX_REPORT.

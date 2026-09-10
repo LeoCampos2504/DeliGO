@@ -3,6 +3,7 @@ import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { PYR_ACTIVE_ESTADOS_NO_MESA as ESTADOS_ACTIVOS_NO_MESA } from "@/lib/order-transitions"
 
 // ============================================
 // DeliGO Operaciones - PyR personal: pedidos activos (SOLO LECTURA - Operaciones-1O + 1S.1)
@@ -15,10 +16,11 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // solos. Sin mutaciones de ningun tipo (no hay POST/PATCH/PUT/DELETE en este archivo).
 //
 // Definicion de "pedido activo" y filtro reutilizados EXACTOS del panel terminal existente
-// de PyR (ESTADOS_ACTIVOS_NO_MESA/PANEL_LIMIT/orden, endpoint de gestion con scopes de
-// terminal, no personal): estados recibido/preparando/en_camino/listo_para_retirar,
-// metodoEntrega != "mesa", orden fecha asc + id asc (FIFO operativo), limite fijo 100. Ver
-// detalle en CODEX_REPORT.md.
+// de PyR (PYR_ACTIVE_ESTADOS_NO_MESA/PANEL_LIMIT/orden, endpoint de gestion con scopes de
+// terminal, no personal): estados recibido/aceptado/preparando/esperando_repartidor/
+// en_camino/listo_para_retirar, metodoEntrega != "mesa", limite fijo 100. P2-T42: orden
+// invertido a fecha desc + id desc (newest-first) por decision explicita del operador — antes
+// era fecha asc + id asc (FIFO), ver P2_T42_PYR_EMPLOYEE_TERMINAL_ORDER_WORKFLOW_PARITY.md.
 //
 // Operaciones-1S.1: se selecciona internamente clienteConfirmaRecibido (nunca devuelto en
 // crudo) solo para derivar el booleano seguro puedeConfirmarEntrega - refleja exactamente la
@@ -26,7 +28,6 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // (metodoEntrega:"retiro" + estado:"listo_para_retirar" + clienteConfirmaRecibido:true), sin
 // debilitar ni duplicar esa autoridad: el POST sigue siendo la unica fuente final de verdad
 // frente a carreras o datos obsoletos entre la lectura y la mutacion.
-const ESTADOS_ACTIVOS_NO_MESA = ["recibido", "preparando", "en_camino", "listo_para_retirar"] as const
 const PEDIDOS_LIMIT = 100
 
 export async function GET(req: NextRequest) {
@@ -67,11 +68,13 @@ export async function GET(req: NextRequest) {
 
     // Total y listado se calculan en DB (conteo real, no se cargan todos los pedidos en
     // memoria solo para el resumen). Orden y limite: los mismos fijos del flujo terminal.
+    // P2-T42: orden invertido a newest-first (antes FIFO oldest-first) por
+    // decision explicita del operador — desempate estable por `id` desc.
     const [totalActivos, pedidos] = await Promise.all([
       db.pedido.count({ where }),
       db.pedido.findMany({
         where,
-        orderBy: [{ fecha: "asc" }, { id: "asc" }],
+        orderBy: [{ fecha: "desc" }, { id: "desc" }],
         take: PEDIDOS_LIMIT,
         select: {
           id: true,
