@@ -22,6 +22,67 @@ const OSRM_BASE_URL = "https://router.project-osrm.org/route/v1/driving"
 export const ROUTE_RECALC_MIN_INTERVAL_MS = 30_000
 export const ROUTE_RECALC_MIN_MOVEMENT_METERS = 100
 export const ROUTE_RECALC_MAX_INTERVAL_MS = 120_000
+export const ROUTE_FETCH_TIMEOUT_MS = 10_000
+
+export type DeliveryRouteRequestStatus = "SUCCESS" | "ERROR" | "ABORTED" | "TIMEOUT"
+
+export class DeliveryRouteRequestError extends Error {
+  constructor(public readonly status: Exclude<DeliveryRouteRequestStatus, "SUCCESS">) {
+    super(`delivery_route_${status.toLowerCase()}`)
+    this.name = "DeliveryRouteRequestError"
+  }
+}
+
+export function shouldRecoverRouteOnForeground(
+  route: DeliveryRoute | null,
+  routeError: string | null,
+  routeLoading: boolean,
+): boolean {
+  return route === null || routeError !== null || routeLoading
+}
+
+/**
+ * Fetches and validates one route with an explicit terminal outcome. The
+ * caller owns the external signal; this helper adds a timeout signal without
+ * relying on AbortSignal.any(), which is not uniformly available on WebKit.
+ */
+export async function fetchDeliveryRoute(
+  url: string,
+  options: { signal?: AbortSignal; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<DeliveryRoute> {
+  const controller = new AbortController()
+  const fetchImpl = options.fetchImpl ?? fetch
+  const timeoutMs = options.timeoutMs ?? ROUTE_FETCH_TIMEOUT_MS
+  let timedOut = false
+  const forwardAbort = () => controller.abort()
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort()
+    else options.signal.addEventListener("abort", forwardAbort, { once: true })
+  }
+
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal })
+    if (!response.ok) throw new DeliveryRouteRequestError("ERROR")
+    const route = parseOsrmRouteResponse(await response.json())
+    if (!route) throw new DeliveryRouteRequestError("ERROR")
+    return route
+  } catch (error) {
+    if (error instanceof DeliveryRouteRequestError) throw error
+    if (timedOut) throw new DeliveryRouteRequestError("TIMEOUT")
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new DeliveryRouteRequestError("ABORTED")
+    }
+    throw new DeliveryRouteRequestError("ERROR")
+  } finally {
+    clearTimeout(timeoutId)
+    options.signal?.removeEventListener("abort", forwardAbort)
+  }
+}
 
 export function isValidDeliveryCoordinate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180

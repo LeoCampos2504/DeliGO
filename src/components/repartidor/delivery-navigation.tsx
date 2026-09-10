@@ -10,10 +10,12 @@ import { useScreenWakeLock } from "@/hooks/use-screen-wake-lock"
 import {
   buildGoogleMapsDirectionsUrl,
   buildOsrmRouteUrl,
+  DeliveryRouteRequestError,
+  fetchDeliveryRoute,
   formatRouteDistance,
   formatRouteEta,
   getDestinationCoordinate,
-  parseOsrmRouteResponse,
+  shouldRecoverRouteOnForeground,
   shouldRecalculateRoute,
   trackingSampleToCoordinate,
   type DeliveryDestination,
@@ -56,8 +58,17 @@ export function DeliveryNavigation({
   const routeLineRef = useRef<L.Polyline | null>(null)
   const routeOriginRef = useRef<{ lat: number; lng: number } | null>(null)
   const lastRouteRequestAtRef = useRef<number | null>(null)
+  const routeRef = useRef<DeliveryRoute | null>(null)
+  const routeErrorRef = useRef<string | null>(null)
+  const routeLoadingRef = useRef(false)
+  const routeRequestControllerRef = useRef<AbortController | null>(null)
+  const routeRequestGenerationRef = useRef(0)
+  const foregroundRecoveryPendingRef = useRef(false)
+  const foregroundRecoveryScheduledRef = useRef(false)
   const [route, setRoute] = useState<DeliveryRoute | null>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [foregroundRecoveryNonce, setForegroundRecoveryNonce] = useState(0)
 
   const destinationCoordinate = getDestinationCoordinate(destination)
   const currentCoordinate = trackingSampleToCoordinate(currentPosition)
@@ -67,34 +78,120 @@ export function DeliveryNavigation({
   // Unsupported browsers and rejected requests are intentionally best effort.
   useScreenWakeLock(open && trackingEligible)
 
+  function updateRoute(nextRoute: DeliveryRoute | null) {
+    routeRef.current = nextRoute
+    setRoute(nextRoute)
+  }
+
+  function updateRouteError(nextError: string | null) {
+    routeErrorRef.current = nextError
+    setRouteError(nextError)
+  }
+
+  function updateRouteLoading(nextLoading: boolean) {
+    routeLoadingRef.current = nextLoading
+    setRouteLoading(nextLoading)
+  }
+
+  function cancelRouteRequest() {
+    routeRequestGenerationRef.current += 1
+    routeRequestControllerRef.current?.abort()
+    routeRequestControllerRef.current = null
+    updateRouteLoading(false)
+  }
+
+  function startRouteRequest(origin: { lat: number; lng: number }, destinationPoint: { lat: number; lng: number }, force: boolean) {
+    const now = Date.now()
+    if (!force && !shouldRecalculateRoute(routeOriginRef.current, origin, lastRouteRequestAtRef.current, now)) return
+    const url = buildOsrmRouteUrl(origin, destinationPoint)
+    if (!url) return
+
+    routeRequestControllerRef.current?.abort()
+    const controller = new AbortController()
+    const generation = routeRequestGenerationRef.current + 1
+    routeRequestGenerationRef.current = generation
+    routeRequestControllerRef.current = controller
+    routeOriginRef.current = origin
+    lastRouteRequestAtRef.current = now
+    updateRouteLoading(true)
+    updateRouteError(null)
+
+    void fetchDeliveryRoute(url, { signal: controller.signal })
+      .then((nextRoute) => {
+        if (generation !== routeRequestGenerationRef.current) return
+        updateRoute(nextRoute)
+      })
+      .catch((error: unknown) => {
+        if (generation !== routeRequestGenerationRef.current) return
+        if (error instanceof DeliveryRouteRequestError && error.status === "ABORTED") return
+        updateRouteError("No se pudo calcular la ruta en este momento")
+      })
+      .finally(() => {
+        if (generation !== routeRequestGenerationRef.current) return
+        routeRequestControllerRef.current = null
+        updateRouteLoading(false)
+      })
+  }
+
   useEffect(() => {
     if (!open || !trackingEligible || !destinationCoordinate || !currentCoordinate) return
 
-    const now = Date.now()
-    if (!shouldRecalculateRoute(routeOriginRef.current, currentCoordinate, lastRouteRequestAtRef.current, now)) return
-    const url = buildOsrmRouteUrl(currentCoordinate, destinationCoordinate)
-    if (!url) return
+    const requestId = window.setTimeout(() => {
+      if (!open || !trackingEligible || !destinationCoordinate || !currentCoordinate) return
+      const shouldRecover = foregroundRecoveryNonce > 0 && shouldRecoverRouteOnForeground(routeRef.current, routeErrorRef.current, routeLoadingRef.current)
+      startRouteRequest(currentCoordinate, destinationCoordinate, shouldRecover)
+    }, 0)
+    return () => window.clearTimeout(requestId)
+  }, [open, trackingEligible, currentCoordinate?.lat, currentCoordinate?.lng, destinationCoordinate?.lat, destinationCoordinate?.lng, pedidoId, foregroundRecoveryNonce])
 
-    const controller = new AbortController()
-    routeOriginRef.current = currentCoordinate
-    lastRouteRequestAtRef.current = now
+  useEffect(() => {
+    return () => cancelRouteRequest()
+  }, [])
 
-    void fetch(url, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("route_request_failed")
-        return parseOsrmRouteResponse(await response.json())
-      })
-      .then((nextRoute) => {
-        if (!nextRoute) throw new Error("route_response_invalid")
-        setRoute(nextRoute)
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
-        setRouteError("No se pudo calcular la ruta en este momento")
-      })
+  useEffect(() => {
+    let disposed = false
 
-    return () => controller.abort()
-  }, [open, trackingEligible, currentCoordinate?.lat, currentCoordinate?.lng, destinationCoordinate?.lat, destinationCoordinate?.lng, pedidoId])
+    function scheduleForegroundRecovery() {
+      if (disposed || !open || document.visibilityState !== "visible" || !foregroundRecoveryPendingRef.current) return
+      if (foregroundRecoveryScheduledRef.current) return
+      foregroundRecoveryScheduledRef.current = true
+      queueMicrotask(() => {
+        foregroundRecoveryScheduledRef.current = false
+        if (disposed || !open || document.visibilityState !== "visible") return
+        foregroundRecoveryPendingRef.current = false
+        if (shouldRecoverRouteOnForeground(routeRef.current, routeErrorRef.current, routeLoadingRef.current)) {
+          setForegroundRecoveryNonce((value) => value + 1)
+        }
+      })
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        foregroundRecoveryPendingRef.current = true
+        return
+      }
+      scheduleForegroundRecovery()
+    }
+
+    function handleFocus() {
+      scheduleForegroundRecovery()
+    }
+
+    function handlePageShow(event: PageTransitionEvent) {
+      if (event.persisted) foregroundRecoveryPendingRef.current = true
+      scheduleForegroundRecovery()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", handleFocus)
+    window.addEventListener("pageshow", handlePageShow)
+    return () => {
+      disposed = true
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", handleFocus)
+      window.removeEventListener("pageshow", handlePageShow)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open || !destinationCoordinate || !mapContainerRef.current || mapRef.current) return
@@ -126,6 +223,11 @@ export function DeliveryNavigation({
       routeLineRef.current = null
     }
   }, [open, destinationCoordinate?.lat, destinationCoordinate?.lng])
+
+  function retryRoute() {
+    if (!open || !trackingEligible || !currentCoordinate || !destinationCoordinate) return
+    startRouteRequest(currentCoordinate, destinationCoordinate, true)
+  }
 
   useEffect(() => {
     if (!mapRef.current || !currentCoordinate) return
@@ -204,8 +306,13 @@ export function DeliveryNavigation({
         </div>
 
         {route?.nextInstruction && <p className="flex items-start gap-2 rounded-xl bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-800 dark:text-blue-200"><Route className="mt-0.5 h-4 w-4 shrink-0" /> {route.nextInstruction}</p>}
-        {!route && currentCoordinate && hasDestinationCoordinates && !routeError && <p className="text-xs text-muted-foreground">Calculando ruta…</p>}
-        {routeError && <p className="text-xs text-amber-700 dark:text-amber-400">{routeError}. Podés continuar con Google Maps.</p>}
+        {routeLoading && currentCoordinate && hasDestinationCoordinates && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Calculando ruta…</p>}
+        {routeError && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/30">
+            <p className="text-xs text-amber-700 dark:text-amber-400">{routeError}. Podés continuar con Google Maps.</p>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={retryRoute} disabled={routeLoading}>Reintentar</Button>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">
           {trackingEligible
             ? "Tu dispositivo puede pausar la ubicación en segundo plano."

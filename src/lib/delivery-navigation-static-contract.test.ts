@@ -38,4 +38,57 @@ describe("P2-T02-B4 delivery navigation contracts", () => {
     expect(wakeLock).toContain(".catch(() => undefined)")
     expect(wakeLock).not.toContain("userAgent")
   })
+
+  test("recovers route after returning from external maps", () => {
+    const navigation = fromSrc("components/repartidor/delivery-navigation.tsx")
+    expect(navigation).toContain("visibilitychange")
+    expect(navigation).toContain('window.addEventListener("focus"')
+    expect(navigation).toContain('window.addEventListener("pageshow"')
+    expect(navigation).toContain("foregroundRecoveryPendingRef")
+    expect(navigation).toContain("foregroundRecoveryNonce")
+    expect(navigation).toContain("shouldRecoverRouteOnForeground")
+  })
+
+  test("route fetch has an explicit timeout and terminal error UI", () => {
+    const navigation = fromSrc("components/repartidor/delivery-navigation.tsx")
+    const helpers = fromSrc("lib/delivery-navigation.ts")
+    expect(helpers).toContain("ROUTE_FETCH_TIMEOUT_MS = 10_000")
+    expect(helpers).toContain('"TIMEOUT"')
+    expect(helpers).toContain('"ABORTED"')
+    expect(navigation).toContain("fetchDeliveryRoute")
+    expect(navigation).toContain("routeLoading")
+    expect(navigation).toContain("finally")
+    expect(navigation).toContain("No se pudo calcular la ruta en este momento")
+  })
+
+  test("stale route responses cannot overwrite a newer request", () => {
+    const navigation = fromSrc("components/repartidor/delivery-navigation.tsx")
+    expect(navigation).toContain("routeRequestGenerationRef")
+    expect(navigation).toContain("generation !== routeRequestGenerationRef.current")
+    expect(navigation).toContain("routeRequestControllerRef.current?.abort()")
+  })
+
+  test("closing navigation resets transient state and the parent performs a real unmount", () => {
+    const navigation = fromSrc("components/repartidor/delivery-navigation.tsx")
+    const deliveries = fromSrc("components/repartidor/deliveries-tab.tsx")
+    expect(navigation).toContain("return () => cancelRouteRequest()")
+    expect(navigation).toContain("routeRequestGenerationRef.current += 1")
+    expect(deliveries).toContain("{navigationOpen ? (")
+    expect(deliveries).toContain(") : null}")
+  })
+
+  test("route failures expose a user-triggered retry without opening a second GPS watcher", () => {
+    const navigation = fromSrc("components/repartidor/delivery-navigation.tsx")
+    expect(navigation).toContain("function retryRoute()")
+    expect(navigation).toContain('>Reintentar</Button>')
+    expect(navigation).toContain("startRouteRequest(currentCoordinate, destinationCoordinate, true)")
+    expect(navigation).not.toContain("watchPosition")
+  })
+
+  test("route requests preserve the existing public OSRM driving endpoint", () => {
+    const helpers = fromSrc("lib/delivery-navigation.ts")
+    expect(helpers).toContain('https://router.project-osrm.org/route/v1/driving')
+    expect(helpers).toContain('url.searchParams.set("overview", "full")')
+    expect(helpers).toContain('url.searchParams.set("geometries", "geojson")')
+  })
 })

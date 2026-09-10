@@ -616,15 +616,17 @@ function MyDeliveryCard({ pedido, currentPosition }: { pedido: PedidoDelivery; c
         </div>
       </div>
       </motion.div>
-      <DeliveryNavigation
-        pedidoId={pedido.id}
-        destination={{ lat: pedido.lat, lng: pedido.lng, address: pedido.direccion }}
-        destinationReference={pedido.referencia}
-        currentPosition={currentPosition}
-        trackingEligible={pedido.estado === "en_camino" && pedido.trackingEligibleNow === true}
-        open={navigationOpen}
-        onClose={() => setNavigationOpen(false)}
-      />
+      {navigationOpen ? (
+        <DeliveryNavigation
+          pedidoId={pedido.id}
+          destination={{ lat: pedido.lat, lng: pedido.lng, address: pedido.direccion }}
+          destinationReference={pedido.referencia}
+          currentPosition={currentPosition}
+          trackingEligible={pedido.estado === "en_camino" && pedido.trackingEligibleNow === true}
+          open={navigationOpen}
+          onClose={() => setNavigationOpen(false)}
+        />
+      ) : null}
     </>
   )
 }
