@@ -96,6 +96,15 @@ export function RepartidorPanel() {
       return res.json()
     },
     refetchInterval: 8000, // Auto-refresh every 8s (matching Flask behavior)
+    // P2-T02-B3 (OPTION-C, §9): this query's `trackingEligibleNow` result is
+    // what use-repartidor-tracking.ts's reconciliation effect uses to clear
+    // knownIneligibleRef after a POST failure (see BACKGROUND_NETWORK_RECOVERY_METHOD
+    // in the B3 report) — without this flag, TanStack Query's default
+    // (refetchIntervalInBackground=false) pauses this exact poll while the
+    // tab is hidden, so a transient network failure during background would
+    // stay unrecovered until the user physically returns to foreground. Same
+    // 8s cadence as before — this does not poll more often, only while hidden.
+    refetchIntervalInBackground: true,
   })
 
   // Fetch today's delivered count

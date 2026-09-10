@@ -6,7 +6,9 @@ import {
   canUntrustedTrackingSourceOverridePosition,
   createTrackingFreshnessTracker,
   isTrackingHttpResponseSuperseded,
+  isTrackingLocationStale,
   isTrustedTrackingServerVersion,
+  TRACKING_STALE_THRESHOLD_MS,
 } from "./tracking-freshness"
 
 // Every scenario below is adversarial and fully deterministic — no timers,
@@ -509,5 +511,74 @@ describe("Tracking Latest-Wins / Same-Pedido Close-Reopen Version Floor", () => 
     expect(applyTrackingServerVersion(reopened, 10)).toBe(false)
     // A fresh delivery for the exact same coordinates at a genuinely higher version still applies.
     expect(applyTrackingServerVersion(reopened, 12)).toBe(true)
+  })
+})
+
+// ============================================
+// P2-T02-B3 (OPTION-C) — Client stale-location honesty. Pure, deterministic:
+// `now` is always an injected literal, never Date.now() read internally (see
+// isTrackingLocationStale's own doc comment) — matches this file's own
+// no-clock-reads convention (test 19 above) and tracking-movement.ts's
+// isSampleFresh pattern.
+// ============================================
+describe("Tracking Stale-Location Honesty (P2-T02-B3, §10/§18)", () => {
+  test("1. a location updated well within the threshold is fresh", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now - 5_000).toISOString(), now)).toBe(false)
+  })
+
+  test("2. a location older than the threshold is stale", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now - TRACKING_STALE_THRESHOLD_MS - 1).toISOString(), now)).toBe(true)
+  })
+
+  test("3. exactly at the threshold boundary is still fresh (age <= thresholdMs)", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now - TRACKING_STALE_THRESHOLD_MS).toISOString(), now)).toBe(false)
+  })
+
+  test("4. one millisecond past the threshold is stale", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now - TRACKING_STALE_THRESHOLD_MS - 1).toISOString(), now)).toBe(true)
+  })
+
+  test("5. missing/null lastUpdate is always stale — never treated as 'unknown = fresh'", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(null, now)).toBe(true)
+    expect(isTrackingLocationStale(undefined, now)).toBe(true)
+    expect(isTrackingLocationStale("", now)).toBe(true)
+  })
+
+  test("6. an invalid date string is treated as stale, never as fresh", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale("not-a-date", now)).toBe(true)
+  })
+
+  test("7. a lastUpdate reported in the future relative to now is treated as stale, never as extra-fresh", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now + 10_000).toISOString(), now)).toBe(true)
+  })
+
+  test("8. socket connectivity is irrelevant to this function's result — it takes no socket/transport input at all", () => {
+    expect(isTrackingLocationStale.length).toBe(2) // (lastUpdate, now) required — thresholdMs is optional/defaulted, no socket/transport param
+  })
+
+  test("9. a custom thresholdMs is honored instead of the default constant", () => {
+    const now = 1_000_000
+    expect(isTrackingLocationStale(new Date(now - 5_000).toISOString(), now, 1_000)).toBe(true) // stale under a tighter 1s threshold
+    expect(isTrackingLocationStale(new Date(now - 5_000).toISOString(), now, 60_000)).toBe(false) // fresh under a looser 60s threshold
+  })
+
+  test("10. a later, fresher lastUpdate reverses a previously-stale verdict — staleness is recomputed from the latest known update, never sticky", () => {
+    const staleAt = 1_000_000
+    const staleLastUpdate = new Date(staleAt - TRACKING_STALE_THRESHOLD_MS - 1).toISOString()
+    expect(isTrackingLocationStale(staleLastUpdate, staleAt)).toBe(true)
+
+    const refreshedLastUpdate = new Date(staleAt).toISOString() // a new update just arrived
+    expect(isTrackingLocationStale(refreshedLastUpdate, staleAt)).toBe(false)
+  })
+
+  test("11. TRACKING_STALE_THRESHOLD_MS is exactly 120000 (two missed 60000ms stationary heartbeats)", () => {
+    expect(TRACKING_STALE_THRESHOLD_MS).toBe(120_000)
   })
 })

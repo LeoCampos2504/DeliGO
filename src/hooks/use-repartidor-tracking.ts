@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   buildSampleFromPosition,
   isCandidateSampleNewer,
@@ -106,10 +106,25 @@ function isCoreEligible(delivery: ActiveDelivery, knownIneligible: Set<string>):
  *
  * P2-T19 (conciencia de si algún Cliente está mirando el tracking) queda
  * explícitamente fuera de alcance — cero viewer/presence awareness aquí.
+ *
+ * P2-T02-B3 (OPTION-C): el watcher/heartbeat/watchdog ya NO se cortan
+ * voluntariamente cuando `document.visibilityState` pasa a oculto (ese era
+ * el modelo anterior, OPTION-V2, Stage 1B) — el único gate real es la
+ * elegibilidad de la entrega. `BACKGROUND_TRACKING_GUARANTEED` sigue siendo
+ * `NO`: Android/Chromium pueden seguir throttleando (≈1 callback/min tras
+ * varios minutos oculto) o congelando la ejecución por su cuenta; DeliGO
+ * simplemente ya no se anticipa a hacerlo él mismo. La recuperación de
+ * foreground (Stage 6I/6J) se preserva íntegra como red de seguridad para
+ * cuando el freeze de la plataforma sí ocurrió.
  */
 export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   const deliveriesRef = useRef<ActiveDelivery[]>(activeDeliveries)
   const knownIneligibleRef = useRef<Set<string>>(new Set())
+  // P2-T02-B3: expuesto en el valor de retorno para que la UI del Repartidor
+  // pueda distinguir "sin entregas elegibles" de "elegible pero el sensor
+  // GPS está denegado" (§12) — nunca gatea ninguna decisión interna del
+  // hook, es puramente informativo para el consumidor.
+  const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false)
   const deliveryStateRef = useRef<Map<string, DeliveryTrackingState>>(new Map())
 
   const watchIdRef = useRef<number | null>(null)
@@ -205,8 +220,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       watchIdRef.current = null
     }
     // Invalida cualquier callback/adquisición fresca en vuelo — si el
-    // watcher se detiene (cero elegibles u oculto), completar un one-shot
-    // pendiente ya no tiene ningún destino válido.
+    // watcher se detiene (cero elegibles, unmount, o un reinicio duro de
+    // recuperación), completar un one-shot pendiente ya no tiene ningún
+    // destino válido.
     watchGenerationRef.current += 1
     // Libera el single-flight de adquisición fresca de la generación vieja
     // — sin esto, una nueva generación (p.ej. tras volver a visible) queda
@@ -232,9 +248,14 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     }
   }
 
+  // P2-T02-B3 (OPTION-C): a diferencia del modelo anterior (OPTION-V2), el
+  // watcher puede arrancar/seguir vivo estando `document.visibilityState`
+  // oculto — el único gate real es la elegibilidad de la entrega, nunca la
+  // visibilidad de la pestaña. `BACKGROUND_TRACKING_GUARANTEED` sigue siendo
+  // `NO` (Android/Chromium pueden seguir throttleando/congelando por su
+  // cuenta), pero DeliGO ya no se anticipa a apagarlo voluntariamente.
   function startWatcherIfNeeded() {
     if (watchIdRef.current !== null) return
-    if (document.visibilityState !== "visible") return
     if (!navigator.geolocation) return
     const hasEligible = deliveriesRef.current.some((d) => isCoreEligible(d, knownIneligibleRef.current))
     if (!hasEligible) return
@@ -279,7 +300,6 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // evidencia de actividad real del watcher durante la ventana.
   function scheduleWatchdog() {
     clearWatchdog()
-    if (document.visibilityState !== "visible") return
     const hasEligible = deliveriesRef.current.some((d) => isCoreEligible(d, knownIneligibleRef.current))
     if (!hasEligible) return
     const generation = watchGenerationRef.current
@@ -297,7 +317,6 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   function checkWatchdog(generation: number) {
     watchdogTimerRef.current = null
     if (generation !== watchGenerationRef.current) return
-    if (document.visibilityState !== "visible") return
     const eligibleNow = deliveriesRef.current.filter((d) => isCoreEligible(d, knownIneligibleRef.current))
     if (eligibleNow.length === 0) return
 
@@ -323,6 +342,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   function handleWatchSuccess(generation: number, position: GeolocationPosition) {
     if (generation !== watchGenerationRef.current) return // callback obsoleto de un watcher ya reemplazado
     markProducerActivity()
+    setGpsPermissionDenied(false)
     observeSample(buildSampleFromPosition(position))
   }
 
@@ -331,10 +351,13 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     markProducerActivity()
     if (error.code === error.PERMISSION_DENIED) {
       // Fatal — nunca reintentar automáticamente (evita cualquier storm de
-      // prompts). Sólo un futuro cambio de elegibilidad/visibilidad, o que
-      // el usuario vuelva a otorgar el permiso vía profile-tab.tsx (flujo
-      // voluntario separado, sin cambios), puede reiniciar el watcher.
+      // prompts). Sólo un futuro cambio de elegibilidad, o que el usuario
+      // vuelva a otorgar el permiso vía profile-tab.tsx (flujo voluntario
+      // separado, sin cambios) seguido de un watchPosition/getCurrentPosition
+      // exitoso, puede limpiar este estado (ver setGpsPermissionDenied(false)
+      // en handleWatchSuccess/ensureFreshSample).
       stopWatcher()
+      setGpsPermissionDenied(true)
     }
     // POSITION_UNAVAILABLE / TIMEOUT: no destructivo — el watcher sigue
     // activo, simplemente no hay sample nuevo esta vez.
@@ -400,7 +423,6 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
     const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
     if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
-    if (document.visibilityState !== "visible") return
 
     const pending = state.pendingMeaningfulSample
     if (!pending) return
@@ -466,22 +488,20 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       currentState.lastSentSample = sample
       currentState.lastSuccessfulSendAt = Date.now()
 
-      // Si la pestaña pasó a oculta mientras este POST estaba en vuelo,
-      // OPTION-V2 exige cero timers activos en ese estado — no reprogramar
-      // el heartbeat ni un pending sample aquí violaría esa garantía. La
-      // recuperación al volver a visible ya rearma el heartbeat según el
-      // lastSuccessfulSendAt real (P2-T02 Stage 3 §15).
-      if (document.visibilityState === "visible") {
-        scheduleHeartbeat(deliveryId)
+      // P2-T02-B3 (OPTION-C): a diferencia de OPTION-V2, rearmar el
+      // heartbeat y reevaluar cualquier pending sample SIEMPRE — estar
+      // oculto ya no implica "cero timers activos". Si Chromium termina
+      // congelando la página de todas formas, estos timers simplemente no
+      // se ejecutarán hasta que descongele — best-effort, nunca forzado.
+      scheduleHeartbeat(deliveryId)
 
-        // Si mientras este POST estaba en vuelo llegó un sample pendiente
-        // más nuevo que el que se acaba de confirmar, reevaluarlo ahora
-        // contra el throttle normal — nunca se pierde silenciosamente.
-        const pending = currentState.pendingMeaningfulSample
-        currentState.pendingMeaningfulSample = null
-        if (pending && isCandidateSampleNewer(pending, sample)) {
-          scheduleOrSendForDelivery(deliveryId, pending)
-        }
+      // Si mientras este POST estaba en vuelo llegó un sample pendiente
+      // más nuevo que el que se acaba de confirmar, reevaluarlo ahora
+      // contra el throttle normal — nunca se pierde silenciosamente.
+      const pending = currentState.pendingMeaningfulSample
+      currentState.pendingMeaningfulSample = null
+      if (pending && isCandidateSampleNewer(pending, sample)) {
+        scheduleOrSendForDelivery(deliveryId, pending)
       }
     } catch {
       // Network error / abort — fail-closed exactamente igual que un
@@ -515,6 +535,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           markProducerActivity()
+          setGpsPermissionDenied(false)
           if (generation !== watchGenerationRef.current) {
             resolve(null)
             return
@@ -625,7 +646,6 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
     const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
     if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
-    if (document.visibilityState !== "visible") return
 
     const now = Date.now()
     if (isSampleFresh(latestObservedSampleRef.current, now)) {
@@ -698,11 +718,15 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     }
   }, [activeDeliveries])
 
-  // OPTION-V2: oculto -> clearWatch + cancelar todo timer de envío
-  // pendiente/heartbeat; visible -> reiniciar el watcher y rearmar cada
-  // heartbeat según su lastSuccessfulSendAt REAL (nunca resetear el
-  // conteo a 0 sólo porque la pestaña volvió a mostrarse).
-  // BACKGROUND_TRACKING_GUARANTEED=NO.
+  // P2-T02-B3 (OPTION-C, reemplaza OPTION-V2 de Stage 1B): oculto -> ya NO
+  // se corta nada (ver handleVisibilityChange) — el watcher, el heartbeat y
+  // el watchdog siguen best-effort mientras Android/Chromium lo permitan.
+  // `BACKGROUND_TRACKING_GUARANTEED` sigue siendo `NO` — nada de esto obliga
+  // a la plataforma a seguir entregando callbacks; sólo se dejó de ser
+  // DeliGO quien apaga el sensor por su cuenta. visible -> igual que antes,
+  // reiniciar duro el watcher (defensivo) y rearmar cada heartbeat según su
+  // lastSuccessfulSendAt REAL (nunca resetear el conteo a 0 sólo porque la
+  // pestaña volvió a mostrarse).
   //
   // P2-T02 Stage 6I (FINDING_P2T02_STAGE6H_01): un Android físico real
   // demostró que depender EXCLUSIVAMENTE de `visibilitychange` para decidir
@@ -786,12 +810,19 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
         return
       }
 
-      stopWatcher()
+      // P2-T02-B3 (OPTION-C): ya NO cortamos el watcher/heartbeat/pending
+      // timers sólo por ocultarnos (eso era OPTION-V2, un apagado
+      // voluntario). El requisito de producto exige best-effort mientras
+      // Android/Chromium sigan ejecutando JS — el watcher, el heartbeat y el
+      // watchdog quedan corriendo tal cual estaban.
+      //
+      // `pendingForegroundRecoveryRef` SÍ se sigue marcando: no podemos
+      // verificar desde acá si Chromium terminó congelando por completo la
+      // ejecución mientras estuvimos ocultos (el mismo escenario real que
+      // Stage 6I ya documentó, FINDING_P2T02_STAGE6H_01) — así que al volver
+      // a visible seguimos haciendo un reinicio duro defensivo del watcher en
+      // vez de confiar ciegamente en que el watch previo sobrevivió intacto.
       pendingForegroundRecoveryRef.current = true
-      clearWatchdog() // cero timers activos mientras oculto (OPTION-V2) — el watchdog también cuenta.
-      for (const id of [...deliveryStateRef.current.keys()]) {
-        clearDeliveryTimers(id)
-      }
     }
 
     function handleWindowFocus() {
@@ -848,5 +879,8 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // este microinstante hay o no un fetch en vuelo (P2-T02 Stage 3 §9).
   const trackingActive = activeDeliveries.some((d) => isCoreEligible(d, knownIneligibleRef.current))
 
-  return { trackingActive }
+  // P2-T02-B3: `gpsPermissionDenied` es puramente informativo para la UI del
+  // Repartidor (§12) — distingue "sin entregas elegibles" de "elegible pero
+  // el sensor GPS está denegado", sin gatear ninguna decisión interna.
+  return { trackingActive, gpsPermissionDenied }
 }

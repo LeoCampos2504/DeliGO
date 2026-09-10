@@ -19,6 +19,7 @@ import {
   HandMetal,
   Trash2,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -100,7 +101,7 @@ interface DeliveriesTabProps {
 // ============================================
 export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh }: DeliveriesTabProps) {
   const [filter, setFilter] = useState<DeliveryFilter>("disponibles")
-  const { trackingActive } = useRepartidorTracking(mios)
+  const { trackingActive, gpsPermissionDenied } = useRepartidorTracking(mios)
 
   if (isLoading) {
     return <DeliveriesSkeleton />
@@ -149,16 +150,34 @@ export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh
       </div>
 
       {/* Tracking indicator - only show when viewing "mios" */}
+      {/* P2-T02-B3 (OPTION-C, §12): BEST_EFFORT_BACKGROUND_TRACKING — nunca
+          "seguimiento garantizado en segundo plano". Distingue el caso
+          elegible-pero-sensor-denegado (gpsPermissionDenied) del caso normal,
+          sin lenguaje alarmista. */}
       {filter === "mios" && trackingActive && (
-        <div className="flex items-center gap-1.5 px-1">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-          </span>
-          <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            Seguimiento en vivo habilitado
-          </span>
-        </div>
+        gpsPermissionDenied ? (
+          <div className="flex items-start gap-1.5 px-1">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              Ubicación no disponible — activá el permiso de ubicación para compartir tu posición
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5 px-1">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              </span>
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                Seguimiento en vivo habilitado
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground pl-4">
+              Compartiendo tu ubicación durante el delivery. Android puede pausarla en segundo plano.
+            </span>
+          </div>
+        )
       )}
 
       {/* Auto-cancel button */}

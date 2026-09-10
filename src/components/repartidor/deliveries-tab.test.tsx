@@ -20,9 +20,9 @@ import { join } from "path"
 const SOURCE = readFileSync(join(process.cwd(), "src", "components", "repartidor", "deliveries-tab.tsx"), "utf-8")
 
 describe("P2T01-17 — deliveries-tab.tsx badge: truthful, server-derived eligibility only", () => {
-  test("trackingActive comes from useRepartidorTracking(mios) — not a locally reimplemented boolean", () => {
+  test("trackingActive and gpsPermissionDenied come from useRepartidorTracking(mios) — not a locally reimplemented boolean", () => {
     expect(SOURCE).toContain('import { useRepartidorTracking } from "@/hooks/use-repartidor-tracking"')
-    expect(SOURCE).toContain("const { trackingActive } = useRepartidorTracking(mios)")
+    expect(SOURCE).toContain("const { trackingActive, gpsPermissionDenied } = useRepartidorTracking(mios)")
   })
 
   test("the badge renders only when filter is 'mios' AND trackingActive is true", () => {
@@ -36,5 +36,17 @@ describe("P2T01-17 — deliveries-tab.tsx badge: truthful, server-derived eligib
 
   test("PedidoDelivery carries the server-resolved trackingEligibleNow flag (P2-T01 mios payload)", () => {
     expect(SOURCE).toMatch(/interface PedidoDelivery[\s\S]*?trackingEligibleNow\?:\s*boolean/)
+  })
+
+  // P2-T02-B3 (OPTION-C, §12): BEST_EFFORT_BACKGROUND_TRACKING wording —
+  // never "seguimiento garantizado en segundo plano", and a distinct,
+  // correctly-worded state when the GPS permission itself is denied.
+  test("the badge discloses the best-effort nature of background tracking", () => {
+    expect(SOURCE).toContain("Android puede pausarla en segundo plano")
+  })
+
+  test("gpsPermissionDenied renders a distinct, non-alarmist state instead of the live badge", () => {
+    expect(SOURCE).toContain("gpsPermissionDenied ?")
+    expect(SOURCE).toContain("Ubicación no disponible")
   })
 })

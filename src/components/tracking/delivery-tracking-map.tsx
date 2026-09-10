@@ -10,6 +10,7 @@ import {
   canUntrustedTrackingSourceOverridePosition,
   createTrackingFreshnessTracker,
   isTrackingHttpResponseSuperseded,
+  isTrackingLocationStale,
   isTrustedTrackingServerVersion,
 } from "@/lib/tracking-freshness"
 import "leaflet/dist/leaflet.css"
@@ -237,6 +238,11 @@ export function DeliveryTrackingMap({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [timeSince, setTimeSince] = useState<string>("")
+  // P2-T02-B3 (OPTION-C): true whenever the last known position is older
+  // than TRACKING_STALE_THRESHOLD_MS — the sole authority for whether "En
+  // vivo"/"Tiempo real" may be shown. Defaults to `true` (never assume
+  // live before the freshness check has actually run once).
+  const [isStale, setIsStale] = useState(true)
   const [isMapReady, setIsMapReady] = useState(false)
   // True once our tracking:watch lease has been granted for the current
   // pedido. This alone is NOT "currently live" — the shared transport can
@@ -476,10 +482,18 @@ export function DeliveryTrackingMap({
     return () => clearInterval(interval)
   }, [open, fetchTracking, isLiveSocket])
 
-  // Update time since every second
+  // Update time-since and staleness every second — the sole authority for
+  // "En vivo"/"Tiempo real" is data age (repartidorLastUpdate), never
+  // transport connectivity alone (P2-T02-B3, §11: SOCKET_NO_LONGER_EQUALS_LOCATION_FRESHNESS).
   useEffect(() => {
-    if (!trackingData?.repartidorLastUpdate) return
-    const update = () => setTimeSince(timeSinceUpdate(trackingData.repartidorLastUpdate))
+    if (!trackingData?.repartidorLastUpdate) {
+      setIsStale(true)
+      return
+    }
+    const update = () => {
+      setTimeSince(timeSinceUpdate(trackingData.repartidorLastUpdate))
+      setIsStale(isTrackingLocationStale(trackingData.repartidorLastUpdate, Date.now()))
+    }
     update()
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
@@ -694,16 +708,28 @@ export function DeliveryTrackingMap({
       {/* Header bar */}
       <div className="relative z-10 flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm">
         <div className="flex items-center gap-3">
-          {/* Live indicator */}
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              En vivo
-            </span>
-          </div>
+          {/* Live indicator — P2-T02-B3: gated on data freshness (isStale),
+              never shown for a stale position even if the map is open and a
+              prior fetch succeeded (§5/§11: nunca mostrar como "En vivo" una
+              ubicación vieja). */}
+          {trackingData && !isStale ? (
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              </span>
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                En vivo
+              </span>
+            </div>
+          ) : trackingData && isStale ? (
+            <div className="flex items-center gap-2">
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+                Pausado
+              </span>
+            </div>
+          ) : null}
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-1.5">
             <Bike className="h-4 w-4 text-primary" />
@@ -797,6 +823,11 @@ export function DeliveryTrackingMap({
               <>
                 <MapPin className="h-4 w-4 text-primary shrink-0" />
                 <div className="min-w-0">
+                  {isStale && (
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                      Ubicación temporalmente pausada
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Última actualización: <span className="font-medium text-foreground">{timeSince}</span>
                   </p>
@@ -817,10 +848,20 @@ export function DeliveryTrackingMap({
             )}
           </div>
 
-          {/* Connection indicator */}
+          {/* Connection indicator — P2-T02-B3 (§11): a live socket never
+              equals a fresh location. Staleness takes priority over
+              transport state; the socket-vs-poll distinction below only
+              applies once the position itself is confirmed fresh. */}
           {trackingData?.repartidorLastUpdate && (
             <div className="flex items-center gap-1.5 shrink-0">
-              {isLiveSocket ? (
+              {isStale ? (
+                <>
+                  <WifiOff className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                    Pausado
+                  </span>
+                </>
+              ) : isLiveSocket ? (
                 <>
                   <Wifi className="h-3.5 w-3.5 text-emerald-500" />
                   <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">

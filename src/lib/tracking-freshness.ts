@@ -224,3 +224,42 @@ export function canUntrustedTrackingSourceOverridePosition(
 ): boolean {
   return tracker.highestServerVersion === null
 }
+
+// P2-T02-B3 (OPTION-C, Cliente — stale location honesty): a Repartidor
+// background-tracking best-effort (no longer voluntarily stopped on
+// visibilitychange, see use-repartidor-tracking.ts) means the last known
+// position can legitimately go stale for a while — Android/Chromium may be
+// throttling or have paused the producer, with no guarantee of when (or
+// whether) it resumes. DeliveryTrackingMap must never present a stale
+// position as "live" (see the module header for why: HTTP fallback poll and
+// the live-socket badge both reflect TRANSPORT connectivity, never DATA
+// age — those are orthogonal facts).
+//
+// 120s ≈ two missed stationary heartbeats (STATIONARY_HEARTBEAT_MS=60000 in
+// use-repartidor-tracking.ts) — long enough that a single missed heartbeat
+// (GPS jitter, a slow POST, a throttled-but-not-frozen background tab) never
+// flickers the UI into "stale", short enough that the Cliente is told
+// promptly once the producer has genuinely gone quiet for longer than any
+// single normal cycle could explain.
+export const TRACKING_STALE_THRESHOLD_MS = 120_000
+
+// `now` is always the caller's own clock read (Date.now() in production,
+// injected literals in tests) — this module never reads a clock itself (see
+// the test file header comment: no timers, no sleeps, no Date/clock reads
+// anywhere in this file). A missing/invalid `lastUpdate` is treated as stale
+// (never as "unknown = fresh") — the UI has nothing trustworthy to show as
+// live in that case either way.
+export function isTrackingLocationStale(
+  lastUpdate: string | null | undefined,
+  now: number,
+  thresholdMs: number = TRACKING_STALE_THRESHOLD_MS,
+): boolean {
+  if (!lastUpdate) return true
+  const lastUpdateMs = new Date(lastUpdate).getTime()
+  if (!Number.isFinite(lastUpdateMs)) return true
+  const age = now - lastUpdateMs
+  // A negative age (lastUpdate reported in the future relative to `now`) is
+  // never trusted as "extra fresh" — treated as stale, same defensive
+  // posture as isSampleFresh in tracking-movement.ts.
+  return age < 0 || age > thresholdMs
+}
