@@ -125,6 +125,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // GPS está denegado" (§12) — nunca gatea ninguna decisión interna del
   // hook, es puramente informativo para el consumidor.
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState(false)
+  // Shared read-only view of the same physical watcher used for delivery
+  // tracking. Navigation consumes this state; it never owns a second GPS
+  // watcher or calls navigator.geolocation directly.
+  const [latestPosition, setLatestPosition] = useState<TrackingLocationSample | null>(null)
   const deliveryStateRef = useRef<Map<string, DeliveryTrackingState>>(new Map())
 
   const watchIdRef = useRef<number | null>(null)
@@ -369,6 +373,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   function observeSample(sample: TrackingLocationSample) {
     if (isCandidateSampleNewer(sample, latestObservedSampleRef.current)) {
       latestObservedSampleRef.current = sample
+      setLatestPosition(sample)
     }
     for (const delivery of deliveriesRef.current) {
       if (!isCoreEligible(delivery, knownIneligibleRef.current)) continue
@@ -547,6 +552,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
           // más viejo (isCandidateSampleNewer lo garantiza).
           if (isCandidateSampleNewer(sample, latestObservedSampleRef.current)) {
             latestObservedSampleRef.current = sample
+            setLatestPosition(sample)
           }
           resolve(latestObservedSampleRef.current)
         },
@@ -882,5 +888,5 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // P2-T02-B3: `gpsPermissionDenied` es puramente informativo para la UI del
   // Repartidor (§12) — distingue "sin entregas elegibles" de "elegible pero
   // el sensor GPS está denegado", sin gatear ninguna decisión interna.
-  return { trackingActive, gpsPermissionDenied }
+  return { trackingActive, gpsPermissionDenied, latestPosition }
 }
