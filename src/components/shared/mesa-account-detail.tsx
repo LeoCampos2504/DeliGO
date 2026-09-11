@@ -16,6 +16,7 @@ export function MesaAccountDetail({ cuenta }: { cuenta: Pick<CuentaMesaResult, "
           {pedido.items.map((item) => (
             <div key={item.id} className="py-1 text-sm">
               <div className="flex justify-between gap-2"><span>{item.cantidad}× {item.nombre}</span><span>{formatPrice(item.subtotalLineaAprox)}</span></div>
+              <p className="pl-3 text-xs text-muted-foreground">Precio unitario: {formatPrice(item.precioUnitario)}</p>
               {item.agregados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">+ {item.agregados.map((a) => a.nombre).join(", ")}</p>}
               {item.secciones.length > 0 && <p className="pl-3 text-xs text-muted-foreground">{item.secciones.join(" · ")}</p>}
               {item.ingredientesQuitados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">Sin: {item.ingredientesQuitados.join(", ")}</p>}

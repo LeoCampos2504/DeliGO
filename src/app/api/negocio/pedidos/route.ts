@@ -8,6 +8,7 @@ import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-c
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
+import { buildMesaHistorialAccounts } from "@/lib/mesa-historial"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
 
     const where: Record<string, unknown> = { negocioId }
     const currentMesaSurface = estado === "activos" && metodoEntrega === "mesa"
+    const historyMesaSurface = estado === "historial" && metodoEntrega === "mesa"
 
     if (estado === "activos") {
       where.estado = { in: ESTADOS_ACTIVOS }
@@ -96,7 +98,18 @@ export async function GET(req: NextRequest) {
       db.pedido.findMany({
         where,
         include: {
-          ocupacionMesa: { select: { id: true, metodoPago: true, pagoConfirmadoEn: true } },
+          ocupacionMesa: {
+            select: {
+              id: true,
+              mesaId: true,
+              estado: true,
+              iniciadaEn: true,
+              cerradaEn: true,
+              metodoPago: true,
+              pagoConfirmadoEn: true,
+              mesa: { select: { numero: true } },
+            },
+          },
           items: {
             include: {
               producto: {
@@ -152,9 +165,30 @@ export async function GET(req: NextRequest) {
         .map((pedido) => ({ ...pedido, occupationSurface: pedido.ocupacionMesaId ? "previous" as const : "unlinked" as const }))
     }
 
+    const cuentas = historyMesaSurface
+      ? buildMesaHistorialAccounts(
+          pedidosParsedAll.map((pedido) => ({
+            ...pedido,
+            ocupacionMesa: pedido.ocupacionMesa
+              ? {
+                  id: pedido.ocupacionMesa.id,
+                  mesaId: pedido.ocupacionMesa.mesaId,
+                  mesaNumero: pedido.ocupacionMesa.mesa.numero,
+                  estado: pedido.ocupacionMesa.estado,
+                  iniciadaEn: pedido.ocupacionMesa.iniciadaEn,
+                  cerradaEn: pedido.ocupacionMesa.cerradaEn,
+                  metodoPago: pedido.ocupacionMesa.metodoPago,
+                  pagoConfirmadoEn: pedido.ocupacionMesa.pagoConfirmadoEn,
+                }
+              : null,
+          }))
+        )
+      : undefined
+
     return NextResponse.json({
       pedidos: pedidosParsed,
       ...(currentMesaSurface ? { pedidosAnteriores } : {}),
+      ...(cuentas ? { cuentas } : {}),
       pagination: {
         page,
         limit,
