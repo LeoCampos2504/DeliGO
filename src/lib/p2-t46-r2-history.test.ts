@@ -14,7 +14,6 @@ const occupation = (id: string, payment: "efectivo" | "transferencia") => ({
   metodoPago: payment,
   pagoConfirmadoEn: "2026-09-10T20:00:00.000Z",
 })
-
 function pedido(overrides: Partial<MesaHistorialPedidoInput> = {}): MesaHistorialPedidoInput {
   return {
     id: "pedido-a1",
@@ -133,4 +132,3 @@ describe("P2-T46-R2 — historial de cuentas y ticket", () => {
     expect(ticket.metodoPago).toBe("transferencia")
   })
 })
-

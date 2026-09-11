@@ -18,7 +18,6 @@ function formatDate(value: string | null): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })
 }
-
 function paymentLabel(value: "efectivo" | "transferencia" | null | undefined): string {
   if (value === "efectivo") return "Efectivo"
   if (value === "transferencia") return "Transferencia"
@@ -101,4 +100,3 @@ export function MesaAccountTicketDialog({
     </Dialog>
   )
 }
-

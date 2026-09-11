@@ -101,4 +101,3 @@ NEXT_ACTION=OPERATOR_P2_T46_R2_HISTORY_TICKET_RECERTIFICATION
 5. Control corto: una ocupación viva no muestra pedidos históricos A/B.
 
 No repetir la certificación física completa de R1. No cerrar T46 como `CLOSED_TESTING_CERTIFIED` hasta contar con esta evidencia.
-
