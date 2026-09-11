@@ -7,6 +7,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+const PENDING_EMPLOYEE_NAME = "Pendiente de vinculación"
 
 /** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
 function normalizeAreaOperativa(value: unknown): string | null {
@@ -77,7 +78,19 @@ export async function GET(req: NextRequest) {
 
     // GET es estrictamente de lectura: no crea, modifica, regenera ni revoca
     // tokens legacy, y tampoco expone el campo físico aunque exista en DB.
-    return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
+    // La identidad visible vinculada se proyecta desde CuentaOperativa; el
+    // nombre de Empleado queda como dato legacy/operativo y no como autoridad
+    // personal.
+    return noStoreJson(
+      empleados.map((empleado) => {
+        const identityLinked = Boolean(empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado)
+        return {
+          ...serializeEmpleado(empleado),
+          displayName: identityLinked ? empleado.cuentaOperativa?.nombre ?? null : null,
+          identityLinked,
+        }
+      })
+    )
   } catch (error) {
     console.error("Error listing empleados:", safeErrorForLog(error))
     return noStoreJson(
@@ -102,7 +115,9 @@ export async function POST(req: NextRequest) {
 
     const negocioId = user.id
     const body = await req.json()
-    const { nombre, codigo, rol, activo } = body
+    const nombreInput = typeof body.nombre === "string" ? body.nombre.trim() : ""
+    const nombre = nombreInput || PENDING_EMPLOYEE_NAME
+    const { codigo, rol, activo } = body
 
     // Estado final de actividad del empleado (resuelto una sola vez).
     const empleadoActivo = activo !== undefined ? Boolean(activo) : true
@@ -137,13 +152,6 @@ export async function POST(req: NextRequest) {
       return noStoreJson(
         { error: "No se puede asignar área a un empleado inactivo" },
         { status: 409 }
-      )
-    }
-
-    if (!nombre?.trim()) {
-      return noStoreJson(
-        { error: "El nombre es obligatorio" },
-        { status: 400 }
       )
     }
 

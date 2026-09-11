@@ -112,6 +112,8 @@ interface Empleado {
     activo: boolean
     eliminado: boolean
   } | null
+  displayName?: string | null
+  identityLinked?: boolean
 }
 
 interface MozoInvitation {
@@ -2219,7 +2221,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [copiedInvitationId, setCopiedInvitationId] = useState<string | null>(null)
   const [generatedInvitation, setGeneratedInvitation] = useState<GeneratedMozoInvitation | null>(null)
 
-  const [formNombre, setFormNombre] = useState("")
   const [formCodigo, setFormCodigo] = useState("")
   const [formArea, setFormArea] = useState<string>("sin_asignar")
 
@@ -2234,6 +2235,8 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       if (!res.ok) throw new Error("Error cargando empleados")
       return res.json()
     },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: invitationsData, isLoading: invitationsLoading } = useQuery<{ invitaciones: MozoInvitation[] }>({
@@ -2243,6 +2246,8 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       if (!res.ok) throw new Error("Error cargando invitaciones")
       return res.json()
     },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   })
 
   // Fetch mesas to show assigned mesas per mozo
@@ -2292,7 +2297,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   }, [invitationsData])
 
   const addMutation = useMutation({
-    mutationFn: async (data: { nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
+    mutationFn: async (data: { codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch("/api/negocio/empleados", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2431,7 +2436,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   })
 
   const resetAddForm = () => {
-    setFormNombre("")
     setFormCodigo("")
     setFormArea("sin_asignar")
     setShowAddForm(false)
@@ -2449,16 +2453,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   }
 
   const handleAddEmpleado = () => {
-    if (!formNombre.trim()) {
-      toast.error("Ingresá el nombre del empleado")
-      return
-    }
     if (!formCodigo.trim()) {
       toast.error("Ingresá el código del empleado")
       return
     }
     addMutation.mutate({
-      nombre: formNombre.trim(),
       codigo: formCodigo.trim(),
       rol: "mozo",
       areaOperativa: formArea,
@@ -2524,27 +2523,19 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             className="p-3 rounded-xl border border-border/50 bg-muted/20 space-y-3"
           >
             <p className="text-xs font-semibold">Nuevo empleado</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <Label className="text-[11px] font-semibold mb-1 block">Nombre *</Label>
-                <Input
-                  value={formNombre}
-                  onChange={(e) => setFormNombre(e.target.value)}
-                  className="rounded-xl h-8 text-sm"
-                  placeholder="Juan Pérez"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <Label className="text-[11px] font-semibold mb-1 block">Código *</Label>
-                <Input
-                  value={formCodigo}
-                  onChange={(e) => setFormCodigo(e.target.value.toUpperCase())}
-                  className="rounded-xl h-8 text-sm font-mono"
-                  placeholder="JUAN"
-                  maxLength={10}
-                />
-              </div>
+            <div>
+              <Label className="text-[11px] font-semibold mb-1 block">Código interno *</Label>
+              <Input
+                value={formCodigo}
+                onChange={(e) => setFormCodigo(e.target.value.toUpperCase())}
+                className="rounded-xl h-8 text-sm font-mono"
+                placeholder="MOZO1"
+                maxLength={10}
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                La identidad personal la declara el empleado al vincular su CuentaOperativa.
+              </p>
             </div>
             <div>
               <Label className="text-[11px] font-semibold mb-1 block">Área operativa</Label>
@@ -2588,9 +2579,10 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             const stats = mozoStatsData?.stats?.find((s) => s.id === empleado.id)
             const totalPedidos = stats?.totalPedidos ?? 0
             const pedidosHoy = stats?.pedidosHoy ?? 0
-            const linkedAccount = empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado
+            const linkedAccount = empleado.identityLinked === true || (empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado)
               ? empleado.cuentaOperativa
               : null
+            const displayName = linkedAccount?.nombre ?? empleado.displayName ?? "Pendiente de vinculación"
             const pendingInvitation = invitationByEmpleado.get(empleado.id) ?? null
             const generatedForEmpleado = generatedInvitation?.empleadoObjetivoId === empleado.id
               ? generatedInvitation
@@ -2688,7 +2680,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold truncate">{empleado.nombre}</p>
+                        <p className="text-sm font-semibold truncate">{displayName}</p>
                         <Badge variant="outline" className="text-[10px] font-mono h-4 px-1.5">
                           {empleado.codigo}
                         </Badge>
@@ -2759,7 +2751,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                               </Badge>
                             </div>
                             <p className="text-[10px] text-muted-foreground truncate">
-                              {linkedAccount.nombre}
+                              Identidad personal de CuentaOperativa
                             </p>
                           </>
                         ) : currentInvitation ? (
@@ -2842,7 +2834,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                             <div className="flex items-center gap-1.5">
                               <AlertCircle className="h-3.5 w-3.5 text-muted-foreground/60" />
                               <span className="text-[11px] font-semibold text-muted-foreground">
-                                Sin cuenta vinculada
+                                Pendiente de vinculación
                               </span>
                             </div>
                             <Button
