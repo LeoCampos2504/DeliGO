@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   RefreshCw,
   Loader2,
-  UserCheck,
   Clock,
   CheckCircle2,
   XCircle,
@@ -25,43 +24,20 @@ import {
 } from "@/components/ui/drawer"
 import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
-import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import type { CuentaMesaHistorialResult } from "@/lib/mesa-historial"
+import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
+import { MesaAccountTicketDialog } from "@/components/shared/mesa-account-ticket-dialog"
 
 // ============================================
 // Tipos (espejo del historial seguro de Salón)
 // ============================================
-interface PedidoItem {
-  id: string
-  nombre: string
-  cantidad: number
-  precio: number
-  agregados: Array<{ id?: string; nombre: string; precio: number }>
-  secciones: Record<string, string | Record<string, number>>
-  /** P1-A.2A-i: puede venir en formato histórico (string[]) o estructurado — nunca se asume la forma acá, se normaliza con getIngredientesQuitadosNombres antes de renderizar. */
-  ingredientesQuitados: unknown
-  talle?: string | null
-  color?: string | null
-}
-
-interface PedidoHistorial {
-  id: string
-  mesaNumero: number | null
-  estado: string
-  fecha: string
-  entregadoFecha: string | null
-  total: number
-  empleadoNombre: string | null
-  clienteNombre: string | null
-  items: PedidoItem[]
-}
-
 type Periodo = "hoy" | "7d" | "30d"
 
 interface HistorialData {
   terminal: { nombre: string }
   negocio: { nombre: string; colorPrincipal: string }
   periodo: Periodo
-  pedidos: PedidoHistorial[]
+  cuentas: CuentaMesaHistorialResult[]
 }
 
 type Phase =
@@ -87,6 +63,16 @@ const STATUS_CONFIG: Record<
     label: "Cancelado",
     chipColor: "bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-300",
     icon: XCircle,
+  },
+  cerrada: {
+    label: "Cerrada",
+    chipColor: "bg-muted text-muted-foreground",
+    icon: CheckCircle2,
+  },
+  legacy: {
+    label: "Sin ocupación vinculada",
+    chipColor: "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
+    icon: ShieldAlert,
   },
 }
 
@@ -115,6 +101,10 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
+function historyAccountKey(account: CuentaMesaHistorialResult): string {
+  return account.ocupacionId ?? `legacy-${account.pedidos[0]?.id ?? "unknown"}`
+}
+
 // ============================================
 // Página
 // ============================================
@@ -122,7 +112,7 @@ export default function OperacionesSalonHistorialPage() {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" })
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [periodo, setPeriodo] = useState<Periodo>("hoy")
-  const [selectedPedidoId, setSelectedPedidoId] = useState<string | null>(null)
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
 
   const stoppedRef = useRef(false)
   const acRef = useRef<AbortController | null>(null)
@@ -180,7 +170,7 @@ export default function OperacionesSalonHistorialPage() {
               colorPrincipal: data.negocio.colorPrincipal || "#FB8C00",
             },
             periodo: (data.periodo as Periodo) ?? p,
-            pedidos: Array.isArray(data.pedidos) ? data.pedidos : [],
+            cuentas: Array.isArray(data.cuentas) ? data.cuentas : [],
           },
           stale: false,
         })
@@ -292,8 +282,8 @@ export default function OperacionesSalonHistorialPage() {
       periodo={periodo}
       onChangePeriodo={setPeriodo}
       onRefresh={() => refresh(periodo)}
-      selectedPedidoId={selectedPedidoId}
-      onSelectPedido={setSelectedPedidoId}
+      selectedAccountId={selectedAccountId}
+      onSelectAccount={setSelectedAccountId}
     />
   )
 }
@@ -308,8 +298,8 @@ function HistorialView({
   periodo,
   onChangePeriodo,
   onRefresh,
-  selectedPedidoId,
-  onSelectPedido,
+  selectedAccountId,
+  onSelectAccount,
 }: {
   data: HistorialData
   stale: boolean
@@ -317,8 +307,8 @@ function HistorialView({
   periodo: Periodo
   onChangePeriodo: (p: Periodo) => void
   onRefresh: () => void
-  selectedPedidoId: string | null
-  onSelectPedido: (id: string | null) => void
+  selectedAccountId: string | null
+  onSelectAccount: (id: string | null) => void
 }) {
   const [refreshing, setRefreshing] = useState(false)
   const [, forceTick] = useState(0)
@@ -338,8 +328,8 @@ function HistorialView({
     }
   }
 
-  const selectedPedido =
-    selectedPedidoId != null ? data.pedidos.find((p) => p.id === selectedPedidoId) ?? null : null
+  const selectedAccount =
+    selectedAccountId != null ? data.cuentas.find((account) => historyAccountKey(account) === selectedAccountId) ?? null : null
 
   return (
     <main className="min-h-screen bg-background">
@@ -418,23 +408,23 @@ function HistorialView({
           ))}
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <History className="h-3.5 w-3.5" />
-            {data.pedidos.length} {data.pedidos.length === 1 ? "pedido" : "pedidos"}
+            {data.cuentas.length} {data.cuentas.length === 1 ? "cuenta" : "cuentas"}
           </span>
         </div>
 
         {/* Listado de pedidos finalizados */}
-        {data.pedidos.length === 0 ? (
+        {data.cuentas.length === 0 ? (
           <div className="text-center py-12 px-4 rounded-2xl border-2 border-dashed border-border/50 bg-muted/10">
             <History className="h-10 w-10 mx-auto mb-2 text-muted-foreground/30" />
-            <p className="text-sm font-semibold text-muted-foreground">Sin pedidos finalizados</p>
+            <p className="text-sm font-semibold text-muted-foreground">Sin cuentas finalizadas</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               No hay pedidos de mesa finalizados en este período.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {data.pedidos.map((pedido) => (
-              <HistorialRow key={pedido.id} pedido={pedido} onClick={() => onSelectPedido(pedido.id)} />
+              {data.cuentas.map((account) => (
+                <HistorialRow key={historyAccountKey(account)} account={account} onClick={() => onSelectAccount(historyAccountKey(account))} />
             ))}
           </div>
         )}
@@ -442,66 +432,58 @@ function HistorialView({
 
       {/* Detalle de pedido (drawer) */}
       <Drawer
-        open={selectedPedido != null}
+        open={selectedAccount != null}
         onOpenChange={(open) => {
-          if (!open) onSelectPedido(null)
+          if (!open) onSelectAccount(null)
         }}
       >
         <DrawerContent className="max-h-[85vh]">
-          {selectedPedido && (
+          {selectedAccount && (
             <>
               <DrawerHeader className="text-left shrink-0">
                 <DrawerTitle className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-lg shrink-0 bg-muted text-foreground">
-                    {selectedPedido.mesaNumero ?? "—"}
+                    {selectedAccount.mesaNumero ?? "—"}
                   </div>
                   <div className="flex-1 min-w-0">
                     <span className="text-base font-bold">
-                      {selectedPedido.mesaNumero != null ? `Mesa ${selectedPedido.mesaNumero}` : "Sin mesa"}
+                      {selectedAccount.mesaNumero != null ? `Mesa ${selectedAccount.mesaNumero}` : "Sin mesa"}
                     </span>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <StatusBadge estado={selectedPedido.estado} />
+                      <StatusBadge estado={selectedAccount.estadoOcupacion ?? (selectedAccount.legacy ? "legacy" : "cerrada")} />
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {formatDateTime(selectedPedido.fecha)}
+                        {formatDateTime(selectedAccount.cerradaEn ?? selectedAccount.iniciadaEn ?? selectedAccount.pedidos[0]?.fecha ?? "")}
                       </span>
-                      {selectedPedido.empleadoNombre && (
-                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                          <UserCheck className="h-3 w-3" />
-                          {selectedPedido.empleadoNombre}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </DrawerTitle>
               </DrawerHeader>
 
               <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 overscroll-contain">
-                <div className="rounded-xl border border-border/50 bg-card p-3 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      {selectedPedido.empleadoNombre || selectedPedido.clienteNombre || "Cliente"}
-                    </span>
-                    <span className="text-sm font-bold">{formatPrice(selectedPedido.total)}</span>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 bg-card p-3">
+                    <div className="text-xs text-muted-foreground">
+                      {selectedAccount.pedidos.length} {selectedAccount.pedidos.length === 1 ? "pedido" : "pedidos"}
+                      {selectedAccount.metodoPago && selectedAccount.pagoConfirmadoEn ? ` · Pago: ${selectedAccount.metodoPago === "efectivo" ? "Efectivo" : "Transferencia"}` : " · Pago: No registrado"}
+                    </div>
+                    {!selectedAccount.legacy && selectedAccount.mesaNumero != null && selectedAccount.iniciadaEn && (
+                      <MesaAccountTicketDialog
+                        input={{
+                          negocio: { nombre: data.negocio.nombre },
+                          mesa: { numero: selectedAccount.mesaNumero },
+                          ocupacion: { iniciadaEn: selectedAccount.iniciadaEn, cerradaEn: selectedAccount.cerradaEn, estado: selectedAccount.estadoOcupacion ?? "cerrada" },
+                          cuenta: selectedAccount,
+                        }}
+                      />
+                    )}
                   </div>
-
-                  {selectedPedido.entregadoFecha && (
-                    <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                      Entregado: {formatDateTime(selectedPedido.entregadoFecha)}
-                    </p>
-                  )}
-
-                  <div className="space-y-2 pt-1">
-                    {selectedPedido.items.map((item) => (
-                      <PedidoItemRow key={item.id} item={item} />
-                    ))}
-                  </div>
+                  <MesaAccountDetail cuenta={selectedAccount} />
                 </div>
               </div>
 
               <DrawerFooter className="border-t pt-3">
-                <Button variant="outline" className="rounded-xl" onClick={() => onSelectPedido(null)}>
+                <Button variant="outline" className="rounded-xl" onClick={() => onSelectAccount(null)}>
                   Cerrar
                 </Button>
               </DrawerFooter>
@@ -535,7 +517,10 @@ function StatusBadge({ estado }: { estado: string }) {
   )
 }
 
-function HistorialRow({ pedido, onClick }: { pedido: PedidoHistorial; onClick: () => void }) {
+function HistorialRow({ account, onClick }: { account: CuentaMesaHistorialResult; onClick: () => void }) {
+  const latestPedido = account.pedidos[0]
+  const orderCount = account.pedidos.length
+  const itemCount = account.pedidos.reduce((sum, pedido) => sum + pedido.items.length, 0)
   return (
     <button
       onClick={onClick}
@@ -543,95 +528,20 @@ function HistorialRow({ pedido, onClick }: { pedido: PedidoHistorial; onClick: (
     >
       <div className="flex items-center gap-2 shrink-0">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm bg-muted text-foreground/80">
-          {pedido.mesaNumero ?? "—"}
+          {account.mesaNumero ?? "—"}
         </div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <StatusBadge estado={pedido.estado} />
-          <span className="text-[10px] text-muted-foreground">{getTimeAgo(pedido.fecha)}</span>
+          <StatusBadge estado={account.estadoOcupacion ?? (account.legacy ? "legacy" : latestPedido?.estado ?? "cerrada")} />
+          <span className="text-[10px] text-muted-foreground">{latestPedido ? getTimeAgo(latestPedido.fecha) : ""}</span>
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-          {pedido.items.length} {pedido.items.length === 1 ? "ítem" : "ítems"}
-          {pedido.empleadoNombre ? ` · ${pedido.empleadoNombre}` : pedido.clienteNombre ? ` · ${pedido.clienteNombre}` : ""}
+          {orderCount} {orderCount === 1 ? "pedido" : "pedidos"} · {itemCount} {itemCount === 1 ? "ítem" : "ítems"}
+          {account.metodoPago && account.pagoConfirmadoEn ? ` · Pago: ${account.metodoPago === "efectivo" ? "Efectivo" : "Transferencia"}` : account.legacy ? " · Sin ocupación vinculada" : " · Pago: No registrado"}
         </p>
       </div>
-      <span className="text-sm font-bold shrink-0">{formatPrice(pedido.total)}</span>
+      <span className="text-sm font-bold shrink-0">{formatPrice(account.totalGeneral)}</span>
     </button>
-  )
-}
-
-function PedidoItemRow({ item }: { item: PedidoItem }) {
-  const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
-  const hasDetails =
-    (item.agregados?.length ?? 0) > 0 ||
-    Object.keys(item.secciones || {}).length > 0 ||
-    ingredientesQuitados.length > 0 ||
-    item.talle ||
-    item.color
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">
-          {item.cantidad > 1 && <span className="font-semibold">{item.cantidad}x </span>}
-          {item.nombre}
-        </span>
-        <span className="text-muted-foreground font-medium">{formatPrice(item.precio * item.cantidad)}</span>
-      </div>
-      {hasDetails && (
-        <div className="ml-4 mt-1 space-y-1">
-          {(item.talle || item.color) && (
-            <div className="flex flex-wrap gap-1">
-              {item.talle && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Talle: {item.talle}</span>}
-              {item.color && <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted font-medium">Color: {item.color}</span>}
-            </div>
-          )}
-          {Object.keys(item.secciones || {}).length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {Object.entries(item.secciones).map(([k, v]) => {
-                let display: string
-                if (typeof v === "string") {
-                  display = `${k}: ${v}`
-                } else {
-                  const parts = Object.entries(v as Record<string, number>)
-                    .filter(([, qty]) => qty > 0)
-                    .map(([opt, qty]) => (qty > 1 ? `${opt} x${qty}` : opt))
-                  display = `${k}: ${parts.join(", ")}`
-                }
-                return (
-                  <span key={k} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                    {display}
-                  </span>
-                )
-              })}
-            </div>
-          )}
-          {item.agregados?.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {item.agregados.map((a, i) => (
-                <span
-                  key={a.id ?? i}
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-medium"
-                >
-                  + {a.nombre}
-                </span>
-              ))}
-            </div>
-          )}
-          {ingredientesQuitados.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {ingredientesQuitados.map((ing, i) => (
-                <span
-                  key={i}
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 font-medium"
-                >
-                  Sin {ing}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   )
 }

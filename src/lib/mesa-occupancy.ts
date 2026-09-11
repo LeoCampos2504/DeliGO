@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromRequest } from "@/lib/auth"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
-import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
+import { ESTADOS_PENDIENTES_MESA, type MetodoPagoMesa } from "@/lib/mesa-cuenta"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 
 // ============================================
@@ -893,6 +893,8 @@ export type MesaOccupancyCloseResult =
   | { status: "closed"; revokedCredentials: number }
   | { status: "no_active" }
   | { status: "occupancy_changed" }
+  | { status: "pending_orders"; pendingCount: number }
+  | { status: "billable_account"; billableTotal: number }
   | { status: "inconsistent" }
 
 // Motivo estable y sanitizado para cierre manual por personal — nunca texto
@@ -917,6 +919,20 @@ class MesaOccupancyPendingOrdersError extends Error {
   constructor(public readonly pendingCount: number) {
     super("La ocupación tiene pedidos de mesa todavía no entregados ni cancelados")
     this.name = "MesaOccupancyPendingOrdersError"
+  }
+}
+
+class MesaOccupancyBillableAccountError extends Error {
+  constructor(public readonly billableTotal: number) {
+    super("La ocupación tiene una cuenta facturable que requiere cierre comercial")
+    this.name = "MesaOccupancyBillableAccountError"
+  }
+}
+
+class MesaOccupancyPaymentRequiredError extends Error {
+  constructor() {
+    super("El cierre comercial de una cuenta con consumo requiere método de pago")
+    this.name = "MesaOccupancyPaymentRequiredError"
   }
 }
 
@@ -950,10 +966,11 @@ async function closeMesaOccupancyCore(
     actorType: "negocio" | "salon" | "salon_terminal" | "mozo"
     actorId: string
     now: Date
+    paymentMethod?: MetodoPagoMesa
   },
-  beforeWrite?: (tx: Prisma.TransactionClient, ocupacionId: string) => Promise<void>
+  beforeWrite?: (tx: Prisma.TransactionClient, ocupacionId: string) => Promise<{ billableTotal?: number } | void>
 ): Promise<MesaOccupancyCloseResult> {
-  const { negocioId, mesaId, expectedOcupacionId, actorType, actorId, now } = params
+  const { negocioId, mesaId, expectedOcupacionId, actorType, actorId, now, paymentMethod } = params
 
   // 1) Leer Mesa y confirmar negocio real.
   const mesa = await tx.mesa.findUnique({
@@ -1019,8 +1036,17 @@ async function closeMesaOccupancyCore(
   // queda una ocupación "cerrada" a medias con pedidos pendientes).
   // `closeMesaOccupancy` (cierre técnico) nunca pasa este hook — su
   // comportamiento no cambia.
-  if (beforeWrite) {
-    await beforeWrite(tx, ocupacion.id)
+  const guardResult = beforeWrite ? await beforeWrite(tx, ocupacion.id) : undefined
+
+  if (paymentMethod !== undefined) {
+    const billableTotal = guardResult?.billableTotal ?? 0
+    await tx.sesionOcupacionMesa.update({
+      where: { id: ocupacion.id },
+      data:
+        billableTotal > 0
+          ? { metodoPago: paymentMethod, pagoConfirmadoEn: now, pagoConfirmadoPorTipo: actorType, pagoConfirmadoPorId: actorId }
+          : { metodoPago: null, pagoConfirmadoEn: null, pagoConfirmadoPorTipo: null, pagoConfirmadoPorId: null },
+    })
   }
 
   // 6) Segunda escritura: revocar todas las credenciales activas de esa
@@ -1065,10 +1091,35 @@ export async function closeMesaOccupancy(params: {
 }): Promise<MesaOccupancyCloseResult> {
   const now = params.now ?? new Date()
   try {
-    return await runSerializableTransaction((tx) => closeMesaOccupancyCore(tx, { ...params, now }))
+    return await runSerializableTransaction((tx) =>
+      closeMesaOccupancyCore(tx, { ...params, now }, async (txInner, ocupacionId) => {
+        const pendingCount = await txInner.pedido.count({
+          where: {
+            ocupacionMesaId: ocupacionId,
+            negocioId: params.negocioId,
+            metodoEntrega: "mesa",
+            estado: { in: [...ESTADOS_PENDIENTES_MESA] },
+          },
+        })
+        if (pendingCount > 0) throw new MesaOccupancyPendingOrdersError(pendingCount)
+        const billable = await txInner.pedido.aggregate({
+          _sum: { total: true },
+          where: { ocupacionMesaId: ocupacionId, negocioId: params.negocioId, metodoEntrega: "mesa", estado: "entregado" },
+        })
+        const billableTotal = typeof billable._sum.total === "number" ? billable._sum.total : 0
+        if (billableTotal > 0) throw new MesaOccupancyBillableAccountError(billableTotal)
+        return { billableTotal }
+      })
+    )
   } catch (error) {
     if (error instanceof MesaOccupancyCloseInconsistentError) {
       return { status: "inconsistent" }
+    }
+    if (error instanceof MesaOccupancyPendingOrdersError) {
+      return { status: "pending_orders", pendingCount: error.pendingCount }
+    }
+    if (error instanceof MesaOccupancyBillableAccountError) {
+      return { status: "billable_account", billableTotal: error.billableTotal }
     }
     throw error
   }
@@ -1080,6 +1131,8 @@ export type MesaOccupancyComercialCloseResult =
   | { status: "occupancy_changed" }
   | { status: "inconsistent" }
   | { status: "pending_orders"; pendingCount: number }
+  | { status: "billable_account"; billableTotal: number }
+  | { status: "payment_required" }
 
 /**
  * Cierre COMERCIAL (P2 corrección, Bloqueo 1) — la comprobación de pedidos
@@ -1099,12 +1152,13 @@ export async function closeMesaOccupancyComercial(params: {
   expectedOcupacionId: string
   actorType: "negocio" | "salon" | "mozo"
   actorId: string
+  paymentMethod?: MetodoPagoMesa
   now?: Date
 }): Promise<MesaOccupancyComercialCloseResult> {
   const now = params.now ?? new Date()
   try {
     return await runSerializableTransaction(async (tx) => {
-      return await closeMesaOccupancyCore(tx, { ...params, now }, async (txInner, ocupacionId) => {
+      return await closeMesaOccupancyCore(tx, { ...params, now, paymentMethod: params.paymentMethod }, async (txInner, ocupacionId) => {
         const pendingCount = await txInner.pedido.count({
           where: {
             ocupacionMesaId: ocupacionId,
@@ -1116,6 +1170,13 @@ export async function closeMesaOccupancyComercial(params: {
         if (pendingCount > 0) {
           throw new MesaOccupancyPendingOrdersError(pendingCount)
         }
+        const billable = await txInner.pedido.aggregate({
+          _sum: { total: true },
+          where: { ocupacionMesaId: ocupacionId, negocioId: params.negocioId, metodoEntrega: "mesa", estado: "entregado" },
+        })
+        const billableTotal = typeof billable._sum.total === "number" ? billable._sum.total : 0
+        if (billableTotal > 0 && !params.paymentMethod) throw new MesaOccupancyPaymentRequiredError()
+        return { billableTotal }
       })
     })
   } catch (error) {
@@ -1124,6 +1185,12 @@ export async function closeMesaOccupancyComercial(params: {
     }
     if (error instanceof MesaOccupancyPendingOrdersError) {
       return { status: "pending_orders", pendingCount: error.pendingCount }
+    }
+    if (error instanceof MesaOccupancyPaymentRequiredError) {
+      return { status: "payment_required" }
+    }
+    if (error instanceof MesaOccupancyBillableAccountError) {
+      return { status: "billable_account", billableTotal: error.billableTotal }
     }
     throw error
   }
@@ -1202,7 +1269,7 @@ export function logMesaOccupancyCloseEvent(details: {
   negocioId: string
   mesaNumero: number
   actorType: "negocio" | "salon" | "salon_terminal" | "mozo"
-  outcome: "closed" | "no_active" | "occupancy_changed" | "forbidden" | "inconsistent" | "error" | "pending_orders"
+  outcome: "closed" | "no_active" | "occupancy_changed" | "forbidden" | "inconsistent" | "error" | "pending_orders" | "billable_account" | "payment_required"
   revokedCredentials: number
 }) {
   console.info("[MesaOccupancy] mesa_occupancy_close", {

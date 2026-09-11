@@ -91,7 +91,7 @@ export interface MesaClienteCuentaTestHooks {
 }
 
 type ValidacionAcceso =
-  | { ok: true; credencial: { revocadaEn: Date | null }; ocupacion: { id: string } }
+  | { ok: true; credencial: { revocadaEn: Date | null }; ocupacion: { id: string; metodoPago: string | null; pagoConfirmadoEn: Date | null } }
   | { ok: false; status: "sin_sesion" | "cerrada" }
 
 /**
@@ -137,10 +137,14 @@ async function validarAccesoActual(
     return { ok: false, status: "cerrada" }
   }
 
-  return { ok: true, credencial, ocupacion }
+  return { ok: true, credencial, ocupacion: { id: ocupacion.id, metodoPago: ocupacion.metodoPago, pagoConfirmadoEn: ocupacion.pagoConfirmadoEn } }
 }
 
-async function cargarCuentaDeOcupacion(ocupacionId: string, negocioId: string): Promise<CuentaMesaResult> {
+async function cargarCuentaDeOcupacion(
+  ocupacionId: string,
+  negocioId: string,
+  payment: { metodoPago: string | null; pagoConfirmadoEn: Date | null }
+): Promise<CuentaMesaResult> {
   const pedidos = await db.pedido.findMany({
     where: { ocupacionMesaId: ocupacionId, negocioId, metodoEntrega: "mesa" },
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
@@ -149,6 +153,7 @@ async function cargarCuentaDeOcupacion(ocupacionId: string, negocioId: string): 
       estado: true,
       fecha: true,
       total: true,
+      notas: true,
       items: {
         select: {
           id: true,
@@ -170,10 +175,18 @@ async function cargarCuentaDeOcupacion(ocupacionId: string, negocioId: string): 
     estado: pedido.estado,
     fecha: pedido.fecha,
     total: pedido.total,
+    notas: pedido.notas,
     items: pedido.items,
   }))
 
-  return buildCuentaMesa(input)
+  const cuenta = buildCuentaMesa(input)
+  const metodoPago = payment.metodoPago === "efectivo" || payment.metodoPago === "transferencia" ? payment.metodoPago : null
+  return {
+    ...cuenta,
+    metodoPago,
+    pagoConfirmadoEn: payment.pagoConfirmadoEn?.toISOString() ?? null,
+    estadoPago: metodoPago && payment.pagoConfirmadoEn ? "confirmado" : "pendiente",
+  }
 }
 
 /**
@@ -205,7 +218,7 @@ export async function resolveMesaClienteCuenta(
 
   await testHooks?.beforeLoadPedidos?.()
 
-  const cuenta = await cargarCuentaDeOcupacion(primeraValidacion.ocupacion.id, negocioId)
+  const cuenta = await cargarCuentaDeOcupacion(primeraValidacion.ocupacion.id, negocioId, primeraValidacion.ocupacion)
 
   await testHooks?.beforeFinalRevalidation?.()
 

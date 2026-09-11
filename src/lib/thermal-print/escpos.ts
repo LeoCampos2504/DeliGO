@@ -212,6 +212,9 @@ export function buildEscPosTicket(ticket: ThermalTicket, profile: ThermalPaperPr
   for (const line of formatNameAmountLine("TOTAL", formatCurrencyForTicket(ticket.totalGeneral), columnas)) {
     textLine(bytes, line)
   }
+  if (ticket.metodoPago) {
+    textLine(bytes, `Pago: ${ticket.metodoPago === "efectivo" ? "Efectivo" : "Transferencia"}`)
+  }
   bytes.push(...CMD_BOLD_OFF)
 
   bytes.push(...CMD_ALIGN_CENTER)

@@ -85,6 +85,7 @@ export function buildMesaAccountThermalTicket(input: MesaAccountTicketInput): Th
     },
     pedidos: input.cuenta.pedidos.map(toThermalPedido),
     totalGeneral: input.cuenta.totalGeneral,
+    metodoPago: input.cuenta.estadoPago === "confirmado" ? input.cuenta.metodoPago : null,
     leyenda: estadoActiva ? "vista_previa" : "cuenta_cerrada",
   }
 }

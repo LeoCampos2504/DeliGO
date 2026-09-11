@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { buildMesaHistorialAccounts, type MesaHistorialPedidoInput } from "@/lib/mesa-historial"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -78,6 +79,21 @@ export async function GET(req: NextRequest) {
         fecha: true,
         entregadoFecha: true,
         total: true,
+        notas: true,
+        mesaId: true,
+        ocupacionMesaId: true,
+        ocupacionMesa: {
+          select: {
+            id: true,
+            mesaId: true,
+            estado: true,
+            iniciadaEn: true,
+            cerradaEn: true,
+            metodoPago: true,
+            pagoConfirmadoEn: true,
+            mesa: { select: { numero: true } },
+          },
+        },
         // Solo nombres visibles (no IDs de empleado/cliente, ni teléfonos/contacto).
         clienteNombre: true,
         empleadoNombre: true,
@@ -99,15 +115,29 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    const pedidosOut = pedidos.map((p) => ({
+    const pedidosInput: MesaHistorialPedidoInput[] = pedidos.map((p) => ({
       id: p.id,
       mesaNumero: p.mesaNumero,
       estado: p.estado,
       fecha: p.fecha,
       entregadoFecha: p.entregadoFecha,
       total: p.total,
+      notas: p.notas,
       clienteNombre: p.clienteNombre,
       empleadoNombre: p.empleadoNombre,
+      ocupacionMesaId: p.ocupacionMesaId,
+      ocupacionMesa: p.ocupacionMesa
+        ? {
+            id: p.ocupacionMesa.id,
+            mesaId: p.ocupacionMesa.mesaId,
+            mesaNumero: p.ocupacionMesa.mesa.numero,
+            estado: p.ocupacionMesa.estado,
+            iniciadaEn: p.ocupacionMesa.iniciadaEn,
+            cerradaEn: p.ocupacionMesa.cerradaEn,
+            metodoPago: p.ocupacionMesa.metodoPago,
+            pagoConfirmadoEn: p.ocupacionMesa.pagoConfirmadoEn,
+          }
+        : null,
       items: p.items.map((item) => ({
         id: item.id,
         nombre: item.nombre,
@@ -126,6 +156,8 @@ export async function GET(req: NextRequest) {
       })),
     }))
 
+    const cuentas = buildMesaHistorialAccounts(pedidosInput)
+
     return NextResponse.json(
       {
         ok: true,
@@ -136,7 +168,7 @@ export async function GET(req: NextRequest) {
           nombre: auth.context.negocio.nombre,
           colorPrincipal: auth.context.negocio.colorPrincipal,
         },
-        pedidos: pedidosOut,
+        cuentas,
       },
       { headers: NO_STORE_HEADERS }
     )

@@ -75,6 +75,9 @@ import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-cont
 import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import type { CuentaMesaHistorialResult } from "@/lib/mesa-historial"
+import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
+import { MesaAccountTicketDialog } from "@/components/shared/mesa-account-ticket-dialog"
 
 // ============================================
 // Types
@@ -133,6 +136,9 @@ interface PedidoMesa {
   fecha: string
   metodoEntrega: string
   mesaNumero: number | null
+  notas?: string | null
+  metodoPagoCuenta?: "efectivo" | "transferencia" | null
+  pagoConfirmadoEnCuenta?: string | null
   items: Array<{
     id: string
     nombre: string
@@ -779,6 +785,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   })
 
   const mesaOrders: PedidoMesa[] = mesaOrdersData?.pedidos ?? []
+  const mesaOrdersAnteriores: PedidoMesa[] = mesaOrdersData?.pedidosAnteriores ?? []
 
   const applyMesaUpdate = useCallback((updatedMesa: Mesa) => {
     queryClient.setQueryData<Mesa[]>(["mesas", negocio.id], (old) =>
@@ -1037,6 +1044,12 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   return (
     <div className="space-y-4">
+      {mesaOrdersAnteriores.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+          <span className="font-semibold">{mesaOrdersAnteriores.length} pedido(s) fuera de la ocupación actual.</span>{" "}
+          Quedan separados para revisión y no se mezclan con el salón operativo.
+        </div>
+      )}
       {/* Status summary bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
@@ -1969,6 +1982,7 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   const [periodo, setPeriodo] = useState<"hoy" | "semana" | "mes">("hoy")
   const [selectedMesa, setSelectedMesa] = useState<Mesa | null>(null)
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false)
+  const [selectedHistoryAccount, setSelectedHistoryAccount] = useState<CuentaMesaHistorialResult | null>(null)
 
   // Fetch mesas
   const { data: mesas = [], isLoading: mesasLoading } = useQuery<Mesa[]>({
@@ -1986,7 +2000,7 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
     queryFn: async () => {
       const res = await fetch(`/api/negocio/pedidos?metodoEntrega=mesa&mesaNumero=${selectedMesa!.numero}&estado=historial&limit=50&periodo=${periodo}`)
       if (!res.ok) throw new Error("Error cargando historial")
-      return res.json() as Promise<{ pedidos: PedidoMesa[]; pagination: { total: number } }>
+      return res.json() as Promise<{ cuentas: CuentaMesaHistorialResult[]; pagination: { total: number } }>
     },
     enabled: !!selectedMesa && historyDrawerOpen,
   })
@@ -2110,33 +2124,43 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
                   <div key={i} className="h-12 rounded-lg bg-muted/30 animate-pulse" />
                 ))}
               </div>
-            ) : historyData?.pedidos && historyData.pedidos.length > 0 ? (
+            ) : historyData?.cuentas && historyData.cuentas.length > 0 ? (
               <div className="space-y-2">
-                {historyData.pedidos.map((order) => (
+                {historyData.cuentas.map((account) => (
                   <div
-                    key={order.id}
+                    key={account.ocupacionId ?? `legacy-${account.pedidos[0]?.id}`}
                     className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-card/50 px-3 py-2"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground">{getTimeAgo(order.fecha)}</span>
+                        <span className="text-[10px] text-muted-foreground">{getTimeAgo(account.pedidos[0]?.fecha ?? "")}</span>
                         <Badge
                           variant="secondary"
                           className={cn(
                             "text-[9px] h-4 px-1.5 font-medium border-0",
-                            order.estado === "entregado" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-                            order.estado === "cancelado" && "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+                            account.legacy
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
                           )}
                         >
-                          {order.estado === "entregado" ? "Entregado" : "Cancelado"}
+                          {account.legacy ? "Sin ocupación vinculada" : account.estadoOcupacion === "cerrada" ? "Cerrada" : "Histórica"}
                         </Badge>
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                        {order.items.length} {order.items.length === 1 ? "item" : "items"}
-                        {order.clienteNombre && ` · ${order.clienteNombre}`}
+                        {account.pedidos.length} {account.pedidos.length === 1 ? "pedido" : "pedidos"} · {account.pedidos.reduce((sum, pedido) => sum + pedido.items.length, 0)} ítems
                       </p>
+                      {account.metodoPago && account.pagoConfirmadoEn && (
+                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          Pago: {account.metodoPago === "efectivo" ? "Efectivo" : "Transferencia"}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-xs font-bold shrink-0">{formatPrice(order.total)}</span>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-xs font-bold">{formatPrice(account.totalGeneral)}</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 rounded-lg px-2 text-[10px]" onClick={() => setSelectedHistoryAccount(account)}>
+                        Ver detalle
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {historyData.pagination.total > 50 && (
@@ -2151,6 +2175,35 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
           </div>
         </DrawerContent>
       </Drawer>
+
+      <Dialog open={selectedHistoryAccount != null} onOpenChange={(open) => !open && setSelectedHistoryAccount(null)}>
+        <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto rounded-2xl">
+          {selectedHistoryAccount && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Cuenta histórica{selectedHistoryAccount.mesaNumero != null ? ` · Mesa ${selectedHistoryAccount.mesaNumero}` : ""}</DialogTitle>
+                <DialogDescription>Detalle completo de la ocupación, solo lectura.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 bg-card p-3 text-xs text-muted-foreground">
+                  <span>{selectedHistoryAccount.pedidos.length} {selectedHistoryAccount.pedidos.length === 1 ? "pedido" : "pedidos"} · Total {formatPrice(selectedHistoryAccount.totalGeneral)}</span>
+                  {!selectedHistoryAccount.legacy && selectedHistoryAccount.mesaNumero != null && selectedHistoryAccount.iniciadaEn && (
+                    <MesaAccountTicketDialog
+                      input={{
+                        negocio: { nombre: negocio.nombre },
+                        mesa: { numero: selectedHistoryAccount.mesaNumero },
+                        ocupacion: { iniciadaEn: selectedHistoryAccount.iniciadaEn, cerradaEn: selectedHistoryAccount.cerradaEn, estado: selectedHistoryAccount.estadoOcupacion ?? "cerrada" },
+                        cuenta: selectedHistoryAccount,
+                      }}
+                    />
+                  )}
+                </div>
+                <MesaAccountDetail cuenta={selectedHistoryAccount} />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

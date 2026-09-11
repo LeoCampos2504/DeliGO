@@ -73,18 +73,22 @@ export async function fetchMesaClienteCuenta(
       negocio: { nombre: string }
       mesa: { numero: number }
     }
+    const baseCuenta = {
+      pedidos: cuenta.pedidos,
+      totalGeneral: cuenta.totalGeneral,
+      pedidosIncluidosCount: cuenta.pedidosIncluidosCount,
+      pedidosExcluidosCount: cuenta.pedidosExcluidosCount,
+      pedidosPendientesCount: cuenta.pedidosPendientesCount,
+      puedeCerrar: cuenta.puedeCerrar,
+      negocioNombre: cuenta.negocio.nombre,
+      mesaNumero: cuenta.mesa.numero,
+    }
+    const paymentFields = Object.prototype.hasOwnProperty.call(cuenta, "metodoPago")
+      ? { metodoPago: cuenta.metodoPago, pagoConfirmadoEn: cuenta.pagoConfirmadoEn, estadoPago: cuenta.estadoPago }
+      : {}
     return {
       kind: "activa",
-      cuenta: {
-        pedidos: cuenta.pedidos,
-        totalGeneral: cuenta.totalGeneral,
-        pedidosIncluidosCount: cuenta.pedidosIncluidosCount,
-        pedidosExcluidosCount: cuenta.pedidosExcluidosCount,
-        pedidosPendientesCount: cuenta.pedidosPendientesCount,
-        puedeCerrar: cuenta.puedeCerrar,
-        negocioNombre: cuenta.negocio.nombre,
-        mesaNumero: cuenta.mesa.numero,
-      },
+      cuenta: { ...baseCuenta, ...paymentFields },
     }
   }
 

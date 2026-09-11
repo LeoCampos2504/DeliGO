@@ -40,6 +40,8 @@ import {
 // duplica — para que el bloqueo de cierre comercial y la clasificación de la
 // cuenta usen exactamente el mismo criterio de "pedido todavía mutable".
 export const ESTADOS_PENDIENTES_MESA = ["recibido", "preparando", "listo_para_retirar"] as const
+export const METODOS_PAGO_MESA = ["efectivo", "transferencia"] as const
+export type MetodoPagoMesa = (typeof METODOS_PAGO_MESA)[number]
 const ESTADO_INCLUIDO = "entregado"
 const ESTADO_EXCLUIDO = "cancelado"
 
@@ -61,6 +63,7 @@ export interface CuentaPedidoInput {
   fecha: Date | string
   total: number
   items: CuentaPedidoItemInput[]
+  notas?: string | null
 }
 
 export interface CuentaItemLine {
@@ -87,6 +90,7 @@ export interface CuentaPedidoLine {
   incluido: boolean
   excluido: boolean
   pendiente: boolean
+  notas: string | null
 }
 
 export interface CuentaMesaResult {
@@ -96,6 +100,9 @@ export interface CuentaMesaResult {
   pedidosExcluidosCount: number
   pedidosPendientesCount: number
   puedeCerrar: boolean
+  metodoPago?: MetodoPagoMesa | null
+  pagoConfirmadoEn?: string | null
+  estadoPago?: "pendiente" | "confirmado"
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
@@ -175,6 +182,7 @@ export function buildCuentaMesa(pedidos: CuentaPedidoInput[]): CuentaMesaResult 
       incluido,
       excluido,
       pendiente,
+      notas: typeof pedido.notas === "string" && pedido.notas.trim() ? pedido.notas : null,
     }
   })
 
@@ -185,5 +193,27 @@ export function buildCuentaMesa(pedidos: CuentaPedidoInput[]): CuentaMesaResult 
     pedidosExcluidosCount,
     pedidosPendientesCount,
     puedeCerrar: pedidosPendientesCount === 0,
+    metodoPago: null,
+    pagoConfirmadoEn: null,
+    estadoPago: "pendiente",
+  }
+}
+
+/** Adjunta el contexto persistido de pago sin recalcular ni alterar la cuenta. */
+export function withCuentaMesaPayment(
+  cuenta: CuentaMesaResult,
+  payment: { metodoPago: string | null; pagoConfirmadoEn: Date | string | null }
+): CuentaMesaResult {
+  const metodoPago = METODOS_PAGO_MESA.includes(payment.metodoPago as MetodoPagoMesa)
+    ? (payment.metodoPago as MetodoPagoMesa)
+    : null
+  const pagoConfirmadoEn = payment.pagoConfirmadoEn
+    ? toIsoString(payment.pagoConfirmadoEn)
+    : null
+  return {
+    ...cuenta,
+    metodoPago,
+    pagoConfirmadoEn,
+    estadoPago: metodoPago && pagoConfirmadoEn ? "confirmado" : "pendiente",
   }
 }
