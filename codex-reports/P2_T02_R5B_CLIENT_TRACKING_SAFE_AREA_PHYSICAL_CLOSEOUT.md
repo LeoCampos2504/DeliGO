@@ -15,9 +15,10 @@ POST_R5A_DELTA_CLASSIFICATION=DOCS_ONLY_R5
 POST_R5A_UNAUDITED_FUNCTIONAL_DELTA=NO
 ```
 
-El único delta posterior a R5A fue el commit documental R5A ya auditado
-(`e024e96`). No hubo código funcional/test/schema/migration posterior no
-auditado y `origin/main` no cambió.
+El delta posterior a R5A y previo a este cierre fue únicamente documental:
+el commit R5A ya auditado (`e024e96`) y los commits de cierre R5B
+(`1c94a7f`, `cb29d00`). No hubo código funcional/test/schema/migration
+posterior no auditado y `origin/main` no cambió.
 
 ## Evidencia física del operador
 
@@ -120,8 +121,8 @@ PRODUCTION_TOUCHED=NO
 PUBLIC_RELEASE_AUTHORIZED=NO
 DOC_PUSH_PERFORMED=SI
 DOC_PUSH_RESULT=SUCCESS
-R5B_DOC_COMMIT=1c94a7f36ad7d6cb3acf6fd7bef3199a93f78cdd
-ORIGIN_TESTING_AFTER_PUSH=1c94a7f36ad7d6cb3acf6fd7bef3199a93f78cdd
+R5B_DOC_COMMIT=cb29d0039aeb8a2d815e2f3ee3c3ba729f22b886
+ORIGIN_TESTING_AFTER_PUSH=cb29d0039aeb8a2d815e2f3ee3c3ba729f22b886
 ```
 
 El cierre documental actualiza sólo autoridades y reportes. El reporte
