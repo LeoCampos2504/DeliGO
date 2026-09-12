@@ -706,8 +706,8 @@ export function DeliveryTrackingMap({
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-background">
       {/* Header bar */}
-      <div className="relative z-10 flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm">
-        <div className="flex items-center gap-3">
+      <div className="relative z-10 grid grid-cols-[1fr_auto_1fr] items-center px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm">
+        <div className="justify-self-start flex items-center gap-3 min-w-0">
           {/* Live indicator — P2-T02-B3: gated on data freshness (isStale),
               never shown for a stale position even if the map is open and a
               prior fetch succeeded (§5/§11: nunca mostrar como "En vivo" una
@@ -730,16 +730,16 @@ export function DeliveryTrackingMap({
               </span>
             </div>
           ) : null}
-          <div className="h-4 w-px bg-border" />
-          <div className="flex items-center gap-1.5">
-            <Bike className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">Rastreando envío</span>
-          </div>
+        </div>
+
+        <div className="justify-self-center flex items-center gap-1.5">
+          <Bike className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">Rastreando envío</span>
         </div>
 
         <button
           onClick={() => onOpenChange(false)}
-          className="w-9 h-9 rounded-full bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors"
+          className="justify-self-end w-9 h-9 rounded-full bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors"
           aria-label="Cerrar mapa"
         >
           <X className="h-4 w-4" />
@@ -815,7 +815,7 @@ export function DeliveryTrackingMap({
       </div>
 
       {/* Bottom status bar */}
-      <div className="relative z-10 bg-white dark:bg-zinc-900 border-t border-border px-4 py-3">
+      <div className="relative z-10 bg-white dark:bg-zinc-900 border-t border-border px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
         <div className="flex items-center justify-between">
           {/* Last update */}
           <div className="flex items-center gap-2">
