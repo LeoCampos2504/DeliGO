@@ -91,6 +91,25 @@ ROUTING_LOGIC_CHANGED=NO
 El defecto es visual y está limitado al overlay de tracking del Cliente. No es
 un finding de GPS, realtime, routing, Repartidor ni de navegación futura.
 
+## P2-T02-R5B — physical finding closeout (2026-09-12)
+
+```text
+FINDING_ID=F-P2-T02-R5A-CLIENT-TRACKING-SAFE-AREA-01
+STATUS=CLOSED_TESTING_CERTIFIED
+R5A_IPHONE_TOP_SAFE_AREA=PASS
+R5A_IPHONE_BOTTOM_SAFE_AREA=PASS
+R5A_ANDROID_LAYOUT_SMOKE=PASS
+CLIENT_TRACKING_TOP_SAFE_AREA_PHYSICAL=PASS
+CLIENT_TRACKING_CLOSE_BUTTON_PHYSICAL=PASS
+CLIENT_TRACKING_HEADER_CENTERING_PHYSICAL=PASS
+CLIENT_TRACKING_BOTTOM_SAFE_AREA_PHYSICAL=PASS
+CLIENT_TRACKING_ANDROID_LAYOUT_PHYSICAL=PASS
+P2_T02_R5A_OPERATOR_CERTIFICATION=PASS
+```
+
+El cierre está limitado a la corrección visual R5A en Testing. No reabre R4 y
+no altera el requisito futuro de navegación follow/bearing.
+
 ## F-P2-T46-AUDIT-01 — autoridad de cuenta/pago y pedidos legacy sin ocupación (2026-09-10)
 
 ```text

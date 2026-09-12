@@ -3134,3 +3134,17 @@ Testing `5c1c57b6-f008-4e6f-a626-834d9e5ce9ca` terminó `SUCCESS/RUNNING` con
 match exacto de commit; sus logs confirmaron `No pending migrations to apply`
 (`TESTING_PENDING_MIGRATIONS=0`, `TESTING_DB_ERRORS=0`). No hubo deploy manual,
 push a main ni cambio en Production.
+
+## P2-T02-R5A/R5B — safe-area implementation and operator closeout (2026-09-12)
+
+R5A fue implementada en `ee7eea740aecfd70bc0718601a7fd077a015df98` y pusheada
+únicamente a `testing-codex`. El autodeploy funcional de DeliGO Copy
+`50e7649e-aa79-44f9-a860-214a713049bf` terminó `SUCCESS/RUNNING` con match exacto
+de commit; logs: `No pending migrations to apply`, sin errores DB.
+
+R5B fue documentation-only, con cierre físico reportado por el operador en
+iPhone y smoke Android. El commit documental se pusheó únicamente a
+`testing-codex`; su autodeploy DeliGO Copy
+`adfe6a8f-c37c-4965-8fb5-cd33d1d3c7a6` terminó `SUCCESS/RUNNING` con commit
+`e024e9698bb0f2a813587da301aef071486ee852`, sin migraciones pendientes ni
+errores DB. No hubo deploy manual, push a main ni cambio en Production.
