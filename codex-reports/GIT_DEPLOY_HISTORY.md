@@ -3127,3 +3127,10 @@ la recertificación física del operador fue PASS.
 `MIGRATION_FILES_CHANGED=0`, `FUNCTIONAL_TREE_CHANGED=NO`.
 El commit y push de R3 se limita a documentación hacia `testing-codex`.
 `main`, el checkpoint `p2-t46-stable-2026-09-11` y Production no se tocan.
+
+El commit documental `a8a0fd157ee183cb56193fba6b41f032c9479ba1` se pusheó con
+éxito a `testing-codex`, que quedó en ese SHA. El autodeploy DeliGO Copy
+Testing `5c1c57b6-f008-4e6f-a626-834d9e5ce9ca` terminó `SUCCESS/RUNNING` con
+match exacto de commit; sus logs confirmaron `No pending migrations to apply`
+(`TESTING_PENDING_MIGRATIONS=0`, `TESTING_DB_ERRORS=0`). No hubo deploy manual,
+push a main ni cambio en Production.

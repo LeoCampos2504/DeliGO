@@ -123,5 +123,33 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 NEXT_ACTION=P2_T43_PRODUCTION_PROMOTION_EVALUATION
 ```
 
-La documentación de push/deploy y el SHA final del commit se completan en la
-sección Git de este mismo reporte una vez ejecutados los pasos de commit y push.
+## Git, push y autodeploy documental
+
+```text
+P2_T43_R3_DOC_COMMIT=a8a0fd157ee183cb56193fba6b41f032c9479ba1
+DOC_PUSH_PERFORMED=SI
+DOC_PUSH_TARGET=testing-codex
+DOC_PUSH_RESULT=SUCCESS
+ORIGIN_TESTING_AFTER_PUSH=a8a0fd157ee183cb56193fba6b41f032c9479ba1
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
+El push fue fast-forward únicamente a `testing-codex`; incluyó el commit
+documental R2 que estaba localmente pendiente y este cierre R3. No se hizo push
+a `main` ni force push.
+
+El autodeploy incidental de Railway Testing fue verificado en DeliGO Copy:
+
+```text
+TESTING_DEPLOYMENT_ID=5c1c57b6-f008-4e6f-a626-834d9e5ce9ca
+TESTING_DEPLOYMENT_STATUS=SUCCESS
+TESTING_DEPLOYMENT_COMMIT_MATCH=YES
+TESTING_DEPLOYMENT_INSTANCE=RUNNING
+TESTING_PENDING_MIGRATIONS=0
+TESTING_DB_ERRORS=0
+```
+
+Los logs reportaron `No pending migrations to apply`; R3 no creó ni reaplicó
+migraciones. El despliegue fue consecuencia automática del push documental y
+no una modificación manual de Railway.
