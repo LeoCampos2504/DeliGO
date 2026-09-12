@@ -66,6 +66,31 @@ reconstrucción de cuentas históricas con `ocupacionMesaId=NULL`. El finding
 independiente de refresh en vivo de Negocio sigue abierto y se formaliza como
 P2-T53 sin reabrir T48/T46 ni inventar una prioridad.
 
+## F-P2-T02-R5A-CLIENT-TRACKING-SAFE-AREA-01 — corrección desplegada, recertificación física pendiente (2026-09-12)
+
+```text
+FINDING_ID=F-P2-T02-R5A-CLIENT-TRACKING-SAFE-AREA-01
+STATUS=FIX_IMPLEMENTED_TESTED_DEPLOYED_AWAITING_PHYSICAL_CERTIFICATION
+CLIENT_TRACKING_FULL_BLEED=SI
+CLIENT_TRACKING_TOP_SAFE_AREA_BEFORE=NO
+CLIENT_TRACKING_CLOSE_SAFE_AREA_BEFORE=NO
+CLIENT_TRACKING_BOTTOM_SAFE_AREA_BEFORE=NO
+ROOT_CAUSE=header fijo con px-4 py-3 y layout flex justify-between sin safe-area superior ni centrado independiente; footer sin safe-area inferior
+CLIENT_TRACKING_TOP_SAFE_AREA_AFTER=SI
+CLIENT_TRACKING_CLOSE_VISIBLE_CONTRACT=SI
+CLIENT_TRACKING_HEADER_CENTERED=SI
+CLIENT_TRACKING_BOTTOM_SAFE_AREA_AFTER=SI
+MAP_LAYOUT_FLEX_REMAINS_VALID=SI
+MAP_MARKER_LOGIC_CHANGED=NO
+MAP_FIT_BOUNDS_LOGIC_CHANGED=NO
+TRACKING_LOGIC_CHANGED=NO
+GPS_LOGIC_CHANGED=NO
+ROUTING_LOGIC_CHANGED=NO
+```
+
+El defecto es visual y está limitado al overlay de tracking del Cliente. No es
+un finding de GPS, realtime, routing, Repartidor ni de navegación futura.
+
 ## F-P2-T46-AUDIT-01 — autoridad de cuenta/pago y pedidos legacy sin ocupación (2026-09-10)
 
 ```text

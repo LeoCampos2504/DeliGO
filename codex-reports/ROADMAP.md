@@ -106,6 +106,45 @@ P2-T54 queda formalizada como tarea futura y bloqueada por la secuencia
 T02→T23→T24; no se implementa ni se adelanta. Google Maps permanece como
 fallback, mientras que el objetivo primario es navegación in-app de DeliGO.
 
+## P2-T02-R5A — Client tracking map iOS safe-area + header centering (2026-09-12)
+
+Se implementó y desplegó en Testing un fix mínimo exclusivamente sobre la
+superficie Cliente → “Rastreando envío”. El mapa conserva full-bleed; sólo el
+contenido interactivo del header y el footer respetan las safe areas. El título
+usa columnas `1fr auto 1fr`, por lo que permanece centrado aunque cambien los
+anchos del indicador o del cierre.
+
+```text
+P2_T02_R5A_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+R5A_COMMIT=ee7eea740aecfd70bc0718601a7fd077a015df98
+TESTING_DEPLOYMENT_ID=50e7649e-aa79-44f9-a860-214a713049bf
+TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+TESTING_DEPLOYMENT_COMMIT_MATCH=YES
+TESTING_DEPLOYMENT_INSTANCE=RUNNING
+TESTING_PENDING_MIGRATIONS=0
+TESTING_DB_ERRORS=0
+CLIENT_TRACKING_SAFE_AREA_FINDING=CONFIRMED_PHYSICAL
+CLIENT_TRACKING_FULL_BLEED_PRESERVED=SI
+CLIENT_TRACKING_TOP_SAFE_AREA_AFTER=SI
+CLIENT_TRACKING_CLOSE_VISIBLE_CONTRACT=SI
+CLIENT_TRACKING_HEADER_CENTERED=SI
+CLIENT_TRACKING_BOTTOM_SAFE_AREA_AFTER=SI
+MAP_LAYOUT_FLEX_REMAINS_VALID=SI
+MAP_MARKER_LOGIC_CHANGED=NO
+MAP_FIT_BOUNDS_LOGIC_CHANGED=NO
+TRACKING_LOGIC_CHANGED=NO
+GPS_LOGIC_CHANGED=NO
+ROUTING_LOGIC_CHANGED=NO
+CHAT_FILES_CHANGED=0
+P2_T02_R4_STATUS=PHYSICALLY_CERTIFIED_NORMAL_FLOW
+R4_NORMAL_FLOW_CERTIFICATION=PRESERVED
+P2_T02_R5A_PHYSICAL_CERTIFICATION=PENDING_OPERATOR
+NEXT_ACTION=OPERATOR_CLIENT_TRACKING_IOS_LAYOUT_RECERTIFICATION
+```
+
+R5A no implementa follow camera, heading, bearing, recenter ni MapLibre; T23,
+T24 y P2-T54 permanecen sin cambios.
+
 ## Backlog vigente por estado
 
 ### A. CLOSED / PRODUCTION

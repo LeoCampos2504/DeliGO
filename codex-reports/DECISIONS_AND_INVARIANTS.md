@@ -67,6 +67,33 @@ recomendada para bearing, camera easing y heading-up nativos; Leaflet queda
 válido para el runtime actual y no se migra en R5. No se cambia proveedor de
 tiles ni routing.
 
+## P2-T02-R5A — Client tracking safe-area invariants (2026-09-12)
+
+```text
+CLIENT_TRACKING_SAFE_AREA_FINDING=CONFIRMED_PHYSICAL
+CLIENT_TRACKING_FULL_BLEED_PRESERVED=SI
+CLIENT_TRACKING_TOP_SAFE_AREA_AFTER=SI
+CLIENT_TRACKING_CLOSE_VISIBLE_CONTRACT=SI
+CLIENT_TRACKING_HEADER_CENTERED=SI
+CLIENT_TRACKING_BOTTOM_SAFE_AREA_AFTER=SI
+MAP_LAYOUT_FLEX_REMAINS_VALID=SI
+MAP_MARKER_LOGIC_CHANGED=NO
+MAP_FIT_BOUNDS_LOGIC_CHANGED=NO
+TRACKING_LOGIC_CHANGED=NO
+GPS_LOGIC_CHANGED=NO
+ROUTING_LOGIC_CHANGED=NO
+CHAT_FILES_CHANGED=0
+GOOGLE_MAPS_LIKE_NAVIGATION_IMPLEMENTED=NO
+GOOGLE_MAPS_LIKE_NAVIGATION_SCOPE_CHANGED=NO
+P2_T02_R5A_PHYSICAL_CERTIFICATION=PENDING_OPERATOR
+NEXT_ACTION=OPERATOR_CLIENT_TRACKING_IOS_LAYOUT_RECERTIFICATION
+```
+
+R5A modifica sólo el layout local de `DeliveryTrackingMap`: safe-area top en
+el header, grid de tres columnas para centrado estable y safe-area bottom en
+el footer. No agrega padding al body/layout global, no cambia `viewportFit`,
+no altera Leaflet, markers, bounds, tracking ni routing.
+
 # HISTORICAL DECISIONS — P2-T46 audit stop gate (2026-09-10)
 
 ```text

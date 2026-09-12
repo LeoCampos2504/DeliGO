@@ -66,6 +66,34 @@ background con movimiento significativo, finalización ni cero eventos después
 de finalizar. Esos gates continúan pendientes según los reportes históricos
 T02/B3/B4.
 
+## P2-T02-R5A — Client tracking map safe-area authority (2026-09-12)
+
+```text
+R5A_FOCAL_SAFE_AREA_TEST_PASS=5
+R5A_FOCAL_SAFE_AREA_TEST_FAIL=0
+R5A_REGRESSION_TEST_PASS=82
+R5A_REGRESSION_TEST_FAIL=0
+R5A_ESLINT=PASS
+R5A_BUILD=PASS
+R5A_DIFF_CHECK=PASS
+R5A_TYPECHECK=PREEXISTING_BASELINE_ERRORS_NO_TOUCHED_FILE_ERROR
+CHAT_SAFE_AREA_FILES_CHANGED=0
+R5A_COMMIT=ee7eea740aecfd70bc0718601a7fd077a015df98
+TESTING_DEPLOYMENT_ID=50e7649e-aa79-44f9-a860-214a713049bf
+TESTING_DEPLOYMENT_STATUS=SUCCESS
+TESTING_DEPLOYMENT_COMMIT_MATCH=YES
+TESTING_DEPLOYMENT_INSTANCE=RUNNING
+TESTING_PENDING_MIGRATIONS=0
+TESTING_DB_ERRORS=0
+P2_T02_R5A_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+NEXT_ACTION=OPERATOR_CLIENT_TRACKING_IOS_LAYOUT_RECERTIFICATION
+```
+
+La regresión combinó el contrato focal nuevo con tracking map stale, tracking
+consumer, productor Repartidor, navegación in-app, contratos safe-area de
+Cliente y Chat. El typecheck conserva fallos preexistentes fuera del fileset
+R5A; el build omite validación de tipos como ya ocurre en este proyecto.
+
 # HISTORICAL TEST AUTHORITY — P2-T46 audit stop gate (2026-09-10)
 
 ```text
