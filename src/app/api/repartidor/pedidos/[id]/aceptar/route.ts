@@ -87,24 +87,43 @@ export async function POST(
     // por `isAvailableForDriverAcceptance`, y el WHERE lo compara tal cual.
     const estadoOrigen = pedido.estado
 
-    // Optimistic concurrency: update only if repartidorId is still null
-    const updated = await db.pedido.updateMany({
-      where: {
-        id: pedidoId,
-        negocioId: pedido.negocioId,
-        estado: estadoOrigen,
-        metodoEntrega: "domicilio",
-        repartidorId: null, // Only if nobody claimed it yet
-      },
-      data: {
-        estado: "en_camino",
-        repartidorId: user.id,
-        repartidorNombre: repartidor?.nombre || "Repartidor",
-        repartidorAceptaFecha: new Date(),
-      },
+    // Tracking authority at acceptance: read the live negocio policy on the
+    // server immediately before the same CAS that assigns the driver and
+    // enters `en_camino`. The value created with the order is only an initial
+    // snapshot; this is the definitive pre-delivery snapshot. Never accept a
+    // client-provided tracking flag.
+    const accepted = await db.$transaction(async (tx) => {
+      const negocioActual = await tx.negocio.findUnique({
+        where: { id: pedido.negocioId },
+        select: { seguimientoDeliveryActivo: true },
+      })
+
+      const seguimientoDeliveryHabilitado =
+        pedido.metodoEntrega === "domicilio" && negocioActual?.seguimientoDeliveryActivo === true
+
+      // Optimistic concurrency: update only if repartidorId is still null.
+      // The tracking snapshot is committed atomically with this assignment.
+      const updated = await tx.pedido.updateMany({
+        where: {
+          id: pedidoId,
+          negocioId: pedido.negocioId,
+          estado: estadoOrigen,
+          metodoEntrega: "domicilio",
+          repartidorId: null, // Only if nobody claimed it yet
+        },
+        data: {
+          estado: "en_camino",
+          repartidorId: user.id,
+          repartidorNombre: repartidor?.nombre || "Repartidor",
+          repartidorAceptaFecha: new Date(),
+          seguimientoDeliveryHabilitado,
+        },
+      })
+
+      return { count: updated.count }
     })
 
-    if (updated.count === 0) {
+    if (accepted.count === 0) {
       // Another repartidor beat us to it (or the order changed state/was cancelled)
       return NextResponse.json(
         { error: "El pedido ya fue aceptado por otro repartidor" },
