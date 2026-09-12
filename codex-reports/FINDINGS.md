@@ -23,6 +23,43 @@ NEGOCIO_REFRESH_FORMALIZED_TASK=P2-T53
 NEGOCIO_REFRESH_FIX_INCLUDED_IN_T46=NO
 ```
 
+## CURRENT T02 FINDINGS AUTHORITY — P2-T02-R5 (2026-09-12)
+
+La recertificación física reportada por el operador resuelve el finding de
+elegibilidad para el flujo normal de aceptación R4. La observación de una ruta
+en overview, sin seguimiento de cámara tipo Google Maps, no se clasifica como
+bug de R4: es un requisito UX nuevo y separado.
+
+```text
+P2_T02_R4_STATUS=PHYSICALLY_CERTIFIED_NORMAL_FLOW
+R4_NORMAL_DRIVER_ACCOUNT_USED=SI
+R4_NORMAL_ORDER_FLOW_USED=SI
+R4_FIXTURE_ACCOUNT_USED=NO
+R4_NORMAL_ACCEPT_FLOW=PASS
+R4_DRIVER_GPS_NOW_WORKS=PASS
+R4_IN_APP_NAVIGATION_OPENS=PASS
+R4_IN_APP_ROUTE_RENDERED=PASS
+R4_FIXTURE_PARITY_FINDING=RESOLVED_FOR_NORMAL_ACCEPT_FLOW
+R4_NORMAL_FLOW_FIX=PASS
+R4_ROOT_CAUSE=CLOSED_FOR_NORMAL_ACCEPT_FLOW
+
+CURRENT_REPARTIDOR_NAVIGATION=ROUTE_OVERVIEW
+NAVIGATION_GOOGLE_MAPS_LIKE_FOLLOW_MODE=NEW_PRODUCT_UX_REQUIREMENT
+NAVIGATION_UX_IS_R4_REGRESSION=NO
+DRIVER_NAVIGATION_UX_TASK_REQUIRED=SI
+DRIVER_NAVIGATION_UX_TASK_ID=P2-T54
+DRIVER_NAVIGATION_UX_TASK_TITLE=Driver Turn-by-Turn Follow Camera UX
+T23_NAVIGATION_FOLLOW_SCOPE=PARTIAL
+T24_NAVIGATION_MAP_MATCHING_SCOPE=CONFIRMED_RELATED
+```
+
+El alcance futuro debe cubrir cámara follow suave con posición del repartidor
+por debajo del centro, recenter tras interacción manual, heading/bearing,
+maniobra inmediata, distancia/ETA/destino y comportamiento seguro con mínima
+interacción. La recomendación de renderer se mantiene como decisión técnica
+pendiente: auditar Leaflet 1.9.4 contra MapLibre GL específicamente para cámara,
+orientación y rendimiento móvil; no cambiar proveedor de tiles/routing en R5.
+
 El finding de fuga visual de pedidos de la ocupación anterior queda resuelto
 por el aislamiento de superficie actual certificado en T46; esto no afirma
 reconstrucción de cuentas históricas con `ocupacionMesaId=NULL`. El finding
