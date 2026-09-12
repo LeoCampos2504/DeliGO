@@ -388,6 +388,20 @@ Detalle completo de esta reconciliación:
 
 ---
 
+## P2-T43-R3 — operator physical certification closeout — 2026-09-12
+
+T43 quedó `CLOSED_TESTING_CERTIFIED` sobre el runtime Testing de R2. La
+recertificación física del operador fue PASS en los casos originales A/B/C/D/E/F
+y en los cuatro casos R2 de identidad vinculada, preservación rol/área,
+reutilización de código eliminado y rechazo de duplicado activo. No hubo cambio
+funcional posterior: producto, tests, Prisma y migraciones = 0 archivos.
+
+`P2_T43_RELEASE_ELIGIBLE=SI` y
+`P2_T43_RELEASE_STATUS=READY_FOR_PRODUCTION_PROMOTION_EVALUATION`.
+Production permanece intacta y el lanzamiento público no está autorizado.
+Siguiente acción: evaluación separada de promoción curada a Production.
+Evidencia: `codex-reports/P2_T43_R3_OPERATOR_CERTIFICATION_CLOSEOUT.md`.
+
 ## P2-T32 — CLIENT ADDRESS UX UNIFICATION + PROFILE DEEP-LINK — IMPLEMENTADO, TESTEADO Y DESPLEGADO A TESTING — 2026-09-09 (`P2_T32_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION`)
 
 ```text

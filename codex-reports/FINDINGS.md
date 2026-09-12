@@ -5532,3 +5532,22 @@ No se introdujeron findings nuevos: `NEW_SECRET_OR_PII_FINDINGS=0`, T02=0 y
 unrelated=0. `NEGOCIO_OCCUPATION_CLOSE_LIVE_REFRESH_BUG` permanece
 `CONFIRMED_PHYSICAL` y abierto; el release registra explícitamente
 `NEGOCIO_REFRESH_FIX_INCLUDED=NO`.
+
+## P2-T43-R3 — findings closeout — 2026-09-12
+
+La recertificación física del operador cerró los findings T43 sin alterar los
+findings de otras tareas:
+
+`T43_ORIGINAL_FINDING_2=RESOLVED_PHYSICALLY_CERTIFIED_TESTING`
+
+`T43_ORIGINAL_FINDING_10=RESOLVED_PHYSICALLY_CERTIFIED_TESTING`
+
+`T43_R2_LINKED_EDIT_FINDING=RESOLVED_PHYSICALLY_CERTIFIED_TESTING`
+
+`T43_R2_DELETED_CODE_REUSE_FINDING=RESOLVED_PHYSICALLY_CERTIFIED_TESTING`
+
+`P2_T43_OPERATOR_CERTIFICATION=PASS`.
+
+La autoridad sigue separada: la identidad personal proviene de
+`CuentaOperativa`, la membresía de negocio de `Empleado`, y rol/área continúan
+protegidos server-side. No se identificaron findings nuevos en este cierre.

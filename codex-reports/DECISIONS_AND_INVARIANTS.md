@@ -4155,3 +4155,26 @@ La promoción fue curada desde `origin/main@946f8c2` y contiene sólo T46:
 `ADDITIVE_NULLABLE_NO_BACKFILL`; no se ejecuta downgrade destructivo en caso
 de rollback. El checkpoint vigente es `p2-t46-stable-2026-09-11` sobre
 `ff4cc2f`; `PUBLIC_RELEASE_AUTHORIZED=NO` permanece preservado.
+
+## P2-T43-R3 — certified employee identity and join invariants — 2026-09-12
+
+La certificación física confirma las autoridades finales:
+
+- `PERSONAL_EMPLOYEE_IDENTITY_AUTHORITY=CUENTA_OPERATIVA`
+- `BUSINESS_MEMBERSHIP_AUTHORITY=EMPLEADO`
+- `LINKED_EMPLOYEE_DISPLAY_NAME_AUTHORITY=CUENTA_OPERATIVA_NOMBRE`
+- `EMPLOYEE_NOMBRE_IS_PERSONAL_IDENTITY_AUTHORITY=NO`
+- `EMPLOYEE_AREA_AUTHORITY=NEGOCIO_SERVER_SIDE`
+- `PROJECTION_OVER_LEGACY_MUTATION=SI`
+
+El código interno es único entre empleados no eliminados por negocio:
+`UNIQUE (negocioId, codigo) WHERE eliminado=false`. El código de un empleado
+activo se rechaza si está duplicado; el código de un empleado eliminado puede
+reutilizarse y la fila histórica permanece preservada.
+
+Se preservan las guardas `JOIN_CROSS_BUSINESS_GUARD=YES`,
+`JOIN_PRIVILEGE_ESCALATION_GUARD=YES`, `JOIN_ROLE_SCOPE_GUARD=YES`,
+`JOIN_SERVER_SIDE_AUTHORITY=YES`, `ADMIN_EMPLOYEE_SCOPE_GUARD=YES`, con
+`CLIENT_CAN_MANAGE_EMPLOYEES=NO` y `TERMINAL_CAN_MANAGE_EMPLOYEES=NO`.
+El join de uso único y el error genérico ante código inválido fueron PASS
+físico. T43 queda certificado en Testing; Production sigue fuera de alcance.

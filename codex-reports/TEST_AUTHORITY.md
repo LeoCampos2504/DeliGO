@@ -4827,3 +4827,22 @@ build PASS.
 Production: migración aplicada, Prisma up to date, deployment exacto
 SUCCESS/RUNNING, smoke read-only PASS y sin errores/5xx observados. Checkpoint:
 `p2-t46-stable-2026-09-11`. No se autoriza lanzamiento público.
+
+## P2-T43-R3 — Testing physical certification authority — 2026-09-12
+
+La certificación física del operador es PASS y queda anclada al runtime R2 ya
+desplegado en Testing. No se reejecutaron suites porque no hubo drift funcional.
+Se preservan los resultados R2:
+
+`FOCAL_TEST_PASS=14`, `FOCAL_TEST_FAIL=0`,
+`REGRESSION_TEST_PASS=62`, `REGRESSION_TEST_FAIL=0`, `NEW_FAIL=NO`,
+`ESLINT_NEW_FINDINGS=0`, `DIFF_CHECK_PASS=PASS`, `BUILD_PASS=PASS`,
+`TYPECHECK=UNAVAILABLE_PREEXISTING_NO_TYPESCRIPT_BINARY`.
+
+La migración R2 está aplicada en Testing con pending=0 y sin errores DB. El
+post-certification delta de R3 es documentation-only; no representa un nuevo
+runtime funcional ni requiere recertificación adicional.
+
+`P2_T43_STATUS=CLOSED_TESTING_CERTIFIED`;
+`P2_T43_RELEASE_ELIGIBLE=SI`;
+`P2_T43_RELEASE_STATUS=READY_FOR_PRODUCTION_PROMOTION_EVALUATION`.

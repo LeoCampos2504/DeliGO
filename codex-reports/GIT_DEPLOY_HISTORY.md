@@ -3115,3 +3115,15 @@ quedó SUCCESS/RUNNING. Se creó y verificó el tag anotado
 `p2-t46-stable-2026-09-11`, objeto `7502b3c1e98131535dc03dd25a2e4a01a65d144d`,
 peeled `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`. El tag T48 anterior no se
 movió. Production no fue promovida con ningún otro feature.
+
+## P2-T43-R3 — Testing operator certification closeout — 2026-09-12
+
+R3 fue documentation-only sobre el runtime R2 de Testing. El commit funcional
+R2 `401fa5676607298f3b0ccf2eae0618cecac3b766` y el deployment Testing
+`c09f5a6c-4261-4a76-b446-2c6aab4fe393` permanecen como autoridad de ejecución;
+la recertificación física del operador fue PASS.
+
+`PRODUCT_FILES_CHANGED=0`, `TEST_FILES_CHANGED=0`, `PRISMA_FILES_CHANGED=0`,
+`MIGRATION_FILES_CHANGED=0`, `FUNCTIONAL_TREE_CHANGED=NO`.
+El commit y push de R3 se limita a documentación hacia `testing-codex`.
+`main`, el checkpoint `p2-t46-stable-2026-09-11` y Production no se tocan.
