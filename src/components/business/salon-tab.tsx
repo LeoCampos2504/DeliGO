@@ -2224,7 +2224,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [formCodigo, setFormCodigo] = useState("")
   const [formArea, setFormArea] = useState<string>("sin_asignar")
 
-  const [editNombre, setEditNombre] = useState("")
   const [editCodigo, setEditCodigo] = useState("")
   const [editArea, setEditArea] = useState<string>("sin_asignar")
 
@@ -2323,11 +2322,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   })
 
   const editMutation = useMutation({
-    mutationFn: async (data: { id: string; nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
+    mutationFn: async (data: { id: string; codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch(`/api/negocio/empleados/${data.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: data.nombre, codigo: data.codigo, rol: data.rol, areaOperativa: data.areaOperativa }),
+        body: JSON.stringify({ codigo: data.codigo, rol: data.rol, areaOperativa: data.areaOperativa }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -2466,23 +2465,17 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
 
   const startEditing = (empleado: Empleado) => {
     setEditingId(empleado.id)
-    setEditNombre(empleado.nombre)
     setEditCodigo(empleado.codigo)
     setEditArea(empleado.areaOperativa ?? "sin_asignar")
   }
 
   const handleSaveEdit = (id: string) => {
-    if (!editNombre.trim()) {
-      toast.error("El nombre es obligatorio")
-      return
-    }
     if (!editCodigo.trim()) {
       toast.error("El código es obligatorio")
       return
     }
     editMutation.mutate({
       id,
-      nombre: editNombre.trim(),
       codigo: editCodigo.trim(),
       rol: "mozo",
       areaOperativa: editArea,
@@ -2610,12 +2603,13 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <Label className="text-[11px] font-semibold mb-1 block">Nombre</Label>
-                        <Input
-                          value={editNombre}
-                          onChange={(e) => setEditNombre(e.target.value)}
-                          className="rounded-xl h-7 text-sm"
-                        />
+                        <Label className="text-[11px] font-semibold mb-1 block">Identidad</Label>
+                        <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-1.5 min-h-7">
+                          <p className="text-sm truncate">{displayName}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {linkedAccount ? "CuentaOperativa · sólo lectura" : "Pendiente de vinculación · sólo lectura"}
+                          </p>
+                        </div>
                       </div>
                       <div>
                         <Label className="text-[11px] font-semibold mb-1 block">Código</Label>

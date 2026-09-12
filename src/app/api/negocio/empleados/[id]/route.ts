@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
@@ -67,8 +68,13 @@ export async function PUT(
     if (codigo !== undefined) {
       const trimmedCode = codigo.trim().toUpperCase()
       if (trimmedCode !== existing.codigo) {
-        const dup = await db.empleado.findUnique({
-          where: { negocioId_codigo: { negocioId, codigo: trimmedCode } },
+        const dup = await db.empleado.findFirst({
+          where: {
+            negocioId,
+            codigo: trimmedCode,
+            eliminado: false,
+          },
+          select: { id: true },
         })
         if (dup) {
           return NextResponse.json(
@@ -173,6 +179,12 @@ export async function PUT(
 
     return NextResponse.json(serializeEmpleado(updated))
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json(
+        { error: "Ya existe un empleado con ese código" },
+        { status: 409 }
+      )
+    }
     console.error("Error updating empleado:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar empleado" },

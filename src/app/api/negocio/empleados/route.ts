@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
@@ -163,8 +164,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Check for duplicate codigo within negocio
-    const existing = await db.empleado.findUnique({
-      where: { negocioId_codigo: { negocioId, codigo: codigo.trim().toUpperCase() } },
+    const existing = await db.empleado.findFirst({
+      where: {
+        negocioId,
+        codigo: codigo.trim().toUpperCase(),
+        eliminado: false,
+      },
+      select: { id: true },
     })
     if (existing) {
       return noStoreJson(
@@ -205,6 +211,12 @@ export async function POST(req: NextRequest) {
 
     return noStoreJson(serializeEmpleado(empleado), { status: 201 })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return noStoreJson(
+        { error: "Ya existe un empleado con ese código" },
+        { status: 409 }
+      )
+    }
     console.error("Error creating empleado:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al crear empleado" },

@@ -1062,7 +1062,9 @@ model Empleado {
   mesas            Mesa[] // Mesas asignadas a este mozo
   codigosIncorporacionObjetivo CodigoIncorporacionMozo[]
 
-  @@unique([negocioId, codigo])
+  // La unicidad vigente de código se mantiene en SQL como índice único parcial
+  // (negocioId, codigo) WHERE eliminado = false. Prisma no soporta índices
+  // únicos parciales en su DSL; los lookups operativos filtran eliminado=false.
   @@unique([negocioId, cuentaOperativaId])
   @@index([cuentaOperativaId])
   @@map("empleados")

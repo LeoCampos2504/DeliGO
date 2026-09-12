@@ -6,6 +6,8 @@ import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { createSession, deleteSession, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { GET, POST } from "./route"
+import { DELETE, PUT } from "./[id]/route"
+import { GET as GET_BY_CODIGO } from "@/app/api/empleados/by-codigo/route"
 
 setDefaultTimeout(60_000)
 
@@ -119,5 +121,84 @@ describe("P2-T43-R1 — GET/POST /api/negocio/empleados", () => {
     })
     const response = await GET(request("/api/negocio/empleados?negocioId=${businessB.id}", "GET", await businessCookie(businessA.id)))
     expect((await response.json()).some((candidate: { id: string }) => candidate.id === employeeB.id)).toBe(false)
+  })
+
+  test("P2-T43-R2 CASE C1-C9: internal code reuses only after soft-delete and stays business-scoped", async () => {
+    const businessA = await createBusiness("test-p2-t43-r2-code-a")
+    const cookieA = await businessCookie(businessA.id)
+    const code = "ABC"
+
+    const firstResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(firstResponse.status).toBe(201)
+    const first = await firstResponse.json() as { id: string }
+
+    const duplicateResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(duplicateResponse.status).toBe(409)
+
+    const deactivateResponse = await PUT(
+      request(`/api/negocio/empleados/${first.id}`, "PUT", cookieA, { activo: false }),
+      { params: Promise.resolve({ id: first.id }) }
+    )
+    expect(deactivateResponse.status).toBe(200)
+    const inactiveDuplicateResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(inactiveDuplicateResponse.status).toBe(409)
+
+    const historicalPedido = await db.pedido.create({
+      data: {
+        negocioId: businessA.id,
+        negocioSlug: businessA.slug,
+        negocioNombre: businessA.nombre,
+        clienteNombre: "Historial T43",
+        total: 100,
+        totalProductos: 100,
+        metodoEntrega: "mesa",
+        estado: "entregado",
+        empleadoId: first.id,
+        empleadoNombre: "Empleado histórico ABC",
+      },
+    })
+
+    const deleteResponse = await DELETE(
+      request(`/api/negocio/empleados/${first.id}`, "DELETE", cookieA),
+      { params: Promise.resolve({ id: first.id }) }
+    )
+    expect(deleteResponse.status).toBe(200)
+
+    const historical = await db.empleado.findUnique({ where: { id: first.id } })
+    expect(historical?.eliminado).toBe(true)
+    expect(historical?.activo).toBe(false)
+    expect(historical?.codigo).toBe(code)
+    expect((await db.pedido.findUnique({ where: { id: historicalPedido.id }, select: { empleadoId: true, empleadoNombre: true } }))).toEqual({
+      empleadoId: first.id,
+      empleadoNombre: "Empleado histórico ABC",
+    })
+
+    const reusedResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(reusedResponse.status).toBe(201)
+    const reused = await reusedResponse.json() as { id: string }
+    expect(reused.id).not.toBe(first.id)
+
+    const byCodigoResponse = await GET_BY_CODIGO(new NextRequest(`http://localhost/api/empleados/by-codigo?codigo=${code}&negocioId=${businessA.id}`))
+    expect(byCodigoResponse.status).toBe(200)
+    expect((await byCodigoResponse.json()).id).toBe(reused.id)
+
+    await DELETE(
+      request(`/api/negocio/empleados/${reused.id}`, "DELETE", cookieA),
+      { params: Promise.resolve({ id: reused.id }) }
+    )
+    const secondCycleResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(secondCycleResponse.status).toBe(201)
+    const secondCycle = await secondCycleResponse.json() as { id: string }
+    await DELETE(
+      request(`/api/negocio/empleados/${secondCycle.id}`, "DELETE", cookieA),
+      { params: Promise.resolve({ id: secondCycle.id }) }
+    )
+    const thirdCycleResponse = await POST(request("/api/negocio/empleados", "POST", cookieA, { codigo: code, rol: "mozo" }))
+    expect(thirdCycleResponse.status).toBe(201)
+
+    const businessB = await createBusiness("test-p2-t43-r2-code-b")
+    const cookieB = await businessCookie(businessB.id)
+    const crossBusinessResponse = await POST(request("/api/negocio/empleados", "POST", cookieB, { codigo: code, rol: "mozo" }))
+    expect(crossBusinessResponse.status).toBe(201)
   })
 })
