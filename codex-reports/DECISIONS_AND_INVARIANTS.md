@@ -4388,3 +4388,31 @@ Se preservan las guardas `JOIN_CROSS_BUSINESS_GUARD=YES`,
 `CLIENT_CAN_MANAGE_EMPLOYEES=NO` y `TERMINAL_CAN_MANAGE_EMPLOYEES=NO`.
 El join de uso único y el error genérico ante código inválido fueron PASS
 físico. T43 queda certificado en Testing; Production sigue fuera de alcance.
+
+## P2-T23-R1 — client playback invariants — 2026-09-13
+
+- El punto server-side autenticado y versionado aceptado por
+  `tracking-freshness` sigue siendo la única autoridad. El playback es una
+  proyección visual y sólo existe entre A y B confirmados.
+- La implementación usa un único rAF por mapa, retarget desde la posición
+  renderizada actual y no mantiene FIFO, buffer de cinco segundos ni posición
+  futura. Heartbeats de nueva versión con iguales coordenadas no animan.
+- La duración está acotada a 250–1200 ms. Un gap de llegada mayor a 20 s hace
+  snap; stale, completion, trackingDisabled, cierre, unmount y cambio de
+  pedido detienen el playback. La recuperación desde stale hace snap al punto
+  fresco autenticado.
+- Leaflet y el comportamiento de cámara se preservan: no hay fitBounds por
+  frame, follow camera, bearing, recenter, route snapping ni map matching.
+- No cambia el payload, contrato realtime, esquema Prisma, migraciones,
+  persistencia de trayectoria ni autoridad del único watcher GPS.
+
+```text
+P2_T23_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION
+T23_BATCHING_REQUIRED=NO
+INTERPOLATION_ONLY_BETWEEN_CONFIRMED_POINTS=SI
+ONE_ACTIVE_PLAYBACK_RAF_PER_MAP=SI
+FUTURE_POSITION_EXTRAPOLATION_ALLOWED=NO
+T23_MAP_MATCHING=NO
+T23_ROUTE_SNAPPING=NO
+P2_T54_STATUS=FUTURE_AFTER_T02_T23_T24
+```

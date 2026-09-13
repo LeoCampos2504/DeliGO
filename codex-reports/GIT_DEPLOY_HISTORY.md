@@ -3199,3 +3199,14 @@ iPhone y smoke Android. El commit documental se pusheó únicamente a
 `adfe6a8f-c37c-4965-8fb5-cd33d1d3c7a6` terminó `SUCCESS/RUNNING` con commit
 `e024e9698bb0f2a813587da301aef071486ee852`, sin migraciones pendientes ni
 errores DB. No hubo deploy manual, push a main ni cambio en Production.
+
+## P2-T23-R1 — client interpolation Testing deployment — 2026-09-13
+
+El commit funcional `2f4c8d1d8392668dfd3f89602b1e06a2297519bc` se publicó sólo
+en `testing-codex`, desde `e79ec0c8af97ac41622db72e7334a1ff8917d98d`. El
+autodeploy de DeliGO Copy TESTING
+(`6da4b52c-8886-4d52-b31a-ba2e0ba21311`) terminó `SUCCESS/RUNNING` con match
+exacto de commit. Los logs confirmaron `No pending migrations to apply` y no
+reportaron errores DB. `origin/main` permaneció en
+`ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`; no hubo push a main, deploy manual,
+migración ni cambio de Production.

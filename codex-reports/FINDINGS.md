@@ -5703,3 +5703,22 @@ findings de otras tareas:
 La autoridad sigue separada: la identidad personal proviene de
 `CuentaOperativa`, la membresía de negocio de `Empleado`, y rol/área continúan
 protegidos server-side. No se identificaron findings nuevos en este cierre.
+
+## P2-T23-R1 — playback finding disposition — 2026-09-13
+
+El finding de saltos stepwise de T23 queda remediado en el runtime de Testing
+por interpolación client-side entre puntos confirmados. La autoridad de
+freshness/version permanece intacta; no se introdujeron batching, extrapolación,
+map matching, route snapping, cambio de renderer ni un segundo watcher GPS.
+La validación física del resultado sigue pendiente y por eso T23 permanece
+abierto hasta la certificación del operador.
+
+```text
+T23_PRIMARY_JUMP_CAUSE=BOTH
+T23_REMEDIATION=CLIENT_INTERPOLATION_ONLY
+T23_BATCHING_REQUIRED=NO
+T23_PHYSICAL_CERTIFICATION=PENDING_OPERATOR
+P2_T23_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION
+NEW_T23_FINDINGS=0
+PRODUCTION_TOUCHED=NO
+```

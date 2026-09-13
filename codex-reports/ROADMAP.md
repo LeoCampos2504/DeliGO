@@ -6239,4 +6239,26 @@ Production no autoriza todavía el lanzamiento público (`PUBLIC_RELEASE_AUTHORI
 La siguiente prioridad recomendada es `P2-T32` (Client Address UX Unification +
 Profile Deep-Link); no se inició. Evidencia: `codex-reports/P2_T46_R4_CURATED_PRODUCTION_PROMOTION.md`.
 
+## P2-T23-R1 — client interpolation implementation — 2026-09-13
+
+R1 implementó playback suave exclusivamente en el cliente sobre el marker
+Leaflet existente. El runtime fue desplegado en Testing y queda pendiente la
+certificación física del operador; T23 no se declara cerrado. El reporte
+autoritativo es `codex-reports/P2_T23_R1_CLIENT_INTERPOLATION_IMPLEMENTATION.md`.
+
+```text
+P2_T23_ARCHITECTURE=CLIENT_INTERPOLATION_ONLY
+T23_BATCHING_REQUIRED=NO
+P2_T23_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION
+P2_T23_RELEASE_ELIGIBLE=NO_UNTIL_PHYSICAL_CERTIFICATION
+P2_T23_IMPLEMENTATION_COMMIT=2f4c8d1d8392668dfd3f89602b1e06a2297519bc
+P2_T23_TESTING_DEPLOYMENT=6da4b52c-8886-4d52-b31a-ba2e0ba21311
+P2_T02_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T02_RELEASE_ELIGIBLE=SI
+P2_T54_STATUS=FUTURE_AFTER_T02_T23_T24
+NEXT_TASK_CHAIN_START=P2_T23_AUDIT_AND_DESIGN
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
 ---

@@ -204,3 +204,15 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 
 R5A queda cerrada en Testing por certificación física del operador en iPhone y
 Android. T02 global sigue abierto por sus gates físicos restantes.
+
+## P2-T23-R1 — estado vigente — 2026-09-13
+
+T23 implementó interpolación client-side únicamente sobre el marker de
+tracking. Testing ejecuta el commit
+`2f4c8d1d8392668dfd3f89602b1e06a2297519bc` en el deployment
+`6da4b52c-8886-4d52-b31a-ba2e0ba21311` (`SUCCESS/RUNNING`). El estado es
+`P2_T23_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION`: aún no es un
+closeout físico ni una autorización de Production. T02 conserva
+`CLOSED_TESTING_CERTIFIED`/`RELEASE_ELIGIBLE=SI`; T54 conserva
+`FUTURE_AFTER_T02_T23_T24`; la siguiente acción es la certificación física de
+T23 R1.
