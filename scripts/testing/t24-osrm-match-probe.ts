@@ -10,13 +10,12 @@ import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
 import { evaluateMapMatchingWithDiagnostics } from "@/lib/map-matching-policy"
 import type { RawMatchingPoint } from "@/lib/map-matching-provider"
 
-// R3G.4 Variant 4: Variant 3 with only its ambiguous final endpoint removed.
+// R3G.4 Variant 5: same corridor, bounded to the earlier interior section.
 const SYNTHETIC_TRACE: RawMatchingPoint[] = [
   { lat: 52.517034, lng: 13.38882, offsetMs: 0, accuracy: 5 },
   { lat: 52.517185, lng: 13.393173, offsetMs: 1_000, accuracy: 5 },
   { lat: 52.517587, lng: 13.39893, offsetMs: 2_000, accuracy: 5 },
   { lat: 52.519459, lng: 13.403917, offsetMs: 3_000, accuracy: 5 },
-  { lat: 52.522263, lng: 13.409417, offsetMs: 4_000, accuracy: 5 },
 ]
 
 const DEFAULT_TIMEOUT_MS = 250
