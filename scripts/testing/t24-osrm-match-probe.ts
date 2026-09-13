@@ -15,6 +15,20 @@ const SYNTHETIC_TRACE: RawMatchingPoint[] = [
   { lat: 52.523219, lng: 13.428555, offsetMs: 2_000, accuracy: 25 },
 ]
 
+const DEFAULT_TIMEOUT_MS = 250
+
+function readTimeoutMs(): number {
+  const flagIndex = process.argv.indexOf("--timeout-ms")
+  if (flagIndex === -1) return DEFAULT_TIMEOUT_MS
+  const rawValue = process.argv[flagIndex + 1]
+  if (!rawValue || !/^\d+$/.test(rawValue)) fail("--timeout-ms must be an integer from 100 to 1000")
+  const timeoutMs = Number(rawValue)
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 1000) {
+    fail("--timeout-ms must be an integer from 100 to 1000")
+  }
+  return timeoutMs
+}
+
 function fail(message: string): never {
   console.error("T24_PROBE_STATUS=BLOCKED")
   console.error("T24_PROBE_ERROR=" + message)
@@ -43,11 +57,12 @@ function assertTestingGuard(): { baseUrl: string; environment: string } {
 
 async function main(): Promise<void> {
   const { baseUrl, environment } = assertTestingGuard()
+  const timeoutMs = readTimeoutMs()
   const startedAt = Date.now()
   const provider = createOsrmMapMatchingProvider({
     baseUrl,
     enabled: true,
-    timeoutMs: 250,
+    timeoutMs,
     env: { ...process.env, DELIGO_ENVIRONMENT: environment, NODE_ENV: "test" },
   })
   const result = await provider.matchTrajectory(SYNTHETIC_TRACE)
@@ -58,7 +73,7 @@ async function main(): Promise<void> {
   console.log("PROBE_PII_SENT=NO")
   console.log("PROBE_TRACE_POINTS=3_SYNTHETIC")
   console.log("LATENCY_MS=" + latencyMs)
-  console.log("TIMEOUT_MS=250")
+  console.log("TIMEOUT_MS=" + timeoutMs)
   console.log("OSRM_MATCH_RESULT_STATUS=" + result.status)
   if (result.status === "matched") {
     console.log("OSRM_MATCH_HTTP_AND_CODE=PASS")
