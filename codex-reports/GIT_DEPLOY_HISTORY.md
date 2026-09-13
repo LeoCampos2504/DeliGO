@@ -1,5 +1,31 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## P2-T02-R6 — final physical evidence reconciliation + closeout (2026-09-13)
+
+```text
+GIT_ACTION=1 commit documental + 1 push a origin/testing-codex
+BASELINE_HEAD=38eb7d4d8af1ec5dd8f0a7b0f1c73f52c9e01677
+ORIGIN_TESTING_BEFORE=38eb7d4d8af1ec5dd8f0a7b0f1c73f52c9e01677
+ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+FILESET=8 archivos documentales (1 reporte nuevo + 7 autoridades)
+PRODUCT_FILES_CHANGED=0
+TEST_FILES_CHANGED=0
+PRISMA_FILES_CHANGED=0
+MIGRATION_FILES_CHANGED=0
+FUNCTIONAL_TREE_CHANGED=NO
+DATABASE_CHANGED=NO
+RAILWAY_MUTATION=NO
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+P2_T02_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T02_RELEASE_ELIGIBLE=SI
+REPORT=codex-reports/P2_T02_R6_FINAL_PHYSICAL_EVIDENCE_RECONCILIATION.md
+PUSH_TARGET=origin/testing-codex
+```
+
+La tarea fue documentation-only. No se ejecutaron deploys, migraciones,
+Production, T23, T24 ni T54. `git diff --check` se verificó antes del commit.
+
 ## P2-POST-T46-R1 — documentation-only backlog reconciliation (2026-09-11)
 
 ```text
