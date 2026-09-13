@@ -191,4 +191,32 @@ describe("Shared realtime client Tracking consumer contract", () => {
       expect(source).not.toContain(forbidden)
     }
   })
+
+  test("R1 renders confirmed points with one bounded client playback loop", () => {
+    const source = trackingMap()
+    expect(source).toContain('from "@/lib/tracking-playback"')
+    expect(source).toContain("playbackRafRef")
+    expect(source).toContain("requestAnimationFrame(tick)")
+    expect(source).toContain("cancelAnimationFrame(playbackRafRef.current)")
+    expect(source).toContain("startPlayback(newPoint, trackingData.version ?? null)")
+    expect(source).toContain("renderedPlaybackPointRef.current")
+    expect(source).toContain("playbackTargetRef.current")
+  })
+
+  test("R1 does not fit camera bounds from the animation frame", () => {
+    const source = trackingMap()
+    const tickStart = source.indexOf("const tick = (timestamp: number) => {")
+    const tickEnd = source.indexOf("playbackRafRef.current = requestAnimationFrame(tick)", tickStart)
+    expect(tickStart).toBeGreaterThan(-1)
+    expect(tickEnd).toBeGreaterThan(tickStart)
+    expect(source.slice(tickStart, tickEnd)).not.toContain("fitBounds")
+  })
+
+  test("R1 preserves confirmed-point-only playback and large-gap snap", () => {
+    const source = trackingMap()
+    expect(source).toContain("shouldSnapForTrackingGap(arrivalGapMs)")
+    expect(source).toContain("interpolateTrackingPoint(currentRendered, target, progress)")
+    expect(source).toContain("repartidorMarkerRef.current.setLatLng([target.lat, target.lng])")
+    expect(source).toContain("trackingData.estado !== \"en_camino\"")
+  })
 })

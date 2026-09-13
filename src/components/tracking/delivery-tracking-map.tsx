@@ -13,6 +13,13 @@ import {
   isTrackingLocationStale,
   isTrustedTrackingServerVersion,
 } from "@/lib/tracking-freshness"
+import {
+  getTrackingPlaybackDurationMs,
+  interpolateTrackingPoint,
+  sameTrackingPlaybackCoordinate,
+  shouldSnapForTrackingGap,
+  type TrackingPlaybackPoint,
+} from "@/lib/tracking-playback"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -58,6 +65,7 @@ interface TrackingData {
   negocioLogoUrl: string | null
   negocioColorPrincipal: string | null
   estado: string
+  version?: number | string
 }
 
 // ============================================
@@ -224,6 +232,12 @@ export function DeliveryTrackingMap({
   const repartidorMarkerRef = useRef<L.Marker | null>(null)
   const destinoMarkerRef = useRef<L.Marker | null>(null)
   const origenMarkerRef = useRef<L.Marker | null>(null)
+  const renderedPlaybackPointRef = useRef<TrackingPlaybackPoint | null>(null)
+  const playbackTargetRef = useRef<TrackingPlaybackPoint | null>(null)
+  const playbackTargetVersionRef = useRef<number | string | null>(null)
+  const playbackLastAcceptedAtRef = useRef<number | null>(null)
+  const playbackRafRef = useRef<number | null>(null)
+  const playbackTokenRef = useRef(0)
   const userInteractedRef = useRef(false)
   // Clock-independent freshness/causality tracker — see src/lib/tracking-freshness.ts.
   // Guards against slow-HTTP-overwrites-newer-realtime, HTTP-vs-HTTP
@@ -286,6 +300,79 @@ export function DeliveryTrackingMap({
     }
   }, [])
 
+  const cancelPlayback = useCallback((clearTarget = false) => {
+    playbackTokenRef.current += 1
+    if (playbackRafRef.current !== null) {
+      cancelAnimationFrame(playbackRafRef.current)
+      playbackRafRef.current = null
+    }
+    if (clearTarget) {
+      playbackTargetRef.current = null
+      playbackTargetVersionRef.current = null
+      playbackLastAcceptedAtRef.current = null
+    }
+  }, [])
+
+  const startPlayback = useCallback((target: TrackingPlaybackPoint, version: number | string | null) => {
+    const marker = repartidorMarkerRef.current
+    if (!marker) return
+
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const previousTarget = playbackTargetRef.current
+    const currentRendered = renderedPlaybackPointRef.current ?? (() => {
+      const current = marker.getLatLng()
+      return { lat: current.lat, lng: current.lng }
+    })()
+    const arrivalGapMs = playbackLastAcceptedAtRef.current === null
+      ? null
+      : Math.max(0, now - playbackLastAcceptedAtRef.current)
+    playbackLastAcceptedAtRef.current = now
+
+    // A new revision with the same coordinates is a heartbeat. It refreshes
+    // ordering metadata but must not restart or create visible movement.
+    if (sameTrackingPlaybackCoordinate(previousTarget, target)) {
+      playbackTargetVersionRef.current = version
+      return
+    }
+
+    const shouldSnap = previousTarget === null || shouldSnapForTrackingGap(arrivalGapMs)
+    playbackTargetRef.current = target
+    playbackTargetVersionRef.current = version
+
+    if (shouldSnap) {
+      cancelPlayback()
+      marker.setLatLng([target.lat, target.lng])
+      renderedPlaybackPointRef.current = target
+      return
+    }
+
+    cancelPlayback()
+    const durationMs = getTrackingPlaybackDurationMs(arrivalGapMs)
+    const token = playbackTokenRef.current
+    const animationStartedAt = now
+    const tick = (timestamp: number) => {
+      if (token !== playbackTokenRef.current || !repartidorMarkerRef.current) return
+
+      const progress = Math.min(1, Math.max(0, (timestamp - animationStartedAt) / durationMs))
+      const nextPoint = interpolateTrackingPoint(currentRendered, target, progress)
+      repartidorMarkerRef.current.setLatLng([nextPoint.lat, nextPoint.lng])
+      renderedPlaybackPointRef.current = nextPoint
+
+      if (progress >= 1) {
+        // Set the exact endpoint after the last interpolated frame so the
+        // rendered marker can never remain fractionally short of B.
+        repartidorMarkerRef.current.setLatLng([target.lat, target.lng])
+        renderedPlaybackPointRef.current = target
+        playbackRafRef.current = null
+        return
+      }
+
+      playbackRafRef.current = requestAnimationFrame(tick)
+    }
+
+    playbackRafRef.current = requestAnimationFrame(tick)
+  }, [cancelPlayback])
+
   // Fetch tracking data (HTTP fallback)
   const fetchTracking = useCallback(async () => {
     if (!open) return
@@ -333,6 +420,7 @@ export function DeliveryTrackingMap({
         negocioLogoUrl: data.negocioLogoUrl || logoUrl || null,
         negocioColorPrincipal: data.negocioColorPrincipal || colorPrincipal || null,
         estado: data.estado || "en_camino",
+        version: data.version,
       }
 
       // The HTTP tracking response always carries the same DB-backed
@@ -360,6 +448,7 @@ export function DeliveryTrackingMap({
             repartidorLat: prev.repartidorLat,
             repartidorLng: prev.repartidorLng,
             repartidorLastUpdate: prev.repartidorLastUpdate,
+            version: prev.version,
           }
         }
         return fetchedData
@@ -401,7 +490,13 @@ export function DeliveryTrackingMap({
 
       setTrackingData((prev) => {
         if (prev) {
-          return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
+          return {
+            ...prev,
+            repartidorLat: lat,
+            repartidorLng: lng,
+            repartidorLastUpdate: data.timestamp,
+            version: data.version,
+          }
         }
         // No prior HTTP snapshot yet (e.g. realtime beat the initial fetch)
         // — build a full record from known props rather than silently
@@ -420,6 +515,7 @@ export function DeliveryTrackingMap({
           negocioLogoUrl: logoUrl || null,
           negocioColorPrincipal: colorPrincipal || null,
           estado: "en_camino",
+          version: data.version,
         }
       })
     })
@@ -568,8 +664,12 @@ export function DeliveryTrackingMap({
           `<div style="font-size: 13px; font-weight: 600; padding: 2px 4px;">
             🛵 Tu repartidor
           </div>`
-        )
+      )
       repartidorMarkerRef.current = repartidorMarker
+      renderedPlaybackPointRef.current = { lat: repartidorPos[0], lng: repartidorPos[1] }
+      playbackTargetRef.current = renderedPlaybackPointRef.current
+      playbackTargetVersionRef.current = trackingData.version ?? null
+      playbackLastAcceptedAtRef.current = null
     }
 
     // Fit bounds to show all markers
@@ -598,14 +698,16 @@ export function DeliveryTrackingMap({
     setIsMapReady(true)
 
     return () => {
+      cancelPlayback(true)
       map.remove()
       mapInstanceRef.current = null
       repartidorMarkerRef.current = null
       destinoMarkerRef.current = null
       origenMarkerRef.current = null
+      renderedPlaybackPointRef.current = null
       setIsMapReady(false)
     }
-  }, [open]) // Only depend on open
+  }, [open, cancelPlayback]) // Only depend on open
 
   // Update origin marker when tracking data arrives
   useEffect(() => {
@@ -648,25 +750,31 @@ export function DeliveryTrackingMap({
 
   // Update repartidor marker when tracking data changes
   useEffect(() => {
-    if (!trackingData || !mapInstanceRef.current) return
+    if (
+      !trackingData ||
+      !mapInstanceRef.current ||
+      isStale ||
+      isTrackingDisabled ||
+      trackingData.estado !== "en_camino"
+    ) {
+      cancelPlayback(true)
+      return
+    }
 
     const lat = trackingData.repartidorLat
     const lng = trackingData.repartidorLng
     if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
 
-    const newPos: [number, number] = [lat, lng]
+    const newPoint: TrackingPlaybackPoint = { lat, lng }
     const repartidorColor = trackingData.negocioColorPrincipal || colorPrincipal
 
     if (repartidorMarkerRef.current) {
-      const currentPos = repartidorMarkerRef.current.getLatLng()
-      if (currentPos.lat !== newPos[0] || currentPos.lng !== newPos[1]) {
-        repartidorMarkerRef.current.setLatLng(newPos)
-      }
+      startPlayback(newPoint, trackingData.version ?? null)
       // Update icon color in case it changed
       repartidorMarkerRef.current.setIcon(createRepartidorIcon(repartidorColor))
     } else {
       const repartidorIcon = createRepartidorIcon(repartidorColor)
-      const repartidorMarker = L.marker(newPos, { icon: repartidorIcon, zIndexOffset: 1000 })
+      const repartidorMarker = L.marker([lat, lng], { icon: repartidorIcon, zIndexOffset: 1000 })
         .addTo(mapInstanceRef.current)
         .bindPopup(
           `<div style="font-size: 13px; font-weight: 600; padding: 2px 4px;">
@@ -674,10 +782,14 @@ export function DeliveryTrackingMap({
           </div>`
         )
       repartidorMarkerRef.current = repartidorMarker
+      renderedPlaybackPointRef.current = newPoint
+      playbackTargetRef.current = newPoint
+      playbackTargetVersionRef.current = trackingData.version ?? null
+      playbackLastAcceptedAtRef.current = null
     }
 
     fitBoundsToMarkers()
-  }, [trackingData, validDestinoLat, validDestinoLng, colorPrincipal, fitBoundsToMarkers])
+  }, [trackingData, colorPrincipal, fitBoundsToMarkers, isStale, isTrackingDisabled, cancelPlayback, startPlayback])
 
   // Prevent body scroll when open
   useEffect(() => {
