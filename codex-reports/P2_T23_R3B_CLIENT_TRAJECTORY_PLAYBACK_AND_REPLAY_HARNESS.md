@@ -1,6 +1,6 @@
 # P2-T23-R3B — Confirmed trajectory client playback + Testing replay harness
 
-Fecha: 2026-09-13  
+Fecha: 2026-09-13
 Alcance: implementación funcional, tests focales, harness local y deploy de Testing.
 
 R3B implementa el playback cliente de lotes de trayectoria confirmados por el
