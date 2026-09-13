@@ -192,31 +192,31 @@ describe("Shared realtime client Tracking consumer contract", () => {
     }
   })
 
-  test("R1 renders confirmed points with one bounded client playback loop", () => {
+  test("R3B consumes confirmed trajectory batches through one bounded playback controller", () => {
     const source = trackingMap()
     expect(source).toContain('from "@/lib/tracking-playback"')
-    expect(source).toContain("playbackRafRef")
-    expect(source).toContain("requestAnimationFrame(tick)")
-    expect(source).toContain("cancelAnimationFrame(playbackRafRef.current)")
-    expect(source).toContain("startPlayback(newPoint, trackingData.version ?? null)")
-    expect(source).toContain("renderedPlaybackPointRef.current")
-    expect(source).toContain("playbackTargetRef.current")
+    expect(source).toContain("createTrackingPlaybackController")
+    expect(source).toContain("playbackControllerRef")
+    expect(source).toContain("trackingData.trajectory")
+    expect(source).toContain("trackingData.trackingSource")
+    expect(source).toContain("startPlayback(")
   })
 
-  test("R1 does not fit camera bounds from the animation frame", () => {
+  test("R3B keeps the marker writer inside the playback controller and never writes top-level E directly", () => {
     const source = trackingMap()
-    const tickStart = source.indexOf("const tick = (timestamp: number) => {")
-    const tickEnd = source.indexOf("playbackRafRef.current = requestAnimationFrame(tick)", tickStart)
-    expect(tickStart).toBeGreaterThan(-1)
-    expect(tickEnd).toBeGreaterThan(tickStart)
-    expect(source.slice(tickStart, tickEnd)).not.toContain("fitBounds")
+    expect(source).toContain("marker: () => repartidorMarkerRef.current")
+    expect(source).not.toContain("repartidorMarkerRef.current.setLatLng([lat, lng])")
+    expect(source).not.toContain("repartidorMarkerRef.current.setLatLng([target.lat, target.lng])")
+    expect(source).not.toContain("requestAnimationFrame(tick)")
   })
 
-  test("R1 preserves confirmed-point-only playback and large-gap snap", () => {
+  test("R3B passes HTTP fallback, stale and completion decisions to the controller", () => {
     const source = trackingMap()
-    expect(source).toContain("shouldSnapForTrackingGap(arrivalGapMs)")
-    expect(source).toContain("interpolateTrackingPoint(currentRendered, target, progress)")
-    expect(source).toContain("repartidorMarkerRef.current.setLatLng([target.lat, target.lng])")
+    expect(source).toContain("trackingSource: \"http\"")
+    expect(source).toContain("cancelForStale()")
+    expect(source).toContain("cancelForCompletion()")
+    expect(source).toContain("seedRenderedPoint")
+    expect(source).toContain("acceptConfirmedEvent")
     expect(source).toContain("trackingData.estado !== \"en_camino\"")
   })
 })

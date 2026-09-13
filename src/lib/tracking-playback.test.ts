@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
   clampPlaybackProgress,
+  createTrackingPlaybackController,
   getTrackingPlaybackDurationMs,
+  getTrackingTrajectorySegmentDurationMs,
   interpolateTrackingPoint,
   sameTrackingPlaybackCoordinate,
   shouldSnapForTrackingGap,
@@ -89,5 +91,159 @@ describe("tracking playback policy", () => {
   test("same-coordinate comparison is exact and deterministic", () => {
     expect(sameTrackingPlaybackCoordinate({ lat: 1, lng: 2 }, { lat: 1, lng: 2 })).toBe(true)
     expect(sameTrackingPlaybackCoordinate({ lat: 1, lng: 2 }, { lat: 1, lng: 2 + 1e-12 })).toBe(false)
+  })
+})
+
+function createRafHarness(initialPoint = { lat: 0, lng: 0 }) {
+  let now = 0
+  let nextId = 0
+  const frames = new Map<number, (timestamp: number) => void>()
+  const writes: Array<[number, number]> = []
+  const marker = {
+    position: { ...initialPoint },
+    setLatLng(position: [number, number]) {
+      this.position = { lat: position[0], lng: position[1] }
+      writes.push(position)
+    },
+    getLatLng() {
+      return this.position
+    },
+  }
+  const controller = createTrackingPlaybackController({
+    marker,
+    now: () => now,
+    requestFrame: (callback) => {
+      const id = ++nextId
+      frames.set(id, callback)
+      return id
+    },
+    cancelFrame: (id) => { frames.delete(id) },
+  })
+  return {
+    marker,
+    controller,
+    writes,
+    frames,
+    step(timestamp: number) {
+      now = timestamp
+      const next = frames.entries().next().value as [number, (timestamp: number) => void] | undefined
+      if (!next) throw new Error("No animation frame scheduled")
+      frames.delete(next[0])
+      next[1](timestamp)
+    },
+  }
+}
+
+const trajectory = [
+  { lat: 0, lng: 0, offsetMs: 0 },
+  { lat: 1, lng: 0, offsetMs: 500 },
+  { lat: 1, lng: 1, offsetMs: 1_300 },
+]
+
+describe("confirmed trajectory playback controller", () => {
+  test("first trajectory snaps to A and never snaps directly to the final point", () => {
+    const harness = createRafHarness()
+    const result = harness.controller.acceptConfirmedEvent({ point: trajectory[2], version: 1, trajectory })
+
+    expect(result).toBe("accepted")
+    expect(harness.marker.position).toEqual({ lat: 0, lng: 0 })
+    expect(harness.writes[0]).toEqual([0, 0])
+    expect(harness.marker.position).not.toEqual({ lat: 1, lng: 1 })
+    expect(harness.controller.snapshot().authoritativePoint).toEqual({ lat: 1, lng: 1 })
+  })
+
+  test("the real marker writer receives an intermediate frame and exact B/C endpoints", () => {
+    const harness = createRafHarness()
+    harness.controller.acceptConfirmedEvent({ point: trajectory[2], version: 1, trajectory })
+
+    harness.step(250)
+    expect(harness.marker.position.lat).toBeGreaterThan(0)
+    expect(harness.marker.position.lat).toBeLessThan(1)
+
+    harness.step(500)
+    expect(harness.marker.position).toEqual({ lat: 1, lng: 0 })
+
+    harness.step(1_250)
+    expect(harness.marker.position).toEqual({ lat: 1, lng: 1 })
+    expect(harness.writes).toContainEqual([1, 0])
+    expect(harness.writes).toContainEqual([1, 1])
+  })
+
+  test("does not write the final point synchronously before trajectory playback", () => {
+    const harness = createRafHarness()
+    harness.controller.acceptConfirmedEvent({ point: trajectory[2], version: 1, trajectory })
+
+    expect(harness.writes).not.toContainEqual([1, 1])
+    expect(harness.frames.size).toBe(1)
+  })
+
+  test("uses relative offsets with defensive 80–750ms segment limits", () => {
+    expect(getTrackingTrajectorySegmentDurationMs(0, 500)).toBe(500)
+    expect(getTrackingTrajectorySegmentDurationMs(500, 1_300)).toBe(750)
+    expect(getTrackingTrajectorySegmentDurationMs(0, 5_000, 2)).toBe(750)
+    expect(getTrackingTrajectorySegmentDurationMs(0, 10)).toBe(80)
+  })
+
+  test("keeps one active batch plus one pending batch and replaces only pending overflow", () => {
+    const harness = createRafHarness()
+    harness.controller.seedRenderedPoint({ lat: 0, lng: 0 }, 0)
+    const batch1 = trajectory
+    const batch2 = [
+      { lat: 1, lng: 0, offsetMs: 0 },
+      { lat: 2, lng: 0, offsetMs: 500 },
+    ]
+    const batch3 = [
+      { lat: 2, lng: 0, offsetMs: 0 },
+      { lat: 3, lng: 0, offsetMs: 500 },
+    ]
+    harness.controller.acceptConfirmedEvent({ point: batch1[2], version: 1, trajectory: batch1 })
+    harness.controller.acceptConfirmedEvent({ point: batch2[1], version: 2, trajectory: batch2 })
+    harness.controller.acceptConfirmedEvent({ point: batch3[1], version: 3, trajectory: batch3 })
+
+    expect(harness.controller.snapshot()).toMatchObject({
+      activeBatchVersion: 1,
+      pendingBatchVersion: 3,
+      rafActive: true,
+    })
+    expect(harness.controller.acceptConfirmedEvent({ point: batch2[1], version: 2, trajectory: batch2 })).toBe("discarded_old_version")
+  })
+
+  test("same-version heartbeats and old trajectories do not restart or roll back visual playback", () => {
+    const harness = createRafHarness({ lat: 1, lng: 1 })
+    harness.controller.seedRenderedPoint({ lat: 1, lng: 1 }, 8)
+    expect(harness.controller.acceptConfirmedEvent({ point: { lat: 1, lng: 1 }, version: 8 })).toBe("duplicate")
+    expect(harness.controller.acceptConfirmedEvent({ point: trajectory[2], version: 7, trajectory })).toBe("discarded_old_version")
+    expect(harness.frames.size).toBe(0)
+    expect(harness.writes).toHaveLength(0)
+  })
+
+  test("stale cancels active and pending batches, then recovery snaps to the fresh last point", () => {
+    const harness = createRafHarness()
+    harness.controller.seedRenderedPoint({ lat: 0, lng: 0 }, 1)
+    harness.controller.acceptConfirmedEvent({ point: trajectory[2], version: 2, trajectory })
+    harness.controller.cancelForStale()
+    expect(harness.controller.snapshot()).toMatchObject({
+      activeBatchVersion: null,
+      pendingBatchVersion: null,
+      rafActive: false,
+      needsRecoverySnap: true,
+    })
+    const fresh = [
+      { lat: 5, lng: 5, offsetMs: 0 },
+      { lat: 6, lng: 6, offsetMs: 400 },
+    ]
+    expect(harness.controller.acceptConfirmedEvent({ point: fresh[1], version: 3, trajectory: fresh })).toBe("recovery_snapped")
+    expect(harness.marker.position).toEqual({ lat: 6, lng: 6 })
+    expect(harness.frames.size).toBe(0)
+  })
+
+  test("HTTP fallback snaps to the latest point and completion prevents later movement", () => {
+    const harness = createRafHarness({ lat: 0, lng: 0 })
+    harness.controller.seedRenderedPoint({ lat: 0, lng: 0 }, 1)
+    expect(harness.controller.acceptConfirmedEvent({ point: { lat: 9, lng: 9 }, version: 2, source: "http" })).toBe("accepted")
+    expect(harness.marker.position).toEqual({ lat: 9, lng: 9 })
+    harness.controller.cancelForCompletion()
+    expect(harness.controller.acceptConfirmedEvent({ point: { lat: 10, lng: 10 }, version: 3, trajectory })).toBe("ignored_invalid")
+    expect(harness.marker.position).toEqual({ lat: 9, lng: 9 })
   })
 })
