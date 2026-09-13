@@ -11,10 +11,9 @@ import { evaluateMapMatching } from "@/lib/map-matching-policy"
 import type { RawMatchingPoint } from "@/lib/map-matching-provider"
 
 const SYNTHETIC_TRACE: RawMatchingPoint[] = [
-  { lat: 52.517034, lng: 13.38882, offsetMs: 0, accuracy: 10 },
-  { lat: 52.519459, lng: 13.403917, offsetMs: 1_000, accuracy: 10 },
-  { lat: 52.52694, lng: 13.415833, offsetMs: 2_000, accuracy: 10 },
-  { lat: 52.5271, lng: 13.427123, offsetMs: 3_000, accuracy: 10 },
+  { lat: 52.517034, lng: 13.38882, offsetMs: 0, accuracy: 5 },
+  { lat: 52.52694, lng: 13.415833, offsetMs: 2_000, accuracy: 5 },
+  { lat: 52.523239, lng: 13.428554, offsetMs: 4_000, accuracy: 5 },
 ]
 
 const DEFAULT_TIMEOUT_MS = 250
