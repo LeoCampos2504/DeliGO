@@ -7,12 +7,14 @@
  */
 
 import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
+import { evaluateMapMatching } from "@/lib/map-matching-policy"
 import type { RawMatchingPoint } from "@/lib/map-matching-provider"
 
 const SYNTHETIC_TRACE: RawMatchingPoint[] = [
-  { lat: 52.517037, lng: 13.38886, offsetMs: 0, accuracy: 25 },
-  { lat: 52.529407, lng: 13.397634, offsetMs: 1_000, accuracy: 25 },
-  { lat: 52.523219, lng: 13.428555, offsetMs: 2_000, accuracy: 25 },
+  { lat: 52.517034, lng: 13.38882, offsetMs: 0, accuracy: 10 },
+  { lat: 52.519459, lng: 13.403917, offsetMs: 1_000, accuracy: 10 },
+  { lat: 52.52694, lng: 13.415833, offsetMs: 2_000, accuracy: 10 },
+  { lat: 52.5271, lng: 13.427123, offsetMs: 3_000, accuracy: 10 },
 ]
 
 const DEFAULT_TIMEOUT_MS = 250
@@ -88,6 +90,17 @@ async function main(): Promise<void> {
     console.log("OSRM_MATCH_RADIUSES=FAIL")
     console.log("OSRM_MATCH_FAILURE_REASON=" + (result.status === "error" || result.status === "rejected" ? result.reason : "timeout"))
   }
+  const policy = evaluateMapMatching(SYNTHETIC_TRACE, result)
+  console.log("PROBE_CURRENT_POLICY_STAGE=ADAPTER_PARSER_GEOMETRY_AND_EVALUATE_MAP_MATCHING")
+  console.log("POLICY_DECISION=" + policy.decision)
+  if (policy.decision === "REJECT_MATCH") console.log("POLICY_REJECTION_REASON=" + policy.reason)
+  const guardStatus = (reasons: string[]): string =>
+    policy.decision === "ACCEPT_MATCH" ? "PASS" : policy.decision === "REJECT_MATCH" && reasons.includes(policy.reason) ? "FAIL" : "NOT_EVALUATED"
+  console.log("SNAP_DISTANCE_GUARDS=" + guardStatus(["snap_distance_exceeded", "snap_distance_count_mismatch"]))
+  console.log("TRACEPOINT_GUARDS=" + guardStatus(["tracepoint_count_mismatch", "null_tracepoint", "raw_point_count_mismatch"]))
+  console.log("CONFIDENCE_GUARD=" + guardStatus(["low_confidence"]))
+  console.log("ALTERNATIVES_GUARD=" + guardStatus(["ambiguous_tracepoints"]))
+  console.log("SINGLE_SUBTRACE_GUARD=" + guardStatus(["multiple_or_missing_matchings"]))
   console.log("OSRM_MATCH_NOMATCH_BEHAVIOR=NOT_RUN_RUNTIME_SAFE")
   console.log("PROBE_NOTE=NoMatch and timeout/abort failure paths are covered by deterministic unit tests; no unsuitable public request is sent.")
 }
