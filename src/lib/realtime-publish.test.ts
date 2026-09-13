@@ -32,12 +32,93 @@ function event(eventId = "event-a"): RealtimePublishEvent {
   }
 }
 
+function trackingEvent(eventId = "tracking-event"): Extract<RealtimePublishEvent, { type: "tracking.location.updated" }> {
+  return {
+    version: 1,
+    type: "tracking.location.updated",
+    eventId,
+    resourceId: "pedido-a",
+    occurredAt: new Date().toISOString(),
+    payload: {
+      pedidoId: "pedido-a",
+      lat: -34.5999,
+      lng: -58.4,
+      timestamp: new Date().toISOString(),
+      version: 7,
+    },
+  }
+}
+
 beforeEach(() => {
   process.env.REALTIME_INTERNAL_SERVICE_URL = "http://internal-chat.test/base/"
   process.env.REALTIME_INTERNAL_PUBLISH_SECRET = secret
 })
 
 describe("server-only realtime publish helper", () => {
+  test("transports an optional matched trajectory without altering RAW fields or version", async () => {
+    const matchedTrajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0 },
+      { lat: -34.59995, lng: -58.4, offsetMs: 500 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000 },
+    ]
+    let sentBody = ""
+    const event = trackingEvent("matched-event")
+    event.payload.matchedTrajectory = matchedTrajectory
+    const result = await publishRealtimeEvent(event, {
+      fetchImpl: async (_url, init = {}) => {
+        sentBody = String(init.body)
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      },
+    })
+    expect(result.status).toBe("success")
+    const sent = JSON.parse(sentBody)
+    expect(sent.payload.matchedTrajectory).toEqual(matchedTrajectory)
+    expect(sent.payload.lat).toBe(event.payload.lat)
+    expect(sent.payload.lng).toBe(event.payload.lng)
+    expect(sent.payload.version).toBe(7)
+  })
+
+  test("accepts a one-point matched trajectory and equal offsets", async () => {
+    const event = trackingEvent("matched-equal-offset-event")
+    event.payload.matchedTrajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 0 },
+    ]
+    const result = await publishRealtimeEvent(event, { fetchImpl: async () => new Response("{}", { status: 200 }) })
+    expect(result.status).toBe("success")
+  })
+
+  test("accepts the minimum one-point matched trajectory", async () => {
+    const event = trackingEvent("matched-one-point-event")
+    event.payload.matchedTrajectory = [{ lat: -34.6, lng: -58.4, offsetMs: 0 }]
+    const result = await publishRealtimeEvent(event, { fetchImpl: async () => new Response("{}", { status: 200 }) })
+    expect(result.status).toBe("success")
+  })
+
+  test("rejects malformed matched trajectories before network I/O", async () => {
+    for (const matchedTrajectory of [
+      [],
+      [{ lat: Number.NaN, lng: -58.4, offsetMs: 0 }],
+      [{ lat: -34.6, lng: -181, offsetMs: 0 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: -1 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: 2 }, { lat: -34.6, lng: -58.4, offsetMs: 1 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: 0, provider: "osrm" }],
+    ]) {
+      const event = trackingEvent("invalid-matched-event")
+      event.payload.matchedTrajectory = matchedTrajectory as never
+      const result = await publishRealtimeEvent(event, { fetchImpl: async () => { throw new Error("must not send") } })
+      expect(result).toMatchObject({ status: "invalid", reason: "matched_trajectory_invalid" })
+    }
+  })
+
+  test("rejects a matched envelope over 16 KiB before network I/O", async () => {
+    const event = trackingEvent("oversized-matched-event")
+    event.traceId = "x".repeat(20_000)
+    event.payload.matchedTrajectory = [{ lat: -34.6, lng: -58.4, offsetMs: 0 }]
+    const result = await publishRealtimeEvent(event, { fetchImpl: async () => { throw new Error("must not send") } })
+    expect(result).toEqual({ status: "invalid", eventId: event.eventId, reason: "matched_payload_too_large" })
+  })
+
   test("serializes the optional tracking trajectory without changing the legacy envelope", async () => {
     const trajectory = [
       { lat: -34.6, lng: -58.4, offsetMs: 0 },

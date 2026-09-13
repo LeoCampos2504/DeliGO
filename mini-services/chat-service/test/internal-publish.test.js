@@ -352,12 +352,52 @@ describe("internal publish auth and schema", () => {
           { lat: -34.6037, lng: -58.3816, offsetMs: 0 },
           { lat: -34.6038, lng: -58.3817, offsetMs: 1000 },
         ],
+        matchedTrajectory: [
+          { lat: -34.60371, lng: -58.38161, offsetMs: 0 },
+          { lat: -34.60379, lng: -58.38169, offsetMs: 1000 },
+        ],
       },
     }
     assert.equal(parseAndValidateEnvelope(JSON.stringify(readEnvelope)).type, "chat.messages.read")
     const parsedTracking = parseAndValidateEnvelope(JSON.stringify(trackingEnvelope))
     assert.equal(parsedTracking.type, "tracking.location.updated")
     assert.deepEqual(parsedTracking.payload.trajectory, trackingEnvelope.payload.trajectory)
+    assert.deepEqual(parsedTracking.payload.matchedTrajectory, trackingEnvelope.payload.matchedTrajectory)
+    const maxMatchedEnvelope = {
+      ...trackingEnvelope,
+      eventId: "matched-max-points-event",
+      payload: {
+        ...trackingEnvelope.payload,
+        matchedTrajectory: Array.from({ length: 48 }, (_, index) => ({
+          lat: -34.6037 + index / 1_000_000,
+          lng: -58.3816 + index / 1_000_000,
+          offsetMs: index * 100,
+        })),
+      },
+    }
+    assert.equal(parseAndValidateEnvelope(JSON.stringify(maxMatchedEnvelope)).payload.matchedTrajectory.length, 48)
+
+    for (const matchedTrajectory of [
+      [],
+      Array.from({ length: 49 }, (_, index) => ({ lat: -34.6, lng: -58.4, offsetMs: index })),
+      [{ lat: Number.NaN, lng: -58.4, offsetMs: 0 }],
+      [{ lat: 91, lng: -58.4, offsetMs: 0 }],
+      [{ lat: -34.6, lng: -181, offsetMs: 0 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: -1 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: 2 }, { lat: -34.6, lng: -58.4, offsetMs: 1 }],
+      [{ lat: "-34.6", lng: -58.4, offsetMs: 0 }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: Infinity }],
+      [{ lat: -34.6, lng: -58.4, offsetMs: 0, confidence: 0.99 }],
+    ]) {
+      assert.throws(
+        () => parseAndValidateEnvelope(JSON.stringify({
+          ...trackingEnvelope,
+          eventId: "invalid-matched-" + Math.random().toString(36).slice(2),
+          payload: { ...trackingEnvelope.payload, matchedTrajectory },
+        })),
+        /SCHEMA_(INVALID_PAYLOAD|UNKNOWN_FIELD)/
+      )
+    }
 
     assert.throws(
       () => parseAndValidateEnvelope(JSON.stringify({ ...envelope, type: "arbitrary.broadcast" })),
@@ -1143,11 +1183,18 @@ describe("internal publish recipient scope filtering", () => {
       { lat: -34.6037, lng: -58.3816, offsetMs: 0 },
       { lat: -34.6038, lng: -58.3817, offsetMs: 1000 },
     ]
+    envelope.payload.matchedTrajectory = [
+      { lat: -34.60371, lng: -58.38161, offsetMs: 0 },
+      { lat: -34.60379, lng: -58.38169, offsetMs: 1000 },
+    ]
+    envelope.payload.version = 7
 
     const response = await publish(envelope)
     assert.equal(response.status, 200)
     const message = await received
     assert.deepEqual(message.trajectory, envelope.payload.trajectory)
+    assert.deepEqual(message.matchedTrajectory, envelope.payload.matchedTrajectory)
+    assert.equal(message.version, 7)
     socket.disconnect()
   })
 

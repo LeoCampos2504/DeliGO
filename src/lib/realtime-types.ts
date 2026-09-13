@@ -71,6 +71,39 @@ export interface RealtimeUnreadUpdatePayload {
   count: number
 }
 
+export interface RealtimeMatchedTrajectoryPoint {
+  lat: number
+  lng: number
+  offsetMs: number
+}
+
+export const MAX_MATCHED_VISUAL_POINTS_PER_BATCH = 48
+export const MAX_MATCHED_REALTIME_PAYLOAD_BYTES = 16_384
+
+export function isValidRealtimeMatchedTrajectory(value: unknown): value is RealtimeMatchedTrajectoryPoint[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_MATCHED_VISUAL_POINTS_PER_BATCH) return false
+  let previousOffset = -1
+  for (const point of value) {
+    if (
+      !point || typeof point !== "object" || Array.isArray(point) ||
+      Object.keys(point).some((key) => !["lat", "lng", "offsetMs"].includes(key))
+    ) return false
+    const candidate = point as { lat?: unknown; lng?: unknown; offsetMs?: unknown }
+    if (
+      typeof candidate.lat !== "number" || !Number.isFinite(candidate.lat) || candidate.lat < -90 || candidate.lat > 90 ||
+      typeof candidate.lng !== "number" || !Number.isFinite(candidate.lng) || candidate.lng < -180 || candidate.lng > 180 ||
+      typeof candidate.offsetMs !== "number" || !Number.isFinite(candidate.offsetMs) || candidate.offsetMs < 0 ||
+      candidate.offsetMs < previousOffset
+    ) return false
+    previousOffset = candidate.offsetMs
+  }
+  return true
+}
+
+export function serializedRealtimeEventBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength
+}
+
 export interface RealtimeLocationPayload {
   pedidoId: string
   lat: number
@@ -78,6 +111,7 @@ export interface RealtimeLocationPayload {
   timestamp: string
   version?: number | string
   trajectory?: TrackingTrajectoryWirePoint[]
+  matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
 }
 
 export interface RealtimeTrackingLocationInput {
