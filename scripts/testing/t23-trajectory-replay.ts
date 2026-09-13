@@ -9,7 +9,7 @@
 
 import { randomUUID } from "node:crypto"
 
-type Scenario = "smooth-route" | "curve" | "stationary" | "stale" | "complete"
+export type Scenario = "smooth-route" | "curve" | "stationary" | "stale" | "complete" | "route-to-destination"
 
 interface Fixture {
   negocioId: string
@@ -27,7 +27,59 @@ interface ReplayPoint {
 
 const PREFIX = "TEST_T23_"
 const DEFAULT_BASE_URL = process.env.T23_TESTING_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || ""
-const scenarioNames: Scenario[] = ["smooth-route", "curve", "stationary", "stale", "complete"]
+const scenarioNames: Scenario[] = ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination"]
+
+export const ROUTE_TO_DESTINATION_BATCH_SIZE = 4
+export const ROUTE_TO_DESTINATION_BATCH_INTERVAL_MS = 4_000
+export const ROUTE_TO_DESTINATION_DESTINATION: ReplayPoint = { lat: -34.6022, lng: -58.3795 }
+export const ROUTE_TO_DESTINATION_TURNS = [
+  { pointIndex: 6, label: "Avenida Corrientes -> Suipacha" },
+  { pointIndex: 12, label: "Suipacha -> Tucuman" },
+  { pointIndex: 18, label: "Tucuman -> Avenida 9 de Julio" },
+  { pointIndex: 25, label: "Avenida 9 de Julio -> Avenida Corrientes" },
+  { pointIndex: 31, label: "Avenida Corrientes -> Suipacha" },
+] as const
+
+// Frozen OSRM geometry sampled to 36 points for deterministic, street-shaped
+// Testing replay. The harness never calls OSRM at runtime.
+const routeToDestination: ReplayPoint[] = [
+  { lat: -34.603592, lng: -58.381612 },
+  { lat: -34.6036245782379, lng: -58.38120139395737 },
+  { lat: -34.603642361368266, lng: -58.38079252458506 },
+  { lat: -34.60361980462608, lng: -58.38037907047051 },
+  { lat: -34.603485687625536, lng: -58.380115747317255 },
+  { lat: -34.603593685038035, lng: -58.37984577819097 },
+  { lat: -34.60353788748676, lng: -58.37947832963488 },
+  { lat: -34.60319737879905, lng: -58.37950249233039 },
+  { lat: -34.60285673477496, lng: -58.37952413160241 },
+  { lat: -34.60251609075087, lng: -58.37954577087443 },
+  { lat: -34.60217526535804, lng: -58.379562513583636 },
+  { lat: -34.60183439722211, lng: -58.37957809612699 },
+  { lat: -34.601493590801326, lng: -58.379595139041434 },
+  { lat: -34.60128977895598, lng: -58.37975994569302 },
+  { lat: -34.601310281829555, lng: -58.38017360502066 },
+  { lat: -34.60133078470313, lng: -58.3805872643483 },
+  { lat: -34.601351287576705, lng: -58.381000923675934 },
+  { lat: -34.60136679322513, lng: -58.38141489074242 },
+  { lat: -34.60138430170247, lng: -58.381828743696616 },
+  { lat: -34.60161039233753, lng: -58.381963723685786 },
+  { lat: -34.60195120312981, lng: -58.38194638844711 },
+  { lat: -34.60229201392208, lng: -58.38192905320844 },
+  { lat: -34.602632854503646, lng: -58.381912644489205 },
+  { lat: -34.602973382090006, lng: -58.38191729706164 },
+  { lat: -34.60331283029213, lng: -58.381949533668966 },
+  { lat: -34.603647437528025, lng: -58.381930596451106 },
+  { lat: -34.60359, lng: -58.38152480238856 },
+  { lat: -34.60364321520434, lng: -58.381117139182635 },
+  { lat: -34.603638393105896, lng: -58.38070540318842 },
+  { lat: -34.60361804142036, lng: -58.380291730902364 },
+  { lat: -34.6035954707927, lng: -58.379878219400645 },
+  { lat: -34.60356456836674, lng: -58.37947579955143 },
+  { lat: -34.60322410077681, lng: -58.37950071204943 },
+  { lat: -34.60288345157033, lng: -58.37952223057532 },
+  { lat: -34.60254280236384, lng: -58.37954374910122 },
+  ROUTE_TO_DESTINATION_DESTINATION,
+]
 
 function hasFlag(name: string): boolean {
   return process.argv.includes(name)
@@ -83,6 +135,7 @@ function printUsage(): void {
     "  bun run scripts/testing/t23-trajectory-replay.ts --dry-run --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --prepare --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --scenario smooth-route --confirm-testing",
+    "  bun run scripts/testing/t23-trajectory-replay.ts --scenario route-to-destination --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --cleanup --confirm-testing",
     "",
     "Required environment: DELIGO_ENVIRONMENT=TESTING, T23_TESTING_BASE_URL,",
@@ -91,7 +144,7 @@ function printUsage(): void {
   ].join("\n"))
 }
 
-function routeFor(scenario: Scenario): ReplayPoint[] {
+export function routeFor(scenario: Scenario): ReplayPoint[] {
   const straight: ReplayPoint[] = [
     { lat: -34.60370, lng: -58.38160 },
     { lat: -34.60358, lng: -58.38160 },
@@ -120,15 +173,36 @@ function routeFor(scenario: Scenario): ReplayPoint[] {
       { lat: -34.60336, lng: -58.38030 },
     ]
   }
+  if (scenario === "route-to-destination") return routeToDestination
   return straight
 }
 
-function buildBatches(points: ReplayPoint[]): ReplayPoint[][] {
+export function buildBatches(points: ReplayPoint[], batchSize = 4): ReplayPoint[][] {
   const batches: ReplayPoint[][] = []
-  for (let index = 0; index < points.length; index += 4) {
-    batches.push(points.slice(index, index + 4))
+  for (let index = 0; index < points.length; index += batchSize) {
+    batches.push(points.slice(index, index + batchSize))
   }
   return batches
+}
+
+export function haversineDistanceMeters(a: ReplayPoint, b: ReplayPoint): number {
+  const earthRadiusMeters = 6_371_000
+  const lat1 = a.lat * Math.PI / 180
+  const lat2 = b.lat * Math.PI / 180
+  const deltaLat = (b.lat - a.lat) * Math.PI / 180
+  const deltaLng = (b.lng - a.lng) * Math.PI / 180
+  const sinLat = Math.sin(deltaLat / 2)
+  const sinLng = Math.sin(deltaLng / 2)
+  const value = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+
+export function batchDistanceMeters(batch: ReplayPoint[]): number {
+  return batch.slice(1).reduce((distance, point, index) => distance + haversineDistanceMeters(batch[index], point), 0)
+}
+
+function routeDistanceMeters(points: ReplayPoint[]): number {
+  return points.slice(1).reduce((distance, point, index) => distance + haversineDistanceMeters(points[index], point), 0)
 }
 
 function withTrailingSlashRemoved(url: URL): string {
@@ -287,11 +361,19 @@ async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario
     return
   }
 
-  const batches = buildBatches(routeFor(scenario))
+  const route = routeFor(scenario)
+  if (scenario === "route-to-destination") {
+    await postLocation(baseUrl, fixture, route[0], undefined, 0)
+    console.log("RESET_TO_ROUTE_START=PASS")
+  }
+  const batches = buildBatches(route, scenario === "route-to-destination" ? ROUTE_TO_DESTINATION_BATCH_SIZE : 4)
   for (let index = 0; index < batches.length; index += 1) {
     const batch = batches[index]
     await postLocation(baseUrl, fixture, batch[batch.length - 1], batch, index + 1)
-    if (index < batches.length - 1) await new Promise((resolve) => setTimeout(resolve, 1_000))
+    if (index < batches.length - 1) {
+      const interval = scenario === "route-to-destination" ? ROUTE_TO_DESTINATION_BATCH_INTERVAL_MS : 1_000
+      await new Promise((resolve) => setTimeout(resolve, interval))
+    }
   }
 
   if (scenario === "complete") {
@@ -353,6 +435,24 @@ async function main(): Promise<void> {
     console.log(`TESTING_BASE_URL=${baseUrl}`)
     console.log(`SCENARIO=${scenario}`)
     console.log(`ROUTE_POINTS=${routeFor(scenario).length}`)
+    if (scenario === "route-to-destination") {
+      const route = routeFor(scenario)
+      const batches = buildBatches(route, ROUTE_TO_DESTINATION_BATCH_SIZE)
+      console.log("HARNESS_ROUTE_SOURCE=OSRM_ROUTE_GEOMETRY")
+      console.log(`ROUTE_DISTANCE_M=${Math.round(routeDistanceMeters(route))}`)
+      console.log(`TOTAL_BATCHES=${batches.length}`)
+      console.log(`NUMBER_OF_CLEAR_TURNS=${ROUTE_TO_DESTINATION_TURNS.length}`)
+      console.log(`TURN_INDICES=${ROUTE_TO_DESTINATION_TURNS.map((turn) => turn.pointIndex).join(",")}`)
+      console.log(`ROUTE_START=(${route[0].lat},${route[0].lng})`)
+      console.log(`ROUTE_END=(${route.at(-1)!.lat},${route.at(-1)!.lng})`)
+      console.log(`FINAL_POINT_DISTANCE_TO_DESTINATION_M=${Math.round(haversineDistanceMeters(route.at(-1)!, ROUTE_TO_DESTINATION_DESTINATION))}`)
+      console.log(`MAX_BATCH_POINTS=${Math.max(...batches.map((batch) => batch.length))}`)
+      console.log(`MAX_BATCH_DISTANCE_M=${Math.ceil(Math.max(...batches.map(batchDistanceMeters)))}`)
+      console.log("MAX_BATCH_DURATION_MS=1350")
+      console.log(`ESTIMATED_REPLAY_DURATION_SECONDS=${((batches.length - 1) * ROUTE_TO_DESTINATION_BATCH_INTERVAL_MS + 4_000) / 1_000}`)
+      console.log("ROUTE_TO_DESTINATION_READY=SI")
+      console.log("ROUTE_TO_DESTINATION_EXECUTED=NO")
+    }
     console.log("HARNESS_TRACKING_REPLAY_USES_REAL_POST_ENDPOINT=SI")
     return
   }
@@ -380,7 +480,9 @@ async function main(): Promise<void> {
   await runScenario(baseUrl, fixture, scenario)
 }
 
-await main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+if (import.meta.main) {
+  await main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error)
+    process.exit(1)
+  })
+}
