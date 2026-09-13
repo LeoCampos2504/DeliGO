@@ -44,6 +44,22 @@ describe("P2-T23-R3B Testing trajectory replay harness contract", () => {
     expect(harness).toContain("RECOVERY_POST_COUNT=1")
   })
 
+  test("keeps completion on the real client-then-driver endpoint sequence", () => {
+    const trajectoryIndex = harness.indexOf("const batches = buildBatches(route")
+    const confirmIndex = harness.indexOf('action: "confirmar"')
+    const deliverIndex = harness.indexOf("/api/repartidor/pedidos/${fixture.pedidoId}/entregar")
+
+    expect(trajectoryIndex).toBeGreaterThanOrEqual(0)
+    expect(confirmIndex).toBeGreaterThan(trajectoryIndex)
+    expect(deliverIndex).toBeGreaterThan(confirmIndex)
+    expect(harness).toContain("Cookie: `deligo_session=${fixture.clienteSession}`")
+    expect(harness).toContain("Cookie: `deligo_session=${fixture.repartidorSession}`")
+    expect(harness).toContain("Origin: baseUrl")
+    expect(harness).toContain('if (!clientConfirmation.ok) fail')
+    expect(harness).toContain('if (!delivered.ok) fail')
+    expect(harness).toContain('if (scenario === "complete")')
+  })
+
   test("prepares a deterministic multi-turn route ending at the real destination", () => {
     const route = routeFor("route-to-destination")
     const batches = buildBatches(route, ROUTE_TO_DESTINATION_BATCH_SIZE)

@@ -464,6 +464,7 @@ async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        Origin: baseUrl,
         Cookie: `deligo_session=${fixture.clienteSession}`,
       },
       body: JSON.stringify({ action: "confirmar" }),
@@ -471,7 +472,7 @@ async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario
     if (!clientConfirmation.ok) fail(`client confirmation failed with HTTP ${clientConfirmation.status}`)
     const delivered = await fetch(`${baseUrl}/api/repartidor/pedidos/${fixture.pedidoId}/entregar`, {
       method: "PUT",
-      headers: { Cookie: `deligo_session=${fixture.repartidorSession}` },
+      headers: { Origin: baseUrl, Cookie: `deligo_session=${fixture.repartidorSession}` },
     })
     if (!delivered.ok) fail(`completion failed with HTTP ${delivered.status}`)
     console.log("COMPLETION_ENDPOINT=PASS")
