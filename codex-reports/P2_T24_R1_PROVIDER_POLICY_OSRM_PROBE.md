@@ -34,6 +34,17 @@ Se agregaron exclusivamente los artefactos de la base R1:
 No se modificaron los archivos de ruta de tracking, productor, realtime,
 bridge, Cliente, playback T23, Prisma, schema o migraciones.
 
+Archivos operativos confirmados sin cambios:
+
+```text
+src/app/api/repartidor/ubicacion/route.ts = unchanged
+use-repartidor-tracking.ts = unchanged
+realtime = unchanged
+bridge = unchanged
+Cliente = unchanged
+Prisma/schema = unchanged
+```
+
 ## Contrato y policy
 
 El provider recibe sólo `lat`, `lng`, `offsetMs` y `accuracy?`; no recibe IDs
@@ -118,7 +129,7 @@ OSRM_MATCH_RESULT_STATUS=timeout
 OSRM_MATCH_VALID_TRACE=FAIL
 OSRM_MATCH_RADIUSES=FAIL
 OSRM_MATCH_FAILURE_REASON=timeout
-OSRM_MATCH_NOMATCH_BEHAVIOR=NOT_RUN_RUNTIME_SAFE
+OSRM_MATCH_NOMATCH_RUNTIME_PROBE=NOT_RUN
 ```
 
 Los casos NoMatch, timeout/abort y errores de red se validan de forma
@@ -126,12 +137,17 @@ determinista con mock fetch en tests; no se envió una solicitud pública
 deliberadamente inadecuada. La disponibilidad real de OSRM Match dentro de
 Testing queda `UNKNOWN`. La observación local de 271 ms hace que el límite de
 250 ms sea `TOO_AGGRESSIVE` como gate inicial; R3 debe medir desde el runtime
-Testing antes de elegir un timeout operativo.
+Testing antes de elegir un timeout operativo. No se modifica todavía el
+timeout y el valor final queda pendiente de esa medición.
+
+El probe runtime no bloquea R2, que sólo prepara contrato realtime/bridge. R3
+queda bloqueado hasta validar desde Testing runtime disponibilidad de `/match`,
+latencia, timeout operativo, radiuses y respuesta válida.
 
 ## Estado final
 
 ```text
-P2_T24_R1_STATUS=IMPLEMENTED_READY_FOR_R2
+P2_T24_R1_STATUS=CLOSED_TESTING_FOUNDATION_READY_FOR_R2
 R1_PROVIDER_ABSTRACTION_IMPLEMENTED=SI
 R1_PURE_POLICY_IMPLEMENTED=SI
 R1_OSRM_ADAPTER_IMPLEMENTED=SI
@@ -155,16 +171,22 @@ PROBE_PII_SENT=NO
 PUBLIC_PROVIDER_PROBE_IN_NORMAL_CI=NO
 OSRM_MATCH_VALID_TRACE=FAIL
 OSRM_MATCH_RADIUSES=FAIL
-OSRM_MATCH_NOMATCH_BEHAVIOR=PASS
+OSRM_MATCH_NOMATCH_AUTOMATED_TEST=PASS
+OSRM_MATCH_NOMATCH_RUNTIME_PROBE=NOT_RUN
 OBSERVED_MATCH_LATENCY_MS=271
+PROBE_TIMEOUT_MS=250
 MATCHING_TIMEOUT_250MS_ASSESSMENT=TOO_AGGRESSIVE
+R3_PROVIDER_RUNTIME_GATE=BLOCKED_PENDING_TESTING_RUNTIME_PROBE
+R3_MATCHING_TIMEOUT_FINAL=PENDING_TESTING_RUNTIME_MEASUREMENT
 MATCHED_OFFSET_MAPPING_TESTS=PASS
 POLICY_TESTS=PASS
 T23_REGRESSION=PASS
-PRODUCT_FILES_CHANGED=0
+R1_FOUNDATION_SOURCE_FILES_CHANGED=SI
+R1_LIVE_TRACKING_INTEGRATION_FILES_CHANGED=0
+R1_RUNTIME_PRODUCT_BEHAVIOR_CHANGED=NO
 T24_SCHEMA_CHANGE_REQUIRED=NO
 T24_MIGRATION_REQUIRED=NO
 PRODUCTION_TOUCHED=NO
 P2_T24_READY_FOR_R2=SI
-NEXT_ACTION=REVIEW_R1_AND_DESIGN_R2_BRIDGE_CONTRACT_WITHOUT_PRODUCTION_OR_CLIENT_INTEGRATION
+NEXT_ACTION=P2_T24_R2_REALTIME_CONTRACT_AND_BRIDGE
 ```
