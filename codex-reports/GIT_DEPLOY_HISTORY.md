@@ -3,9 +3,11 @@
 ## P2-T02-R6 — final physical evidence reconciliation + closeout (2026-09-13)
 
 ```text
-GIT_ACTION=1 commit documental + 1 push a origin/testing-codex
+GIT_ACTION=2 commits documentales + 2 pushes a origin/testing-codex
 BASELINE_HEAD=38eb7d4d8af1ec5dd8f0a7b0f1c73f52c9e01677
 ORIGIN_TESTING_BEFORE=38eb7d4d8af1ec5dd8f0a7b0f1c73f52c9e01677
+P2_T02_R6_CLOSEOUT_COMMIT=f5e5afcce0f4f2a28725a8b0386d0c584c9e987b
+P2_T02_R6_BOOKKEEPING_COMMIT=THIS_FINAL_DOCUMENTATION_COMMIT
 ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
 FILESET=8 archivos documentales (1 reporte nuevo + 7 autoridades)
 PRODUCT_FILES_CHANGED=0
