@@ -25,6 +25,11 @@ interface ReplayPoint {
   lng: number
 }
 
+interface CurrentTrackingPoint {
+  point: ReplayPoint
+  version: number | null
+}
+
 const PREFIX = "TEST_T23_"
 const DEFAULT_BASE_URL = process.env.T23_TESTING_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || ""
 const scenarioNames: Scenario[] = ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination"]
@@ -201,6 +206,10 @@ export function batchDistanceMeters(batch: ReplayPoint[]): number {
   return batch.slice(1).reduce((distance, point, index) => distance + haversineDistanceMeters(batch[index], point), 0)
 }
 
+export function buildLegacyHeartbeatPayload(pedidoId: string, currentPoint: ReplayPoint): { pedidoId: string; lat: number; lng: number } {
+  return { pedidoId, lat: currentPoint.lat, lng: currentPoint.lng }
+}
+
 function routeDistanceMeters(points: ReplayPoint[]): number {
   return points.slice(1).reduce((distance, point, index) => distance + haversineDistanceMeters(points[index], point), 0)
 }
@@ -318,12 +327,9 @@ function fixtureFromEnvironment(): Fixture {
 
 async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoint, trajectory?: ReplayPoint[], batchNumber = 0): Promise<void> {
   const wireTrajectory = trajectory?.map((item, index) => ({ lat: item.lat, lng: item.lng, offsetMs: index * 450 }))
-  const body = {
-    pedidoId: fixture.pedidoId,
-    lat: point.lat,
-    lng: point.lng,
-    ...(wireTrajectory ? { trajectory: wireTrajectory } : {}),
-  }
+  const body = wireTrajectory
+    ? { pedidoId: fixture.pedidoId, lat: point.lat, lng: point.lng, trajectory: wireTrajectory }
+    : buildLegacyHeartbeatPayload(fixture.pedidoId, point)
   const sendTime = new Date().toISOString()
   const response = await fetch(`${baseUrl}/api/repartidor/ubicacion`, {
     method: "POST",
@@ -346,6 +352,22 @@ async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoin
   if (!response.ok) fail(`tracking POST failed with HTTP ${response.status}`)
 }
 
+async function fetchCurrentTrackingPoint(baseUrl: string, fixture: Fixture): Promise<CurrentTrackingPoint> {
+  const response = await fetch(`${baseUrl}/api/pedidos/${fixture.pedidoId}/tracking`, {
+    headers: { Cookie: `deligo_session=${fixture.clienteSession}` },
+  })
+  const responseText = await response.text()
+  let parsed: Record<string, unknown> = {}
+  try { parsed = JSON.parse(responseText) as Record<string, unknown> } catch { /* preserve raw status only */ }
+  const lat = parsed.repartidorLat
+  const lng = parsed.repartidorLng
+  if (!response.ok || parsed.trackable !== true || typeof lat !== "number" || typeof lng !== "number") {
+    fail(`tracking GET failed with HTTP ${response.status}`)
+  }
+  const version = typeof parsed.version === "number" ? parsed.version : null
+  return { point: { lat, lng }, version }
+}
+
 async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario): Promise<void> {
   if (scenario === "stale") {
     console.log("SCENARIO=stale");
@@ -354,8 +376,16 @@ async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario
     return
   }
   if (scenario === "stationary") {
-    const point = routeFor("stationary")[0]
-    await postLocation(baseUrl, fixture, point, undefined, 1)
+    const before = await fetchCurrentTrackingPoint(baseUrl, fixture)
+    console.log(`POINT_BEFORE_STATIONARY=(${before.point.lat},${before.point.lng})`)
+    console.log(`LAST_VERSION_BEFORE_STATIONARY=${before.version ?? "UNKNOWN"}`)
+    await postLocation(baseUrl, fixture, before.point, undefined, 1)
+    const after = await fetchCurrentTrackingPoint(baseUrl, fixture)
+    console.log(`HEARTBEAT_SENT_POINT=(${before.point.lat},${before.point.lng})`)
+    console.log(`POINT_AFTER_STATIONARY=(${after.point.lat},${after.point.lng})`)
+    if (after.point.lat !== before.point.lat || after.point.lng !== before.point.lng) {
+      fail("stationary heartbeat changed the current tracking point")
+    }
     console.log("SCENARIO=stationary");
     console.log("TRAJECTORY_POSTS=0");
     return

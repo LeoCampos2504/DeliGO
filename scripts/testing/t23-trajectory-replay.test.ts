@@ -5,6 +5,7 @@ import {
   ROUTE_TO_DESTINATION_DESTINATION,
   ROUTE_TO_DESTINATION_TURNS,
   batchDistanceMeters,
+  buildLegacyHeartbeatPayload,
   buildBatches,
   haversineDistanceMeters,
   routeFor,
@@ -51,5 +52,15 @@ describe("P2-T23-R3B Testing trajectory replay harness contract", () => {
     expect(Math.max(...batches.map((batch) => batch.length))).toBeLessThanOrEqual(12)
     expect(Math.max(...batches.map(batchDistanceMeters))).toBeLessThanOrEqual(150)
     expect(haversineDistanceMeters(route.at(-1)!, ROUTE_TO_DESTINATION_DESTINATION)).toBe(0)
+  })
+
+  test("builds a stationary heartbeat from the current server point", () => {
+    const currentServerPoint = { lat: -12.3456, lng: -65.4321 }
+    const payload = buildLegacyHeartbeatPayload("TEST_T23_ORDER", currentServerPoint)
+
+    expect(payload).toEqual({ pedidoId: "TEST_T23_ORDER", lat: -12.3456, lng: -65.4321 })
+    expect(payload).not.toHaveProperty("trajectory")
+    expect(payload).not.toHaveProperty("businessLat")
+    expect(payload).not.toHaveProperty("routeStart")
   })
 })
