@@ -477,16 +477,190 @@ convertirse silenciosamente en T24.
 
 ## 19. Split de implementación propuesto
 
-    R1: MapMatchingProvider + policy pura + adapter Testing + contract/privacy tests
-    R2: server best-effort post-commit, mismo locationRevision, fallback RAW y
-        métricas; sin persistencia matched
-    R3: extensión realtime opcional y bridge backward-compatible
-    R4: Cliente visualTrajectory + geometría bounded + transiciones y guardas
-    R5: hardening de timeout/failure/stale/completion/recovery + regresión completa
-    R6: replay determinista y certificación física exterior, una fase por vez
+    R1: provider abstraction + pure matching policy + OSRM Testing
+        adapter/probe + privacy/contract tests. NO tracking route integration.
+    R2: optional matchedTrajectory realtime contract + publisher/types +
+        chat bridge schema/relay + backward-compatibility tests. NO producer
+        emission yet.
+    R3: tracking route server integration after RAW commit, same
+        locationRevision, single realtime publish, RAW fallback and metrics.
+    R4: Cliente visualTrajectory selection + matched geometry playback +
+        matched/RAW transition policies.
+    R5: timeout/failure/stale/completion/recovery hardening + full regression.
+    R6: controlled replay + exterior physical certification, one phase at a time.
 
 Cada etapa debe conservar el diff exacto, ejecutar tests focales y verificar que
-origin/main no se toque. Ninguna etapa se implementa en A0.
+origin/main no se toque. El bridge capaz de aceptar matchedTrajectory debe estar
+desplegado y verificado antes de que R3 pueda emitirlo.
+
+## A0.1 Design Hardening
+
+### Accuracy RAW
+
+El contrato actual de trayectoria sólo transporta lat, lng y offsetMs. Para que
+T24 pueda usar la precisión real del sensor sin hacerla autoridad, se adopta
+esta extensión opcional en el POST de Repartidor:
+
+    {
+      lat,
+      lng,
+      offsetMs,
+      accuracy?: number
+    }
+
+accuracy representa metros y es opcional para conservar clientes/productores
+T23 existentes. Si aparece, el servidor debe exigir número finito, 0 <=
+accuracy <= 100 metros, sin NaN, Infinity ni negativos. El máximo 100 m
+reutiliza el límite de calidad ya presente en el productor T23 y evita rangos
+absurdos; el umbral de aceptación T24 puede ser más conservador. Si falta,
+el provider recibe precisión desconocida y la policy no debe fingir una
+precisión favorable: ante evidencia insuficiente usa RAW.
+
+La accuracy sólo sirve para policy/provider (por ejemplo, radiuses de OSRM).
+No se persiste, no cambia lat/lng RAW y no necesita llegar al Cliente. Antes de
+reenviar realtime se debe sanitizar el campo si el contrato visual no lo
+requiere; matchedTrajectory nunca contiene accuracy.
+
+    RAW_TRAJECTORY_ACCURACY_EXTENSION_REQUIRED=SI
+    RAW_ACCURACY_PERSISTED=NO
+    RAW_ACCURACY_REALTIME_REQUIRED=NO
+    RAW_ACCURACY_VALIDATION=optional + finite + meters + range 0..100
+
+La extensión es backward-compatible: la ausencia de accuracy mantiene la
+semántica T23 y sólo reduce la confianza disponible para T24.
+
+### Timestamps de OSRM Match
+
+OSRM Match acepta timestamps, pero no los exige para poder solicitar matching;
+timestamps y radiuses son opciones de la consulta. R1 no debe expandir el
+contrato sólo para fabricar epoch a partir del reloj del dispositivo:
+
+    OSRM_MATCH_TIMESTAMPS_REQUIRED_INITIAL=NO
+
+R1 puede enviar radiuses cuando accuracy esté disponible. Si un proveedor
+futuro exige epoch, se derivará un eje monotónico server-side con un único
+serverReceivedAt del batch y los offsets RAW (serverReceivedAt - maxOffset +
+offsetMs), únicamente como input técnico del provider. Nunca se usará para
+ordenar, persistir o corregir RAW; locationRevision sigue siendo la autoridad.
+
+### Mapeo temporal de geometría completa
+
+    MATCHED_OFFSET_MAPPING_POLICY=MAP_ANCHORS_THEN_ARCLENGTH_INTERPOLATE_AND_ROUND_MONOTONICALLY
+    MATCHED_ANCHOR_TIMES_PRESERVED=SI
+    MATCHED_OFFSETS_MONOTONIC_REQUIRED=SI
+    OSRM_ROUTE_DURATION_USED_FOR_PLAYBACK=NO
+
+Algoritmo determinista:
+
+1. seleccionar una sola sub-trace aceptada y asociar cada RAW anchor con su
+   tracepoint/waypoint correspondiente en orden;
+2. proyectar cada anchor sobre la polyline matched, conservando el índice y la
+   fracción del segmento; si coincide con un vértice, elegir la ocurrencia
+   ordenada que no retroceda;
+3. copiar sin cambios el offsetMs de cada anchor RAW/matched;
+4. dentro de cada intervalo de anchors, calcular distancia acumulada sobre la
+   polyline y asignar a cada vértice intermedio
+   round(t_i + (t_next - t_i) * d / D);
+5. si D es cero, conservar el tiempo del intervalo y eliminar duplicados
+   geométricos; no dividir por cero ni inventar duración;
+6. simplificar/resamplear sólo después del mapeo, preservando todos los anchors
+   y sus offsets; los puntos sintéticos vuelven a calcularse por distancia de
+   arco;
+7. deduplicar puntos consecutivos, mantener offsets no decrecientes y limitar
+   el resultado a 48 puntos visuales, sin cruzar un split/gap.
+
+Los extremos conservan el primer y último tiempo del batch original. El
+redondeo puede producir offsets iguales para puntos distintos; eso es válido y
+el playback defensivo de T23 aplica su duración mínima. No se usa duration,
+speed ni ETA estimado por OSRM para cambiar la duración visual: el tiempo
+visual proviene de los offsets capturados en RAW.
+
+### Rollout y deploy order
+
+La extensión de bridge debe preceder al productor:
+
+    T24_IMPLEMENTATION_SPLIT_FINAL=R1_PROVIDER_POLICY_PROBE;R2_REALTIME_CONTRACT_BRIDGE;R3_SERVER_PRODUCER;R4_CLIENT_PLAYBACK;R5_HARDENING;R6_CONTROLLED_PHYSICAL_CERTIFICATION
+    BRIDGE_READY_BEFORE_PRODUCER_EMITS=SI
+    T24_SAFE_DEPLOY_ORDER=1 bridge accepts/relays optional matchedTrajectory; 2 verify legacy RAW events; 3 deploy producer that may emit optional field; 4 retain old/raw Client compatibility; 5 enable matched Client consumer
+
+No se debe emitir el campo nuevo desde R3 hasta que el bridge de R2 haya
+aceptado y reenviado el schema, y sus tests de eventos RAW legacy hayan pasado.
+El Cliente matched se habilita después; un Cliente viejo debe seguir
+ignorando el campo opcional.
+
+### Mínimo de puntos RAW
+
+    MIN_RAW_POINTS_FOR_MATCH=3_INITIAL
+    SINGLE_POINT_MATCH_ALLOWED=NO
+    HEARTBEAT_MATCH_ALLOWED=NO
+
+Una trayectoria ausente nunca se matchea. Un punto es current-point/heartbeat
+y queda RAW. Dos puntos tampoco se intentan inicialmente: no aportan evidencia
+suficiente para distinguir snap correcto de una calle paralela, y conservar RAW
+evita inventar una esquina con un solo segmento. Tres puntos válidos de
+movimiento, con al menos dos segmentos no estacionarios, son candidatos; aun
+así deben superar confidence, snap distance, continuidad y todas las demás
+guardas. Este límite puede recalibrarse con evidencia de Testing, no por
+respuesta HTTP 200.
+
+### Independencia de batches y continuidad
+
+    CROSS_BATCH_MATCH_CONTINUITY_POLICY=SERVER_VALIDATES_RAW_ENDPOINTS_AND_CLIENT_CONTINUES_FROM_ACTUAL_RENDERED_POSITION
+    MATCHED_STATE_DB_PERSISTENCE_REQUIRED=NO
+
+Cada batch se matchea independientemente sobre RAW reciente. El servidor valida
+que los anchors y extremos matched correspondan a ese batch y rechaza una
+sub-trace ambigua; no persiste un matched point ni crea una autoridad paralela.
+El Cliente conserva la posición realmente renderizada y aplica la transición
+matched/RAW ya definida por T23. Si batch 2 propone una calle paralela
+incompatible, cae a RAW o a un recovery snap controlado; nunca se fuerza la
+calle A previa, se hace route lock o se reproduce hacia atrás.
+
+### Primer gate de R1: probe OSRM Match
+
+    R1_FIRST_GATE=OSRM_TESTING_MATCH_CAPABILITY_PROBE
+
+R1 debe ejecutar una prueba controlada en Testing, sin producto ni Production,
+que confirme por separado:
+
+- disponibilidad de /match/v1/driving;
+- múltiples puntos y coordenadas lon,lat;
+- geometries=geojson y overview=full;
+- tracepoints y asociación ordenada;
+- confidence y matchings;
+- timeout/abort del cliente;
+- respuesta NoMatch;
+- radiuses derivados de accuracy;
+- comportamiento de null tracepoints, gaps/splits y alternativas.
+
+Si el gate falla o el resultado no permite una policy segura, R1 no integra
+matching en la tracking route; el camino permanece RAW T23.
+
+### Profile y bounds realtime
+
+    INITIAL_TESTING_MATCH_PROFILE=driving
+    MATCH_PROFILE_FUTURE_CONFIGURABLE=SI
+    MAX_MATCHED_VISUAL_POINTS_PER_BATCH=48_INITIAL_TESTING_LIMIT
+    MAX_MATCHED_REALTIME_PAYLOAD_BYTES=16384_INITIAL_TESTING_LIMIT
+
+driving es sólo el profile inicial por compatibilidad con la navegación actual.
+No implica que todos los futuros Repartidores sean auto. El límite de 16 KiB
+se aplica al payload realtime serializado que contiene RAW,
+matchedTrajectory y envelope; es independiente del límite inbound T23 de 8 KiB.
+El provider y el publisher deben rechazar un evento que exceda ese límite antes
+de enviarlo al bridge. El límite amplio del body del bridge sólo actúa como
+techo de DoS y no reemplaza este límite semántico.
+
+### Garantía de fallback frente a excepciones
+
+    MATCHING_EXCEPTION_CAN_SUPPRESS_RAW_REALTIME=NO
+
+R3 debe inicializar el evento con payload RAW y envolver sólo el intento de
+matching en try/catch/finally. Excepción, timeout, JSON inválido, respuesta
+malformada o excepción de policy descartan matched y dejan intacta la
+publicación RAW. El matching ocurre después del commit RAW; por eso no puede
+deshacer la escritura. Sólo el fallo realtime preexistente puede afectar la
+entrega realtime, con la misma semántica T23 ya certificada.
 
 ## 20. Riesgos abiertos
 
@@ -532,7 +706,27 @@ separada y no autoriza cámara, rotación ni navegación turn-by-turn.
     PUBLIC_OSRM_ACCEPTABLE_FOR_TESTING=SI_CON_GUARDAS_Y_SOLO_PARA_EVALUACION
     PUBLIC_OSRM_ACCEPTABLE_FOR_PRODUCTION=NO
     P2_T24_READY_FOR_IMPLEMENTATION=SI
-    NEXT_ACTION=OPERATOR_APPROVAL_THEN_IMPLEMENT_P2_T24_R1_PROVIDER_ABSTRACTION_AND_TESTING_CONTRACTS
+    P2_T24_A0_1_STATUS=HARDENED_READY_FOR_R1
+    RAW_TRAJECTORY_ACCURACY_EXTENSION_REQUIRED=SI
+    RAW_ACCURACY_PERSISTED=NO
+    OSRM_MATCH_TIMESTAMPS_REQUIRED_INITIAL=NO
+    MATCHED_OFFSET_MAPPING_POLICY=MAP_ANCHORS_THEN_ARCLENGTH_INTERPOLATE_AND_ROUND_MONOTONICALLY
+    MATCHED_ANCHOR_TIMES_PRESERVED=SI
+    OSRM_ROUTE_DURATION_USED_FOR_PLAYBACK=NO
+    MIN_RAW_POINTS_FOR_MATCH=3_INITIAL
+    SINGLE_POINT_MATCH_ALLOWED=NO
+    HEARTBEAT_MATCH_ALLOWED=NO
+    CROSS_BATCH_MATCH_CONTINUITY_POLICY=SERVER_VALIDATES_RAW_ENDPOINTS_AND_CLIENT_CONTINUES_FROM_ACTUAL_RENDERED_POSITION
+    MATCHED_STATE_DB_PERSISTENCE_REQUIRED=NO
+    T24_IMPLEMENTATION_SPLIT_FINAL=R1_PROVIDER_POLICY_PROBE;R2_REALTIME_CONTRACT_BRIDGE;R3_SERVER_PRODUCER;R4_CLIENT_PLAYBACK;R5_HARDENING;R6_CONTROLLED_PHYSICAL_CERTIFICATION
+    BRIDGE_READY_BEFORE_PRODUCER_EMITS=SI
+    R1_FIRST_GATE=OSRM_TESTING_MATCH_CAPABILITY_PROBE
+    INITIAL_TESTING_MATCH_PROFILE=driving
+    MATCH_PROFILE_FUTURE_CONFIGURABLE=SI
+    MAX_MATCHED_REALTIME_PAYLOAD_BYTES=16384_INITIAL_TESTING_LIMIT
+    MATCHING_EXCEPTION_CAN_SUPPRESS_RAW_REALTIME=NO
+    P2_T24_READY_FOR_R1=SI
+    NEXT_ACTION=IMPLEMENT_P2_T24_R1_PROVIDER_ABSTRACTION_AND_TESTING_MATCH_CAPABILITY_PROBE
     PRODUCTION_TOUCHED=NO
     PRODUCTION_PROMOTION_AUTHORIZED=NO
 
