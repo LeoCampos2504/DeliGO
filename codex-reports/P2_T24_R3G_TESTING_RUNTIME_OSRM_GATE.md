@@ -428,3 +428,117 @@ NEXT_ACTION=STOP_BLOCKED_SEEKING_POLICY_ACCEPTED_DATASET_OR_PROVIDER
 
 No se ejecutó tracking, `matchedTrajectory` realtime, Cliente, prueba física,
 T54 ni Production. Este bloqueo no autoriza iniciar R3.
+
+## R3G.4 — clean endpoint policy acceptance
+
+R3G.4 no modificó la policy R1. Se probó primero Variant 4, formada por la
+misma geometría sintética de Variant 3 con sólo su último punto eliminado
+(índices 0–4). OSRM volvió a calcular el matching y marcó el nuevo extremo con
+`alternatives_count=4`, por lo que fue rechazada por la regla de ancla final.
+
+Se utilizó el único intento adicional necesario: Variant 5, el mismo corredor
+recortado a los índices 0–3. Esta ejecución obtuvo un `ACCEPT_MATCH` real desde
+Railway Testing.
+
+```text
+POLICY_CODE_CHANGED=NO
+POLICY_PROBE_TRACE_SOURCE=PUBLIC_OSRM_ROUTE_GEOMETRY_DERIVED_SYNTHETIC_BERLIN_COORDINATES
+ATTEMPT_COUNT=2
+R3G4_VARIANTS=VARIANT_4,VARIANT_5
+DELIGO_ENVIRONMENT=TESTING
+NODE_ENV=test
+MAP_MATCHING_PROVIDER=osrm
+T24_OSRM_BASE_URL=https://router.project-osrm.org
+PROBE_EXECUTION_ENVIRONMENT=TESTING_RAILWAY_RUNTIME
+PROBE_PII_SENT=NO
+R3_MATCHING_TIMEOUT_INITIAL_TESTING_MS=1000
+```
+
+### Variant 4 — rechazo de endpoint
+
+```text
+VARIANT_4_TRACE_POINTS=5
+OSRM_MATCH_HTTP_STATUS=2xx (INFERRED_FROM_RESPONSE_OK)
+OSRM_MATCH_PROVIDER_CODE=Ok (INFERRED_FROM_MATCHED_ADAPTER_RESULT)
+OSRM_MATCH_CONFIDENCE=0.976522469
+OSRM_MATCH_MATCHINGS=1
+OSRM_MATCH_TRACEPOINTS=5
+OSRM_MATCH_GEOMETRY=FULL_GEOJSON
+VARIANT_4_LAST_ALTERNATIVES_COUNT=4
+POLICY_DECISION=REJECT_MATCH
+POLICY_REJECTION_REASON=ambiguous_tracepoints
+VARIANT_4_LATENCY_MS=498
+```
+
+### Variant 5 — aceptación de endpoint limpio
+
+La respuesta real no tuvo ambigüedad en ninguno de sus cuatro extremos o
+interiores:
+
+| index | matchings_index | waypoint_index | alternatives_count | snapped_distance_m | raw_accuracy_m |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 0 | 0 | 0 | 5 |
+| 1 | 0 | 1 | 0 | 0 | 5 |
+| 2 | 0 | 2 | 0 | 0 | 5 |
+| 3 | 0 | 3 | 0 | 0 | 5 |
+
+```text
+VARIANT_5_TRACE_POINTS=4
+OSRM_MATCH_HTTP_STATUS=2xx (INFERRED_FROM_RESPONSE_OK)
+OSRM_MATCH_PROVIDER_CODE=Ok (INFERRED_FROM_MATCHED_ADAPTER_RESULT)
+OSRM_MATCH_RESULT_STATUS=matched
+OSRM_MATCH_CONFIDENCE=0.9655836225
+OSRM_MATCH_MATCHINGS=1
+OSRM_MATCH_TRACEPOINTS=4
+OSRM_MATCH_GEOMETRY=FULL_GEOJSON
+CONFIDENCE_GUARD=PASS
+SNAP_DISTANCE_GUARDS=PASS
+TRACEPOINT_GUARDS=PASS
+ALTERNATIVES_GUARD=PASS
+SINGLE_SUBTRACE_GUARD=PASS
+GEOMETRY_GUARD=PASS
+POLICY_DECISION=ACCEPT_MATCH
+POLICY_REJECTION_REASON=NONE
+VARIANT_5_LATENCY_MS=509
+```
+
+El pipeline ejecutado fue exactamente:
+
+```text
+t24-osrm-match-probe
+→ osrm-map-matching-provider
+→ OSRM
+→ parser
+→ geometry
+→ evaluateMapMatching
+```
+
+El worker temporal Testing se eliminó después de consultar los logs de la
+ejecución aceptada:
+
+```text
+TEMP_RUNTIME_RESOURCE_CREATED=SI
+TEMP_RUNTIME_RESOURCE_CLEANED=SI
+REMOTE_STDOUT_OBSERVED=SI
+REMOTE_EXIT_STATUS_OBSERVED=SI
+```
+
+### Gate final R3G.4
+
+```text
+P2_T24_R3G_4_STATUS=PASS
+RUNTIME_POLICY_ACCEPTED_MATCH_AVAILABLE=SI
+R3_PROVIDER_RUNTIME_GATE=PASS
+P2_T24_READY_FOR_R3=SI
+PUBLIC_OSRM_ACCEPTABLE_FOR_PRODUCTION=NO
+R3_MATCHING_TIMEOUT_PRODUCTION=UNDECIDED
+PRODUCTION_TOUCHED=NO
+PRODUCTION_MAIN_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+NEXT_ACTION=STOP_AFTER_R3G4_BEFORE_R3_IMPLEMENTATION
+```
+
+Este PASS sólo demuestra que OSRM runtime, adapter, parser, geometry y policy
+pueden producir un match aceptado para una traza compatible. No autoriza
+implementar R3, modificar tracking/realtime, emitir `matchedTrajectory` en
+producción, cambiar el Cliente, ejecutar pruebas físicas, iniciar T54 ni tocar
+Production.
