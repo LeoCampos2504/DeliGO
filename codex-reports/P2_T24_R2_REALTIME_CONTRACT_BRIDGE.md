@@ -100,9 +100,16 @@ preexistentes ajenos a R2; no aparecen errores nuevos en los archivos R2.
 
 ## Deploy y smoke Testing
 
-El push de este commit debe disparar el autodeploy del servicio Chat Testing,
-sin redeploy manual y sin Production. Se completará aquí el deployment ID,
-commit observado y `/health` después de que Railway termine.
+El push disparó el autodeploy del servicio Chat Testing, sin redeploy manual y
+sin Production. Railway TESTING confirmó el commit R2, el servicio saludable y
+la instancia activa:
+
+```text
+CHAT_TESTING_DEPLOYMENT_ID=41e3e033-1a25-4b23-aa05-470a9d79ce9c
+CHAT_TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+CHAT_TESTING_DEPLOYMENT_COMMIT=86541fdf2e3a5dbd5c18ebdbece439bd6a91c6f5
+CHAT_TESTING_HEALTH=/health HTTP 200
+```
 
 El smoke sintético matched post-deploy no se ejecuta si no existe un camino
 interno seguro ya disponible. No se crea endpoint debug. El contrato
@@ -127,9 +134,9 @@ R2_MATCHED_PRODUCER_EMISSION=NO
 R2_CLIENT_MATCHED_PLAYBACK=NO
 RAW_ACCURACY_REALTIME_REQUIRED=NO
 T23_REGRESSION=PASS
-CHAT_TESTING_DEPLOYMENT_ID=PENDING_AUTODEPLOY
-CHAT_TESTING_DEPLOYMENT_STATUS=PENDING_AUTODEPLOY
-POST_DEPLOY_RAW_BRIDGE_SMOKE=PENDING_AUTODEPLOY
+CHAT_TESTING_DEPLOYMENT_ID=41e3e033-1a25-4b23-aa05-470a9d79ce9c
+CHAT_TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+POST_DEPLOY_RAW_BRIDGE_SMOKE=NOT_RUN_NO_SAFE_PATH
 MATCHED_POST_DEPLOY_RELAY_PROBE=NOT_RUN_NO_SAFE_PATH
 R2_PRODUCT_BEHAVIOR_VISIBLE_CHANGE=NO
 OSRM_MATCH_AVAILABLE_IN_TESTING=UNKNOWN
