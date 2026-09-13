@@ -1,5 +1,25 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## P2-T23-R3A — bounded trajectory transport (2026-09-13)
+
+```text
+R3A_COMMIT=2811a94495cb093f6e8c721b58de44c983775c3d
+R3A_COMMIT_SUBJECT=feat: add bounded tracking trajectory transport
+R3A_PUSH_RESULT=SUCCESS origin/testing-codex
+TESTING_DEPLOYMENT_ID_DELIGO=d32ecea3-350b-4c4a-8f73-724223998667
+TESTING_DEPLOYMENT_ID_CHAT=c19602d4-843d-48fa-b854-a15a0a904529
+TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+TESTING_MIGRATIONS=NO_PENDING_MIGRATIONS
+TESTING_BRANCH=testing-codex
+ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
+La implementación fue desplegada por el flujo automático posterior al push;
+no hubo deploy manual de Railway. Reporte:
+`codex-reports/P2_T23_R3A_BOUNDED_TRAJECTORY_TRANSPORT_IMPLEMENTATION.md`.
+
 ## P2-T23-R2A — architecture pivot (2026-09-13)
 
 ```text
