@@ -296,3 +296,135 @@ NEXT_ACTION=STOP_BLOCKED_PENDING_POLICY_ACCEPTED_RUNTIME_MATCH
 Este resultado no autoriza iniciar R3, modificar el productor server-side,
 emitir trayectorias matched en realtime, cambiar el Cliente ni promover a
 Production.
+
+## R3G.3 — Alternatives policy calibration
+
+### Semántica oficial auditada
+
+La documentación oficial de OSRM define `tracepoints[].alternatives_count`
+como el número de matchings alternativos probables para ese tracepoint. `0`
+indica que ese punto fue matched inequívocamente; un valor mayor que `0`
+indica ambigüedad local en ese punto. OSRM indica dividir la traza en esos
+puntos para map matching incremental. La semántica no equivale a invalidar
+automáticamente todo el matching ni a crear una segunda entrada en
+`matchings`.
+
+Fuente primaria auditada:
+
+```text
+OSRM_OFFICIAL_API_DOC=https://project-osrm.org/docs/v5.24.0/api/
+OSRM_ALTERNATIVES_COUNT_SEMANTICS=LOCAL_PROBABLE_ALTERNATIVE_MATCHINGS_PER_TRACEPOINT; 0=UNAMBIGUOUS; >0=LOCAL_AMBIGUITY; OSRM_RECOMMENDS_SPLITTING_AT_THE_POINT_FOR_INCREMENTAL_MATCHING
+```
+
+`alternatives_count` es independiente de `matchings_index`: el primero
+describe ambigüedad local del punto y el segundo identifica el sub-trace al
+que pertenece. `matchings.length > 1` continúa siendo rechazo y cualquier
+discontinuidad de `matchings_index` continúa siendo rechazo.
+
+```text
+MULTIPLE_SUBTRACE_REJECTION_PRESERVED=SI
+ROUTE_LOCKING_ALLOWED=NO
+```
+
+### Regla R1 auditada y calibrada
+
+La regla anterior del código era:
+
+```text
+CURRENT_ALTERNATIVES_POLICY_BEFORE_R3G3=ANY_TRACEPOINT_ALTERNATIVES_COUNT_GT_0 => REJECT_MATCH
+```
+
+El primer guard roto en la Variant 3 anterior era:
+
+```text
+FIRST_BROKEN_POLICY_GUARD=alternatives
+```
+
+La regla calibrada mantiene una postura acotada y conservadora:
+
+```text
+PROPOSED_ALTERNATIVES_ACCEPTANCE_POLICY=EXACTLY_ONE_MATCHING; ALL_TRACEPOINTS_NON_NULL; ORDERED_WAYPOINT_INDEX; FIRST_AND_LAST_ALTERNATIVES_COUNT=0; AT_MOST_ONE_ISOLATED_INTERMEDIATE_AMBIGUOUS_TRACEPOINT; MAX_CONSECUTIVE_AMBIGUOUS_TRACEPOINTS=1; MULTIPLE_OR_MAJORITY_AMBIGUITY=REJECT
+CURRENT_ALTERNATIVES_POLICY=NO_AMBIGUITY_OR_EXACTLY_ONE_ISOLATED_INTERIOR_AMBIGUITY; AMBIGUOUS_ANCHORS_AND_BROADER_AMBIGUITY_REJECT
+MAX_ACCEPTED_INTERMEDIATE_AMBIGUOUS_TRACEPOINTS=1
+MAX_CONSECUTIVE_AMBIGUOUS_TRACEPOINTS=1
+CURRENT_POLICY_CONFIRMED_CORRECT=NO
+POLICY_CODE_CHANGED=SI
+```
+
+El límite de una sola ambigüedad interior es una elección bounded de seguridad
+para este batch, no una comparación contra una ruta planificada ni un valor
+tomado de OSRM. La regla nunca acepta únicamente por confidence: continúa
+exigiendo conjuntamente sub-trace único, tracepoints completos y ordenados,
+alternatives policy, snap distances válidas y geometría/continuidad válidas.
+
+### Variant 3: patrón y tabla resumida
+
+La respuesta OSRM real de Variant 3 tuvo un único punto ambiguo en el extremo
+final:
+
+```text
+VARIANT_3_AMBIGUITY_PATTERN=EDGE_AMBIGUITY
+VARIANT_3_AMBIGUOUS_TRACEPOINT_COUNT=1
+VARIANT_3_AMBIGUOUS_TRACEPOINT_INDEX=5
+VARIANT_3_AMBIGUOUS_TRACEPOINT_ALTERNATIVES_COUNT=3
+```
+
+| index | matchings_index | waypoint_index | alternatives_count | snapped_distance_m | raw_accuracy_m |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 0 | 0 | 0 | 5 |
+| 1 | 0 | 1 | 0 | 0 | 5 |
+| 2 | 0 | 2 | 0 | 0 | 5 |
+| 3 | 0 | 3 | 0 | 0 | 5 |
+| 4 | 0 | 4 | 0 | 0 | 5 |
+| 5 | 0 | 5 | 3 | 0 | 5 |
+
+No se guardaron coordenadas completas en el reporte.
+
+### Recertificación real posterior al cambio
+
+Se reejecutó la misma Variant 3 desde el worker temporal `TESTING`, mediante
+adapter + parser + policy reales, con timeout sin cambios:
+
+```text
+R3G3_PROBE_EXECUTION_ENVIRONMENT=TESTING_RAILWAY_RUNTIME
+R3G3_PROBE_TRACE_SOURCE=PUBLIC_OSRM_ROUTE_GEOMETRY_DERIVED_SYNTHETIC_BERLIN_COORDINATES
+OSRM_MATCH_CONFIDENCE=0.9787074735
+OSRM_MATCH_HTTP_STATUS=2xx (INFERRED_FROM_RESPONSE_OK)
+OSRM_MATCH_PROVIDER_CODE=Ok (INFERRED_FROM_MATCHED_ADAPTER_RESULT)
+OSRM_MATCH_RESULT_STATUS=matched
+OSRM_MATCH_TRACEPOINTS=6
+OSRM_MATCHINGS=1
+OSRM_MATCH_GEOMETRY=FULL_GEOJSON
+POLICY_DECISION=REJECT_MATCH
+POLICY_REJECTION_REASON=ambiguous_tracepoints
+CONFIDENCE_GUARD=PASS
+SNAP_DISTANCE_GUARDS=PASS
+TRACEPOINT_GUARDS=PASS
+ALTERNATIVES_GUARD=FAIL
+SINGLE_SUBTRACE_GUARD=PASS
+GEOMETRY_GUARD=PASS
+VARIANT_3_RUNTIME_LATENCY_MS=505
+R3_MATCHING_TIMEOUT_INITIAL_TESTING_MS=1000
+```
+
+La única guardia fallida es alternatives: el último punto es un ancla de
+destino ambiguo. El resultado no es `ACCEPT_MATCH` bajo la política calibrada,
+por lo que no se puede usar como evidencia de aceptación runtime.
+
+### Resultado final R3G.3
+
+```text
+P2_T24_R3G_3_STATUS=BLOCKED
+RUNTIME_POLICY_ACCEPTED_MATCH_AVAILABLE=NO
+R3_PROVIDER_RUNTIME_GATE=BLOCKED
+P2_T24_READY_FOR_R3=NO
+PUBLIC_OSRM_ACCEPTABLE_FOR_PRODUCTION=NO
+R3_MATCHING_TIMEOUT_PRODUCTION=UNDECIDED
+PRODUCTION_TOUCHED=NO
+PRODUCTION_MAIN_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+TEMP_RUNTIME_RESOURCE_CLEANED=SI
+NEXT_ACTION=STOP_BLOCKED_SEEKING_POLICY_ACCEPTED_DATASET_OR_PROVIDER
+```
+
+No se ejecutó tracking, `matchedTrajectory` realtime, Cliente, prueba física,
+T54 ni Production. Este bloqueo no autoriza iniciar R3.
