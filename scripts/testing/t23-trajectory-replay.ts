@@ -9,7 +9,7 @@
 
 import { randomUUID } from "node:crypto"
 
-export type Scenario = "smooth-route" | "curve" | "stationary" | "stale" | "complete" | "route-to-destination"
+export type Scenario = "smooth-route" | "curve" | "stationary" | "stale" | "complete" | "route-to-destination" | "recovery-once"
 
 interface Fixture {
   negocioId: string
@@ -32,7 +32,7 @@ interface CurrentTrackingPoint {
 
 const PREFIX = "TEST_T23_"
 const DEFAULT_BASE_URL = process.env.T23_TESTING_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || ""
-const scenarioNames: Scenario[] = ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination"]
+const scenarioNames: Scenario[] = ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination", "recovery-once"]
 
 export const ROUTE_TO_DESTINATION_BATCH_SIZE = 4
 export const ROUTE_TO_DESTINATION_BATCH_INTERVAL_MS = 4_000
@@ -141,6 +141,7 @@ function printUsage(): void {
     "  bun run scripts/testing/t23-trajectory-replay.ts --prepare --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --scenario smooth-route --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --scenario route-to-destination --confirm-testing",
+    "  bun run scripts/testing/t23-trajectory-replay.ts --scenario recovery-once --confirm-testing",
     "  bun run scripts/testing/t23-trajectory-replay.ts --cleanup --confirm-testing",
     "",
     "Required environment: DELIGO_ENVIRONMENT=TESTING, T23_TESTING_BASE_URL,",
@@ -204,6 +205,19 @@ export function haversineDistanceMeters(a: ReplayPoint, b: ReplayPoint): number 
 
 export function batchDistanceMeters(batch: ReplayPoint[]): number {
   return batch.slice(1).reduce((distance, point, index) => distance + haversineDistanceMeters(batch[index], point), 0)
+}
+
+export function buildRecoveryTrajectory(currentPoint: ReplayPoint): ReplayPoint[] {
+  return [
+    currentPoint,
+    { lat: currentPoint.lat, lng: currentPoint.lng + 0.00015 },
+    { lat: currentPoint.lat + 0.00015, lng: currentPoint.lng + 0.00030 },
+    { lat: currentPoint.lat + 0.00030, lng: currentPoint.lng + 0.00045 },
+  ]
+}
+
+export function recoveryTrajectoryDistanceMeters(currentPoint: ReplayPoint): number {
+  return batchDistanceMeters(buildRecoveryTrajectory(currentPoint))
 }
 
 export function buildLegacyHeartbeatPayload(pedidoId: string, currentPoint: ReplayPoint): { pedidoId: string; lat: number; lng: number } {
@@ -325,7 +339,13 @@ function fixtureFromEnvironment(): Fixture {
   }
 }
 
-async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoint, trajectory?: ReplayPoint[], batchNumber = 0): Promise<void> {
+interface PostLocationResult {
+  status: number
+  ok: boolean
+  version: number | null
+}
+
+async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoint, trajectory?: ReplayPoint[], batchNumber = 0): Promise<PostLocationResult> {
   const wireTrajectory = trajectory?.map((item, index) => ({ lat: item.lat, lng: item.lng, offsetMs: index * 450 }))
   const body = wireTrajectory
     ? { pedidoId: fixture.pedidoId, lat: point.lat, lng: point.lng, trajectory: wireTrajectory }
@@ -335,6 +355,7 @@ async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoin
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Origin: baseUrl,
       Cookie: `deligo_session=${fixture.repartidorSession}`,
     },
     body: JSON.stringify(body),
@@ -350,6 +371,15 @@ async function postLocation(baseUrl: string, fixture: Fixture, point: ReplayPoin
     SERVER_RESPONSE: { status: response.status, ok: response.ok, body: parsed.error ? { error: parsed.error } : { ok: parsed.ok } },
   }))
   if (!response.ok) fail(`tracking POST failed with HTTP ${response.status}`)
+  return {
+    status: response.status,
+    ok: response.ok,
+    version: typeof parsed.version === "number"
+      ? parsed.version
+      : typeof parsed.locationRevision === "number"
+        ? parsed.locationRevision
+        : null,
+  }
 }
 
 async function fetchCurrentTrackingPoint(baseUrl: string, fixture: Fixture): Promise<CurrentTrackingPoint> {
@@ -388,6 +418,29 @@ async function runScenario(baseUrl: string, fixture: Fixture, scenario: Scenario
     }
     console.log("SCENARIO=stationary");
     console.log("TRAJECTORY_POSTS=0");
+    return
+  }
+  if (scenario === "recovery-once") {
+    const before = await fetchCurrentTrackingPoint(baseUrl, fixture)
+    const trajectory = buildRecoveryTrajectory(before.point)
+    const finalPoint = trajectory[trajectory.length - 1]
+    console.log("RECOVERY_ORIGIN_SOURCE=GET_TRACKING_CURRENT_POINT")
+    console.log(`SERVER_POINT_BEFORE_RECOVERY=(${before.point.lat},${before.point.lng})`)
+    console.log(`LOCATION_REVISION_BEFORE_RECOVERY=${before.version ?? "UNKNOWN"}`)
+    console.log(`RECOVERY_FIRST_POINT=(${trajectory[0].lat},${trajectory[0].lng})`)
+    console.log(`RECOVERY_FINAL_POINT=(${finalPoint.lat},${finalPoint.lng})`)
+    console.log(`RECOVERY_TRAJECTORY_POINT_COUNT=${trajectory.length}`)
+    console.log(`RECOVERY_TOTAL_DISTANCE_M=${Math.round(recoveryTrajectoryDistanceMeters(before.point))}`)
+    const posted = await postLocation(baseUrl, fixture, finalPoint, trajectory, 1)
+    const after = await fetchCurrentTrackingPoint(baseUrl, fixture)
+    console.log(`RECOVERY_POST_HTTP_STATUS=${posted.status}`)
+    console.log(`RECOVERY_LOCATION_REVISION=${posted.version ?? after.version ?? "UNKNOWN"}`)
+    console.log(`RECOVERY_FINAL_SERVER_POINT=(${after.point.lat},${after.point.lng})`)
+    if (after.point.lat !== finalPoint.lat || after.point.lng !== finalPoint.lng) {
+      fail("recovery final server point does not match trajectory final point")
+    }
+    console.log("RECOVERY_POST_COUNT=1")
+    console.log("RECOVERY_ONCE_EXECUTED=SI")
     return
   }
 

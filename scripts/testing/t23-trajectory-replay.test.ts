@@ -7,7 +7,9 @@ import {
   batchDistanceMeters,
   buildLegacyHeartbeatPayload,
   buildBatches,
+  buildRecoveryTrajectory,
   haversineDistanceMeters,
+  recoveryTrajectoryDistanceMeters,
   routeFor,
 } from "./t23-trajectory-replay"
 
@@ -29,7 +31,7 @@ describe("P2-T23-R3B Testing trajectory replay harness contract", () => {
     expect(harness).toContain("/api/repartidor/ubicacion")
     expect(harness).toContain("Cookie: `deligo_session=${fixture.repartidorSession}`")
     expect(harness).toContain("TEST_T23_")
-    for (const scenario of ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination"]) {
+    for (const scenario of ["smooth-route", "curve", "stationary", "stale", "complete", "route-to-destination", "recovery-once"]) {
       expect(harness).toContain(`\"${scenario}\"`)
     }
     expect(harness).toContain("HARNESS_REPLAY_NOT_STARTED=SI")
@@ -38,6 +40,8 @@ describe("P2-T23-R3B Testing trajectory replay harness contract", () => {
     expect(harness).not.toContain("db.pedido.update")
     expect(harness).not.toContain("db.repartidor.update")
     expect(harness).not.toContain("$queryRaw")
+    expect(harness).toContain("GET_TRACKING_CURRENT_POINT")
+    expect(harness).toContain("RECOVERY_POST_COUNT=1")
   })
 
   test("prepares a deterministic multi-turn route ending at the real destination", () => {
@@ -62,5 +66,20 @@ describe("P2-T23-R3B Testing trajectory replay harness contract", () => {
     expect(payload).not.toHaveProperty("trajectory")
     expect(payload).not.toHaveProperty("businessLat")
     expect(payload).not.toHaveProperty("routeStart")
+  })
+
+  test("builds exactly one bounded recovery batch from the runtime current point", () => {
+    const currentServerPoint = { lat: -34.6037, lng: -58.3816 }
+    const trajectory = buildRecoveryTrajectory(currentServerPoint)
+    const batches = buildBatches(trajectory, trajectory.length)
+    const finalPoint = trajectory.at(-1)!
+
+    expect(batches).toHaveLength(1)
+    expect(trajectory).toHaveLength(4)
+    expect(trajectory[0]).toBe(currentServerPoint)
+    expect(recoveryTrajectoryDistanceMeters(currentServerPoint)).toBeGreaterThanOrEqual(30)
+    expect(recoveryTrajectoryDistanceMeters(currentServerPoint)).toBeLessThanOrEqual(100)
+    expect(finalPoint).toEqual({ lat: currentServerPoint.lat + 0.0003, lng: currentServerPoint.lng + 0.00045 })
+    expect(finalPoint).toEqual({ lat: trajectory[trajectory.length - 1].lat, lng: trajectory[trajectory.length - 1].lng })
   })
 })
