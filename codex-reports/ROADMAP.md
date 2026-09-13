@@ -100,6 +100,47 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 Reporte canónico: `codex-reports/P2_T02_R6_FINAL_PHYSICAL_EVIDENCE_RECONCILIATION.md`.
 No se inicia T23, T24 ni T54 en este cierre.
 
+## P2-T23-A0 — trajectory batching + smooth playback audit and design (2026-09-13)
+
+T23 fue auditada sobre el HEAD de R6 sin implementación. El Cliente aplica
+`setLatLng` directamente y no tiene buffer ni interpolación; el productor
+mantiene el current-point-only con throttle mínimo de 5 s. La decisión es
+interpolación sólo en Cliente, sin batching server-side, historial ni cambio de
+renderer.
+
+```text
+P2_T23_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+T23_PHYSICAL_EVIDENCE=CONFIRMED
+CURRENT_CLIENT_RENDER_BEHAVIOR=STEPWISE_JUMPS
+T23_PRIMARY_JUMP_CAUSE=BOTH
+T23_BATCHING_REQUIRED=NO
+T23_RECOMMENDED_ARCHITECTURE=CLIENT_INTERPOLATION_ONLY
+T23_IMPLEMENTATION_SPLIT_REQUIRED=NO
+SECOND_GEOLOCATION_WATCHER_ALLOWED=NO
+FUTURE_POSITION_EXTRAPOLATION_ALLOWED=NO
+INTERPOLATION_ONLY_BETWEEN_CONFIRMED_POINTS=REQUIRED
+STALE_STOPS_PLAYBACK=SI
+POST_COMPLETION_VISUAL_MOVEMENT_ALLOWED=NO
+T23_ROUTE_SNAPPING=NO
+T23_MAP_MATCHING=NO
+T23_CAMERA_FOLLOW=NO
+T23_RENDERER_CHANGE_REQUIRED=NO
+T23_SCHEMA_CHANGE_REQUIRED=NO
+T23_MIGRATION_REQUIRED=NO
+TRACKING_SECURITY_GATES_PRESERVED=SI
+PRODUCT_FILES_CHANGED=0
+TEST_FILES_CHANGED=0
+FUNCTIONAL_TREE_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+NEXT_ACTION=IMPLEMENT_P2_T23_R1_CLIENT_INTERPOLATION_ONLY
+```
+
+La interpolación futura sólo podrá recorrer segmentos entre puntos confirmados
+y versionados; stale, reconnect, gaps grandes y completion deben detener/snapear
+el playback. T24 conserva map matching/snapping y T54 conserva cámara follow,
+bearing y recenter. Reporte: `codex-reports/P2_T23_A0_TRAJECTORY_BATCHING_SMOOTH_PLAYBACK_AUDIT_DESIGN.md`.
+
 ## P2-T02-R5 — normal flow physical recertification and navigation UX handoff (2026-09-12)
 
 La evidencia física reportada por el operador certifica el flujo normal R4 sobre
