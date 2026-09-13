@@ -1,5 +1,19 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## P2-T23-R3B — confirmed trajectory playback and replay harness (2026-09-13)
+
+```text
+R3B_COMMIT=0f8875f1d285b15f09c788b2dbfba4cdfb21934c
+R3B_COMMIT_SUBJECT=feat: play confirmed delivery trajectory batches
+R3B_PUSH_RESULT=SUCCESS origin/testing-codex
+TESTING_DEPLOYMENT_ID_DELIGO=d8dee0d6-0e2a-408b-bbb4-ad7ed1c50e45
+TESTING_DEPLOYMENT_ID_CHAT=b2d0b7c9-5801-44df-9db7-5b65d30a5db8
+TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
 ## P2-T23-R3A — bounded trajectory transport (2026-09-13)
 
 ```text
