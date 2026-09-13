@@ -5,9 +5,20 @@ import {
   buildSampleFromPosition,
   isCandidateSampleNewer,
   isSampleFresh,
-  isSignificantMovement,
   type TrackingLocationSample,
 } from "@/lib/tracking-movement"
+import {
+  acceptTrackingTrajectoryPoint,
+  buildTrackingTrajectoryBatch,
+  createTrackingTrajectoryBuffer,
+  shouldFlushTrackingTrajectory,
+  acknowledgeTrackingTrajectoryBatch,
+  resetTrackingTrajectoryBuffer,
+  MAX_MOVING_BATCH_AGE_MS,
+  MAX_LOCAL_TRAJECTORY_AGE_MS,
+  type TrackingTrajectoryBatch,
+  type TrackingTrajectoryBuffer,
+} from "@/lib/tracking-trajectory"
 
 interface ActiveDelivery {
   id: string
@@ -44,14 +55,16 @@ interface DeliveryTrackingState {
   // avanza antes de una confirmación real (P2-T02 Stage 1B — commit point).
   lastSentSample: TrackingLocationSample | null
   lastSuccessfulSendAt: number | null
-  // Sample más reciente que merece enviarse en cuanto el throttle lo
-  // permita — reemplazado por cada callback significativo posterior, nunca
-  // encolado (GPS_SAMPLE_QUEUE_MODEL=LATEST_SAMPLE_ONLY).
+  // Sample directo pendiente mientras otro POST está en vuelo. Trajectory
+  // samples nunca se reducen a este slot: viven en trajectoryBuffer.
   pendingMeaningfulSample: TrackingLocationSample | null
   pendingSendTimerId: ReturnType<typeof setTimeout> | null
   heartbeatTimerId: ReturnType<typeof setTimeout> | null
   // Single-flight de POST por entrega — sustituye a pendingLocationRequestsRef.
   postInFlight: boolean
+  trajectoryBuffer: TrackingTrajectoryBuffer
+  inFlightTrajectoryBatch: TrackingTrajectoryBatch | null
+  trajectoryRetryBlocked: boolean
 }
 
 // Elegibilidad "core": server-side elegible y no marcada localmente como
@@ -194,6 +207,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
         pendingSendTimerId: null,
         heartbeatTimerId: null,
         postInFlight: false,
+        trajectoryBuffer: createTrackingTrajectoryBuffer(),
+        inFlightTrajectoryBatch: null,
+        trajectoryRetryBlocked: false,
       }
       deliveryStateRef.current.set(id, state)
     }
@@ -383,8 +399,20 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
   function considerSampleForDelivery(deliveryId: string, sample: TrackingLocationSample) {
     const state = getOrCreateDeliveryState(deliveryId)
-    if (!isSignificantMovement(state.lastSentSample, sample)) return
-    scheduleOrSendForDelivery(deliveryId, sample)
+    const oldestPending = state.trajectoryBuffer.points[0]
+    if (oldestPending && Date.now() - oldestPending.capturedAt > MAX_LOCAL_TRAJECTORY_AGE_MS) {
+      resetTrackingTrajectoryBuffer(state.trajectoryBuffer, sample)
+      state.trajectoryRetryBlocked = false
+      return
+    }
+    if (state.lastSentSample === null && state.trajectoryBuffer.anchor === null) {
+      void sendLocationForDelivery(deliveryId, sample)
+      return
+    }
+    const result = acceptTrackingTrajectoryPoint(state.trajectoryBuffer, sample, Date.now())
+    if (!result.accepted) return
+    state.trajectoryRetryBlocked = false
+    scheduleOrSendForDelivery(deliveryId)
   }
 
   // MIN_SEND_INTERVAL_MS + scheduler explícito (P2-T02 Stage 1B corrección
@@ -392,32 +420,49 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // pendiente y se programa como máximo UN wake-up para el momento en que
   // vuelva a estar permitido — nunca se deja esperando al próximo callback
   // ni al heartbeat "por accidente".
-  function scheduleOrSendForDelivery(deliveryId: string, sample: TrackingLocationSample) {
+  function scheduleOrSendForDelivery(deliveryId: string) {
     const state = getOrCreateDeliveryState(deliveryId)
+    if (state.trajectoryRetryBlocked) return
     const now = Date.now()
     const earliestNextSendAt =
       state.lastSuccessfulSendAt !== null ? state.lastSuccessfulSendAt + MIN_SEND_INTERVAL_MS : now
-
-    if (now >= earliestNextSendAt) {
-      // Este envío inmediato reemplaza cualquier pending timer/sample más
-      // viejo que estuviera esperando su turno — sin esto, ese timer viejo
-      // dispararía más tarde con una coordenada ya superada por este envío
-      // (P2-T02 Stage 3 §22).
-      if (state.pendingSendTimerId !== null) {
-        clearTimeout(state.pendingSendTimerId)
-        state.pendingSendTimerId = null
+    if (state.trajectoryBuffer.points.length === 0) {
+      const pending = state.pendingMeaningfulSample
+      if (!pending) return
+      if (state.postInFlight) return
+      if (now < earliestNextSendAt) {
+        if (state.pendingSendTimerId === null) {
+          const generation = watchGenerationRef.current
+          state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, earliestNextSendAt - now))
+        }
+        return
       }
       state.pendingMeaningfulSample = null
-      void sendLocationForDelivery(deliveryId, sample)
+      void sendLocationForDelivery(deliveryId, pending)
+      return
+    }
+    const oldest = state.trajectoryBuffer.points[0]
+    if (!oldest) return
+    const movingAgeDueAt = oldest.capturedAt + MAX_MOVING_BATCH_AGE_MS
+    const flushDue = shouldFlushTrackingTrajectory(state.trajectoryBuffer, now)
+    const nextDueAt = flushDue ? earliestNextSendAt : Math.max(earliestNextSendAt, movingAgeDueAt)
+    if (state.postInFlight) return
+    if (now < nextDueAt) {
+      if (state.pendingSendTimerId === null) {
+        const generation = watchGenerationRef.current
+        state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, nextDueAt - now))
+      }
       return
     }
 
-    state.pendingMeaningfulSample = sample
-    if (state.pendingSendTimerId === null) {
-      const delay = earliestNextSendAt - now
-      const generation = watchGenerationRef.current
-      state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), delay)
+    if (state.pendingSendTimerId !== null) {
+      clearTimeout(state.pendingSendTimerId)
+      state.pendingSendTimerId = null
     }
+    const batch = buildTrackingTrajectoryBatch(state.trajectoryBuffer)
+    if (!batch) return
+    state.inFlightTrajectoryBatch = batch
+    void sendLocationForDelivery(deliveryId, batch.lastSample, batch)
   }
 
   function firePendingSend(deliveryId: string, generation: number) {
@@ -429,20 +474,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const delivery = deliveriesRef.current.find((d) => d.id === deliveryId)
     if (!delivery || !isCoreEligible(delivery, knownIneligibleRef.current)) return
 
-    const pending = state.pendingMeaningfulSample
-    if (!pending) return
-    state.pendingMeaningfulSample = null
-    // Revalidación defensiva de frescura — el timer es de corta duración
-    // (a lo sumo MIN_SEND_INTERVAL_MS), pero nunca se envía un sample que
-    // haya dejado de ser fresco entre que se guardó y que el timer disparó.
-    if (!isSampleFresh(pending, Date.now())) return
-    // Defensa adicional: si un envío MÁS NUEVO que este pending ya se
-    // confirmó por otro camino mientras el timer esperaba (p.ej. un envío
-    // inmediato disparado por movimiento adicional que superó el throttle
-    // antes de que este timer llegara a su turno), descartar este pending
-    // en vez de reenviar una coordenada ya superada (P2-T02 Stage 3 §22).
-    if (state.lastSentSample && !isCandidateSampleNewer(pending, state.lastSentSample)) return
-    void sendLocationForDelivery(deliveryId, pending)
+    scheduleOrSendForDelivery(deliveryId)
   }
 
   // Single-flight de POST por entrega (MAX_CONCURRENT_POST_PER_DELIVERY=1).
@@ -450,46 +482,63 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // 2xx confirmado — nunca al iniciar el fetch, nunca ante un fallo
   // (P2-T02 Stage 1B §20) — un intento nunca se confunde con una
   // aceptación del servidor.
-  async function sendLocationForDelivery(deliveryId: string, sample: TrackingLocationSample) {
+  async function sendLocationForDelivery(
+    deliveryId: string,
+    sample: TrackingLocationSample,
+    trajectoryBatch: TrackingTrajectoryBatch | null = null,
+  ) {
     const state = getOrCreateDeliveryState(deliveryId)
     if (state.postInFlight) {
       // Ya hay un POST en vuelo para esta entrega — conservar sólo el
       // sample más reciente como pendiente para reevaluar al terminar,
       // nunca disparar un segundo POST concurrente.
-      if (isCandidateSampleNewer(sample, state.pendingMeaningfulSample)) {
+      if (!trajectoryBatch && isCandidateSampleNewer(sample, state.pendingMeaningfulSample)) {
         state.pendingMeaningfulSample = sample
       }
       return
     }
 
+    if (!trajectoryBatch && state.lastSentSample !== null && state.trajectoryBuffer.points.length > 0) {
+      scheduleOrSendForDelivery(deliveryId)
+      return
+    }
+
     state.postInFlight = true
     try {
+      const payload: {
+        pedidoId: string
+        lat: number
+        lng: number
+        trajectory?: TrackingTrajectoryBatch["points"]
+      } = { pedidoId: deliveryId, lat: sample.lat, lng: sample.lng }
+      if (trajectoryBatch) payload.trajectory = trajectoryBatch.points
       const res = await fetch("/api/repartidor/ubicacion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pedidoId: deliveryId, lat: sample.lat, lng: sample.lng }),
+        body: JSON.stringify(payload),
       })
 
       const currentState = deliveryStateRef.current.get(deliveryId)
       if (!currentState) return // la entrega fue limpiada mientras el POST estaba en vuelo
 
       if (!res.ok) {
-        // Cualquier no-2xx — status/transporte únicamente, nunca parseado
-        // del cuerpo de la respuesta (mismo contrato que P2-T01). Limpieza
-        // COMPLETA (no sólo timers): así, si un "mios" fresco vuelve a
-        // confirmar elegibilidad más tarde, el efecto de reconciliación la
-        // trata como genuinamente nueva (ensureInitialSendForDelivery +
-        // heartbeat fresco), nunca reanudando en silencio contra un
-        // lastSentSample potencialmente viejo (P2-T02 Stage 3 §12).
-        knownIneligibleRef.current.add(deliveryId)
-        cleanupDeliveryState(deliveryId)
-        // Si ninguna entrega restante es core-elegible, liberar el sensor
-        // GPS ahora — no esperar a un cambio de props no relacionado
-        // (P2-T02 Stage 3 §11).
-        stopWatcherIfNoneEligible()
+        if (res.status >= 400 && res.status < 500) {
+          knownIneligibleRef.current.add(deliveryId)
+          cleanupDeliveryState(deliveryId)
+          stopWatcherIfNoneEligible()
+          return
+        }
+        currentState.inFlightTrajectoryBatch = null
+        currentState.trajectoryRetryBlocked = true
         return
       }
 
+      if (trajectoryBatch) {
+        acknowledgeTrackingTrajectoryBatch(currentState.trajectoryBuffer, trajectoryBatch)
+        currentState.inFlightTrajectoryBatch = null
+      } else if (currentState.lastSentSample === null) {
+        resetTrackingTrajectoryBuffer(currentState.trajectoryBuffer, sample)
+      }
       currentState.lastSentSample = sample
       currentState.lastSuccessfulSendAt = Date.now()
 
@@ -505,20 +554,28 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       // contra el throttle normal — nunca se pierde silenciosamente.
       const pending = currentState.pendingMeaningfulSample
       currentState.pendingMeaningfulSample = null
-      if (pending && isCandidateSampleNewer(pending, sample)) {
-        scheduleOrSendForDelivery(deliveryId, pending)
+      const pendingIsNewer = pending && (trajectoryBatch
+        ? pending.capturedAt > sample.capturedAt
+        : isCandidateSampleNewer(pending, sample))
+      if (pending && pendingIsNewer) {
+        const acceptedPending = acceptTrackingTrajectoryPoint(currentState.trajectoryBuffer, pending, Date.now())
+        if (acceptedPending.accepted) currentState.trajectoryRetryBlocked = false
+        else currentState.pendingMeaningfulSample = pending
       }
+      scheduleOrSendForDelivery(deliveryId)
     } catch {
-      // Network error / abort — fail-closed exactamente igual que un
-      // no-2xx.
       const currentState = deliveryStateRef.current.get(deliveryId)
       if (!currentState) return
-      knownIneligibleRef.current.add(deliveryId)
-      cleanupDeliveryState(deliveryId)
-      stopWatcherIfNoneEligible()
+      currentState.inFlightTrajectoryBatch = null
+      currentState.trajectoryRetryBlocked = true
     } finally {
       const currentState = deliveryStateRef.current.get(deliveryId)
-      if (currentState) currentState.postInFlight = false
+      if (currentState) {
+        currentState.postInFlight = false
+        if (currentState.trajectoryBuffer.points.length > 0 && !currentState.trajectoryRetryBlocked) {
+          scheduleOrSendForDelivery(deliveryId)
+        }
+      }
     }
   }
 

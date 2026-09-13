@@ -5,11 +5,17 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
+import {
+  MAX_BATCH_PAYLOAD_BYTES,
+  validateTrackingTrajectoryPayload,
+  type TrackingTrajectoryWirePoint,
+} from "@/lib/tracking-trajectory"
 
 interface UpdateUbicacionBody {
   pedidoId: string
   lat: number
   lng: number
+  trajectory?: TrackingTrajectoryWirePoint[]
 }
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
@@ -39,7 +45,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Validate required fields
-    const body: UpdateUbicacionBody = await req.json()
+    const parsedBody: unknown = await req.json()
+    if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+      return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 })
+    }
+    const body = parsedBody as UpdateUbicacionBody
     const { pedidoId, lat, lng } = body
 
     if (!pedidoId || typeof pedidoId !== "string") {
@@ -49,7 +59,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (typeof lat !== "number" || typeof lng !== "number") {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json(
         { error: "lat y lng deben ser números válidos" },
         { status: 400 }
@@ -61,6 +71,19 @@ export async function POST(req: NextRequest) {
         { error: "Coordenadas fuera de rango válido" },
         { status: 400 }
       )
+    }
+
+    let trajectory: TrackingTrajectoryWirePoint[] | undefined
+    if (body.trajectory !== undefined) {
+      const serializedBody = JSON.stringify(body)
+      if (Buffer.byteLength(serializedBody, "utf8") > MAX_BATCH_PAYLOAD_BYTES) {
+        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, { status: 413 })
+      }
+      const validation = validateTrackingTrajectoryPayload(body.trajectory, lat, lng)
+      if (!validation.ok) {
+        return NextResponse.json({ error: "Trayectoria inválida" }, { status: 400 })
+      }
+      trajectory = validation.points
     }
 
     // 3. Find the pedido and validate. `negocio.seguimientoDeliveryActivo`
@@ -273,6 +296,7 @@ export async function POST(req: NextRequest) {
         lng,
         timestamp,
         version: locationRevision,
+        ...(trajectory ? { trajectory } : {}),
       },
     })
 
@@ -283,6 +307,9 @@ export async function POST(req: NextRequest) {
       repartidorLng: lng,
       repartidorLastUpdate: timestamp,
       locationRevision,
+      version: locationRevision,
+      timestamp,
+      ...(trajectory ? { acceptedTrajectoryPointsCount: trajectory.length } : {}),
     })
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))

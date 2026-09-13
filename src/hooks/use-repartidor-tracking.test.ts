@@ -528,6 +528,21 @@ describe("T11-T12 — heartbeat + new delivery while stationary", () => {
   })
 })
 
+describe("R3A — bounded trajectory transport", () => {
+  test("STATIONARY_90_SECONDS_NO_TRAJECTORY_POST: fake-time stationary callbacks never create a trajectory batch", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId = lastWatchId()
+    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5)
+
+    advanceTime(90000)
+    await act(async () => { await Promise.resolve() })
+
+    const bodies = fetchMock.mock.calls.map((call: unknown[]) => JSON.parse((call[1] as { body: string }).body) as Record<string, unknown>)
+    expect(bodies.some((body) => body.trajectory !== undefined)).toBe(false)
+  })
+})
+
 // ============================================
 // T13-T15 — multi-delivery fan-out / removal / last-removed
 // ============================================
@@ -1265,7 +1280,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     expect(controller.getApi().trackingActive).toBe(true)
   })
 
-  test("T48: a POST failure for the sole eligible delivery stops the watcher (all-known-ineligible -> zero remaining GPS demand)", async () => {
+  test("T48: a transient/5xx POST failure retains bounded state and does not stop the eligible watcher", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -1275,11 +1290,16 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     })
     await resolveNextFetch(500)
 
-    expect(clearWatchMock).toHaveBeenCalledTimes(1)
-    expect(activeWatchCount()).toBe(0)
+    expect(clearWatchMock).toHaveBeenCalledTimes(0)
+    expect(activeWatchCount()).toBe(1)
+    advanceTime(10000)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // no timer-only retry
+    fireWatchSuccess(watchId, -34.59, -58.4, 5)
+    await act(async () => { await Promise.resolve() })
+    expect(fetchMock).toHaveBeenCalledTimes(2) // next physical sample resumes
   })
 
-  test("T49: a fresh mios recovering a locally-ineligible delivery genuinely rearms its heartbeat, not just its initial send", async () => {
+  test("T49: a 4xx remains fail-closed and a fresh eligible mios starts a clean delivery", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -1287,7 +1307,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     await act(async () => {
       await Promise.resolve()
     })
-    await resolveNextFetch(500) // fails -> watcher stops, state fully cleaned up
+    await resolveNextFetch(400) // auth/contract rejection -> watcher stops, state fully cleaned up
     getCurrentPositionMock.mockClear() // the mount's own leftover one-shot is irrelevant here
 
     advanceTime(6000)

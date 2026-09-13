@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "crypto"
+import type { TrackingTrajectoryWirePoint } from "@/lib/tracking-trajectory"
 
 export const INTERNAL_PUBLISH_PATH = "/internal/realtime/publish"
 export const INTERNAL_PUBLISH_TIMEOUT_MS = 400
@@ -32,6 +33,7 @@ type TrackingLocationUpdatedPayload = {
   lng: number
   timestamp: string
   version?: number | string
+  trajectory?: TrackingTrajectoryWirePoint[]
 }
 
 export type RealtimePublishEvent =

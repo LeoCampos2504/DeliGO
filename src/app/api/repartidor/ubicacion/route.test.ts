@@ -226,6 +226,69 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     expect(Object.keys(event.payload).sort()).toEqual(["lat", "lng", "pedidoId", "timestamp", "version"])
   })
 
+  test("R3A: valid trajectory persists only its last point, advances one revision, and publishes the same DB version", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000 },
+    ]
+
+    const res = await callRoute(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
+    const body = await res.json()
+    const event = publishCalls[0] as { payload: Record<string, unknown> }
+
+    expect(res.status).toBe(200)
+    expect(body.locationRevision).toBe(1)
+    expect(body.acceptedTrajectoryPointsCount).toBe(3)
+    expect(body.repartidorLat).toBe(-34.5999)
+    expect(body.repartidorLng).toBe(-58.3999)
+    expect(event.payload.version).toBe(1)
+    expect(event.payload.lat).toBe(-34.5999)
+    expect(event.payload.trajectory).toEqual(trajectory)
+    expect(queryRawCalls).toHaveLength(1)
+  })
+
+  test("R3A: malformed trajectory contracts are rejected before the atomic write", async () => {
+    const cases: Array<Record<string, unknown>> = [
+      { lat: -34.6, lng: -58.4, trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: -34.5, lng: -58.3, offsetMs: 1 }] },
+      { lat: -34.6, lng: -58.4, trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: -34.5, lng: -58.3, offsetMs: 6_000 }] },
+      { lat: -34.6, lng: -58.4, trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 1 }, { lat: -34.5, lng: -58.3, offsetMs: 0 }] },
+      { lat: -34.6, lng: -58.4, trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: Number.NaN, lng: -58.3, offsetMs: 1 }] },
+      { lat: -34.6, lng: -58.4, trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: -34.5, lng: -58.3, offsetMs: 1 }] },
+    ]
+
+    for (const candidate of cases) {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      const res = await callRoute(pedidoId, candidate)
+      expect([400, 413]).toContain(res.status)
+      expect(queryRawCalls).toHaveLength(0)
+    }
+  })
+
+  test("R3A: trajectory point-count, range, and distance limits reject without publishing", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const tooMany = Array.from({ length: 13 }, (_, index) => ({ lat: -34.6 + index * 0.00001, lng: -58.4, offsetMs: index }))
+    const tooManyResponse = await callRoute(pedidoId, { lat: -34.59988, lng: -58.4, trajectory: tooMany })
+    expect(tooManyResponse.status).toBe(400)
+    expect(queryRawCalls).toHaveLength(0)
+
+    const rangeResponse = await callRoute(pedidoId, { lat: 91, lng: -58.4, trajectory: [{ lat: 91, lng: -58.4, offsetMs: 0 }] })
+    expect(rangeResponse.status).toBe(400)
+    expect(queryRawCalls).toHaveLength(0)
+
+    const distanceResponse = await callRoute(pedidoId, {
+      lat: -34.6,
+      lng: -58.4,
+      trajectory: [{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: -30, lng: -58.4, offsetMs: 1 }],
+    })
+    expect(distanceResponse.status).toBe(400)
+    expect(queryRawCalls).toHaveLength(0)
+  })
+
   test("locationRevision strictly advances across successive accepted updates for the same pedido", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })

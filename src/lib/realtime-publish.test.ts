@@ -38,6 +38,30 @@ beforeEach(() => {
 })
 
 describe("server-only realtime publish helper", () => {
+  test("serializes the optional tracking trajectory without changing the legacy envelope", async () => {
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000 },
+    ]
+    let sentBody = ""
+    const response = await publishRealtimeEvent({
+      version: 1,
+      type: "tracking.location.updated",
+      eventId: "trajectory-event",
+      resourceId: "pedido-a",
+      occurredAt: new Date().toISOString(),
+      payload: { pedidoId: "pedido-a", lat: -34.5999, lng: -58.4, timestamp: new Date().toISOString(), version: 7, trajectory },
+    }, {
+      fetchImpl: async (_url, init = {}) => {
+        sentBody = String(init.body)
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      },
+    })
+
+    expect(response.status).toBe("success")
+    expect(JSON.parse(sentBody).payload.trajectory).toEqual(trajectory)
+  })
+
   test("composes URL and emits verifier-compatible HMAC headers", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
     const response = await publishRealtimeEvent(event(), {

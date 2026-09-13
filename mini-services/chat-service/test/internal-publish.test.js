@@ -344,17 +344,20 @@ describe("internal publish auth and schema", () => {
       occurredAt: new Date().toISOString(),
       payload: {
         pedidoId: "pedido-publish-a",
-        lat: -34.6037,
-        lng: -58.3816,
+        lat: -34.6038,
+        lng: -58.3817,
         timestamp: new Date().toISOString(),
         version: 4,
+        trajectory: [
+          { lat: -34.6037, lng: -58.3816, offsetMs: 0 },
+          { lat: -34.6038, lng: -58.3817, offsetMs: 1000 },
+        ],
       },
     }
     assert.equal(parseAndValidateEnvelope(JSON.stringify(readEnvelope)).type, "chat.messages.read")
-    assert.equal(
-      parseAndValidateEnvelope(JSON.stringify(trackingEnvelope)).type,
-      "tracking.location.updated"
-    )
+    const parsedTracking = parseAndValidateEnvelope(JSON.stringify(trackingEnvelope))
+    assert.equal(parsedTracking.type, "tracking.location.updated")
+    assert.deepEqual(parsedTracking.payload.trajectory, trackingEnvelope.payload.trajectory)
 
     assert.throws(
       () => parseAndValidateEnvelope(JSON.stringify({ ...envelope, type: "arbitrary.broadcast" })),
@@ -1127,6 +1130,24 @@ describe("internal publish recipient scope filtering", () => {
     assert.equal(response.status, 200)
     const message = await received
     assert.equal(message.pedidoId, pedidoId)
+    socket.disconnect()
+  })
+
+  test("tracking trajectory is preserved by the realtime bridge fan-out", async () => {
+    const pedidoId = "pedido-recipient-track-trajectory"
+    const { socket, ack } = await joinAuthorizedRoom(pedidoId, "cliente", ["tracking:watch"])
+    assert.equal(ack.ok, true)
+    const received = new Promise((resolve) => socket.once("repartidor-location", resolve))
+    const envelope = validTracking("recipient-track-trajectory-event", pedidoId, -34.6038, -58.3817)
+    envelope.payload.trajectory = [
+      { lat: -34.6037, lng: -58.3816, offsetMs: 0 },
+      { lat: -34.6038, lng: -58.3817, offsetMs: 1000 },
+    ]
+
+    const response = await publish(envelope)
+    assert.equal(response.status, 200)
+    const message = await received
+    assert.deepEqual(message.trajectory, envelope.payload.trajectory)
     socket.disconnect()
   })
 
