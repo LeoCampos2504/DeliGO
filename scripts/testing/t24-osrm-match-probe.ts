@@ -7,7 +7,7 @@
  */
 
 import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
-import { evaluateMapMatching } from "@/lib/map-matching-policy"
+import { evaluateMapMatchingWithDiagnostics } from "@/lib/map-matching-policy"
 import type { RawMatchingPoint } from "@/lib/map-matching-provider"
 
 const SYNTHETIC_TRACE: RawMatchingPoint[] = [
@@ -73,9 +73,9 @@ async function main(): Promise<void> {
   const latencyMs = Date.now() - startedAt
 
   console.log("T24_PROBE_STATUS=COMPLETED")
-  console.log("PROBE_EXECUTION_ENVIRONMENT=LOCAL_TESTING_CONTEXT")
+  console.log("PROBE_EXECUTION_ENVIRONMENT=TESTING_RAILWAY_RUNTIME")
   console.log("PROBE_PII_SENT=NO")
-  console.log("PROBE_TRACE_POINTS=3_SYNTHETIC")
+  console.log("PROBE_TRACE_POINTS=" + SYNTHETIC_TRACE.length + "_SYNTHETIC")
   console.log("LATENCY_MS=" + latencyMs)
   console.log("TIMEOUT_MS=" + timeoutMs)
   console.log("OSRM_MATCH_RESULT_STATUS=" + result.status)
@@ -87,22 +87,29 @@ async function main(): Promise<void> {
     console.log("OSRM_MATCHINGS=" + result.matchings.length)
     console.log("OSRM_MATCH_CONFIDENCE=" + result.matchings.map((matching) => matching.confidence).join(","))
     console.log("OSRM_MATCH_GEOMETRY=FULL_GEOJSON")
+    result.tracepoints.forEach((tracepoint, index) => {
+      console.log("TRACEPOINT_" + index + "_MATCHINGS_INDEX=" + (tracepoint?.matchingIndex ?? "NULL"))
+      console.log("TRACEPOINT_" + index + "_WAYPOINT_INDEX=" + (tracepoint?.waypointIndex ?? "NULL"))
+      console.log("TRACEPOINT_" + index + "_ALTERNATIVES_COUNT=" + (tracepoint?.alternativesCount ?? "NULL"))
+      console.log("TRACEPOINT_" + index + "_SNAPPED_DISTANCE_M=" + (tracepoint?.snapDistanceMeters ?? "NULL"))
+      console.log("TRACEPOINT_" + index + "_RAW_ACCURACY_M=" + (SYNTHETIC_TRACE[index].accuracy ?? "UNSET"))
+    })
   } else {
     console.log("OSRM_MATCH_VALID_TRACE=FAIL")
     console.log("OSRM_MATCH_RADIUSES=FAIL")
     console.log("OSRM_MATCH_FAILURE_REASON=" + (result.status === "error" || result.status === "rejected" ? result.reason : "timeout"))
   }
-  const policy = evaluateMapMatching(SYNTHETIC_TRACE, result)
+  const evaluation = evaluateMapMatchingWithDiagnostics(SYNTHETIC_TRACE, result)
+  const policy = evaluation.decision
   console.log("PROBE_CURRENT_POLICY_STAGE=ADAPTER_PARSER_GEOMETRY_AND_EVALUATE_MAP_MATCHING")
   console.log("POLICY_DECISION=" + policy.decision)
   if (policy.decision === "REJECT_MATCH") console.log("POLICY_REJECTION_REASON=" + policy.reason)
-  const guardStatus = (reasons: string[]): string =>
-    policy.decision === "ACCEPT_MATCH" ? "PASS" : policy.decision === "REJECT_MATCH" && reasons.includes(policy.reason) ? "FAIL" : "NOT_EVALUATED"
-  console.log("SNAP_DISTANCE_GUARDS=" + guardStatus(["snap_distance_exceeded", "snap_distance_count_mismatch"]))
-  console.log("TRACEPOINT_GUARDS=" + guardStatus(["tracepoint_count_mismatch", "null_tracepoint", "raw_point_count_mismatch"]))
-  console.log("CONFIDENCE_GUARD=" + guardStatus(["low_confidence"]))
-  console.log("ALTERNATIVES_GUARD=" + guardStatus(["ambiguous_tracepoints"]))
-  console.log("SINGLE_SUBTRACE_GUARD=" + guardStatus(["multiple_or_missing_matchings"]))
+  console.log("SNAP_DISTANCE_GUARDS=" + evaluation.guards.snapDistance)
+  console.log("TRACEPOINT_GUARDS=" + evaluation.guards.tracepoints)
+  console.log("CONFIDENCE_GUARD=" + evaluation.guards.confidence)
+  console.log("ALTERNATIVES_GUARD=" + evaluation.guards.alternatives)
+  console.log("SINGLE_SUBTRACE_GUARD=" + evaluation.guards.singleSubtrace)
+  console.log("GEOMETRY_GUARD=" + evaluation.guards.geometry)
   console.log("OSRM_MATCH_NOMATCH_BEHAVIOR=NOT_RUN_RUNTIME_SAFE")
   console.log("PROBE_NOTE=NoMatch and timeout/abort failure paths are covered by deterministic unit tests; no unsuitable public request is sent.")
 }

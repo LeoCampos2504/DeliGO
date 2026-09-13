@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { evaluateMapMatching, isRawMatchingCandidate, matchingEligibilityReason } from "@/lib/map-matching-policy"
+import { evaluateMapMatching, evaluateMapMatchingWithDiagnostics, isRawMatchingCandidate, matchingEligibilityReason } from "@/lib/map-matching-policy"
 import { isMatchedRealtimePayloadWithinLimit, serializedUtf8Bytes } from "@/lib/map-matching-provider"
 import type { MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
 
@@ -9,22 +9,41 @@ const raw: RawMatchingPoint[] = [
   { lat: 52.5174, lng: 13.3895, offsetMs: 2_000, accuracy: 5 },
 ]
 
-function matched(overrides: Partial<Extract<MapMatchingResult, { status: "matched" }>> = {}): Extract<MapMatchingResult, { status: "matched" }> {
+const rawSix: RawMatchingPoint[] = Array.from({ length: 6 }, (_, index) => ({
+  lat: 52.517 + index * 0.001,
+  lng: 13.389 + index * 0.001,
+  offsetMs: index * 1_000,
+  accuracy: 5,
+}))
+
+function matched(
+  overrides: Partial<Extract<MapMatchingResult, { status: "matched" }>> = {},
+  points: RawMatchingPoint[] = raw,
+): Extract<MapMatchingResult, { status: "matched" }> {
   return {
     status: "matched",
     provider: "osrm",
-    rawPointCount: raw.length,
-    tracepoints: raw.map((point, index) => ({
+    rawPointCount: points.length,
+    tracepoints: points.map((point, index) => ({
       lat: point.lat, lng: point.lng, matchingIndex: 0, waypointIndex: index,
       alternativesCount: 0, snapDistanceMeters: 0,
     })),
     matchings: [{ matchingIndex: 0, confidence: 0.91, geometry: {
       type: "LineString", coordinates: raw.map((point) => [point.lng, point.lat]),
     }}],
-    matchedTrajectory: raw.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })),
-    snapDistancesMeters: [0, 0, 0],
+    matchedTrajectory: points.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })),
+    snapDistancesMeters: points.map(() => 0),
     ...overrides,
   }
+}
+
+function withAlternatives(points: RawMatchingPoint[], indices: number[]): Extract<MapMatchingResult, { status: "matched" }> {
+  return matched({
+    tracepoints: points.map((point, index) => ({
+      lat: point.lat, lng: point.lng, matchingIndex: 0, waypointIndex: index,
+      alternativesCount: indices.includes(index) ? 1 : 0, snapDistanceMeters: 0,
+    })),
+  }, points)
 }
 
 function rejection(result: ReturnType<typeof evaluateMapMatching>): string {
@@ -36,6 +55,40 @@ describe("P2-T24 map matching pure policy", () => {
   test("accepts a complete high-confidence single matching", () => {
     const result = evaluateMapMatching(raw, matched())
     expect(result.decision).toBe("ACCEPT_MATCH")
+  })
+
+  test("accepts zero alternatives_count", () => {
+    expect(evaluateMapMatching(raw, matched()).decision).toBe("ACCEPT_MATCH")
+  })
+
+  test("accepts one isolated intermediate alternative", () => {
+    expect(evaluateMapMatching(raw, withAlternatives(raw, [1])).decision).toBe("ACCEPT_MATCH")
+  })
+
+  test("rejects an ambiguous first tracepoint", () => {
+    expect(rejection(evaluateMapMatching(raw, withAlternatives(raw, [0])))).toBe("ambiguous_tracepoints")
+  })
+
+  test("rejects an ambiguous last tracepoint", () => {
+    expect(rejection(evaluateMapMatching(raw, withAlternatives(raw, [2])))).toBe("ambiguous_tracepoints")
+  })
+
+  test("rejects two consecutive ambiguous tracepoints", () => {
+    expect(rejection(evaluateMapMatching(rawSix, withAlternatives(rawSix, [2, 3])))).toBe("ambiguous_tracepoints")
+  })
+
+  test("rejects a majority of ambiguous tracepoints", () => {
+    expect(rejection(evaluateMapMatching(rawSix, withAlternatives(rawSix, [1, 2, 3, 4])))).toBe("ambiguous_tracepoints")
+  })
+
+  test("rejects every tracepoint being ambiguous", () => {
+    expect(rejection(evaluateMapMatching(raw, withAlternatives(raw, [0, 1, 2])))).toBe("ambiguous_tracepoints")
+  })
+
+  test("keeps high confidence plus isolated ambiguity eligible", () => {
+    const result = evaluateMapMatching(raw, withAlternatives(raw, [1]))
+    expect(result.decision).toBe("ACCEPT_MATCH")
+    if (result.decision === "ACCEPT_MATCH") expect(result.confidence).toBe(0.91)
   })
 
   test("requires at least three raw points", () => {
@@ -85,7 +138,6 @@ describe("P2-T24 map matching pure policy", () => {
     const base = matched()
     expect(rejection(evaluateMapMatching(raw, { ...base, matchings: [base.matchings[0], base.matchings[0]] }))).toBe("multiple_or_missing_matchings")
     expect(rejection(evaluateMapMatching(raw, { ...base, tracepoints: [base.tracepoints[0], null, base.tracepoints[2]] }))).toBe("null_tracepoint")
-    expect(rejection(evaluateMapMatching(raw, { ...base, tracepoints: base.tracepoints.map((point) => point && { ...point, alternativesCount: 1 }) }))).toBe("ambiguous_tracepoints")
   })
 
   test("rejects out-of-order tracepoints and mismatched matching indexes", () => {
@@ -104,6 +156,25 @@ describe("P2-T24 map matching pure policy", () => {
     expect(rejection(evaluateMapMatching(raw, matched({ rawPointCount: 2 })))).toBe("raw_point_count_mismatch")
     expect(rejection(evaluateMapMatching(raw, matched({ snapDistancesMeters: [0, 0] })))).toBe("snap_distance_count_mismatch")
     expect(rejection(evaluateMapMatching(raw, matched({ snapDistancesMeters: [Number.NaN, 0, 0] })))).toBe("snap_distance_exceeded")
+  })
+
+  test("rejects snap failure even when alternatives are otherwise acceptable", () => {
+    const result = withAlternatives(raw, [1])
+    result.snapDistancesMeters = [0, 15.01, 0]
+    expect(rejection(evaluateMapMatching(raw, result))).toBe("snap_distance_exceeded")
+  })
+
+  test("reports all independent guards for an otherwise valid endpoint ambiguity", () => {
+    const evaluation = evaluateMapMatchingWithDiagnostics(raw, withAlternatives(raw, [2]))
+    expect(evaluation.decision).toEqual({ decision: "REJECT_MATCH", reason: "ambiguous_tracepoints" })
+    expect(evaluation.guards).toEqual({
+      confidence: "PASS",
+      snapDistance: "PASS",
+      tracepoints: "PASS",
+      alternatives: "FAIL",
+      singleSubtrace: "PASS",
+      geometry: "PASS",
+    })
   })
 
   test("accepts zero-duration duplicate timestamps while preserving endpoints", () => {
