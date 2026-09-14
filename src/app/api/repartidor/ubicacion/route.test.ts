@@ -40,7 +40,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { RATE_LIMITS } from "@/lib/rate-limit"
-import type { MapMatchingDiagnostics, MapMatchingRequestContext, MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
+import type { MapMatchingRequestContext, MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
 
 let idCounter = 0
 function nextIds() {
@@ -121,18 +121,7 @@ mock.module("@/lib/osrm-map-matching-provider", () => ({
     name: "osrm",
     matchTrajectory: async (points: readonly RawMatchingPoint[], context: MapMatchingRequestContext = {}) => {
       matchingCalls.push({ points: [...points], context })
-      const result = await matchingImpl([...points], context)
-      context.diagnostics?.({
-        providerResultStatus: result.status,
-        fetchHeadersMs: result.status === "timeout" ? undefined : 12,
-        jsonBodyParseMs: result.status === "timeout" ? undefined : 2,
-        totalProviderMs: result.status === "timeout" ? 1_001 : 14,
-        abortElapsedMs: result.status === "timeout" ? 1_000 : undefined,
-        httpStatus: result.status === "matched" ? 200 : undefined,
-        providerCode: result.status === "matched" ? "Ok" : undefined,
-        confidence: result.status === "matched" ? result.matchings[0]?.confidence : undefined,
-      } satisfies MapMatchingDiagnostics)
-      return result
+      return matchingImpl([...points], context)
     },
   }),
 }))
@@ -213,175 +202,6 @@ function acceptedMatchingResult(points: readonly RawMatchingPoint[]): MapMatchin
 }
 
 describe("POST /api/repartidor/ubicacion — server-authoritative Tracking producer", () => {
-  test("R5.6 canary: Testing opt-in attaches control headers to invalid validation without mutation or provider", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-
-    // Deliberately omit lng so validation fails before the atomic DB write.
-    const request = buildRequest(pedidoId, { lat: -34.6 })
-    request.headers.set("X-T24-Diagnostic", "1")
-    const res = await POST(request)
-    const body = await res.json()
-
-    expect(res.status).toBe(400)
-    expect(body).toEqual({ error: "lat y lng deben ser números válidos" })
-    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
-    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
-    expect(queryRawCalls).toHaveLength(0) // DB_WRITE_COUNT=0
-    expect(matchingCalls).toHaveLength(0) // PROVIDER_CALL_COUNT=0
-    expect(publishCalls).toHaveLength(0) // REALTIME_PUBLISH_COUNT=0
-  })
-
-  test("R5.6 canary: the same invalid validation without opt-in has no control headers", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-
-    const res = await callRoute(pedidoId, { lat: -34.6 })
-    expect(res.status).toBe(400)
-    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBeNull()
-    expect(res.headers.get("X-T24-Diagnostic-Version")).toBeNull()
-    expect(queryRawCalls).toHaveLength(0)
-    expect(matchingCalls).toHaveLength(0)
-    expect(publishCalls).toHaveLength(0)
-  })
-
-  test("T24 diagnostics are absent without the explicit opt-in header", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-    const trajectory = [
-      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
-      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
-      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
-    ]
-
-    const res = await callRoute(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
-
-    expect(res.status).toBe(200)
-    expect(res.headers.get("X-T24-Match-Result")).toBeNull()
-    expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
-  })
-
-  test("T24 diagnostics are returned only for the explicit Testing opt-in and preserve the API body", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-    const trajectory = [
-      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
-      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
-      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
-    ]
-
-    const request = buildRequest(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
-    request.headers.set("X-T24-Diagnostic", "1")
-    const res = await POST(request)
-    const body = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 3 })
-    expect(res.headers.get("X-T24-Match-Result")).toBe("rejected")
-    expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("12")
-    expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("2")
-    expect(res.headers.get("X-T24-Match-Total-Ms")).toBe("14")
-    expect(res.headers.get("X-T24-Match-Policy")).toBe("REJECT_MATCH")
-    expect(res.headers.get("X-T24-Match-Rejection")).toBe("provider_rejected")
-    const diagnosticValues = Array.from(res.headers.entries())
-      .filter(([name]) => name.toLowerCase().startsWith("x-t24-match-"))
-      .map(([, value]) => value)
-      .join(" ")
-    expect(diagnosticValues).not.toContain(pedidoId)
-    expect(diagnosticValues).not.toContain("-34.5999")
-    expect(diagnosticValues).not.toContain("-58.3999")
-    expect(diagnosticValues).not.toContain("trajectory")
-  })
-
-  test("T24 diagnostics survive the exact timeout to HTTP 200 RAW fallback path", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-    matchingImpl = async () => ({ status: "timeout", provider: "osrm" })
-    const trajectory = [
-      { lat: -34.603700, lng: -58.381600, offsetMs: 0, accuracy: 5 },
-      { lat: -34.603580, lng: -58.381520, offsetMs: 450, accuracy: 5 },
-      { lat: -34.603440, lng: -58.381420, offsetMs: 900, accuracy: 5 },
-      { lat: -34.603280, lng: -58.381300, offsetMs: 1_350, accuracy: 5 },
-    ]
-    const request = buildRequest(pedidoId, { lat: -34.603280, lng: -58.381300, trajectory })
-    request.headers.set("X-T24-Diagnostic", "1")
-
-    const res = await POST(request)
-    const body = await res.json()
-    const event = publishCalls[0] as { payload: Record<string, unknown> }
-
-    expect(res.status).toBe(200)
-    expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 4 })
-    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
-    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
-    expect(res.headers.get("X-T24-Match-Result")).toBe("timeout")
-    expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("NOT_AVAILABLE")
-    expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("NOT_AVAILABLE")
-    expect(res.headers.get("X-T24-Match-Total-Ms")).toBe("1001")
-    expect(res.headers.get("X-T24-Match-Abort-Ms")).toBe("1000")
-    expect(res.headers.get("X-T24-Match-Policy")).toBe("REJECT_MATCH")
-    expect(res.headers.get("X-T24-Match-Rejection")).toBe("provider_timeout")
-    expect(event.payload.matchedTrajectory).toBeUndefined()
-    expect(event.payload.trajectory).toEqual(trajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })))
-  })
-
-  test("T24 diagnostics expose the matched provider and ACCEPT policy on the success path", async () => {
-    const { repartidorId, pedidoId } = nextIds()
-    setActor({ repartidorId, pedidoId })
-    const trajectory = [
-      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
-      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
-      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
-      { lat: -34.5998, lng: -58.3999, offsetMs: 3_000, accuracy: 5 },
-    ]
-    matchingImpl = async (points) => acceptedMatchingResult(points)
-    const request = buildRequest(pedidoId, { lat: -34.5998, lng: -58.3999, trajectory })
-    request.headers.set("X-T24-Diagnostic", "1")
-
-    const res = await POST(request)
-    const body = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 4 })
-    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
-    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
-    expect(res.headers.get("X-T24-Match-Result")).toBe("matched")
-    expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("12")
-    expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("2")
-    expect(res.headers.get("X-T24-Match-Total-Ms")).toBe("14")
-    expect(res.headers.get("X-T24-Match-Http-Status")).toBe("200")
-    expect(res.headers.get("X-T24-Match-Provider-Code")).toBe("Ok")
-    expect(res.headers.get("X-T24-Match-Policy")).toBe("ACCEPT_MATCH")
-    expect(res.headers.get("X-T24-Match-Rejection")).toBe("NOT_AVAILABLE")
-  })
-
-  test("T24 diagnostics remain absent in Production even when the request opts in", async () => {
-    const originalEnvironment = process.env.DELIGO_ENVIRONMENT
-    const originalNodeEnv = process.env.NODE_ENV
-    process.env.DELIGO_ENVIRONMENT = "PRODUCTION"
-    process.env.NODE_ENV = "production"
-    try {
-      const { repartidorId, pedidoId } = nextIds()
-      setActor({ repartidorId, pedidoId })
-      const request = buildRequest(pedidoId, { lat: -34.6, lng: -58.4 })
-      request.headers.set("X-T24-Diagnostic", "1")
-
-      const res = await POST(request)
-
-      expect(res.status).toBe(200)
-      expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBeNull()
-      expect(res.headers.get("X-T24-Diagnostic-Version")).toBeNull()
-      expect(res.headers.get("X-T24-Match-Result")).toBeNull()
-      expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
-      expect(matchingCalls).toHaveLength(0)
-    } finally {
-      if (originalEnvironment === undefined) delete process.env.DELIGO_ENVIRONMENT
-      else process.env.DELIGO_ENVIRONMENT = originalEnvironment
-      if (originalNodeEnv === undefined) delete process.env.NODE_ENV
-      else process.env.NODE_ENV = originalNodeEnv
-    }
-  })
-
   test("A: successful POST persists the location, atomically advances locationRevision, and publishes tracking.location.updated exactly once with the exact envelope", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })

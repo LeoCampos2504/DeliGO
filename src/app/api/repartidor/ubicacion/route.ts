@@ -6,7 +6,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { evaluateMapMatching, isRawMatchingCandidate } from "@/lib/map-matching-policy"
 import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
-import { isMatchedRealtimePayloadWithinLimit, type MapMatchingDiagnostics } from "@/lib/map-matching-provider"
+import { isMatchedRealtimePayloadWithinLimit } from "@/lib/map-matching-provider"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
 import {
   MAX_BATCH_PAYLOAD_BYTES,
@@ -42,48 +42,6 @@ function createTestingMapMatchingProvider() {
   })
 }
 
-function isT24DiagnosticRequest(req: NextRequest): boolean {
-  return isTestingRuntime() &&
-    req.headers.get("x-t24-diagnostic") === "1"
-}
-
-function diagnosticNumber(value: number | undefined): string {
-  return value === undefined ? "NOT_AVAILABLE" : String(value)
-}
-
-function buildT24DiagnosticControlHeaders(): Headers {
-  const headers = new Headers()
-  headers.set("X-T24-Diagnostic-Enabled", "1")
-  headers.set("X-T24-Diagnostic-Version", "R5.6")
-  return headers
-}
-
-function diagnosticResponseInit(diagnosticRequested: boolean, init: ResponseInit = {}): ResponseInit {
-  if (!diagnosticRequested) return init
-  const headers = new Headers(init.headers)
-  for (const [name, value] of buildT24DiagnosticControlHeaders()) headers.set(name, value)
-  return { ...init, headers }
-}
-
-function buildT24DiagnosticHeaders(
-  providerDiagnostics: MapMatchingDiagnostics | undefined,
-  policyDecision: "ACCEPT_MATCH" | "REJECT_MATCH" | undefined,
-  policyRejectionReason: string | undefined,
-): Headers {
-  const headers = buildT24DiagnosticControlHeaders()
-  headers.set("X-T24-Match-Result", providerDiagnostics?.providerResultStatus ?? "NOT_AVAILABLE")
-  headers.set("X-T24-Match-Fetch-Headers-Ms", diagnosticNumber(providerDiagnostics?.fetchHeadersMs))
-  headers.set("X-T24-Match-Json-Parse-Ms", diagnosticNumber(providerDiagnostics?.jsonBodyParseMs))
-  headers.set("X-T24-Match-Total-Ms", diagnosticNumber(providerDiagnostics?.totalProviderMs))
-  headers.set("X-T24-Match-Abort-Ms", diagnosticNumber(providerDiagnostics?.abortElapsedMs))
-  headers.set("X-T24-Match-Http-Status", diagnosticNumber(providerDiagnostics?.httpStatus))
-  headers.set("X-T24-Match-Provider-Code", providerDiagnostics?.providerCode ?? "NOT_AVAILABLE")
-  headers.set("X-T24-Match-Confidence", diagnosticNumber(providerDiagnostics?.confidence))
-  headers.set("X-T24-Match-Policy", policyDecision ?? "NOT_EVALUATED")
-  headers.set("X-T24-Match-Rejection", policyRejectionReason ?? "NOT_AVAILABLE")
-  return headers
-}
-
 function realtimeTrajectoryWithoutAccuracy(
   trajectory: TrackingTrajectoryWirePoint[] | undefined,
 ) {
@@ -92,17 +50,16 @@ function realtimeTrajectoryWithoutAccuracy(
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
 export async function POST(req: NextRequest) {
-  const diagnosticRequested = isT24DiagnosticRequest(req)
   try {
     // 1. Authenticate repartidor from cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, diagnosticResponseInit(diagnosticRequested, { status: 401 }))
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "repartidor") {
-      return NextResponse.json({ error: "Acceso denegado" }, diagnosticResponseInit(diagnosticRequested, { status: 403 }))
+      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }
 
     // Verify repartidor is active
@@ -113,14 +70,14 @@ export async function POST(req: NextRequest) {
     if (!repartidor || !repartidor.activo) {
       return NextResponse.json(
         { error: "Tu cuenta está desactivada" },
-        diagnosticResponseInit(diagnosticRequested, { status: 403 })
+        { status: 403 }
       )
     }
 
     // 2. Validate required fields
     const parsedBody: unknown = await req.json()
     if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
-      return NextResponse.json({ error: "Cuerpo inválido" }, diagnosticResponseInit(diagnosticRequested, { status: 400 }))
+      return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 })
     }
     const body = parsedBody as UpdateUbicacionBody
     const { pedidoId, lat, lng } = body
@@ -128,21 +85,21 @@ export async function POST(req: NextRequest) {
     if (!pedidoId || typeof pedidoId !== "string") {
       return NextResponse.json(
         { error: "pedidoId es requerido" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json(
         { error: "lat y lng deben ser números válidos" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return NextResponse.json(
         { error: "Coordenadas fuera de rango válido" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
@@ -150,11 +107,11 @@ export async function POST(req: NextRequest) {
     if (body.trajectory !== undefined) {
       const serializedBody = JSON.stringify(body)
       if (Buffer.byteLength(serializedBody, "utf8") > MAX_BATCH_PAYLOAD_BYTES) {
-        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, diagnosticResponseInit(diagnosticRequested, { status: 413 }))
+        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, { status: 413 })
       }
       const validation = validateTrackingTrajectoryPayload(body.trajectory, lat, lng)
       if (!validation.ok) {
-        return NextResponse.json({ error: "Trayectoria inválida" }, diagnosticResponseInit(diagnosticRequested, { status: 400 }))
+        return NextResponse.json({ error: "Trayectoria inválida" }, { status: 400 })
       }
       trajectory = validation.points
     }
@@ -172,21 +129,21 @@ export async function POST(req: NextRequest) {
     if (!pedido) {
       return NextResponse.json(
         { error: "Pedido no encontrado" },
-        diagnosticResponseInit(diagnosticRequested, { status: 404 })
+        { status: 404 }
       )
     }
 
     if (pedido.estado !== "en_camino") {
       return NextResponse.json(
         { error: "El pedido no está en camino" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
     if (pedido.metodoEntrega !== "domicilio") {
       return NextResponse.json(
         { error: "El pedido no es de entrega a domicilio" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
@@ -203,14 +160,14 @@ export async function POST(req: NextRequest) {
     if (!asociacion) {
       return NextResponse.json(
         { error: "No estás asociado a este local" },
-        diagnosticResponseInit(diagnosticRequested, { status: 403 })
+        { status: 403 }
       )
     }
 
     if (pedido.repartidorId !== user.id) {
       return NextResponse.json(
         { error: "No estas asignado a este pedido" },
-        diagnosticResponseInit(diagnosticRequested, { status: 403 })
+        { status: 403 }
       )
     }
 
@@ -226,7 +183,7 @@ export async function POST(req: NextRequest) {
     if (pedido.seguimientoDeliveryHabilitado !== true || pedido.negocio?.seguimientoDeliveryActivo !== true) {
       return NextResponse.json(
         { error: "El seguimiento de ubicación no está habilitado para este pedido" },
-        diagnosticResponseInit(diagnosticRequested, { status: 400 })
+        { status: 400 }
       )
     }
 
@@ -304,7 +261,7 @@ export async function POST(req: NextRequest) {
     if (rows.length === 0) {
       return NextResponse.json(
         { error: "No estas asignado a este pedido" },
-        diagnosticResponseInit(diagnosticRequested, { status: 403 })
+        { status: 403 }
       )
     }
 
@@ -314,7 +271,7 @@ export async function POST(req: NextRequest) {
       console.error("Error updating repartidor ubicacion:", safeErrorForLog(new Error("LOCATION_REVISION_MULTI_ROW_MATCH")))
       return NextResponse.json(
         { error: "Error al actualizar ubicación" },
-        diagnosticResponseInit(diagnosticRequested, { status: 500 })
+        { status: 500 }
       )
     }
 
@@ -370,9 +327,6 @@ export async function POST(req: NextRequest) {
     // Matching is strictly best-effort and follows the RAW DB commit. The
     // provider/policy can therefore never suppress the one RAW realtime event.
     const eventId = `${pedidoId}:${randomUUID()}`
-    let providerDiagnostics: MapMatchingDiagnostics | undefined
-    let diagnosticPolicyDecision: "ACCEPT_MATCH" | "REJECT_MATCH" | undefined
-    let diagnosticPolicyRejectionReason: string | undefined
     if (trajectory && isRawMatchingCandidate(trajectory)) {
       try {
         const provider = createTestingMapMatchingProvider()
@@ -382,13 +336,8 @@ export async function POST(req: NextRequest) {
             profile: "driving",
             timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
             signal: req.signal,
-            diagnostics: diagnosticRequested ? (diagnostics) => { providerDiagnostics = diagnostics } : undefined,
           })
           const decision = evaluateMapMatching(trajectory, result)
-          if (diagnosticRequested) {
-            diagnosticPolicyDecision = decision.decision
-            diagnosticPolicyRejectionReason = decision.decision === "REJECT_MATCH" ? decision.reason : undefined
-          }
           if (decision.decision === "ACCEPT_MATCH") {
             const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
               lat: matchedLat,
@@ -440,12 +389,12 @@ export async function POST(req: NextRequest) {
       version: locationRevision,
       timestamp,
       ...(trajectory ? { acceptedTrajectoryPointsCount: trajectory.length } : {}),
-    }, diagnosticRequested ? { headers: buildT24DiagnosticHeaders(providerDiagnostics, diagnosticPolicyDecision, diagnosticPolicyRejectionReason) } : undefined)
+    })
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar ubicación" },
-      diagnosticResponseInit(diagnosticRequested, { status: 500 })
+      { status: 500 }
     )
   }
 }

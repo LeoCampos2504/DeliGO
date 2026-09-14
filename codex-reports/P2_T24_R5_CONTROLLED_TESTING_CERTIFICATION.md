@@ -707,3 +707,45 @@ NEXT_ACTION=STOP_T24_R5_PROVIDER_DATASET_BLOCKED
 No se relajaron confidence threshold, snap distance, ambiguity rules,
 geometry rules ni timeout. No se autoriza un nuevo dataset, otro POST live,
 TEST 2, stale, recovery, completion, cleanup ni Production desde R5.9.
+
+## R5.10 — Cierre bloqueado en Testing y cleanup
+
+R5 queda cerrado sin más intentos de matching. Las tres prevalidaciones de
+R5.9 devolvieron respuestas OSRM válidas, pero todas fueron rechazadas por la
+policy vigente por `low_confidence`; no se modificaron thresholds, reglas de
+ambigüedad, geometría ni timeout y no se confirmó un bug de producto.
+
+Se retiró del código el plumbing temporal de headers `X-T24-*`, callbacks,
+timing logger y soporte diagnóstico exclusivo del harness. Se conservaron el
+provider OSRM, la policy, los tests focales funcionales y el fail-open RAW.
+El fixture exacto `TEST_T24` fue eliminado mediante el cleanup protegido del
+harness; la verificación posterior no encontró filas remanentes.
+
+```text
+P2_T24_R5_STATUS=BLOCKED_TESTING_PROVIDER_DATASET
+P2_T24_STATUS=IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE
+FULL_END_TO_END_MATCHING_CERTIFIED=NO
+R5_ACCEPT_SERVER_PATH=NOT_CERTIFIED
+R5_MATCHED_REALTIME_END_TO_END=NOT_CERTIFIED
+R5_MATCHED_CURVE_VISUAL=NOT_RUN
+P2_T24_READY_FOR_R6=NO
+P2_T24_RELEASE_ELIGIBLE=NO
+GPS_RAW_IS_INTERNAL_AUTHORITY=SI
+DB_RAW_POSITION_ONLY=SI
+DB_MATCHED_DATA_PERSISTED=NO
+R5_RAW_REALTIME_END_TO_END=PASS
+R5_PROVIDER_TIMEOUT_FAILOPEN=PASS
+R5_REAL_RAW_FALLBACK=PASS
+T23_REGRESSION=PASS
+EXECUTABLE_ARTIFACT_MISMATCH_REPAIRED=SI
+DIAGNOSTIC_CONTROL_HEADER_LIVE=PASS
+TEST_FIXTURE_CLEANED=SI
+TEST_T24_REMAINING_ROWS=0
+TEMP_DIAGNOSTICS_REMOVED=SI
+TESTING_STABLE_AFTER_CLEANUP=SI
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=PAUSE_P2_T24_AND_RETURN_TO_ACTIVE_BACKLOG
+```
+
+No se ejecutaron R5.10 matching, TEST 2, stale, recovery, completion ni
+Production. R5 queda pausado; R6 no está autorizado.

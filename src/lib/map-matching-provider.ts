@@ -54,17 +54,6 @@ export interface MatchedMapMatchingResult {
   snapDistancesMeters: number[]
 }
 
-export interface MapMatchingDiagnostics {
-  providerResultStatus: "matched" | "rejected" | "timeout" | "error"
-  fetchHeadersMs?: number
-  jsonBodyParseMs?: number
-  totalProviderMs?: number
-  abortElapsedMs?: number
-  httpStatus?: number
-  providerCode?: string
-  confidence?: number
-}
-
 export type MapMatchingResult =
   | MatchedMapMatchingResult
   | { status: "rejected"; reason: string; provider: string }
@@ -75,7 +64,6 @@ export interface MapMatchingRequestContext {
   profile?: MapMatchingProfile
   signal?: AbortSignal
   timeoutMs?: number
-  diagnostics?: (diagnostics: MapMatchingDiagnostics) => void
 }
 
 export interface MapMatchingProvider {

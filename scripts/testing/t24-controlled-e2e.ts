@@ -341,29 +341,10 @@ async function acceptTrace(ids: FixtureIds): Promise<void> {
   const realtimePayload = await receiveRealtime(clientToken, ids.orderId, async () => {
     const response = await fetch(`${APP_BASE_URL}/api/repartidor/ubicacion`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: APP_BASE_URL,
-        Cookie: cookieHeader(driverToken, "repartidor"),
-        ...(hasFlag("--diagnostic") ? { "X-T24-Diagnostic": "1" } : {}),
-      },
+      headers: { "Content-Type": "application/json", Origin: APP_BASE_URL, Cookie: cookieHeader(driverToken, "repartidor") },
       body: JSON.stringify(body),
     })
     postStatus = response.status
-    if (hasFlag("--diagnostic")) {
-      const readDiagnosticHeader = (name: string): string => response.headers.get(name) ?? "NOT_AVAILABLE"
-      console.log("DIAGNOSTIC_RESPONSE_REQUESTED=SI")
-      console.log(`PROVIDER_RESULT_STATUS=${readDiagnosticHeader("X-T24-Match-Result")}`)
-      console.log(`FETCH_HEADERS_MS=${readDiagnosticHeader("X-T24-Match-Fetch-Headers-Ms")}`)
-      console.log(`JSON_BODY_PARSE_MS=${readDiagnosticHeader("X-T24-Match-Json-Parse-Ms")}`)
-      console.log(`TOTAL_PROVIDER_MS=${readDiagnosticHeader("X-T24-Match-Total-Ms")}`)
-      console.log(`ABORT_ELAPSED_MS=${readDiagnosticHeader("X-T24-Match-Abort-Ms")}`)
-      console.log(`OSRM_HTTP_STATUS=${readDiagnosticHeader("X-T24-Match-Http-Status")}`)
-      console.log(`OSRM_PROVIDER_CODE=${readDiagnosticHeader("X-T24-Match-Provider-Code")}`)
-      console.log(`OSRM_MATCH_CONFIDENCE=${readDiagnosticHeader("X-T24-Match-Confidence")}`)
-      console.log(`POLICY_DECISION=${readDiagnosticHeader("X-T24-Match-Policy")}`)
-      console.log(`POLICY_REJECTION_REASON=${readDiagnosticHeader("X-T24-Match-Rejection")}`)
-    }
     postBody = await response.json().catch(() => ({})) as Record<string, unknown>
     if (!response.ok) fail(`tracking POST failed with HTTP ${response.status}`)
   })
@@ -380,12 +361,6 @@ async function acceptTrace(ids: FixtureIds): Promise<void> {
   console.log(`R5_ACCEPT_SERVER_PATH=${postStatus === 200 && rawDbPass && versionPass && matchedPresent && rawPresent && rawTopLevel && exactOneEvent && orderEligible ? "PASS" : "FAIL"}`)
   console.log(`R5_REALTIME_END_TO_END=${matchedPresent && rawPresent && rawTopLevel && exactOneEvent ? "PASS" : "FAIL"}`)
   console.log(`HTTP_TRACKING_POST_STATUS=${postStatus}`)
-  if (hasFlag("--diagnostic")) {
-    console.log(`TRACKING_POST_HTTP_STATUS=${postStatus}`)
-    console.log(`MATCHED_TRAJECTORY_EMITTED=${matchedPresent ? "SI" : "NO"}`)
-    console.log(`MATCHED_TRAJECTORY_POINT_COUNT=${Array.isArray(realtimePayload.matchedTrajectory) ? realtimePayload.matchedTrajectory.length : 0}`)
-    console.log(`RAW_TRAJECTORY_EMITTED=${rawPresent ? "SI" : "NO"}`)
-  }
   console.log(`DB_RAW_WRITE=${rawDbPass ? "PASS" : "FAIL"}`)
   console.log(`LOCATION_REVISION_BEFORE=${before.locationRevision}`)
   console.log(`LOCATION_REVISION_AFTER=${after?.locationRevision ?? "UNKNOWN"}`)
