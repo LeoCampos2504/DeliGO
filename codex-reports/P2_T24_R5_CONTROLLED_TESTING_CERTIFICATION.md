@@ -7,11 +7,11 @@ escenario TEST 1 atravesaron la ruta real con fail-open RAW, pero ambos
 agotaron el timeout del provider antes de producir geometría matched.
 
 ```text
-P2_T24_R5_STATUS=DIAGNOSTIC_HEADER_DELIVERY_AUDIT_COMPLETE_NO_LIVE_POST
+P2_T24_R5_STATUS=DIAGNOSTIC_CONTROL_CANARY_FAILED_NO_VALID_TRACKING_POST
 R5_TEST_1_READY=SI
 TEST_1_POST_EXECUTED=SI
 FULL_END_TO_END_MATCHING_CERTIFIED=NO
-R3_LIVE_SERVER_ROUTE_PROBE=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
+R3_LIVE_SERVER_ROUTE_PROBE=DEPLOYED_EXECUTABLE_ARTIFACT_MISMATCH
 ```
 
 ## Baseline
@@ -398,6 +398,66 @@ PRODUCTION_TOUCHED=NO
 NEXT_ACTION=REQUIRE_EXPLICIT_DIAGNOSTIC_CONTROL_HEADER_DECISION_BEFORE_ANY_NEW_LIVE_POST
 ```
 
+## R5.6 — canary no mutante del control diagnóstico
+
+Se agregó sólo el control Testing independiente y sus pruebas. El guard exige
+el mismo `DELIGO_ENVIRONMENT=TESTING`, `NODE_ENV != production` y
+`X-T24-Diagnostic: 1`; no depende de OSRM, policy, DB write ni realtime. Los
+headers se aplican también a las respuestas tempranas de validación y no se
+modifican body ni status.
+
+```text
+R5_6_COMMIT_SHA=3f89557c783525770c5b262c5edda7a15a71f489
+R5_6_COMMIT_PUSHED=SI
+R5_6_ROUTE_TESTS=35_PASS_0_FAIL
+DELIGO_TESTING_DEPLOYMENT_ID=6ff2dafe-bc12-462c-a0a1-6300587fa269
+DELIGO_TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+DELIGO_TESTING_DEPLOYMENT_COMMIT=3f89557c783525770c5b262c5edda7a15a71f489
+```
+
+La única canary live fue autenticada con una sesión nueva del repartidor del
+fixture `TEST_T24` y envió un payload inválido omitiendo `lng`. La ruta
+respondió con el 400 normal antes del `queryRaw`; no se envió trayectoria, no
+se llamó OSRM y no hubo publish. La revisión y la posición RAW permanecieron
+sin cambios.
+
+```text
+CANARY_REQUEST_SENT=SI
+CANARY_EXPECTED_MUTATION=NO
+CANARY_HTTP_STATUS=400
+X_T24_DIAGNOSTIC_ENABLED=NOT_AVAILABLE
+X_T24_DIAGNOSTIC_VERSION=NOT_AVAILABLE
+CANARY_VALIDATION_ERROR=lat y lng deben ser números válidos
+LOCATION_REVISION_BEFORE=4
+LOCATION_REVISION_AFTER=4
+LOCATION_REVISION_MUTATED=NO
+DB_RAW_MUTATED=NO
+PROVIDER_CALLED=NO
+REALTIME_EVENT_EMITTED=NO
+```
+
+El deployment metadata reporta el commit R5.6, y el árbol fuente copiado bajo
+`.next/standalone/src` contiene los helpers y headers R5.6. Sin embargo, la
+inspección read-only del artefacto ejecutable bajo `.next/server` no encontró
+`X-T24-Diagnostic-Enabled`, `X-T24-Diagnostic-Version` ni
+`diagnosticResponseInit`. La respuesta live coincide con ese bundle ejecutable
+sin el control, no con el source mirror.
+
+```text
+DEPLOYED_BUILD_DIAGNOSTIC_CODE_PRESENT=NO
+T24_DIAGNOSTIC_CONTROL_PRODUCTION_AVAILABLE=NO
+DIAGNOSTIC_CONTROL_HEADER_LIVE=FAIL
+ROOT_CAUSE_CLASSIFICATION=DEPLOYED_EXECUTABLE_ARTIFACT_MISMATCH
+FIFTH_VALID_TRACKING_POST_AUTHORIZED=NO
+TIMEOUT_CONFIGURATION_CHANGE_RECOMMENDED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=REPAIR_AND_VERIFY_DEPLOYED_EXECUTABLE_ARTIFACT_BEFORE_ANY_VALID_TRACKING_POST
+P2_T24_R5_6_STATUS=CANARY_FAILED_DEPLOYED_EXECUTABLE_ARTIFACT_MISMATCH_NO_VALID_POST
+```
+
+La canary queda cerrada en el caso B. No se autoriza TEST 1 válido, retry,
+visual, TEST 2, stale, recovery, completion, cleanup ni Production.
+
 ## Harness y TEST 1
 
 El único harness R5 es:
@@ -548,7 +608,7 @@ MATCHED_CLIENT_METADATA_EXPOSED=NO
 T23_REGRESSION=PASS
 P2_T24_READY_FOR_R6=NO
 OPERATOR_VISUAL_CONFIRMATION=PENDING
-NEXT_ACTION=REQUIRE_EXPLICIT_DIAGNOSTIC_CONTROL_HEADER_DECISION_BEFORE_ANY_NEW_LIVE_POST
+NEXT_ACTION=REPAIR_AND_VERIFY_DEPLOYED_EXECUTABLE_ARTIFACT_BEFORE_ANY_VALID_TRACKING_POST
 ```
 
 ## Instrucciones para el operador
