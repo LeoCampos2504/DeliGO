@@ -7,11 +7,11 @@ escenario TEST 1 atravesaron la ruta real con fail-open RAW, pero ambos
 agotaron el timeout del provider antes de producir geometría matched.
 
 ```text
-P2_T24_R5_STATUS=IN_PROGRESS_OPERATOR_CERTIFICATION
+P2_T24_R5_STATUS=DIAGNOSTIC_HEADER_DELIVERY_AUDIT_COMPLETE_NO_LIVE_POST
 R5_TEST_1_READY=SI
 TEST_1_POST_EXECUTED=SI
 FULL_END_TO_END_MATCHING_CERTIFIED=NO
-R3_LIVE_SERVER_ROUTE_PROBE=NOT_RUN
+R3_LIVE_SERVER_ROUTE_PROBE=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
 ```
 
 ## Baseline
@@ -295,6 +295,109 @@ P2_T24_R5_4_STATUS=CONTROLLED_POST_COMPLETE_DIAGNOSTIC_HEADERS_UNAVAILABLE
 No se ejecutará un quinto POST. No se hizo visual certification, TEST 2,
 stale, recovery, completion, cleanup ni Production.
 
+## R5.5 — auditoría de entrega del canal diagnóstico
+
+Esta revisión fue sólo estática y de tests. No se ejecutó un quinto POST, no se
+alteró el timeout, no se cambió la policy, no se modificó el fixture y no se
+realizó deploy. El fixture conserva la revisión 4 producida por el POST R5.4.
+
+### A — harness y request
+
+El harness existente agrega el opt-in únicamente cuando se pasa
+`--diagnostic`. La rama se ejecutó en el Attempt 4: la salida runtime registró
+`DIAGNOSTIC_RESPONSE_REQUESTED=SI`. El POST usa `fetch` directo, sin wrapper de
+retry; no hay retry explícito ni redirección configurada por el harness (queda
+el comportamiento por defecto de `fetch`). La cabecera es exacta y el harness
+no envía `matchedTrajectory`.
+
+```text
+HARNESS_DIAGNOSTIC_FLAG_USED_ATTEMPT_4=SI
+HARNESS_REQUEST_HEADER_NAME=X-T24-Diagnostic
+HARNESS_REQUEST_HEADER_VALUE=1
+HARNESS_REQUEST_RETRY_WRAPPER=NO
+HARNESS_REQUEST_REDIRECT_OVERRIDE=NO
+```
+
+### B — guards de la ruta
+
+La ruta lee `req.headers.get("x-t24-diagnostic")`, cuya comparación de nombre
+es case-insensitive en la API Headers, y exige el valor exacto `1`. La entrega
+de headers sólo se habilita simultáneamente con
+`DELIGO_ENVIRONMENT=TESTING` y `NODE_ENV != production`. El Cliente normal no
+envía este opt-in; Production no lo acepta aunque el request lo incluya.
+
+```text
+DIAGNOSTIC_ENV_GUARD=DELIGO_ENVIRONMENT==TESTING_AND_NODE_ENV!=production
+DIAGNOSTIC_REQUEST_GUARD=req.headers.get_CASE_INSENSITIVE_X-T24-Diagnostic==1
+```
+
+### C — supervivencia provider → route → response
+
+El provider entrega los diagnósticos por callback observacional en el contexto
+de matching; el resultado de matching sigue siendo el contrato normal. El
+callback se invoca en timeout, error HTTP/network, parse inválido y respuesta
+procesada. La ruta conserva el valor antes de evaluar la policy y, después del
+RAW commit y del publish, usa `buildT24DiagnosticHeaders` en la respuesta
+200. Por ello los caminos normales de timeout/fallback RAW y de rechazo
+conservan el diagnóstico; el camino matched conserva también el resultado y
+la policy ACCEPT.
+
+Los retornos previos al matching (autenticación, autorización, elegibilidad,
+rate limit, payload inválido o ausencia de filas) no llevan headers
+diagnósticos. El retorno 500 del `catch` exterior tampoco los lleva si falla
+el publish u otra operación posterior al commit; es un camino excepcional y
+no el fallback normal del provider.
+
+```text
+DIAGNOSTIC_DATA_SURVIVES_TIMEOUT_PATH=SI
+DIAGNOSTIC_DATA_SURVIVES_REJECT_PATH=SI
+ROUTE_TIMEOUT_RESPONSE_HEADER_TEST=PASS
+ROUTE_SUCCESS_RESPONSE_HEADER_TEST=PASS
+TESTING_NO_OPTIN_HEADER_TEST=PASS
+PRODUCTION_DIAGNOSTIC_HEADER_TEST=PASS
+```
+
+Los tests focales confirmaron 15/15 del provider y 33/33 de la ruta; ESLint
+focal y `git diff --check` pasaron. El test de timeout comprueba HTTP 200,
+fallback RAW, `X-T24-Match-Result=timeout`, ausencia de headers/parse,
+`X-T24-Match-Total-Ms=1001`, `X-T24-Match-Abort-Ms=1000` y
+`REJECT_MATCH/provider_timeout`. El test matched comprueba `matched`, HTTP 200,
+provider `Ok`, confidence, `ACCEPT_MATCH` y ausencia de rechazo.
+
+### D — deployed artifact y clasificación
+
+El metadata de Railway confirma que el deployment live de DeliGO Copy se
+construyó desde `d39274651b8f0976a3cbfe0f852b1169f94b938c`, descendiente del
+commit R5.4 `043abeb6dc5e0267eb9f01c5bb7614eb334b654f`. La búsqueda read-only
+dentro del contenedor no produjo salida observable; por eso no se afirma que
+el bundle desplegado contenga el código, aunque el commit fuente sí lo
+contiene. Con la respuesta live sin headers y el artefacto no verificable, el
+origen exacto sigue sin estar probado entre bundle/runtime y entrega de
+headers.
+
+```text
+DEPLOYED_BUILD_DIAGNOSTIC_CODE_PRESENT=UNVERIFIED
+DIAGNOSTIC_CONTROL_HEADER_NEEDED=SI
+ROOT_CAUSE_CLASSIFICATION=HEADER_DELIVERY_UNPROVEN_DEPLOYED_ARTIFACT_OR_PLATFORM_PATH
+CODE_CHANGE_REQUIRED=NO
+```
+
+El control separado `X-T24-Diagnostic-Enabled: 1` queda como posible siguiente
+instrumento para distinguir llegada del opt-in de propagación de datos; no se
+implementa ni se despliega en esta etapa. No hay base para clasificar todavía
+el problema como stripping de plataforma.
+
+```text
+P2_T24_R5_5_STATUS=STATIC_AND_ROUTE_TEST_AUDIT_COMPLETE_NO_LIVE_POST
+CURRENT_LOCATION_REVISION=4
+R5_ACCEPT_SERVER_PATH=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
+R5_MATCHED_REALTIME_END_TO_END=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
+FIFTH_LIVE_POST_AUTHORIZED=NO
+TIMEOUT_CONFIGURATION_CHANGE_RECOMMENDED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=REQUIRE_EXPLICIT_DIAGNOSTIC_CONTROL_HEADER_DECISION_BEFORE_ANY_NEW_LIVE_POST
+```
+
 ## Harness y TEST 1
 
 El único harness R5 es:
@@ -309,7 +412,7 @@ y luego consultó `GET /api/pedidos/{id}/tracking`, obteniendo:
 ```text
 CLIENT_NORMAL_LOGIN=PASS
 TRACKING_ELIGIBILITY=PASS
-SERVER_ACCEPT_EVIDENCE=BLOCKED_PROVIDER_TIMEOUT
+SERVER_ACCEPT_EVIDENCE=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
 ```
 
 ## Resultado técnico TEST 1 — intentos separados
@@ -398,8 +501,8 @@ sala del pedido mediante el token y capability reales. El matching OSRM y
 
 ```text
 R5_TEST_1_READY=SI
-SERVER_ACCEPT_EVIDENCE=BLOCKED_PROVIDER_TIMEOUT
-CURRENT_LOCATION_REVISION=2
+SERVER_ACCEPT_EVIDENCE=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
+CURRENT_LOCATION_REVISION=4
 EXPECTED_VISUAL_BEHAVIOR=marker follows the matched street-shaped curve and corner continuously; no diagonal cut
 ```
 
@@ -429,9 +532,9 @@ recovery y completion. Hasta completar esa secuencia no se declarará evidencia
 visual ni certificación end-to-end.
 
 ```text
-R5_ACCEPT_SERVER_PATH=BLOCKED_PROVIDER_TIMEOUT
+R5_ACCEPT_SERVER_PATH=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
 R5_RAW_REALTIME_END_TO_END=PASS
-R5_MATCHED_REALTIME_END_TO_END=BLOCKED_PROVIDER_TIMEOUT
+R5_MATCHED_REALTIME_END_TO_END=BLOCKED_DIAGNOSTIC_RESPONSE_UNAVAILABLE
 R5_REAL_RAW_FALLBACK=PASS
 R5_MATCHED_CURVE_VISUAL=NOT_RUN
 R5_MATCHED_TO_RAW_VISUAL=NOT_RUN
@@ -445,7 +548,7 @@ MATCHED_CLIENT_METADATA_EXPOSED=NO
 T23_REGRESSION=PASS
 P2_T24_READY_FOR_R6=NO
 OPERATOR_VISUAL_CONFIRMATION=PENDING
-NEXT_ACTION=REMEASURE_OSRM_LATENCY_FROM_DELIGO_LIVE_RUNTIME_CONTEXT
+NEXT_ACTION=REQUIRE_EXPLICIT_DIAGNOSTIC_CONTROL_HEADER_DECISION_BEFORE_ANY_NEW_LIVE_POST
 ```
 
 ## Instrucciones para el operador
