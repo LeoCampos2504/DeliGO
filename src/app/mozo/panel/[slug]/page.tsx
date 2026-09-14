@@ -210,7 +210,6 @@ export default function MozoSalonPanelPage() {
   const [pushPanelOpen, setPushPanelOpen] = useState(false)
   const [showPushIntro, setShowPushIntro] = useState(false)
   const [installingApp, setInstallingApp] = useState(false)
-  const [testingPush, setTestingPush] = useState(false)
   const installPrompt = useInstallPrompt()
   const refreshGenerationRef = useRef(0)
   const silentRefreshRef = useRef<{ controller: AbortController; generation: number } | null>(null)
@@ -748,46 +747,6 @@ export default function MozoSalonPanelPage() {
     }
   }
 
-  const handleSendTestPush = async () => {
-    if (testingPush) return
-
-    setTestingPush(true)
-    try {
-      const res = await fetch(`/api/operativo/mozo/panel/${encodeURIComponent(slug)}/push-subscription/test`, {
-        method: "POST",
-        cache: "no-store",
-      })
-      const data = await res.json().catch(() => ({}))
-
-      if (res.ok && data.ok === true && data.delivered === true) {
-        toast.success("Prueba enviada. Cerrá o dejá DeliGO en segundo plano para verificar el aviso del sistema.")
-        return
-      }
-
-      if (data.code === "NO_SUBSCRIPTION") {
-        setPushState("idle")
-        toast.error("No encontramos una suscripción activa. Volvé a activar los avisos.")
-        return
-      }
-
-      if (data.code === "DELIVERY_FAILED") {
-        toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
-        return
-      }
-
-      if (res.status === 429) {
-        toast.error(data.error || "Demasiadas pruebas. Intentá de nuevo más tarde.")
-        return
-      }
-
-      toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
-    } catch {
-      toast.error("No pudimos entregar la prueba. El sistema registró el detalle técnico.")
-    } finally {
-      setTestingPush(false)
-    }
-  }
-
   const handleInstallApp = async () => {
     if (!installPrompt.isInstallable) return
 
@@ -1083,10 +1042,8 @@ export default function MozoSalonPanelPage() {
                   pwaInfo={pwaInfo}
                   isInstallable={installPrompt.isInstallable}
                   installingApp={installingApp}
-                  testingPush={testingPush}
                   onEnable={handleEnablePush}
                   onDisable={handleDisablePush}
-                  onSendTest={handleSendTestPush}
                   onInstall={handleInstallApp}
                   onClose={() => setPushPanelOpen(false)}
                 />
@@ -1471,10 +1428,8 @@ function PushNoticePanel({
   pwaInfo,
   isInstallable,
   installingApp,
-  testingPush,
   onEnable,
   onDisable,
-  onSendTest,
   onInstall,
   onClose,
 }: {
@@ -1483,10 +1438,8 @@ function PushNoticePanel({
   pwaInfo: PwaCapabilities
   isInstallable: boolean
   installingApp: boolean
-  testingPush: boolean
   onEnable: () => void
   onDisable: () => void
-  onSendTest: () => void
   onInstall: () => void
   onClose: () => void
 }) {
@@ -1577,15 +1530,6 @@ function PushNoticePanel({
 
         {state === "active" ? (
           <div className="grid gap-2">
-            <Button
-              className="h-10 w-full rounded-xl"
-              variant="secondary"
-              onClick={onSendTest}
-              disabled={testingPush}
-            >
-              {testingPush ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
-              Enviar prueba
-            </Button>
             <Button
               className="h-10 w-full rounded-xl"
               variant="outline"
