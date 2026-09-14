@@ -23,6 +23,37 @@ export interface OsrmMapMatchingProviderOptions {
   fetchImpl?: MapMatchingFetch
   timeoutMs?: number
   env?: Record<string, string | undefined>
+  timingLogger?: (event: OsrmMapMatchingTimingEvent) => void
+}
+
+export type OsrmMapMatchingTimingStage =
+  | "MATCH_REQUEST_START"
+  | "HEADERS_RECEIVED"
+  | "JSON_PARSED"
+  | "MATCH_REQUEST_END"
+
+export interface OsrmMapMatchingTimingEvent {
+  event: OsrmMapMatchingTimingStage
+  provider: "osrm"
+  profile: MapMatchingProfile
+  pointCount: number
+  radiusesPresent: boolean
+  timeoutMs: number
+  providerTimeoutLayerCount: 1
+  requestPathKind: "match"
+  geometriesMode: string
+  overviewMode: string
+  gapsMode: string
+  tidyMode: string
+  serializedRequestLengthBytes: number
+  fetchHeadersMs?: number
+  jsonBodyParseMs?: number
+  totalProviderMs?: number
+  abortElapsedMs?: number
+  resultCategory?: "matched" | "rejected" | "timeout" | "error"
+  httpStatus?: number
+  osrmCode?: string
+  confidence?: number
 }
 
 export interface OsrmMapMatchingConfig {
@@ -207,16 +238,32 @@ export function parseOsrmMatchResponse(
   }
 }
 
+interface OsrmRequestTiming {
+  startedAt: number
+  headersAt?: number
+  jsonParsedAt?: number
+  endedAt?: number
+  abortElapsedMs?: number
+  httpStatus?: number
+}
+
+type FetchJsonResult =
+  | { kind: "ok"; payload: unknown; timing: OsrmRequestTiming }
+  | { kind: "timeout"; timing: OsrmRequestTiming }
+  | { kind: "error"; reason: string; timing: OsrmRequestTiming }
+
 async function fetchJsonWithTimeout(
   fetchImpl: MapMatchingFetch,
   url: string,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ kind: "ok"; payload: unknown } | { kind: "timeout" } | { kind: "error"; reason: string }> {
+): Promise<FetchJsonResult> {
+  const timing: OsrmRequestTiming = { startedAt: performance.now() }
   const controller = new AbortController()
   let timedOut = false
   const timeoutId = setTimeout(() => {
     timedOut = true
+    timing.abortElapsedMs = performance.now() - timing.startedAt
     controller.abort()
   }, timeoutMs)
   const forwardAbort = () => controller.abort()
@@ -226,19 +273,87 @@ async function fetchJsonWithTimeout(
   }
   try {
     const response = await fetchImpl(url, { signal: controller.signal })
-    if (!response.ok) return { kind: "error", reason: "http_" + response.status }
+    timing.headersAt = performance.now()
+    timing.httpStatus = response.status
+    if (!response.ok) return { kind: "error", reason: "http_" + response.status, timing }
     try {
-      return { kind: "ok", payload: await response.json() }
+      const payload = await response.json()
+      timing.jsonParsedAt = performance.now()
+      return { kind: "ok", payload, timing }
     } catch {
-      return { kind: "error", reason: "invalid_json" }
+      return { kind: "error", reason: "invalid_json", timing }
     }
   } catch {
-    if (timedOut) return { kind: "timeout" }
-    return { kind: "error", reason: signal?.aborted ? "aborted" : "network_error" }
+    if (timedOut) return { kind: "timeout", timing }
+    return { kind: "error", reason: signal?.aborted ? "aborted" : "network_error", timing }
   } finally {
+    timing.endedAt = performance.now()
     clearTimeout(timeoutId)
     signal?.removeEventListener("abort", forwardAbort)
   }
+}
+
+function roundTimingMs(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function createTimingEvent(
+  event: OsrmMapMatchingTimingStage,
+  rawPoints: readonly RawMatchingPoint[],
+  requestUrl: string,
+  profile: MapMatchingProfile,
+  timeoutMs: number,
+): OsrmMapMatchingTimingEvent {
+  const url = new URL(requestUrl)
+  return {
+    event,
+    provider: "osrm",
+    profile,
+    pointCount: rawPoints.length,
+    radiusesPresent: url.searchParams.has("radiuses"),
+    timeoutMs,
+    providerTimeoutLayerCount: 1,
+    requestPathKind: "match",
+    geometriesMode: url.searchParams.get("geometries") ?? "",
+    overviewMode: url.searchParams.get("overview") ?? "",
+    gapsMode: url.searchParams.get("gaps") ?? "",
+    tidyMode: url.searchParams.get("tidy") ?? "",
+    serializedRequestLengthBytes: new TextEncoder().encode(requestUrl).byteLength,
+  }
+}
+
+function resultTimingFields(result: MapMatchingResult): Pick<OsrmMapMatchingTimingEvent, "resultCategory" | "osrmCode" | "confidence"> {
+  if (result.status === "matched") {
+    return {
+      resultCategory: "matched",
+      osrmCode: "Ok",
+      confidence: result.matchings[0]?.confidence,
+    }
+  }
+  if (result.status === "timeout") return { resultCategory: "timeout" }
+  if (result.status === "rejected") {
+    return {
+      resultCategory: "rejected",
+      osrmCode: result.reason.startsWith("osrm_") ? result.reason.slice("osrm_".length) : undefined,
+    }
+  }
+  return { resultCategory: "error" }
+}
+
+function timingDurations(timing: OsrmRequestTiming): Pick<OsrmMapMatchingTimingEvent, "fetchHeadersMs" | "jsonBodyParseMs" | "totalProviderMs" | "abortElapsedMs"> {
+  const headersAt = timing.headersAt
+  const jsonParsedAt = timing.jsonParsedAt
+  const endedAt = timing.endedAt
+  return {
+    fetchHeadersMs: headersAt === undefined ? undefined : roundTimingMs(headersAt - timing.startedAt),
+    jsonBodyParseMs: headersAt === undefined || jsonParsedAt === undefined ? undefined : roundTimingMs(jsonParsedAt - headersAt),
+    totalProviderMs: endedAt === undefined ? undefined : roundTimingMs(endedAt - timing.startedAt),
+    abortElapsedMs: timing.abortElapsedMs === undefined ? undefined : roundTimingMs(timing.abortElapsedMs),
+  }
+}
+
+function formatTimingEvent(event: OsrmMapMatchingTimingEvent): string {
+  return "[Tracking Matching Timing] " + JSON.stringify(event)
 }
 
 export function createOsrmMapMatchingProvider(
@@ -254,6 +369,8 @@ export function createOsrmMapMatchingProvider(
       }
     : resolveOsrmMapMatchingConfig(env)
   const fetchImpl = options.fetchImpl ?? fetch
+  const timingEnabled = env.DELIGO_ENVIRONMENT === "TESTING" && env.NODE_ENV !== "production"
+  const timingLogger = options.timingLogger ?? ((event: OsrmMapMatchingTimingEvent) => console.info(formatTimingEvent(event)))
 
   return {
     name: "osrm",
@@ -270,13 +387,36 @@ export function createOsrmMapMatchingProvider(
       if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_000) {
         return invalidResult("invalid_timeout")
       }
+      const requestProfile = context.profile ?? config.profile
+      const startEvent = createTimingEvent("MATCH_REQUEST_START", rawPoints, url, requestProfile, timeoutMs)
+      if (timingEnabled) timingLogger(startEvent)
       const fetched = await fetchJsonWithTimeout(fetchImpl, url, timeoutMs, context.signal)
-      if (fetched.kind === "timeout") return { status: "timeout", provider: "osrm" }
-      if (fetched.kind === "error") return invalidResult(fetched.reason)
+      const baseEvent = createTimingEvent("MATCH_REQUEST_END", rawPoints, url, requestProfile, timeoutMs)
+      const timing = timingDurations(fetched.timing)
+      if (timingEnabled && fetched.timing.headersAt !== undefined) {
+        timingLogger({ ...createTimingEvent("HEADERS_RECEIVED", rawPoints, url, requestProfile, timeoutMs), httpStatus: fetched.timing.httpStatus, ...timing })
+      }
+      if (timingEnabled && fetched.timing.jsonParsedAt !== undefined) {
+        timingLogger({ ...createTimingEvent("JSON_PARSED", rawPoints, url, requestProfile, timeoutMs), httpStatus: fetched.timing.httpStatus, ...timing })
+      }
+      if (fetched.kind === "timeout") {
+        const result: MapMatchingResult = { status: "timeout", provider: "osrm" }
+        if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        return result
+      }
+      if (fetched.kind === "error") {
+        const result = invalidResult(fetched.reason)
+        if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        return result
+      }
       try {
-        return parseOsrmMatchResponse(fetched.payload, rawPoints)
+        const result = parseOsrmMatchResponse(fetched.payload, rawPoints)
+        if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        return result
       } catch {
-        return invalidResult("response_processing_error")
+        const result = invalidResult("response_processing_error")
+        if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        return result
       }
     },
   }
