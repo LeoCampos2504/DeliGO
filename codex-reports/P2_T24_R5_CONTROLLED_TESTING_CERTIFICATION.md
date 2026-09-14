@@ -623,3 +623,54 @@ Iniciar sesión con el identificador y contraseña entregados en la respuesta
 runtime, abrir el pedido activo `TEST_T24`, tocar `Rastrear envío`, dejar el
 mapa abierto y responder `LISTO`. No se debe ejecutar ningún escenario antes
 de esa respuesta.
+
+## R5.7 — Reparación del artefacto ejecutable Testing
+
+R5.6 dejó confirmado que el commit y el source mirror podían ser correctos
+mientras el ejecutable servido por `.next/server` no exponía el control
+diagnóstico. La auditoría reprodujo la causa en el launcher standalone: Next
+genera `process.env.NODE_ENV = 'production'` al iniciar cualquier build
+optimizado. Por eso una guarda Testing basada directamente en `NODE_ENV` queda
+inlineada o bloqueada en el runtime standalone, aunque Railway exponga
+`NODE_ENV=test`.
+
+El ajuste mínimo mantiene el comportamiento productivo y hace que la guarda
+use el marcador de despliegue exacto `DELIGO_ENVIRONMENT=TESTING` en runtime;
+el provider conserva sus timeout y decisiones de policy. Se verificó el build
+oficial limpio, el ejecutable standalone local y el ejecutable dentro de la
+instancia Testing nueva. No se envió ningún POST válido ni se llamó OSRM.
+
+```text
+P2_T24_R5_7_STATUS=EXECUTABLE_ARTIFACT_MISMATCH_REPAIRED
+R5_7_COMMIT_SHA=d15225e264516ae92930534fe07b24d0f7bdde3f
+REMOTE_TESTING_SHA=d15225e264516ae92930534fe07b24d0f7bdde3f
+RAILWAY_BUILD_COMMAND=bun run build -> prisma generate && next build && node scripts/copy-standalone-assets.js
+RAILWAY_START_COMMAND=bun .next/standalone/server.js
+NEXT_OUTPUT_MODE=standalone
+BUILD_CACHE_INVOLVED=NO_CLEAN_BUILD_REPRODUCED
+STALE_NEXT_ARTIFACT_POSSIBLE=YES_PRIOR_TO_R5_7
+CLEAN_BUILD_EXECUTABLE_CONTAINS_R5_6=SI
+LOCAL_STANDALONE_CANARY=PASS
+EXECUTABLE_ARTIFACT_ROOT_CAUSE=EXECUTABLE_ARTIFACT_MISMATCH_REPAIRED
+DELIGO_TESTING_DEPLOYMENT_ID=5fd82b10-1631-4f1a-8ba9-6805b2d307b1
+DELIGO_TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+DELIGO_TESTING_DEPLOYMENT_COMMIT=d15225e264516ae92930534fe07b24d0f7bdde3f
+DEPLOYED_EXECUTABLE_CONTAINS_R5_6=SI
+CANARY_HTTP_STATUS=400
+X_T24_DIAGNOSTIC_ENABLED=1
+X_T24_DIAGNOSTIC_VERSION=R5.6
+LOCATION_REVISION_BEFORE=4
+LOCATION_REVISION_AFTER=4
+PROVIDER_CALLED=NO
+REALTIME_EVENT_EMITTED=NO
+DIAGNOSTIC_CONTROL_HEADER_LIVE=PASS
+FIFTH_VALID_TRACKING_POST_AUTHORIZED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=STOP_AND_AWAIT_DECISION_ON_ONE_MATCHED_FINAL_POST
+```
+
+La canary fue exclusivamente inválida y pre-DB: omitió `lng`, devolvió el
+error normal de validación, no escribió la posición, no incrementó
+`locationRevision` y no ejecutó provider ni realtime. Se preserva la
+restricción de no iniciar otra certificación ni promover a Production desde
+esta etapa.
