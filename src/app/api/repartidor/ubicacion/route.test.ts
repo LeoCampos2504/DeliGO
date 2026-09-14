@@ -213,6 +213,38 @@ function acceptedMatchingResult(points: readonly RawMatchingPoint[]): MapMatchin
 }
 
 describe("POST /api/repartidor/ubicacion — server-authoritative Tracking producer", () => {
+  test("R5.6 canary: Testing opt-in attaches control headers to invalid validation without mutation or provider", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+
+    // Deliberately omit lng so validation fails before the atomic DB write.
+    const request = buildRequest(pedidoId, { lat: -34.6 })
+    request.headers.set("X-T24-Diagnostic", "1")
+    const res = await POST(request)
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ error: "lat y lng deben ser números válidos" })
+    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
+    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
+    expect(queryRawCalls).toHaveLength(0) // DB_WRITE_COUNT=0
+    expect(matchingCalls).toHaveLength(0) // PROVIDER_CALL_COUNT=0
+    expect(publishCalls).toHaveLength(0) // REALTIME_PUBLISH_COUNT=0
+  })
+
+  test("R5.6 canary: the same invalid validation without opt-in has no control headers", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+
+    const res = await callRoute(pedidoId, { lat: -34.6 })
+    expect(res.status).toBe(400)
+    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBeNull()
+    expect(res.headers.get("X-T24-Diagnostic-Version")).toBeNull()
+    expect(queryRawCalls).toHaveLength(0)
+    expect(matchingCalls).toHaveLength(0)
+    expect(publishCalls).toHaveLength(0)
+  })
+
   test("T24 diagnostics are absent without the explicit opt-in header", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })
@@ -280,6 +312,8 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
 
     expect(res.status).toBe(200)
     expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 4 })
+    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
+    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
     expect(res.headers.get("X-T24-Match-Result")).toBe("timeout")
     expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("NOT_AVAILABLE")
     expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("NOT_AVAILABLE")
@@ -309,6 +343,8 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
 
     expect(res.status).toBe(200)
     expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 4 })
+    expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBe("1")
+    expect(res.headers.get("X-T24-Diagnostic-Version")).toBe("R5.6")
     expect(res.headers.get("X-T24-Match-Result")).toBe("matched")
     expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("12")
     expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("2")
@@ -331,6 +367,8 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
       const res = await POST(request)
 
       expect(res.status).toBe(200)
+      expect(res.headers.get("X-T24-Diagnostic-Enabled")).toBeNull()
+      expect(res.headers.get("X-T24-Diagnostic-Version")).toBeNull()
       expect(res.headers.get("X-T24-Match-Result")).toBeNull()
       expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
       expect(matchingCalls).toHaveLength(0)

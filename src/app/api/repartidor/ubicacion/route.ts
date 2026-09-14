@@ -44,12 +44,26 @@ function diagnosticNumber(value: number | undefined): string {
   return value === undefined ? "NOT_AVAILABLE" : String(value)
 }
 
+function buildT24DiagnosticControlHeaders(): Headers {
+  const headers = new Headers()
+  headers.set("X-T24-Diagnostic-Enabled", "1")
+  headers.set("X-T24-Diagnostic-Version", "R5.6")
+  return headers
+}
+
+function diagnosticResponseInit(diagnosticRequested: boolean, init: ResponseInit = {}): ResponseInit {
+  if (!diagnosticRequested) return init
+  const headers = new Headers(init.headers)
+  for (const [name, value] of buildT24DiagnosticControlHeaders()) headers.set(name, value)
+  return { ...init, headers }
+}
+
 function buildT24DiagnosticHeaders(
   providerDiagnostics: MapMatchingDiagnostics | undefined,
   policyDecision: "ACCEPT_MATCH" | "REJECT_MATCH" | undefined,
   policyRejectionReason: string | undefined,
 ): Headers {
-  const headers = new Headers()
+  const headers = buildT24DiagnosticControlHeaders()
   headers.set("X-T24-Match-Result", providerDiagnostics?.providerResultStatus ?? "NOT_AVAILABLE")
   headers.set("X-T24-Match-Fetch-Headers-Ms", diagnosticNumber(providerDiagnostics?.fetchHeadersMs))
   headers.set("X-T24-Match-Json-Parse-Ms", diagnosticNumber(providerDiagnostics?.jsonBodyParseMs))
@@ -71,17 +85,17 @@ function realtimeTrajectoryWithoutAccuracy(
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
 export async function POST(req: NextRequest) {
+  const diagnosticRequested = isT24DiagnosticRequest(req)
   try {
-    const diagnosticRequested = isT24DiagnosticRequest(req)
     // 1. Authenticate repartidor from cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+      return NextResponse.json({ error: "No autenticado" }, diagnosticResponseInit(diagnosticRequested, { status: 401 }))
     }
 
     const user = await getUserFromToken(token)
     if (!user || user.type !== "repartidor") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
+      return NextResponse.json({ error: "Acceso denegado" }, diagnosticResponseInit(diagnosticRequested, { status: 403 }))
     }
 
     // Verify repartidor is active
@@ -92,14 +106,14 @@ export async function POST(req: NextRequest) {
     if (!repartidor || !repartidor.activo) {
       return NextResponse.json(
         { error: "Tu cuenta está desactivada" },
-        { status: 403 }
+        diagnosticResponseInit(diagnosticRequested, { status: 403 })
       )
     }
 
     // 2. Validate required fields
     const parsedBody: unknown = await req.json()
     if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
-      return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 })
+      return NextResponse.json({ error: "Cuerpo inválido" }, diagnosticResponseInit(diagnosticRequested, { status: 400 }))
     }
     const body = parsedBody as UpdateUbicacionBody
     const { pedidoId, lat, lng } = body
@@ -107,21 +121,21 @@ export async function POST(req: NextRequest) {
     if (!pedidoId || typeof pedidoId !== "string") {
       return NextResponse.json(
         { error: "pedidoId es requerido" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json(
         { error: "lat y lng deben ser números válidos" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       return NextResponse.json(
         { error: "Coordenadas fuera de rango válido" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
@@ -129,11 +143,11 @@ export async function POST(req: NextRequest) {
     if (body.trajectory !== undefined) {
       const serializedBody = JSON.stringify(body)
       if (Buffer.byteLength(serializedBody, "utf8") > MAX_BATCH_PAYLOAD_BYTES) {
-        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, { status: 413 })
+        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, diagnosticResponseInit(diagnosticRequested, { status: 413 }))
       }
       const validation = validateTrackingTrajectoryPayload(body.trajectory, lat, lng)
       if (!validation.ok) {
-        return NextResponse.json({ error: "Trayectoria inválida" }, { status: 400 })
+        return NextResponse.json({ error: "Trayectoria inválida" }, diagnosticResponseInit(diagnosticRequested, { status: 400 }))
       }
       trajectory = validation.points
     }
@@ -151,21 +165,21 @@ export async function POST(req: NextRequest) {
     if (!pedido) {
       return NextResponse.json(
         { error: "Pedido no encontrado" },
-        { status: 404 }
+        diagnosticResponseInit(diagnosticRequested, { status: 404 })
       )
     }
 
     if (pedido.estado !== "en_camino") {
       return NextResponse.json(
         { error: "El pedido no está en camino" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
     if (pedido.metodoEntrega !== "domicilio") {
       return NextResponse.json(
         { error: "El pedido no es de entrega a domicilio" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
@@ -182,14 +196,14 @@ export async function POST(req: NextRequest) {
     if (!asociacion) {
       return NextResponse.json(
         { error: "No estás asociado a este local" },
-        { status: 403 }
+        diagnosticResponseInit(diagnosticRequested, { status: 403 })
       )
     }
 
     if (pedido.repartidorId !== user.id) {
       return NextResponse.json(
         { error: "No estas asignado a este pedido" },
-        { status: 403 }
+        diagnosticResponseInit(diagnosticRequested, { status: 403 })
       )
     }
 
@@ -205,7 +219,7 @@ export async function POST(req: NextRequest) {
     if (pedido.seguimientoDeliveryHabilitado !== true || pedido.negocio?.seguimientoDeliveryActivo !== true) {
       return NextResponse.json(
         { error: "El seguimiento de ubicación no está habilitado para este pedido" },
-        { status: 400 }
+        diagnosticResponseInit(diagnosticRequested, { status: 400 })
       )
     }
 
@@ -283,7 +297,7 @@ export async function POST(req: NextRequest) {
     if (rows.length === 0) {
       return NextResponse.json(
         { error: "No estas asignado a este pedido" },
-        { status: 403 }
+        diagnosticResponseInit(diagnosticRequested, { status: 403 })
       )
     }
 
@@ -293,7 +307,7 @@ export async function POST(req: NextRequest) {
       console.error("Error updating repartidor ubicacion:", safeErrorForLog(new Error("LOCATION_REVISION_MULTI_ROW_MATCH")))
       return NextResponse.json(
         { error: "Error al actualizar ubicación" },
-        { status: 500 }
+        diagnosticResponseInit(diagnosticRequested, { status: 500 })
       )
     }
 
@@ -424,7 +438,7 @@ export async function POST(req: NextRequest) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar ubicación" },
-      { status: 500 }
+      diagnosticResponseInit(diagnosticRequested, { status: 500 })
     )
   }
 }
