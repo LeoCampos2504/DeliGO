@@ -41,7 +41,7 @@ describe("P2-T24 OSRM adapter", () => {
 
   test("is disabled unless explicitly configured for exact Testing", () => {
     expect(resolveOsrmMapMatchingConfig({ MAP_MATCHING_PROVIDER: "osrm", MAP_MATCHING_BASE_URL: "https://example.com" }).enabled).toBe(false)
-    expect(resolveOsrmMapMatchingConfig({ MAP_MATCHING_PROVIDER: "osrm", DELIGO_ENVIRONMENT: "TESTING", NODE_ENV: "production", MAP_MATCHING_BASE_URL: "https://example.com" }).reason).toBe("testing_only_guard")
+    expect(resolveOsrmMapMatchingConfig({ MAP_MATCHING_PROVIDER: "osrm", DELIGO_ENVIRONMENT: "PRODUCTION", NODE_ENV: "production", MAP_MATCHING_BASE_URL: "https://example.com" }).reason).toBe("testing_only_guard")
     expect(resolveOsrmMapMatchingConfig({ MAP_MATCHING_PROVIDER: "osrm", DELIGO_ENVIRONMENT: "TESTING", NODE_ENV: "test", MAP_MATCHING_BASE_URL: "https://example.com" }).enabled).toBe(true)
   })
 
@@ -198,7 +198,7 @@ describe("P2-T24 OSRM adapter", () => {
     expect(called).toBe(false)
   })
 
-  test("disables timing instrumentation in Production even if DELIGO_ENVIRONMENT is Testing", async () => {
+  test("allows the optimized standalone Testing runtime despite NODE_ENV=production", async () => {
     const events: OsrmMapMatchingTimingEvent[] = []
     let called = false
     const provider = createOsrmMapMatchingProvider({
@@ -209,8 +209,8 @@ describe("P2-T24 OSRM adapter", () => {
       fetchImpl: async () => { called = true; return response(payload) },
     })
 
-    expect(await provider.matchTrajectory(raw)).toEqual({ status: "rejected", reason: "testing_only_guard", provider: "osrm" })
-    expect(called).toBe(false)
-    expect(events).toHaveLength(0)
+    expect((await provider.matchTrajectory(raw)).status).toBe("matched")
+    expect(called).toBe(true)
+    expect(events.length).toBeGreaterThan(0)
   })
 })

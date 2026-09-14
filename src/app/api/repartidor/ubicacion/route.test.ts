@@ -356,7 +356,9 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
   })
 
   test("T24 diagnostics remain absent in Production even when the request opts in", async () => {
+    const originalEnvironment = process.env.DELIGO_ENVIRONMENT
     const originalNodeEnv = process.env.NODE_ENV
+    process.env.DELIGO_ENVIRONMENT = "PRODUCTION"
     process.env.NODE_ENV = "production"
     try {
       const { repartidorId, pedidoId } = nextIds()
@@ -373,6 +375,8 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
       expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
       expect(matchingCalls).toHaveLength(0)
     } finally {
+      if (originalEnvironment === undefined) delete process.env.DELIGO_ENVIRONMENT
+      else process.env.DELIGO_ENVIRONMENT = originalEnvironment
       if (originalNodeEnv === undefined) delete process.env.NODE_ENV
       else process.env.NODE_ENV = originalNodeEnv
     }

@@ -23,8 +23,16 @@ interface UpdateUbicacionBody {
 
 const R3_MATCHING_TIMEOUT_TESTING_MS = 1_000
 
+function isTestingRuntime(): boolean {
+  // Read the deployment marker at runtime. Next's standalone launcher sets
+  // NODE_ENV to production for every optimized build, including Testing.
+  const runtimeEnv = globalThis.process?.env as Record<string, string | undefined> | undefined
+  const environmentKey = ["DELIGO", "ENVIRONMENT"].join("_")
+  return runtimeEnv?.[environmentKey] === "TESTING"
+}
+
 function createTestingMapMatchingProvider() {
-  if (process.env.DELIGO_ENVIRONMENT !== "TESTING" || process.env.NODE_ENV === "production") return null
+  if (!isTestingRuntime()) return null
   return createOsrmMapMatchingProvider({
     env: {
       ...process.env,
@@ -35,8 +43,7 @@ function createTestingMapMatchingProvider() {
 }
 
 function isT24DiagnosticRequest(req: NextRequest): boolean {
-  return process.env.DELIGO_ENVIRONMENT === "TESTING" &&
-    process.env.NODE_ENV !== "production" &&
+  return isTestingRuntime() &&
     req.headers.get("x-t24-diagnostic") === "1"
 }
 

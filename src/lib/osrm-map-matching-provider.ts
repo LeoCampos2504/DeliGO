@@ -99,7 +99,7 @@ export function resolveOsrmMapMatchingConfig(
   if (provider !== "osrm") {
     return { enabled: false, baseUrl: null, profile: DEFAULT_PROFILE, timeoutMs: MATCHING_TIMEOUT_MS, reason: "provider_disabled" }
   }
-  if (environmentName(env) !== "TESTING" || env.NODE_ENV === "production") {
+  if (environmentName(env) !== "TESTING") {
     return { enabled: false, baseUrl: null, profile: DEFAULT_PROFILE, timeoutMs: MATCHING_TIMEOUT_MS, reason: "testing_only_guard" }
   }
   const baseUrl = validateMapMatchingBaseUrl(env.MAP_MATCHING_BASE_URL)
@@ -401,7 +401,7 @@ export function createOsrmMapMatchingProvider(
       }
     : resolveOsrmMapMatchingConfig(env)
   const fetchImpl = options.fetchImpl ?? fetch
-  const timingEnabled = env.DELIGO_ENVIRONMENT === "TESTING" && env.NODE_ENV !== "production"
+  const timingEnabled = environmentName(env) === "TESTING"
   const timingLogger = options.timingLogger ?? ((event: OsrmMapMatchingTimingEvent) => console.info(formatTimingEvent(event)))
 
   return {
@@ -410,7 +410,7 @@ export function createOsrmMapMatchingProvider(
       if (!config.enabled || !config.baseUrl) {
         return { status: "rejected", reason: "provider_disabled", provider: "osrm" }
       }
-      if (env.NODE_ENV === "production" || environmentName(env) !== "TESTING") {
+      if (environmentName(env) !== "TESTING") {
         return { status: "rejected", reason: "testing_only_guard", provider: "osrm" }
       }
       const url = buildOsrmMatchUrl(rawPoints, { baseUrl: config.baseUrl, profile: context.profile ?? config.profile })
