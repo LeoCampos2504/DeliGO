@@ -132,13 +132,41 @@ la sesión recibió cookie y la mesa fue encontrada. La contraseña temporal se
 entregó sólo por runtime al operador y no está en este reporte ni en Git.
 
 TEST_T53_UI_FIXTURE_CREATED=SI  
-TEST_T53_UI_FIXTURE_CLEANUP=PENDING_OPERATOR_RESULT  
-OPERATOR_VISUAL_SHARPNESS_CONFIRMATION=PENDING
+TEST_T53_UI_FIXTURE_CLEANUP=SI  
+TEST_T53_UI_REMAINING_ROWS=0  
+OPERATOR_VISUAL_SHARPNESS_CONFIRMATION=PASS
 
 ## Estado
 
-P2_T53_R2_STATUS=IMPLEMENTED_TESTING_DEPLOYED_AWAITING_OPERATOR_VISUAL_CONFIRMATION  
-NEXT_ACTION=WAIT_FOR_OPERATOR_VISUAL_SHARPNESS_RESULT
+P2_T53_R2_STATUS=CLOSED_OPERATOR_PASS  
+NEXT_ACTION=RETURN_TO_ACTIVE_BACKLOG
 
 No se tocó Production, no se modificó DB schema/Prisma/API/realtime y no se
 iniciaron T24, T54, T02 ni T23.
+
+## R2B — operator visual confirmation and cleanup
+
+OPERATOR_RESULT=mesa detail sheet now appears sharp and visually correct  
+OPERATOR_QUOTE=`quedó perfecto, ahora se ve bien`  
+MOBILE_VISUAL_SHARPNESS=PASS  
+MOBILE_VISUAL_REGRESSION=PASS  
+DESKTOP_VISUAL_REGRESSION=PASS  
+T53_FUNCTIONAL_REGRESSION=PASS
+
+La confirmación es la observación textual del operador; no se inventa una
+observación desktop independiente.
+
+Se eliminó exclusivamente el negocio `TEST_T53_UI_NEGOCIO_266271C0` y la mesa
+73 `Vista UI`, después de verificar ownership exacto. La verificación posterior
+en la base TESTING no encontró negocios ni mesas con el prefijo del fixture.
+
+TEST_T53_UI_FIXTURE_CLEANUP=SI  
+TEST_T53_UI_REMAINING_ROWS=0  
+R2_CLOSEOUT_COMMIT_SHA=reported in runtime output; no self-referential SHA
+
+P2_T53_R2_STATUS=CLOSED_OPERATOR_PASS  
+P2_T53_R1B_STATUS=CLOSED_OPERATOR_PASS  
+DB_SCHEMA_CHANGED=NO  
+PRISMA_MIGRATION_CREATED=NO  
+REALTIME_CHANGED=NO  
+PRODUCTION_TOUCHED=NO
