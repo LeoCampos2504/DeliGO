@@ -158,6 +158,82 @@ ROOT_CAUSE_CLASSIFICATION=UNPROVEN_RUNTIME_ROUTE_OR_ADAPTER_TIMING_DISCREPANCY
 P2_T24_R5_2_STATUS=DIAGNOSIS_INCONCLUSIVE_BOUNDED
 ```
 
+## R5.3 — live adapter timing instrumentation
+
+Se agregó instrumentación bounded únicamente al adapter OSRM real. Queda
+habilitada sólo cuando `DELIGO_ENVIRONMENT=TESTING` y `NODE_ENV` no es
+`production`; Production no ejecuta el logger ni el request. El provider usa
+un solo `AbortController` y un solo `setTimeout`; `context.timeoutMs` sólo
+selecciona el valor efectivo frente al timeout de configuración. No se agregó
+endpoint debug ni se modificó el límite de 1000 ms, la policy ni el route.
+
+```text
+R5_3_IMPLEMENTATION_COMMIT=385396992f460ae6364cb2e5da2f9d4fb878b48d
+DELIGO_TESTING_DEPLOYMENT_ID=ffbfc242-28e5-4a74-83df-1d9df564450d
+DELIGO_TESTING_DEPLOYMENT_STATUS=SUCCESS_RUNNING
+DELIGO_TESTING_DEPLOYMENT_COMMIT=385396992f460ae6364cb2e5da2f9d4fb878b48d
+LIVE_ROUTE_EFFECTIVE_TIMEOUT_MS=1000
+PROVIDER_TIMEOUT_LAYER_COUNT=1
+TIMING_LOG_CONTAINS_COORDINATES=NO
+TIMING_LOG_CONTAINS_PII=NO
+```
+
+Los tests focales del provider pasaron 15/15 y los tests focales de la ruta
+28/28; ESLint focal y `git diff --check` también pasaron. El único POST válido
+de esta etapa usó el fixture `TEST_T24` y el escenario ACCEPT. Dos intentos de
+runner anteriores fueron bloqueados antes del harness (runner incompatible y
+DB privada inaccesible) y no enviaron POST.
+
+```text
+TEST_1_ATTEMPT_3_DIAGNOSTIC=EXECUTED
+MATCH_POINT_COUNT=4
+MATCH_RADII_PRESENT=true
+MATCH_PROFILE=driving
+MATCH_GEOMETRIES_MODE=geojson
+MATCH_OVERVIEW_MODE=full
+MATCH_GAPS_MODE=split
+MATCH_TIDY_MODE=false
+SERIALIZED_REQUEST_LENGTH_BYTES=215
+LOCATION_REVISION_BEFORE=2
+LOCATION_REVISION_AFTER=3
+TRACKING_POST_HTTP_STATUS=200
+DB_RAW_POSITION_ONLY=SI
+DB_MATCHED_DATA_PERSISTED=NO
+RAW_TRAJECTORY_EMITTED=SI
+MATCHED_TRAJECTORY_EMITTED=NO
+REALTIME_EVENT_COUNT=1
+ORDER_STATE_AFTER=en_camino
+```
+
+El access log live confirmó el POST `200`, pero Railway no entregó ninguno de
+los eventos `[Tracking Matching Timing]` del proceso para este request. Sólo
+se observó el access log de la ruta; por ello no se inventan headers, parse,
+total ni abort elapsed, y no se selecciona artificialmente ninguno de los
+casos A/B/C/D. El resultado RAW es compatible con fallback, pero la causa del
+provider no quedó observable en esta corrida.
+
+```text
+FETCH_HEADERS_MS=NOT_OBSERVED
+JSON_BODY_PARSE_MS=NOT_OBSERVED
+TOTAL_PROVIDER_MS=NOT_OBSERVED
+ABORT_ELAPSED_MS=NOT_OBSERVED
+PROVIDER_RESULT_STATUS=NOT_OBSERVED
+OSRM_HTTP_STATUS=NOT_OBSERVED
+OSRM_PROVIDER_CODE=NOT_OBSERVED
+OSRM_MATCH_CONFIDENCE=NOT_OBSERVED
+POLICY_DECISION=NOT_OBSERVED
+POLICY_REJECTION_REASON=NOT_OBSERVED
+ROOT_CAUSE_CLASSIFICATION=LIVE_ADAPTER_TIMING_LOG_UNAVAILABLE_AFTER_CONTROLLED_POST
+R5_ACCEPT_SERVER_PATH=BLOCKED_TIMING_EVIDENCE_UNAVAILABLE
+R5_MATCHED_REALTIME_END_TO_END=BLOCKED_TIMING_EVIDENCE_UNAVAILABLE
+R3_LIVE_SERVER_ROUTE_PROBE=BLOCKED_TIMING_EVIDENCE_UNAVAILABLE
+TIMEOUT_CONFIGURATION_CHANGE_RECOMMENDED=NO
+P2_T24_R5_3_STATUS=CONTROLLED_POST_COMPLETE_TIMING_EVIDENCE_UNAVAILABLE
+```
+
+No se ejecutó un cuarto POST, no se pidió observación visual, no se ejecutaron
+TEST 2, stale, recovery, completion o cleanup, y Production no fue tocada.
+
 ## Harness y TEST 1
 
 El único harness R5 es:
