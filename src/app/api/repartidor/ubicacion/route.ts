@@ -6,7 +6,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { evaluateMapMatching, isRawMatchingCandidate } from "@/lib/map-matching-policy"
 import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
-import { isMatchedRealtimePayloadWithinLimit } from "@/lib/map-matching-provider"
+import { isMatchedRealtimePayloadWithinLimit, type MapMatchingDiagnostics } from "@/lib/map-matching-provider"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
 import {
   MAX_BATCH_PAYLOAD_BYTES,
@@ -34,6 +34,35 @@ function createTestingMapMatchingProvider() {
   })
 }
 
+function isT24DiagnosticRequest(req: NextRequest): boolean {
+  return process.env.DELIGO_ENVIRONMENT === "TESTING" &&
+    process.env.NODE_ENV !== "production" &&
+    req.headers.get("x-t24-diagnostic") === "1"
+}
+
+function diagnosticNumber(value: number | undefined): string {
+  return value === undefined ? "NOT_AVAILABLE" : String(value)
+}
+
+function buildT24DiagnosticHeaders(
+  providerDiagnostics: MapMatchingDiagnostics | undefined,
+  policyDecision: "ACCEPT_MATCH" | "REJECT_MATCH" | undefined,
+  policyRejectionReason: string | undefined,
+): Headers {
+  const headers = new Headers()
+  headers.set("X-T24-Match-Result", providerDiagnostics?.providerResultStatus ?? "NOT_AVAILABLE")
+  headers.set("X-T24-Match-Fetch-Headers-Ms", diagnosticNumber(providerDiagnostics?.fetchHeadersMs))
+  headers.set("X-T24-Match-Json-Parse-Ms", diagnosticNumber(providerDiagnostics?.jsonBodyParseMs))
+  headers.set("X-T24-Match-Total-Ms", diagnosticNumber(providerDiagnostics?.totalProviderMs))
+  headers.set("X-T24-Match-Abort-Ms", diagnosticNumber(providerDiagnostics?.abortElapsedMs))
+  headers.set("X-T24-Match-Http-Status", diagnosticNumber(providerDiagnostics?.httpStatus))
+  headers.set("X-T24-Match-Provider-Code", providerDiagnostics?.providerCode ?? "NOT_AVAILABLE")
+  headers.set("X-T24-Match-Confidence", diagnosticNumber(providerDiagnostics?.confidence))
+  headers.set("X-T24-Match-Policy", policyDecision ?? "NOT_EVALUATED")
+  headers.set("X-T24-Match-Rejection", policyRejectionReason ?? "NOT_AVAILABLE")
+  return headers
+}
+
 function realtimeTrajectoryWithoutAccuracy(
   trajectory: TrackingTrajectoryWirePoint[] | undefined,
 ) {
@@ -43,6 +72,7 @@ function realtimeTrajectoryWithoutAccuracy(
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
 export async function POST(req: NextRequest) {
   try {
+    const diagnosticRequested = isT24DiagnosticRequest(req)
     // 1. Authenticate repartidor from cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
@@ -319,6 +349,9 @@ export async function POST(req: NextRequest) {
     // Matching is strictly best-effort and follows the RAW DB commit. The
     // provider/policy can therefore never suppress the one RAW realtime event.
     const eventId = `${pedidoId}:${randomUUID()}`
+    let providerDiagnostics: MapMatchingDiagnostics | undefined
+    let diagnosticPolicyDecision: "ACCEPT_MATCH" | "REJECT_MATCH" | undefined
+    let diagnosticPolicyRejectionReason: string | undefined
     if (trajectory && isRawMatchingCandidate(trajectory)) {
       try {
         const provider = createTestingMapMatchingProvider()
@@ -328,8 +361,13 @@ export async function POST(req: NextRequest) {
             profile: "driving",
             timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
             signal: req.signal,
+            diagnostics: diagnosticRequested ? (diagnostics) => { providerDiagnostics = diagnostics } : undefined,
           })
           const decision = evaluateMapMatching(trajectory, result)
+          if (diagnosticRequested) {
+            diagnosticPolicyDecision = decision.decision
+            diagnosticPolicyRejectionReason = decision.decision === "REJECT_MATCH" ? decision.reason : undefined
+          }
           if (decision.decision === "ACCEPT_MATCH") {
             const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
               lat: matchedLat,
@@ -381,7 +419,7 @@ export async function POST(req: NextRequest) {
       version: locationRevision,
       timestamp,
       ...(trajectory ? { acceptedTrajectoryPointsCount: trajectory.length } : {}),
-    })
+    }, diagnosticRequested ? { headers: buildT24DiagnosticHeaders(providerDiagnostics, diagnosticPolicyDecision, diagnosticPolicyRejectionReason) } : undefined)
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
     return NextResponse.json(

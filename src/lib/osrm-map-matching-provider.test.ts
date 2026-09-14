@@ -8,6 +8,7 @@ import {
 } from "@/lib/osrm-map-matching-provider"
 import { evaluateMapMatching } from "@/lib/map-matching-policy"
 import type { RawMatchingPoint } from "@/lib/map-matching-provider"
+import type { MapMatchingDiagnostics } from "@/lib/map-matching-provider"
 import type { OsrmMapMatchingTimingEvent } from "@/lib/osrm-map-matching-provider"
 
 const raw: RawMatchingPoint[] = [
@@ -103,6 +104,7 @@ describe("P2-T24 OSRM adapter", () => {
 
   test("emits bounded Testing timing stages and safe request characteristics on success", async () => {
     const events: OsrmMapMatchingTimingEvent[] = []
+    const diagnostics: MapMatchingDiagnostics[] = []
     const provider = createOsrmMapMatchingProvider({
       baseUrl: "https://example.com",
       enabled: true,
@@ -111,7 +113,7 @@ describe("P2-T24 OSRM adapter", () => {
       fetchImpl: async () => response(payload),
     })
 
-    const result = await provider.matchTrajectory(raw, { profile: "driving", timeoutMs: 1_000 })
+    const result = await provider.matchTrajectory(raw, { profile: "driving", timeoutMs: 1_000, diagnostics: (value) => diagnostics.push(value) })
 
     expect(result.status).toBe("matched")
     expect(events.map((event) => event.event)).toEqual([
@@ -128,6 +130,9 @@ describe("P2-T24 OSRM adapter", () => {
     expect(end.resultCategory).toBe("matched")
     expect(end.osrmCode).toBe("Ok")
     expect(end.providerTimeoutLayerCount).toBe(1)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]).toMatchObject({ providerResultStatus: "matched", httpStatus: 200, providerCode: "Ok", confidence: 0.9 })
+    expect(diagnostics[0].totalProviderMs).toBeDefined()
     expect(end.pointCount).toBe(3)
     expect(end.radiusesPresent).toBe(true)
     expect(end.profile).toBe("driving")
@@ -153,6 +158,7 @@ describe("P2-T24 OSRM adapter", () => {
 
   test("emits abort elapsed timing on timeout without coordinates, URL, or PII", async () => {
     const events: OsrmMapMatchingTimingEvent[] = []
+    const diagnostics: MapMatchingDiagnostics[] = []
     const provider = createOsrmMapMatchingProvider({
       baseUrl: "https://example.com",
       enabled: true,
@@ -162,7 +168,7 @@ describe("P2-T24 OSRM adapter", () => {
       fetchImpl: (_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))),
     })
 
-    expect(await provider.matchTrajectory(raw)).toEqual({ status: "timeout", provider: "osrm" })
+    expect(await provider.matchTrajectory(raw, { diagnostics: (value) => diagnostics.push(value) })).toEqual({ status: "timeout", provider: "osrm" })
     expect(events.map((event) => event.event)).toEqual(["MATCH_REQUEST_START", "MATCH_REQUEST_END"])
     const end = events.at(-1)!
     expect(end.fetchHeadersMs).toBeUndefined()
@@ -171,6 +177,9 @@ describe("P2-T24 OSRM adapter", () => {
     expect(end.abortElapsedMs).toBeDefined()
     expect(end.resultCategory).toBe("timeout")
     expect(end.providerTimeoutLayerCount).toBe(1)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0].providerResultStatus).toBe("timeout")
+    expect(diagnostics[0].abortElapsedMs).toBeDefined()
     const serializedEvents = JSON.stringify(events)
     expect(serializedEvents).not.toContain("52.517037")
     expect(serializedEvents).not.toContain("13.38886")

@@ -40,7 +40,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { RATE_LIMITS } from "@/lib/rate-limit"
-import type { MapMatchingRequestContext, MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
+import type { MapMatchingDiagnostics, MapMatchingRequestContext, MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
 
 let idCounter = 0
 function nextIds() {
@@ -121,7 +121,18 @@ mock.module("@/lib/osrm-map-matching-provider", () => ({
     name: "osrm",
     matchTrajectory: async (points: readonly RawMatchingPoint[], context: MapMatchingRequestContext = {}) => {
       matchingCalls.push({ points: [...points], context })
-      return matchingImpl([...points], context)
+      const result = await matchingImpl([...points], context)
+      context.diagnostics?.({
+        providerResultStatus: result.status,
+        fetchHeadersMs: result.status === "timeout" ? undefined : 12,
+        jsonBodyParseMs: result.status === "timeout" ? undefined : 2,
+        totalProviderMs: result.status === "timeout" ? undefined : 14,
+        abortElapsedMs: result.status === "timeout" ? 1_000 : undefined,
+        httpStatus: result.status === "matched" ? 200 : undefined,
+        providerCode: result.status === "matched" ? "Ok" : undefined,
+        confidence: result.status === "matched" ? result.matchings[0]?.confidence : undefined,
+      } satisfies MapMatchingDiagnostics)
+      return result
     },
   }),
 }))
@@ -202,6 +213,75 @@ function acceptedMatchingResult(points: readonly RawMatchingPoint[]): MapMatchin
 }
 
 describe("POST /api/repartidor/ubicacion — server-authoritative Tracking producer", () => {
+  test("T24 diagnostics are absent without the explicit opt-in header", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
+    ]
+
+    const res = await callRoute(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("X-T24-Match-Result")).toBeNull()
+    expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
+  })
+
+  test("T24 diagnostics are returned only for the explicit Testing opt-in and preserve the API body", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
+    ]
+
+    const request = buildRequest(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
+    request.headers.set("X-T24-Diagnostic", "1")
+    const res = await POST(request)
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toMatchObject({ ok: true, locationRevision: 1, version: 1, acceptedTrajectoryPointsCount: 3 })
+    expect(res.headers.get("X-T24-Match-Result")).toBe("rejected")
+    expect(res.headers.get("X-T24-Match-Fetch-Headers-Ms")).toBe("12")
+    expect(res.headers.get("X-T24-Match-Json-Parse-Ms")).toBe("2")
+    expect(res.headers.get("X-T24-Match-Total-Ms")).toBe("14")
+    expect(res.headers.get("X-T24-Match-Policy")).toBe("REJECT_MATCH")
+    expect(res.headers.get("X-T24-Match-Rejection")).toBe("provider_rejected")
+    const diagnosticValues = Array.from(res.headers.entries())
+      .filter(([name]) => name.toLowerCase().startsWith("x-t24-match-"))
+      .map(([, value]) => value)
+      .join(" ")
+    expect(diagnosticValues).not.toContain(pedidoId)
+    expect(diagnosticValues).not.toContain("-34.5999")
+    expect(diagnosticValues).not.toContain("-58.3999")
+    expect(diagnosticValues).not.toContain("trajectory")
+  })
+
+  test("T24 diagnostics remain absent in Production even when the request opts in", async () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = "production"
+    try {
+      const { repartidorId, pedidoId } = nextIds()
+      setActor({ repartidorId, pedidoId })
+      const request = buildRequest(pedidoId, { lat: -34.6, lng: -58.4 })
+      request.headers.set("X-T24-Diagnostic", "1")
+
+      const res = await POST(request)
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get("X-T24-Match-Result")).toBeNull()
+      expect(res.headers.get("X-T24-Match-Total-Ms")).toBeNull()
+      expect(matchingCalls).toHaveLength(0)
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = originalNodeEnv
+    }
+  })
+
   test("A: successful POST persists the location, atomically advances locationRevision, and publishes tracking.location.updated exactly once with the exact envelope", async () => {
     const { repartidorId, pedidoId } = nextIds()
     setActor({ repartidorId, pedidoId })

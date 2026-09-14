@@ -4,6 +4,7 @@ import {
   isValidMatchingAccuracy,
   MATCHING_TIMEOUT_MS,
   type MapMatchingProvider,
+  type MapMatchingDiagnostics,
   type MapMatchingProfile,
   type MapMatchingRequestContext,
   type MapMatchingResult,
@@ -340,6 +341,37 @@ function resultTimingFields(result: MapMatchingResult): Pick<OsrmMapMatchingTimi
   return { resultCategory: "error" }
 }
 
+function resultDiagnostics(
+  result: MapMatchingResult,
+  timing: Pick<OsrmMapMatchingTimingEvent, "fetchHeadersMs" | "jsonBodyParseMs" | "totalProviderMs" | "abortElapsedMs">,
+  httpStatus?: number,
+): MapMatchingDiagnostics {
+  const resultFields = resultTimingFields(result)
+  return {
+    providerResultStatus: resultFields.resultCategory ?? "error",
+    fetchHeadersMs: timing.fetchHeadersMs,
+    jsonBodyParseMs: timing.jsonBodyParseMs,
+    totalProviderMs: timing.totalProviderMs,
+    abortElapsedMs: timing.abortElapsedMs,
+    httpStatus,
+    providerCode: resultFields.osrmCode,
+    confidence: resultFields.confidence,
+  }
+}
+
+function emitDiagnostics(
+  context: MapMatchingRequestContext,
+  result: MapMatchingResult,
+  timing: Pick<OsrmMapMatchingTimingEvent, "fetchHeadersMs" | "jsonBodyParseMs" | "totalProviderMs" | "abortElapsedMs">,
+  httpStatus?: number,
+): void {
+  try {
+    context.diagnostics?.(resultDiagnostics(result, timing, httpStatus))
+  } catch {
+    // Diagnostics are strictly observational and must never alter provider semantics.
+  }
+}
+
 function timingDurations(timing: OsrmRequestTiming): Pick<OsrmMapMatchingTimingEvent, "fetchHeadersMs" | "jsonBodyParseMs" | "totalProviderMs" | "abortElapsedMs"> {
   const headersAt = timing.headersAt
   const jsonParsedAt = timing.jsonParsedAt
@@ -402,20 +434,24 @@ export function createOsrmMapMatchingProvider(
       if (fetched.kind === "timeout") {
         const result: MapMatchingResult = { status: "timeout", provider: "osrm" }
         if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        emitDiagnostics(context, result, timing, fetched.timing.httpStatus)
         return result
       }
       if (fetched.kind === "error") {
         const result = invalidResult(fetched.reason)
         if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        emitDiagnostics(context, result, timing, fetched.timing.httpStatus)
         return result
       }
       try {
         const result = parseOsrmMatchResponse(fetched.payload, rawPoints)
         if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        emitDiagnostics(context, result, timing, fetched.timing.httpStatus)
         return result
       } catch {
         const result = invalidResult("response_processing_error")
         if (timingEnabled) timingLogger({ ...baseEvent, ...timing, ...resultTimingFields(result), httpStatus: fetched.timing.httpStatus })
+        emitDiagnostics(context, result, timing, fetched.timing.httpStatus)
         return result
       }
     },
