@@ -70,6 +70,94 @@ usa delete masivo ni se borran datos fuera de este fixture.
 TEST_FIXTURE_CLEANED=PENDING_OPERATOR_CERTIFICATION
 ```
 
+## R5.2 — DeliGO live runtime OSRM latency diagnosis
+
+No se ejecutó un tercer POST de tracking ni se modificaron timeout, policy,
+fixture o código de producto. La comparación queda separada de la evidencia
+R5: R3G4 usó el worker temporal `a0fa2159aadb537b9e4c31a23ebc92ac049a56c6`
+con la traza ACCEPT de Berlín; R5 usó el deployment live DeliGO Copy y una
+traza sintética distinta de Buenos Aires. Por lo tanto, los resultados de R3G4
+no son una medición del mismo input ni del mismo proceso HTTP.
+
+```text
+RUNTIME_DIFFERENCES_FOUND=SI_INPUT_TRACE_AND_EXECUTION_PATH
+R3G4_RUNTIME=TEMP_TESTING_WORKER_CLEANED_COMMIT_a0fa2159aadb537b9e4c31a23ebc92ac049a56c6
+LIVE_RUNTIME=DELIGO_COPY_DEPLOYMENT_COMMIT_9d3cfb7c345b0f1c80551446ed093a6c91d01a7b
+LIVE_RUNTIME_REGION=SFO
+LIVE_RUNTIME_REPLICAS=1_RUNNING
+LIVE_RUNTIME_NODE=v22.23.2
+LIVE_RUNTIME_BUILDER=RAILPACK_V3
+LIVE_RUNTIME_START_COMMAND=bun_.next/standalone/server.js
+LIVE_DELIGO_ENVIRONMENT=TESTING
+LIVE_NODE_ENV=test
+LIVE_MAP_MATCHING_PROVIDER=osrm
+LIVE_T24_OSRM_BASE_URL=https://router.project-osrm.org
+LIVE_CHAT_SERVICE=https://chat-en-vivo-testing.up.railway.app
+```
+
+Las variables efectivas de DeliGO Copy coinciden con las guardas de R3G4,
+pero el worker temporal no dejó registrada una imagen/region comparable y fue
+eliminado. No se asume equivalencia de runtime.
+
+### Timeout efectivo
+
+`POST /api/repartidor/ubicacion` usa exactamente `1000 ms`. El route crea el
+provider con `R3_MATCHING_TIMEOUT_TESTING_MS=1000` y vuelve a pasar
+`context.timeoutMs=1000`. En `fetchJsonWithTimeout`, el reloj se inicia al
+crear el `AbortController` y el timer inmediatamente antes de invocar
+`fetchImpl(url, { signal })`; incluye la espera de la respuesta y su
+`response.json()` hasta entrar al `finally`.
+
+```text
+MATCHING_TIMEOUT_START_POINT=BEFORE_FETCH
+LIVE_ROUTE_EFFECTIVE_TIMEOUT_MS=1000
+R3_MATCHING_TIMEOUT_INITIAL_TESTING_MS=1000
+```
+
+No se agregó instrumentación al route porque ya no estaba autorizado otro
+POST live. La clasificación `provider_timeout` de los dos POST previos se
+mantiene; su elapsed-at-abort exacto no quedó loggeado.
+
+### Probe desde el runtime live
+
+Se usó SSH read-only contra el contenedor activo de DeliGO Copy, con Node
+`v22.23.2`, la misma URL OSRM, la misma traza ACCEPT de R5 y timeout diagnóstico
+de 3000 ms. Fueron requests secuenciales, sin concurrencia ni datos de DeliGO.
+La medición fue un fetch equivalente de red desde el runtime live, no un
+endpoint público ni un tercer POST.
+
+```text
+LIVE_EQUIVALENT_PROBE_RUNTIME=LIVE_DELIGO_COPY_SSH_NODE_22.23.2_SFO_ONE_REPLICA
+DIAGNOSTIC_TIMEOUT_MS=3000
+ATTEMPT_COUNT=3
+ATTEMPT_1_LATENCY_MS=590
+ATTEMPT_1_HTTP_STATUS=200
+ATTEMPT_1_OSRM_CODE=Ok
+ATTEMPT_2_LATENCY_MS=583
+ATTEMPT_2_HTTP_STATUS=200
+ATTEMPT_2_OSRM_CODE=Ok
+ATTEMPT_3_LATENCY_MS=NOT_OBSERVED_SSH_NO_OUTPUT
+MIN_LATENCY_MS=583
+MEDIAN_LATENCY_MS=586.5_OBSERVED_SAMPLE
+MAX_LATENCY_MS=590
+LIVE_RUNTIME_OSRM_REACHABILITY=PASS_2_OF_2_OBSERVED_RAW_FETCHES
+```
+
+La evidencia disponible indica que el contenedor live puede alcanzar OSRM en
+menos de 1000 ms, pero no demuestra todavía que el adapter completo siempre
+termine antes de ese límite: las dos llamadas de la ruta real expiraron y el
+tercer probe SSH no fue observable. La diferencia de traza y el posible
+overhead/intermitencia de `fetch`+parse quedan abiertos; no se atribuye una
+causa única sin instrumentación bounded del adapter o una nueva corrida
+autorizada.
+
+```text
+R5_RECOMMENDED_LIVE_MATCH_TIMEOUT_MS=1000
+TIMEOUT_CONFIGURATION_CHANGE_RECOMMENDED=NO
+ROOT_CAUSE_CLASSIFICATION=UNPROVEN_RUNTIME_ROUTE_OR_ADAPTER_TIMING_DISCREPANCY
+P2_T24_R5_2_STATUS=DIAGNOSIS_INCONCLUSIVE_BOUNDED
+```
+
 ## Harness y TEST 1
 
 El único harness R5 es:
