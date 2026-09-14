@@ -674,3 +674,36 @@ error normal de validación, no escribió la posición, no incrementó
 `locationRevision` y no ejecutó provider ni realtime. Se preserva la
 restricción de no iniciar otra certificación ni promover a Production desde
 esta etapa.
+
+## R5.9 — Prevalidación de traza de alta confianza
+
+La posición RAW actual del fixture se confirmó presente, con
+`locationRevision=5`; no fue modificada. Se evaluaron exactamente tres
+candidatos locales nuevos, todos iniciando en la posición RAW actual y sin
+reutilizar la traza fallida de R5.8. La prevalidación usó únicamente el
+adapter OSRM y `evaluateMapMatching`; no escribió DB, no publicó realtime y
+no llamó a la ruta de tracking de DeliGO.
+
+```text
+P2_T24_R5_9_STATUS=BLOCKED_PROVIDER_DATASET
+CURRENT_RAW_POSITION_PRESENT=SI
+CURRENT_LOCATION_REVISION=5
+PREVALIDATED_ACCEPT_TRACE_FOUND=NO
+PREVALIDATION_CANDIDATE_COUNT=3
+PREVALIDATION_POINT_COUNTS=5,4,4
+PREVALIDATION_PROVIDER_RESULTS=matched,matched,matched
+PREVALIDATION_HTTP_STATUS=200,200,200
+PREVALIDATION_PROVIDER_CODE=Ok,Ok,Ok
+PREVALIDATION_CONFIDENCE=0,0,0
+PREVALIDATION_POLICY_DECISIONS=REJECT_MATCH,REJECT_MATCH,REJECT_MATCH
+PREVALIDATION_POLICY_REASONS=low_confidence,low_confidence,low_confidence
+PREVALIDATION_FIRST_POINT_DISTANCE_FROM_CURRENT_RAW_M=0,0,0
+LIVE_POST_EXECUTED=NO
+FIFTH_VALID_TRACKING_POST_AUTHORIZED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=STOP_T24_R5_PROVIDER_DATASET_BLOCKED
+```
+
+No se relajaron confidence threshold, snap distance, ambiguity rules,
+geometry rules ni timeout. No se autoriza un nuevo dataset, otro POST live,
+TEST 2, stale, recovery, completion, cleanup ni Production desde R5.9.
