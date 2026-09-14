@@ -737,6 +737,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   const queryClient = useQueryClient()
   const [selectedMesa, setSelectedMesa] = useState<Mesa | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [occupationRefreshKey, setOccupationRefreshKey] = useState(0)
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -1359,6 +1360,11 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
               negocio={negocio}
               allMesas={mesas}
               orders={mesaOrdersMap.get(selectedMesa.numero) ?? []}
+              occupationRefreshKey={occupationRefreshKey}
+              onOccupationClosed={() => {
+                void queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })
+                setOccupationRefreshKey((current) => current + 1)
+              }}
               onClose={() => { setDetailOpen(false); setSelectedMesa(null) }}
               onToggleActiva={(activa) => toggleMesaMutation.mutate({ id: selectedMesa.id, activa })}
               onDelete={() => deleteMutation.mutate(selectedMesa.id)}
@@ -1447,6 +1453,8 @@ function MesaDetailDrawer({
   negocio,
   allMesas,
   orders,
+  occupationRefreshKey,
+  onOccupationClosed,
   onClose,
   onToggleActiva,
   onDelete,
@@ -1464,6 +1472,8 @@ function MesaDetailDrawer({
   negocio: SalonTabProps["negocio"]
   allMesas: Mesa[]
   orders: PedidoMesa[]
+  occupationRefreshKey: number
+  onOccupationClosed: () => void
   onClose: () => void
   onToggleActiva: (activa: boolean) => void
   onDelete: () => void
@@ -1776,12 +1786,13 @@ function MesaDetailDrawer({
           <MesaOccupancyControl
             mesaId={mesa.id}
             mesaNumero={mesa.numero}
+            refreshKey={occupationRefreshKey}
             onClosed={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             onAccessDenied={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             allowClose={false}
           />
           {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
+          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} onClosed={onOccupationClosed} />
         </div>
 
         {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}
