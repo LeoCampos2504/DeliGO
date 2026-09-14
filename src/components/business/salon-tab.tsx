@@ -1352,7 +1352,10 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
       {/* ===== MESA DETAIL DRAWER ===== */}
       <Drawer open={detailOpen} onOpenChange={(open) => { if (!open) { setDetailOpen(false); setSelectedMesa(null) } }}>
-        <DrawerContent className="max-h-[85vh]">
+        {/* Vaul keeps this drawer in a transform compositor layer via will-change.
+            Keep its translate3d animation/drag behavior, but avoid persistent
+            compositing of the mesa detail content that can soften text on mobile. */}
+        <DrawerContent className="max-h-[85vh]" style={{ willChange: "auto" }}>
           {selectedMesa && (
             <MesaDetailDrawer
               key={selectedMesa.id}
