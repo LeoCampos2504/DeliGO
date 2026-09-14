@@ -202,6 +202,24 @@ describe("Shared realtime client Tracking consumer contract", () => {
     expect(source).toContain("startPlayback(")
   })
 
+  test("R4 selects validated matchedTrajectory as visual-only geometry and keeps RAW fallback", () => {
+    const source = trackingMap()
+    expect(source).toContain("matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]")
+    expect(source).toContain("selectTrackingVisualTrajectory(")
+    expect(source).toContain("trackingData.matchedTrajectory")
+    expect(source).toContain("trackingData.trajectory")
+    expect(source).not.toContain("trackingData.matchedTrajectory || trackingData.trajectory")
+    expect(source).not.toContain("matchedRevision")
+    expect(source).not.toContain("visualRevision")
+    expect(source).not.toContain("mapRevision")
+  })
+
+  test("R4 keeps one marker writer: repartidor position writes remain inside tracking-playback", () => {
+    const source = trackingMap()
+    expect(source).not.toContain("repartidorMarkerRef.current.setLatLng")
+    expect(source).toContain("marker: () => repartidorMarkerRef.current")
+  })
+
   test("R3B keeps the marker writer inside the playback controller and never writes top-level E directly", () => {
     const source = trackingMap()
     expect(source).toContain("marker: () => repartidorMarkerRef.current")

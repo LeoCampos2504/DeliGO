@@ -1,4 +1,13 @@
-import type { TrackingTrajectoryWirePoint } from "@/lib/tracking-trajectory"
+import { haversineDistanceMeters } from "@/lib/tracking-movement"
+
+export interface TrackingVisualTrajectoryPoint {
+  lat: number
+  lng: number
+  offsetMs: number
+}
+
+export const MAX_TRACKING_VISUAL_TRAJECTORY_POINTS = 48
+export const MAX_MATCHED_CROSS_BATCH_START_DISTANCE_METERS = 150
 
 export interface TrackingPlaybackPoint {
   lat: number
@@ -17,7 +26,7 @@ export const CLIENT_BATCH_QUEUE_MAX = 2
 
 export interface ConfirmedTrackingTrajectoryBatch {
   version: number | string | null
-  points: TrackingTrajectoryWirePoint[]
+  points: TrackingVisualTrajectoryPoint[]
 }
 
 export interface TrackingPlaybackMarkerWriter {
@@ -48,7 +57,7 @@ export type TrackingPlaybackEventSource = "realtime" | "http"
 
 export interface TrackingPlaybackEvent {
   point: TrackingPlaybackPoint
-  trajectory?: TrackingTrajectoryWirePoint[]
+  trajectory?: TrackingVisualTrajectoryPoint[]
   version: number | string | null
   source?: TrackingPlaybackEventSource
 }
@@ -84,7 +93,7 @@ function isFinitePoint(point: TrackingPlaybackPoint | null | undefined): point i
   )
 }
 
-function isFiniteTrajectoryPoint(point: TrackingTrajectoryWirePoint | null | undefined): point is TrackingTrajectoryWirePoint {
+function isFiniteTrajectoryPoint(point: TrackingVisualTrajectoryPoint | null | undefined): point is TrackingVisualTrajectoryPoint {
   return Boolean(
     point &&
     isFinitePoint(point) &&
@@ -113,17 +122,57 @@ function compareVersions(first: number | string | null, second: number | string 
   return firstTrusted === secondTrusted ? 0 : firstTrusted < secondTrusted ? -1 : 1
 }
 
-function normalizeTrajectory(points: TrackingTrajectoryWirePoint[] | undefined): TrackingTrajectoryWirePoint[] {
+function normalizeTrajectory(points: TrackingVisualTrajectoryPoint[] | undefined): TrackingVisualTrajectoryPoint[] {
   if (!Array.isArray(points)) return []
-  const normalized: TrackingTrajectoryWirePoint[] = []
+  const normalized: TrackingVisualTrajectoryPoint[] = []
   let previousOffset = -1
   for (const point of points) {
     if (!isFiniteTrajectoryPoint(point) || point.offsetMs < previousOffset) continue
     if (normalized.length && samePoint(normalized[normalized.length - 1], point)) continue
     normalized.push({ lat: point.lat, lng: point.lng, offsetMs: point.offsetMs })
     previousOffset = point.offsetMs
+    if (normalized.length >= MAX_TRACKING_VISUAL_TRAJECTORY_POINTS) break
   }
   return normalized
+}
+
+export function isValidTrackingVisualTrajectory(value: unknown): value is TrackingVisualTrajectoryPoint[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_TRACKING_VISUAL_TRAJECTORY_POINTS) return false
+  let previousOffset = -1
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false
+    const point = candidate as Record<string, unknown>
+    if (Object.keys(point).some((key) => !["lat", "lng", "offsetMs"].includes(key))) return false
+    if (
+      typeof point.lat !== "number" || !Number.isFinite(point.lat) || point.lat < -90 || point.lat > 90 ||
+      typeof point.lng !== "number" || !Number.isFinite(point.lng) || point.lng < -180 || point.lng > 180 ||
+      typeof point.offsetMs !== "number" || !Number.isFinite(point.offsetMs) || point.offsetMs < 0 ||
+      point.offsetMs < previousOffset
+    ) return false
+    previousOffset = point.offsetMs
+  }
+  return true
+}
+
+export function selectTrackingVisualTrajectory(
+  matchedTrajectory: unknown,
+  rawTrajectory: unknown,
+  renderedPoint: TrackingPlaybackPoint | null = null,
+): TrackingVisualTrajectoryPoint[] {
+  const raw = isValidTrackingVisualTrajectory(rawTrajectory)
+    ? rawTrajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs }))
+    : []
+  if (!isValidTrackingVisualTrajectory(matchedTrajectory)) return raw
+
+  const matched = matchedTrajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs }))
+  if (!renderedPoint || haversineDistanceMeters(renderedPoint, matched[0]) <= MAX_MATCHED_CROSS_BATCH_START_DISTANCE_METERS) {
+    return matched
+  }
+
+  // Do not animate a visually implausible jump through buildings. The same
+  // event's RAW trajectory remains the safe fallback; no planned-route lock
+  // or matched endpoint is retained.
+  return raw
 }
 
 export function clampPlaybackProgress(progress: number): number {
@@ -338,25 +387,23 @@ export function createTrackingPlaybackController(options: TrackingPlaybackContro
     acceptConfirmedEvent(event: TrackingPlaybackEvent): TrackingPlaybackAcceptance {
       if (completed || !isFinitePoint(event.point)) return "ignored_invalid"
       const points = normalizeTrajectory(event.trajectory)
-      const finalPoint = points.length
-        ? { lat: points[points.length - 1].lat, lng: points[points.length - 1].lng }
-        : event.point
+      const rawPoint: TrackingPlaybackPoint = { lat: event.point.lat, lng: event.point.lng }
       const order = compareVersions(event.version, authoritativeVersion)
 
       if (needsRecoverySnap) {
-        authoritativePoint = finalPoint
+        authoritativePoint = rawPoint
         if (trustedVersion(event.version) !== null) authoritativeVersion = event.version
-        snapToLatest(finalPoint)
+        snapToLatest(rawPoint)
         needsRecoverySnap = false
         return "recovery_snapped"
       }
       if (order !== null && order < 0) return "discarded_old_version"
       if (order === 0) {
-        authoritativePoint = finalPoint
+        authoritativePoint = rawPoint
         return "duplicate"
       }
 
-      authoritativePoint = finalPoint
+      authoritativePoint = rawPoint
       if (trustedVersion(event.version) !== null) authoritativeVersion = event.version
 
       if (!points.length) {
@@ -369,7 +416,7 @@ export function createTrackingPlaybackController(options: TrackingPlaybackContro
         return "accepted"
       }
 
-      if (samePoint(renderedPoint, finalPoint) && !activeBatch && !pendingBatch) return "duplicate"
+      if (samePoint(renderedPoint, rawPoint) && !activeBatch && !pendingBatch) return "duplicate"
       if (!renderedPoint) {
         writePoint(points[0])
         activeBatch = { version: event.version, points }

@@ -15,10 +15,13 @@ import {
 } from "@/lib/tracking-freshness"
 import {
   createTrackingPlaybackController,
+  selectTrackingVisualTrajectory,
   type TrackingPlaybackEventSource,
   type TrackingPlaybackPoint,
+  type TrackingVisualTrajectoryPoint,
 } from "@/lib/tracking-playback"
-import type { TrackingTrajectoryWirePoint } from "@/lib/tracking-trajectory"
+import type { RealtimeMatchedTrajectoryPoint } from "@/lib/realtime-types"
+import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -65,7 +68,8 @@ interface TrackingData {
   negocioColorPrincipal: string | null
   estado: string
   version?: number | string
-  trajectory?: TrackingTrajectoryWirePoint[]
+  trajectory?: RealtimeTrackingTrajectoryPoint[]
+  matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
   trackingSource?: TrackingPlaybackEventSource
 }
 
@@ -309,7 +313,7 @@ export function DeliveryTrackingMap({
   const startPlayback = useCallback((
     target: TrackingPlaybackPoint,
     version: number | string | null,
-    trajectory?: TrackingTrajectoryWirePoint[],
+    trajectory?: TrackingVisualTrajectoryPoint[],
     source: TrackingPlaybackEventSource = "realtime",
   ) => {
     playbackControllerRef.current?.acceptConfirmedEvent({
@@ -398,6 +402,7 @@ export function DeliveryTrackingMap({
             repartidorLastUpdate: prev.repartidorLastUpdate,
             version: prev.version,
             trajectory: prev.trajectory,
+            matchedTrajectory: prev.matchedTrajectory,
             trackingSource: prev.trackingSource,
           }
         }
@@ -415,6 +420,7 @@ export function DeliveryTrackingMap({
             repartidorLastUpdate: prev.repartidorLastUpdate,
             version: prev.version,
             trajectory: prev.trajectory,
+            matchedTrajectory: prev.matchedTrajectory,
             trackingSource: prev.trackingSource,
           }
         }
@@ -464,6 +470,7 @@ export function DeliveryTrackingMap({
             repartidorLastUpdate: data.timestamp,
             version: data.version,
             trajectory: data.trajectory,
+            matchedTrajectory: data.matchedTrajectory,
             trackingSource: "realtime",
           }
         }
@@ -486,6 +493,7 @@ export function DeliveryTrackingMap({
           estado: "en_camino",
           version: data.version,
           trajectory: data.trajectory,
+          matchedTrajectory: data.matchedTrajectory,
           trackingSource: "realtime",
         }
       })
@@ -627,7 +635,10 @@ export function DeliveryTrackingMap({
       typeof trackingData.repartidorLat === 'number' && isFinite(trackingData.repartidorLat) &&
       typeof trackingData.repartidorLng === 'number' && isFinite(trackingData.repartidorLng)
     ) {
-      const initialTrajectoryPoint = trackingData.trajectory?.[0]
+      const initialTrajectoryPoint = selectTrackingVisualTrajectory(
+        trackingData.matchedTrajectory,
+        trackingData.trajectory,
+      )[0]
       const initialPoint = initialTrajectoryPoint &&
         Number.isFinite(initialTrajectoryPoint.lat) && Number.isFinite(initialTrajectoryPoint.lng)
         ? initialTrajectoryPoint
@@ -645,7 +656,7 @@ export function DeliveryTrackingMap({
       repartidorMarkerRef.current = repartidorMarker
       playbackControllerRef.current?.seedRenderedPoint(
         { lat: repartidorPos[0], lng: repartidorPos[1] },
-        trackingData.trajectory ? null : (trackingData.version ?? null),
+        initialTrajectoryPoint ? null : (trackingData.version ?? null),
       )
     }
 
@@ -749,19 +760,28 @@ export function DeliveryTrackingMap({
 
     const newPoint: TrackingPlaybackPoint = { lat, lng }
     const repartidorColor = trackingData.negocioColorPrincipal || colorPrincipal
+    const visualTrajectory = selectTrackingVisualTrajectory(
+      trackingData.matchedTrajectory,
+      trackingData.trajectory,
+      playbackControllerRef.current?.snapshot().renderedPoint,
+    )
 
     if (repartidorMarkerRef.current) {
       startPlayback(
         newPoint,
         trackingData.version ?? null,
-        trackingData.trajectory,
+        visualTrajectory,
         trackingData.trackingSource,
       )
       // Update icon color in case it changed
       repartidorMarkerRef.current.setIcon(createRepartidorIcon(repartidorColor))
     } else {
       const repartidorIcon = createRepartidorIcon(repartidorColor)
-      const repartidorMarker = L.marker([lat, lng], { icon: repartidorIcon, zIndexOffset: 1000 })
+      const firstPoint = visualTrajectory[0]
+      const initialPoint = firstPoint && Number.isFinite(firstPoint.lat) && Number.isFinite(firstPoint.lng)
+        ? { lat: firstPoint.lat, lng: firstPoint.lng }
+        : newPoint
+      const repartidorMarker = L.marker([initialPoint.lat, initialPoint.lng], { icon: repartidorIcon, zIndexOffset: 1000 })
         .addTo(mapInstanceRef.current)
         .bindPopup(
           `<div style="font-size: 13px; font-weight: 600; padding: 2px 4px;">
@@ -769,18 +789,14 @@ export function DeliveryTrackingMap({
           </div>`
         )
       repartidorMarkerRef.current = repartidorMarker
-      const firstPoint = trackingData.trajectory?.[0]
-      const initialPoint = firstPoint && Number.isFinite(firstPoint.lat) && Number.isFinite(firstPoint.lng)
-        ? { lat: firstPoint.lat, lng: firstPoint.lng }
-        : newPoint
       playbackControllerRef.current?.seedRenderedPoint(
         initialPoint,
-        trackingData.trajectory ? null : (trackingData.version ?? null),
+        visualTrajectory.length ? null : (trackingData.version ?? null),
       )
       startPlayback(
         newPoint,
         trackingData.version ?? null,
-        trackingData.trajectory,
+        visualTrajectory,
         trackingData.trackingSource,
       )
     }

@@ -5,6 +5,8 @@ import {
   getTrackingPlaybackDurationMs,
   getTrackingTrajectorySegmentDurationMs,
   interpolateTrackingPoint,
+  isValidTrackingVisualTrajectory,
+  selectTrackingVisualTrajectory,
   sameTrackingPlaybackCoordinate,
   shouldSnapForTrackingGap,
   T23_INTERPOLATION_MAX_DURATION_MS,
@@ -140,6 +142,59 @@ const trajectory = [
   { lat: 1, lng: 1, offsetMs: 1_300 },
 ]
 
+const rawTrajectory = [
+  { lat: 10, lng: 10, offsetMs: 0 },
+  { lat: 10.001, lng: 10, offsetMs: 300 },
+  { lat: 10.002, lng: 10, offsetMs: 600 },
+]
+
+const matchedCurveTrajectory = [
+  { lat: 10, lng: 10, offsetMs: 0 },
+  { lat: 10.0005, lng: 10.0003, offsetMs: 150 },
+  { lat: 10.001, lng: 10.0008, offsetMs: 300 },
+  { lat: 10.0015, lng: 10.001, offsetMs: 450 },
+  { lat: 10.002, lng: 10, offsetMs: 600 },
+]
+
+describe("R4 visual trajectory selection", () => {
+  test("selects valid matchedTrajectory without changing RAW input or top-level authority data", () => {
+    const selected = selectTrackingVisualTrajectory(matchedCurveTrajectory, rawTrajectory)
+    expect(selected).toEqual(matchedCurveTrajectory)
+    expect(rawTrajectory).toEqual([
+      { lat: 10, lng: 10, offsetMs: 0 },
+      { lat: 10.001, lng: 10, offsetMs: 300 },
+      { lat: 10.002, lng: 10, offsetMs: 600 },
+    ])
+    expect(selected).not.toBe(rawTrajectory)
+  })
+
+  test("falls back to RAW when matched is absent or semantically invalid", () => {
+    expect(selectTrackingVisualTrajectory(undefined, rawTrajectory)).toEqual(rawTrajectory)
+    expect(selectTrackingVisualTrajectory([
+      { lat: 10, lng: 10, offsetMs: 0 },
+      { lat: Number.NaN, lng: 10, offsetMs: 300 },
+    ], rawTrajectory)).toEqual(rawTrajectory)
+    expect(selectTrackingVisualTrajectory([
+      { lat: 10, lng: 10, offsetMs: 300 },
+      { lat: 10.001, lng: 10, offsetMs: 100 },
+    ], rawTrajectory)).toEqual(rawTrajectory)
+  })
+
+  test("accepts exactly 48 visual points and rejects 49 by falling back to RAW", () => {
+    const valid48 = Array.from({ length: 48 }, (_, index) => ({ lat: 10 + index / 100_000, lng: 10, offsetMs: index * 100 }))
+    const invalid49 = [...valid48, { lat: 10.00049, lng: 10, offsetMs: 4_800 }]
+    expect(isValidTrackingVisualTrajectory(valid48)).toBe(true)
+    expect(isValidTrackingVisualTrajectory(invalid49)).toBe(false)
+    expect(selectTrackingVisualTrajectory(invalid49, rawTrajectory)).toEqual(rawTrajectory)
+  })
+
+  test("uses the actual rendered position as a bounded cross-batch continuity guard", () => {
+    expect(selectTrackingVisualTrajectory(matchedCurveTrajectory, rawTrajectory, { lat: 10, lng: 10 })).toEqual(matchedCurveTrajectory)
+    const farMatched = matchedCurveTrajectory.map((point) => ({ ...point, lat: 11, lng: point.lng }))
+    expect(selectTrackingVisualTrajectory(farMatched, rawTrajectory, { lat: 10, lng: 10 })).toEqual(rawTrajectory)
+  })
+})
+
 describe("confirmed trajectory playback controller", () => {
   test("first trajectory snaps to A and never snaps directly to the final point", () => {
     const harness = createRafHarness()
@@ -217,6 +272,37 @@ describe("confirmed trajectory playback controller", () => {
     expect(harness.writes).toHaveLength(0)
   })
 
+  test("matched visual playback keeps top-level RAW point as the sole authoritative point and preserves vertices", () => {
+    const harness = createRafHarness({ lat: 10, lng: 10 })
+    harness.controller.seedRenderedPoint({ lat: 10, lng: 10 }, 1)
+    const visual = selectTrackingVisualTrajectory(matchedCurveTrajectory, rawTrajectory, { lat: 10, lng: 10 })
+    const rawAuthority = { lat: 10.002, lng: 10, }
+    expect(harness.controller.acceptConfirmedEvent({ point: rawAuthority, version: 2, trajectory: visual })).toBe("accepted")
+    expect(harness.controller.snapshot().authoritativePoint).toEqual(rawAuthority)
+    harness.step(250)
+    expect(harness.marker.position).not.toEqual({ lat: 10.002, lng: 10 })
+    expect(harness.controller.snapshot().activeBatchVersion).toBe(2)
+  })
+
+  test("matched-to-matched and RAW-to-matched transitions use the same bounded queue", () => {
+    const harness = createRafHarness({ lat: 10, lng: 10 })
+    harness.controller.seedRenderedPoint({ lat: 10, lng: 10 }, 1)
+    const firstMatched = selectTrackingVisualTrajectory(matchedCurveTrajectory, rawTrajectory, { lat: 10, lng: 10 })
+    const nextRaw = [
+      { lat: 10.002, lng: 10, offsetMs: 0 },
+      { lat: 10.0025, lng: 10.0002, offsetMs: 300 },
+    ]
+    const nextMatched = [
+      { lat: 10.002, lng: 10, offsetMs: 0 },
+      { lat: 10.0025, lng: 10.0004, offsetMs: 300 },
+      { lat: 10.003, lng: 10.0007, offsetMs: 600 },
+    ]
+    harness.controller.acceptConfirmedEvent({ point: rawTrajectory[2], version: 2, trajectory: firstMatched })
+    harness.controller.acceptConfirmedEvent({ point: nextRaw[1], version: 3, trajectory: nextRaw })
+    harness.controller.acceptConfirmedEvent({ point: nextMatched[2], version: 4, trajectory: nextMatched })
+    expect(harness.controller.snapshot()).toMatchObject({ activeBatchVersion: 2, pendingBatchVersion: 4 })
+  })
+
   test("stale cancels active and pending batches, then recovery snaps to the fresh last point", () => {
     const harness = createRafHarness()
     harness.controller.seedRenderedPoint({ lat: 0, lng: 0 }, 1)
@@ -235,6 +321,21 @@ describe("confirmed trajectory playback controller", () => {
     expect(harness.controller.acceptConfirmedEvent({ point: fresh[1], version: 3, trajectory: fresh })).toBe("recovery_snapped")
     expect(harness.marker.position).toEqual({ lat: 6, lng: 6 })
     expect(harness.frames.size).toBe(0)
+  })
+
+  test("matched recovery after stale snaps to fresh RAW authority and cancels old visual movement", () => {
+    const harness = createRafHarness()
+    harness.controller.seedRenderedPoint({ lat: 0, lng: 0 }, 1)
+    harness.controller.acceptConfirmedEvent({ point: { lat: 1, lng: 1 }, version: 2, trajectory: trajectory })
+    harness.controller.cancelForStale()
+    const recoveryMatched = [
+      { lat: 5, lng: 5, offsetMs: 0 },
+      { lat: 5.001, lng: 5.001, offsetMs: 300 },
+    ]
+    const rawAuthority = { lat: 6, lng: 6 }
+    expect(harness.controller.acceptConfirmedEvent({ point: rawAuthority, version: 3, trajectory: recoveryMatched })).toBe("recovery_snapped")
+    expect(harness.marker.position).toEqual(rawAuthority)
+    expect(harness.controller.snapshot()).toMatchObject({ activeBatchVersion: null, pendingBatchVersion: null, rafActive: false })
   })
 
   test("HTTP fallback snaps to the latest point and completion prevents later movement", () => {
