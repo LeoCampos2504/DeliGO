@@ -23,7 +23,11 @@ export interface TrackingTrajectoryWirePoint {
   lat: number
   lng: number
   offsetMs: number
+  /** Optional live-only GPS accuracy; never persisted or emitted realtime. */
+  accuracy?: number
 }
+
+export type RealtimeTrackingTrajectoryPoint = Omit<TrackingTrajectoryWirePoint, "accuracy">
 
 export interface TrackingTrajectoryBuffer {
   anchor: TrackingLocationSample | null
@@ -191,6 +195,7 @@ export function buildTrackingTrajectoryBatch(
     lat: sample.lat,
     lng: sample.lng,
     offsetMs: sample.capturedAt - firstCapturedAt,
+    ...(isFiniteNumber(sample.accuracy) ? { accuracy: sample.accuracy } : {}),
   }))
   const lastSample = sourceSamples[sourceSamples.length - 1]
   let distanceMeters = 0
@@ -245,10 +250,19 @@ export function validateTrackingTrajectoryPayload(
     ) {
       return { ok: false, reason: "trajectory_point_coordinates" }
     }
+    if (point.accuracy !== undefined &&
+      (!isFiniteNumber(point.accuracy) || point.accuracy < 0 || point.accuracy > TRAJECTORY_POINT_MAX_ACCURACY_METERS)) {
+      return { ok: false, reason: "trajectory_point_accuracy" }
+    }
     if (point.offsetMs < 0 || point.offsetMs > MAX_BATCH_DURATION_MS || point.offsetMs < previousOffset) {
       return { ok: false, reason: "trajectory_offsets" }
     }
-    const normalized = { lat: point.lat, lng: point.lng, offsetMs: point.offsetMs }
+    const normalized = {
+      lat: point.lat,
+      lng: point.lng,
+      offsetMs: point.offsetMs,
+      ...(point.accuracy !== undefined ? { accuracy: point.accuracy } : {}),
+    }
     if (previousPoint) {
       if (previousPoint.lat === normalized.lat && previousPoint.lng === normalized.lng) {
         return { ok: false, reason: "trajectory_duplicate_point" }

@@ -1,5 +1,5 @@
 import type { RealtimeScope, RealtimeUserType } from "@/lib/realtime-policy"
-import type { TrackingTrajectoryWirePoint } from "@/lib/tracking-trajectory"
+import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
 
 export type { RealtimeScope, RealtimeUserType } from "@/lib/realtime-policy"
 
@@ -110,7 +110,7 @@ export interface RealtimeLocationPayload {
   lng: number
   timestamp: string
   version?: number | string
-  trajectory?: TrackingTrajectoryWirePoint[]
+  trajectory?: RealtimeTrackingTrajectoryPoint[]
   matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
 }
 

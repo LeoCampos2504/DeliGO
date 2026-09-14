@@ -4,6 +4,9 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { evaluateMapMatching, isRawMatchingCandidate } from "@/lib/map-matching-policy"
+import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
+import { isMatchedRealtimePayloadWithinLimit } from "@/lib/map-matching-provider"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
 import {
   MAX_BATCH_PAYLOAD_BYTES,
@@ -16,6 +19,25 @@ interface UpdateUbicacionBody {
   lat: number
   lng: number
   trajectory?: TrackingTrajectoryWirePoint[]
+}
+
+const R3_MATCHING_TIMEOUT_TESTING_MS = 1_000
+
+function createTestingMapMatchingProvider() {
+  if (process.env.DELIGO_ENVIRONMENT !== "TESTING" || process.env.NODE_ENV === "production") return null
+  return createOsrmMapMatchingProvider({
+    env: {
+      ...process.env,
+      MAP_MATCHING_BASE_URL: process.env.T24_OSRM_BASE_URL ?? process.env.MAP_MATCHING_BASE_URL,
+    },
+    timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
+  })
+}
+
+function realtimeTrajectoryWithoutAccuracy(
+  trajectory: TrackingTrajectoryWirePoint[] | undefined,
+) {
+  return trajectory?.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs }))
 }
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
@@ -284,19 +306,68 @@ export async function POST(req: NextRequest) {
     // coordinates. The envelope's own `version: 1` field (below) is the
     // unrelated Internal Publish schema/envelope version and is untouched.
     const timestamp = now.toISOString()
+    const basePayload = {
+      pedidoId,
+      lat,
+      lng,
+      timestamp,
+      version: locationRevision,
+      ...(trajectory ? { trajectory: realtimeTrajectoryWithoutAccuracy(trajectory) } : {}),
+    }
+    let matchedTrajectory: Array<{ lat: number; lng: number; offsetMs: number }> | undefined
+
+    // Matching is strictly best-effort and follows the RAW DB commit. The
+    // provider/policy can therefore never suppress the one RAW realtime event.
+    const eventId = `${pedidoId}:${randomUUID()}`
+    if (trajectory && isRawMatchingCandidate(trajectory)) {
+      try {
+        const provider = createTestingMapMatchingProvider()
+        if (provider) {
+          console.info("[Tracking Matching] category=attempt pointCount=" + trajectory.length)
+          const result = await provider.matchTrajectory(trajectory, {
+            profile: "driving",
+            timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
+            signal: req.signal,
+          })
+          const decision = evaluateMapMatching(trajectory, result)
+          if (decision.decision === "ACCEPT_MATCH") {
+            const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
+              lat: matchedLat,
+              lng: matchedLng,
+              offsetMs,
+            }))
+            const candidateEvent = {
+              version: 1 as const,
+              type: "tracking.location.updated" as const,
+              eventId,
+              resourceId: pedidoId,
+              occurredAt: timestamp,
+              payload: { ...basePayload, matchedTrajectory: candidate },
+            }
+            if (isMatchedRealtimePayloadWithinLimit(candidateEvent)) {
+              matchedTrajectory = candidate
+              console.info("[Tracking Matching] category=accepted pointCount=" + candidate.length)
+            } else {
+              console.warn("[Tracking Matching] category=fallback_raw reason=matched_payload_too_large")
+            }
+          } else {
+            console.info("[Tracking Matching] category=fallback_raw reason=policy_rejected")
+          }
+        }
+      } catch {
+        console.warn("[Tracking Matching] category=fallback_raw reason=provider_exception")
+      }
+    }
+
     await publishRealtimeEvent({
       version: 1,
       type: "tracking.location.updated",
-      eventId: `${pedidoId}:${randomUUID()}`,
+      eventId,
       resourceId: pedidoId,
       occurredAt: timestamp,
       payload: {
-        pedidoId,
-        lat,
-        lng,
-        timestamp,
-        version: locationRevision,
-        ...(trajectory ? { trajectory } : {}),
+        ...basePayload,
+        ...(matchedTrajectory ? { matchedTrajectory } : {}),
       },
     })
 

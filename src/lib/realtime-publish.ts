@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "crypto"
-import type { TrackingTrajectoryWirePoint } from "@/lib/tracking-trajectory"
+import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
 import {
   isValidRealtimeMatchedTrajectory,
   MAX_MATCHED_REALTIME_PAYLOAD_BYTES,
@@ -39,7 +39,7 @@ type TrackingLocationUpdatedPayload = {
   lng: number
   timestamp: string
   version?: number | string
-  trajectory?: TrackingTrajectoryWirePoint[]
+  trajectory?: RealtimeTrackingTrajectoryPoint[]
   matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
 }
 

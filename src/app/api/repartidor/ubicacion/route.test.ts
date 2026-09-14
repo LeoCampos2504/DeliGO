@@ -40,6 +40,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest } from "next/server"
 import { RATE_LIMITS } from "@/lib/rate-limit"
+import type { MapMatchingRequestContext, MapMatchingResult, RawMatchingPoint } from "@/lib/map-matching-provider"
 
 let idCounter = 0
 function nextIds() {
@@ -70,6 +71,8 @@ let queryRawRowOverride: QueryRawRow[] | null // null = use the default realisti
 let locationRevisionByPedido: Map<string, number>
 let publishCalls: Array<Record<string, unknown>>
 let publishImpl: (event: Record<string, unknown>) => Promise<unknown>
+let matchingCalls: Array<{ points: RawMatchingPoint[]; context: MapMatchingRequestContext }>
+let matchingImpl: (points: RawMatchingPoint[], context: MapMatchingRequestContext) => Promise<MapMatchingResult>
 
 mock.module("@/lib/db", () => ({
   db: {
@@ -113,6 +116,16 @@ mock.module("@/lib/realtime-publish", () => ({
   },
 }))
 
+mock.module("@/lib/osrm-map-matching-provider", () => ({
+  createOsrmMapMatchingProvider: () => ({
+    name: "osrm",
+    matchTrajectory: async (points: readonly RawMatchingPoint[], context: MapMatchingRequestContext = {}) => {
+      matchingCalls.push({ points: [...points], context })
+      return matchingImpl([...points], context)
+    },
+  }),
+}))
+
 const { POST } = await import("./route")
 
 function setActor({ repartidorId, pedidoId }: { repartidorId: string; pedidoId: string }) {
@@ -152,7 +165,41 @@ beforeEach(() => {
   locationRevisionByPedido = new Map()
   publishCalls = []
   publishImpl = async (event) => ({ status: "success", eventId: event.eventId, attempts: 1, httpStatus: 200 })
+  matchingCalls = []
+  matchingImpl = async () => ({ status: "rejected", reason: "test_default_rejection", provider: "osrm" })
+  process.env.DELIGO_ENVIRONMENT = "TESTING"
 })
+
+function acceptedMatchingResult(points: readonly RawMatchingPoint[]): MapMatchingResult {
+  return {
+    status: "matched",
+    provider: "osrm",
+    rawPointCount: points.length,
+    tracepoints: points.map((point, index) => ({
+      lat: point.lat,
+      lng: point.lng,
+      matchingIndex: 0,
+      waypointIndex: index,
+      alternativesCount: 0,
+      snapDistanceMeters: 0,
+    })),
+    matchings: [{
+      matchingIndex: 0,
+      confidence: 0.96,
+      geometry: {
+        type: "LineString",
+        coordinates: [[points[0].lng, points[0].lat], [points.at(-1)!.lng, points.at(-1)!.lat]],
+      },
+    }],
+    matchedTrajectory: points.map((point, index) => ({
+      lat: point.lat,
+      lng: point.lng,
+      offsetMs: point.offsetMs,
+      anchorIndex: index,
+    })),
+    snapDistancesMeters: points.map(() => 0),
+  }
+}
 
 describe("POST /api/repartidor/ubicacion — server-authoritative Tracking producer", () => {
   test("A: successful POST persists the location, atomically advances locationRevision, and publishes tracking.location.updated exactly once with the exact envelope", async () => {
@@ -248,6 +295,81 @@ describe("POST /api/repartidor/ubicacion — server-authoritative Tracking produ
     expect(event.payload.lat).toBe(-34.5999)
     expect(event.payload.trajectory).toEqual(trajectory)
     expect(queryRawCalls).toHaveLength(1)
+  })
+
+  test("R3: accepted matching is attached to the single realtime event, while accuracy stays server-side", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 6 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 7 },
+      { lat: -34.5998, lng: -58.3999, offsetMs: 3_000, accuracy: 8 },
+    ]
+    matchingImpl = async (points) => acceptedMatchingResult(points)
+
+    const res = await callRoute(pedidoId, { lat: -34.5998, lng: -58.3999, trajectory })
+    const body = await res.json()
+    const event = publishCalls[0] as { payload: Record<string, unknown> }
+    const rawRealtimeTrajectory = event.payload.trajectory as Array<Record<string, unknown>>
+    const matchedRealtimeTrajectory = event.payload.matchedTrajectory as Array<Record<string, unknown>>
+
+    expect(res.status).toBe(200)
+    expect(body.locationRevision).toBe(1)
+    expect(queryRawCalls).toHaveLength(1)
+    expect(publishCalls).toHaveLength(1)
+    expect(matchingCalls).toHaveLength(1)
+    expect(matchingCalls[0].context).toMatchObject({ profile: "driving", timeoutMs: 1_000 })
+    expect(matchingCalls[0].points[0].accuracy).toBe(5)
+    expect(event.payload.version).toBe(1)
+    expect(rawRealtimeTrajectory).toEqual(trajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })))
+    expect(rawRealtimeTrajectory.every((point) => !Object.hasOwn(point, "accuracy"))).toBe(true)
+    expect(matchedRealtimeTrajectory).toEqual(trajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })))
+    expect(matchedRealtimeTrajectory.every((point) => !Object.hasOwn(point, "accuracy"))).toBe(true)
+  })
+
+  test("R3: provider/policy rejection fails open to RAW realtime with one revision and one event", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 5 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000, accuracy: 5 },
+    ]
+
+    const res = await callRoute(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
+    const body = await res.json()
+    const event = publishCalls[0] as { payload: Record<string, unknown> }
+
+    expect(res.status).toBe(200)
+    expect(body.locationRevision).toBe(1)
+    expect(queryRawCalls).toHaveLength(1)
+    expect(publishCalls).toHaveLength(1)
+    expect(matchingCalls).toHaveLength(1)
+    expect(event.payload.matchedTrajectory).toBeUndefined()
+    expect(event.payload.trajectory).toEqual(trajectory.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs })))
+  })
+
+  test("R3: provider exception after the RAW DB commit cannot suppress RAW realtime", async () => {
+    const { repartidorId, pedidoId } = nextIds()
+    setActor({ repartidorId, pedidoId })
+    const trajectory = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000 },
+      { lat: -34.5999, lng: -58.3999, offsetMs: 2_000 },
+    ]
+    matchingImpl = async () => { throw new Error("simulated provider failure") }
+
+    const res = await callRoute(pedidoId, { lat: -34.5999, lng: -58.3999, trajectory })
+    const body = await res.json()
+    const event = publishCalls[0] as { payload: Record<string, unknown> }
+
+    expect(res.status).toBe(200)
+    expect(body.locationRevision).toBe(1)
+    expect(queryRawCalls).toHaveLength(1)
+    expect(publishCalls).toHaveLength(1)
+    expect(event.payload.matchedTrajectory).toBeUndefined()
+    expect(event.payload.trajectory).toEqual(trajectory)
   })
 
   test("R3A: malformed trajectory contracts are rejected before the atomic write", async () => {

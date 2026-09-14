@@ -69,4 +69,15 @@ describe("bounded trajectory producer", () => {
     expect(validateTrackingTrajectoryPayload(valid, -34.6, -58.4).ok).toBe(false)
     expect(validateTrackingTrajectoryPayload([{ lat: -34.6, lng: -58.4, offsetMs: 0 }, { lat: -34.6, lng: -58.4, offsetMs: 1 }], -34.6, -58.4).ok).toBe(false)
   })
+
+  test("preserves optional accuracy for server matching while rejecting invalid accuracy", () => {
+    const valid = [
+      { lat: -34.6, lng: -58.4, offsetMs: 0, accuracy: 5 },
+      { lat: -34.5999, lng: -58.4, offsetMs: 1_000, accuracy: 6 },
+    ]
+    const result = validateTrackingTrajectoryPayload(valid, -34.5999, -58.4)
+    expect(result).toEqual({ ok: true, points: valid })
+    expect(validateTrackingTrajectoryPayload([{ ...valid[0], accuracy: Number.NaN }], -34.6, -58.4).ok).toBe(false)
+    expect(validateTrackingTrajectoryPayload([{ ...valid[0], accuracy: 101 }], -34.6, -58.4).ok).toBe(false)
+  })
 })
