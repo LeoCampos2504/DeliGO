@@ -22,6 +22,9 @@ export interface TrackingLocationSample {
   // Epoch ms this sample was captured — preferably GeolocationPosition's own
   // `timestamp` (see buildSampleFromPosition), never a POST/server time.
   capturedAt: number
+  /** Testing-only callback correlation; never serialized in a GPS payload. */
+  callbackSequence?: number
+  callbackOrigin?: "watchPosition" | "getCurrentPosition"
 }
 
 // Piso absoluto de movimiento, independiente de la precisión reportada —

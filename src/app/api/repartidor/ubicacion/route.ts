@@ -32,6 +32,26 @@ function physicalWitness(pedidoId: string, event: string, fields: Record<string,
   console.info("[T24 Physical Witness]", JSON.stringify({ event, pedidoId, ...fields }))
 }
 
+function readPhysicalWitnessTransport(req: NextRequest, pedidoId: string): Record<string, unknown> {
+  if (!isPhysicalWitnessOrder(pedidoId)) return {}
+  const raw = req.headers.get("x-t24-physical-witness")
+  if (!raw || raw.length > 2_000) return {}
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || Array.isArray(parsed)) return {}
+    const allowed = ["batchId", "batchPointCount", "callbackSequenceStart", "callbackSequenceEnd"]
+    const entries: Array<[string, string | number]> = []
+    for (const key of allowed) {
+      const value = parsed[key]
+      if (typeof value === "string" && value.length <= 160) entries.push([key, value])
+      if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) entries.push([key, value])
+    }
+    return Object.fromEntries(entries)
+  } catch {
+    return {}
+  }
+}
+
 function isTestingRuntime(): boolean {
   // Read the deployment marker at runtime. Next's standalone launcher sets
   // NODE_ENV to production for every optimized build, including Testing.
@@ -294,6 +314,7 @@ export async function POST(req: NextRequest) {
       rawLat: lat,
       rawLng: lng,
       accuracyPresent: Boolean(trajectory?.every((point) => typeof point.accuracy === "number")),
+      ...readPhysicalWitnessTransport(req, pedidoId),
     })
 
     // 6. Server-authoritative realtime broadcast. DB persistence above is
@@ -381,6 +402,7 @@ export async function POST(req: NextRequest) {
             policyRejectionReason,
             rawPointCount: trajectory.length,
             matchedTrajectoryPointCount: decision.decision === "ACCEPT_MATCH" ? decision.matchedTrajectory.length : 0,
+            ...readPhysicalWitnessTransport(req, pedidoId),
           })
           if (decision.decision === "ACCEPT_MATCH") {
             const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
@@ -442,6 +464,7 @@ export async function POST(req: NextRequest) {
       matchedTrajectoryEmitted: Boolean(matchedTrajectory),
       matchedTrajectoryPointCount: matchedTrajectory?.length ?? 0,
       serverProcessingMs: Date.now() - requestStartedAt,
+      ...readPhysicalWitnessTransport(req, pedidoId),
     })
 
     // 7. Return success

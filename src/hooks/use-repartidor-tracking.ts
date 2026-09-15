@@ -19,6 +19,12 @@ import {
   type TrackingTrajectoryBatch,
   type TrackingTrajectoryBuffer,
 } from "@/lib/tracking-trajectory"
+import {
+  createT24PhysicalWitnessHeaders,
+  recordT24PhysicalWitness,
+  type T24WitnessTransportContext,
+} from "@/lib/t24-physical-witness"
+import { effectiveMovementThresholdMeters, haversineDistanceMeters } from "@/lib/tracking-movement"
 
 interface ActiveDelivery {
   id: string
@@ -196,6 +202,8 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // persisted, perteneciente a la MISMA ola de resume que ya se atendió,
   // no fuerce una segunda recuperación redundante (ver handlePageShow).
   const recoveryCompletedAtRef = useRef<number | null>(null)
+  const gpsCallbackSequenceRef = useRef(0)
+  const previousGpsCallbackAtRef = useRef<number | null>(null)
 
   function getOrCreateDeliveryState(id: string): DeliveryTrackingState {
     let state = deliveryStateRef.current.get(id)
@@ -359,11 +367,25 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     lastProducerActivityAtRef.current = Date.now()
   }
 
+  function markGpsCallback(sample: TrackingLocationSample, callbackOrigin: "watchPosition" | "getCurrentPosition") {
+    const callbackSequence = ++gpsCallbackSequenceRef.current
+    const now = Date.now()
+    const timeSincePreviousCallbackMs = previousGpsCallbackAtRef.current === null
+      ? null
+      : Math.max(0, now - previousGpsCallbackAtRef.current)
+    previousGpsCallbackAtRef.current = now
+    sample.callbackSequence = callbackSequence
+    sample.callbackOrigin = callbackOrigin
+    return { callbackSequence, timeSincePreviousCallbackMs }
+  }
+
   function handleWatchSuccess(generation: number, position: GeolocationPosition) {
     if (generation !== watchGenerationRef.current) return // callback obsoleto de un watcher ya reemplazado
     markProducerActivity()
     setGpsPermissionDenied(false)
-    observeSample(buildSampleFromPosition(position))
+    const sample = buildSampleFromPosition(position)
+    markGpsCallback(sample, "watchPosition")
+    observeSample(sample)
   }
 
   function handleWatchError(generation: number, error: GeolocationPositionError) {
@@ -399,19 +421,59 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
 
   function considerSampleForDelivery(deliveryId: string, sample: TrackingLocationSample) {
     const state = getOrCreateDeliveryState(deliveryId)
+    const previousSample = state.trajectoryBuffer.points.at(-1) ?? state.trajectoryBuffer.anchor ?? state.lastSentSample
+    const movementDistanceMeters = previousSample ? haversineDistanceMeters(previousSample, sample) : null
+    const movementThresholdMeters = previousSample
+      ? effectiveMovementThresholdMeters(sample.accuracy, previousSample.accuracy)
+      : null
+    const callbackMeta = {
+      pedidoId: deliveryId,
+      event: "gps_callback_received",
+      callbackSequence: sample.callbackSequence,
+      callbackOrigin: sample.callbackOrigin ?? "watchPosition",
+      lat: sample.lat,
+      lng: sample.lng,
+      accuracy: sample.accuracy,
+      visibility: typeof document !== "undefined" ? document.visibilityState : "unknown",
+      onLine: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+      movementDistanceMeters,
+      movementThresholdMeters,
+      previousAccuracyMeters: previousSample?.accuracy ?? null,
+      currentAccuracyMeters: sample.accuracy,
+    }
     const oldestPending = state.trajectoryBuffer.points[0]
     if (oldestPending && Date.now() - oldestPending.capturedAt > MAX_LOCAL_TRAJECTORY_AGE_MS) {
       resetTrackingTrajectoryBuffer(state.trajectoryBuffer, sample)
       state.trajectoryRetryBlocked = false
+      recordT24PhysicalWitness({ ...callbackMeta, decision: "OTHER", throttleDecision: "NO_SEND" })
       return
     }
     if (state.lastSentSample === null && state.trajectoryBuffer.anchor === null) {
+      recordT24PhysicalWitness({ ...callbackMeta, decision: "ACCEPT_SIGNIFICANT_MOVEMENT", throttleDecision: "SEND_NOW" })
       void sendLocationForDelivery(deliveryId, sample)
       return
     }
+    const bufferPointCountBefore = state.trajectoryBuffer.points.length
     const result = acceptTrackingTrajectoryPoint(state.trajectoryBuffer, sample, Date.now())
-    if (!result.accepted) return
+    const decision = result.accepted
+      ? "ACCEPT_SIGNIFICANT_MOVEMENT"
+      : result.reason === "stationary_jitter" || result.reason === "duplicate_point"
+        ? "REJECT_BELOW_MOVEMENT_THRESHOLD"
+        : "OTHER"
+    if (!result.accepted) {
+      recordT24PhysicalWitness({ ...callbackMeta, decision, throttleDecision: "NO_SEND" })
+      return
+    }
     state.trajectoryRetryBlocked = false
+    recordT24PhysicalWitness({ ...callbackMeta, decision })
+    recordT24PhysicalWitness({
+      pedidoId: deliveryId,
+      event: "raw_buffer_append",
+      callbackSequence: sample.callbackSequence,
+      bufferPointCountBefore,
+      bufferPointCountAfter: state.trajectoryBuffer.points.length,
+      bufferPointCount: state.trajectoryBuffer.points.length,
+    })
     scheduleOrSendForDelivery(deliveryId)
   }
 
@@ -431,6 +493,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (!pending) return
       if (state.postInFlight) return
       if (now < earliestNextSendAt) {
+        recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
         if (state.pendingSendTimerId === null) {
           const generation = watchGenerationRef.current
           state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, earliestNextSendAt - now))
@@ -438,6 +501,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
         return
       }
       state.pendingMeaningfulSample = null
+      recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "SEND_NOW", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
       void sendLocationForDelivery(deliveryId, pending)
       return
     }
@@ -448,6 +512,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const nextDueAt = flushDue ? earliestNextSendAt : Math.max(earliestNextSendAt, movingAgeDueAt)
     if (state.postInFlight) return
     if (now < nextDueAt) {
+      recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
       if (state.pendingSendTimerId === null) {
         const generation = watchGenerationRef.current
         state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, nextDueAt - now))
@@ -462,7 +527,26 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const batch = buildTrackingTrajectoryBatch(state.trajectoryBuffer)
     if (!batch) return
     state.inFlightTrajectoryBatch = batch
-    void sendLocationForDelivery(deliveryId, batch.lastSample, batch)
+    const batchId = `t24-${deliveryId}-${batch.lastSample.capturedAt}-${Date.now()}`
+    const callbackSequences = batch.sourceSamples.map((sourceSample) => sourceSample.callbackSequence).filter((value): value is number => typeof value === "number")
+    recordT24PhysicalWitness({
+      pedidoId: deliveryId,
+      event: "trajectory_batch_flush",
+      batchId,
+      batchPointCount: batch.points.length,
+      batchAgeMs: Math.max(0, now - batch.sourceSamples[0].capturedAt),
+      batchDistanceMeters: batch.distanceMeters,
+      flushReason: flushDue ? (state.trajectoryBuffer.accumulatedDistanceMeters >= 30 ? "DISTANCE" : "AGE") : "SCHEDULED",
+      callbackSequenceStart: callbackSequences[0] ?? null,
+      callbackSequenceEnd: callbackSequences.at(-1) ?? null,
+    })
+    recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "SEND_NOW", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
+    void sendLocationForDelivery(deliveryId, batch.lastSample, batch, {
+      batchId,
+      batchPointCount: batch.points.length,
+      callbackSequenceStart: callbackSequences[0] ?? null,
+      callbackSequenceEnd: callbackSequences.at(-1) ?? null,
+    })
   }
 
   function firePendingSend(deliveryId: string, generation: number) {
@@ -486,6 +570,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     deliveryId: string,
     sample: TrackingLocationSample,
     trajectoryBatch: TrackingTrajectoryBatch | null = null,
+    witnessContext?: T24WitnessTransportContext,
   ) {
     const state = getOrCreateDeliveryState(deliveryId)
     if (state.postInFlight) {
@@ -504,6 +589,21 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     }
 
     state.postInFlight = true
+    const callbackSequence = sample.callbackSequence ?? null
+    const transportContext: T24WitnessTransportContext = witnessContext ?? {
+      batchId: `t24-${deliveryId}-${sample.capturedAt}-${Date.now()}`,
+      batchPointCount: trajectoryBatch?.points.length ?? 1,
+      callbackSequenceStart: callbackSequence,
+      callbackSequenceEnd: callbackSequence,
+    }
+    const sendStartedAt = new Date().toISOString()
+    recordT24PhysicalWitness({
+      pedidoId: deliveryId,
+      event: "tracking_post_started",
+      ...transportContext,
+      sendStartedAt,
+      batchPointCount: transportContext.batchPointCount ?? 1,
+    })
     try {
       const payload: {
         pedidoId: string
@@ -514,10 +614,20 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (trajectoryBatch) payload.trajectory = trajectoryBatch.points
       const res = await fetch("/api/repartidor/ubicacion", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...createT24PhysicalWitnessHeaders(deliveryId, transportContext),
+        },
         body: JSON.stringify(payload),
       })
-
+      recordT24PhysicalWitness({
+        pedidoId: deliveryId,
+        event: "tracking_post_completed",
+        ...transportContext,
+        sendStartedAt,
+        responseReceivedAt: new Date().toISOString(),
+        httpStatus: res.status,
+      })
       const currentState = deliveryStateRef.current.get(deliveryId)
       if (!currentState) return // la entrega fue limpiada mientras el POST estaba en vuelo
 
@@ -603,6 +713,21 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
             return
           }
           const sample = buildSampleFromPosition(position)
+          markGpsCallback(sample, "getCurrentPosition")
+          for (const delivery of deliveriesRef.current) {
+            if (!isCoreEligible(delivery, knownIneligibleRef.current)) continue
+            recordT24PhysicalWitness({
+              pedidoId: delivery.id,
+              event: "gps_callback_received",
+              callbackSequence: sample.callbackSequence,
+              callbackOrigin: sample.callbackOrigin,
+              lat: sample.lat,
+              lng: sample.lng,
+              accuracy: sample.accuracy,
+              visibility: typeof document !== "undefined" ? document.visibilityState : "unknown",
+              onLine: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+            })
+          }
           // Un callback de watchPosition más nuevo que haya llegado
           // mientras este one-shot estaba en vuelo ya habría actualizado
           // latestObservedSampleRef — nunca lo pisamos con un resultado
@@ -916,6 +1041,46 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("focus", handleWindowFocus)
       window.removeEventListener("pageshow", handlePageShow)
+    }
+  }, [])
+
+  // Testing-only producer lifecycle witness. These listeners are observational
+  // and deliberately do not gate, stop, or restart the GPS producer.
+  useEffect(() => {
+    const recordLifecycle = (event: string, lifecycleType: string, state?: string) => {
+      const delivery = deliveriesRef.current.find((candidate) => candidate.trackingEligibleNow === true)
+      if (!delivery) return
+      recordT24PhysicalWitness({
+        pedidoId: delivery.id,
+        event,
+        lifecycleType,
+        state: state ?? (typeof document !== "undefined" ? document.visibilityState : undefined),
+        visibility: typeof document !== "undefined" ? document.visibilityState : undefined,
+        onLine: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+      })
+    }
+    const visibility = () => recordLifecycle("document_visibility_event", "visibilitychange")
+    const pageHide = () => recordLifecycle("page_lifecycle_event", "pagehide")
+    const pageShow = () => recordLifecycle("page_lifecycle_event", "pageshow")
+    const focus = () => recordLifecycle("page_lifecycle_event", "focus")
+    const blur = () => recordLifecycle("page_lifecycle_event", "blur")
+    const online = () => recordLifecycle("network_state_event", "online", "online")
+    const offline = () => recordLifecycle("network_state_event", "offline", "offline")
+    document.addEventListener("visibilitychange", visibility)
+    window.addEventListener("pagehide", pageHide)
+    window.addEventListener("pageshow", pageShow)
+    window.addEventListener("focus", focus)
+    window.addEventListener("blur", blur)
+    window.addEventListener("online", online)
+    window.addEventListener("offline", offline)
+    return () => {
+      document.removeEventListener("visibilitychange", visibility)
+      window.removeEventListener("pagehide", pageHide)
+      window.removeEventListener("pageshow", pageShow)
+      window.removeEventListener("focus", focus)
+      window.removeEventListener("blur", blur)
+      window.removeEventListener("online", online)
+      window.removeEventListener("offline", offline)
     }
   }, [])
 

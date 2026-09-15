@@ -5,7 +5,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 export const dynamic = "force-dynamic"
 
 const MAX_EVENT_LENGTH = 80
-const ALLOWED_SOURCES = new Set(["MATCHED", "RAW", "HTTP", "REALTIME"])
+const ALLOWED_SOURCES = new Set(["MATCHED", "RAW", "LOCATION_ONLY", "HTTP", "REALTIME"])
 
 function isTestingRuntime(): boolean {
   return process.env.DELIGO_ENVIRONMENT === "TESTING"
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   if (!token) return noStore(NextResponse.json({ error: "No autenticado" }, { status: 401 }))
 
   const user = await getUserFromToken(token)
-  if (!user || user.type !== "cliente") {
+  if (!user || (user.type !== "cliente" && user.type !== "repartidor")) {
     return noStore(NextResponse.json({ error: "Acceso denegado" }, { status: 403 }))
   }
 
@@ -51,10 +51,12 @@ export async function POST(req: NextRequest) {
     where: { id: pedidoId },
     select: {
       clienteId: true,
+      repartidorId: true,
       negocio: { select: { nombre: true } },
     },
   })
-  if (!pedido || pedido.clienteId !== user.id || !pedido.negocio.nombre.startsWith("TEST_T24_PHYSICAL_")) {
+  const ownsPedido = user.type === "cliente" ? pedido?.clienteId === user.id : pedido?.repartidorId === user.id
+  if (!pedido || !ownsPedido || !pedido.negocio.nombre.startsWith("TEST_T24_PHYSICAL_")) {
     return noStore(NextResponse.json({ error: "Witness no autorizado" }, { status: 403 }))
   }
 
@@ -64,6 +66,27 @@ export async function POST(req: NextRequest) {
   const acceptance = typeof body?.acceptance === "string" ? body.acceptance.slice(0, 40) : undefined
   const snapOccurred = typeof body?.snapOccurred === "boolean" ? body.snapOccurred : undefined
   const staleRecovery = typeof body?.staleRecovery === "boolean" ? body.staleRecovery : undefined
+
+  const safeOptional = (value: unknown): number | string | boolean | null | undefined => {
+    if (value === null || typeof value === "boolean") return value
+    if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string" && value.length <= 160) return value
+    return undefined
+  }
+  const witnessFields = [
+    "callbackSequence", "callbackOrigin", "lat", "lng", "accuracy", "visibility", "onLine",
+    "timeSincePreviousCallbackMs", "decision", "movementDistanceMeters", "movementThresholdMeters",
+    "previousAccuracyMeters", "currentAccuracyMeters", "throttleDecision", "timeSinceLastNetworkSendMs",
+    "minSendIntervalMs", "bufferPointCountBefore", "bufferPointCountAfter", "bufferPointCount", "batchId",
+    "batchPointCount", "batchAgeMs", "batchDistanceMeters", "flushReason", "sendStartedAt",
+    "responseReceivedAt", "httpStatus", "returnedRevision", "callbackSequenceStart", "callbackSequenceEnd",
+    "lifecycleType", "state", "channel", "revisionGapClassification", "playbackAccepted", "playbackStarted",
+    "playbackFinished", "playbackSuperseded", "snapReason",
+  ]
+  const extraFields = Object.fromEntries(witnessFields.flatMap((key) => {
+    const value = safeOptional(body?.[key])
+    return value === undefined ? [] : [[key, value]]
+  }))
 
   console.info("[T24 Physical Witness]", JSON.stringify({
     event,
@@ -77,6 +100,7 @@ export async function POST(req: NextRequest) {
     ...(acceptance ? { acceptance } : {}),
     ...(snapOccurred !== undefined ? { snapOccurred } : {}),
     ...(staleRecovery !== undefined ? { staleRecovery } : {}),
+    ...extraFields,
   }))
 
   return noStore(new NextResponse(null, { status: 204 }))
