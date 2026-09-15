@@ -1,7 +1,7 @@
 # P2-T44-R1C — Unified Personal Push Settings
 
-Fecha: 2026-09-14  
-Proyecto: DeliGO  
+Fecha: 2026-09-14
+Proyecto: DeliGO
 Alcance: auditoría de arquitectura y decisión de bloqueo; sin Production.
 
 ## Autoridad
