@@ -626,6 +626,31 @@ export function DeliveryTrackingMap({
     }
   }, [open, pedidoId, client])
 
+  // P2-T23-H2 (H1 §17/H1.5 §22): a reconnect/reauth/room-rejoin already
+  // resubscribes this exact room automatically (rejoinAllRooms in
+  // realtime-manager.ts, unchanged by this task —
+  // REALTIME_ROOM_REJOIN_LOGIC_CHANGED=NO) — but nothing told the Cliente to
+  // actively re-fetch the LATEST state afterward, so any revision published
+  // while disconnected was never backfilled (only the next passive 8s/20s
+  // poll tick would eventually catch it). Socket.IO's own docs are explicit
+  // that a successful reconnect is not sufficient by itself and still
+  // requires explicit state synchronization — this mirrors the exact
+  // pattern chat-view.tsx/chat-sheet.tsx/chat-fab.tsx already use in this
+  // repo. registerResync fires on reconnect, reauth, room-rejoin, focus/
+  // visibility/pageshow, and online — all already wired at the
+  // RealtimeManager/RealtimeProvider level, no new listeners needed here.
+  const fetchTrackingRef = useRef(fetchTracking)
+  fetchTrackingRef.current = fetchTracking
+  useEffect(() => {
+    if (!open) return
+    const unregisterResync = client.registerResync(() => {
+      fetchTrackingRef.current()
+    })
+    return () => {
+      unregisterResync()
+    }
+  }, [open, pedidoId, client])
+
   // Initial fetch when opened, and on every pedido switch while open.
   // Bumping the freshness generation here — before any state reset or fetch
   // — invalidates every in-flight HTTP request from the previous pedido/open
