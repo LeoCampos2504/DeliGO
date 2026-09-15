@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
-import { evaluateMapMatching, isRawMatchingCandidate } from "@/lib/map-matching-policy"
+import { evaluateMapMatchingWithDiagnostics, isRawMatchingCandidate } from "@/lib/map-matching-policy"
 import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
 import { isMatchedRealtimePayloadWithinLimit } from "@/lib/map-matching-provider"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
@@ -22,6 +22,15 @@ interface UpdateUbicacionBody {
 }
 
 const R3_MATCHING_TIMEOUT_TESTING_MS = 1_000
+
+function isPhysicalWitnessOrder(pedidoId: string): boolean {
+  return process.env.DELIGO_ENVIRONMENT === "TESTING" && pedidoId === process.env.T24_PHYSICAL_WITNESS_ORDER_ID
+}
+
+function physicalWitness(pedidoId: string, event: string, fields: Record<string, unknown> = {}): void {
+  if (!isPhysicalWitnessOrder(pedidoId)) return
+  console.info("[T24 Physical Witness]", JSON.stringify({ event, pedidoId, ...fields }))
+}
 
 function isTestingRuntime(): boolean {
   // Read the deployment marker at runtime. Next's standalone launcher sets
@@ -50,6 +59,7 @@ function realtimeTrajectoryWithoutAccuracy(
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
 export async function POST(req: NextRequest) {
+  const requestStartedAt = Date.now()
   try {
     // 1. Authenticate repartidor from cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -276,6 +286,15 @@ export async function POST(req: NextRequest) {
     }
 
     const locationRevision = rows[0].locationRevision
+    physicalWitness(pedidoId, "raw_commit", {
+      receivedAt: new Date(requestStartedAt).toISOString(),
+      committedAt: new Date().toISOString(),
+      revision: locationRevision,
+      rawPointCount: trajectory?.length ?? 0,
+      rawLat: lat,
+      rawLng: lng,
+      accuracyPresent: Boolean(trajectory?.every((point) => typeof point.accuracy === "number")),
+    })
 
     // 6. Server-authoritative realtime broadcast. DB persistence above is
     // already the source of truth, so a failed/disabled/timed-out publish
@@ -323,6 +342,12 @@ export async function POST(req: NextRequest) {
       ...(trajectory ? { trajectory: realtimeTrajectoryWithoutAccuracy(trajectory) } : {}),
     }
     let matchedTrajectory: Array<{ lat: number; lng: number; offsetMs: number }> | undefined
+    let providerAttempted = false
+    let providerResultStatus = "NOT_ATTEMPTED"
+    let providerLatencyMs: number | null = null
+    let providerConfidence: number | null = null
+    let policyDecision = "NOT_EVALUATED"
+    let policyRejectionReason: string | null = null
 
     // Matching is strictly best-effort and follows the RAW DB commit. The
     // provider/policy can therefore never suppress the one RAW realtime event.
@@ -331,13 +356,32 @@ export async function POST(req: NextRequest) {
       try {
         const provider = createTestingMapMatchingProvider()
         if (provider) {
+          providerAttempted = true
+          const providerStartedAt = Date.now()
           console.info("[Tracking Matching] category=attempt pointCount=" + trajectory.length)
           const result = await provider.matchTrajectory(trajectory, {
             profile: "driving",
             timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
             signal: req.signal,
           })
-          const decision = evaluateMapMatching(trajectory, result)
+          providerLatencyMs = Date.now() - providerStartedAt
+          providerResultStatus = result.status
+          providerConfidence = result.status === "matched" ? (result.matchings[0]?.confidence ?? null) : null
+          const evaluation = evaluateMapMatchingWithDiagnostics(trajectory, result)
+          const decision = evaluation.decision
+          policyDecision = decision.decision
+          policyRejectionReason = decision.decision === "REJECT_MATCH" ? decision.reason : null
+          physicalWitness(pedidoId, "provider_result", {
+            revision: locationRevision,
+            providerAttempted,
+            providerLatencyMs,
+            providerResultStatus,
+            providerConfidence,
+            policyDecision,
+            policyRejectionReason,
+            rawPointCount: trajectory.length,
+            matchedTrajectoryPointCount: decision.decision === "ACCEPT_MATCH" ? decision.matchedTrajectory.length : 0,
+          })
           if (decision.decision === "ACCEPT_MATCH") {
             const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
               lat: matchedLat,
@@ -356,6 +400,8 @@ export async function POST(req: NextRequest) {
               matchedTrajectory = candidate
               console.info("[Tracking Matching] category=accepted pointCount=" + candidate.length)
             } else {
+              policyDecision = "REJECT_MATCH"
+              policyRejectionReason = "matched_payload_too_large"
               console.warn("[Tracking Matching] category=fallback_raw reason=matched_payload_too_large")
             }
           } else {
@@ -363,6 +409,9 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch {
+        providerResultStatus = "error"
+        policyDecision = "REJECT_MATCH"
+        policyRejectionReason = "provider_exception"
         console.warn("[Tracking Matching] category=fallback_raw reason=provider_exception")
       }
     }
@@ -377,6 +426,22 @@ export async function POST(req: NextRequest) {
         ...basePayload,
         ...(matchedTrajectory ? { matchedTrajectory } : {}),
       },
+    })
+
+    physicalWitness(pedidoId, "realtime_publish", {
+      publishedAt: new Date().toISOString(),
+      revision: locationRevision,
+      realtimeEventCount: 1,
+      providerAttempted,
+      providerLatencyMs,
+      providerResultStatus,
+      providerConfidence,
+      policyDecision,
+      policyRejectionReason,
+      rawTrajectoryEmitted: Boolean(trajectory),
+      matchedTrajectoryEmitted: Boolean(matchedTrajectory),
+      matchedTrajectoryPointCount: matchedTrajectory?.length ?? 0,
+      serverProcessingMs: Date.now() - requestStartedAt,
     })
 
     // 7. Return success

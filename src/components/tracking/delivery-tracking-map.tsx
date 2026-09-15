@@ -22,6 +22,7 @@ import {
 } from "@/lib/tracking-playback"
 import type { RealtimeMatchedTrajectoryPoint } from "@/lib/realtime-types"
 import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
+import { recordT24PhysicalWitness } from "@/lib/t24-physical-witness"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -308,7 +309,12 @@ export function DeliveryTrackingMap({
   const cancelPlayback = useCallback((forStale = false) => {
     if (forStale) playbackControllerRef.current?.cancelForStale()
     else playbackControllerRef.current?.reset()
-  }, [])
+    recordT24PhysicalWitness({
+      pedidoId,
+      event: forStale ? "client_stale_recovery" : "client_playback_cancel",
+      staleRecovery: forStale,
+    })
+  }, [pedidoId])
 
   const startPlayback = useCallback((
     target: TrackingPlaybackPoint,
@@ -316,13 +322,26 @@ export function DeliveryTrackingMap({
     trajectory?: TrackingVisualTrajectoryPoint[],
     source: TrackingPlaybackEventSource = "realtime",
   ) => {
-    playbackControllerRef.current?.acceptConfirmedEvent({
+    const acceptance = playbackControllerRef.current?.acceptConfirmedEvent({
       point: target,
       version,
       trajectory,
       source,
     })
-  }, [])
+    const snapshot = playbackControllerRef.current?.snapshot()
+    recordT24PhysicalWitness({
+      pedidoId,
+      event: "client_playback_acceptance",
+      revision: version,
+      source: trajectory?.length ? "MATCHED" : "RAW",
+      trajectoryPoints: trajectory?.length ?? 0,
+      acceptance,
+      snapOccurred: acceptance === "recovery_snapped" || snapshot?.needsRecoverySnap === true,
+      queueState: snapshot
+        ? `active=${String(snapshot.activeBatchVersion)};pending=${String(snapshot.pendingBatchVersion)};raf=${snapshot.rafActive ? "1" : "0"}`
+        : undefined,
+    })
+  }, [pedidoId])
 
   // Fetch tracking data (HTTP fallback)
   const fetchTracking = useCallback(async () => {
@@ -426,6 +445,14 @@ export function DeliveryTrackingMap({
         }
         return fetchedData
       })
+      recordT24PhysicalWitness({
+        pedidoId,
+        event: "client_http_snapshot",
+        revision: data.version,
+        source: "HTTP",
+        trajectoryPoints: Array.isArray(data.trajectory) ? data.trajectory.length : 0,
+        matchedTrajectoryPoints: Array.isArray(data.matchedTrajectory) ? data.matchedTrajectory.length : 0,
+      })
     } catch {
       if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
       setError("No se pudo obtener la ubicación del repartidor")
@@ -459,6 +486,14 @@ export function DeliveryTrackingMap({
       const shouldApplyPosition = trustedVersion === null
         ? canUntrustedTrackingSourceOverridePosition(freshnessRef.current)
         : applyTrackingServerVersion(freshnessRef.current, trustedVersion)
+      recordT24PhysicalWitness({
+        pedidoId,
+        event: shouldApplyPosition ? "client_realtime_applied" : "client_realtime_discarded",
+        revision: data.version,
+        source: Array.isArray(data.matchedTrajectory) && data.matchedTrajectory.length > 0 ? "MATCHED" : "RAW",
+        trajectoryPoints: Array.isArray(data.trajectory) ? data.trajectory.length : 0,
+        matchedTrajectoryPoints: Array.isArray(data.matchedTrajectory) ? data.matchedTrajectory.length : 0,
+      })
       if (!shouldApplyPosition) return
 
       setTrackingData((prev) => {
