@@ -8,10 +8,14 @@ pero la ventana técnica posterior al baseline `89` no tiene witness server-side
 observable para el pedido `cmu1p548z0006riv8ntyibf0w`.
 
 ```text
-P2_T24_R5_14_STATUS=ANALYZED_OPERATOR_REPORT_TECHNICAL_WITNESS_UNAVAILABLE
+P2_T24_R5_14_STATUS=INVALID_TECHNICAL_PROBE_WRONG_OPERATOR_ACCOUNT
 PROBE_BASELINE_REVISION=89
 PROBE_LAST_REVISION=89
 PROBE_TOTAL_SERVER_WRITES=0_OBSERVED_FOR_ORDER_AFTER_BASELINE
+R5_14_WRONG_ACCOUNT_USED=SI
+R5_14_TECHNICAL_PROBE_VALID=NO
+R5_14_OBSERVATION_CORRELATED_TO_TEST_FIXTURE=NO
+ROOT_CAUSE_OF_MISSING_R5_14_TECHNICAL_WITNESS=OPERATOR_USED_DIFFERENT_ACCOUNT_THAN_INSTRUMENTED_TEST_FIXTURE
 OPERATOR_MOVEMENT=SALTOS
 OPERATOR_FREEZE=SI
 OPERATOR_FREEZE_COUNT=1
@@ -24,12 +28,19 @@ CLIENT_FREEZE_ROOT_CAUSE=UNKNOWN
 P2_T23_FORMALLY_REOPENED=NO
 P2_T24_READY_FOR_R6=NO
 P2_T24_RELEASE_ELIGIBLE=NO
+R5_14B_STATUS=READY_FOR_OPERATOR_CORRECT_ACCOUNT_PROBE
+REPARTIDOR_TEST_IDENTITY_VERIFIED=SI
+CLIENT_TEST_IDENTITY_VERIFIED=SI
+TEST_ORDER_CONTEXT_VERIFIED=SI
+PHYSICAL_PROBE_R5_14B_EXECUTED=NO
 PRODUCTION_TOUCHED=NO
 ```
 
 ## Evidencia delimitada
 
-La base Testing conserva el pedido en `en_camino`, con repartidor asignado,
+La aclaración del operador explica la ausencia: R5.14 se ejecutó con una
+cuenta distinta de la cuenta Repartidor del fixture instrumentado. La base
+Testing conserva el pedido en `en_camino`, con repartidor asignado,
 tracking habilitado y `locationRevision=89`. El deployment actual contiene
 POST de ubicación de otros pedidos, pero no un evento identificable de este
 pedido. Los logs históricos que sí contienen este pedido llegan hasta la
@@ -62,5 +73,26 @@ T23. No se implementa fix ni se solicita una nueva caminata en esta fase.
 
 ```text
 PHYSICAL_FIXTURE_CLEANUP_STATUS=DEFERRED_EVIDENCE_PRESERVATION
-NEXT_ACTION=ROOT_CAUSE_FIX_DESIGN_REQUIRES_NEW_INSTRUMENTED_PROBE_OR_PERSISTED_WITNESS
+NEXT_ACTION=WAIT_FOR_OPERATOR_R5_14B_SHORT_WALK
 ```
+
+## R5.14B readiness
+
+El login normal de Testing verificó server-side:
+
+```text
+EXPECTED_DRIVER_ID=cmu1p53gj0002riv8n87myyqz
+EXPECTED_ORDER_ID=cmu1p548z0006riv8ntyibf0w
+EXPECTED_CLIENT_ID=cmu1p53250001riv8mvgnmle1
+ORDER_STATE=en_camino
+TRACKING_ENABLED=SI
+R5_13_DEPLOY_CONTAINS_INSTRUMENTATION=SI
+GPS_CALLBACK_WITNESS_READY=SI
+POST_CORRELATION_READY=SI
+CLIENT_REALTIME_WITNESS_READY=SI
+CLIENT_PLAYBACK_WITNESS_READY=SI
+```
+
+R5.14B queda preparado para una caminata corta con las dos cuentas Testing
+correctas. No se inició tracking, no se generó GPS sintético y no se ejecutó
+la caminata.

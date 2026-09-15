@@ -138,7 +138,7 @@ R5.11/pre-baseline. No existe evidencia observable posterior a `89` para este
 probe.
 
 ```text
-P2_T24_R5_14_STATUS=ANALYZED_OPERATOR_REPORT_TECHNICAL_WITNESS_UNAVAILABLE
+P2_T24_R5_14_STATUS=INVALID_TECHNICAL_PROBE_WRONG_OPERATOR_ACCOUNT
 OPERATOR_MOVEMENT=SALTOS
 OPERATOR_FREEZE=SI
 OPERATOR_FREEZE_COUNT=1
@@ -275,3 +275,58 @@ Asimismo, no demuestra ni refuta que WiFi→datos móviles haya causado el
 freeze. El ownership se mantiene separado: T24 continúa siendo map matching;
 la hipótesis de saltos del camino RAW permanece en T23, sin reabrirlo
 formalmente.
+
+## R5.14B — Reconciliación y preparación de la repetición correcta
+
+El operador aclaró que durante R5.14 caminó usando su propia cuenta, no la
+cuenta Repartidor del fixture `TEST_T24_PHYSICAL_`. La caminata ocurrió, pero
+no perteneció al pedido instrumentado; por eso la sonda técnica R5.14 es
+inválida y la observación humana se conserva sólo como observación no
+correlacionada.
+
+```text
+R5_14_WRONG_ACCOUNT_USED=SI
+ROOT_CAUSE_OF_MISSING_R5_14_TECHNICAL_WITNESS=OPERATOR_USED_DIFFERENT_ACCOUNT_THAN_INSTRUMENTED_TEST_FIXTURE
+R5_14_TECHNICAL_PROBE_VALID=NO
+R5_14_OPERATOR_OBSERVATION_PRESERVED=SI
+R5_14_OBSERVATION_CORRELATED_TO_TEST_FIXTURE=NO
+
+R5_13_COMMIT_SHA=b4c851e3d9f302c9543bb47d9726db8f012c2e65
+R5_13_DEPLOY_CONTAINS_INSTRUMENTATION=SI
+GPS_CALLBACK_WITNESS_READY=SI
+MOVEMENT_DECISION_WITNESS_READY=SI
+THROTTLE_WITNESS_READY=SI
+BUFFER_BATCH_WITNESS_READY=SI
+POST_CORRELATION_READY=SI
+CLIENT_LIFECYCLE_WITNESS_READY=SI
+CLIENT_REALTIME_WITNESS_READY=SI
+CLIENT_PLAYBACK_WITNESS_READY=SI
+
+R5_14B_STATUS=READY_FOR_OPERATOR_CORRECT_ACCOUNT_PROBE
+FIXTURE_PREFIX=TEST_T24_PHYSICAL_
+ORDER_ID=cmu1p548z0006riv8ntyibf0w
+DRIVER_ID=cmu1p53gj0002riv8n87myyqz
+CLIENT_ID=cmu1p53250001riv8mvgnmle1
+FIXTURE_PRESENT=SI
+ORDER_STATE=en_camino
+DRIVER_ASSIGNED=SI
+TRACKING_ENABLED=SI
+PROBE_BASELINE_REVISION=89
+REPARTIDOR_TEST_IDENTITY_VERIFIED=SI
+CLIENT_TEST_IDENTITY_VERIFIED=SI
+TEST_ORDER_CONTEXT_VERIFIED=SI
+
+P2_T24_READY_FOR_R6=NO
+P2_T24_RELEASE_ELIGIBLE=NO
+P2_T23_FORMALLY_REOPENED=NO
+PHYSICAL_PROBE_R5_14B_EXECUTED=NO
+PHYSICAL_FIXTURE_CLEANUP_STATUS=DEFERRED_EVIDENCE_PRESERVATION
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_R5_14B_SHORT_WALK
+```
+
+Las identidades fueron verificadas contra `/api/auth/me` y los listados reales
+de pedidos Testing. La sesión Repartidor resolvió al `DRIVER_ID` esperado y
+su pedido activo fue el `ORDER_ID` esperado; la sesión Cliente resolvió al
+`CLIENT_ID` esperado y consultó el mismo pedido. Las credenciales se mantienen
+runtime-only y no se escriben en este reporte.
