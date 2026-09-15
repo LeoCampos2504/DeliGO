@@ -99,13 +99,13 @@ volvió a geocodificar ni se tocó `locationRevision`, que continúa en 48.
 
 La secuencia preparada se ejecutó: witness confirmado, Cliente y Repartidor
 listos, tracking iniciado por el operador y recorrido físico terminado. No se
-interactuó con el teléfono durante la conducción. La percepción visual humana
-queda pendiente y no se infiere de estos logs.
+interactuó con el teléfono durante la conducción. El reporte visual humano fue
+recibido y se conserva abajo como evidencia declarada por el operador.
 
 ```text
 T44_TOUCHED_BY_T24_TEST=NO
 PHYSICAL_DRIVE_FINISHED=SI
-NEXT_ACTION=WAIT_FOR_OPERATOR_VISUAL_REPORT
+NEXT_ACTION=P2-T24-R5.13_RAW_PIPELINE_INSTRUMENTATION
 ```
 
 ## OPERATOR VISUAL REPORT
@@ -132,7 +132,8 @@ hasta la última escritura real observada. No se incluyeron la alineación del
 destino, la preparación ni actividad previa.
 
 ```text
-P2_T24_R5_11_STATUS=TECHNICAL_RUN_ANALYZED_AWAITING_OPERATOR_VISUAL_REPORT
+P2_T24_R5_11_STATUS=CLOSED_PHYSICAL_RUN_ANALYZED_OPERATOR_REPORT_CAPTURED
+OPERATOR_VISUAL_REPORT=CAPTURED
 LOCATION_REVISION_BEFORE_RUN=48
 LOCATION_REVISION_AFTER_RUN=89
 FIRST_REAL_RUN_REVISION=49

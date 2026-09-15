@@ -529,6 +529,14 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     state.inFlightTrajectoryBatch = batch
     const batchId = `t24-${deliveryId}-${batch.lastSample.capturedAt}-${Date.now()}`
     const callbackSequences = batch.sourceSamples.map((sourceSample) => sourceSample.callbackSequence).filter((value): value is number => typeof value === "number")
+    const batchSourceCount = (state.trajectoryBuffer.anchor ? 1 : 0) + state.trajectoryBuffer.points.length
+    const flushReason = batchSourceCount >= 12
+      ? "MAX_POINTS"
+      : state.trajectoryBuffer.accumulatedDistanceMeters >= 30
+        ? "MAX_DISTANCE"
+        : now - batch.sourceSamples[0].capturedAt >= 3000
+          ? "MAX_AGE"
+          : "OTHER"
     recordT24PhysicalWitness({
       pedidoId: deliveryId,
       event: "trajectory_batch_flush",
@@ -536,7 +544,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       batchPointCount: batch.points.length,
       batchAgeMs: Math.max(0, now - batch.sourceSamples[0].capturedAt),
       batchDistanceMeters: batch.distanceMeters,
-      flushReason: flushDue ? (state.trajectoryBuffer.accumulatedDistanceMeters >= 30 ? "DISTANCE" : "AGE") : "SCHEDULED",
+      flushReason,
       callbackSequenceStart: callbackSequences[0] ?? null,
       callbackSequenceEnd: callbackSequences.at(-1) ?? null,
     })

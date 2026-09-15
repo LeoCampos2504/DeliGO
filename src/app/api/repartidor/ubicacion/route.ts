@@ -467,6 +467,14 @@ export async function POST(req: NextRequest) {
       ...readPhysicalWitnessTransport(req, pedidoId),
     })
 
+    physicalWitness(pedidoId, "tracking_post_completed", {
+      responseTimestamp: new Date().toISOString(),
+      httpStatus: 200,
+      locationRevision,
+      pointCount: trajectory?.length ?? 0,
+      ...readPhysicalWitnessTransport(req, pedidoId),
+    })
+
     // 7. Return success
     return NextResponse.json({
       ok: true,
