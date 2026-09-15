@@ -15,7 +15,9 @@ import {
   acknowledgeTrackingTrajectoryBatch,
   resetTrackingTrajectoryBuffer,
   MAX_MOVING_BATCH_AGE_MS,
-  MAX_LOCAL_TRAJECTORY_AGE_MS,
+  MAX_STALE_TRAJECTORY_BUFFER_AGE_MS,
+  MAX_BATCH_POINTS,
+  BATCH_ACCUMULATED_DISTANCE_FLUSH_THRESHOLD_METERS,
   type TrackingTrajectoryBatch,
   type TrackingTrajectoryBuffer,
 } from "@/lib/tracking-trajectory"
@@ -442,7 +444,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       currentAccuracyMeters: sample.accuracy,
     }
     const oldestPending = state.trajectoryBuffer.points[0]
-    if (oldestPending && Date.now() - oldestPending.capturedAt > MAX_LOCAL_TRAJECTORY_AGE_MS) {
+    if (oldestPending && Date.now() - oldestPending.capturedAt > MAX_STALE_TRAJECTORY_BUFFER_AGE_MS) {
       resetTrackingTrajectoryBuffer(state.trajectoryBuffer, sample)
       state.trajectoryRetryBlocked = false
       recordT24PhysicalWitness({ ...callbackMeta, decision: "OTHER", throttleDecision: "NO_SEND" })
@@ -493,7 +495,9 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       if (!pending) return
       if (state.postInFlight) return
       if (now < earliestNextSendAt) {
-        recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
+        // No buffered points at all here — the only possible reason to wait
+        // is the network throttle itself, never a batch-age concern.
+        recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", deferReason: "NETWORK_MIN_SEND_INTERVAL", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
         if (state.pendingSendTimerId === null) {
           const generation = watchGenerationRef.current
           state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, earliestNextSendAt - now))
@@ -512,7 +516,12 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const nextDueAt = flushDue ? earliestNextSendAt : Math.max(earliestNextSendAt, movingAgeDueAt)
     if (state.postInFlight) return
     if (now < nextDueAt) {
-      recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
+      // P2-T23-H2 (H1 §6 finding): distinguish WHY we're waiting — the
+      // previous single "DEFER_MIN_INTERVAL" label conflated the 5s network
+      // throttle with the batch-age wait, whichever of the two happens to be
+      // later is what actually governs nextDueAt.
+      const deferReason = movingAgeDueAt > earliestNextSendAt ? "BATCH_AGE_WAIT" : "NETWORK_MIN_SEND_INTERVAL"
+      recordT24PhysicalWitness({ pedidoId: deliveryId, event: "gps_throttle_decision", throttleDecision: "DEFER_MIN_INTERVAL", deferReason, timeSinceLastNetworkSendMs: state.lastSuccessfulSendAt === null ? null : now - state.lastSuccessfulSendAt, minSendIntervalMs: MIN_SEND_INTERVAL_MS })
       if (state.pendingSendTimerId === null) {
         const generation = watchGenerationRef.current
         state.pendingSendTimerId = setTimeout(() => firePendingSend(deliveryId, generation), Math.max(0, nextDueAt - now))
@@ -530,11 +539,16 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     const batchId = `t24-${deliveryId}-${batch.lastSample.capturedAt}-${Date.now()}`
     const callbackSequences = batch.sourceSamples.map((sourceSample) => sourceSample.callbackSequence).filter((value): value is number => typeof value === "number")
     const batchSourceCount = (state.trajectoryBuffer.anchor ? 1 : 0) + state.trajectoryBuffer.points.length
-    const flushReason = batchSourceCount >= 12
+    // P2-T23-H2: these three thresholds must track the real production
+    // constants, never a hardcoded copy — a stale literal here would make the
+    // witness silently misreport every flush as "MAX_AGE" once
+    // MAX_MOVING_BATCH_AGE_MS stopped being 3000ms (H1 §6 finding: witness
+    // labeling must stay truthful, this is exactly that class of bug).
+    const flushReason = batchSourceCount >= MAX_BATCH_POINTS
       ? "MAX_POINTS"
-      : state.trajectoryBuffer.accumulatedDistanceMeters >= 30
+      : state.trajectoryBuffer.accumulatedDistanceMeters >= BATCH_ACCUMULATED_DISTANCE_FLUSH_THRESHOLD_METERS
         ? "MAX_DISTANCE"
-        : now - batch.sourceSamples[0].capturedAt >= 3000
+        : now - batch.sourceSamples[0].capturedAt >= MAX_MOVING_BATCH_AGE_MS
           ? "MAX_AGE"
           : "OTHER"
     recordT24PhysicalWitness({
@@ -656,6 +670,16 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
         currentState.inFlightTrajectoryBatch = null
       } else if (currentState.lastSentSample === null) {
         resetTrackingTrajectoryBuffer(currentState.trajectoryBuffer, sample)
+      } else if (currentState.trajectoryBuffer.points.length === 0) {
+        // P2-T23-H2 (H1 §7 gap): a direct send that isn't the first-ever one
+        // (heartbeat, or foreground recovery) still confirms a real position
+        // server-side — realign the buffer's own anchor to it so the NEXT
+        // accepted movement is measured against the truly last-confirmed
+        // position, never a stale pre-heartbeat anchor. Only safe when there
+        // are no unacknowledged buffered points in flight (points.length===0)
+        // — never discard real trajectory geometry already collected toward
+        // an in-progress batch.
+        currentState.trajectoryBuffer.anchor = sample
       }
       currentState.lastSentSample = sample
       currentState.lastSuccessfulSendAt = Date.now()

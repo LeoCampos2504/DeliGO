@@ -25,6 +25,12 @@ type T24PhysicalWitnessEvent = {
   previousAccuracyMeters?: number | null
   currentAccuracyMeters?: number | null
   throttleDecision?: string
+  // P2-T23-H2 (H1 §6 finding): a "DEFER_MIN_INTERVAL" throttleDecision used to
+  // conflate two structurally different reasons (the 5s network throttle vs
+  // the batch-age wait) under one label — this distinguishes them so a
+  // future probe can attribute cause cleanly instead of guessing from
+  // aggregate counts.
+  deferReason?: "NETWORK_MIN_SEND_INTERVAL" | "BATCH_AGE_WAIT" | "ADAPTIVE_BATCH_WAIT" | "OTHER"
   timeSinceLastNetworkSendMs?: number | null
   minSendIntervalMs?: number
   bufferPointCountBefore?: number

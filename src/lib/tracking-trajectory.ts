@@ -11,11 +11,42 @@ export const TRAJECTORY_POINT_MAX_ACCURACY_METERS = 100
 // rejected here, without map matching or road assumptions.
 export const MAX_REASONABLE_TRAJECTORY_SPEED_MPS = 10_000_000
 export const MAX_LOCAL_TRAJECTORY_POINTS = 12
+// Governs a single INCOMING sample's own freshness (acceptTrackingTrajectoryPoint's
+// "sample_too_old" rejection) — a GPS fix delivered this late is untrustworthy
+// on its own terms, independent of any batching policy. Deliberately kept
+// short and untouched by the P2-T23-H2 batch-age calibration below — this is
+// about sensor-fix staleness, never about how long the BUFFER may accumulate.
 export const MAX_LOCAL_TRAJECTORY_AGE_MS = 5_000
+// P2-T23-H2: distinct from MAX_LOCAL_TRAJECTORY_AGE_MS above — this one
+// governs how long an unflushed buffer may sit before use-repartidor-tracking.ts's
+// safety valve gives up and resets it (considerSampleForDelivery's
+// oldestPending check). Must stay >= MAX_MOVING_BATCH_AGE_MS or that safety
+// reset would fire and wipe the buffer BEFORE the batch-age flush this task
+// exists to enable ever gets a chance to occur — kept with the same margin
+// as MAX_BATCH_DURATION_MS below.
+export const MAX_STALE_TRAJECTORY_BUFFER_AGE_MS = 16_000
 export const BATCH_ACCUMULATED_DISTANCE_FLUSH_THRESHOLD_METERS = 30
-export const MAX_MOVING_BATCH_AGE_MS = 3_000
+// P2-T23-H2 (calibrated against the real R5.14B raw callback replay, not a
+// theoretical guess): the previous 3000ms was shorter than the GPS callback
+// median itself (4411ms), which structurally guaranteed 1-point batches
+// (P2_T23_H1_RAW_SMOOTHNESS_REALTIME_RECOVERY_AUDIT.md §3). Replaying the
+// real accepted-callback sequence from that probe (median gap ≈14.8s between
+// callbacks the movement filter actually accepts, not raw GPS callbacks)
+// through this exact acceptTrackingTrajectoryPoint/shouldFlushTrackingTrajectory
+// logic shows 3000-10000ms still yields a batch-point median of 1 (P2_T23_H2
+// report §7/§14); 15000ms is the first value where the median rises to 2 and
+// ~2/3 of batches reach 2+ wire points, without requiring any change to the
+// movement filter itself (which stays exactly as conservative as before).
+// Reaching a median of 3+ would require loosening acceptance too — deferred
+// pending a dedicated stationary-safety calibration probe (H2A §10/§13).
+export const MAX_MOVING_BATCH_AGE_MS = 15_000
 export const MAX_BATCH_POINTS = 12
-export const MAX_BATCH_DURATION_MS = 5_000
+// P2-T23-H2: must stay >= MAX_MOVING_BATCH_AGE_MS, or buildTrackingTrajectoryBatch's
+// own prefix-drop (line ~190) would silently truncate exactly the older point
+// this wider batch window was raised to preserve. Kept with a small margin
+// above the new age, not equal to it, so a batch flushing right at the age
+// boundary never loses its oldest point to this independent transport cap.
+export const MAX_BATCH_DURATION_MS = 16_000
 export const MAX_BATCH_DISTANCE_METERS = 150
 export const MAX_BATCH_PAYLOAD_BYTES = 8_192
 
