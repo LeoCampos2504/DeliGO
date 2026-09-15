@@ -36,6 +36,7 @@ const OWNER_TYPES: readonly PushSubscriptionOwnerType[] = [
   PushSubscriptionOwnerType.negocio,
   PushSubscriptionOwnerType.repartidor,
   PushSubscriptionOwnerType.empleado,
+  PushSubscriptionOwnerType.cuenta_operativa,
 ]
 const CHANNELS: readonly PushSubscriptionChannel[] = [PushSubscriptionChannel.default, PushSubscriptionChannel.salon]
 

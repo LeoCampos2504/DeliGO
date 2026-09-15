@@ -19,6 +19,30 @@ const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor
 // POST /api/push/unsubscribe — Remove push subscription for the current user
 export async function POST(req: NextRequest) {
   try {
+    if (req.nextUrl.searchParams.get("actorFamily") === "cuenta_operativa") {
+      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
+      const account = await getOperationalAccountFromRequest(req)
+      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const rl = checkRateLimit("pushMutation", `${getClientIp(req)}:${account.id}`)
+      if (!rl.allowed) return rateLimitResponse(rl)
+      const body = await req.json().catch(() => null)
+      const subscriptionRaw = (body as { subscription?: unknown } | null)?.subscription
+      if (subscriptionRaw === undefined || subscriptionRaw === null || (typeof subscriptionRaw === "string" && subscriptionRaw.trim().length === 0)) {
+        return NextResponse.json({ ok: true, removed: false })
+      }
+      const detachInput = resolvePushSubscriptionDetachInput(subscriptionRaw)
+      if (!detachInput.parsed) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      const result = await detachPushSubscriptionByEndpoint(
+        { ownerType: "cuenta_operativa", ownerId: account.id, channel: "default" },
+        {
+          endpoint: detachInput.parsed.endpoint,
+          p256dh: detachInput.parsed.keys.p256dh,
+          auth: detachInput.parsed.keys.auth,
+        }
+      )
+      return NextResponse.json({ ok: true, removed: result.detached })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })

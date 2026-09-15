@@ -6,7 +6,7 @@ function read(relPath: string) {
   return readFileSync(join(process.cwd(), ...relPath.split("/")), "utf-8")
 }
 
-describe("P2-T44-R1 PyR personal Push UX static contract", () => {
+describe("P2-T44-R1D account-level Push UX static contract", () => {
   const src = read("src/hooks/use-operativo-pyr-push.ts")
   const page = read("src/app/operaciones/mi-panel/[slug]/pyr/pedidos/page.tsx")
 
@@ -19,10 +19,11 @@ describe("P2-T44-R1 PyR personal Push UX static contract", () => {
     expect(src).toContain("getCurrentOperativePushSubscription")
   })
 
-  test("PyR page exposes status and activate/deactivate actions without adding a test action", () => {
-    expect(page).toContain("useOperativoPyrPush")
-    expect(page).toContain("Activar avisos de pedidos y reseñas")
-    expect(page).toContain("Desactivar avisos de pedidos y reseñas")
+  test("PyR page does not expose an area-level Push toggle", () => {
+    expect(page).not.toContain("useOperativoPyrPush")
+    expect(page).not.toContain("push-subscription")
+    expect(page).not.toContain("Activar avisos de pedidos y reseñas")
+    expect(page).not.toContain("Desactivar avisos de pedidos y reseñas")
     expect(page).not.toContain("Enviar prueba")
   })
 })

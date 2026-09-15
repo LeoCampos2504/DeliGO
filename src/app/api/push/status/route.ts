@@ -20,6 +20,24 @@ const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor
 // PushSubscription bound server-side to the current authenticated actor?
 export async function POST(req: NextRequest) {
   try {
+    if (req.nextUrl.searchParams.get("actorFamily") === "cuenta_operativa") {
+      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
+      const account = await getOperationalAccountFromRequest(req)
+      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const rl = checkRateLimit("pushStatus", `${getClientIp(req)}:${account.id}`)
+      if (!rl.allowed) return rateLimitResponse(rl)
+      const body = await req.json().catch(() => ({}))
+      const subscription = (body as { subscription?: unknown }).subscription
+      if (typeof subscription !== "string") return NextResponse.json({ error: "subscription es obligatorio" }, { status: 400 })
+      const parsed = parsePushSubscriptionShape(subscription)
+      if (!parsed) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      const subscribed = await hasPushSubscriptionForOwnerEndpoint(
+        { ownerType: "cuenta_operativa", ownerId: account.id, channel: "default" },
+        parsed.endpoint
+      )
+      return NextResponse.json({ subscribed })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })

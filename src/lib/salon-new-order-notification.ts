@@ -1,13 +1,11 @@
 import { db } from "@/lib/db"
 import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
 import {
-  mergePushFanoutTargets,
   operacionesSalonNewOrderNotification,
-  resolveCorePushTargetsFromNormalized,
   sendPushToTargets,
 } from "@/lib/push"
-import { getPushSubscriptionsForOwners } from "@/lib/push-subscription-repository"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { resolveOperationalPushTargets, type OperationalPushEmployee } from "@/lib/operational-push-targets"
 
 type NotifySalonNewOrderParams = {
   pedidoId: string
@@ -31,6 +29,7 @@ type NotifySalonNewOrderResult = {
 
 type SalonEmpleadoRecipient = {
   id: string
+  cuentaOperativaId: string | null
   pushSubscription: string | null
 }
 
@@ -60,7 +59,7 @@ async function resolveSalonEmpleados(negocioId: string): Promise<SalonEmpleadoRe
       cuentaOperativaId: { not: null },
       cuentaOperativa: { activo: true, eliminado: false },
     },
-    select: { id: true, pushSubscription: true },
+    select: { id: true, cuentaOperativaId: true, pushSubscription: true },
   })
 
   return empleados
@@ -121,28 +120,7 @@ export async function notifySalonNewOrderForOperations(
     )
   )
 
-  // P2-T05 H2/F21: una lectura normalizada batch por wave. El builder común
-  // conserva la unión normalized+legacy y toda la semántica Stage4/H1 por
-  // recipient; sólo se elimina el N+1 de lecturas individuales.
-  let normalizedByOwner: Awaited<ReturnType<typeof getPushSubscriptionsForOwners>> = new Map()
-  try {
-    normalizedByOwner = await getPushSubscriptionsForOwners(
-      "empleado",
-      empleados.map((empleado) => empleado.id),
-      "default"
-    )
-  } catch (error) {
-    console.error("[Push/OperacionesSalon] Error leyendo targets normalizados en batch:", safeErrorForLog(error))
-  }
-  const perRecipientTargets = empleados.map((empleado) =>
-    resolveCorePushTargetsFromNormalized(
-      "empleado",
-      empleado.id,
-      empleado.pushSubscription,
-      normalizedByOwner.get(empleado.id) ?? []
-    )
-  )
-  const targets = mergePushFanoutTargets(perRecipientTargets)
+  const targets = await resolveOperationalPushTargets(empleados as OperationalPushEmployee[])
   const attemptedEndpoints = targets.map((t) => t.endpoint)
 
   try {

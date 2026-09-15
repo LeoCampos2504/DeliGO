@@ -53,6 +53,21 @@ export async function POST(req: NextRequest) {
             const parsedSubscription = parsePushSubscriptionShape(subscription)
 
             await db.$transaction(async (tx) => {
+              // R1D: the account owner is authoritative for new operational
+              // personal Push writes. Detach only this exact account/device;
+              // legacy employee cleanup below remains for compatibility.
+              if (parsedSubscription) {
+                await detachPushSubscriptionByEndpoint(
+                  { ownerType: "cuenta_operativa", ownerId: session.cuentaOperativaId, channel: "default" },
+                  {
+                    endpoint: parsedSubscription.endpoint,
+                    p256dh: parsedSubscription.keys.p256dh,
+                    auth: parsedSubscription.keys.auth,
+                  },
+                  tx
+                )
+              }
+
               await tx.empleado.updateMany({
                 where: {
                   cuentaOperativaId: session.cuentaOperativaId,

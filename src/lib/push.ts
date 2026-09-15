@@ -360,7 +360,7 @@ async function safeClearLegacyIfMatches(
 // P2-T05 Stage4: normalized multi-device fan-out target resolution
 // ============================================
 
-export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado"
+export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado" | "cuenta_operativa"
 
 export interface PushFanoutTarget {
   /** JSON string listo para pasar a `sendPushNotification`. */

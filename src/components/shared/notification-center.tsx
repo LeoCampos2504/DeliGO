@@ -100,9 +100,11 @@ function timeAgo(dateStr: string): string {
 interface NotificationBellProps {
   /** Called when a notification is clicked — should navigate to the target tab */
   onNavigate?: (tab: string, notif: NotificationItem) => void
+  /** Uses the authenticated operational account and its employee feed. */
+  operational?: boolean
 }
 
-export function NotificationBell({ onNavigate }: NotificationBellProps) {
+export function NotificationBell({ onNavigate, operational = false }: NotificationBellProps) {
   const { noLeidos, setNoLeidos, decrementNoLeidos, isOpen, setIsOpen } = useNotificationStore()
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
@@ -116,7 +118,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       return res.json() as Promise<{ noLeidos: number }>
     },
     refetchInterval: 10000, // Poll every 10s
-    enabled: !!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor"),
+    enabled: operational || (!!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor")),
   })
 
   // Fetch full notification list (only when popover is open)
@@ -127,7 +129,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       if (!res.ok) return { notificaciones: [] as NotificationItem[], noLeidos: 0 }
       return res.json() as Promise<{ notificaciones: NotificationItem[]; noLeidos: number }>
     },
-    enabled: isOpen && !!user,
+    enabled: isOpen && (operational || !!user),
     staleTime: 0,
   })
 

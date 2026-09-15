@@ -7,9 +7,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   Bike,
-  Bell,
-  BellOff,
-  BellRing,
   CheckCircle2,
   ClipboardList,
   Eye,
@@ -27,7 +24,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
-import { useOperativoPyrPush } from "@/hooks/use-operativo-pyr-push"
+import { NotificationBell } from "@/components/shared/notification-center"
 import {
   PedidoDetalleDrawer,
   type PedidoDetalleState,
@@ -166,7 +163,6 @@ export default function PyRPedidosActivosPage() {
   const router = useRouter()
   const nav = useOperativoNav()
   const slug = params.slug
-  const pyrPush = useOperativoPyrPush(slug)
 
   const [state, setState] = useState<PageState>({ status: "loading" })
 
@@ -183,44 +179,6 @@ export default function PyRPedidosActivosPage() {
   const [mutatingPedidoIds, setMutatingPedidoIds] = useState<Set<string>>(() => new Set())
   // Mensaje de error por pedido (no técnico, liberado junto con su propia mutación).
   const [pedidoErrors, setPedidoErrors] = useState<Record<string, string>>({})
-
-  const handleTogglePyrPush = () => {
-    if (pyrPush.state === "active") {
-      void pyrPush.unsubscribe()
-    } else if (pyrPush.state === "idle" || pyrPush.state === "error") {
-      void pyrPush.subscribe()
-    }
-  }
-
-  const pyrPushStatusLabel =
-    pyrPush.state === "active"
-      ? "Avisos activos"
-      : pyrPush.state === "blocked"
-        ? "Avisos bloqueados"
-        : pyrPush.state === "needs-install"
-          ? "Instalá la app para activar avisos"
-          : pyrPush.state === "unsupported"
-            ? "Avisos no disponibles"
-            : pyrPush.state === "checking"
-              ? "Comprobando avisos…"
-              : pyrPush.state === "activating"
-                ? "Actualizando avisos…"
-                : pyrPush.state === "error"
-                  ? "No se pudo actualizar avisos"
-                  : "Avisos desactivados"
-
-  const pyrPushTitle =
-    pyrPush.state === "active"
-      ? "Desactivar avisos de pedidos y reseñas"
-      : pyrPush.state === "blocked"
-        ? "Notificaciones bloqueadas en el navegador"
-        : pyrPush.state === "needs-install"
-          ? "Instalá la app para activar avisos en iPhone/iPad"
-          : pyrPush.state === "unsupported"
-            ? "Este navegador no soporta avisos Push"
-            : "Activar avisos de pedidos y reseñas"
-
-  const pyrPushButtonDisabled = pyrPush.state === "checking" || pyrPush.state === "activating" || pyrPush.state === "unsupported" || pyrPush.state === "blocked" || pyrPush.state === "needs-install"
 
   // Una sola solicitud activa (abort de la anterior) + guardia de generación contra
   // respuestas fuera de orden. refreshGenRef invalida respuestas de GET/polling; no
@@ -703,29 +661,7 @@ export default function PyRPedidosActivosPage() {
           </Badge>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <div className="hidden text-right sm:block">
-            <p className="text-[11px] font-semibold leading-tight">{pyrPushStatusLabel}</p>
-            <p className="text-[10px] text-muted-foreground">Push personal</p>
-          </div>
-          <Button
-            variant={pyrPush.state === "active" ? "default" : "outline"}
-            size="icon"
-            className={`h-10 w-10 shrink-0 rounded-xl ${pyrPush.state === "active" ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""}`}
-            onClick={handleTogglePyrPush}
-            disabled={pyrPushButtonDisabled}
-            aria-label={pyrPushTitle}
-            title={pyrPushTitle}
-          >
-            {pyrPush.state === "checking" || pyrPush.state === "activating" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : pyrPush.state === "active" ? (
-              <BellRing className="h-4 w-4" />
-            ) : pyrPush.state === "blocked" ? (
-              <BellOff className="h-4 w-4" />
-            ) : (
-              <Bell className="h-4 w-4" />
-            )}
-          </Button>
+          <NotificationBell operational />
           <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl">
             <Link href={nav.homeHref} aria-label="Volver a mi panel">
               <ArrowLeft className="h-4 w-4" />
@@ -733,18 +669,6 @@ export default function PyRPedidosActivosPage() {
           </Button>
         </div>
       </div>
-
-      {pyrPush.state !== "active" && pyrPush.state !== "idle" && pyrPush.state !== "checking" && (
-        <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground" role="status">
-          {pyrPush.error || (pyrPush.state === "needs-install"
-            ? "En iPhone/iPad, agregá DeliGO a la pantalla de inicio y abrilo desde ahí para activar avisos."
-            : pyrPush.state === "blocked"
-              ? "Reactivá las notificaciones desde los permisos del navegador o del sistema."
-              : pyrPush.state === "unsupported"
-                ? "Este navegador no admite avisos Push para este panel."
-                : pyrPushStatusLabel)}
-        </div>
-      )}
 
       {/* Navegación a reseñas (Operaciones UX-1) */}
       <Link

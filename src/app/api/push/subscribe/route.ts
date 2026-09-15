@@ -22,6 +22,26 @@ const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor
 // POST /api/push/subscribe — Save a push subscription for the current user
 export async function POST(req: NextRequest) {
   try {
+    if (req.nextUrl.searchParams.get("actorFamily") === "cuenta_operativa") {
+      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
+      const account = await getOperationalAccountFromRequest(req)
+      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const rl = checkRateLimit("pushMutation", `${getClientIp(req)}:${account.id}`)
+      if (!rl.allowed) return rateLimitResponse(rl)
+      const body = await req.json()
+      const subscription = (body as { subscription?: unknown }).subscription
+      if (typeof subscription !== "string" || !subscription) return NextResponse.json({ error: "subscription es obligatorio" }, { status: 400 })
+      const parsedShape = parsePushSubscriptionShape(subscription)
+      if (!parsedShape) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      const normalizedInput = toNormalizedPushSubscriptionInput(parsedShape)
+      if (!normalizedInput) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      await registerPushSubscription(
+        { ownerType: "cuenta_operativa", ownerId: account.id, channel: "default" },
+        normalizedInput
+      )
+      return NextResponse.json({ ok: true, subscribed: true })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })

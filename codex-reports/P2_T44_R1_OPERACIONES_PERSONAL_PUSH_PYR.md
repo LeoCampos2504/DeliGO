@@ -4,6 +4,15 @@ Fecha: 2026-09-14
 Proyecto: DeliGO
 Alcance: Testing únicamente; sin Production.
 
+## Decisión UX superseding posterior
+
+P2-T44-R1 queda supersedida como experiencia final de configuración por
+P2-T44-R1C: la activación Push ya no debe vivir dentro de Mozo, PyR ni Salón.
+La autoridad nueva exige un único switch de cuenta personal para Mozo/PyR/Salón
+y reserva la campana al centro de notificaciones. La evidencia técnica y de
+seguridad de R1 se conserva como reutilizable; su certificación física no se
+reutiliza como PASS final. Ver `codex-reports/P2_T44_R1C_UNIFIED_PERSONAL_PUSH_SETTINGS.md`.
+
 ## Autoridad y baseline
 
 ```text

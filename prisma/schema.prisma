@@ -1338,6 +1338,7 @@ enum PushSubscriptionOwnerType {
   negocio
   repartidor
   empleado
+  cuenta_operativa
 }
 
 enum PushSubscriptionChannel {

@@ -16,9 +16,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import { Logo } from "@/components/shared/logo"
 import { toast } from "sonner"
 import { performOperativeLogout } from "@/lib/operativo-logout"
+import { usePushNotifications } from "@/hooks/use-push-notifications"
 
 // ============================================
 // DeliGO Operaciones — Mi cuenta (Bugfix-5C)
@@ -54,6 +56,10 @@ function CuentaContent() {
   const searchParams = useSearchParams()
   const [state, setState] = useState<PageState>({ kind: "checking" })
   const [loggingOut, setLoggingOut] = useState(false)
+  const push = usePushNotifications({
+    actorFamily: "cuenta_operativa",
+    actorKey: "cuenta_operativa",
+  })
 
   useEffect(() => {
     let active = true
@@ -185,6 +191,23 @@ function CuentaContent() {
                     </a>
                   </Button>
                 )}
+              </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/50 p-4">
+                <div>
+                  <p className="text-sm font-semibold">Avisos personales</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Recibí avisos de los negocios y áreas donde tenés una relación operativa válida.
+                  </p>
+                </div>
+                <Switch
+                  checked={push.statusResolved && push.isSubscribed}
+                  onCheckedChange={(checked) => {
+                    void (checked ? push.subscribe() : push.unsubscribe())
+                  }}
+                  disabled={!push.isSupported || push.loading || !push.statusResolved && push.statusCheckError}
+                  aria-label="Avisos personales"
+                />
               </div>
 
               <Button asChild variant="outline" className="h-10 w-full gap-2 rounded-xl">
