@@ -644,6 +644,11 @@ export function DeliveryTrackingMap({
   useEffect(() => {
     if (!open) return
     const unregisterResync = client.registerResync(() => {
+      // P2-T23-H3B: witness-only signal, no behavior change — lets a
+      // physical probe distinguish a resync-triggered fetchTracking call
+      // from the routine 8s/20s poll interval, which emits the identical
+      // client_delivery_map_lifecycle labels otherwise.
+      recordT24PhysicalWitness({ pedidoId, event: "client_resync_triggered", channel: "REALTIME" })
       fetchTrackingRef.current()
     })
     return () => {

@@ -19,7 +19,12 @@ describe("DeliveryTrackingMap realtime resync wiring contract (P2-T23-H2)", () =
     expect(source).toContain("client.registerResync(")
     const start = source.indexOf("const unregisterResync = client.registerResync(")
     expect(start).toBeGreaterThan(-1)
-    const cleanupWindow = source.slice(start, start + 300)
+    // P2-T23-H3B added a witness-only call inside the resync callback, so a
+    // fixed byte window is no longer a safe bound here — search up to the
+    // effect's own dependency array close, the same anchor tests below use.
+    const end = source.indexOf("}, [open, pedidoId, client])", start)
+    expect(end).toBeGreaterThan(start)
+    const cleanupWindow = source.slice(start, end)
     expect(cleanupWindow).toContain("return () => {")
     expect(cleanupWindow).toContain("unregisterResync()")
   })
@@ -37,7 +42,11 @@ describe("DeliveryTrackingMap realtime resync wiring contract (P2-T23-H2)", () =
 
   test("resync registration is scoped to the current pedidoId (effect deps include pedidoId, remounts per pedido switch)", () => {
     const start = source.indexOf("const unregisterResync = client.registerResync(")
-    const afterBlock = source.slice(start, start + 400)
+    expect(start).toBeGreaterThan(-1)
+    // A plain positive toContain check — no fixed byte window needed (a
+    // future witness-only addition inside this effect, like P2-T23-H3B's,
+    // must not silently fall outside a magic-number slice).
+    const afterBlock = source.slice(start)
     expect(afterBlock).toContain("}, [open, pedidoId, client])")
   })
 
