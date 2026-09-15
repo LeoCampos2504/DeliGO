@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     return undefined
   }
   const witnessFields = [
-    "callbackSequence", "callbackOrigin", "lat", "lng", "accuracy", "visibility", "onLine",
+    "callbackSequence", "callbackOrigin", "lat", "lng", "accuracy", "speedMps", "visibility", "onLine",
     "timeSincePreviousCallbackMs", "decision", "movementDistanceMeters", "movementThresholdMeters",
     "previousAccuracyMeters", "currentAccuracyMeters", "throttleDecision", "deferReason", "timeSinceLastNetworkSendMs",
     "minSendIntervalMs", "bufferPointCountBefore", "bufferPointCountAfter", "bufferPointCount", "batchId",

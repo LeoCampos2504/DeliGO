@@ -387,7 +387,15 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
     setGpsPermissionDenied(false)
     const sample = buildSampleFromPosition(position)
     markGpsCallback(sample, "watchPosition")
-    observeSample(sample)
+    // P2-T23-H4: witness-only capture of the raw GeolocationCoordinates.speed
+    // value — never read by buildSampleFromPosition/the movement filter, so
+    // without this it would be permanently unrecoverable from a probe's logs
+    // afterward (unlike lat/lng/accuracy/capturedAt, which an offline replay
+    // can always reconstruct from the wire). No product behavior changes.
+    const speedMps = typeof position.coords.speed === "number" && Number.isFinite(position.coords.speed)
+      ? position.coords.speed
+      : null
+    observeSample(sample, speedMps)
   }
 
   function handleWatchError(generation: number, error: GeolocationPositionError) {
@@ -410,18 +418,18 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
   // Actualiza la observación física compartida (si es igual o más nueva por
   // capturedAt que la ya conocida — nunca por orden de llegada del
   // callback) y evalúa el fan-out hacia cada entrega localmente elegible.
-  function observeSample(sample: TrackingLocationSample) {
+  function observeSample(sample: TrackingLocationSample, speedMps: number | null = null) {
     if (isCandidateSampleNewer(sample, latestObservedSampleRef.current)) {
       latestObservedSampleRef.current = sample
       setLatestPosition(sample)
     }
     for (const delivery of deliveriesRef.current) {
       if (!isCoreEligible(delivery, knownIneligibleRef.current)) continue
-      considerSampleForDelivery(delivery.id, sample)
+      considerSampleForDelivery(delivery.id, sample, speedMps)
     }
   }
 
-  function considerSampleForDelivery(deliveryId: string, sample: TrackingLocationSample) {
+  function considerSampleForDelivery(deliveryId: string, sample: TrackingLocationSample, speedMps: number | null = null) {
     const state = getOrCreateDeliveryState(deliveryId)
     const previousSample = state.trajectoryBuffer.points.at(-1) ?? state.trajectoryBuffer.anchor ?? state.lastSentSample
     const movementDistanceMeters = previousSample ? haversineDistanceMeters(previousSample, sample) : null
@@ -442,6 +450,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
       movementThresholdMeters,
       previousAccuracyMeters: previousSample?.accuracy ?? null,
       currentAccuracyMeters: sample.accuracy,
+      speedMps,
     }
     const oldestPending = state.trajectoryBuffer.points[0]
     if (oldestPending && Date.now() - oldestPending.capturedAt > MAX_STALE_TRAJECTORY_BUFFER_AGE_MS) {
@@ -746,6 +755,10 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
           }
           const sample = buildSampleFromPosition(position)
           markGpsCallback(sample, "getCurrentPosition")
+          // P2-T23-H4: same witness-only speed capture as handleWatchSuccess.
+          const speedMps = typeof position.coords.speed === "number" && Number.isFinite(position.coords.speed)
+            ? position.coords.speed
+            : null
           for (const delivery of deliveriesRef.current) {
             if (!isCoreEligible(delivery, knownIneligibleRef.current)) continue
             recordT24PhysicalWitness({
@@ -758,6 +771,7 @@ export function useRepartidorTracking(activeDeliveries: ActiveDelivery[]) {
               accuracy: sample.accuracy,
               visibility: typeof document !== "undefined" ? document.visibilityState : "unknown",
               onLine: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+              speedMps,
             })
           }
           // Un callback de watchPosition más nuevo que haya llegado

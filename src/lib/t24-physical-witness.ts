@@ -16,6 +16,10 @@ type T24PhysicalWitnessEvent = {
   lat?: number
   lng?: number
   accuracy?: number
+  // P2-T23-H4: raw GeolocationCoordinates.speed (m/s), witness-only —
+  // never read by the movement filter or acceptTrackingTrajectoryPoint.
+  // null when the browser/device didn't report a speed for this fix.
+  speedMps?: number | null
   visibility?: string
   onLine?: boolean
   timeSincePreviousCallbackMs?: number | null
