@@ -4,20 +4,56 @@
 // would collide with push.test.ts's own mock.module("@/lib/push", ...),
 // since `./push` and `@/lib/push` resolve to the same module process-wide).
 // Only @/lib/db, @/lib/push-subscription-repository and web-push are mocked.
+//
+// P2-T44-R1I (reconciliation): this file's `db.pushSubscription.findMany`
+// mock predated R1D's account-level two-phase resolution
+// (resolveOperationalPushTargets -> getPushSubscriptionsForOwners first
+// queries ownerType="cuenta_operativa", and only queries
+// ownerType="empleado" for accounts with zero account-level rows). The old
+// mock ignored `where` entirely and returned rows missing
+// ownerType/ownerId/channel, which the repository's own defensive re-filter
+// (`row.ownerType !== ownerType || row.channel !== channel` -> skip)
+// silently dropped for EVERY query, always forcing the legacy-only
+// fallback path regardless of what was actually being asked. The mock below
+// is `where`-aware and tags every returned row with the owner it actually
+// belongs to, so each of the four real scenarios (account-level only,
+// legacy-only fallback, both present with account-level winning, and
+// account-level multi-device fan-out) can be driven and asserted honestly.
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 
-type EmpleadoLegacyRow = { id: string; pushSubscription: string | null; areaOperativa: string; activo: boolean; eliminado: boolean; negocioId: string }
+type EmpleadoLegacyRow = {
+  id: string
+  cuentaOperativaId: string | null
+  pushSubscription: string | null
+  areaOperativa: string
+  activo: boolean
+  eliminado: boolean
+  negocioId: string
+}
+
+type NormalizedRow = { endpoint: string; p256dh: string; auth: string; expirationTime: Date | null }
+
+const CUENTA_ID = "cuenta-1"
+const EMPLEADO_ID = "empleado-1"
 
 let empleadoRow: EmpleadoLegacyRow | null
 let notificacionRows: Array<{ userId: string; userType: string; tipo: string; pedidoId: string | null }>
-let normalizedRows: Array<{ endpoint: string; p256dh: string; auth: string; expirationTime: Date | null }>
+// Filas REALES de push_subscriptions por owner — indexadas por ownerType
+// para que el mock pueda responder de forma congruente con el `where` que
+// getPushSubscriptionsForOwners realmente envía en cada una de las dos
+// fases (cuenta_operativa primero, empleado sólo como fallback).
+let accountLevelRows: NormalizedRow[]
+let employeeNormalizedRows: NormalizedRow[]
 let webpushCallLog: string[]
 let webpushBehavior: Map<string, "success" | 404 | 410>
 
 mock.module("@/lib/db", () => ({
   db: {
     empleado: {
-      findFirst: async () => (empleadoRow ? { id: empleadoRow.id, pushSubscription: empleadoRow.pushSubscription } : null),
+      findFirst: async () =>
+        empleadoRow
+          ? { id: empleadoRow.id, cuentaOperativaId: empleadoRow.cuentaOperativaId, pushSubscription: empleadoRow.pushSubscription }
+          : null,
       updateMany: async () => ({ count: 0 }),
     },
     mesa: {
@@ -48,9 +84,20 @@ mock.module("@/lib/db", () => ({
     // P2-T05 Stage4: no se mockea `@/lib/push-subscription-repository` como
     // módulo completo (rompería a otros archivos de test que necesitan sus
     // demás exports reales) — se deja correr el repository REAL contra este
-    // mock de `pushSubscription`.
+    // mock de `pushSubscription`, ahora congruente con `where.ownerType`.
     pushSubscription: {
-      findMany: async () => normalizedRows,
+      findMany: async ({ where }: { where: { ownerType: string; ownerId: { in: string[] }; channel: string } }) => {
+        const ids = where.ownerId.in
+        if (where.ownerType === "cuenta_operativa") {
+          if (!ids.includes(CUENTA_ID)) return []
+          return accountLevelRows.map((r) => ({ ...r, ownerType: "cuenta_operativa", ownerId: CUENTA_ID, channel: "default" }))
+        }
+        if (where.ownerType === "empleado") {
+          if (!ids.includes(EMPLEADO_ID)) return []
+          return employeeNormalizedRows.map((r) => ({ ...r, ownerType: "empleado", ownerId: EMPLEADO_ID, channel: "default" }))
+        }
+        return []
+      },
       deleteMany: async () => ({ count: 1 }),
     },
   },
@@ -84,55 +131,100 @@ mock.module("@/lib/notification-deep-link", () => ({
 
 const { notifyMesaOrderReadyForMozo } = await import("./mesa-order-ready-notification")
 
+function pedido(id: string) {
+  return {
+    id,
+    negocioId: "negocio-1",
+    negocioSlug: "mi-negocio",
+    metodoEntrega: "mesa",
+    mesaId: "mesa-1",
+    mesaNumero: 7,
+    empleadoId: EMPLEADO_ID,
+  }
+}
+
 beforeEach(() => {
   empleadoRow = {
-    id: "empleado-1",
-    pushSubscription: JSON.stringify({ endpoint: "https://push.example/legacy-device", keys: { p256dh: "p", auth: "a" }, expirationTime: null }),
+    id: EMPLEADO_ID,
+    cuentaOperativaId: CUENTA_ID,
+    pushSubscription: null,
     areaOperativa: "mozo",
     activo: true,
     eliminado: false,
     negocioId: "negocio-1",
   }
-  normalizedRows = [{ endpoint: "https://push.example/second-device", p256dh: "p2", auth: "a2", expirationTime: null }]
+  accountLevelRows = []
+  employeeNormalizedRows = []
   notificacionRows = []
   webpushCallLog = []
   webpushBehavior = new Map()
 })
 
 describe("notifyMesaOrderReadyForMozo — real core multi-device fan-out", () => {
-  test("sends to BOTH the legacy device AND the normalized-only device, with exactly 1 Notificacion row", async () => {
-    await notifyMesaOrderReadyForMozo({
-      pedido: {
-        id: "pedido-1",
-        negocioId: "negocio-1",
-        negocioSlug: "mi-negocio",
-        metodoEntrega: "mesa",
-        mesaId: "mesa-1",
-        mesaNumero: 7,
-        empleadoId: "empleado-1",
-      },
-      estadoAnterior: "preparando",
+  test("A — MOZO_ACCOUNT_LEVEL_TEST: cuenta con subscription account-level -> Push se dirige a cuenta_operativa", async () => {
+    accountLevelRows = [{ endpoint: "https://push.example/account-device", p256dh: "p", auth: "a", expirationTime: null }]
+    // Sin legacy — el fallback a empleado ni siquiera debería consultarse.
+    empleadoRow!.pushSubscription = null
+
+    await notifyMesaOrderReadyForMozo({ pedido: pedido("pedido-a"), estadoAnterior: "preparando" })
+
+    expect(webpushCallLog).toEqual(["https://push.example/account-device"])
+    expect(notificacionRows.length).toBe(1)
+  })
+
+  test("B — MOZO_LEGACY_FALLBACK_TEST: cuenta SIN subscription account-level + empleado legacy con subscription -> fallback empleado funciona", async () => {
+    accountLevelRows = [] // la cuenta no tiene ninguna fila account-level
+    empleadoRow!.pushSubscription = JSON.stringify({
+      endpoint: "https://push.example/legacy-device",
+      keys: { p256dh: "p", auth: "a" },
+      expirationTime: null,
     })
 
-    expect(webpushCallLog.sort()).toEqual(["https://push.example/legacy-device", "https://push.example/second-device"])
+    await notifyMesaOrderReadyForMozo({ pedido: pedido("pedido-b"), estadoAnterior: "preparando" })
+
+    expect(webpushCallLog).toEqual(["https://push.example/legacy-device"])
+    expect(notificacionRows.length).toBe(1)
+  })
+
+  test("C — MOZO_NO_DOUBLE_FANOUT_TEST: cuenta con account-level Y empleado legacy -> account-level gana, sin duplicar, legacy no se usa", async () => {
+    accountLevelRows = [{ endpoint: "https://push.example/account-device", p256dh: "p", auth: "a", expirationTime: null }]
+    // El empleado TODAVÍA tiene un legacy poblado (dispositivo viejo) —
+    // como la cuenta ya tiene fila account-level, la fase de fallback
+    // empleado NUNCA debe consultarse ni usarse.
+    empleadoRow!.pushSubscription = JSON.stringify({
+      endpoint: "https://push.example/legacy-device",
+      keys: { p256dh: "p", auth: "a" },
+      expirationTime: null,
+    })
+
+    await notifyMesaOrderReadyForMozo({ pedido: pedido("pedido-c"), estadoAnterior: "preparando" })
+
+    expect(webpushCallLog).toEqual(["https://push.example/account-device"])
+    expect(webpushCallLog).not.toContain("https://push.example/legacy-device")
+    expect(notificacionRows.length).toBe(1)
+  })
+
+  test("D — multi-device fan-out bajo account-level: dos dispositivos de la MISMA cuenta reciben Push, con exactamente 1 Notificacion lógica", async () => {
+    accountLevelRows = [
+      { endpoint: "https://push.example/account-device-1", p256dh: "p1", auth: "a1", expirationTime: null },
+      { endpoint: "https://push.example/account-device-2", p256dh: "p2", auth: "a2", expirationTime: null },
+    ]
+
+    await notifyMesaOrderReadyForMozo({ pedido: pedido("pedido-d"), estadoAnterior: "preparando" })
+
+    expect(webpushCallLog.sort()).toEqual([
+      "https://push.example/account-device-1",
+      "https://push.example/account-device-2",
+    ])
     expect(notificacionRows.length).toBe(1) // 1 logical notification regardless of device count
   })
 
-  test("mozo with no push subscription at all -> no send attempted, Notificacion still persisted", async () => {
+  test("mozo sin ninguna subscription (ni account-level ni legacy) -> no send attempted, Notificacion still persisted", async () => {
+    accountLevelRows = []
     empleadoRow!.pushSubscription = null
-    normalizedRows = []
-    await notifyMesaOrderReadyForMozo({
-      pedido: {
-        id: "pedido-2",
-        negocioId: "negocio-1",
-        negocioSlug: "mi-negocio",
-        metodoEntrega: "mesa",
-        mesaId: "mesa-1",
-        mesaNumero: 7,
-        empleadoId: "empleado-1",
-      },
-      estadoAnterior: "preparando",
-    })
+
+    await notifyMesaOrderReadyForMozo({ pedido: pedido("pedido-e"), estadoAnterior: "preparando" })
+
     expect(webpushCallLog.length).toBe(0)
     expect(notificacionRows.length).toBe(1)
   })
