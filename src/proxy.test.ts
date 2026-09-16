@@ -18,6 +18,8 @@ import { proxy } from "@/proxy"
 
 const CLIENTE_COOKIE = "deligo_session_cliente"
 const NEGOCIO_COOKIE = "deligo_session_negocio"
+const REPARTIDOR_COOKIE = "deligo_session_repartidor"
+const CUENTA_OPERATIVA_COOKIE = "deligo_operativo_session"
 const LEGACY_COOKIE = "deligo_session"
 
 function uuid(): string {
@@ -378,6 +380,112 @@ describe("AUTH02 — Push: selector explícito resuelve bajo coexistencia", () =
     )
     expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
     expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
+})
+
+// ============================================
+// P2-T44-R1G — Root cause de R1F (P2_T44_R1F_ACCOUNT_PUSH_SWITCH_FAILURE_AUDIT.md):
+// "cuenta_operativa" (Personal Operaciones, R1D) nunca había sido agregada
+// a este resolver — un ?actorFamily=cuenta_operativa real, con la cookie
+// deligo_operativo_session real presente, se trataba como un selector
+// desconocido (fail-closed): resolveActorSession devolvía token=null, y
+// como /api/push/subscribe y /api/push/unsubscribe están en
+// AUTH_REQUIRED_PREFIXES, el propio middleware devolvía 401 ANTES de que
+// el request llegara a getOperationalAccountFromRequest (route handler
+// real, que sí sabe autenticar esta familia vía esa misma cookie). Este
+// bloque prueba el CONTRATO real del middleware — no una aserción frágil
+// de substring — contra los 9 casos (A-I) que exige la tarea que
+// implementó el fix.
+// ============================================
+describe("P2-T44-R1G — cuenta_operativa: el middleware ya no bloquea con 401 antes del route handler", () => {
+  test("A: /api/push/subscribe?actorFamily=cuenta_operativa CON deligo_operativo_session -> nunca 401, cookie operativa reenviada bajo el nombre legacy", () => {
+    const operativoToken = uuid()
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=cuenta_operativa", { [CUENTA_OPERATIVA_COOKIE]: operativoToken }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${operativoToken}`)
+  })
+
+  test("B: /api/push/subscribe?actorFamily=cuenta_operativa SIN deligo_operativo_session -> 401 (el soft-check sigue exigiendo la cookie real, esto no es un bypass)", () => {
+    const res = proxy(req("/api/push/subscribe?actorFamily=cuenta_operativa", {}, { method: "POST" }))
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("C: /api/push/unsubscribe?actorFamily=cuenta_operativa CON deligo_operativo_session -> nunca 401", () => {
+    const operativoToken = uuid()
+    const res = proxy(
+      req("/api/push/unsubscribe?actorFamily=cuenta_operativa", { [CUENTA_OPERATIVA_COOKIE]: operativoToken }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+    expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${operativoToken}`)
+  })
+
+  test("D: /api/push/unsubscribe?actorFamily=cuenta_operativa SIN cookie -> 401", () => {
+    const res = proxy(req("/api/push/unsubscribe?actorFamily=cuenta_operativa", {}, { method: "POST" }))
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("E/F/G: cliente, negocio y repartidor siguen funcionando sin cambios (regresión de las 3 familias preexistentes)", () => {
+    const clienteToken = uuid()
+    const resCliente = proxy(req("/api/push/subscribe?actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken }, { method: "POST" }))
+    expect(resCliente.status).not.toBe(401)
+    expect(forwardedCookie(resCliente)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+
+    const negocioToken = uuid()
+    const resNegocio = proxy(req("/api/push/subscribe?actorFamily=negocio", { [NEGOCIO_COOKIE]: negocioToken }, { method: "POST" }))
+    expect(resNegocio.status).not.toBe(401)
+    expect(forwardedCookie(resNegocio)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
+
+    const repartidorToken = uuid()
+    const resRepartidor = proxy(
+      req("/api/push/subscribe?actorFamily=repartidor", { [REPARTIDOR_COOKIE]: repartidorToken }, { method: "POST" })
+    )
+    expect(resRepartidor.status).not.toBe(401)
+    expect(forwardedCookie(resRepartidor)).toContain(`${LEGACY_COOKIE}=${repartidorToken}`)
+  })
+
+  test("H: actorFamily desconocida/malformada (incluso pareciendo la real) no obtiene acceso accidental cuando hay ambigüedad real entre 2 cookies", () => {
+    const negocioToken = uuid()
+    const operativoToken = uuid()
+    const res = proxy(
+      req(
+        "/api/push/subscribe?actorFamily=cuenta-operativa",
+        { [NEGOCIO_COOKIE]: negocioToken, [CUENTA_OPERATIVA_COOKIE]: operativoToken },
+        { method: "POST" }
+      )
+    )
+    // "cuenta-operativa" (guión) !== "cuenta_operativa" (guión bajo, el
+    // valor real) — un selector case/formato-sensible que casi coincide
+    // nunca debe resolver ninguna familia. Con DOS cookies candidatas
+    // presentes (Negocio + CuentaOperativa) y ninguna familia resuelta por
+    // el selector, cae en el mismo fail-closed de siempre (CASE 9) — nunca
+    // elige arbitrariamente cuál de las dos confiar.
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("I: cookie de OTRA familia no satisface una request ?actorFamily=cuenta_operativa (nunca cruza de familia)", () => {
+    const negocioToken = uuid()
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=cuenta_operativa", { [NEGOCIO_COOKIE]: negocioToken }, { method: "POST" })
+    )
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("Contrato explícito: si /api/push/subscribe|unsubscribe soportan actorFamily=cuenta_operativa, el middleware DEBE reconocer esa familia y su cookie real — nunca una aserción de substring aislada", () => {
+    // Prueba el comportamiento real end-to-end contra el propio contrato
+    // (no una constante interna): un selector legítimo con su cookie real
+    // presente atraviesa AMBAS rutas protegidas por AUTH_REQUIRED_PREFIXES
+    // sin 401, exactamente como cliente/negocio/repartidor ya lo hacían.
+    const token = uuid()
+    for (const path of ["/api/push/subscribe", "/api/push/unsubscribe"]) {
+      const res = proxy(req(`${path}?actorFamily=cuenta_operativa`, { [CUENTA_OPERATIVA_COOKIE]: token }, { method: "POST" }))
+      expect(res.status).not.toBe(401)
+    }
   })
 })
 
