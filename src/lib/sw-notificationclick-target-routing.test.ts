@@ -26,7 +26,17 @@ interface SwHarness {
   openWindowCalls: string[]
 }
 
-function loadServiceWorker(existingClients: FakeClient[] = []): SwHarness {
+// P2-T44-R1P5B: `fetchImpl` is OPTIONAL and, by default, still omitted from
+// the vm context exactly like before this task — every existing test below
+// keeps exercising the real "no `fetch` global available" path (sendSwTrace
+// no-ops safely, see public/sw.js). Only the NEW trace-specific tests pass
+// one, to observe what the SW's diagnostic POSTs actually contain, or to
+// prove a failing/hanging fetch never blocks real routing.
+interface LoadServiceWorkerOptions {
+  fetchImpl?: (url: string, init: { body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean }>
+}
+
+function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadServiceWorkerOptions = {}): SwHarness {
   const source = readFileSync(resolve(import.meta.dir, "..", "..", "public", "sw.js"), "utf8")
   const listeners = new Map<string, (event: unknown) => void>()
   const openWindowCalls: string[] = []
@@ -68,7 +78,7 @@ function loadServiceWorker(existingClients: FakeClient[] = []): SwHarness {
   }
   selfObj.self = selfObj
 
-  const context = vm.createContext({
+  const contextGlobals: Record<string, unknown> = {
     self: selfObj,
     URL,
     URLSearchParams,
@@ -76,7 +86,15 @@ function loadServiceWorker(existingClients: FakeClient[] = []): SwHarness {
     caches: {
       open: async () => ({ keys: async () => [], addAll: async () => {}, delete: async () => {}, match: async () => undefined, put: async () => {} }),
     },
-  })
+  }
+  if (opts.fetchImpl) {
+    contextGlobals.fetch = opts.fetchImpl
+    contextGlobals.AbortController = AbortController
+    contextGlobals.setTimeout = setTimeout
+    contextGlobals.clearTimeout = clearTimeout
+  }
+
+  const context = vm.createContext(contextGlobals)
 
   vm.runInContext(source, context, { filename: "sw.js" })
 
@@ -93,6 +111,32 @@ function loadServiceWorker(existingClients: FakeClient[] = []): SwHarness {
       return Promise.all(waits)
     },
     openWindowCalls,
+  }
+}
+
+interface TraceCall {
+  url: string
+  body: Record<string, unknown>
+}
+
+// Records every POST body `sendSwTrace` sends, decoded from JSON — used to
+// assert the diagnostic trace carries exactly the fields the routing logic
+// already computed, without ever needing a real network/Railway TESTING.
+function makeCapturingFetch(): { fetchImpl: LoadServiceWorkerOptions["fetchImpl"]; calls: TraceCall[] } {
+  const calls: TraceCall[] = []
+  const fetchImpl = async (url: string, init: { body?: string }) => {
+    calls.push({ url, body: init?.body ? (JSON.parse(init.body) as Record<string, unknown>) : {} })
+    return { ok: true }
+  }
+  return { fetchImpl, calls }
+}
+
+// Simulates a trace POST that always fails (covers both a real network
+// failure AND the AbortController timeout path — both manifest identically
+// to `sendSwTrace` as a rejected fetch promise).
+function makeFailingFetch(): LoadServiceWorkerOptions["fetchImpl"] {
+  return async () => {
+    throw new Error("simulated trace network failure")
   }
 }
 
@@ -225,5 +269,136 @@ describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada
       url: "/mozo/panel/mi-negocio?pedidoId=p3",
     })
     expect(sw.openWindowCalls).toEqual(["/mozo/panel/mi-negocio?pedidoId=p3"])
+  })
+})
+
+describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (observa, nunca altera el ruteo)", () => {
+  test("url segura -> mismo target EXACTO que sin instrumentación, con fetch capturando la traza", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    await sw.fireClick({
+      type: "operaciones_pyr_new_order",
+      pedidoId: "pedido-1",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
+    })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
+
+    const decision = calls.find((c) => c.body.event === "notificationclick_decision")
+    expect(decision).toBeDefined()
+    expect(decision!.url).toBe("/api/push/debug-sw-trace")
+    expect(decision!.body.traceVersion).toBe("P2_T44_R1P5B_SW_TRACE_V1")
+    expect(decision!.body.type).toBe("operaciones_pyr_new_order")
+    expect(decision!.body.pedidoId).toBe("pedido-1")
+    expect(decision!.body.rawUrl).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
+    expect(decision!.body.safeInternalUrl).toBe(true)
+    expect(decision!.body.operationsPanelPrefixMatch).toBe(true)
+    expect(decision!.body.containsPyrOrSalon).toBe(true)
+    expect(decision!.body.selectedTargetUrl).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
+    expect(decision!.body.usedFallback).toBe(false)
+    expect(decision!.body.fallbackReason).toBeNull()
+
+    const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
+    expect(routing!.body.routingAction).toBe("OPEN_WINDOW_OK")
+    expect(routing!.body.openWindowTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
+  })
+
+  test("url externa -> mismo fallback EXACTO que sin instrumentación, traza reporta usedFallback=true con el motivo correcto", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: "https://evil.com/steal" })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+
+    const decision = calls.find((c) => c.body.event === "notificationclick_decision")
+    expect(decision!.body.usedFallback).toBe(true)
+    expect(decision!.body.fallbackReason).toBe("NOT_SAFE_INTERNAL_URL")
+    expect(decision!.body.selectedTargetUrl).toBe("/operaciones/ingresar")
+  })
+
+  test("url interna sin el prefijo de Operaciones -> traza reporta MISSING_OPERATIONS_PREFIX", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: "/cliente/pedidos" })
+    const decision = calls.find((c) => c.body.event === "notificationclick_decision")
+    expect(decision!.body.usedFallback).toBe(true)
+    expect(decision!.body.fallbackReason).toBe("MISSING_OPERATIONS_PREFIX")
+  })
+
+  test("client existente en /operaciones/mi-panel/ -> traza de cliente reporta matchesOperationsPanel=true y routingAction=FOCUS_NAVIGATE_EXISTING_CLIENT", async () => {
+    const client: FakeClient = { url: "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos", navigateCalls: [], focusCalls: 0 }
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([client], { fetchImpl })
+    await sw.fireClick({
+      type: "operaciones_pyr_new_review",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2",
+    })
+    expect(sw.openWindowCalls).toEqual([])
+    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
+
+    const clientTrace = calls.find((c) => c.body.event === "notificationclick_client")
+    expect(clientTrace!.body.clientIndex).toBe(0)
+    expect(clientTrace!.body.clientCount).toBe(1)
+    expect(clientTrace!.body.matchesOperationsPanel).toBe(true)
+    expect(clientTrace!.body.canFocus).toBe(true)
+    expect(clientTrace!.body.canNavigate).toBe(true)
+
+    const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
+    expect(routing!.body.routingAction).toBe("FOCUS_NAVIGATE_EXISTING_CLIENT")
+    expect(routing!.body.navigateTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2")
+  })
+
+  test("el fetch de traza fallando NUNCA rompe el ruteo real (mismo target, mismo comportamiento)", async () => {
+    const sw = loadServiceWorker([], { fetchImpl: makeFailingFetch() })
+    await sw.fireClick({
+      type: "operaciones_pyr_new_order",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-9",
+    })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-9"])
+  })
+
+  test("el fetch de traza fallando NUNCA rompe el foco/navigate de un client existente", async () => {
+    const client: FakeClient = { url: "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos", navigateCalls: [], focusCalls: 0 }
+    const sw = loadServiceWorker([client], { fetchImpl: makeFailingFetch() })
+    await sw.fireClick({
+      type: "operaciones_pyr_chat",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-9/mensajes",
+    })
+    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-9/mensajes"])
+    expect(client.focusCalls).toBe(1)
+    expect(sw.openWindowCalls).toEqual([])
+  })
+
+  test("sin fetch global disponible (entorno sin push-debug ingest) -> el ruteo funciona idéntico, sin throw", async () => {
+    const sw = loadServiceWorker([])
+    await expect(
+      sw.fireClick({ type: "operaciones_pyr_new_order", url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1" })
+    ).resolves.toBeDefined()
+    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
+  })
+
+  test("CONTROL — Salón y cancelación no regresan con la traza activa", async () => {
+    const { fetchImpl } = makeCapturingFetch()
+    const sw1 = loadServiceWorker([], { fetchImpl })
+    await sw1.fireClick({ type: "operaciones_salon_new_order", url: "/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1" })
+    expect(sw1.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
+
+    const sw2 = loadServiceWorker([], { fetchImpl })
+    await sw2.fireClick({ type: "operaciones_order_cancelled", url: "/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2" })
+    expect(sw2.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
+  })
+
+  test("CONTROL — Mozo (mesa_order_ready) no regresa ni genera traza de Operaciones", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    await sw.fireClick({ type: "mesa_order_ready", url: "/mozo/panel/mi-negocio?pedidoId=p3" })
+    expect(sw.openWindowCalls).toEqual(["/mozo/panel/mi-negocio?pedidoId=p3"])
+    expect(calls).toEqual([])
+  })
+
+  test("CONTROL — notificaciones personales (Cliente/Negocio/Repartidor) no generan traza de Operaciones", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    await sw.fireClick({ type: "chat", role: "negocio", pedidoId: "pedido-abc" })
+    expect(sw.openWindowCalls).toEqual(["https://example.test/negocio?chat=pedido-abc"])
+    expect(calls).toEqual([])
   })
 })

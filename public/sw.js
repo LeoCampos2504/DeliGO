@@ -506,7 +506,40 @@ self.addEventListener("push", (event) => {
       return;
     }
 
-    event.waitUntil(self.registration.showNotification(title, options));
+    // P2-T44-R1P5B: traza TESTING-only, únicamente para los 3 tipos PyR de
+    // Operaciones que son objeto de la investigación de G3 — nunca para el
+    // resto de Web Push (Cliente/Negocio/Repartidor/Salón/Mozo). Responde,
+    // con evidencia real del propio evento `push`, si la URL ya se perdió
+    // ACÁ (antes de notificationclick siquiera existir) o llegó intacta.
+    let swTraceCompletion = Promise.resolve();
+    if (
+      notifType === "operaciones_pyr_new_order" ||
+      notifType === "operaciones_pyr_new_review" ||
+      notifType === "operaciones_pyr_chat"
+    ) {
+      const payloadUrl = data.data?.url;
+      swTraceCompletion = sendSwTrace({
+        event: "push_received",
+        type: notifType,
+        pedidoId: typeof data.data?.pedidoId === "string" ? data.data.pedidoId : null,
+        payloadUrlPresent: typeof payloadUrl === "string",
+        payloadUrlType: typeof payloadUrl,
+        payloadUrl: typeof payloadUrl === "string" ? payloadUrl : null,
+      }).then(() =>
+        sendSwTrace({
+          event: "show_notification",
+          type: notifType,
+          pedidoId: options.data.pedidoId,
+          notificationDataUrlPresent: typeof options.data.url === "string",
+          notificationDataUrlType: typeof options.data.url,
+          notificationDataUrl: options.data.url,
+        })
+      );
+    }
+
+    event.waitUntil(
+      Promise.allSettled([self.registration.showNotification(title, options), swTraceCompletion])
+    );
   } catch {
     // Fallback for non-JSON push data
     event.waitUntil(
@@ -517,6 +550,56 @@ self.addEventListener("push", (event) => {
     );
   }
 });
+
+// ============================================
+// P2-T44-R1P5B: TESTING-only diagnostic trace for G3 Operations click
+// routing (push_received / show_notification / notificationclick_decision /
+// notificationclick_client / notificationclick_routing_result). See
+// P2_T44_R1P5_G3_SW_CLICK_TRACE_INSTRUMENTATION.md for why the existing
+// push-debug-trace.ts engine can't be reused here (no window/localStorage
+// inside a Service Worker) and
+// P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md for the full design. This
+// block ONLY observes values the routing logic below already computes —
+// it never changes isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/
+// client matching/focus/navigate/openWindow.
+const SW_TRACE_VERSION = "P2_T44_R1P5B_SW_TRACE_V1";
+const SW_TRACE_ENDPOINT = "/api/push/debug-sw-trace";
+const SW_TRACE_TIMEOUT_MS = 1500;
+
+// Best-effort, never-throwing diagnostic POST. Deliberately NOT awaited
+// before any real routing decision — callers fire the real
+// focus()/navigate()/openWindow() call synchronously first, then fold this
+// promise into whatever Promise.allSettled(...) they already pass to
+// event.waitUntil, so a Service Worker that would otherwise be killed
+// mid-request stays alive long enough for the trace POST to actually leave,
+// without ever delaying or depending on the real navigation outcome. Never
+// throws, never retries, always resolves (never rejects) so it can never
+// turn Promise.allSettled into a reason to skip real work.
+function sendSwTrace(fields) {
+  try {
+    if (typeof fetch !== "function") return Promise.resolve();
+    const body = JSON.stringify(Object.assign({ traceVersion: SW_TRACE_VERSION }, fields));
+    let signal;
+    let timeoutId = null;
+    if (typeof AbortController === "function") {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), SW_TRACE_TIMEOUT_MS);
+      signal = controller.signal;
+    }
+    return fetch(SW_TRACE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal,
+    })
+      .catch(() => {})
+      .then(() => {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+      });
+  } catch {
+    return Promise.resolve();
+  }
+}
 
 // Helper: focus the first open client whose pathname starts with one of the
 // given prefixes. Returns true if a client was focused, false otherwise.
@@ -643,15 +726,65 @@ self.addEventListener("notificationclick", (event) => {
       (rawUrl.includes("/salon") || rawUrl.includes("/pyr"));
     const targetUrl = isSafeOperationsUrl ? rawUrl : "/operaciones/ingresar";
 
+    // P2-T44-R1P5B: traza TESTING-only — observa EXACTAMENTE los mismos
+    // valores ya calculados arriba (rawUrl/isSafeOperationsUrl/targetUrl),
+    // nunca los recalcula ni los altera. `usedFallback`/`fallbackReason` no
+    // participan en la decisión real, sólo describen por qué se llegó a ella.
+    const usedFallback = !isSafeOperationsUrl;
+    const fallbackReason = !usedFallback
+      ? null
+      : !isSafeInternalUrl(rawUrl)
+        ? "NOT_SAFE_INTERNAL_URL"
+        : !rawUrl.startsWith("/operaciones/mi-panel/")
+          ? "MISSING_OPERATIONS_PREFIX"
+          : "MISSING_PYR_OR_SALON_SEGMENT";
+    const decisionTrace = sendSwTrace({
+      event: "notificationclick_decision",
+      type: type || null,
+      pedidoId: typeof pedidoId === "string" ? pedidoId : null,
+      rawUrlPresent: typeof rawUrl === "string",
+      rawUrlType: typeof rawUrl,
+      rawUrl: typeof rawUrl === "string" ? rawUrl : null,
+      safeInternalUrl: isSafeInternalUrl(rawUrl),
+      operationsPanelPrefixMatch: typeof rawUrl === "string" && rawUrl.startsWith("/operaciones/mi-panel/"),
+      containsPyrOrSalon: typeof rawUrl === "string" && (rawUrl.includes("/salon") || rawUrl.includes("/pyr")),
+      selectedTargetUrl: targetUrl,
+      usedFallback,
+      fallbackReason,
+    });
+
     event.waitUntil(
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+        // P2-T44-R1P5B: una línea de traza por client considerado, ANTES de
+        // decidir el ruteo — nunca cambia qué client se elige.
+        const clientTraces = clients.map((client, index) => {
+          const canFocusNavigate = "focus" in client && "navigate" in client;
+          const clientPathname = canFocusNavigate ? new URL(client.url).pathname : null;
+          return sendSwTrace({
+            event: "notificationclick_client",
+            type: type || null,
+            clientIndex: index,
+            clientCount: clients.length,
+            clientPathname,
+            matchesOperationsPanel: Boolean(clientPathname && clientPathname.startsWith("/operaciones/mi-panel/")),
+            canFocus: canFocusNavigate,
+            canNavigate: canFocusNavigate,
+          });
+        });
+
         for (const client of clients) {
           if ("focus" in client && "navigate" in client) {
             const clientUrl = new URL(client.url);
             if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
               client.focus();
               client.navigate(targetUrl);
-              return;
+              const routingTrace = sendSwTrace({
+                event: "notificationclick_routing_result",
+                type: type || null,
+                routingAction: "FOCUS_NAVIGATE_EXISTING_CLIENT",
+                navigateTarget: targetUrl,
+              });
+              return Promise.allSettled([decisionTrace, routingTrace, ...clientTraces]);
             }
           }
         }
@@ -659,10 +792,34 @@ self.addEventListener("notificationclick", (event) => {
           if ("focus" in client && "navigate" in client) {
             client.focus();
             client.navigate(targetUrl);
-            return;
+            const routingTrace = sendSwTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "FOCUS_NAVIGATE_OTHER_CLIENT",
+              navigateTarget: targetUrl,
+            });
+            return Promise.allSettled([decisionTrace, routingTrace, ...clientTraces]);
           }
         }
-        return self.clients.openWindow(targetUrl);
+        const openWindowTrace = self.clients.openWindow(targetUrl).then(
+          () =>
+            sendSwTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "OPEN_WINDOW_OK",
+              openWindowTarget: targetUrl,
+            }),
+          (err) =>
+            sendSwTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "OPEN_WINDOW_REJECTED",
+              openWindowTarget: targetUrl,
+              errorName: err && err.name ? String(err.name) : "Unknown",
+              errorMessage: err && err.message ? String(err.message) : null,
+            })
+        );
+        return Promise.allSettled([decisionTrace, openWindowTrace, ...clientTraces]);
       })
     );
     return;
