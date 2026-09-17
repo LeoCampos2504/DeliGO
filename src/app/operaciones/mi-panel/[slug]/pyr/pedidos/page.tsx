@@ -320,6 +320,34 @@ export default function PyRPedidosActivosPage() {
     [cargarDetalle]
   )
 
+  // P2-T44-R1P2 (G3 deep link): mismo patrón exacto ya certificado en
+  // src/app/mozo/panel/[slug]/page.tsx — lee `?pedidoId=` una sola vez al
+  // montar (deep-link desde operaciones_pyr_new_order), limpia el parámetro
+  // de inmediato para no reabrirse en un remonte/refresh, y reutiliza
+  // `abrirDetalle` (el mismo camino que un click manual, con su propia
+  // revalidación server-side — un pedidoId ajeno/fuera de alcance sólo
+  // muestra el estado de error ya existente del drawer, sin fetch lateral
+  // ni leak).
+  const [focusPedidoId, setFocusPedidoId] = useState<string | null>(null)
+  const [focusResolved, setFocusResolved] = useState(false)
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const pid = urlParams.get("pedidoId")
+    if (!pid) return
+    setFocusPedidoId(pid)
+    setFocusResolved(false)
+    urlParams.delete("pedidoId")
+    const newSearch = urlParams.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+  }, [])
+
+  useEffect(() => {
+    if (state.status !== "ready" || !focusPedidoId || focusResolved) return
+    abrirDetalle(focusPedidoId)
+    setFocusResolved(true)
+  }, [state.status, focusPedidoId, focusResolved, abrirDetalle])
+
   const loadPedidos = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true

@@ -143,3 +143,87 @@ describe("P2-T31-R23A — notificationclick target routing (public/sw.js real, c
     expect(sw.openWindowCalls).toEqual(["https://example.test/negocio?chat=pedido-abc"])
   })
 })
+
+describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada, public/sw.js real", () => {
+  test("operaciones_pyr_new_order con url segura -> navega ahí (PWA cerrada, ventana nueva)", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({
+      type: "operaciones_pyr_new_order",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
+    })
+    expect(sw.openWindowCalls).toEqual([
+      "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
+    ])
+  })
+
+  test("operaciones_pyr_new_review con url segura -> navega ahí", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({
+      type: "operaciones_pyr_new_review",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-1",
+    })
+    expect(sw.openWindowCalls).toEqual([
+      "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-1",
+    ])
+  })
+
+  test("operaciones_pyr_chat con url segura -> navega directo a la conversación exacta", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({
+      type: "operaciones_pyr_chat",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-1/mensajes",
+    })
+    expect(sw.openWindowCalls).toEqual([
+      "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-1/mensajes",
+    ])
+  })
+
+  test("url externa (https://evil.com) -> rechazada, cae al fallback fijo /operaciones/ingresar", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: "https://evil.com/steal" })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+  })
+
+  test("url protocol-relative (//evil.com) -> rechazada, mismo fallback", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({ type: "operaciones_pyr_chat", url: "//evil.com" })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+  })
+
+  test("url sin el prefijo /operaciones/mi-panel/ -> rechazada aunque sea interna", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: "/cliente/pedidos" })
+    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+  })
+
+  test("focaliza una ventana /operaciones/mi-panel/ ya abierta en vez de abrir una nueva", async () => {
+    const client: FakeClient = { url: "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos", navigateCalls: [], focusCalls: 0 }
+    const sw = loadServiceWorker([client])
+    await sw.fireClick({
+      type: "operaciones_pyr_new_review",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2",
+    })
+    expect(sw.openWindowCalls).toEqual([])
+    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
+    expect(client.focusCalls).toBe(1)
+  })
+
+  test("CONTROL — operaciones_salon_new_order y operaciones_order_cancelled no regresan tras generalizar la rama", async () => {
+    const sw1 = loadServiceWorker([])
+    await sw1.fireClick({ type: "operaciones_salon_new_order", url: "/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1" })
+    expect(sw1.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
+
+    const sw2 = loadServiceWorker([])
+    await sw2.fireClick({ type: "operaciones_order_cancelled", url: "/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2" })
+    expect(sw2.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
+  })
+
+  test("CONTROL — mesa_order_ready sigue con su rama propia (/mozo/panel/...), no absorbida por la rama de Operaciones", async () => {
+    const sw = loadServiceWorker([])
+    await sw.fireClick({
+      type: "mesa_order_ready",
+      url: "/mozo/panel/mi-negocio?pedidoId=p3",
+    })
+    expect(sw.openWindowCalls).toEqual(["/mozo/panel/mi-negocio?pedidoId=p3"])
+  })
+})

@@ -16,6 +16,7 @@ import {
   notifySalonNewOrderForOperations,
   parseSubscriptionEndpoint,
 } from "@/lib/salon-new-order-notification"
+import { notifyPyrNewOrder } from "@/lib/pyr-new-order-notification"
 import {
   evaluateMesaGeofence,
   logMesaGeofenceObservation,
@@ -1851,7 +1852,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
     // Las notificaciones push solo tienen sentido para un pedido genuinamente
     // nuevo — un replay idempotente no debe volver a notificar al negocio/salón.
     if (result.status === "created") {
-    // Send push notification to the business about the new order
+    // Send push notification to the business about the new order.
+    // P2-T44-R1P2: reservedPushEndpoints es compartido con el fan-out PyR de
+    // más abajo (no-mesa) — mismo endpoint físico nunca recibe 2 Push por el
+    // mismo pedido; Negocio se envía PRIMERO (código existente, sin cambios
+    // de posición) así que gana la precedencia determinista si comparte
+    // dispositivo con una CuentaOperativa PyR (ver R1P1A §18.2).
+    const reservedPushEndpoints = new Set<string>()
     try {
       const negocioWithPush = await db.negocio.findUnique({
         where: { id: negocioId },
@@ -1872,9 +1879,30 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         pushSubscription: negocioWithPush?.pushSubscription ?? null,
         pushPayload: payload,
         cleanupExpired: { model: "negocio", id: negocioId },
+        reservedPushEndpoints,
       })
     } catch (pushError) {
       console.error("[Push] Failed to send new order notification:", safeErrorForLog(pushError))
+    }
+
+    // Envío moderno a PyR: pedidos retiro/domicilio, todas las cuentas
+    // operativas personales con areaOperativa="pyr" del negocio (P2-T44-R1P2,
+    // gap G3 — ver codex-reports/P2_T44_R1P0_COMPLETE_OPERATIONS_NOTIFICATION_MATRIX_AUDIT.md).
+    // Nunca se ejecuta para pedidos de mesa (eso sigue siendo exclusivo de
+    // notifySalonNewOrderForOperations más abajo).
+    if (!isMesaOrder) {
+      try {
+        await notifyPyrNewOrder({
+          pedidoId: pedido.id,
+          negocioId,
+          clienteNombre,
+          total: finalTotal,
+          metodoEntrega: pedidoInput.metodoEntrega as "retiro" | "domicilio",
+          reservedPushEndpoints,
+        })
+      } catch (pyrOrderError) {
+        console.error("[Push] Failed to send PyR new order notification:", safeErrorForLog(pyrOrderError))
+      }
     }
 
     // Envío moderno a Salón: todas las cuentas operativas personales con

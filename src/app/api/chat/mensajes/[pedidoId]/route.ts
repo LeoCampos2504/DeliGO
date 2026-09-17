@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { validateSession } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { createNotification, chatMessageNotification } from "@/lib/push"
+import { notifyPyrChatMessage } from "@/lib/pyr-chat-notification"
 import { validateChatImageUrl, validateChatPdfUrl } from "@/lib/resource-url"
 import { sanitizeDeletedClientChatMessageForRead } from "@/lib/chat-attachment-deletion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -489,7 +490,12 @@ export async function POST(
           : "📷 Imagen"
 
       if (userType === "cliente" && pedido.negocioId) {
-        // Client sent message → notify negocio
+        // Client sent message → notify negocio.
+        // P2-T44-R1P2: reservedPushEndpoints compartido con el fan-out PyR
+        // de abajo — Negocio se envía PRIMERO (sin cambios de posición), gana
+        // la precedencia determinista si comparte dispositivo con una
+        // CuentaOperativa PyR (ver R1P1A §18.2).
+        const reservedPushEndpoints = new Set<string>()
         const negocioData = await db.negocio.findUnique({
           where: { id: pedido.negocioId },
           select: { pushSubscription: true },
@@ -510,7 +516,27 @@ export async function POST(
           pushSubscription: negocioData?.pushSubscription ?? null,
           pushPayload: chatPayload,
           cleanupExpired: { model: "negocio", id: pedido.negocioId },
+          reservedPushEndpoints,
         })
+
+        // Fan-out moderno a PyR (P2-T44-R1P2, gap G5) — SOLO cuando el
+        // remitente real es el Cliente y el pedido no es de mesa (Salón/Mozo
+        // no participan de chat, ver R1P0 §3.4). No cambia el modelo de chat
+        // Cliente↔Negocio: PyR sigue siendo destinatario, nunca un
+        // participante nuevo del hilo.
+        if (pedido.metodoEntrega !== "mesa") {
+          try {
+            await notifyPyrChatMessage({
+              pedidoId,
+              negocioId: pedido.negocioId,
+              senderName,
+              messagePreview,
+              reservedPushEndpoints,
+            })
+          } catch (pyrChatError) {
+            console.error("[Push] Failed to send PyR chat notification:", safeErrorForLog(pyrChatError))
+          }
+        }
       } else if (userType === "negocio" && pedido.clienteId) {
         // Negocio sent message → notify cliente
         const clienteData = await db.cliente.findUnique({

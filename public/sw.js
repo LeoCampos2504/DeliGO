@@ -615,49 +615,27 @@ self.addEventListener("notificationclick", (event) => {
   // Handle action button clicks
   const action = event.action;
 
-  // ── Operaciones — Salón (cuenta personal, Legacy-Cleanup-1C.2B) ──
-  // Tipo moderno, independiente del canal legacy de abajo (salon_new_order /
-  // /s/). Solo navega a una URL relativa, del mismo origen, que empiece con
-  // /operaciones/mi-panel/ y contenga el segmento /salon — cualquier otro
-  // valor (ausente, externo, con otro protocolo) cae al fallback fijo
+  // ── Operaciones — panel personal (cuenta_operativa) ──
+  // Rama compartida por TODOS los tipos modernos de Operaciones cuyo
+  // contrato de navegación es una URL bajo /operaciones/mi-panel/ (P2-T44-
+  // R1P2, generaliza lo que antes eran 2 ramas casi idénticas —
+  // operaciones_salon_new_order y operaciones_order_cancelled — para
+  // cubrir también los 3 productores PyR nuevos sin triplicar la lógica).
+  // `mesa_order_ready` NO entra acá: su URL moderna es /mozo/panel/..., un
+  // contrato distinto — sigue en su rama propia más abajo, sin tocar.
+  // Solo navega a una URL relativa, del mismo origen, que empiece con
+  // /operaciones/mi-panel/ y contenga /salon o /pyr — cualquier otro valor
+  // (ausente, externo, con otro protocolo) cae al fallback fijo
   // /operaciones/ingresar. Rama aislada con `return` propio: nunca continúa
   // hacia la lógica legacy de salon_new_order/mesa_order_ready ni hacia las
   // notificaciones personales de más abajo.
-  if (type === "operaciones_salon_new_order") {
-    const rawUrl = notificationData.url;
-    const isSafeSalonUrl =
-      isSafeInternalUrl(rawUrl) &&
-      rawUrl.startsWith("/operaciones/mi-panel/") &&
-      rawUrl.includes("/salon");
-    const targetUrl = isSafeSalonUrl ? rawUrl : "/operaciones/ingresar";
-
-    event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
-              client.focus();
-              client.navigate(targetUrl);
-              return;
-            }
-          }
-        }
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            client.focus();
-            client.navigate(targetUrl);
-            return;
-          }
-        }
-        return self.clients.openWindow(targetUrl);
-      })
-    );
-    return;
-  }
-
-  // ── Operaciones — cancellation (current personal panels) ──
-  if (type === "operaciones_order_cancelled") {
+  if (
+    type === "operaciones_salon_new_order" ||
+    type === "operaciones_order_cancelled" ||
+    type === "operaciones_pyr_new_order" ||
+    type === "operaciones_pyr_new_review" ||
+    type === "operaciones_pyr_chat"
+  ) {
     const rawUrl = notificationData.url;
     const isSafeOperationsUrl =
       isSafeInternalUrl(rawUrl) &&

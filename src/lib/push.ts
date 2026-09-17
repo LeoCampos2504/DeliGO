@@ -51,6 +51,9 @@ export type NotificationType =
   | "salon_new_order"
   | "operaciones_salon_new_order"
   | "operaciones_order_cancelled"
+  | "operaciones_pyr_new_order"
+  | "operaciones_pyr_new_review"
+  | "operaciones_pyr_chat"
 
 // P2-T31-R15R: inventario completo de `NotificationType` realmente producido
 // por las fábricas de payload de este archivo (ver PUSH_TYPE_URGENCY_MATRIX
@@ -70,6 +73,8 @@ const TIME_SENSITIVE_NOTIFICATION_TYPES: ReadonlySet<NotificationType> = new Set
   "salon_new_order",
   "operaciones_salon_new_order",
   "operaciones_order_cancelled",
+  "operaciones_pyr_new_order",
+  "operaciones_pyr_chat",
 ])
 
 export function isTimeSensitivePushType(type: NotificationType | undefined): boolean {
@@ -1250,6 +1255,91 @@ export function operacionesOrderCancelledNotification(
       url: panelUrl,
     },
     actions: [{ action: "view", title: area === "salon" ? "Ver salón" : "Ver pedidos" }],
+    requireInteraction: true,
+  }
+}
+
+// ============================================
+// Operaciones PyR — Personal push (P2-T44-R1P2)
+// ============================================
+// Contraparte de operacionesSalonNewOrderNotification/notifyMesaOrderReadyForMozo
+// para el área PyR — cubre nuevo pedido retiro/domicilio, nueva reseña y chat
+// de cliente sobre un pedido no-mesa. Reemplazo moderno (account-level,
+// cuenta_operativa) de la capacidad legacy retirada en el commit 13e651a
+// (empleadosNewOrderNotification/empleadosNewReviewNotification, PWA
+// /e/[token], Negocio.pushSubscriptionEmpleados) — ver
+// codex-reports/P2_T44_R1P0_COMPLETE_OPERATIONS_NOTIFICATION_MATRIX_AUDIT.md
+// §4A para la reconciliación histórica completa. Nunca lee/escribe
+// pushSubscriptionEmpleados ni ninguna ruta /e/.
+
+export function pyrNewOrderNotification(
+  pedidoId: string,
+  clienteNombre: string,
+  total: number,
+  metodoEntrega: "retiro" | "domicilio",
+  panelUrl: string
+): PushNotificationPayload {
+  const entregaLabel = metodoEntrega === "domicilio" ? "Delivery" : "Retiro"
+  return {
+    title: `¡Nuevo pedido! 📩 (${entregaLabel})`,
+    body: `${clienteNombre} hizo un pedido de $${total.toFixed(0)}`,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-new-order-${pedidoId}`,
+    data: {
+      type: "operaciones_pyr_new_order",
+      pedidoId,
+      metodoEntrega,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Ver pedido" }],
+    requireInteraction: true,
+  }
+}
+
+export function pyrNewReviewNotification(
+  resenaId: string,
+  puntuacion: number,
+  clienteNombre: string,
+  panelUrl: string,
+  pedidoId?: string | null
+): PushNotificationPayload {
+  const stars = "⭐".repeat(Math.max(1, Math.min(5, puntuacion)))
+  return {
+    title: "Nueva reseña ⭐",
+    body: `${clienteNombre} dejó ${stars}`,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-new-review-${resenaId}`,
+    data: {
+      type: "operaciones_pyr_new_review",
+      resenaId,
+      pedidoId: pedidoId ?? undefined,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Ver reseña" }],
+    requireInteraction: false,
+  }
+}
+
+export function pyrChatMessageNotification(
+  pedidoId: string,
+  senderName: string,
+  messagePreview: string,
+  panelUrl: string
+): PushNotificationPayload {
+  return {
+    title: `Mensaje de ${senderName}`,
+    body: messagePreview,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-chat-${pedidoId}`,
+    data: {
+      type: "operaciones_pyr_chat",
+      pedidoId,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Responder" }],
     requireInteraction: true,
   }
 }

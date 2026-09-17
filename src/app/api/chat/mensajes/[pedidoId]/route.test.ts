@@ -105,6 +105,16 @@ mock.module("@/lib/push", () => ({
   chatMessageNotification: () => ({ title: "t", body: "b" }),
 }))
 
+// P2-T44-R1P2 (gap G5): el fan-out a PyR es una función separada, con su
+// propio wiring test real (pyr-chat-notification.test.ts, contra @/lib/db
+// + web-push reales) — acá sólo importa que la ruta la LLAME cuando
+// corresponde (remitente=cliente, no-mesa) y no rompa nada si no la mockea
+// explícitamente el propio `@/lib/push` (que este archivo ya reemplaza por
+// completo más arriba).
+mock.module("@/lib/pyr-chat-notification", () => ({
+  notifyPyrChatMessage: async () => ({ attemptedEndpoints: [] }),
+}))
+
 mock.module("@/lib/resource-url", () => ({
   validateChatImageUrl: (value: unknown) => ({ ok: true, value: typeof value === "string" ? value : "" }),
   validateChatPdfUrl: (value: unknown) => ({ ok: true, value: typeof value === "string" ? value : "" }),
