@@ -754,9 +754,24 @@ self.addEventListener("notificationclick", (event) => {
     });
 
     event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        // P2-T44-R1P5B: una línea de traza por client considerado, ANTES de
-        // decidir el ruteo — nunca cambia qué client se elige.
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+        // P2-T44-R1P6C (root cause: P2_T44_R1P6B_EXISTING_CLIENT_VS_CLOSED_APP_AUDIT.md):
+        // un client sólo cuenta como "Operations client" reutilizable si su
+        // pathname es EXACTAMENTE el Home bare (`/operaciones/mi-panel`, la
+        // pantalla real de "los tres negocios" — Next.js nunca le agrega
+        // barra final) o cualquier ruta bajo `/operaciones/mi-panel/` — NUNCA
+        // cualquier otro client del origin (/cliente, /negocio, /repartidor,
+        // /mozo). Reemplaza el viejo par de loops donde el segundo aceptaba
+        // CUALQUIER client con focus+navigate sin mirar su pathname en
+        // absoluto — esa fue la causa raíz confirmada físicamente (A/B: con
+        // el Home de Operaciones ya abierto, ese loop sin filtro lo
+        // capturaba y le pasaba el deep link real sin ninguna garantía de
+        // que `navigate()` surtiera efecto).
+        const isOperationsClientPathname = (pathname) =>
+          pathname === "/operaciones/mi-panel" || pathname.startsWith("/operaciones/mi-panel/");
+
+        // Una línea de traza por client considerado, ANTES de decidir el
+        // ruteo — nunca cambia qué client se elige.
         const clientTraces = clients.map((client, index) => {
           const canFocusNavigate = "focus" in client && "navigate" in client;
           const clientPathname = canFocusNavigate ? new URL(client.url).pathname : null;
@@ -766,54 +781,77 @@ self.addEventListener("notificationclick", (event) => {
             clientIndex: index,
             clientCount: clients.length,
             clientPathname,
-            matchesOperationsPanel: Boolean(clientPathname && clientPathname.startsWith("/operaciones/mi-panel/")),
+            matchesOperationsPanel: Boolean(clientPathname && isOperationsClientPathname(clientPathname)),
             canFocus: canFocusNavigate,
             canNavigate: canFocusNavigate,
           });
         });
 
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
-              client.focus();
-              client.navigate(targetUrl);
-              const routingTrace = sendSwTrace({
-                event: "notificationclick_routing_result",
-                type: type || null,
-                routingAction: "FOCUS_NAVIGATE_EXISTING_CLIENT",
-                navigateTarget: targetUrl,
-              });
-              return Promise.allSettled([decisionTrace, routingTrace, ...clientTraces]);
-            }
-          }
-        }
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            client.focus();
-            client.navigate(targetUrl);
+        const matchingClient = clients.find(
+          (client) =>
+            "focus" in client &&
+            "navigate" in client &&
+            isOperationsClientPathname(new URL(client.url).pathname)
+        );
+
+        // P2-T44-R1P6C: mismo patrón técnico ya certificado en la rama de
+        // notificaciones personales más abajo (nunca copiado su rol/ruta,
+        // sólo la forma) — `navigate()` PRIMERO y ESPERADO, `focus()` sobre
+        // el client que `navigate()` efectivamente devolvió (nunca sobre el
+        // client viejo si hay uno nuevo), y un `catch` que jamás deja al
+        // usuario silenciosamente en la pantalla vieja: cae a
+        // `clients.openWindow(targetUrl)`, el único camino que esta
+        // investigación confirmó físicamente que funciona con la app
+        // cerrada.
+        if (matchingClient) {
+          try {
+            const navigatedClient = await matchingClient.navigate(targetUrl);
             const routingTrace = sendSwTrace({
               event: "notificationclick_routing_result",
               type: type || null,
-              routingAction: "FOCUS_NAVIGATE_OTHER_CLIENT",
+              routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
               navigateTarget: targetUrl,
+              navigateResult: navigatedClient ? "RESOLVED_CLIENT" : "RESOLVED_NULL",
             });
-            return Promise.allSettled([decisionTrace, routingTrace, ...clientTraces]);
+            return Promise.allSettled([
+              decisionTrace,
+              routingTrace,
+              ...clientTraces,
+              (navigatedClient || matchingClient).focus(),
+            ]);
+          } catch (err) {
+            const routingTrace = sendSwTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "NAVIGATE_REJECTED_OPEN_WINDOW",
+              navigateTarget: targetUrl,
+              errorName: err && err.name ? String(err.name) : "Unknown",
+              errorMessage: err && err.message ? String(err.message) : null,
+            });
+            return Promise.allSettled([
+              decisionTrace,
+              routingTrace,
+              ...clientTraces,
+              self.clients.openWindow(targetUrl),
+            ]);
           }
         }
+
+        // Sin ningún Operations client abierto (incluye "app cerrada" — el
+        // camino ya probado físicamente, sin cambios conceptuales).
         const openWindowTrace = self.clients.openWindow(targetUrl).then(
           () =>
             sendSwTrace({
               event: "notificationclick_routing_result",
               type: type || null,
-              routingAction: "OPEN_WINDOW_OK",
+              routingAction: "NO_MATCH_OPEN_WINDOW",
               openWindowTarget: targetUrl,
             }),
           (err) =>
             sendSwTrace({
               event: "notificationclick_routing_result",
               type: type || null,
-              routingAction: "OPEN_WINDOW_REJECTED",
+              routingAction: "NO_MATCH_OPEN_WINDOW_REJECTED",
               openWindowTarget: targetUrl,
               errorName: err && err.name ? String(err.name) : "Unknown",
               errorMessage: err && err.message ? String(err.message) : null,

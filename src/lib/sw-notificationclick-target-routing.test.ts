@@ -19,6 +19,13 @@ interface FakeClient {
   url: string
   navigateCalls: string[]
   focusCalls: number
+  // P2-T44-R1P6C: lets a test model the three real outcomes of
+  // `WindowClient.navigate()` — a fresh resolved client (the common case),
+  // `null`/`undefined` (allowed by the API, see §15 of the task), or a
+  // rejection (the exact case the old code never handled). Defaults to the
+  // pre-R1P6C behavior (resolves to a brand-new client object).
+  navigateBehavior?: "resolve" | "resolve-null" | "reject"
+  navigateError?: { name: string; message: string }
 }
 
 interface SwHarness {
@@ -34,25 +41,44 @@ interface SwHarness {
 // prove a failing/hanging fetch never blocks real routing.
 interface LoadServiceWorkerOptions {
   fetchImpl?: (url: string, init: { body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean }>
+  // P2-T44-R1P6C: shared, ordered log of every focus()/navigate() call
+  // across every fake client, so a test can assert CALL ORDER (navigate
+  // before focus), not just "both were called eventually" — see §16 of the
+  // task, the exact gap that let the pre-fix code pass every test while
+  // failing physically (focus() before an un-awaited navigate()).
+  callSequence?: string[]
 }
 
 function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadServiceWorkerOptions = {}): SwHarness {
   const source = readFileSync(resolve(import.meta.dir, "..", "..", "public", "sw.js"), "utf8")
   const listeners = new Map<string, (event: unknown) => void>()
   const openWindowCalls: string[] = []
+  const sequence = opts.callSequence
 
   const fakeClients = existingClients.map((c) => ({
     url: c.url,
     focus: () => {
       c.focusCalls += 1
+      sequence?.push(`focus:${c.url}`)
       return Promise.resolve()
     },
     navigate: (url: string) => {
       c.navigateCalls.push(url)
+      sequence?.push(`navigate:${url}`)
+      const behavior = c.navigateBehavior ?? "resolve"
+      if (behavior === "reject") {
+        const error = new Error(c.navigateError?.message ?? "simulated navigate failure")
+        if (c.navigateError?.name) error.name = c.navigateError.name
+        return Promise.reject(error)
+      }
+      if (behavior === "resolve-null") {
+        return Promise.resolve(null)
+      }
       return Promise.resolve({
         url,
         focus: () => {
           c.focusCalls += 1
+          sequence?.push(`focus:${url}`)
           return Promise.resolve()
         },
       })
@@ -298,7 +324,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     expect(decision!.body.fallbackReason).toBeNull()
 
     const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
-    expect(routing!.body.routingAction).toBe("OPEN_WINDOW_OK")
+    expect(routing!.body.routingAction).toBe("NO_MATCH_OPEN_WINDOW")
     expect(routing!.body.openWindowTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
   })
 
@@ -323,7 +349,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     expect(decision!.body.fallbackReason).toBe("MISSING_OPERATIONS_PREFIX")
   })
 
-  test("client existente en /operaciones/mi-panel/ -> traza de cliente reporta matchesOperationsPanel=true y routingAction=FOCUS_NAVIGATE_EXISTING_CLIENT", async () => {
+  test("client existente en /operaciones/mi-panel/ -> traza de cliente reporta matchesOperationsPanel=true y routingAction=NAVIGATE_FOCUS_OPERATIONS_CLIENT", async () => {
     const client: FakeClient = { url: "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos", navigateCalls: [], focusCalls: 0 }
     const { fetchImpl, calls } = makeCapturingFetch()
     const sw = loadServiceWorker([client], { fetchImpl })
@@ -342,8 +368,9 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     expect(clientTrace!.body.canNavigate).toBe(true)
 
     const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
-    expect(routing!.body.routingAction).toBe("FOCUS_NAVIGATE_EXISTING_CLIENT")
+    expect(routing!.body.routingAction).toBe("NAVIGATE_FOCUS_OPERATIONS_CLIENT")
     expect(routing!.body.navigateTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2")
+    expect(routing!.body.navigateResult).toBe("RESOLVED_CLIENT")
   })
 
   test("el fetch de traza fallando NUNCA rompe el ruteo real (mismo target, mismo comportamiento)", async () => {
@@ -400,5 +427,122 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     await sw.fireClick({ type: "chat", role: "negocio", pedidoId: "pedido-abc" })
     expect(sw.openWindowCalls).toEqual(["https://example.test/negocio?chat=pedido-abc"])
     expect(calls).toEqual([])
+  })
+})
+
+// P2-T44-R1P6C: fix del bug de ruteo confirmado físicamente en
+// P2_T44_R1P6B_EXISTING_CLIENT_VS_CLOSED_APP_AUDIT.md — con la PWA de
+// Operaciones ya abierta en el Home bare (`/operaciones/mi-panel`, sin
+// slash final), el viejo segundo loop sin filtro la capturaba y le
+// pasaba `client.navigate(targetUrl)` sin `await`/verificación/`catch`,
+// dejando al usuario silenciosamente en Home. Este bloque reproduce
+// EXACTAMENTE esa condición física (antes imposible de expresar con el
+// harness — el único test de "client existente" previo usaba un pathname
+// YA con slug completo, que matcheaba el loop estricto viejo).
+describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested, foreign, navigate reject/null, orden)", () => {
+  test("HOME BARE real (/operaciones/mi-panel, sin slash final) -> se considera Operations client válido, navigate(targetUrl) se llama UNA vez, sin openWindow", async () => {
+    const home: FakeClient = { url: "https://example.test/operaciones/mi-panel", navigateCalls: [], focusCalls: 0 }
+    const sequence: string[] = []
+    const sw = loadServiceWorker([home], { callSequence: sequence })
+    const targetUrl = "/operaciones/mi-panel/test_t44_r1d_negocio_b_4135ea7a/pyr/pedidos?pedidoId=test-order"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+
+    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.focusCalls).toBe(1)
+    expect(sw.openWindowCalls).toEqual([])
+    // navigate ANTES que focus — nunca al revés.
+    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+  })
+
+  test("NESTED operations client (otro negocio/pantalla) -> navega al target exacto, focus después, sin openWindow", async () => {
+    const other: FakeClient = { url: "https://example.test/operaciones/mi-panel/otro-negocio/pyr/pedidos", navigateCalls: [], focusCalls: 0 }
+    const sequence: string[] = []
+    const sw = loadServiceWorker([other], { callSequence: sequence })
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-x"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+
+    expect(other.navigateCalls).toEqual([targetUrl])
+    expect(sw.openWindowCalls).toEqual([])
+    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+  })
+
+  test("CLIENT AJENO (Cliente/Negocio/Repartidor/Mozo abiertos, ninguno de Operaciones) -> ninguno se reutiliza, openWindow exactamente una vez", async () => {
+    const clienteClient: FakeClient = { url: "https://example.test/cliente/", navigateCalls: [], focusCalls: 0 }
+    const negocioClient: FakeClient = { url: "https://example.test/negocio", navigateCalls: [], focusCalls: 0 }
+    const repartidorClient: FakeClient = { url: "https://example.test/repartidor", navigateCalls: [], focusCalls: 0 }
+    const mozoClient: FakeClient = { url: "https://example.test/mozo/panel/mi-negocio", navigateCalls: [], focusCalls: 0 }
+    const sw = loadServiceWorker([clienteClient, negocioClient, repartidorClient, mozoClient])
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+
+    expect(clienteClient.navigateCalls).toEqual([])
+    expect(negocioClient.navigateCalls).toEqual([])
+    expect(repartidorClient.navigateCalls).toEqual([])
+    expect(mozoClient.navigateCalls).toEqual([])
+    expect(clienteClient.focusCalls).toBe(0)
+    expect(negocioClient.focusCalls).toBe(0)
+    expect(repartidorClient.focusCalls).toBe(0)
+    expect(mozoClient.focusCalls).toBe(0)
+    expect(sw.openWindowCalls).toEqual([targetUrl])
+  })
+
+  test("navigate() RECHAZA sobre el Home existente -> cae a openWindow(targetUrl), sin excepción no manejada", async () => {
+    const home: FakeClient = {
+      url: "https://example.test/operaciones/mi-panel",
+      navigateCalls: [],
+      focusCalls: 0,
+      navigateBehavior: "reject",
+      navigateError: { name: "InvalidStateError", message: "simulated" },
+    }
+    const sw = loadServiceWorker([home])
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-2"
+    // No debe haber ninguna excepción/rechazo no manejado saliendo de fireClick.
+    await expect(sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })).resolves.toBeDefined()
+
+    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(sw.openWindowCalls).toEqual([targetUrl])
+  })
+
+  test("navigate() resuelve null/undefined -> focus() se llama sobre el client ORIGINAL, sin abrir una ventana extra", async () => {
+    const home: FakeClient = {
+      url: "https://example.test/operaciones/mi-panel",
+      navigateCalls: [],
+      focusCalls: 0,
+      navigateBehavior: "resolve-null",
+    }
+    const sw = loadServiceWorker([home])
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-3"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+
+    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.focusCalls).toBe(1)
+    expect(sw.openWindowCalls).toEqual([])
+  })
+
+  test("REGRESIÓN — app cerrada (sin ningún client) sigue usando openWindow(targetUrl), sin cambios", async () => {
+    const sw = loadServiceWorker([])
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-4"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+    expect(sw.openWindowCalls).toEqual([targetUrl])
+  })
+
+  test("REGRESIÓN — los 5 tipos del branch compartido usan el nuevo patrón robusto contra el mismo Home bare", async () => {
+    const types = [
+      "operaciones_salon_new_order",
+      "operaciones_order_cancelled",
+      "operaciones_pyr_new_order",
+      "operaciones_pyr_new_review",
+      "operaciones_pyr_chat",
+    ]
+    for (const type of types) {
+      const home: FakeClient = { url: "https://example.test/operaciones/mi-panel", navigateCalls: [], focusCalls: 0 }
+      const sequence: string[] = []
+      const sw = loadServiceWorker([home], { callSequence: sequence })
+      const targetUrl = `/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-${type}`
+      await sw.fireClick({ type, url: targetUrl })
+      expect(home.navigateCalls).toEqual([targetUrl])
+      expect(sw.openWindowCalls).toEqual([])
+      expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+    }
   })
 })
