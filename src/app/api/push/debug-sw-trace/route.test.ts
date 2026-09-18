@@ -197,4 +197,38 @@ describe("POST /api/push/debug-sw-trace", () => {
     const source = fs.readFileSync(path.join(__dirname, "route.ts"), "utf8")
     expect(source).not.toMatch(/export\s+async\s+function\s+GET/)
   })
+
+  // P2-T44-R1P6E (durable click trace): traceRecordId/routingVersion/
+  // attemptCount son los únicos campos nuevos que el flush durable agrega —
+  // deben aceptarse y loguearse igual que cualquier otro campo del allowlist.
+  test("traceRecordId/routingVersion/attemptCount se aceptan y se loguean", async () => {
+    setTesting()
+    const infoSpy = mock(() => {})
+    console.info = infoSpy
+    const res = await postTrace({
+      event: "notificationclick_routing_result",
+      traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
+      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      traceRecordId: "abc123-record-id",
+      attemptCount: 2,
+      routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
+    })
+    expect(res.status).toBe(204)
+    const [, payloadJson] = infoSpy.mock.calls[0] as unknown as [string, string]
+    const payload = JSON.parse(payloadJson)
+    expect(payload.traceRecordId).toBe("abc123-record-id")
+    expect(payload.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+    expect(payload.attemptCount).toBe(2)
+  })
+
+  test("attemptCount fuera de rango (negativo o >1000) se descarta, nunca se loguea", async () => {
+    setTesting()
+    const infoSpy = mock(() => {})
+    console.info = infoSpy
+    const res = await postTrace({ event: "endpoint_self_test", attemptCount: -1 })
+    expect(res.status).toBe(204)
+    const [, payloadJson] = infoSpy.mock.calls[0] as unknown as [string, string]
+    const payload = JSON.parse(payloadJson)
+    expect(payload.attemptCount).toBeUndefined()
+  })
 })

@@ -30,7 +30,142 @@ interface FakeClient {
 
 interface SwHarness {
   fireClick: (data: Record<string, unknown>, action?: string) => Promise<unknown>
+  fireActivate: () => Promise<unknown>
   openWindowCalls: string[]
+  // P2-T44-R1P6E: the vm context itself — every top-level `function` in
+  // sw.js becomes a property of it. Used ONLY by the durable-trace edge-case
+  // tests (TTL/max-records) to call `persistPendingTrace`/
+  // `flushPendingSwTraces` directly, deterministically, without needing to
+  // fabricate a full notificationclick event for every scenario.
+  context: Record<string, (...args: unknown[]) => unknown>
+}
+
+// P2-T44-R1P6E: a minimal, faithful-enough fake IndexedDB — just enough of
+// the real API surface that `public/sw.js`'s durable-trace helpers
+// (openSwDebugDb/getAllPendingTraces/putPendingTrace/deletePendingTrace)
+// exercise their REAL code against it, with no changes to that code for
+// testability. Bun/Node have no built-in IndexedDB, and adding a new
+// dependency for this is out of scope — so this lives entirely in the test
+// file, never imported by product code.
+interface FakeIDBRequest {
+  result: unknown
+  onsuccess: (() => void) | null
+  onerror: (() => void) | null
+}
+
+function makeIdbRequest(result: unknown): FakeIDBRequest {
+  const req: FakeIDBRequest = { result, onsuccess: null, onerror: null }
+  queueMicrotask(() => req.onsuccess?.())
+  return req
+}
+
+class FakeIDBObjectStore {
+  data = new Map<string, Record<string, unknown>>()
+  constructor(private keyPath: string) {}
+  put(record: Record<string, unknown>): FakeIDBRequest {
+    this.data.set(String(record[this.keyPath]), record)
+    return makeIdbRequest(undefined)
+  }
+  get(id: string): FakeIDBRequest {
+    return makeIdbRequest(this.data.get(id))
+  }
+  getAll(): FakeIDBRequest {
+    return makeIdbRequest(Array.from(this.data.values()))
+  }
+  delete(id: string): FakeIDBRequest {
+    this.data.delete(id)
+    return makeIdbRequest(undefined)
+  }
+}
+
+class FakeIDBTransaction {
+  oncomplete: (() => void) | null = null
+  onerror: (() => void) | null = null
+  constructor(private store: FakeIDBObjectStore) {
+    queueMicrotask(() => this.oncomplete?.())
+  }
+  objectStore(_name: string): FakeIDBObjectStore {
+    return this.store
+  }
+}
+
+class FakeIDBDatabase {
+  private names = new Set<string>()
+  stores = new Map<string, FakeIDBObjectStore>()
+  objectStoreNames = { contains: (name: string) => this.names.has(name) }
+  createObjectStore(name: string, options: { keyPath: string }): FakeIDBObjectStore {
+    const store = new FakeIDBObjectStore(options.keyPath)
+    this.stores.set(name, store)
+    this.names.add(name)
+    return store
+  }
+  transaction(name: string, _mode: string): FakeIDBTransaction {
+    const store = this.stores.get(name)
+    if (!store) throw new Error(`FakeIndexedDB: no such object store "${name}"`)
+    return new FakeIDBTransaction(store)
+  }
+}
+
+interface FakeIndexedDB {
+  databases: Map<string, FakeIDBDatabase>
+  open: (name: string, version: number) => FakeIDBRequest & { onupgradeneeded: (() => void) | null }
+}
+
+// `failOpen: true` simulates IndexedDB being unusable (quota exceeded,
+// disabled in a private tab, etc.) — every SW helper must degrade to a no-op
+// rather than throw.
+function makeFakeIndexedDB(opts: { failOpen?: boolean } = {}): FakeIndexedDB {
+  const databases = new Map<string, FakeIDBDatabase>()
+  return {
+    databases,
+    open(name: string) {
+      const isNew = !databases.has(name)
+      const db = databases.get(name) ?? new FakeIDBDatabase()
+      if (isNew) databases.set(name, db)
+      const req: FakeIDBRequest & { onupgradeneeded: (() => void) | null } = {
+        result: db,
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+      }
+      queueMicrotask(() => {
+        if (opts.failOpen) {
+          req.onerror?.()
+          return
+        }
+        if (isNew) req.onupgradeneeded?.()
+        req.onsuccess?.()
+      })
+      return req
+    },
+  }
+}
+
+// Reads the durable trace store directly — bypassing the network entirely —
+// so a test can assert persistence/eviction/attemptCount without depending
+// on any fetch mock.
+function readPendingTraceRecords(idb: FakeIndexedDB): Array<Record<string, unknown>> {
+  const db = idb.databases.get("deligo-sw-debug")
+  const store = db?.stores.get("pending-traces")
+  return store ? Array.from(store.data.values()) : []
+}
+
+// Inserts a record directly into the fake store, bypassing
+// `persistPendingTrace` entirely — used to set up TTL/eviction scenarios
+// deterministically (a record already "aged" past its TTL, or a batch of
+// pre-existing records with known `createdAt` ordering) without depending
+// on real wall-clock time or on the SW's own id generator.
+function seedPendingTraceRecord(idb: FakeIndexedDB, record: Record<string, unknown>): void {
+  let db = idb.databases.get("deligo-sw-debug")
+  if (!db) {
+    db = new FakeIDBDatabase()
+    idb.databases.set("deligo-sw-debug", db)
+  }
+  let store = db.stores.get("pending-traces")
+  if (!store) {
+    store = db.createObjectStore("pending-traces", { keyPath: "id" })
+  }
+  store.data.set(String(record.id), record)
 }
 
 // P2-T44-R1P5B: `fetchImpl` is OPTIONAL and, by default, still omitted from
@@ -47,6 +182,11 @@ interface LoadServiceWorkerOptions {
   // task, the exact gap that let the pre-fix code pass every test while
   // failing physically (focus() before an un-awaited navigate()).
   callSequence?: string[]
+  // P2-T44-R1P6E: OPTIONAL, like `fetchImpl` — omitted, every existing test
+  // below keeps exercising the exact "no IndexedDB available" path (durable
+  // persistence no-ops, falls back to the old immediate-only send). Only
+  // the new durable-trace tests pass one.
+  indexedDBImpl?: FakeIndexedDB
 }
 
 function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadServiceWorkerOptions = {}): SwHarness {
@@ -111,6 +251,10 @@ function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadService
     console: { info: () => {}, error: () => {}, warn: () => {}, log: () => {} },
     caches: {
       open: async () => ({ keys: async () => [], addAll: async () => {}, delete: async () => {}, match: async () => undefined, put: async () => {} }),
+      // Only exercised by `fireActivate()` below — the real activate handler
+      // calls these directly (not through `.open()`).
+      keys: async () => [],
+      delete: async () => true,
     },
   }
   if (opts.fetchImpl) {
@@ -118,6 +262,9 @@ function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadService
     contextGlobals.AbortController = AbortController
     contextGlobals.setTimeout = setTimeout
     contextGlobals.clearTimeout = clearTimeout
+  }
+  if (opts.indexedDBImpl) {
+    contextGlobals.indexedDB = opts.indexedDBImpl
   }
 
   const context = vm.createContext(contextGlobals)
@@ -136,7 +283,15 @@ function loadServiceWorker(existingClients: FakeClient[] = [], opts: LoadService
       })
       return Promise.all(waits)
     },
+    fireActivate: () => {
+      const handler = listeners.get("activate")
+      if (!handler) throw new Error("activate listener was not registered")
+      const waits: Array<Promise<unknown>> = []
+      handler({ waitUntil: (p: Promise<unknown>) => waits.push(p) })
+      return Promise.all(waits)
+    },
     openWindowCalls,
+    context: context as unknown as Record<string, (...args: unknown[]) => unknown>,
   }
 }
 
@@ -312,7 +467,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     const decision = calls.find((c) => c.body.event === "notificationclick_decision")
     expect(decision).toBeDefined()
     expect(decision!.url).toBe("/api/push/debug-sw-trace")
-    expect(decision!.body.traceVersion).toBe("P2_T44_R1P5B_SW_TRACE_V1")
+    expect(decision!.body.traceVersion).toBe("P2_T44_R1P6E_SW_TRACE_V2")
     expect(decision!.body.type).toBe("operaciones_pyr_new_order")
     expect(decision!.body.pedidoId).toBe("pedido-1")
     expect(decision!.body.rawUrl).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
@@ -544,5 +699,181 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
       expect(sw.openWindowCalls).toEqual([])
       expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
     }
+  })
+})
+
+// P2-T44-R1P6E: R1P6A and R1P6D both showed push_received/show_notification
+// arriving reliably while notificationclick_decision/_client/_routing_result
+// silently vanished, twice, even after R1P6C's routing fix was live and
+// tested. This durable trace exists to close exactly that gap — these tests
+// prove it persists BEFORE any network attempt, recovers on a later flush,
+// keeps growing bounded (TTL + max records), and — critically — never
+// changes routing behavior even when both IndexedDB and the network fail
+// simultaneously.
+describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", () => {
+  test("push_received/show_notification/notificationclick_* usan la nueva traceVersion/routingVersion", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl })
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-version"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) {
+      expect(call.body.traceVersion).toBe("P2_T44_R1P6E_SW_TRACE_V2")
+      expect(call.body.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+    }
+    const events = calls.map((c) => c.body.event)
+    expect(events).toContain("notificationclick_decision")
+    expect(events).toContain("notificationclick_routing_result")
+  })
+
+  test("DURABLE_PERSIST_NETWORK_FAIL — notificationclick persiste en IndexedDB aunque el fetch de traza rechace, y el ruteo real no se ve afectado", async () => {
+    const idb = makeFakeIndexedDB()
+    const home: FakeClient = { url: "https://example.test/operaciones/mi-panel", navigateCalls: [], focusCalls: 0 }
+    const sw = loadServiceWorker([home], { fetchImpl: makeFailingFetch(), indexedDBImpl: idb })
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-durable-1"
+    await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
+
+    // Ruteo real: idéntico a como se comporta sin ninguna traza durable.
+    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.focusCalls).toBe(1)
+    expect(sw.openWindowCalls).toEqual([])
+
+    // Pero además, la evidencia sobrevivió LOCALMENTE pese a que el POST
+    // rechazó todas las veces.
+    const records = readPendingTraceRecords(idb)
+    const events = records.map((r) => (r.fields as Record<string, unknown>).event)
+    expect(events).toContain("notificationclick_decision")
+    expect(events).toContain("notificationclick_routing_result")
+    for (const r of records) {
+      expect(r.attemptCount).toBe(1)
+      expect(r.traceVersion).toBe("P2_T44_R1P6E_SW_TRACE_V2")
+      expect(r.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+    }
+  })
+
+  test("DURABLE_FLUSH_SUCCESS — un registro pendiente de un click anterior se envía y se borra en el próximo flush exitoso", async () => {
+    const idb = makeFakeIndexedDB()
+    // "Click anterior": la red falla, el registro queda pendiente.
+    const home1: FakeClient = { url: "https://example.test/operaciones/mi-panel", navigateCalls: [], focusCalls: 0 }
+    const sw1 = loadServiceWorker([home1], { fetchImpl: makeFailingFetch(), indexedDBImpl: idb })
+    await sw1.fireClick({
+      type: "operaciones_pyr_new_order",
+      url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-durable-2",
+    })
+    expect(readPendingTraceRecords(idb).length).toBeGreaterThan(0)
+
+    // "El SW despierta de nuevo" — misma IndexedDB, ahora con red disponible.
+    const { fetchImpl: okFetch, calls } = makeCapturingFetch()
+    const sw2 = loadServiceWorker([], { fetchImpl: okFetch, indexedDBImpl: idb })
+    await sw2.context.flushPendingSwTraces()
+
+    expect(readPendingTraceRecords(idb)).toEqual([])
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.every((c) => typeof c.body.traceRecordId === "string")).toBe(true)
+  })
+
+  test("DURABLE_FLUSH_FAIL — si el flush vuelve a fallar, el registro NO se borra y attemptCount se incrementa", async () => {
+    const idb = makeFakeIndexedDB()
+    seedPendingTraceRecord(idb, {
+      id: "seed-flush-fail",
+      traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
+      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      attemptCount: 1,
+      fields: { event: "notificationclick_decision", type: "operaciones_pyr_new_order" },
+    })
+
+    const sw = loadServiceWorker([], { fetchImpl: makeFailingFetch(), indexedDBImpl: idb })
+    await sw.context.flushPendingSwTraces()
+
+    const records = readPendingTraceRecords(idb)
+    expect(records.length).toBe(1)
+    expect(records[0]!.id).toBe("seed-flush-fail")
+    expect(records[0]!.attemptCount).toBe(2)
+  })
+
+  test("TTL — un registro vencido se descarta sin intentar enviarlo", async () => {
+    const idb = makeFakeIndexedDB()
+    seedPendingTraceRecord(idb, {
+      id: "seed-expired",
+      traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
+      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      createdAt: Date.now() - 25 * 60 * 60 * 1000,
+      expiresAt: Date.now() - 1000, // ya vencido
+      attemptCount: 0,
+      fields: { event: "notificationclick_decision", type: "operaciones_pyr_new_order" },
+    })
+
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl, indexedDBImpl: idb })
+    await sw.context.flushPendingSwTraces()
+
+    expect(readPendingTraceRecords(idb)).toEqual([])
+    // Nunca se intentó enviarlo por red — se descartó directo por TTL.
+    expect(calls.some((c) => c.body.traceRecordId === "seed-expired")).toBe(false)
+  })
+
+  test("MAX RECORDS — al superar el tope se elimina primero el más viejo, nunca el recién creado", async () => {
+    const idb = makeFakeIndexedDB()
+    const MAX_RECORDS = 50
+    for (let i = 0; i < MAX_RECORDS; i++) {
+      seedPendingTraceRecord(idb, {
+        id: `seed-${i}`,
+        traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
+        routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+        createdAt: i, // seed-0 es el más viejo, seed-49 el más nuevo
+        expiresAt: Date.now() + 60_000,
+        attemptCount: 0,
+        fields: { event: "notificationclick_decision", type: "operaciones_pyr_new_order" },
+      })
+    }
+    expect(readPendingTraceRecords(idb).length).toBe(MAX_RECORDS)
+
+    const sw = loadServiceWorker([], { indexedDBImpl: idb })
+    await sw.context.persistPendingTrace({ event: "notificationclick_decision", type: "operaciones_pyr_new_order" })
+
+    const records = readPendingTraceRecords(idb)
+    const ids = records.map((r) => r.id)
+    expect(records.length).toBe(MAX_RECORDS) // acotado, nunca crece sin límite
+    expect(ids).not.toContain("seed-0") // el más viejo, eliminado
+    expect(ids).toContain("seed-49") // el más nuevo de los sembrados, conservado
+    expect(ids.filter((id) => !String(id).startsWith("seed-")).length).toBe(1) // el recién creado, conservado
+  })
+
+  test("TRACE_FAILURE_ROUTING_REGRESSION — IndexedDB Y la red fallan a la vez, el ruteo real sigue idéntico", async () => {
+    const home: FakeClient = { url: "https://example.test/operaciones/mi-panel", navigateCalls: [], focusCalls: 0 }
+    const sequence: string[] = []
+    const brokenIdb = makeFakeIndexedDB({ failOpen: true })
+    const sw = loadServiceWorker([home], {
+      fetchImpl: makeFailingFetch(),
+      indexedDBImpl: brokenIdb,
+      callSequence: sequence,
+    })
+    const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-durable-3"
+    await expect(sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })).resolves.toBeDefined()
+
+    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.focusCalls).toBe(1)
+    expect(sw.openWindowCalls).toEqual([])
+    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+  })
+
+  test("activate también reintenta trazas pendientes (uno de los 3 puntos de despertar mínimos)", async () => {
+    const idb = makeFakeIndexedDB()
+    seedPendingTraceRecord(idb, {
+      id: "seed-on-activate",
+      traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
+      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      attemptCount: 0,
+      fields: { event: "notificationclick_routing_result", type: "operaciones_pyr_new_order" },
+    })
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker([], { fetchImpl, indexedDBImpl: idb })
+    await sw.fireActivate()
+    expect(readPendingTraceRecords(idb)).toEqual([])
+    expect(calls.some((c) => c.body.traceRecordId === "seed-on-activate")).toBe(true)
   })
 })

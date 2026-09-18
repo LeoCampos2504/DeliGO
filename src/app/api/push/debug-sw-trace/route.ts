@@ -90,6 +90,19 @@ type SanitizedTraceEvent = Record<string, SanitizedValue>
 // Every field this endpoint will EVER log, mapped to its own sanitizer.
 const FIELD_SANITIZERS: Record<string, (value: unknown) => SanitizedValue | null> = {
   traceVersion: sanitizeShortString(64),
+  // P2-T44-R1P6E (durable click trace): routingVersion identifies which
+  // notificationclick routing implementation ran (independent from
+  // traceVersion, which identifies which trace ENGINE ran) — lets a future
+  // probe confirm both dimensions from the same log line.
+  routingVersion: sanitizeShortString(64),
+  // P2-T44-R1P6E: stable id of the IndexedDB record this event came from —
+  // never secret, just an opaque id — so a duplicate delivery (server
+  // confirmed receipt but the local delete lost the race) is recognizable
+  // as the same event, not two different clicks.
+  traceRecordId: sanitizeShortString(64),
+  // P2-T44-R1P6E: how many times the Service Worker already tried to flush
+  // this exact durable record before this attempt.
+  attemptCount: sanitizeSmallInt,
   event: (v) => (typeof v === "string" && KNOWN_EVENTS.has(v) ? v : null),
   type: sanitizeShortString(64),
   pedidoId: sanitizeShortString(64),

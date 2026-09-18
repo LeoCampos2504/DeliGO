@@ -64,6 +64,11 @@ self.addEventListener("activate", (event) => {
       )
       .then(() => self.clients.claim())
   );
+  // P2-T44-R1P6E: cada activación (deploy nuevo, o el navegador simplemente
+  // reactivando este mismo SW) es una oportunidad segura de reintentar
+  // cualquier traza de click que quedó pendiente de una sesión anterior —
+  // independiente del waitUntil de arriba, nunca lo bloquea ni depende de él.
+  event.waitUntil(flushPendingSwTraces());
 });
 
 // Helper: trim cache to MAX_CACHE_ENTRIES (LRU-ish by deletion order)
@@ -540,6 +545,12 @@ self.addEventListener("push", (event) => {
     event.waitUntil(
       Promise.allSettled([self.registration.showNotification(title, options), swTraceCompletion])
     );
+    // P2-T44-R1P6E: cada `push` (de cualquier tipo/actor, no sólo PyR) es
+    // otra oportunidad segura de reintentar una traza de click que haya
+    // quedado pendiente de un tap anterior — independiente del waitUntil de
+    // arriba. Resuelve casi instantáneo cuando no hay nada pendiente (el
+    // caso normal para el resto de la app).
+    event.waitUntil(flushPendingSwTraces());
   } catch {
     // Fallback for non-JSON push data
     event.waitUntil(
@@ -552,33 +563,44 @@ self.addEventListener("push", (event) => {
 });
 
 // ============================================
-// P2-T44-R1P5B: TESTING-only diagnostic trace for G3 Operations click
+// P2-T44-R1P5B/R1P6E: TESTING-only diagnostic trace for G3 Operations click
 // routing (push_received / show_notification / notificationclick_decision /
 // notificationclick_client / notificationclick_routing_result). See
 // P2_T44_R1P5_G3_SW_CLICK_TRACE_INSTRUMENTATION.md for why the existing
 // push-debug-trace.ts engine can't be reused here (no window/localStorage
-// inside a Service Worker) and
-// P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md for the full design. This
-// block ONLY observes values the routing logic below already computes —
-// it never changes isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/
-// client matching/focus/navigate/openWindow.
-const SW_TRACE_VERSION = "P2_T44_R1P5B_SW_TRACE_V1";
+// inside a Service Worker), P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md for
+// the original network-only design, and P2_T44_R1P6E_DURABLE_SW_CLICK_TRACE.md
+// for why that wasn't enough: R1P6A and R1P6D both showed push_received/
+// show_notification arriving reliably while EVERY notificationclick trace
+// silently vanished — the SW answering a click after a period of inactivity
+// can have degraded/delayed network access at exactly that moment, and a
+// single fire-and-forget POST with a short timeout has no way to recover
+// from that. This block ONLY observes values the routing logic below
+// already computes — it never changes
+// isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/client
+// matching/focus/navigate/openWindow.
+const SW_TRACE_VERSION = "P2_T44_R1P6E_SW_TRACE_V2";
+const SW_ROUTING_VERSION = "P2_T44_R1P6C_EXISTING_CLIENT_FIX";
 const SW_TRACE_ENDPOINT = "/api/push/debug-sw-trace";
 const SW_TRACE_TIMEOUT_MS = 1500;
+const SW_DEBUG_DB_NAME = "deligo-sw-debug";
+const SW_DEBUG_STORE_NAME = "pending-traces";
+// P2-T44-R1P6E: trazas son diagnóstico TEMPORAL, nunca un registro
+// permanente — TTL + tope de registros acotan el crecimiento sin depender
+// de que el flush siempre tenga éxito.
+const SW_DEBUG_TRACE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const SW_DEBUG_TRACE_MAX_RECORDS = 50;
 
-// Best-effort, never-throwing diagnostic POST. Deliberately NOT awaited
-// before any real routing decision — callers fire the real
-// focus()/navigate()/openWindow() call synchronously first, then fold this
-// promise into whatever Promise.allSettled(...) they already pass to
-// event.waitUntil, so a Service Worker that would otherwise be killed
-// mid-request stays alive long enough for the trace POST to actually leave,
-// without ever delaying or depending on the real navigation outcome. Never
-// throws, never retries, always resolves (never rejects) so it can never
-// turn Promise.allSettled into a reason to skip real work.
-function sendSwTrace(fields) {
+// Un único intento de red, sin persistencia — usado por el flush (que ya
+// decide qué hacer con el resultado) y por el envío inmediato "best effort"
+// de push_received/show_notification (nunca críticos para el diagnóstico
+// del click: si push_received se pierde una vez, no es motivo para
+// arrastrar infraestructura durable a CADA Push del sistema). Nunca lanza,
+// resuelve `true` sólo si el servidor confirmó recepción (2xx).
+function sendSwTraceOnce(payload) {
   try {
-    if (typeof fetch !== "function") return Promise.resolve();
-    const body = JSON.stringify(Object.assign({ traceVersion: SW_TRACE_VERSION }, fields));
+    if (typeof fetch !== "function") return Promise.resolve(false);
+    const body = JSON.stringify(payload);
     let signal;
     let timeoutId = null;
     if (typeof AbortController === "function") {
@@ -592,13 +614,180 @@ function sendSwTrace(fields) {
       body,
       signal,
     })
-      .catch(() => {})
-      .then(() => {
+      .then((res) => {
         if (timeoutId !== null) clearTimeout(timeoutId);
+        return Boolean(res && res.ok);
+      })
+      .catch(() => {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        return false;
       });
   } catch {
-    return Promise.resolve();
+    return Promise.resolve(false);
   }
+}
+
+// Best-effort, never-throwing diagnostic POST — network-only, no durable
+// backup. Deliberately NOT awaited before any real routing decision:
+// callers fire the real focus()/navigate()/openWindow() call synchronously
+// first, then fold this promise into whatever Promise.allSettled(...) they
+// already pass to event.waitUntil.
+function sendSwTrace(fields) {
+  const payload = Object.assign({ traceVersion: SW_TRACE_VERSION, routingVersion: SW_ROUTING_VERSION }, fields);
+  return sendSwTraceOnce(payload).then(() => {});
+}
+
+// ---- P2-T44-R1P6E: durable IndexedDB backing for click-critical traces ----
+// Mismo patrón técnico ya usado en este archivo para share-target
+// (`openShareTargetDb`/`putPendingShare`) — una sola store, keyPath simple,
+// sin índices adicionales.
+function openSwDebugDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SW_DEBUG_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SW_DEBUG_STORE_NAME)) {
+        db.createObjectStore(SW_DEBUG_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function getAllPendingTraces(db) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readonly");
+      const req = tx.objectStore(SW_DEBUG_STORE_NAME).getAll();
+      req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+      req.onerror = () => resolve([]);
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+function putPendingTrace(db, record) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readwrite");
+      tx.objectStore(SW_DEBUG_STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function deletePendingTrace(db, id) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readwrite");
+      tx.objectStore(SW_DEBUG_STORE_NAME).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+// Persiste UN evento de click de forma durable, ANTES de intentar la red —
+// nunca lanza, nunca bloquea/espera antes de la decisión de ruteo real
+// (llamado en paralelo, nunca `await`ado por el código de ruteo). `fields`
+// ya es el mismo objeto sanitizado que antes se mandaba directo a
+// `sendSwTrace` — ningún dato nuevo, sólo un respaldo local antes del
+// intento de red.
+function persistPendingTrace(fields) {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  const now = Date.now();
+  const record = {
+    id: shareTargetToken(),
+    traceVersion: SW_TRACE_VERSION,
+    routingVersion: SW_ROUTING_VERSION,
+    createdAt: now,
+    expiresAt: now + SW_DEBUG_TRACE_TTL_MS,
+    attemptCount: 0,
+    fields: Object.assign({}, fields),
+  };
+  return openSwDebugDb()
+    .then((db) =>
+      getAllPendingTraces(db).then((existing) => {
+        // Bounded storage — evicción oldest-first, nunca toca el registro
+        // recién creado.
+        const sorted = existing.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const overflow = sorted.length - (SW_DEBUG_TRACE_MAX_RECORDS - 1);
+        const toDelete = overflow > 0 ? sorted.slice(0, overflow) : [];
+        return Promise.all(toDelete.map((r) => deletePendingTrace(db, r.id)))
+          .then(() => putPendingTrace(db, record))
+          .then(() => record);
+      })
+    )
+    .catch(() => null);
+}
+
+// Reintenta enviar TODO lo pendiente — llamado en cada momento seguro en que
+// el SW ya está despierto (activate/push/notificationclick), nunca por
+// timer/polling propio. Un registro sólo se borra tras confirmación HTTP
+// real; si falla, se conserva con `attemptCount` incrementado para el
+// próximo intento. Un registro vencido (TTL) se descarta sin intentar
+// enviarlo.
+function flushPendingSwTraces() {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return openSwDebugDb()
+    .then((db) =>
+      getAllPendingTraces(db).then((records) => {
+        const now = Date.now();
+        return Promise.all(
+          records.map((record) => {
+            if (!record || typeof record.id !== "string") return Promise.resolve();
+            if (typeof record.expiresAt === "number" && record.expiresAt <= now) {
+              return deletePendingTrace(db, record.id);
+            }
+            const payload = Object.assign(
+              {
+                traceRecordId: record.id,
+                traceVersion: record.traceVersion || SW_TRACE_VERSION,
+                routingVersion: record.routingVersion || SW_ROUTING_VERSION,
+                attemptCount: typeof record.attemptCount === "number" ? record.attemptCount : 0,
+              },
+              record.fields || {}
+            );
+            return sendSwTraceOnce(payload).then((ok) => {
+              if (ok) return deletePendingTrace(db, record.id);
+              const updated = Object.assign({}, record, { attemptCount: (record.attemptCount || 0) + 1 });
+              return putPendingTrace(db, updated);
+            });
+          })
+        );
+      })
+    )
+    .catch(() => {});
+}
+
+// Punto de entrada único para los 3 eventos críticos del click
+// (notificationclick_decision/_client/_routing_result): persiste primero
+// (durable), luego intenta un flush inmediato de TODO lo pendiente — en el
+// caso común (red disponible) esto se ve y comporta igual que el viejo
+// sendSwTrace inmediato; si la red falla/tarda, el registro sobrevive para
+// el próximo flush oportunista.
+function recordAndSendTrace(fields) {
+  return persistPendingTrace(fields)
+    .then((record) => {
+      if (record) return flushPendingSwTraces();
+      // Sin IndexedDB disponible (o la persistencia falló): conserva el
+      // comportamiento inmediato-only de antes de R1P6E, para que la traza
+      // todavía tenga oportunidad de llegar en un entorno sin storage
+      // durable en vez de perderse en silencio.
+      const payload = Object.assign(
+        { traceVersion: SW_TRACE_VERSION, routingVersion: SW_ROUTING_VERSION },
+        fields
+      );
+      return sendSwTraceOnce(payload).then(() => {});
+    })
+    .catch(() => {});
 }
 
 // Helper: focus the first open client whose pathname starts with one of the
@@ -738,7 +927,13 @@ self.addEventListener("notificationclick", (event) => {
         : !rawUrl.startsWith("/operaciones/mi-panel/")
           ? "MISSING_OPERATIONS_PREFIX"
           : "MISSING_PYR_OR_SALON_SEGMENT";
-    const decisionTrace = sendSwTrace({
+
+    // P2-T44-R1P6E: otra oportunidad segura de reintentar trazas de un click
+    // anterior que hayan quedado pendientes — independiente de la traza de
+    // ESTE click (abajo), nunca la bloquea ni depende de ella.
+    event.waitUntil(flushPendingSwTraces());
+
+    const decisionTrace = recordAndSendTrace({
       event: "notificationclick_decision",
       type: type || null,
       pedidoId: typeof pedidoId === "string" ? pedidoId : null,
@@ -775,7 +970,7 @@ self.addEventListener("notificationclick", (event) => {
         const clientTraces = clients.map((client, index) => {
           const canFocusNavigate = "focus" in client && "navigate" in client;
           const clientPathname = canFocusNavigate ? new URL(client.url).pathname : null;
-          return sendSwTrace({
+          return recordAndSendTrace({
             event: "notificationclick_client",
             type: type || null,
             clientIndex: index,
@@ -806,7 +1001,7 @@ self.addEventListener("notificationclick", (event) => {
         if (matchingClient) {
           try {
             const navigatedClient = await matchingClient.navigate(targetUrl);
-            const routingTrace = sendSwTrace({
+            const routingTrace = recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
@@ -820,7 +1015,7 @@ self.addEventListener("notificationclick", (event) => {
               (navigatedClient || matchingClient).focus(),
             ]);
           } catch (err) {
-            const routingTrace = sendSwTrace({
+            const routingTrace = recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NAVIGATE_REJECTED_OPEN_WINDOW",
@@ -841,14 +1036,14 @@ self.addEventListener("notificationclick", (event) => {
         // camino ya probado físicamente, sin cambios conceptuales).
         const openWindowTrace = self.clients.openWindow(targetUrl).then(
           () =>
-            sendSwTrace({
+            recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NO_MATCH_OPEN_WINDOW",
               openWindowTarget: targetUrl,
             }),
           (err) =>
-            sendSwTrace({
+            recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NO_MATCH_OPEN_WINDOW_REJECTED",
