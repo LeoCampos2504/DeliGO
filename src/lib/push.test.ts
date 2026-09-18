@@ -984,3 +984,73 @@ describe("Notificacion persistence is never rolled back by a Push failure", () =
     expect(notificacionCreateCalls.length).toBe(1)
   })
 })
+
+// ============================================
+// P2-T44-R1P6L: quitar `actions` de las 5 notificaciones modernas de
+// Operaciones (única variable tocada — ver
+// codex-reports/P2_T44_R1P6L_FINAL_ACTIONS_REMOVAL_FIX.md). `requireInteraction`
+// de cada factory debe seguir exactamente igual que antes: R1P6K comparó la
+// instancia PASS real de Cliente (sin actions/requireInteraction) contra la
+// instancia FAIL real de Operaciones (con ambos) y encontró evidencia externa
+// de iOS/WebKit específica de `actions` — este es el único cambio de
+// comportamiento autorizado, sin normalizar requireInteraction.
+describe("P2-T44-R1P6L — Operaciones modernas nunca incluyen `actions` (requireInteraction intacto)", () => {
+  test("operacionesSalonNewOrderNotification: actions ausente, requireInteraction=true preservado", () => {
+    const payload = push.operacionesSalonNewOrderNotification(
+      "pedido-1",
+      5,
+      "Cliente Test",
+      1000,
+      "/operaciones/mi-panel/negocio/salon"
+    )
+    expect(payload.actions).toBeUndefined()
+    expect(payload.requireInteraction).toBe(true)
+  })
+
+  test("operacionesOrderCancelledNotification: actions ausente, requireInteraction=true preservado", () => {
+    const payload = push.operacionesOrderCancelledNotification(
+      "pedido-2",
+      "pyr",
+      "cliente",
+      "/operaciones/mi-panel/negocio/pyr/pedidos"
+    )
+    expect(payload.actions).toBeUndefined()
+    expect(payload.requireInteraction).toBe(true)
+  })
+
+  test("pyrNewOrderNotification: actions ausente, requireInteraction=true preservado, resto del payload intacto (G3)", () => {
+    const panelUrl = "/operaciones/mi-panel/negocio/pyr/pedidos?pedidoId=pedido-3"
+    const payload = push.pyrNewOrderNotification("pedido-3", "Cliente Test", 1100, "retiro", panelUrl)
+    expect(payload.actions).toBeUndefined()
+    expect(payload.requireInteraction).toBe(true)
+    expect(payload.data?.type).toBe("operaciones_pyr_new_order")
+    expect(payload.data?.pedidoId).toBe("pedido-3")
+    expect(payload.data?.url).toBe(panelUrl)
+    expect(payload.tag).toBe("operaciones-pyr-new-order-pedido-3")
+    expect(payload.icon).toBe("/icon-empleado-192x192.png")
+    expect(payload.badge).toBe("/icon-empleado-192x192.png")
+  })
+
+  test("pyrNewReviewNotification: actions ausente, requireInteraction=false preservado", () => {
+    const payload = push.pyrNewReviewNotification(
+      "resena-1",
+      5,
+      "Cliente Test",
+      "/operaciones/mi-panel/negocio/pyr/resenas",
+      "pedido-4"
+    )
+    expect(payload.actions).toBeUndefined()
+    expect(payload.requireInteraction).toBe(false)
+  })
+
+  test("pyrChatMessageNotification: actions ausente, requireInteraction=true preservado", () => {
+    const payload = push.pyrChatMessageNotification(
+      "pedido-5",
+      "Cliente Test",
+      "Hola, tengo una duda",
+      "/operaciones/mi-panel/negocio/pyr/pedidos?pedidoId=pedido-5"
+    )
+    expect(payload.actions).toBeUndefined()
+    expect(payload.requireInteraction).toBe(true)
+  })
+})

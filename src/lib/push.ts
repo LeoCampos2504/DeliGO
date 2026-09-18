@@ -1217,9 +1217,6 @@ export function operacionesSalonNewOrderNotification(
       autor,
       url: panelUrl,
     },
-    actions: [
-      { action: "view", title: "Ver pedido" },
-    ],
     requireInteraction: true,
   }
 }
@@ -1254,7 +1251,6 @@ export function operacionesOrderCancelledNotification(
       area,
       url: panelUrl,
     },
-    actions: [{ action: "view", title: area === "salon" ? "Ver salón" : "Ver pedidos" }],
     requireInteraction: true,
   }
 }
@@ -1292,7 +1288,6 @@ export function pyrNewOrderNotification(
       metodoEntrega,
       url: panelUrl,
     },
-    actions: [{ action: "view", title: "Ver pedido" }],
     requireInteraction: true,
   }
 }
@@ -1317,7 +1312,6 @@ export function pyrNewReviewNotification(
       pedidoId: pedidoId ?? undefined,
       url: panelUrl,
     },
-    actions: [{ action: "view", title: "Ver reseña" }],
     requireInteraction: false,
   }
 }
@@ -1339,7 +1333,6 @@ export function pyrChatMessageNotification(
       pedidoId,
       url: panelUrl,
     },
-    actions: [{ action: "view", title: "Responder" }],
     requireInteraction: true,
   }
 }
