@@ -176,6 +176,17 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
+// P2-T45-R1: mismo intervalo que Terminal Salón (src/app/operaciones/salon/page.tsx),
+// mismo patrón — polling + derivación visual local, sin Push/Service Worker/realtime.
+const REFRESH_MS = 5000
+
+// Función pura para poder testearla sin montar el componente. El snapshot del
+// panel ya es la fuente de verdad (server-filtrado por negocio/área) — esto
+// sólo cuenta, nunca decide autorización ni persiste nada.
+export function countPedidosRecibidos(pedidos: readonly Pick<PedidoPyR, "estado">[]): number {
+  return pedidos.filter((pedido) => pedido.estado === "recibido").length
+}
+
 // ============================================
 // Página
 // ============================================
@@ -332,10 +343,18 @@ export default function OperacionesPyRPage() {
     [refresh]
   )
 
-  // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
+  // P2-T45-R1: mismo patrón que Terminal Salón — carga al abrir (solo si
+  // visible) + polling cada REFRESH_MS mientras la pestaña esté visible +
+  // foco/visibilidad. `refresh` ya protege contra requests solapados (aborta
+  // el anterior vía AbortController + `gen`), así que el interval nunca
+  // necesita su propio guard de concurrencia — reutiliza el existente.
   // NUNCA se ejecutan requests automáticas con la pestaña oculta.
   useEffect(() => {
     if (document.visibilityState === "visible") void refresh()
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh()
+    }, REFRESH_MS)
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh()
@@ -348,6 +367,7 @@ export default function OperacionesPyRPage() {
     window.addEventListener("focus", onFocus)
 
     return () => {
+      clearInterval(interval)
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onFocus)
       acRef.current?.abort()
@@ -478,6 +498,12 @@ function PyRView({
   const selectedPedido =
     selectedPedidoId != null ? data.pedidos.find((p) => p.id === selectedPedidoId) ?? null : null
 
+  // P2-T45-R1: derivado directamente de `data` (snapshot ya filtrado por
+  // negocio/área en el servidor) — nunca guardado en su propio useState,
+  // nunca acumulado entre polls. Recalculado en cada render, igual que el
+  // badge de "N nuevos" de Terminal Salón.
+  const pedidosRecibidosCount = countPedidosRecibidos(data.pedidos)
+
   return (
     <main className="min-h-screen bg-background">
       {/* Header */}
@@ -582,6 +608,14 @@ function PyRView({
           <Badge className="text-[10px] h-5 px-1.5 bg-primary/10 text-primary border-0">
             {data.pedidos.length}
           </Badge>
+          {pedidosRecibidosCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-semibold">
+                {pedidosRecibidosCount === 1 ? "1 nuevo" : `${pedidosRecibidosCount} nuevos`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Listado de pedidos activos */}
@@ -871,6 +905,12 @@ function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
+          {pedido.estado === "recibido" && (
+            <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+            </span>
+          )}
           <StatusBadge estado={pedido.estado} />
           <span className="text-[10px] font-semibold text-muted-foreground">{entrega.label}</span>
           <span className="text-[10px] text-muted-foreground">{getTimeAgo(pedido.fecha)}</span>
