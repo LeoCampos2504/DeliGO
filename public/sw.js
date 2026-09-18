@@ -580,7 +580,7 @@ self.addEventListener("push", (event) => {
 // isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/client
 // matching/focus/navigate/openWindow.
 const SW_TRACE_VERSION = "P2_T44_R1P6E_SW_TRACE_V2";
-const SW_ROUTING_VERSION = "P2_T44_R1P6C_EXISTING_CLIENT_FIX";
+const SW_ROUTING_VERSION = "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET";
 const SW_TRACE_ENDPOINT = "/api/push/debug-sw-trace";
 const SW_TRACE_TIMEOUT_MS = 1500;
 const SW_DEBUG_DB_NAME = "deligo-sw-debug";
@@ -914,6 +914,7 @@ self.addEventListener("notificationclick", (event) => {
       rawUrl.startsWith("/operaciones/mi-panel/") &&
       (rawUrl.includes("/salon") || rawUrl.includes("/pyr"));
     const targetUrl = isSafeOperationsUrl ? rawUrl : "/operaciones/ingresar";
+    const absoluteTarget = self.location.origin + targetUrl;
 
     // P2-T44-R1P5B: traza TESTING-only — observa EXACTAMENTE los mismos
     // valores ya calculados arriba (rawUrl/isSafeOperationsUrl/targetUrl),
@@ -995,17 +996,17 @@ self.addEventListener("notificationclick", (event) => {
         // el client que `navigate()` efectivamente devolvió (nunca sobre el
         // client viejo si hay uno nuevo), y un `catch` que jamás deja al
         // usuario silenciosamente en la pantalla vieja: cae a
-        // `clients.openWindow(targetUrl)`, el único camino que esta
+        // `clients.openWindow(absoluteTarget)`, el único camino que esta
         // investigación confirmó físicamente que funciona con la app
         // cerrada.
         if (matchingClient) {
           try {
-            const navigatedClient = await matchingClient.navigate(targetUrl);
+            const navigatedClient = await matchingClient.navigate(absoluteTarget);
             const routingTrace = recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
-              navigateTarget: targetUrl,
+              navigateTarget: absoluteTarget,
               navigateResult: navigatedClient ? "RESOLVED_CLIENT" : "RESOLVED_NULL",
             });
             return Promise.allSettled([
@@ -1019,7 +1020,7 @@ self.addEventListener("notificationclick", (event) => {
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NAVIGATE_REJECTED_OPEN_WINDOW",
-              navigateTarget: targetUrl,
+              navigateTarget: absoluteTarget,
               errorName: err && err.name ? String(err.name) : "Unknown",
               errorMessage: err && err.message ? String(err.message) : null,
             });
@@ -1027,27 +1028,27 @@ self.addEventListener("notificationclick", (event) => {
               decisionTrace,
               routingTrace,
               ...clientTraces,
-              self.clients.openWindow(targetUrl),
+              self.clients.openWindow(absoluteTarget),
             ]);
           }
         }
 
         // Sin ningún Operations client abierto (incluye "app cerrada" — el
         // camino ya probado físicamente, sin cambios conceptuales).
-        const openWindowTrace = self.clients.openWindow(targetUrl).then(
+        const openWindowTrace = self.clients.openWindow(absoluteTarget).then(
           () =>
             recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NO_MATCH_OPEN_WINDOW",
-              openWindowTarget: targetUrl,
+              openWindowTarget: absoluteTarget,
             }),
           (err) =>
             recordAndSendTrace({
               event: "notificationclick_routing_result",
               type: type || null,
               routingAction: "NO_MATCH_OPEN_WINDOW_REJECTED",
-              openWindowTarget: targetUrl,
+              openWindowTarget: absoluteTarget,
               errorName: err && err.name ? String(err.name) : "Unknown",
               errorMessage: err && err.message ? String(err.message) : null,
             })

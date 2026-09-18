@@ -208,7 +208,7 @@ describe("POST /api/push/debug-sw-trace", () => {
     const res = await postTrace({
       event: "notificationclick_routing_result",
       traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
-      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      routingVersion: "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET",
       traceRecordId: "abc123-record-id",
       attemptCount: 2,
       routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
@@ -217,7 +217,7 @@ describe("POST /api/push/debug-sw-trace", () => {
     const [, payloadJson] = infoSpy.mock.calls[0] as unknown as [string, string]
     const payload = JSON.parse(payloadJson)
     expect(payload.traceRecordId).toBe("abc123-record-id")
-    expect(payload.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+    expect(payload.routingVersion).toBe("P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET")
     expect(payload.attemptCount).toBe(2)
   })
 

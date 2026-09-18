@@ -377,7 +377,7 @@ describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada
       url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
     })
     expect(sw.openWindowCalls).toEqual([
-      "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
+      "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
     ])
   })
 
@@ -388,7 +388,7 @@ describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada
       url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-1",
     })
     expect(sw.openWindowCalls).toEqual([
-      "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-1",
+      "https://example.test/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-1",
     ])
   })
 
@@ -399,26 +399,26 @@ describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada
       url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-1/mensajes",
     })
     expect(sw.openWindowCalls).toEqual([
-      "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-1/mensajes",
+      "https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-1/mensajes",
     ])
   })
 
   test("url externa (https://evil.com) -> rechazada, cae al fallback fijo /operaciones/ingresar", async () => {
     const sw = loadServiceWorker([])
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: "https://evil.com/steal" })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/ingresar"])
   })
 
   test("url protocol-relative (//evil.com) -> rechazada, mismo fallback", async () => {
     const sw = loadServiceWorker([])
     await sw.fireClick({ type: "operaciones_pyr_chat", url: "//evil.com" })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/ingresar"])
   })
 
   test("url sin el prefijo /operaciones/mi-panel/ -> rechazada aunque sea interna", async () => {
     const sw = loadServiceWorker([])
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: "/cliente/pedidos" })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/ingresar"])
   })
 
   test("focaliza una ventana /operaciones/mi-panel/ ya abierta en vez de abrir una nueva", async () => {
@@ -429,18 +429,18 @@ describe("P2-T44-R1P2 (G3/G4/G5) — rama compartida de Operaciones generalizada
       url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2",
     })
     expect(sw.openWindowCalls).toEqual([])
-    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
+    expect(client.navigateCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
     expect(client.focusCalls).toBe(1)
   })
 
   test("CONTROL — operaciones_salon_new_order y operaciones_order_cancelled no regresan tras generalizar la rama", async () => {
     const sw1 = loadServiceWorker([])
     await sw1.fireClick({ type: "operaciones_salon_new_order", url: "/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1" })
-    expect(sw1.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
+    expect(sw1.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
 
     const sw2 = loadServiceWorker([])
     await sw2.fireClick({ type: "operaciones_order_cancelled", url: "/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2" })
-    expect(sw2.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
+    expect(sw2.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
   })
 
   test("CONTROL — mesa_order_ready sigue con su rama propia (/mozo/panel/...), no absorbida por la rama de Operaciones", async () => {
@@ -462,7 +462,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
       pedidoId: "pedido-1",
       url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1",
     })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
 
     const decision = calls.find((c) => c.body.event === "notificationclick_decision")
     expect(decision).toBeDefined()
@@ -480,14 +480,14 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
 
     const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
     expect(routing!.body.routingAction).toBe("NO_MATCH_OPEN_WINDOW")
-    expect(routing!.body.openWindowTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
+    expect(routing!.body.openWindowTarget).toBe("https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1")
   })
 
   test("url externa -> mismo fallback EXACTO que sin instrumentación, traza reporta usedFallback=true con el motivo correcto", async () => {
     const { fetchImpl, calls } = makeCapturingFetch()
     const sw = loadServiceWorker([], { fetchImpl })
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: "https://evil.com/steal" })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/ingresar"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/ingresar"])
 
     const decision = calls.find((c) => c.body.event === "notificationclick_decision")
     expect(decision!.body.usedFallback).toBe(true)
@@ -513,7 +513,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
       url: "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2",
     })
     expect(sw.openWindowCalls).toEqual([])
-    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
+    expect(client.navigateCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2"])
 
     const clientTrace = calls.find((c) => c.body.event === "notificationclick_client")
     expect(clientTrace!.body.clientIndex).toBe(0)
@@ -524,7 +524,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
 
     const routing = calls.find((c) => c.body.event === "notificationclick_routing_result")
     expect(routing!.body.routingAction).toBe("NAVIGATE_FOCUS_OPERATIONS_CLIENT")
-    expect(routing!.body.navigateTarget).toBe("/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2")
+    expect(routing!.body.navigateTarget).toBe("https://example.test/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=resena-2")
     expect(routing!.body.navigateResult).toBe("RESOLVED_CLIENT")
   })
 
@@ -534,7 +534,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
       type: "operaciones_pyr_new_order",
       url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-9",
     })
-    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-9"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-9"])
   })
 
   test("el fetch de traza fallando NUNCA rompe el foco/navigate de un client existente", async () => {
@@ -544,7 +544,7 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
       type: "operaciones_pyr_chat",
       url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-9/mensajes",
     })
-    expect(client.navigateCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-9/mensajes"])
+    expect(client.navigateCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos/pedido-9/mensajes"])
     expect(client.focusCalls).toBe(1)
     expect(sw.openWindowCalls).toEqual([])
   })
@@ -554,18 +554,18 @@ describe("P2-T44-R1P5B — traza de diagnóstico del click de Operaciones (obser
     await expect(
       sw.fireClick({ type: "operaciones_pyr_new_order", url: "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1" })
     ).resolves.toBeDefined()
-    expect(sw.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
+    expect(sw.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"])
   })
 
   test("CONTROL — Salón y cancelación no regresan con la traza activa", async () => {
     const { fetchImpl } = makeCapturingFetch()
     const sw1 = loadServiceWorker([], { fetchImpl })
     await sw1.fireClick({ type: "operaciones_salon_new_order", url: "/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1" })
-    expect(sw1.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
+    expect(sw1.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/salon?pedidoId=p1"])
 
     const sw2 = loadServiceWorker([], { fetchImpl })
     await sw2.fireClick({ type: "operaciones_order_cancelled", url: "/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2" })
-    expect(sw2.openWindowCalls).toEqual(["/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
+    expect(sw2.openWindowCalls).toEqual(["https://example.test/operaciones/mi-panel/mi-negocio/pyr?pedidoId=p2"])
   })
 
   test("CONTROL — Mozo (mesa_order_ready) no regresa ni genera traza de Operaciones", async () => {
@@ -602,11 +602,11 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     const targetUrl = "/operaciones/mi-panel/test_t44_r1d_negocio_b_4135ea7a/pyr/pedidos?pedidoId=test-order"
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
 
-    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
     expect(home.focusCalls).toBe(1)
     expect(sw.openWindowCalls).toEqual([])
     // navigate ANTES que focus — nunca al revés.
-    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+    expect(sequence).toEqual([`navigate:https://example.test${targetUrl}`, `focus:https://example.test${targetUrl}`])
   })
 
   test("NESTED operations client (otro negocio/pantalla) -> navega al target exacto, focus después, sin openWindow", async () => {
@@ -616,9 +616,9 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-x"
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
 
-    expect(other.navigateCalls).toEqual([targetUrl])
+    expect(other.navigateCalls).toEqual([`https://example.test${targetUrl}`])
     expect(sw.openWindowCalls).toEqual([])
-    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+    expect(sequence).toEqual([`navigate:https://example.test${targetUrl}`, `focus:https://example.test${targetUrl}`])
   })
 
   test("CLIENT AJENO (Cliente/Negocio/Repartidor/Mozo abiertos, ninguno de Operaciones) -> ninguno se reutiliza, openWindow exactamente una vez", async () => {
@@ -638,7 +638,7 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     expect(negocioClient.focusCalls).toBe(0)
     expect(repartidorClient.focusCalls).toBe(0)
     expect(mozoClient.focusCalls).toBe(0)
-    expect(sw.openWindowCalls).toEqual([targetUrl])
+    expect(sw.openWindowCalls).toEqual([`https://example.test${targetUrl}`])
   })
 
   test("navigate() RECHAZA sobre el Home existente -> cae a openWindow(targetUrl), sin excepción no manejada", async () => {
@@ -654,8 +654,8 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     // No debe haber ninguna excepción/rechazo no manejado saliendo de fireClick.
     await expect(sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })).resolves.toBeDefined()
 
-    expect(home.navigateCalls).toEqual([targetUrl])
-    expect(sw.openWindowCalls).toEqual([targetUrl])
+    expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
+    expect(sw.openWindowCalls).toEqual([`https://example.test${targetUrl}`])
   })
 
   test("navigate() resuelve null/undefined -> focus() se llama sobre el client ORIGINAL, sin abrir una ventana extra", async () => {
@@ -669,7 +669,7 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-3"
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
 
-    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
     expect(home.focusCalls).toBe(1)
     expect(sw.openWindowCalls).toEqual([])
   })
@@ -678,7 +678,7 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
     const sw = loadServiceWorker([])
     const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-4"
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
-    expect(sw.openWindowCalls).toEqual([targetUrl])
+    expect(sw.openWindowCalls).toEqual([`https://example.test${targetUrl}`])
   })
 
   test("REGRESIÓN — los 5 tipos del branch compartido usan el nuevo patrón robusto contra el mismo Home bare", async () => {
@@ -695,9 +695,9 @@ describe("P2-T44-R1P6C — ruteo seguro por client existente (Home bare, nested,
       const sw = loadServiceWorker([home], { callSequence: sequence })
       const targetUrl = `/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-${type}`
       await sw.fireClick({ type, url: targetUrl })
-      expect(home.navigateCalls).toEqual([targetUrl])
+      expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
       expect(sw.openWindowCalls).toEqual([])
-      expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+      expect(sequence).toEqual([`navigate:https://example.test${targetUrl}`, `focus:https://example.test${targetUrl}`])
     }
   })
 })
@@ -719,7 +719,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     expect(calls.length).toBeGreaterThan(0)
     for (const call of calls) {
       expect(call.body.traceVersion).toBe("P2_T44_R1P6E_SW_TRACE_V2")
-      expect(call.body.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+      expect(call.body.routingVersion).toBe("P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET")
     }
     const events = calls.map((c) => c.body.event)
     expect(events).toContain("notificationclick_decision")
@@ -734,7 +734,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     await sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })
 
     // Ruteo real: idéntico a como se comporta sin ninguna traza durable.
-    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
     expect(home.focusCalls).toBe(1)
     expect(sw.openWindowCalls).toEqual([])
 
@@ -747,7 +747,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     for (const r of records) {
       expect(r.attemptCount).toBe(1)
       expect(r.traceVersion).toBe("P2_T44_R1P6E_SW_TRACE_V2")
-      expect(r.routingVersion).toBe("P2_T44_R1P6C_EXISTING_CLIENT_FIX")
+      expect(r.routingVersion).toBe("P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET")
     }
   })
 
@@ -777,7 +777,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     seedPendingTraceRecord(idb, {
       id: "seed-flush-fail",
       traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
-      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      routingVersion: "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET",
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       attemptCount: 1,
@@ -798,7 +798,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     seedPendingTraceRecord(idb, {
       id: "seed-expired",
       traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
-      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      routingVersion: "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET",
       createdAt: Date.now() - 25 * 60 * 60 * 1000,
       expiresAt: Date.now() - 1000, // ya vencido
       attemptCount: 0,
@@ -821,7 +821,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
       seedPendingTraceRecord(idb, {
         id: `seed-${i}`,
         traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
-        routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+        routingVersion: "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET",
         createdAt: i, // seed-0 es el más viejo, seed-49 el más nuevo
         expiresAt: Date.now() + 60_000,
         attemptCount: 0,
@@ -853,10 +853,10 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     const targetUrl = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-durable-3"
     await expect(sw.fireClick({ type: "operaciones_pyr_new_order", url: targetUrl })).resolves.toBeDefined()
 
-    expect(home.navigateCalls).toEqual([targetUrl])
+    expect(home.navigateCalls).toEqual([`https://example.test${targetUrl}`])
     expect(home.focusCalls).toBe(1)
     expect(sw.openWindowCalls).toEqual([])
-    expect(sequence).toEqual([`navigate:${targetUrl}`, `focus:${targetUrl}`])
+    expect(sequence).toEqual([`navigate:https://example.test${targetUrl}`, `focus:https://example.test${targetUrl}`])
   })
 
   test("activate también reintenta trazas pendientes (uno de los 3 puntos de despertar mínimos)", async () => {
@@ -864,7 +864,7 @@ describe("P2-T44-R1P6E — traza durable de notificationclick vía IndexedDB", (
     seedPendingTraceRecord(idb, {
       id: "seed-on-activate",
       traceVersion: "P2_T44_R1P6E_SW_TRACE_V2",
-      routingVersion: "P2_T44_R1P6C_EXISTING_CLIENT_FIX",
+      routingVersion: "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET",
       createdAt: Date.now(),
       expiresAt: Date.now() + 60_000,
       attemptCount: 0,
