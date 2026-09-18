@@ -986,16 +986,16 @@ describe("Notificacion persistence is never rolled back by a Push failure", () =
 })
 
 // ============================================
-// P2-T44-R1P6L: quitar `actions` de las 5 notificaciones modernas de
-// Operaciones (única variable tocada — ver
-// codex-reports/P2_T44_R1P6L_FINAL_ACTIONS_REMOVAL_FIX.md). `requireInteraction`
-// de cada factory debe seguir exactamente igual que antes: R1P6K comparó la
-// instancia PASS real de Cliente (sin actions/requireInteraction) contra la
-// instancia FAIL real de Operaciones (con ambos) y encontró evidencia externa
-// de iOS/WebKit específica de `actions` — este es el único cambio de
-// comportamiento autorizado, sin normalizar requireInteraction.
-describe("P2-T44-R1P6L — Operaciones modernas nunca incluyen `actions` (requireInteraction intacto)", () => {
-  test("operacionesSalonNewOrderNotification: actions ausente, requireInteraction=true preservado", () => {
+// P2-T44-R1P6N: R1P6L había quitado `actions` de las 5 notificaciones
+// modernas de Operaciones como último fix timeboxed para el deep-link roto
+// en iOS (ver codex-reports/P2_T44_R1P6L_FINAL_ACTIONS_REMOVAL_FIX.md). La
+// prueba física final (R1P6M) volvió a dar FAIL_HOME — quitar `actions` no
+// resolvió el bug y sólo eliminaba UX real ("Ver pedido"/"Ver salón"/
+// "Responder"/etc.), así que R1P6N restauró `actions` a sus valores
+// originales exactos (ver codex-reports/P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md).
+// `requireInteraction` nunca cambió en ninguna de las dos rondas.
+describe("P2-T44-R1P6N — Operaciones modernas restauran `actions` original (requireInteraction intacto)", () => {
+  test("operacionesSalonNewOrderNotification: actions restaurado, requireInteraction=true preservado", () => {
     const payload = push.operacionesSalonNewOrderNotification(
       "pedido-1",
       5,
@@ -1003,25 +1003,33 @@ describe("P2-T44-R1P6L — Operaciones modernas nunca incluyen `actions` (requir
       1000,
       "/operaciones/mi-panel/negocio/salon"
     )
-    expect(payload.actions).toBeUndefined()
+    expect(payload.actions).toEqual([{ action: "view", title: "Ver pedido" }])
     expect(payload.requireInteraction).toBe(true)
   })
 
-  test("operacionesOrderCancelledNotification: actions ausente, requireInteraction=true preservado", () => {
-    const payload = push.operacionesOrderCancelledNotification(
+  test("operacionesOrderCancelledNotification: actions restaurado (por área), requireInteraction=true preservado", () => {
+    const salon = push.operacionesOrderCancelledNotification(
       "pedido-2",
+      "salon",
+      "cliente",
+      "/operaciones/mi-panel/negocio/salon"
+    )
+    expect(salon.actions).toEqual([{ action: "view", title: "Ver salón" }])
+    const pyr = push.operacionesOrderCancelledNotification(
+      "pedido-2b",
       "pyr",
       "cliente",
       "/operaciones/mi-panel/negocio/pyr/pedidos"
     )
-    expect(payload.actions).toBeUndefined()
-    expect(payload.requireInteraction).toBe(true)
+    expect(pyr.actions).toEqual([{ action: "view", title: "Ver pedidos" }])
+    expect(salon.requireInteraction).toBe(true)
+    expect(pyr.requireInteraction).toBe(true)
   })
 
-  test("pyrNewOrderNotification: actions ausente, requireInteraction=true preservado, resto del payload intacto (G3)", () => {
+  test("pyrNewOrderNotification: actions restaurado, requireInteraction=true preservado, resto del payload intacto (G3)", () => {
     const panelUrl = "/operaciones/mi-panel/negocio/pyr/pedidos?pedidoId=pedido-3"
     const payload = push.pyrNewOrderNotification("pedido-3", "Cliente Test", 1100, "retiro", panelUrl)
-    expect(payload.actions).toBeUndefined()
+    expect(payload.actions).toEqual([{ action: "view", title: "Ver pedido" }])
     expect(payload.requireInteraction).toBe(true)
     expect(payload.data?.type).toBe("operaciones_pyr_new_order")
     expect(payload.data?.pedidoId).toBe("pedido-3")
@@ -1031,7 +1039,7 @@ describe("P2-T44-R1P6L — Operaciones modernas nunca incluyen `actions` (requir
     expect(payload.badge).toBe("/icon-empleado-192x192.png")
   })
 
-  test("pyrNewReviewNotification: actions ausente, requireInteraction=false preservado", () => {
+  test("pyrNewReviewNotification: actions restaurado, requireInteraction=false preservado", () => {
     const payload = push.pyrNewReviewNotification(
       "resena-1",
       5,
@@ -1039,18 +1047,18 @@ describe("P2-T44-R1P6L — Operaciones modernas nunca incluyen `actions` (requir
       "/operaciones/mi-panel/negocio/pyr/resenas",
       "pedido-4"
     )
-    expect(payload.actions).toBeUndefined()
+    expect(payload.actions).toEqual([{ action: "view", title: "Ver reseña" }])
     expect(payload.requireInteraction).toBe(false)
   })
 
-  test("pyrChatMessageNotification: actions ausente, requireInteraction=true preservado", () => {
+  test("pyrChatMessageNotification: actions restaurado, requireInteraction=true preservado", () => {
     const payload = push.pyrChatMessageNotification(
       "pedido-5",
       "Cliente Test",
       "Hola, tengo una duda",
       "/operaciones/mi-panel/negocio/pyr/pedidos?pedidoId=pedido-5"
     )
-    expect(payload.actions).toBeUndefined()
+    expect(payload.actions).toEqual([{ action: "view", title: "Responder" }])
     expect(payload.requireInteraction).toBe(true)
   })
 })
