@@ -338,15 +338,17 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 ### A. CLOSED / PRODUCTION
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
-están excluidas del backlog activo. P2-T31 está cerrada con certificación de
-Testing y no se inventa un checkpoint Production que no esté demostrado.
+están excluidas del backlog activo. P2-T31 y P2-T45 están cerradas con
+certificación de Testing (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=YES`)
+y no se inventa un checkpoint Production que no esté demostrado —
+P2-T45 nunca fue promovida a `main`/Production
+(`P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO`, ver
+P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md).
 
 ### B. ACTIVE / ACTIONABLE
 
 ```text
 P2-T43 — Employee Join Identity + Admin Feedback — P1 — READY_FUTURE
-P2-T44 — Operaciones Personal Push UX + PyR Coverage — P1 — READY_FUTURE
-P2-T45 — Terminal Operations Notification Architecture — P1 — READY_FUTURE
 P2-T49 — Terminal Mobile Shell + Chat Layout — P1 — READY_FUTURE
 P2-T53 — Negocio Occupation Close Live Refresh Parity — TO_BE_TRIAGED — READY_FUTURE
 P2-T47 — Operations Product Personalization UX — P2_UX — READY_FUTURE
@@ -374,6 +376,11 @@ P2-T34 — Android Cliente/Repartidor Session Isolation — READY_TO_START,
           bloqueada para certificación/avance físico por falta de Android
 P2-T33 — Final Security Review — bloqueada hasta T38/T40/T39 y funcionales
 P2-T37 — P2 Final Audit / Launch Readiness — bloqueada por el backlog previo
+P2-T44 — Operaciones Personal Push UX + PyR Coverage — PAUSED_UNRESOLVED_AFTER_TIMEBOX
+          (sólo el sub-problema G3: deep-link de Operaciones Push en iOS con
+          WindowClient existente — el resto de UX de T44 ya implementado en
+          rondas previas R1P0-R1P2; ver P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md;
+          reabrir sólo con evidencia técnica nueva, no automáticamente)
 ```
 
 ### D. DEFERRED
@@ -393,19 +400,23 @@ funcional mientras existan los prerequisitos indicados.
 ```text
 OPEN_P0_TASKS=0
 OPEN_P1_HIGH_TASKS=0
-OPEN_P1_TASKS=4
+OPEN_P1_TASKS=2
 OPEN_P2_TASKS=3
 OPEN_PRIORITY_UNSPECIFIED_TASKS=11
-ACTIONABLE_NOW_TASKS=12
-BLOCKED_TASKS=6
+ACTIONABLE_NOW_TASKS=10
+BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T43
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Employee Join Identity + Admin Feedback
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P1
 NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=Primer P1 accionable del backlog vigente después de excluir todos los cierres Production, mantener T02/T34 bloqueadas por hardware y no permitir que el finding sin prioridad triageada P2-T53 desplace un P1.
-ALTERNATIVE_NEXT_TASK_1=P2-T44
-ALTERNATIVE_NEXT_TASK_2=P2-T45
+ALTERNATIVE_NEXT_TASK_1=P2-T42 (formal closeout + curated promotion — ya implementado/testeado/desplegado en TESTING, sólo falta cierre formal)
+ALTERNATIVE_NEXT_TASK_2=P2-T49
+P2-T45 EXCLUIDA DE ALTERNATIVAS (2026-09-19): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md,
+  ya no es una tarea pendiente.
+P2-T44 EXCLUIDA DE ALTERNATIVAS (2026-09-18): PAUSED_UNRESOLVED_AFTER_TIMEBOX — ver P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md, no recomendar como próxima tarea hasta reapertura explícita.
 ```
 
 R4 se conserva como artefacto histórico sin reescritura; su recomendación de
@@ -590,8 +601,9 @@ P2_T41_STATUS=CLOSED_PRODUCTION_CHECKPOINTED (Terminal Read-Only Action Authoriz
 6. P2-T42 — PYR EMPLOYEE + TERMINAL ORDER WORKFLOW PARITY — IMPLEMENTED_TESTED_DEPLOYED_TESTING_OPERATOR_REVIEW_TODO_PASS_PENDING_FORMAL_CLOSEOUT_CURATED_PROMOTION (P1_HIGH — commit `eb2af3a`, 134 pass/0 fail, deploy Testing y revisión manual del operador TODO_PASS; no ejecutar en esta tarea. Próxima tarea recomendada: `P2_T42_FORMAL_CLOSEOUT_AND_CURATED_PROMOTION`, sin promover HEAD completo ni B1/B3/B4/R3)
 7. P2-T48 — SALON PERSONAL OCCUPATION STATE PARITY — CLOSED_PRODUCTION (P1 — casos físicos A/B/C PASS; release curado `946f8c2`, Production `96ef5efc`; tag `p2-t48-stable-2026-09-10`; findings adyacentes abiertos y no implementados)
 8. P2-T43 — EMPLOYEE JOIN IDENTITY + ADMIN FEEDBACK — READY_FUTURE (P1 — admin sin feedback al vincularse un empleado + admin no debe declarar identidad del empleado; agrupa puntos 2/10)
-9. P2-T44 — OPERACIONES PERSONAL PUSH UX + PYR COVERAGE — READY_FUTURE (P1 — "Enviar prueba" visible en UI normal de Mozo + popover roto en móvil + PyR sin notificaciones equivalentes; agrupa puntos 3/12; DISTINTA de P2-T40)
-10. P2-T45 — TERMINAL OPERATIONS NOTIFICATION ARCHITECTURE — READY_FUTURE (P1 — Terminal Salón tiene avisos, Terminal PyR no; decisión de producto nueva, auditar mecanismo real de Salón primero; punto 19; preserva TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO de P2-T12)
+9. P2-T44 — OPERACIONES PERSONAL PUSH UX + PYR COVERAGE — PAUSED_UNRESOLVED_AFTER_TIMEBOX (P1 — "Enviar prueba" visible en UI normal de Mozo + popover roto en móvil + PyR sin notificaciones equivalentes ya implementados/desplegados en TESTING en rondas R1P0-R1P2; el sub-problema G3 — deep-link de Push de Operaciones en iOS con WindowClient existente, siempre termina en Home — quedó PAUSED_UNRESOLVED_AFTER_TIMEBOX tras investigación extensa (R1P3-R1P6N: hardening de routing, traza durable, URL absoluta, remoción de `actions`, todos con prueba física FAIL); G3_PHYSICAL_CERTIFIED=NO; T44_RELEASE_ELIGIBLE=NO; ver P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md para condiciones de reapertura — NO reabrir sólo para "probar otra cosa")
+10. P2-T45 — TERMINAL OPERATIONS NOTIFICATION ARCHITECTURE — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P1 — auditoría A0 2026-09-18 confirmó que el "aviso" de Terminal Salón es sólo un badge/pulse CSS derivado de polling de 5s, sin Push/SW/realtime/sonido; R1 2026-09-18 implementó exactamente ese patrón en Terminal PyR, único archivo `src/app/operaciones/pyr/page.tsx` — polling 5s + chip "N nuevos" + dot pulsante por pedido `recibido`, cero schema/migración/actor Push/canal realtime nuevo, commit `361e3cee21b0b075f32426987f89a34220441f21`, TESTING deploy SUCCESS `8c47fed2-48ab-4eee-bf94-aaa99551a7e3`; R2 2026-09-19 certificación física del operador 3/3 casos PASS (arribo, resolución, aislamiento cross-business) — ver
+P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md; preserva TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO de P2-T12 y la autoridad de P2-T41/T42; no dependió de que P2-T44/G3 se resolviera; `P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO`, nunca promovida a main/Production)
 11. P2-T46 — TABLE ACCOUNT + TICKET + HISTORY CANONICAL DETAIL — READY_FUTURE (P1 — pago debe ir al cierre de cuenta no al pedido individual, "Tu cuenta" interactiva, ticket con jerarquía visual, historial Salón con detalle completo; agrupa puntos 4/6/7/8; punto 15 usado como referencia, NO bug; requiere autoridad de P2-T41 para cualquier acción mutante)
 12. P2-T49 — TERMINAL MOBILE SHELL + CHAT LAYOUT — READY_FUTURE (P1 — Terminal Chat móvil con área vacía enorme, botón "Cerrar terminal" superpuesto al composer; agrupa puntos 17/18)
 13. P2-T47 — OPERATIONS PRODUCT PERSONALIZATION UX — READY_FUTURE (P2_UX — inconsistencia visual, posible duplicación "Aderezos/aderezos" a auditar antes de asumir bug; punto 5)
