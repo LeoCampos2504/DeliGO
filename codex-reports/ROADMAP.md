@@ -432,32 +432,42 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T55 — Salon History Custom Date Filtering — P2 — AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
-          (registrada 2026-09-20 durante el cierre físico de P2-T50;
-          A0 2026-09-20 confirmó que el target real —
+P2-T55 — Salon History Custom Date Filtering — P2 — IMPLEMENTATION_COMPLETE_TESTING_CERTIFIED_AUTOMATED_PENDING_PHYSICAL_CERTIFICATION
+          (A0 2026-09-20 confirmó que el target real —
           `HistorialSubTab`, src/components/business/salon-tab.tsx —
           es un modelo POR-MESA (grilla de mesas → Drawer con el
           historial de esa mesa), estructuralmente distinto del
           dashboard agregado de Estadísticas de T50; usa
           `GET /api/negocio/pedidos?estado=historial&metodoEntrega=mesa`,
-          NO el endpoint de T50; mismo campo canónico `Pedido.fecha`,
-          pero el quick filter "Mes" de Historial es una ventana rodante
-          de 30 DÍAS FIJOS (no 1 mes calendario como en T50) — divergencia
-          real ya documentada, preservada sin cambios; Historial SÍ
-          incluye pedidos `cancelado` (Estadísticas de T50 no); grouping
-          por `Pedido.ocupacionMesaId` reutilizando `buildCuentaMesa`/
-          `withCuentaMesaPayment` (autoridad T46, sin tocar); paginación
-          actual es por-pedido con límite fijo de 50 sin "cargar más";
-          reuso de T50 acotado y explícito: SÍ los helpers de fecha
-          (`dateToIsoDateString`/`isoDateStringToDate`, ya exportados en
-          el MISMO archivo) y el patrón de UI (Popover/Calendar/Select
-          ya importados), NO el tipo/funciones de Stats literalmente
-          (formas distintas); recomienda extraer el parseo seguro de
-          fecha de T50 a un helper compartido (`src/lib/date-range-filter.ts`)
-          para no duplicarlo entre los dos endpoints; NEW_ENDPOINT_REQUIRED=NO,
-          extensión aditiva de `GET /api/negocio/pedidos`; cero
-          API/schema/migración en A0; ver
-          P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md)
+          NO el endpoint de T50; el quick filter "Mes" de Historial sigue
+          siendo una ventana rodante de 30 DÍAS FIJOS (no 1 mes calendario
+          como en T50) — divergencia real preexistente, preservada sin
+          cambios; Historial SÍ incluye pedidos `cancelado` (Estadísticas
+          de T50 no) — también preservado. R1 (2026-09-20) implementó lo
+          diseñado en A0: extrajo el parseo seguro de fecha de T50 a
+          `src/lib/date-range-filter.ts` (helper compartido puro,
+          `resolveCustomDateFilter` con precedencia fecha>mes>rango>none),
+          refactorizó `negocio/salon/stats/route.ts` para consumirlo sin
+          cambio de comportamiento externo (T50 regression 53/53 pass,
+          sin modificar los tests existentes), extendió aditivamente
+          `GET /api/negocio/pedidos` con los mismos 4 params
+          (fecha/mes/desde/hasta), y agregó a `HistorialSubTab` el tipo
+          `HistorialFilter` (día/mes/rango) + Popover de "Elegir fecha"
+          — SIN agregar un nuevo quick filter "Todo" (decisión de
+          producto explícita del task; "Limpiar" en el selector custom
+          vuelve siempre a "Hoy"). `mesa-historial.ts`/
+          `buildMesaHistorialAccounts`/`accountKey`/`buildCuentaMesa`/
+          `withCuentaMesaPayment` (autoridad T46) sin tocar — sólo cambia
+          qué `Pedido[]` entra a esas funciones. 45 tests focales nuevos
+          + 53 regresión T50 + 8 regresión T46, todos PASS; TSC 31
+          baseline/0 nuevos, ESLint/build/diff-check PASS; commit
+          `da7d08b27ea15673ef42009fda996c2bd02b9b9a`, TESTING deploy
+          SUCCESS `50da9aa4-81dc-4f60-a31f-9c4197907c8b`, boot logs
+          limpios, sin migración pendiente (SCHEMA_CHANGED=NO). Fixture
+          candidata identificada (read-only) para certificación física
+          R2: negocio "burgerking" (slug `burgerking`), 15 pedidos
+          históricos de mesa reales spread 2026-08-06→2026-09-11 — ver
+          P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md)
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -541,8 +551,8 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 completó su propia auditoría A0 (2026-09-20, ver P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md) y queda igual de lista para implementación que T51 — se mantiene T51 como recomendación primaria simplemente por orden de registro en el backlog, sin bloqueo real de ninguna de las dos.
-ALTERNATIVE_NEXT_TASK_1=P2-T55 (P2, AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION — ver P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55-R1 (2026-09-20) implementó, testeó y desplegó a TESTING el filtro de fecha custom de Historial (certificación automatizada PASS, ver P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md) pero queda pendiente de certificación física del operador — no es "lista para implementación" como T51, sino "lista para probar físicamente". Se mantiene T51 como recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva; la certificación física de T55-R1 es una acción operador-only, no una tarea de software nueva.
+ALTERNATIVE_NEXT_TASK_1=P2-T55-R1 PHYSICAL_CERTIFICATION (P2, IMPLEMENTATION_COMPLETE_TESTING_CERTIFIED_AUTOMATED_PENDING_PHYSICAL_CERTIFICATION — requiere al operador, no a Claude — ver P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md §7 para la fixture candidata "burgerking")
 ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
