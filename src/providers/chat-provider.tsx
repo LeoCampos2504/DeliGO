@@ -110,12 +110,34 @@ export function useChatActorReset() {
   }, [actorKey])
 }
 
+// P2-T49-R1B: rutas donde el Chat PERSONAL global (ChatFab + ChatSheet)
+// nunca debe montarse, sin importar qué sesión personal (Cliente/Negocio/
+// Repartidor) esté hidratada en el mismo navegador — cada una tiene su
+// propio flujo de chat dedicado, no comparte contexto con el personal.
+// Función pura para poder testearla sin montar React (ver
+// chat-provider-route-boundary.test.ts).
+export function shouldMountGlobalChat(pathname: string | null): boolean {
+  if (!pathname) return true
+  if (pathname === "/mozo" || pathname.startsWith("/mozo/")) return false
+  if (pathname === "/operaciones" || pathname.startsWith("/operaciones/")) return false
+  return true
+}
+
 export function ChatProvider() {
   const pathname = usePathname()
+  // Los hooks se llaman siempre, sin importar la ruta — un `return null`
+  // antes de ellos rompería las Reglas de los Hooks apenas el usuario
+  // navegara entre una ruta excluida y una no excluida (misma instancia de
+  // ChatProvider, distinto orden de hooks entre renders). Ninguno de los
+  // dos hace fetch ni renderiza nada por sí solo — sólo agregan listeners
+  // de foco/visibilidad y leen un query param — así que dejarlos activos
+  // en rutas excluidas (igual que ya ocurría en /mozo desde siempre) no
+  // reproduce el bug reportado: la contaminación visible era ChatFab/
+  // ChatSheet, no estos hooks.
   useChatDeepLink()
   useChatActorReset()
 
-  if (pathname === "/mozo" || pathname.startsWith("/mozo/")) {
+  if (!shouldMountGlobalChat(pathname)) {
     return null
   }
 

@@ -28,9 +28,21 @@ import {
   type AttachmentPreview,
 } from "@/components/chat/attachment-preview-modal"
 import { useTerminalLogout } from "@/components/operativo/terminal-logout-button"
+import { startBackgroundTolerantRefresh } from "@/lib/terminal-chat-background-refresh"
 
 // Mismo tope que la API (texto plano).
 const MAX_TEXTO_LEN = 2000
+
+// P2-T49-R1B: mientras esta pestaña siga MONTADA (no cerrada), reintentar
+// un GET de lectura cada 10s aunque la pestaña esté en background — sin
+// esto, un mensaje nuevo podía tardar minutos en aparecer al volver a la
+// pestaña porque `refresh()` bloqueaba TODO request con
+// `document.visibilityState !== "visible"`. Best-effort: los navegadores
+// pueden throttlear timers de pestañas ocultas (más agresivo cuanto más
+// tiempo lleva oculta) — esto NO es realtime ni Push, es sólo "más fresco
+// que nunca actualizar hasta volver". App cerrada / navegador cerrado
+// siguen sin recibir nada, por diseño (T12).
+const TERMINAL_CHAT_REFRESH_INTERVAL_MS = 10000
 
 // ============================================
 // Tipos (espejo del endpoint seguro de mensajes)
@@ -117,11 +129,14 @@ export default function OperacionesPyRMensajesPage() {
     setPhase((prev) => (prev.kind === "ready" ? { ...prev, stale: true } : { kind: "error" }))
   }, [])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { allowHidden?: boolean }) => {
     if (stoppedRef.current || !pedidoId) return
-    // Nunca disparar un request con la pestaña oculta (p.ej. refresh posterior a una
-    // mutación cuando el usuario ya cambió de pestaña). La mutación en curso no se altera.
-    if (document.visibilityState !== "visible") return
+    // Con la pestaña oculta, sólo se permite el request si el llamador lo
+    // pidió explícitamente (`allowHidden`, usado por el interval de
+    // background de P2-T49-R1B) — una mutación (enviar/adjuntar) nunca pasa
+    // `allowHidden`, así que su propio refresh posterior sigue sin disparar
+    // nada con la pestaña oculta, igual que siempre.
+    if (document.visibilityState !== "visible" && !opts?.allowHidden) return
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
@@ -325,23 +340,26 @@ export default function OperacionesPyRMensajesPage() {
     [pedidoId, refresh]
   )
 
-  // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
+  // P2-T49-R1B: carga al abrir (solo si visible) + foco/visibilidad +
+  // interval de background cada TERMINAL_CHAT_REFRESH_INTERVAL_MS mientras
+  // la pestaña siga montada, aunque esté oculta. La política de CUÁNDO
+  // llamar a refresh() vive en startBackgroundTolerantRefresh (testeable
+  // con fake timers, sin React) — refresh() sigue siendo el único dueño
+  // del fetch/AbortController/generación, sin ningún guard de concurrencia
+  // nuevo acá.
   useEffect(() => {
-    if (document.visibilityState === "visible") void refresh()
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh()
-    }
-    const onFocus = () => {
-      if (document.visibilityState === "visible") void refresh()
-    }
-
-    document.addEventListener("visibilitychange", onVisible)
-    window.addEventListener("focus", onFocus)
+    const stop = startBackgroundTolerantRefresh({
+      intervalMs: TERMINAL_CHAT_REFRESH_INTERVAL_MS,
+      isVisible: () => document.visibilityState === "visible",
+      run: (opts) => void refresh(opts),
+      setInterval: (handler, ms) => window.setInterval(handler, ms),
+      clearInterval: (id) => window.clearInterval(id),
+      addEventListener: (target, type, handler) => (target === "document" ? document : window).addEventListener(type, handler),
+      removeEventListener: (target, type, handler) => (target === "document" ? document : window).removeEventListener(type, handler),
+    })
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisible)
-      window.removeEventListener("focus", onFocus)
+      stop()
       acRef.current?.abort()
     }
   }, [refresh])
