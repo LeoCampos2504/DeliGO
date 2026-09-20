@@ -447,7 +447,36 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
+P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+          (A0 2026-09-20: home real confirmado en
+          `src/app/operaciones/page.tsx` — un único Card server-side
+          (sin `"use client"`, sin lectura de cookies/sesión), selector
+          NEUTRAL con 2 opciones: "Ingresar con mi cuenta"
+          (`/operaciones/ingresar`, cuenta personal
+          `CuentaOperativa`, cookie `deligo_operativo_session`) y
+          "Usar o activar esta terminal" (`/operaciones/terminal`,
+          cookie `deligo_operaciones_terminal`) — ambos íconos hoy
+          comparten el mismo color neutro `bg-muted`, sin jerarquía
+          visual. Auditado el lenguaje visual compartido de DeliGO
+          (Cliente/Negocio/Operaciones-ingresar/Operaciones-terminal):
+          shell centrado + Card con shadow por accent + icon badge
+          redondeado + Logo decorativo constante + soporte dark:
+          universal. Diseño: heredar el accent AMBER ya establecido
+          por `/operaciones/ingresar` para la opción personal, y un
+          accent SLATE fijo/genérico (nunca `negocio.colorPrincipal`,
+          desconocido antes de autenticar) para la opción terminal —
+          preserva la neutralidad arquitectónica documentada en el
+          propio código. Copy actual ya preciso, NO se cambia texto.
+          `NEW_ASSET_REQUIRED=NO` (Logo es texto puro). 2 opciones de
+          diseño evaluadas: Option A (refinamiento del Card único,
+          diff mínimo, RECOMENDADA) vs Option B (hero + 2 cards en
+          grid, mayor cambio estructural, replica AreaCard de
+          /operaciones/terminal). R1 planificado: 1 archivo de
+          producto (`page.tsx`, sólo className/colores, cero
+          `href`/texto/auth tocados) + 1 archivo de test nuevo. T52/
+          T38/T40 confirmados sin tocar. Certificación física R2
+          preparada (Cases A-J) sin ejecutar — ver
+          P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md)
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -530,7 +559,7 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y ahora P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 ni P2 con certificación física pendiente en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 cerró su ronda completa (R1 funcional + R1B paridad visual) con certificación física y visual PASS del operador — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. T51 queda como única recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva.
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y ahora P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 ni P2 con certificación física pendiente en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 cerró su ronda completa (R1 funcional + R1B paridad visual) con certificación física y visual PASS del operador — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. P2-T51 completó su propia auditoría+diseño A0 (2026-09-20, ver P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md) y queda `AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION` — única recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva (R1).
 ALTERNATIVE_NEXT_TASK_1=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
