@@ -123,23 +123,22 @@ export function shouldMountGlobalChat(pathname: string | null): boolean {
   return true
 }
 
-export function ChatProvider() {
-  const pathname = usePathname()
-  // Los hooks se llaman siempre, sin importar la ruta — un `return null`
-  // antes de ellos rompería las Reglas de los Hooks apenas el usuario
-  // navegara entre una ruta excluida y una no excluida (misma instancia de
-  // ChatProvider, distinto orden de hooks entre renders). Ninguno de los
-  // dos hace fetch ni renderiza nada por sí solo — sólo agregan listeners
-  // de foco/visibilidad y leen un query param — así que dejarlos activos
-  // en rutas excluidas (igual que ya ocurría en /mozo desde siempre) no
-  // reproduce el bug reportado: la contaminación visible era ChatFab/
-  // ChatSheet, no estos hooks.
+// P2-T49-R1C: los hooks personales y ChatFab/ChatSheet viven en este
+// componente HIJO separado, nunca directamente en ChatProvider. Esto (y
+// no un `return null` antes de llamar hooks dentro de la MISMA instancia
+// de componente) es el patrón correcto de React para "hooks
+// condicionales": un early-return previo a un hook, en el mismo
+// componente, rompería el orden de hooks apenas el usuario navegara entre
+// una ruta excluida y una no excluida. Montar o no montar un componente
+// HIJO completo es distinto — cuando GlobalChatRuntime no se renderiza,
+// su instancia entera no existe, así que useChatDeepLink/
+// useChatActorReset simplemente no corren, sin violar ninguna regla.
+// Antes de R1C corrían siempre (incluso en /operaciones/**) porque
+// estaban en el propio ChatProvider; R1C completa el aislamiento que R1B
+// dejó documentado como pendiente.
+function GlobalChatRuntime() {
   useChatDeepLink()
   useChatActorReset()
-
-  if (!shouldMountGlobalChat(pathname)) {
-    return null
-  }
 
   return (
     <>
@@ -147,4 +146,14 @@ export function ChatProvider() {
       <ChatSheet />
     </>
   )
+}
+
+export function ChatProvider() {
+  const pathname = usePathname()
+
+  if (!shouldMountGlobalChat(pathname)) {
+    return null
+  }
+
+  return <GlobalChatRuntime />
 }
