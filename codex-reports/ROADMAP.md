@@ -464,8 +464,43 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_RESOLVED_PENDING_PHASE4_AUTHORIZATION
-          (A1 2026-09-20, ver
+P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_ONE_ACTIONABLE_ITEM_PENDING_AUTHORIZATION
+          (A2 2026-09-20, ver
+          P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md:
+          auditoría profunda de los residuos de Empleado/Salón,
+          construida explícitamente sobre una auditoría previa a esta
+          sesión —
+          P2_OPERATIONS_SINGLE_PWA_IDENTITY_AUTHORITY_CORRECTION.md
+          (2026-09-09) — que ya había clasificado ambas rutas como
+          "wireadas pero funcionalmente inertes" desde antes. A2
+          confirma con evidencia de código (no supuestos) que
+          `/e/[token]` y `/s/[token]` son pantallas estáticas
+          (`LegacyAccessRetired`, 4 consumidores totales, cero fetch/
+          token/auth) que pueden seguir existiendo indefinidamente como
+          compatibility tombstones sin ningún riesgo — y que
+          `role-config.ts`/manifests/DynamicManifest para ambos roles
+          son seguros de tocar EVENTUALMENTE (cosmético únicamente) pero
+          NO urgentes. **Hallazgo nuevo, no cubierto en 2026-09-09**:
+          `install-prompt.tsx` NO excluye `/e` ni `/s` (a diferencia de
+          `/mozo`, que sí está excluido desde antes) — hoy PUEDE ofrecer
+          activamente "Instalar DeliGO Empleados"/"Instalar DeliGO
+          Salón", una PWA cuyo único contenido posible es la pantalla
+          de retiro. Es el ÚNICO residuo/bug real y accionable
+          encontrado, con una corrección de bajo riesgo (mismo patrón
+          ya usado para Mozo, ~3-5 líneas en un solo archivo).
+          `icon-empleado-192x192.png`/`icon-salon-192x192.png`
+          confirmados como dependencias ACTIVAS de Push hoy (selección
+          de ícono por área en `sw.js`, independiente de cualquier
+          limpieza de PWA) — nunca se tocan. Los `-512x512.png`
+          (ambos con dimensión real 2133×2133, sin consumidor
+          funcional) son candidatos opcionales de limpieza futura, sin
+          urgencia. Recomienda T52-R1B acotado a un solo archivo
+          (`install-prompt.tsx`) como única implementación pendiente
+          de T52 — separado de la Fase 4 de Mozo (A1) y de cualquier
+          limpieza de assets 512/role-config (sin urgencia). Cero
+          código/manifest/role-config/DynamicManifest/SW/push/auth
+          tocado en esta ronda.)
+P2-T52-A1-HISTORICO (A1 2026-09-20, ver
           P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md:
           hallazgo central — el objetivo "dejar de promover
           instalaciones nuevas de PWA Mozo" YA ESTÁ CUMPLIDO en código,
@@ -623,11 +658,12 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T52-R1B
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Excluir /e y /s de install-prompt.tsx (deja de promover instalar Empleado/Salón retirados)
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó su auditoría profunda A1 (2026-09-20, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md) con una conclusión honesta: el objetivo de "dejar de promover instalaciones nuevas de PWA Mozo" YA ESTABA CUMPLIDO en código antes de esta sesión (install-prompt.tsx/permission-prompt.tsx ya excluían /mozo) — no queda ningún cambio de bajo riesgo y alto valor pendiente de implementar para Mozo hoy; el único trabajo real (migrar el push target + Service Worker) queda diferido a una Fase 4 futura que requiere su propia autorización explícita, no automática. No queda ningún P1/P2 con implementación nueva lista y sin decisión pendiente — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40).
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó 3 rondas de auditoría (A0/A1/A2, 2026-09-20): Mozo resultó no necesitar ningún cambio ahora (A1 — install-prompt/permission-prompt ya lo excluían); Empleado/Salón (A2, ver P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md) SÍ tienen un residuo real y accionable de bajo riesgo: install-prompt.tsx no los excluye (a diferencia de Mozo) y hoy puede ofrecer instalar una PWA cuyo único contenido es una pantalla de retiro — corrección de ~3-5 líneas en 1 archivo, mismo patrón ya probado. Es la única implementación de bajo riesgo/valor real pendiente en todo el backlog activo.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
+ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
