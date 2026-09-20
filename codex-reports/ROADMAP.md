@@ -464,8 +464,51 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_DESIGNED_PENDING_OPERATOR_DECISION
-          (A0 2026-09-20, disparada por evidencia física del operador:
+P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_RESOLVED_PENDING_PHASE4_AUTHORIZATION
+          (A1 2026-09-20, ver
+          P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md:
+          hallazgo central — el objetivo "dejar de promover
+          instalaciones nuevas de PWA Mozo" YA ESTÁ CUMPLIDO en código,
+          desde antes de esta sesión. `install-prompt.tsx` y
+          `permission-prompt.tsx` YA excluyen por completo `/mozo`
+          (`if (isMozoRoute(pathname)) return null`) — ningún cambio
+          nuevo es necesario ahí. `DynamicManifest` NO debe tocarse:
+          su caso especial de `/mozo` protege específicamente la ruta
+          exacta sin barra final (`getRoleFromPath` sólo matchea
+          `/mozo/` CON barra), y el ciclo de actualización/lanzamiento
+          de una PWA ya instalada usa su propio `start_url` registrado
+          (`/mozo/`, con barra, YA resuelto correctamente sin tocar
+          nada) — investigado con fuentes oficiales de Chrome/web.dev
+          (ver reporte §5) sobre cómo Chrome verifica actualizaciones
+          de manifest (name/icons ahora son "security sensitive",
+          cambios opcionales para el usuario, nunca forzados) y cómo
+          el lanzamiento de una app instalada nunca "redecide" su
+          identidad contra lo que se sirva hoy en otras pestañas. El
+          único trabajo real pendiente (migrar el deep-link de push
+          "pedido listo" de `/mozo/panel/[slug]` a
+          `/operaciones/mi-panel/[slug]`, junto con una actualización
+          mínima y compatible del Service Worker) queda diferido
+          explícitamente a una Fase 4 futura con su propia
+          autorización — hoy generaría una mejora para usuarios
+          modernos a costa de una pequeña degradación de UX (no de
+          función) para el grupo, fijo y no creciente, que ya tiene
+          "DeliGO Mozos" instalada. Empleado/Salón (`/e/{token}`,
+          `/s/{token}`) resultaron estar YA COMPLETAMENTE RETIRADOS
+          desde una limpieza anterior ("Legacy-Cleanup-1B") —
+          `/api/empleado/` y `/api/salon/` ni siquiera existen en el
+          repo; ambas rutas sólo muestran una pantalla estática
+          "Este acceso fue reemplazado" con links a
+          /operaciones/ingresar y /operaciones/registro — modelo de
+          auth completamente distinto al de Mozo (magic-link sin
+          sesión vs. CuentaOperativa con sesión), clasificación
+          `SAFE_TO_REMOVE` en el sentido de assets (manifest/iconos/
+          role-config), pero su limpieza de assets NO se ejecuta en
+          esta ronda (fuera del alcance solicitado). Recomienda
+          dividir cualquier implementación futura en T52-R1A (Mozo,
+          compatibility-first) vs T52-R1B (Empleado/Salón asset
+          cleanup, modelo de auth completamente distinto). Cero
+          código/manifest/SW/push/auth tocado en esta ronda.)
+P2-T52-A0-HISTORICO (A0 2026-09-20, disparada por evidencia física del operador:
           "/mozo" sigue completamente funcional y una CuentaOperativa
           real puede autenticarse desde /mozo/iniciar-sesion — rechaza
           la suposición previa de que era ruta muerta. Auditoría de
@@ -583,8 +626,8 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó su auditoría A0 (2026-09-20, ver P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md) — clasificó /mozo como `CURRENT_REQUIRED` (no `SAFE_TO_REMOVE`) por dependencias reales de push/PWA/service-worker, y diseñó 3 opciones (A recomendada) — pero la decisión de EJECUTAR R1 requiere autorización explícita del operador antes de tocar manifests/push/service-worker, no es "lista para implementación" automática como lo era T51 tras su A0. No queda ningún P1/P2 con implementación nueva lista y sin decisión pendiente — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40).
-ALTERNATIVE_NEXT_TASK_1=P2-T52-R1 (PRIORITY_UNASSIGNED, AUDITED_DESIGNED_PENDING_OPERATOR_DECISION — requiere que el operador elija Option A/B/C antes de implementar, ver P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md §19)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó su auditoría profunda A1 (2026-09-20, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md) con una conclusión honesta: el objetivo de "dejar de promover instalaciones nuevas de PWA Mozo" YA ESTABA CUMPLIDO en código antes de esta sesión (install-prompt.tsx/permission-prompt.tsx ya excluían /mozo) — no queda ningún cambio de bajo riesgo y alto valor pendiente de implementar para Mozo hoy; el único trabajo real (migrar el push target + Service Worker) queda diferido a una Fase 4 futura que requiere su propia autorización explícita, no automática. No queda ningún P1/P2 con implementación nueva lista y sin decisión pendiente — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40).
+ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
