@@ -339,7 +339,7 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
 están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45,
-P2-T49, P2-T50, P2-T47, P2-T55 están cerradas con certificación de Testing
+P2-T49, P2-T50, P2-T47, P2-T55, P2-T51 están cerradas con certificación de Testing
 (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=SI`/`YES`) y no se
 inventa un checkpoint Production que no esté demostrado — ninguna de
 ellas fue promovida a `main`/Production en esta reconciliación. P2-T53
@@ -401,6 +401,23 @@ P2_T55_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md y
   P2_T55_R1B_HISTORY_FILTER_VISUAL_PARITY.md)
+P2_T51_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  PRODUCTION_PROMOTED=NO (rediseño visual de la identidad del home de
+  DeliGO Operaciones — Option A: accent AMBER heredado de
+  `/operaciones/ingresar` para "Ingresar con mi cuenta", accent SLATE
+  fijo (nunca `negocio.colorPrincipal`, desconocido antes de
+  autenticar la terminal) para "Usar o activar esta terminal",
+  decoración de fondo con 2 blurs sutiles, `shadow-lg
+  shadow-black/5 dark:shadow-black/20`, helper local `EntryOptionCard`
+  — cero cambio de `href`/copy/lectura de sesión, `page.tsx` sigue
+  siendo server component puro prerenderizado `○` estático; 17 tests
+  focales (contrato estático de source) + TSC 31 baseline/0 nuevos +
+  ESLint/build/diff-check PASS; T52/T38/T40 confirmados sin tocar;
+  operador confirmó aceptación visual general ("quedó perfecto") tras
+  abrir el home rediseñado en TESTING — ver
+  P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md y
+  P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md)
 P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
   falsifica) **con un gap de cobertura correctivo abierto**: durante la
@@ -447,58 +464,6 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION
-          (R1 2026-09-20 implementó exactamente Option A del diseño A0:
-          en `src/app/operaciones/page.tsx` — accent AMBER (heredado de
-          `/operaciones/ingresar`) para "Ingresar con mi cuenta",
-          accent SLATE fijo (nunca `negocio.colorPrincipal`) para
-          "Usar o activar esta terminal", decoración de fondo con 2
-          blurs sutiles, `shadow-sm`→`shadow-lg shadow-black/5
-          dark:shadow-black/20`, helper local `EntryOptionCard` para
-          evitar duplicación — CERO cambio de `href`, copy, o lectura
-          de sesión (server component puro, sigue sin `"use client"`,
-          sigue prerenderizándose `○` estático). 17 tests focales
-          nuevos (contrato estático de source, dado que `page.tsx`
-          compone `<Link>` de next/link sin contexto de App Router
-          disponible fuera de Next), TSC 31 baseline/0 nuevos, ESLint/
-          build/diff-check PASS. Prevalidación técnica en Browser pane
-          (desktop, 375px, 320px, dark mode forzado vía
-          `deligo-theme`) sin overflow ni errores de consola — NO es
-          certificación física. Commit
-          `c713650708855c5bd40efede3674b48581c65a11`, TESTING deploy
-          SUCCESS `f31a69d8-2dbe-4929-9870-f616db9454fb`, boot logs
-          limpios, sin migración pendiente. T52/T38/T40 confirmados
-          sin tocar — ver
-          P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md)
-          (A0 2026-09-20: home real confirmado en
-          `src/app/operaciones/page.tsx` — un único Card server-side
-          (sin `"use client"`, sin lectura de cookies/sesión), selector
-          NEUTRAL con 2 opciones: "Ingresar con mi cuenta"
-          (`/operaciones/ingresar`, cuenta personal
-          `CuentaOperativa`, cookie `deligo_operativo_session`) y
-          "Usar o activar esta terminal" (`/operaciones/terminal`,
-          cookie `deligo_operaciones_terminal`) — ambos íconos hoy
-          comparten el mismo color neutro `bg-muted`, sin jerarquía
-          visual. Auditado el lenguaje visual compartido de DeliGO
-          (Cliente/Negocio/Operaciones-ingresar/Operaciones-terminal):
-          shell centrado + Card con shadow por accent + icon badge
-          redondeado + Logo decorativo constante + soporte dark:
-          universal. Diseño: heredar el accent AMBER ya establecido
-          por `/operaciones/ingresar` para la opción personal, y un
-          accent SLATE fijo/genérico (nunca `negocio.colorPrincipal`,
-          desconocido antes de autenticar) para la opción terminal —
-          preserva la neutralidad arquitectónica documentada en el
-          propio código. Copy actual ya preciso, NO se cambia texto.
-          `NEW_ASSET_REQUIRED=NO` (Logo es texto puro). 2 opciones de
-          diseño evaluadas: Option A (refinamiento del Card único,
-          diff mínimo, RECOMENDADA) vs Option B (hero + 2 cards en
-          grid, mayor cambio estructural, replica AreaCard de
-          /operaciones/terminal). R1 planificado: 1 archivo de
-          producto (`page.tsx`, sólo className/colores, cero
-          `href`/texto/auth tocados) + 1 archivo de test nuevo. T52/
-          T38/T40 confirmados sin tocar. Certificación física R2
-          preparada (Cases A-J) sin ejecutar — ver
-          P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md)
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -581,8 +546,8 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T51 implementó R1 (Option A, ver P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md) y quedó `IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION` — no es "lista para implementación" (eso ya se hizo), sino "lista para que el operador certifique físicamente en TESTING". No queda ningún P1 ni P2 con implementación nueva pendiente en el backlog activo hasta que se resuelva esa certificación o se abra una tarea nueva.
-ALTERNATIVE_NEXT_TASK_0=P2-T51-R2 PHYSICAL_CERTIFICATION (P2_UX, IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION — requiere al operador, no a Claude — ver P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md §11 para los 10 casos preparados; T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y ahora P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — P2-T51 cerró tras aceptación visual general del operador ("quedó perfecto"), ver P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. No queda ningún P1 ni P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40) y P2-T52 (READY_FUTURE, sin auditoría propia todavía).
+ALTERNATIVE_NEXT_TASK_1=P2-T52 (PRIORITY_UNASSIGNED, Operations PWA Identity Consolidation / Legacy Artifact Cleanup — READY_FUTURE, requeriría su propia auditoría A0 antes de implementar)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
@@ -596,6 +561,10 @@ P2-T55 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente (certificación física R1 + visual R1B
   ambas PASS del operador).
+P2-T51 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  ya no es una tarea pendiente (aceptación visual general del operador,
+  "quedó perfecto").
 P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
   requiere una decisión/sonda del operador antes de cualquier código nuevo.
 P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
