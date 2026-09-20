@@ -338,19 +338,35 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 ### A. CLOSED / PRODUCTION
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
-están excluidas del backlog activo. P2-T31 y P2-T45 están cerradas con
-certificación de Testing (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=YES`)
-y no se inventa un checkpoint Production que no esté demostrado —
-P2-T45 nunca fue promovida a `main`/Production
-(`P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO`, ver
-P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md).
+están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45 están
+cerradas con certificación de Testing (`CLOSED_TESTING_CERTIFIED`,
+`RELEASE_ELIGIBLE=SI`/`YES`) y no se inventa un checkpoint Production que
+no esté demostrado — ninguna de ellas fue promovida a `main`/Production
+en esta reconciliación. P2-T53 cerró como `CLOSED_OPERATOR_PASS` (R1B +
+R2, ver P2_T53_R2_MESA_SHEET_VISUAL_SHARPNESS.md), también sin promoción
+a Production demostrada.
+
+```text
+P2_T02_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=SI (ver
+  P2_T02_R6_FINAL_PHYSICAL_EVIDENCE_RECONCILIATION.md — reconciliado en
+  esta ronda, la sección B/C de este archivo lo tenía stale como
+  WAITING_FOR_ADDITIONAL_PHYSICAL_EVIDENCE desde 2026-09-09)
+P2_T43_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=SI /
+  RELEASE_STATUS=READY_FOR_PRODUCTION_PROMOTION_EVALUATION (ver
+  P2_T43_R3_OPERATOR_CERTIFICATION_CLOSEOUT.md — reconciliado en esta
+  ronda, tenía R2/R3 ya cerrados que nunca se reflejaron acá)
+P2_T53_STATUS=CLOSED_OPERATOR_PASS (R1B + R2, ver
+  P2_T53_R2_MESA_SHEET_VISUAL_SHARPNESS.md — reconciliado en esta ronda,
+  tenía R1/R2 ya cerrados que nunca se reflejaron acá)
+P2_T45_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO (ver
+  P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md)
+```
 
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T43 — Employee Join Identity + Admin Feedback — P1 — READY_FUTURE
 P2-T49 — Terminal Mobile Shell + Chat Layout — P1 — READY_FUTURE
-P2-T53 — Negocio Occupation Close Live Refresh Parity — TO_BE_TRIAGED — READY_FUTURE
 P2-T47 — Operations Product Personalization UX — P2_UX — READY_FUTURE
 P2-T50 — Salon Statistics Custom Date Filtering — P2 — READY_FUTURE
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
@@ -358,20 +374,35 @@ P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — P
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
+          (diseño ya avanzado en el worktree separado
+          C:/Leo Campos/Trabajo/deligo-t39-admin,
+          work/p2-t39-admin-notifications — commits "docs: record T39
+          admin request notification audit" y "docs: design superadmin
+          notification delivery architecture" — NO mergeado a
+          work/p2-t43-r2, por lo que sus reportes no aparecen en este
+          codex-reports/. No tocar ese worktree desde acá; la
+          reconciliación de esa rama queda pendiente de una tarea propia)
 ```
 
-P2-T53 sólo audita y corrige la revalidación/refresh de Negocio → Salón tras
-el cierre de una ocupación. No reabre P2-T48 ni P2-T46, no toca accounting,
-payment, T02 ni la autoridad de ocupación. Su prioridad queda pendiente de
-triage y no desplaza los P1.
+P2-T43 y P2-T53 se retiraron de esta sección en esta reconciliación — ambas
+ya están `CLOSED` (ver sección A), no son trabajo pendiente.
 
 ### C. BLOCKED_EXTERNAL_OR_OPERATOR
 
 ```text
-P2-T02 — GPS Android (Repartidor) — WAITING_FOR_ADDITIONAL_PHYSICAL_EVIDENCE
-P2-T23 — movimiento exterior — FUTURE_DEPENDS_ON_P2_T02
-P2-T24 — final delivery GPS — FUTURE_DEPENDS_ON_P2_T23
+P2-T23 — movimiento exterior —
+  REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION
+  (ver P2_T23_H4_FILTER_CALIBRATION_PROBE_PREPARATION.md, la ronda más
+  reciente — H1-H4 reabrieron T23 después de su cierre R3C previo por un
+  hallazgo de suavidad/calibración; ya NO depende de P2-T02, que cerró en
+  R6; NEXT_ACTION=WAIT_FOR_OPERATOR_H4_FILTER_CALIBRATION_PROBE, no
+  ejecutada)
+P2-T24 — final delivery GPS —
+  IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE (ver
+  P2_T24_PHYSICAL_REAL_GPS_CERTIFICATION.md; depende de que se resuelva
+  la decisión de calibración de T23 antes de continuar)
 P2-T54 — Driver Turn-by-Turn Follow Camera UX — FUTURE_AFTER_T02_T23_T24
+          (T02 ya cerró; sigue esperando a T23/T24)
 P2-T34 — Android Cliente/Repartidor Session Isolation — READY_TO_START,
           bloqueada para certificación/avance físico por falta de Android
 P2-T33 — Final Security Review — bloqueada hasta T38/T40/T39 y funcionales
@@ -382,6 +413,17 @@ P2-T44 — Operaciones Personal Push UX + PyR Coverage — PAUSED_UNRESOLVED_AFT
           rondas previas R1P0-R1P2; ver P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md;
           reabrir sólo con evidencia técnica nueva, no automáticamente)
 ```
+
+**Nota de reconciliación (2026-09-19, P2-T45-R2-FIX)**: P2-T02 se retiró
+de esta sección — cerró `CLOSED_TESTING_CERTIFIED` en R6 (2026-09-13),
+nunca reflejado acá. Esta sección (`## Backlog vigente por estado`) tenía
+como fuente única `P2_CURRENT_AUTHORITATIVE_BACKLOG_RECONCILIATION.md`
+(2026-09-09) y nunca se volvió a reconciliar contra el trabajo posterior
+de T02 (R6, 13/09), T23 (R3C 13/09 + H1-H4 15/09, reabierta), T24
+(14/09), T43 (R2/R3, fechas de esos reportes), T53 (R1/R2, 14/09) — sólo
+T44/T45 se mantuvieron al día porque se cerraron en esta misma sesión.
+Se reconcilian acá con evidencia real de cada reporte final, sin tocar
+ningún snapshot histórico.
 
 ### D. DEFERRED
 
@@ -400,19 +442,30 @@ funcional mientras existan los prerequisitos indicados.
 ```text
 OPEN_P0_TASKS=0
 OPEN_P1_HIGH_TASKS=0
-OPEN_P1_TASKS=2
+OPEN_P1_TASKS=1
 OPEN_P2_TASKS=3
-OPEN_PRIORITY_UNSPECIFIED_TASKS=11
-ACTIONABLE_NOW_TASKS=10
+OPEN_PRIORITY_UNSPECIFIED_TASKS=4
+ACTIONABLE_NOW_TASKS=8
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T43
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Employee Join Identity + Admin Feedback
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T49
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Terminal Mobile Shell + Chat Layout
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P1
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=Primer P1 accionable del backlog vigente después de excluir todos los cierres Production, mantener T02/T34 bloqueadas por hardware y no permitir que el finding sin prioridad triageada P2-T53 desplace un P1.
-ALTERNATIVE_NEXT_TASK_1=P2-T42 (formal closeout + curated promotion — ya implementado/testeado/desplegado en TESTING, sólo falta cierre formal)
-ALTERNATIVE_NEXT_TASK_2=P2-T49
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=Único P1 accionable que queda en el backlog activo tras esta reconciliación (2026-09-19) — T43 y T53 cerraron y se retiraron de la sección activa, T02 cerró y salió de bloqueados. No requiere hardware ni decisión externa, a diferencia de T23/T24/T34.
+ALTERNATIVE_NEXT_TASK_1=P2-T47 (Operations Product Personalization UX, P2_UX)
+ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
+P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
+  requiere una decisión/sonda del operador antes de cualquier código nuevo.
+P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
+  P2_T42_R1_FORMAL_CLOSEOUT_AND_CURATED_PRODUCTION_PROMOTION.md — el
+  cierre formal YA SE HIZO, listarla como "pendiente de cierre formal" en
+  una ronda anterior fue un error de esta misma línea de trabajo,
+  corregido acá.
+P2-T43 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_TESTING_CERTIFIED
+  desde P2_T43_R3_OPERATOR_CERTIFICATION_CLOSEOUT.md — ya no es una tarea pendiente.
+P2-T53 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_OPERATOR_PASS
+  desde P2_T53_R2_MESA_SHEET_VISUAL_SHARPNESS.md — ya no es una tarea pendiente.
 P2-T45 EXCLUIDA DE ALTERNATIVAS (2026-09-19): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md,
   ya no es una tarea pendiente.

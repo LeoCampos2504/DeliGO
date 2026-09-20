@@ -234,8 +234,8 @@ MIGRATION_CREATED=NO
 ```
 
 `src/app/operaciones/pyr/page.tsx` y `src/app/operaciones/pyr/page.test.ts`
-no fueron tocados en esta tarea (confirmado — HEAD no avanzó hasta el
-commit documental de cierre, ver §12).
+no fueron tocados en esta tarea (confirmado — el único commit de esta
+ronda es documental, ver "Git / commit / push del cierre" más abajo).
 
 ## 9. Quality gates — reutilizados, no repetidos
 
@@ -291,7 +291,36 @@ no se revocaron terminales, no se rotaron códigos/passwords, sin logout
 forzado. No existe una política previa explícita de cleanup para este
 fixture que exija lo contrario.
 
-## 13. Consistency check
+## 13. Git / commit / push del cierre
+
+```text
+START_HEAD_SHA=361e3cee21b0b075f32426987f89a34220441f21
+P2_T45_R2_CLOSEOUT_COMMIT_SHA=1fa492cdc312abfabd074c58138cfa73e02cbaf7
+END_HEAD_SHA=1fa492cdc312abfabd074c58138cfa73e02cbaf7
+PUSH_TARGET=origin/testing-codex
+PUSH_STATUS=SUCCESS (git push origin HEAD:testing-codex,
+  361e3ce..1fa492c)
+DIRTY_AFTER=SI (DELIGO_FULL_CONTEXT_LATEST.md — nunca commiteado por
+  invariante permanente de deligo-closeout §B — y
+  codex-reports/P2_T44_R1P6I_ABSOLUTE_OPERATIONS_PUSH_TARGET.md, un
+  archivo pre-existente y ajeno a esta tarea, sin relación con T45)
+```
+
+Commit `docs: close p2-t45 testing certification` (`1fa492c`), archivos:
+`codex-reports/P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md`
+(creado) y `codex-reports/ROADMAP.md` (modificado) — confirmado por
+`git show --stat 1fa492c`. Pusheado a `origin/testing-codex` en el mismo
+turno; el push disparó un autodeploy incidental de Railway TESTING
+(documentación, sin código productivo) que resolvió `SUCCESS` sin
+requerir ninguna prueba ni escritura de DB nueva.
+
+Esta sección se agregó en `P2-T45-R2-FIX` (2026-09-19) porque el cierre
+original omitió registrar estos valores dentro del propio archivo del
+reporte (el commit no podía conocer su propio SHA en el momento de
+escribirse) — el SHA y el push SÍ ocurrieron correctamente en su momento,
+sólo faltaba documentarlos acá.
+
+## 14. Consistency check
 
 ```text
 ROADMAP_CONSISTENCY_CHECK=PASS
@@ -309,7 +338,21 @@ estas contradicciones:
   CLOSED_TESTING_CERTIFIED, nunca CLOSED_PRODUCTION)
 - T44 reabierto accidentalmente → NO OCURRE (P2_T44_STATUS sigue
   PAUSED_UNRESOLVED_AFTER_TIMEBOX en toda la documentación)
-- T42/T41 reabiertos → NO OCURRE (ambos preservados sin cambios)
+- T42/T41 reabiertos → NO OCURRE (ambos preservados como cerrados/
+  Production sin cambios)
+- T42 listada incorrectamente como "próxima tarea pendiente" → ENCONTRADO
+  Y CORREGIDO en esta ronda (P2-T45-R2-FIX): una reconciliación anterior
+  de esta misma línea de trabajo había sugerido "P2-T42 formal closeout"
+  como alternativa sin verificar que
+  P2_T42_R1_FORMAL_CLOSEOUT_AND_CURATED_PRODUCTION_PROMOTION.md ya
+  documentaba `P2_T42_STATUS=CLOSED_PRODUCTION` con deploy Production
+  SUCCESS — corregido en ROADMAP.md.
+- T43/T02/T53 con estado stale en la sección autoritativa → ENCONTRADO Y
+  CORREGIDO en esta ronda: los tres tenían rondas R2/R3/R6/R1B ya
+  cerradas (`CLOSED_TESTING_CERTIFIED`/`CLOSED_OPERATOR_PASS`) que nunca
+  se habían reconciliado contra la sección "Backlog vigente por estado"
+  de ROADMAP.md (su última fuente reconciliada era del 2026-09-09, previa
+  a esos cierres) — movidos a la sección A, retirados de B/C.
 - Terminal Push actor = YES → NO OCURRE (sigue NO_ES_ACTOR_PUSH_POR_DISEÑO)
 - Production promoted → NO OCURRE (PRODUCTION_TOUCHED=NO en todo momento)
 ```
@@ -318,15 +361,14 @@ Snapshots históricos (secciones "PREVIOUS STATE" de
 `DELIGO_FULL_CONTEXT_LATEST.md`, entradas numeradas antiguas de
 `ROADMAP.md`) permanecen intactos, sin reescritura retroactiva.
 
-## 14. Siguiente tarea — NO iniciada
+## 15. Siguiente tarea — NO iniciada
 
 ```text
 NEXT_TASK_STARTED=NO
 ```
 
-Candidatos identificados desde el roadmap actualizado (sólo informativo,
-ninguno iniciado): P2-T42 formal closeout + curated promotion (ya
-implementado/testeado/desplegado, sólo falta el cierre formal); P2-T43
-Employee Join Identity + Admin Feedback (siguiente P1 en secuencia);
-P2-T39/T40/T38 (funcionales/UX independientes, PRIORITY_UNASSIGNED, ya
+Candidatos identificados desde el roadmap ya reconciliado (sólo
+informativo, ninguno iniciado): **P2-T49** (Terminal Mobile Shell + Chat
+Layout — único P1 restante en la sección activa); P2-T47/T50/T51 (P2/
+P2_UX); P2-T39/T40/T38 (funcionales/UX independientes, PRIORITY_UNASSIGNED,
 READY_FUTURE).
