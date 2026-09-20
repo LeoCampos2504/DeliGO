@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { resolveCustomDateFilter } from "@/lib/date-range-filter"
 
 type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
 
@@ -16,32 +17,6 @@ function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null
   if (empleado.eliminado) return "desvinculado"
   if (!empleado.activo) return "suspendido"
   return "activo"
-}
-
-// P2-T50-R1: parseo seguro de "YYYY-MM-DD"/"YYYY-MM" por componentes —
-// nunca `new Date(string)` (evita interpretación UTC). El roundtrip
-// contra los componentes originales rechaza fechas calendario inválidas
-// (31/02, mes 13, etc.) que `new Date(y, m-1, d)` normalizaría en silencio.
-function parseIsoDateComponents(value: string): { year: number; month: number; day: number } | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  const roundtrip = new Date(year, month - 1, day)
-  if (roundtrip.getFullYear() !== year || roundtrip.getMonth() !== month - 1 || roundtrip.getDate() !== day) {
-    return null
-  }
-  return { year, month, day }
-}
-
-function parseIsoMonthComponents(value: string): { year: number; month: number } | null {
-  const match = /^(\d{4})-(\d{2})$/.exec(value)
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2])
-  if (month < 1 || month > 12) return null
-  return { year, month }
 }
 
 // Seguridad-6B.3: estadísticas de salón (ingresos totales y por mozo) — nunca cacheables.
@@ -77,13 +52,14 @@ export async function GET(req: NextRequest) {
     const invalidFilterResponse = () =>
       NextResponse.json({ error: "Filtro de fecha inválido" }, { status: 400, headers: NO_STORE_HEADERS })
 
-    const customModeCount = [
-      fechaParam !== null,
-      mesParam !== null,
-      desdeParam !== null || hastaParam !== null,
-    ].filter(Boolean).length
+    const customOutcome = resolveCustomDateFilter({
+      fecha: fechaParam,
+      mes: mesParam,
+      desde: desdeParam,
+      hasta: hastaParam,
+    })
 
-    if (customModeCount > 1) {
+    if (customOutcome.status === "invalid") {
       return invalidFilterResponse()
     }
 
@@ -91,29 +67,10 @@ export async function GET(req: NextRequest) {
     let toExclusive: Date | null = null
     let periodo: string = periodoParam
 
-    if (fechaParam !== null) {
-      const parsed = parseIsoDateComponents(fechaParam)
-      if (!parsed) return invalidFilterResponse()
-      from = new Date(parsed.year, parsed.month - 1, parsed.day)
-      toExclusive = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
-      periodo = "fecha"
-    } else if (mesParam !== null) {
-      const parsed = parseIsoMonthComponents(mesParam)
-      if (!parsed) return invalidFilterResponse()
-      from = new Date(parsed.year, parsed.month - 1, 1)
-      toExclusive = new Date(parsed.year, parsed.month, 1)
-      periodo = "mes_especifico"
-    } else if (desdeParam !== null || hastaParam !== null) {
-      if (!desdeParam || !hastaParam) return invalidFilterResponse()
-      const desdeParsed = parseIsoDateComponents(desdeParam)
-      const hastaParsed = parseIsoDateComponents(hastaParam)
-      if (!desdeParsed || !hastaParsed) return invalidFilterResponse()
-      const desdeDate = new Date(desdeParsed.year, desdeParsed.month - 1, desdeParsed.day)
-      const hastaDate = new Date(hastaParsed.year, hastaParsed.month - 1, hastaParsed.day)
-      if (desdeDate.getTime() > hastaDate.getTime()) return invalidFilterResponse()
-      from = desdeDate
-      toExclusive = new Date(hastaParsed.year, hastaParsed.month - 1, hastaParsed.day + 1)
-      periodo = "rango"
+    if (customOutcome.status === "custom") {
+      from = customOutcome.from
+      toExclusive = customOutcome.toExclusive
+      periodo = customOutcome.periodo
     } else {
       // ── Quick filters (sin cambios de semántica) ──────────────
       const now = new Date()
