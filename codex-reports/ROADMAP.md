@@ -373,6 +373,39 @@ P2_T50_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   GET /api/negocio/salon/stats, certificación física R2 Cases A-D + F
   todos PASS, Case E NOT_REQUIRED_CONDITIONAL — ver
   P2_T50_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md)
+P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
+  2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
+  falsifica) **con un gap de cobertura correctivo abierto**: durante la
+  certificación física de P2-T47 (2026-09-20) el operador encontró que
+  el flujo de pedido manual de Mozo/Operaciones personal
+  (`src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx`, compartido vía
+  re-export con `/operaciones/mi-panel/[slug]/pedido/[mesaId]`) todavía
+  mostraba un selector Efectivo/Transferencia al tomar un pedido
+  individual — violando la regla canónica de T46
+  (`PAYMENT_METHOD_SELECTION_DURING_INDIVIDUAL_TABLE_ORDER=NO`) que
+  T46-R1 nunca llegó a aplicar a ESTE archivo específico (sólo tocó
+  cuenta/ticket/historial). Confirmado por lectura read-only de
+  `origin/main` que el mismo selector YA EXISTE en Production hoy —
+  este gap no es exclusivo de Testing. `P2-T46-R2` (2026-09-20)
+  implementó, testeó y desplegó a TESTING la corrección (elimina el
+  selector visual, el estado `metodoPago`, y el envío/validación/
+  persistencia de `metodoPago` en `POST /api/operativo/mozo/panel/
+  [slug]/pedidos` — la autoridad de pago sigue siendo exclusivamente
+  `SesionOcupacionMesa` al cierre de cuenta, sin cambios); 2 archivos
+  productivos + 2 archivos de test nuevos (21 tests focales, 0 fail;
+  los 29 tests de regresión de T47 sobre el mismo archivo compartido
+  siguen pasando sin cambios), TSC 31 baseline/0 nuevos, ESLint/build/
+  diff-check PASS; commit `55187a66f253e377df27f36a416f31cbd73642e0`,
+  TESTING deploy SUCCESS `d458fc4f-9064-46e2-8851-f36f3f21fe20`; ver
+  P2_T46_R2_MOZO_PAYMENT_TIMING_PARITY.md.
+  `P2_T46_R2_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION`
+  — NO promovido a Production en esta ronda
+  (`PRODUCTION_LIKELY_AFFECTED_BY_SAME_GAP=SI`, pendiente de
+  autorización explícita futura); hallazgo lateral documentado, NO
+  corregido: `POST /api/pedidos` (checkout compartido de Cliente
+  retiro/domicilio/mesa) todavía exige `metodoPago` para
+  `metodoEntrega="mesa"` aunque el selector visual ya esté oculto para
+  ese caso — fuera del alcance quirúrgico de esta ronda.
 ```
 
 ### B. ACTIVE / ACTIONABLE
