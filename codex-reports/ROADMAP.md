@@ -432,14 +432,32 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T55 — Salon History Custom Date Filtering — P2 — READY_FUTURE
-          (registrada 2026-09-20 durante el cierre físico de P2-T50 —
-          el operador pidió los mismos filtros día/mes/rango en el
-          Historial de Salón del panel Negocio, distinto de las
-          Estadísticas que T50 ya modificó; NO implementar sin auditar
-          primero si Historial usa el mismo endpoint/campo de fecha que
-          T50 — no asumir paridad; ver
-          P2_T47_A0_PRODUCT_PERSONALIZATION_UX_AUDIT_DESIGN.md §3)
+P2-T55 — Salon History Custom Date Filtering — P2 — AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+          (registrada 2026-09-20 durante el cierre físico de P2-T50;
+          A0 2026-09-20 confirmó que el target real —
+          `HistorialSubTab`, src/components/business/salon-tab.tsx —
+          es un modelo POR-MESA (grilla de mesas → Drawer con el
+          historial de esa mesa), estructuralmente distinto del
+          dashboard agregado de Estadísticas de T50; usa
+          `GET /api/negocio/pedidos?estado=historial&metodoEntrega=mesa`,
+          NO el endpoint de T50; mismo campo canónico `Pedido.fecha`,
+          pero el quick filter "Mes" de Historial es una ventana rodante
+          de 30 DÍAS FIJOS (no 1 mes calendario como en T50) — divergencia
+          real ya documentada, preservada sin cambios; Historial SÍ
+          incluye pedidos `cancelado` (Estadísticas de T50 no); grouping
+          por `Pedido.ocupacionMesaId` reutilizando `buildCuentaMesa`/
+          `withCuentaMesaPayment` (autoridad T46, sin tocar); paginación
+          actual es por-pedido con límite fijo de 50 sin "cargar más";
+          reuso de T50 acotado y explícito: SÍ los helpers de fecha
+          (`dateToIsoDateString`/`isoDateStringToDate`, ya exportados en
+          el MISMO archivo) y el patrón de UI (Popover/Calendar/Select
+          ya importados), NO el tipo/funciones de Stats literalmente
+          (formas distintas); recomienda extraer el parseo seguro de
+          fecha de T50 a un helper compartido (`src/lib/date-range-filter.ts`)
+          para no duplicarlo entre los dos endpoints; NEW_ENDPOINT_REQUIRED=NO,
+          extensión aditiva de `GET /api/negocio/pedidos`; cero
+          API/schema/migración en A0; ver
+          P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md)
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -523,13 +541,9 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). T51 es la siguiente tarea activa sin dependencia externa ni hardware ni auditoría previa pendiente (a diferencia de T55, que requiere su propia auditoría antes de cualquier código) y sin bloqueo externo (a diferencia de T23/T24/T34).
-ALTERNATIVE_NEXT_TASK_1=P2-T55 (P2, requiere auditoría propia primero — ver nota abajo)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 completó su propia auditoría A0 (2026-09-20, ver P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md) y queda igual de lista para implementación que T51 — se mantiene T51 como recomendación primaria simplemente por orden de registro en el backlog, sin bloqueo real de ninguna de las dos.
+ALTERNATIVE_NEXT_TASK_1=P2-T55 (P2, AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION — ver P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md)
 ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
-P2-T55 — Salon History Custom Date Filtering — registrada 2026-09-20,
-  READY_FUTURE — no es alternativa inmediata: requiere su propia
-  auditoría (¿mismo endpoint/campo de fecha que T50?) antes de cualquier
-  código, ver ROADMAP Sección B.
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
