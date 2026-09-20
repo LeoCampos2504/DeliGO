@@ -467,7 +467,21 @@ P2-T55 — Salon History Custom Date Filtering — P2 — IMPLEMENTATION_COMPLET
           candidata identificada (read-only) para certificación física
           R2: negocio "burgerking" (slug `burgerking`), 15 pedidos
           históricos de mesa reales spread 2026-08-06→2026-09-11 — ver
-          P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md)
+          P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md.
+          R1B (2026-09-20, DESIGN_ONLY_CHANGE=SI): tras validación
+          funcional del operador, se detectó que las pills Hoy/Semana/
+          Mes de Historial habían quedado con el estilo visual PRE-T55
+          (pill individual con borde + color primario en activo) en vez
+          de heredar el patrón de segmented-control que Estadísticas ya
+          usa (el botón "Elegir fecha" y todo el Popover custom ya eran
+          byte-idénticos desde R1). Se igualaron único y exclusivamente
+          los `className` del contenedor y botón de esas 3 pills al
+          patrón exacto de `EstadisticasSubTab` — cero cambio de lógica,
+          cero cambio de API, `HISTORY_TODO_ADDED=NO`; 98/98 tests
+          existentes sin modificar siguen pasando; commit
+          `4f7b3355269768b9ef69ca650ac4faa6e1342bd2`, TESTING deploy
+          SUCCESS `7a3e8d12-66b4-4214-b963-6e5480a441df` — ver
+          P2_T55_R1B_HISTORY_FILTER_VISUAL_PARITY.md)
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
