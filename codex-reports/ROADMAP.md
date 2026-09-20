@@ -339,7 +339,7 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
 están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45,
-P2-T49, P2-T50, P2-T47, P2-T55, P2-T51 están cerradas con certificación de Testing
+P2-T49, P2-T50, P2-T47, P2-T55, P2-T51, P2-T52 están cerradas con certificación de Testing
 (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=SI`/`YES`) y no se
 inventa un checkpoint Production que no esté demostrado — ninguna de
 ellas fue promovida a `main`/Production en esta reconciliación. P2-T53
@@ -418,6 +418,39 @@ P2_T51_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md y
   P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md)
+P2_T52_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  PRODUCTION_PROMOTED=NO (3 rondas de auditoría — A0 confirmó que
+  /mozo comparte TODO con Operaciones vía re-export literal de
+  componentes, documentado en el propio código como "compatibilidad
+  temporal", clasificación final `CURRENT_REQUIRED` (no
+  `SAFE_TO_REMOVE`) por dependencias reales de push/PWA/service-worker;
+  A1 investigó el ciclo de actualización de manifest de Chrome con
+  fuentes oficiales y confirmó que el objetivo "dejar de promover
+  instalaciones nuevas de PWA Mozo" YA estaba cumplido en código antes
+  de esta sesión (install-prompt.tsx/permission-prompt.tsx ya excluían
+  /mozo) — cero cambio necesario para Mozo; A2 auditó Empleado/Salón
+  (`/e/{token}`, `/s/{token}`, ya retirados por completo desde
+  "Legacy-Cleanup-1B") y encontró el único residuo real: install-prompt.tsx
+  NO los excluía (a diferencia de Mozo) — R1B corrigió exactamente eso,
+  agregando `isLegacyOperationsTombstoneRoute()` a
+  `src/components/shared/install-prompt.tsx` (excluye
+  `/e`/`/e/**`/`/s`/`/s/**`, mismo patrón que `isMozoRoute()`, sin
+  tocar role-config/DynamicManifest/manifests/íconos/SW/push/auth); 13
+  tests focales + 14 regresión existentes, todos PASS, TSC 31
+  baseline/0 nuevos, ESLint/build/diff-check PASS; certificación física
+  del operador PASS en los 4 casos verificables (Case E — PWA legacy
+  ya instalada — `CONDITIONAL_NOT_AVAILABLE`, no bloqueante); Mozo,
+  manifests e íconos preservados sin ningún cambio — ver
+  P2_T52_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md,
+  P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md,
+  P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md y
+  P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md.
+  Deuda opcional no bloqueante registrada, sin fecha: limpieza de
+  role-config.ts para "empleado"/"salon", íconos -512x512.png sin
+  consumidor, endpoint /api/manifest sin callers, y la Fase 4 de Mozo
+  — migración de push target + Service Worker — que requiere su propia
+  autorización explícita futura.)
 P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
   falsifica) **con un gap de cobertura correctivo abierto**: durante la
@@ -464,147 +497,6 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
-          (R1B 2026-09-20, ver
-          P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md:
-          implementó exactamente Option A del diseño A2 — agregó
-          `isLegacyOperationsTombstoneRoute()` a
-          `src/components/shared/install-prompt.tsx` (excluye
-          `/e`/`/e/**`/`/s`/`/s/**`, mismo patrón textual que
-          `isMozoRoute()` ya existente para `/mozo`, que queda
-          exactamente igual y ahora exportada junto a la nueva función
-          para permitir un contrato de test puro) — deja de ofrecer
-          "Instalar DeliGO Empleados"/"Instalar DeliGO Salón" en las
-          pantallas tombstone (`LegacyAccessRetired`, sin tocar). Único
-          archivo de producto modificado, cero cambio de
-          role-config/DynamicManifest/manifest/ícono/SW/push/auth. 13
-          tests focales nuevos (contrato puro de clasificación de
-          ruta) + 14 tests de regresión existentes de InstallPrompt,
-          todos PASS; TSC 31 baseline/0 nuevos, ESLint/build/
-          diff-check PASS. Prevalidación técnica en Browser pane
-          confirmó: `/e/test` y `/s/test` muestran el tombstone sin
-          ningún banner de instalación, `/operaciones` (home T51) y
-          `/mozo` sin cambios de comportamiento. Commit
-          `5f4804c0d903475ca1949bd5428145a80ca6dc15`, TESTING deploy
-          SUCCESS `2aae4685-8c1a-4e04-815d-ae3197682724`, boot logs
-          limpios. Pendiente de certificación física del operador antes
-          de cierre formal de T52 — ver
-          P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md)
-P2-T52-A2-HISTORICO (A2 2026-09-20, ver
-          P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md:
-          auditoría profunda de los residuos de Empleado/Salón,
-          construida explícitamente sobre una auditoría previa a esta
-          sesión —
-          P2_OPERATIONS_SINGLE_PWA_IDENTITY_AUTHORITY_CORRECTION.md
-          (2026-09-09) — que ya había clasificado ambas rutas como
-          "wireadas pero funcionalmente inertes" desde antes. A2
-          confirma con evidencia de código (no supuestos) que
-          `/e/[token]` y `/s/[token]` son pantallas estáticas
-          (`LegacyAccessRetired`, 4 consumidores totales, cero fetch/
-          token/auth) que pueden seguir existiendo indefinidamente como
-          compatibility tombstones sin ningún riesgo — y que
-          `role-config.ts`/manifests/DynamicManifest para ambos roles
-          son seguros de tocar EVENTUALMENTE (cosmético únicamente) pero
-          NO urgentes. **Hallazgo nuevo, no cubierto en 2026-09-09**:
-          `install-prompt.tsx` NO excluye `/e` ni `/s` (a diferencia de
-          `/mozo`, que sí está excluido desde antes) — hoy PUEDE ofrecer
-          activamente "Instalar DeliGO Empleados"/"Instalar DeliGO
-          Salón", una PWA cuyo único contenido posible es la pantalla
-          de retiro. Es el ÚNICO residuo/bug real y accionable
-          encontrado, con una corrección de bajo riesgo (mismo patrón
-          ya usado para Mozo, ~3-5 líneas en un solo archivo).
-          `icon-empleado-192x192.png`/`icon-salon-192x192.png`
-          confirmados como dependencias ACTIVAS de Push hoy (selección
-          de ícono por área en `sw.js`, independiente de cualquier
-          limpieza de PWA) — nunca se tocan. Los `-512x512.png`
-          (ambos con dimensión real 2133×2133, sin consumidor
-          funcional) son candidatos opcionales de limpieza futura, sin
-          urgencia. Recomienda T52-R1B acotado a un solo archivo
-          (`install-prompt.tsx`) como única implementación pendiente
-          de T52 — separado de la Fase 4 de Mozo (A1) y de cualquier
-          limpieza de assets 512/role-config (sin urgencia). Cero
-          código/manifest/role-config/DynamicManifest/SW/push/auth
-          tocado en esta ronda.)
-P2-T52-A1-HISTORICO (A1 2026-09-20, ver
-          P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md:
-          hallazgo central — el objetivo "dejar de promover
-          instalaciones nuevas de PWA Mozo" YA ESTÁ CUMPLIDO en código,
-          desde antes de esta sesión. `install-prompt.tsx` y
-          `permission-prompt.tsx` YA excluyen por completo `/mozo`
-          (`if (isMozoRoute(pathname)) return null`) — ningún cambio
-          nuevo es necesario ahí. `DynamicManifest` NO debe tocarse:
-          su caso especial de `/mozo` protege específicamente la ruta
-          exacta sin barra final (`getRoleFromPath` sólo matchea
-          `/mozo/` CON barra), y el ciclo de actualización/lanzamiento
-          de una PWA ya instalada usa su propio `start_url` registrado
-          (`/mozo/`, con barra, YA resuelto correctamente sin tocar
-          nada) — investigado con fuentes oficiales de Chrome/web.dev
-          (ver reporte §5) sobre cómo Chrome verifica actualizaciones
-          de manifest (name/icons ahora son "security sensitive",
-          cambios opcionales para el usuario, nunca forzados) y cómo
-          el lanzamiento de una app instalada nunca "redecide" su
-          identidad contra lo que se sirva hoy en otras pestañas. El
-          único trabajo real pendiente (migrar el deep-link de push
-          "pedido listo" de `/mozo/panel/[slug]` a
-          `/operaciones/mi-panel/[slug]`, junto con una actualización
-          mínima y compatible del Service Worker) queda diferido
-          explícitamente a una Fase 4 futura con su propia
-          autorización — hoy generaría una mejora para usuarios
-          modernos a costa de una pequeña degradación de UX (no de
-          función) para el grupo, fijo y no creciente, que ya tiene
-          "DeliGO Mozos" instalada. Empleado/Salón (`/e/{token}`,
-          `/s/{token}`) resultaron estar YA COMPLETAMENTE RETIRADOS
-          desde una limpieza anterior ("Legacy-Cleanup-1B") —
-          `/api/empleado/` y `/api/salon/` ni siquiera existen en el
-          repo; ambas rutas sólo muestran una pantalla estática
-          "Este acceso fue reemplazado" con links a
-          /operaciones/ingresar y /operaciones/registro — modelo de
-          auth completamente distinto al de Mozo (magic-link sin
-          sesión vs. CuentaOperativa con sesión), clasificación
-          `SAFE_TO_REMOVE` en el sentido de assets (manifest/iconos/
-          role-config), pero su limpieza de assets NO se ejecuta en
-          esta ronda (fuera del alcance solicitado). Recomienda
-          dividir cualquier implementación futura en T52-R1A (Mozo,
-          compatibility-first) vs T52-R1B (Empleado/Salón asset
-          cleanup, modelo de auth completamente distinto). Cero
-          código/manifest/SW/push/auth tocado en esta ronda.)
-P2-T52-A0-HISTORICO (A0 2026-09-20, disparada por evidencia física del operador:
-          "/mozo" sigue completamente funcional y una CuentaOperativa
-          real puede autenticarse desde /mozo/iniciar-sesion — rechaza
-          la suposición previa de que era ruta muerta. Auditoría de
-          código confirmó que /mozo y /operaciones comparten TODO:
-          mismo login/registro/logout/`me` (`/api/operativo/*`), misma
-          cookie `deligo_operativo_session`, mismo modelo
-          CuentaOperativa/Empleado, mismo endpoint de unión por código
-          (`/api/operativo/mozos/unirse`, que sólo VINCULA una cuenta a
-          un Empleado ya existente — nunca crea el vínculo ni asigna
-          rol/área, eso lo fija el negocio por separado) — la
-          arquitectura real es RE-EXPORT LITERAL de componentes
-          (`/operaciones/mi-panel` = `export {default} from
-          "@/app/mozo/page"`, `/operaciones/mi-panel/[slug]` = mismo
-          re-export de `/mozo/panel/[slug]`), documentado en el propio
-          código como "compatibilidad temporal" — NO son dos
-          implementaciones, es UNA sola servida bajo dos árboles vía
-          `useOperativoNav()`. `Empleado.rol` ya NO autoriza acceso a
-          áreas (cerrado tras backfill) — `Empleado.areaOperativa`
-          (mozo|salon|pyr|sin_asignar, fijada exclusivamente por el
-          negocio) es la única autoridad real, vía
-          `resolveAreaOperativaEfectiva()`. Hallazgo crítico de riesgo:
-          Mozo SÍ tiene una PWA separada real e instalable HOY
-          (`manifest-mozo.json`, scope `/mozo/`, vía `DynamicManifest`
-          — Mozo no está en `PRINCIPAL_PWA_ROLES`), y el deep-link de
-          push "pedido listo" está hardcodeado a `/mozo/panel/[slug]`
-          (`mesa-order-ready-notification.ts`) con lógica del service
-          worker atada a ese string literal — clasificación final:
-          `CURRENT_REQUIRED`, NO `SAFE_TO_REMOVE`. 3 opciones
-          diseñadas (A: mantener /mozo como compatibility entrypoint
-          pero dejar de promover su PWA separada, RECOMENDADA; B:
-          redirect gradual, riesgo alto para instalaciones existentes
-          por ruptura de scope; C: no tocar nada). Cero código/tests/
-          manifest/SW/auth modificados en esta ronda — sólo auditoría
-          y diseño; decisión final de ejecutar R1 pendiente del
-          operador — ver
-          P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md)
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -683,12 +575,11 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=NONE_PENDING_IMPLEMENTATION
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=P2-T52-R1B implementado, esperando certificación física del operador
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=N/A
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52-R1B (2026-09-20, ver P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md) implementó, testeó y desplegó a TESTING la única corrección de bajo riesgo/valor real que las 3 rondas de auditoría de T52 (A0/A1/A2) encontraron — excluir /e y /s de install-prompt.tsx — y queda `IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION`. No queda ninguna implementación nueva lista y sin decisión pendiente en el backlog activo — sólo tareas PRIORITY_UNASSIGNED (T39/T38/T40) y la Fase 4 de Mozo (requiere autorización explícita separada).
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55, P2-T51 y ahora P2-T52 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — P2-T52 cerró tras certificación física del operador de R1B (4 casos verificables PASS, Case E de PWA legacy instalada CONDITIONAL_NOT_AVAILABLE, no bloqueante), ver P2_T52_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. No queda ningún P1/P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40) y la Fase 4 de Mozo (push target + Service Worker), que requiere su propia autorización explícita futura, no automática.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
-ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
@@ -706,6 +597,12 @@ P2-T51 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente (aceptación visual general del operador,
   "quedó perfecto").
+P2-T52 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T52_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  ya no es una tarea pendiente (certificación física PASS en los 4
+  casos verificables). Sólo queda pendiente, sin fecha ni bloqueo,
+  la Fase 4 de Mozo (push target + Service Worker) — ver
+  ALTERNATIVE_NEXT_TASK_1 arriba.
 P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
   requiere una decisión/sonda del operador antes de cualquier código nuevo.
 P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
