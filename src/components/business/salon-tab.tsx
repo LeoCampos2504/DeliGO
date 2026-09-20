@@ -2479,9 +2479,11 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   return (
     <div className="space-y-4">
-      {/* Period filter + custom date filter */}
+      {/* Period filter + custom date filter — mismo patrón visual de
+          segmented control que EstadisticasSubTab (P2-T55-R1B: paridad
+          visual, misma lógica, sin agregar el modo "todo" de T50). */}
       <div className="flex items-center gap-2">
-        <div className="flex gap-2 flex-1 min-w-0">
+        <div className="flex bg-muted/60 rounded-xl p-1 flex-1 min-w-0">
           {(["hoy", "semana", "mes"] as const).map((p) => {
             const isActive = appliedFilter.kind === "quick" && appliedFilter.periodo === p
             return (
@@ -2489,10 +2491,10 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
                 key={p}
                 onClick={() => handleQuickFilterClick(p)}
                 className={cn(
-                  "px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                  "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
                   isActive
-                    ? "border-primary/30 bg-primary/10 text-primary"
-                    : "border-transparent bg-muted/50 text-muted-foreground hover:bg-muted"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {p === "hoy" ? "Hoy" : p === "semana" ? "Semana" : "Mes"}
