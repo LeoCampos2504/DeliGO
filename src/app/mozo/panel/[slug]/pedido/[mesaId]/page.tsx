@@ -79,7 +79,6 @@ interface MenuData {
     nombre: string
     slug: string
     colorPrincipal: string
-    aceptaTransferencia: boolean
   }
   categorias: string[]
   productos: MenuProduct[]
@@ -125,7 +124,6 @@ export default function MozoPedidoManualPage() {
   const [category, setCategory] = useState("Todas")
   const [cart, setCart] = useState<OrderItem[]>([])
   const [selectedProduct, setSelectedProduct] = useState<MenuProduct | null>(null)
-  const [metodoPago, setMetodoPago] = useState<"efectivo" | "transferencia">("efectivo")
   const [notas, setNotas] = useState("")
   const [idempotencyKey] = useState(() => crypto.randomUUID())
   const [submitting, setSubmitting] = useState(false)
@@ -359,7 +357,6 @@ export default function MozoPedidoManualPage() {
         body: JSON.stringify({
           idempotencyKey,
           mesaId: state.mesa.id,
-          metodoPago,
           notas,
           items: cart.map((item) => ({
             productoId: item.productoId,
@@ -582,26 +579,6 @@ export default function MozoPedidoManualPage() {
             )}
 
             <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={metodoPago === "efectivo" ? "default" : "outline"}
-                  onClick={() => setMetodoPago("efectivo")}
-                  className={cn("rounded-xl", metodoPago === "efectivo" && "bg-amber-500 text-white hover:bg-amber-600")}
-                >
-                  Efectivo
-                </Button>
-                <Button
-                  type="button"
-                  variant={metodoPago === "transferencia" ? "default" : "outline"}
-                  onClick={() => setMetodoPago("transferencia")}
-                  disabled={!menu.negocio.aceptaTransferencia}
-                  className={cn("rounded-xl", metodoPago === "transferencia" && "bg-amber-500 text-white hover:bg-amber-600")}
-                >
-                  Transferencia
-                </Button>
-              </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="notas-pedido">Notas</Label>
                 <textarea

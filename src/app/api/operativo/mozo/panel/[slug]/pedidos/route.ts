@@ -192,7 +192,6 @@ function createManualOrderFingerprint(params: {
   negocioId: string
   empleadoId: string
   mesaId: string
-  metodoPago: string
   notas: string | null
   items: IncomingPedidoItem[]
 }): string {
@@ -219,7 +218,6 @@ function createManualOrderFingerprint(params: {
     negocioId: params.negocioId,
     empleadoId: params.empleadoId,
     mesaId: params.mesaId,
-    metodoPago: params.metodoPago,
     notas: params.notas || "",
     items,
   }
@@ -672,7 +670,6 @@ export async function GET(
       select: {
         rubro: true,
         categorias: true,
-        aceptaTransferencia: true,
       },
     })
 
@@ -747,7 +744,6 @@ export async function GET(
           slug: auth.negocio.slug,
           colorPrincipal: auth.negocio.colorPrincipal,
           rubro: negocio.rubro,
-          aceptaTransferencia: negocio.aceptaTransferencia,
         },
         categorias: safeParseJSON<string[]>(negocio.categorias, []),
         productos: productos.map((producto) => {
@@ -867,10 +863,10 @@ export async function POST(
       )
     }
 
-    if (body.metodoPago !== "transferencia" && body.metodoPago !== "efectivo") {
-      return noStore(NextResponse.json({ error: "Metodo de pago invalido" }, { status: 400 }))
-    }
-    const metodoPago = body.metodoPago
+    // P2-T46-R2: un pedido de mesa nunca solicita/exige método de pago acá —
+    // esa decisión pertenece al cierre de cuenta (SesionOcupacionMesa,
+    // autoridad de T46-R1). Cualquier `metodoPago` que un cliente legacy
+    // todavía envíe se ignora por completo, nunca se valida ni se usa.
     const notas = readOptionalText(body.notas) || null
     const itemsResult = validateIncomingItems(body.items)
     if (!itemsResult.ok) {
@@ -881,7 +877,6 @@ export async function POST(
       negocioId: auth.negocio.id,
       empleadoId: auth.empleado.id,
       mesaId,
-      metodoPago,
       notas,
       items: incomingItems,
     })
@@ -986,14 +981,10 @@ export async function POST(
               timezone: true,
               horarioMode: true,
               abiertoManual: true,
-              aceptaTransferencia: true,
             },
           })
 
           if (!negocio) throw new Error("NEGOCIO_UNAVAILABLE")
-          if (metodoPago === "transferencia" && !negocio.aceptaTransferencia) {
-            throw new Error("METODO_PAGO_INVALIDO")
-          }
           if (!isBusinessOpenAt({
             instant: new Date(),
             horarios: negocio.horarios,
@@ -1207,7 +1198,10 @@ export async function POST(
               tarifaServicio: 0,
               precioDelivery: 0,
               metodoEntrega: "mesa",
-              metodoPago,
+              // P2-T46-R2: sin metodoPago acá a propósito — la columna toma
+              // su default de schema ("efectivo") pero nunca es autoridad
+              // para un pedido de mesa; el pago real vive en
+              // SesionOcupacionMesa.metodoPago al cerrar la cuenta.
               notas,
               direccion: null,
               referencia: null,
@@ -1342,9 +1336,6 @@ export async function POST(
             { status: 400 }
           )
         )
-      }
-      if (error.message === "METODO_PAGO_INVALIDO") {
-        return noStore(NextResponse.json({ error: "Metodo de pago invalido" }, { status: 400 }))
       }
       if (
         error.message.includes("PRODUCTO") ||
