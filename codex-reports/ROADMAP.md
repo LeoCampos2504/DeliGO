@@ -447,7 +447,29 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION
+          (R1 2026-09-20 implementó exactamente Option A del diseño A0:
+          en `src/app/operaciones/page.tsx` — accent AMBER (heredado de
+          `/operaciones/ingresar`) para "Ingresar con mi cuenta",
+          accent SLATE fijo (nunca `negocio.colorPrincipal`) para
+          "Usar o activar esta terminal", decoración de fondo con 2
+          blurs sutiles, `shadow-sm`→`shadow-lg shadow-black/5
+          dark:shadow-black/20`, helper local `EntryOptionCard` para
+          evitar duplicación — CERO cambio de `href`, copy, o lectura
+          de sesión (server component puro, sigue sin `"use client"`,
+          sigue prerenderizándose `○` estático). 17 tests focales
+          nuevos (contrato estático de source, dado que `page.tsx`
+          compone `<Link>` de next/link sin contexto de App Router
+          disponible fuera de Next), TSC 31 baseline/0 nuevos, ESLint/
+          build/diff-check PASS. Prevalidación técnica en Browser pane
+          (desktop, 375px, 320px, dark mode forzado vía
+          `deligo-theme`) sin overflow ni errores de consola — NO es
+          certificación física. Commit
+          `c713650708855c5bd40efede3674b48581c65a11`, TESTING deploy
+          SUCCESS `f31a69d8-2dbe-4929-9870-f616db9454fb`, boot logs
+          limpios, sin migración pendiente. T52/T38/T40 confirmados
+          sin tocar — ver
+          P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md)
           (A0 2026-09-20: home real confirmado en
           `src/app/operaciones/page.tsx` — un único Card server-side
           (sin `"use client"`, sin lectura de cookies/sesión), selector
@@ -556,11 +578,11 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y ahora P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 ni P2 con certificación física pendiente en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 cerró su ronda completa (R1 funcional + R1B paridad visual) con certificación física y visual PASS del operador — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. P2-T51 completó su propia auditoría+diseño A0 (2026-09-20, ver P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md) y queda `AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION` — única recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva (R1).
-ALTERNATIVE_NEXT_TASK_1=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T51 implementó R1 (Option A, ver P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md) y quedó `IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION` — no es "lista para implementación" (eso ya se hizo), sino "lista para que el operador certifique físicamente en TESTING". No queda ningún P1 ni P2 con implementación nueva pendiente en el backlog activo hasta que se resuelva esa certificación o se abra una tarea nueva.
+ALTERNATIVE_NEXT_TASK_0=P2-T51-R2 PHYSICAL_CERTIFICATION (P2_UX, IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION — requiere al operador, no a Claude — ver P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md §11 para los 10 casos preparados; T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
