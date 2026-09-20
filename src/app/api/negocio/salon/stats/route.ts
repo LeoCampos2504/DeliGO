@@ -18,6 +18,32 @@ function getEstadoMozo(empleado?: { activo: boolean; eliminado: boolean } | null
   return "activo"
 }
 
+// P2-T50-R1: parseo seguro de "YYYY-MM-DD"/"YYYY-MM" por componentes —
+// nunca `new Date(string)` (evita interpretación UTC). El roundtrip
+// contra los componentes originales rechaza fechas calendario inválidas
+// (31/02, mes 13, etc.) que `new Date(y, m-1, d)` normalizaría en silencio.
+function parseIsoDateComponents(value: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const roundtrip = new Date(year, month - 1, day)
+  if (roundtrip.getFullYear() !== year || roundtrip.getMonth() !== month - 1 || roundtrip.getDate() !== day) {
+    return null
+  }
+  return { year, month, day }
+}
+
+function parseIsoMonthComponents(value: string): { year: number; month: number } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(value)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (month < 1 || month > 12) return null
+  return { year, month }
+}
+
 // Seguridad-6B.3: estadísticas de salón (ingresos totales y por mozo) — nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 
@@ -35,34 +61,91 @@ export async function GET(req: NextRequest) {
     }
 
     const negocioId = user.id
-    const periodo = req.nextUrl.searchParams.get("periodo") || "hoy"
+    const periodoParam = req.nextUrl.searchParams.get("periodo") || "hoy"
 
-    // ── Date filters ──────────────────────────────────────────
-    const now = new Date()
-    let startDate: Date | null = null
+    // ── P2-T50-R1: filtro de fecha personalizado (día/mes/rango) ──
+    // Extensión aditiva del contrato `periodo=hoy|semana|mes|todo`: si
+    // llega un filtro custom válido, éste manda sobre `periodo` (que los
+    // clientes actuales siguen enviando siempre). Precedencia explícita:
+    // 1) fecha  2) mes  3) desde+hasta  4) periodo (fallback histórico).
+    // Combinar más de un modo custom a la vez es ambiguo => 400 genérico.
+    const fechaParam = req.nextUrl.searchParams.get("fecha")
+    const mesParam = req.nextUrl.searchParams.get("mes")
+    const desdeParam = req.nextUrl.searchParams.get("desde")
+    const hastaParam = req.nextUrl.searchParams.get("hasta")
 
-    switch (periodo) {
-      case "semana":
-        startDate = new Date(now)
-        startDate.setDate(now.getDate() - 7)
-        startDate.setHours(0, 0, 0, 0)
-        break
-      case "mes":
-        startDate = new Date(now)
-        startDate.setMonth(now.getMonth() - 1)
-        startDate.setHours(0, 0, 0, 0)
-        break
-      case "todo":
-        startDate = null // no start filter
-        break
-      case "hoy":
-      default:
-        startDate = new Date(now)
-        startDate.setHours(0, 0, 0, 0)
-        break
+    const invalidFilterResponse = () =>
+      NextResponse.json({ error: "Filtro de fecha inválido" }, { status: 400, headers: NO_STORE_HEADERS })
+
+    const customModeCount = [
+      fechaParam !== null,
+      mesParam !== null,
+      desdeParam !== null || hastaParam !== null,
+    ].filter(Boolean).length
+
+    if (customModeCount > 1) {
+      return invalidFilterResponse()
     }
 
-    const dateFilter = startDate ? { gte: startDate } : undefined
+    let from: Date | null = null
+    let toExclusive: Date | null = null
+    let periodo: string = periodoParam
+
+    if (fechaParam !== null) {
+      const parsed = parseIsoDateComponents(fechaParam)
+      if (!parsed) return invalidFilterResponse()
+      from = new Date(parsed.year, parsed.month - 1, parsed.day)
+      toExclusive = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
+      periodo = "fecha"
+    } else if (mesParam !== null) {
+      const parsed = parseIsoMonthComponents(mesParam)
+      if (!parsed) return invalidFilterResponse()
+      from = new Date(parsed.year, parsed.month - 1, 1)
+      toExclusive = new Date(parsed.year, parsed.month, 1)
+      periodo = "mes_especifico"
+    } else if (desdeParam !== null || hastaParam !== null) {
+      if (!desdeParam || !hastaParam) return invalidFilterResponse()
+      const desdeParsed = parseIsoDateComponents(desdeParam)
+      const hastaParsed = parseIsoDateComponents(hastaParam)
+      if (!desdeParsed || !hastaParsed) return invalidFilterResponse()
+      const desdeDate = new Date(desdeParsed.year, desdeParsed.month - 1, desdeParsed.day)
+      const hastaDate = new Date(hastaParsed.year, hastaParsed.month - 1, hastaParsed.day)
+      if (desdeDate.getTime() > hastaDate.getTime()) return invalidFilterResponse()
+      from = desdeDate
+      toExclusive = new Date(hastaParsed.year, hastaParsed.month - 1, hastaParsed.day + 1)
+      periodo = "rango"
+    } else {
+      // ── Quick filters (sin cambios de semántica) ──────────────
+      const now = new Date()
+      let startDate: Date | null = null
+
+      switch (periodoParam) {
+        case "semana":
+          startDate = new Date(now)
+          startDate.setDate(now.getDate() - 7)
+          startDate.setHours(0, 0, 0, 0)
+          break
+        case "mes":
+          startDate = new Date(now)
+          startDate.setMonth(now.getMonth() - 1)
+          startDate.setHours(0, 0, 0, 0)
+          break
+        case "todo":
+          startDate = null // no start filter
+          break
+        case "hoy":
+        default:
+          startDate = new Date(now)
+          startDate.setHours(0, 0, 0, 0)
+          break
+      }
+
+      from = startDate
+      toExclusive = null
+      periodo = periodoParam
+    }
+
+    const dateFilter = from ? (toExclusive ? { gte: from, lt: toExclusive } : { gte: from }) : undefined
 
     // ── 1. Revenue by period (only entregado orders count for revenue) ──
 

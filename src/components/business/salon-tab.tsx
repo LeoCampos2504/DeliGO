@@ -78,6 +78,9 @@ import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacio
 import type { CuentaMesaHistorialResult } from "@/lib/mesa-historial"
 import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
 import { MesaAccountTicketDialog } from "@/components/shared/mesa-account-ticket-dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as StatsDatePicker } from "@/components/ui/calendar"
+import type { DateRange } from "react-day-picker"
 
 // ============================================
 // Types
@@ -539,13 +542,123 @@ export function SalonTab({ negocio }: SalonTabProps) {
 // ============================================
 // Estadísticas Sub-Tab
 // ============================================
+
+// P2-T50-R1: modelo de filtro de estadísticas de Salón. Sólo un modo
+// puede estar activo a la vez — el filtro custom (día/mes/rango)
+// reemplaza por completo al quick filter cuando está aplicado, y
+// viceversa (ver §18-20 del task spec).
+export type QuickPeriodo = "hoy" | "semana" | "mes" | "todo"
+export type StatsFilter =
+  | { kind: "quick"; periodo: QuickPeriodo }
+  | { kind: "day"; fecha: string }
+  | { kind: "month"; mes: string }
+  | { kind: "range"; desde: string; hasta: string }
+
+const MONTH_LABELS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+// Nunca `date.toISOString()` (desplaza a UTC) — siempre componentes
+// locales, igual que el parseo del backend en route.ts.
+export function dateToIsoDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+export function isoDateStringToDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number)
+  return new Date(year, month - 1, day)
+}
+
+export function buildStatsQuery(filter: StatsFilter): string {
+  const params = new URLSearchParams()
+  switch (filter.kind) {
+    case "quick":
+      params.set("periodo", filter.periodo)
+      break
+    case "day":
+      params.set("fecha", filter.fecha)
+      break
+    case "month":
+      params.set("mes", filter.mes)
+      break
+    case "range":
+      params.set("desde", filter.desde)
+      params.set("hasta", filter.hasta)
+      break
+  }
+  return params.toString()
+}
+
+export function getStatsFilterQueryKey(negocioId: string, filter: StatsFilter): (string)[] {
+  switch (filter.kind) {
+    case "quick":
+      return ["salon-stats", negocioId, "quick", filter.periodo]
+    case "day":
+      return ["salon-stats", negocioId, "day", filter.fecha]
+    case "month":
+      return ["salon-stats", negocioId, "month", filter.mes]
+    case "range":
+      return ["salon-stats", negocioId, "range", filter.desde, filter.hasta]
+  }
+}
+
+export function formatDayLabel(fecha: string): string {
+  const [year, month, day] = fecha.split("-")
+  return `${day}/${month}/${year}`
+}
+
+export function formatMonthLabel(mes: string): string {
+  const [year, month] = mes.split("-").map(Number)
+  return `${MONTH_LABELS[month - 1] ?? mes} ${year}`
+}
+
+const QUICK_PERIODO_LABELS: Record<QuickPeriodo, string> = {
+  hoy: "Hoy",
+  semana: "Semana",
+  mes: "Mes",
+  todo: "Todo",
+}
+
+export function getStatsFilterLabel(filter: StatsFilter): string {
+  switch (filter.kind) {
+    case "quick":
+      return QUICK_PERIODO_LABELS[filter.periodo]
+    case "day":
+      return formatDayLabel(filter.fecha)
+    case "month":
+      return formatMonthLabel(filter.mes)
+    case "range":
+      return `${formatDayLabel(filter.desde)} – ${formatDayLabel(filter.hasta)}`
+  }
+}
+
+export function validateStatsRangeDraft(
+  desde: string | null | undefined,
+  hasta: string | null | undefined
+): { valid: true } | { valid: false; reason: "incomplete" | "reversed" } {
+  if (!desde || !hasta) return { valid: false, reason: "incomplete" }
+  if (desde > hasta) return { valid: false, reason: "reversed" }
+  return { valid: true }
+}
+
 function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
-  const [periodo, setPeriodo] = useState<"hoy" | "semana" | "mes" | "todo">("hoy")
+  const [appliedFilter, setAppliedFilter] = useState<StatsFilter>({ kind: "quick", periodo: "hoy" })
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [draftMode, setDraftMode] = useState<"day" | "month" | "range">("day")
+  const [draftDate, setDraftDate] = useState<Date | undefined>(undefined)
+  const now = new Date()
+  const [draftYear, setDraftYear] = useState<number>(now.getFullYear())
+  const [draftMonth, setDraftMonth] = useState<number>(now.getMonth() + 1)
+  const [draftRange, setDraftRange] = useState<DateRange | undefined>(undefined)
 
   const { data: stats, isLoading } = useQuery<SalonStats>({
-    queryKey: ["salon-stats", negocio.id, periodo],
+    queryKey: getStatsFilterQueryKey(negocio.id, appliedFilter),
     queryFn: async () => {
-      const res = await fetch(`/api/negocio/salon/stats?periodo=${periodo}`)
+      const res = await fetch(`/api/negocio/salon/stats?${buildStatsQuery(appliedFilter)}`)
       if (!res.ok) throw new Error("Error cargando estadísticas")
       return res.json()
     },
@@ -558,6 +671,61 @@ function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) 
     { value: "mes" as const, label: "Mes" },
     { value: "todo" as const, label: "Todo" },
   ]
+
+  const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i)
+
+  const handleQuickFilterClick = (periodo: QuickPeriodo) => {
+    setAppliedFilter({ kind: "quick", periodo })
+  }
+
+  const handlePopoverOpenChange = (open: boolean) => {
+    setPopoverOpen(open)
+    if (!open) return
+    if (appliedFilter.kind === "day") {
+      setDraftMode("day")
+      setDraftDate(isoDateStringToDate(appliedFilter.fecha))
+    } else if (appliedFilter.kind === "month") {
+      setDraftMode("month")
+      const [y, m] = appliedFilter.mes.split("-").map(Number)
+      setDraftYear(y)
+      setDraftMonth(m)
+    } else if (appliedFilter.kind === "range") {
+      setDraftMode("range")
+      setDraftRange({
+        from: isoDateStringToDate(appliedFilter.desde),
+        to: isoDateStringToDate(appliedFilter.hasta),
+      })
+    } else {
+      setDraftMode("day")
+      setDraftDate(undefined)
+      setDraftRange(undefined)
+    }
+  }
+
+  const rangeValidation = validateStatsRangeDraft(
+    draftRange?.from ? dateToIsoDateString(draftRange.from) : undefined,
+    draftRange?.to ? dateToIsoDateString(draftRange.to) : undefined
+  )
+
+  const canApply =
+    draftMode === "day" ? Boolean(draftDate) : draftMode === "month" ? true : rangeValidation.valid
+
+  const handleApplyCustomFilter = () => {
+    if (draftMode === "day" && draftDate) {
+      setAppliedFilter({ kind: "day", fecha: dateToIsoDateString(draftDate) })
+      setPopoverOpen(false)
+    } else if (draftMode === "month") {
+      setAppliedFilter({ kind: "month", mes: `${draftYear}-${String(draftMonth).padStart(2, "0")}` })
+      setPopoverOpen(false)
+    } else if (draftMode === "range" && rangeValidation.valid) {
+      setAppliedFilter({
+        kind: "range",
+        desde: dateToIsoDateString(draftRange!.from!),
+        hasta: dateToIsoDateString(draftRange!.to!),
+      })
+      setPopoverOpen(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -578,22 +746,149 @@ function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) 
 
   return (
     <div className="space-y-4">
-      {/* Period selector pills */}
-      <div className="flex bg-muted/60 rounded-xl p-1">
-        {periodos.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => setPeriodo(p.value)}
-            className={cn(
-              "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
-              periodo === p.value
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
+      {/* Period selector pills + custom date filter */}
+      <div className="flex items-center gap-2">
+        <div className="flex bg-muted/60 rounded-xl p-1 flex-1 min-w-0">
+          {periodos.map((p) => {
+            const isActive = appliedFilter.kind === "quick" && appliedFilter.periodo === p.value
+            return (
+              <button
+                key={p.value}
+                onClick={() => handleQuickFilterClick(p.value)}
+                className={cn(
+                  "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  isActive
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <Popover open={popoverOpen} onOpenChange={handlePopoverOpenChange}>
+          <PopoverTrigger asChild>
+            <button
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border shrink-0 max-w-[128px]",
+                appliedFilter.kind !== "quick"
+                  ? "border-transparent"
+                  : "border-border/50 text-muted-foreground hover:text-foreground bg-background"
+              )}
+              style={
+                appliedFilter.kind !== "quick"
+                  ? { backgroundColor: `${negocio.colorPrincipal}15`, color: negocio.colorPrincipal }
+                  : undefined
+              }
+            >
+              <Calendar className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {appliedFilter.kind === "quick" ? "Elegir fecha" : getStatsFilterLabel(appliedFilter)}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-[min(320px,calc(100vw-2rem))] p-3 space-y-3"
           >
-            {p.label}
-          </button>
-        ))}
+            <div className="flex bg-muted/60 rounded-lg p-1">
+              {(["day", "month", "range"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setDraftMode(m)}
+                  className={cn(
+                    "flex-1 py-1 rounded-md text-[11px] font-semibold transition-all",
+                    draftMode === m
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {m === "day" ? "Día" : m === "month" ? "Mes" : "Rango"}
+                </button>
+              ))}
+            </div>
+
+            {draftMode === "day" && (
+              <div className="flex justify-center">
+                <StatsDatePicker mode="single" selected={draftDate} onSelect={setDraftDate} />
+              </div>
+            )}
+
+            {draftMode === "month" && (
+              <div className="flex gap-2">
+                <Select value={String(draftMonth)} onValueChange={(v) => setDraftMonth(Number(v))}>
+                  <SelectTrigger className="flex-1 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_LABELS.map((label, idx) => (
+                      <SelectItem key={label} value={String(idx + 1)}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(draftYear)} onValueChange={(v) => setDraftYear(Number(v))}>
+                  <SelectTrigger className="w-24 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={String(year)}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {draftMode === "range" && (
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <StatsDatePicker
+                    mode="range"
+                    numberOfMonths={1}
+                    selected={draftRange}
+                    onSelect={setDraftRange}
+                  />
+                </div>
+                {draftRange?.from && draftRange?.to && (
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    {formatDayLabel(dateToIsoDateString(draftRange.from))} –{" "}
+                    {formatDayLabel(dateToIsoDateString(draftRange.to))}
+                  </p>
+                )}
+                {!rangeValidation.valid && rangeValidation.reason === "reversed" && (
+                  <p className="text-[11px] text-red-500 text-center">
+                    &quot;Desde&quot; no puede ser posterior a &quot;Hasta&quot;
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setPopoverOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleApplyCustomFilter}
+                disabled={!canApply}
+              >
+                Aplicar
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Revenue cards */}
