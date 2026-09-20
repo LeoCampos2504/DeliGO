@@ -338,13 +338,14 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 ### A. CLOSED / PRODUCTION
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
-están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45 están
-cerradas con certificación de Testing (`CLOSED_TESTING_CERTIFIED`,
-`RELEASE_ELIGIBLE=SI`/`YES`) y no se inventa un checkpoint Production que
-no esté demostrado — ninguna de ellas fue promovida a `main`/Production
-en esta reconciliación. P2-T53 cerró como `CLOSED_OPERATOR_PASS` (R1B +
-R2, ver P2_T53_R2_MESA_SHEET_VISUAL_SHARPNESS.md), también sin promoción
-a Production demostrada.
+están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45,
+P2-T49 están cerradas con certificación de Testing
+(`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=SI`/`YES`) y no se
+inventa un checkpoint Production que no esté demostrado — ninguna de
+ellas fue promovida a `main`/Production en esta reconciliación. P2-T53
+cerró como `CLOSED_OPERATOR_PASS` (R1B + R2, ver
+P2_T53_R2_MESA_SHEET_VISUAL_SHARPNESS.md), también sin promoción a
+Production demostrada.
 
 ```text
 P2_T02_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=SI (ver
@@ -361,12 +362,16 @@ P2_T53_STATUS=CLOSED_OPERATOR_PASS (R1B + R2, ver
 P2_T45_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO (ver
   P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md)
+P2_T49_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  PRODUCTION_PROMOTED=NO (R1 layout + R1B aislamiento visual/background
+  refresh + R1C aislamiento completo del runtime + R1D indicador de
+  mensajes, certificación física completa A-D + Case E/F/G/H todos
+  PASS — ver P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md)
 ```
 
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T49 — Terminal Mobile Shell + Chat Layout — P1 — READY_FUTURE
 P2-T47 — Operations Product Personalization UX — P2_UX — READY_FUTURE
 P2-T50 — Salon Statistics Custom Date Filtering — P2 — READY_FUTURE
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
@@ -442,19 +447,22 @@ funcional mientras existan los prerequisitos indicados.
 ```text
 OPEN_P0_TASKS=0
 OPEN_P1_HIGH_TASKS=0
-OPEN_P1_TASKS=1
+OPEN_P1_TASKS=0
 OPEN_P2_TASKS=3
 OPEN_PRIORITY_UNSPECIFIED_TASKS=4
-ACTIONABLE_NOW_TASKS=8
+ACTIONABLE_NOW_TASKS=7
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T49
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Terminal Mobile Shell + Chat Layout
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P1
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=Único P1 accionable que queda en el backlog activo tras esta reconciliación (2026-09-19) — T43 y T53 cerraron y se retiraron de la sección activa, T02 cerró y salió de bloqueados. No requiere hardware ni decisión externa, a diferencia de T23/T24/T34.
-ALTERNATIVE_NEXT_TASK_1=P2-T47 (Operations Product Personalization UX, P2_UX)
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T47
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Operations Product Personalization UX
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49 cerró CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. T47 es el siguiente en la sección activa sin dependencia externa ni hardware, a diferencia de T23/T24/T34 (bloqueadas por decisión/hardware).
+ALTERNATIVE_NEXT_TASK_1=P2-T50/T51 (P2/P2_UX, independientes)
 ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
+P2-T49 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  ya no es una tarea pendiente.
 P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
   requiere una decisión/sonda del operador antes de cualquier código nuevo.
 P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
@@ -658,7 +666,7 @@ P2_T41_STATUS=CLOSED_PRODUCTION_CHECKPOINTED (Terminal Read-Only Action Authoriz
 10. P2-T45 — TERMINAL OPERATIONS NOTIFICATION ARCHITECTURE — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P1 — auditoría A0 2026-09-18 confirmó que el "aviso" de Terminal Salón es sólo un badge/pulse CSS derivado de polling de 5s, sin Push/SW/realtime/sonido; R1 2026-09-18 implementó exactamente ese patrón en Terminal PyR, único archivo `src/app/operaciones/pyr/page.tsx` — polling 5s + chip "N nuevos" + dot pulsante por pedido `recibido`, cero schema/migración/actor Push/canal realtime nuevo, commit `361e3cee21b0b075f32426987f89a34220441f21`, TESTING deploy SUCCESS `8c47fed2-48ab-4eee-bf94-aaa99551a7e3`; R2 2026-09-19 certificación física del operador 3/3 casos PASS (arribo, resolución, aislamiento cross-business) — ver
 P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md; preserva TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO de P2-T12 y la autoridad de P2-T41/T42; no dependió de que P2-T44/G3 se resolviera; `P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO`, nunca promovida a main/Production)
 11. P2-T46 — TABLE ACCOUNT + TICKET + HISTORY CANONICAL DETAIL — READY_FUTURE (P1 — pago debe ir al cierre de cuenta no al pedido individual, "Tu cuenta" interactiva, ticket con jerarquía visual, historial Salón con detalle completo; agrupa puntos 4/6/7/8; punto 15 usado como referencia, NO bug; requiere autoridad de P2-T41 para cualquier acción mutante)
-12. P2-T49 — TERMINAL MOBILE SHELL + CHAT LAYOUT — READY_FUTURE (P1 — Terminal Chat móvil con área vacía enorme, botón "Cerrar terminal" superpuesto al composer; agrupa puntos 17/18)
+12. P2-T49 — TERMINAL MOBILE SHELL + CHAT LAYOUT — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P1 — A0+R1 2026-09-19 resolvieron el layout del chat (h-dvh, min-h-0, composer en flow, logout compacto), R2 físico certificó los 4 casos de layout PASS (commit `443a37aa65520b65327e14c0e7603c622b4124fa`); la revisión física posterior encontró dos findings nuevos que bloquearon el cierre global: (A) `ChatProvider` global (root layout) sólo excluía `/mozo`, así que una sesión Cliente en el mismo navegador mostraba la burbuja/ChatSheet personal dentro de Terminal Operaciones — corregido con `shouldMountGlobalChat(pathname)` excluyendo también `/operaciones/**`, sin bypass server-side confirmado, chats dedicados de Operaciones nunca dependieron del Provider global; (B) el chat Terminal no refrescaba en una pestaña de background (`refresh()` bloqueaba todo GET si no visible, sin polling) — corregido con `startBackgroundTolerantRefresh` (10s, best-effort, preserva AbortController/generación); R1B 2026-09-19 implementó ambos, 127 tests pass (incluye 2 suites focales nuevas con fake timers, sin DOM/browser harness), cero API/schema/realtime/push, ChatFab no tocado; commit `6380c762bb4e8a97eaf03b035b9bcf050945bb0e`, TESTING deploy SUCCESS `8c7c7d2c-cd5f-4113-8f7b-fe5ee6b4d2e3`; R1B había dejado documentado que `useChatDeepLink`/`useChatActorReset` seguían corriendo siempre dentro de `ChatProvider` (incluso en Operaciones) por una restricción real de Reglas de los Hooks — R1C 2026-09-19 lo completó separando esos hooks en un componente hijo `GlobalChatRuntime` que `ChatProvider` monta o no monta por completo según `shouldMountGlobalChat`, así que en Operaciones ya no corre ningún runtime personal (ni hooks, ni FAB, ni Sheet); 1 archivo productivo + 1 test extendido (contrato estático, 17/17 pass), 105 tests de regresión pass, cero API/schema/realtime/push, ChatFab/ChatSheet/chat dedicado de Operaciones/background-refresh de R1B sin tocar; commit `b002958aaa613171283b9895dfb0fc0bfad7d3d2`, TESTING deploy SUCCESS `785f5614-df9c-4e5d-83a7-84bf46c7490e`; ver P2_T49_R1C_COMPLETE_GLOBAL_CHAT_ISOLATION.md; durante la revisión física R2B (layout A-D + Case E aislamiento, todos PASS) el operador encontró un finding nuevo: el panel PyR no mostraba ninguna señal de que un pedido tuviera conversación/mensajes nuevos sin entrar primero al pedido — R1D 2026-09-20 lo resolvió agregando `tieneMensajes`/`mensajesNoLeidos` al mismo `GET .../panel` (una sola query `groupBy` agregada para todos los pedidos, nunca N+1; gateado por `pyr.mensajes.ver`, fail-closed; sin exponer texto/adjuntos/clienteId; usa el campo `leido` ya existente de `ChatMensaje`, sin schema nuevo) y un badge en cada card ("Mensajes" neutro / "N mensajes nuevos" acentuado, sin click propio, sin timer nuevo — reutiliza el mismo `REFRESH_MS=5000` de T45); 2 archivos productivos + 2 archivos de test (19 tests nuevos/extendidos), 142 tests de regresión pass, cero API nueva/schema/realtime/push; commit `eccf1866292eca82db87f3c07ce5c92788da8131`, TESTING deploy SUCCESS `68952a90-44e1-40fe-a53f-24d4c9371fb0`; ver P2_T49_R1D_TERMINAL_ORDER_MESSAGE_INDICATOR.md; R2/R2B/R2C físico completo 2026-09-20 — layout A-D, Case E (aislamiento Cliente+Operaciones), Case F (background refresh real con mensaje de Cliente), Case G (regresión general), Case H (indicador de mensajes, "quedó perfecto") todos PASS; `P2_T49_PRODUCTION_PROMOTED=NO`; ver P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md — CERRADA, no reabrir salvo evidencia física nueva)
 13. P2-T47 — OPERATIONS PRODUCT PERSONALIZATION UX — READY_FUTURE (P2_UX — inconsistencia visual, posible duplicación "Aderezos/aderezos" a auditar antes de asumir bug; punto 5)
 14. P2-T50 — SALON STATISTICS CUSTOM DATE FILTERING — READY_FUTURE (P2 — agregar día/mes/rango personalizado preservando quick filters existentes; punto 9)
 15. P2-T51 — DELIGO OPERACIONES HOME VISUAL REDESIGN — READY_FUTURE (P2_UX — home sin identidad visual equivalente a otras superficies DeliGO, sin tocar workflows/permissions; punto 1)
