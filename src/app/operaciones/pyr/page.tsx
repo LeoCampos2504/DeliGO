@@ -71,6 +71,9 @@ interface PedidoPyR {
   clienteNombre: string | null
   acciones: PedidoAcciones
   items: PedidoItem[]
+  // P2-T49-R1D: presencia + no-leídos, nunca contenido — ver panel/route.ts.
+  tieneMensajes: boolean
+  mensajesNoLeidos: number
 }
 
 function normalizeAcciones(raw: unknown): PedidoAcciones {
@@ -187,6 +190,23 @@ export function countPedidosRecibidos(pedidos: readonly Pick<PedidoPyR, "estado"
   return pedidos.filter((pedido) => pedido.estado === "recibido").length
 }
 
+// P2-T49-R1D: indicador de mensajes por pedido — distinto conceptualmente
+// del "pedido nuevo" de T45 (countPedidosRecibidos de arriba). Función pura
+// para poder testearla sin montar el componente; el servidor ya entrega
+// `tieneMensajes`/`mensajesNoLeidos` como fuente de verdad (gateado por el
+// scope pyr.mensajes.ver de la Terminal, ver panel/route.ts) — esto sólo
+// deriva qué mostrar, nunca decide permisos ni marca nada como leído.
+export type MessageIndicatorKind = "none" | "read" | "unread_one" | "unread_many"
+
+export function getMessageIndicator(
+  pedido: Pick<PedidoPyR, "tieneMensajes" | "mensajesNoLeidos">
+): { kind: MessageIndicatorKind; count: number } {
+  if (!pedido.tieneMensajes) return { kind: "none", count: 0 }
+  if (pedido.mensajesNoLeidos <= 0) return { kind: "read", count: 0 }
+  if (pedido.mensajesNoLeidos === 1) return { kind: "unread_one", count: 1 }
+  return { kind: "unread_many", count: pedido.mensajesNoLeidos }
+}
+
 // ============================================
 // Página
 // ============================================
@@ -259,7 +279,12 @@ export default function OperacionesPyRPage() {
             puedeVerEstadisticas: data.capacidades?.puedeVerEstadisticas === true,
           },
           pedidos: Array.isArray(data.pedidos)
-            ? data.pedidos.map((p: PedidoPyR) => ({ ...p, acciones: normalizeAcciones(p.acciones) }))
+            ? data.pedidos.map((p: PedidoPyR) => ({
+                ...p,
+                acciones: normalizeAcciones(p.acciones),
+                tieneMensajes: p.tieneMensajes === true,
+                mensajesNoLeidos: typeof p.mensajesNoLeidos === "number" && p.mensajesNoLeidos > 0 ? p.mensajesNoLeidos : 0,
+              }))
             : [],
         },
         stale: false,
@@ -893,6 +918,7 @@ function StatusBadge({ estado }: { estado: string }) {
 function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void }) {
   const entrega = entregaInfo(pedido.metodoEntrega)
   const EIcon = entrega.icon
+  const messageIndicator = getMessageIndicator(pedido)
   return (
     <button
       onClick={onClick}
@@ -919,6 +945,26 @@ function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void
           {pedido.items.length} {pedido.items.length === 1 ? "ítem" : "ítems"}
           {pedido.clienteNombre ? ` · ${pedido.clienteNombre}` : ""}
         </p>
+        {/* P2-T49-R1D: discoverability — el operador debe poder detectar
+            un pedido con mensajes/mensajes nuevos SIN entrar primero al
+            drawer. Distinto del dot ámbar de "pedido nuevo" (T45, arriba)
+            para no confundir ambos conceptos — icono + copy explícito,
+            sin animación nueva. */}
+        {messageIndicator.kind !== "none" && (
+          <div className="mt-1">
+            {messageIndicator.kind === "read" ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground border border-border/50 rounded-full px-1.5 py-0.5">
+                <MessageSquare className="h-3 w-3" />
+                Mensajes
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/30 rounded-full px-1.5 py-0.5">
+                <MessageSquare className="h-3 w-3" />
+                {messageIndicator.kind === "unread_one" ? "1 mensaje nuevo" : `${messageIndicator.count} mensajes nuevos`}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <span className="text-sm font-bold shrink-0">{formatPrice(pedido.total)}</span>
     </button>
