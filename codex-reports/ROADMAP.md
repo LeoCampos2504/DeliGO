@@ -464,8 +464,33 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_ONE_ACTIONABLE_ITEM_PENDING_AUTHORIZATION
-          (A2 2026-09-20, ver
+P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+          (R1B 2026-09-20, ver
+          P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md:
+          implementó exactamente Option A del diseño A2 — agregó
+          `isLegacyOperationsTombstoneRoute()` a
+          `src/components/shared/install-prompt.tsx` (excluye
+          `/e`/`/e/**`/`/s`/`/s/**`, mismo patrón textual que
+          `isMozoRoute()` ya existente para `/mozo`, que queda
+          exactamente igual y ahora exportada junto a la nueva función
+          para permitir un contrato de test puro) — deja de ofrecer
+          "Instalar DeliGO Empleados"/"Instalar DeliGO Salón" en las
+          pantallas tombstone (`LegacyAccessRetired`, sin tocar). Único
+          archivo de producto modificado, cero cambio de
+          role-config/DynamicManifest/manifest/ícono/SW/push/auth. 13
+          tests focales nuevos (contrato puro de clasificación de
+          ruta) + 14 tests de regresión existentes de InstallPrompt,
+          todos PASS; TSC 31 baseline/0 nuevos, ESLint/build/
+          diff-check PASS. Prevalidación técnica en Browser pane
+          confirmó: `/e/test` y `/s/test` muestran el tombstone sin
+          ningún banner de instalación, `/operaciones` (home T51) y
+          `/mozo` sin cambios de comportamiento. Commit
+          `5f4804c0d903475ca1949bd5428145a80ca6dc15`, TESTING deploy
+          SUCCESS `2aae4685-8c1a-4e04-815d-ae3197682724`, boot logs
+          limpios. Pendiente de certificación física del operador antes
+          de cierre formal de T52 — ver
+          P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md)
+P2-T52-A2-HISTORICO (A2 2026-09-20, ver
           P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md:
           auditoría profunda de los residuos de Empleado/Salón,
           construida explícitamente sobre una auditoría previa a esta
@@ -658,10 +683,10 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T52-R1B
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Excluir /e y /s de install-prompt.tsx (deja de promover instalar Empleado/Salón retirados)
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó 3 rondas de auditoría (A0/A1/A2, 2026-09-20): Mozo resultó no necesitar ningún cambio ahora (A1 — install-prompt/permission-prompt ya lo excluían); Empleado/Salón (A2, ver P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md) SÍ tienen un residuo real y accionable de bajo riesgo: install-prompt.tsx no los excluye (a diferencia de Mozo) y hoy puede ofrecer instalar una PWA cuyo único contenido es una pantalla de retiro — corrección de ~3-5 líneas en 1 archivo, mismo patrón ya probado. Es la única implementación de bajo riesgo/valor real pendiente en todo el backlog activo.
+NEXT_RECOMMENDED_SOFTWARE_TASK=NONE_PENDING_IMPLEMENTATION
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=P2-T52-R1B implementado, esperando certificación física del operador
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=N/A
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52-R1B (2026-09-20, ver P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md) implementó, testeó y desplegó a TESTING la única corrección de bajo riesgo/valor real que las 3 rondas de auditoría de T52 (A0/A1/A2) encontraron — excluir /e y /s de install-prompt.tsx — y queda `IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION`. No queda ninguna implementación nueva lista y sin decisión pendiente en el backlog activo — sólo tareas PRIORITY_UNASSIGNED (T39/T38/T40) y la Fase 4 de Mozo (requiere autorización explícita separada).
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
