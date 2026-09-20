@@ -339,7 +339,7 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
 están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45,
-P2-T49, P2-T50 están cerradas con certificación de Testing
+P2-T49, P2-T50, P2-T47 están cerradas con certificación de Testing
 (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=SI`/`YES`) y no se
 inventa un checkpoint Production que no esté demostrado — ninguna de
 ellas fue promovida a `main`/Production en esta reconciliación. P2-T53
@@ -373,6 +373,19 @@ P2_T50_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   GET /api/negocio/salon/stats, certificación física R2 Cases A-D + F
   todos PASS, Case E NOT_REQUIRED_CONDITIONAL — ver
   P2_T50_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md)
+P2_T47_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  PRODUCTION_PROMOTED=NO (rediseño visual de ProductConfigurator
+  compartido Mozo/Operaciones personal — Badge Obligatorio, contador
+  N/máximo, aria-pressed + check de selección, variante de remoción,
+  QuantityStepper sin papelera falsa, safe-area, touch targets 44px —
+  + agrupamiento case-insensitive de categorías en ProductDetailSheet
+  + guardas contra categorías duplicadas por case en el catálogo de
+  Negocio; certificación física completa Cases A-K todos PASS
+  ("quedó perfecto absolutamente todo") — ver
+  P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md; durante esta misma
+  certificación el operador encontró el finding adyacente de pago
+  corregido en P2-T46-R2, ver esa entrada — nunca mezclado con el
+  código de T47)
 P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
   falsifica) **con un gap de cobertura correctivo abierto**: durante la
@@ -398,20 +411,27 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   diff-check PASS; commit `55187a66f253e377df27f36a416f31cbd73642e0`,
   TESTING deploy SUCCESS `d458fc4f-9064-46e2-8851-f36f3f21fe20`; ver
   P2_T46_R2_MOZO_PAYMENT_TIMING_PARITY.md.
-  `P2_T46_R2_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION`
-  — NO promovido a Production en esta ronda
+  Certificación física del operador (2026-09-20): probó el flujo real
+  Operaciones personal → Mozo → mesa → levantar pedido nuevo y confirmó
+  *"quedó todo perfecto ya lo probé"* — selector Efectivo/Transferencia
+  ausente, pedido creado normalmente, Notas/carrito/ProductConfigurator
+  de T47 sin regresión.
+  `P2_T46_R2_STATUS=CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION`
+  (`R2_RELEASE_ELIGIBLE=YES`, `R2_PRODUCTION_PROMOTED=NO`) — NO
+  promovido a Production en esta ronda
   (`PRODUCTION_LIKELY_AFFECTED_BY_SAME_GAP=SI`, pendiente de
-  autorización explícita futura); hallazgo lateral documentado, NO
-  corregido: `POST /api/pedidos` (checkout compartido de Cliente
-  retiro/domicilio/mesa) todavía exige `metodoPago` para
+  autorización explícita futura y curada); hallazgo lateral
+  documentado, NO corregido: `POST /api/pedidos` (checkout compartido
+  de Cliente retiro/domicilio/mesa) todavía exige `metodoPago` para
   `metodoEntrega="mesa"` aunque el selector visual ya esté oculto para
-  ese caso — fuera del alcance quirúrgico de esta ronda.
+  ese caso (`CLIENT_MESA_SILENT_DEFAULT_PAYMENT_FINDING=OPEN`) — fuera
+  del alcance quirúrgico de esta ronda; ver
+  P2_T46_R2_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md.
 ```
 
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T47 — Operations Product Personalization UX — P2_UX — IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION
 P2-T55 — Salon History Custom Date Filtering — P2 — READY_FUTURE
           (registrada 2026-09-20 durante el cierre físico de P2-T50 —
           el operador pidió los mismos filtros día/mes/rango en el
@@ -494,22 +514,25 @@ funcional mientras existan los prerequisitos indicados.
 OPEN_P0_TASKS=0
 OPEN_P1_HIGH_TASKS=0
 OPEN_P1_TASKS=0
-OPEN_P2_TASKS=3
+OPEN_P2_TASKS=2
 OPEN_PRIORITY_UNSPECIFIED_TASKS=4
-ACTIONABLE_NOW_TASKS=7
+ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T47
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Operations Product Personalization UX
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49 y P2-T50 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. T47 completó A0 + R1 (2026-09-20, implementado/testeado/desplegado a TESTING, ver P2_T47_R1_PRODUCT_PERSONALIZATION_UX.md) y queda `IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION` — sigue siendo la tarea activa recomendada hasta que el operador certifique físicamente R2 (Cases A-K); no hay otra tarea sin dependencia externa/hardware por delante en la cola.
-ALTERNATIVE_NEXT_TASK_1=P2-T51 (P2_UX, independiente)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). T51 es la siguiente tarea activa sin dependencia externa ni hardware ni auditoría previa pendiente (a diferencia de T55, que requiere su propia auditoría antes de cualquier código) y sin bloqueo externo (a diferencia de T23/T24/T34).
+ALTERNATIVE_NEXT_TASK_1=P2-T55 (P2, requiere auditoría propia primero — ver nota abajo)
 ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
 P2-T55 — Salon History Custom Date Filtering — registrada 2026-09-20,
   READY_FUTURE — no es alternativa inmediata: requiere su propia
   auditoría (¿mismo endpoint/campo de fecha que T50?) antes de cualquier
   código, ver ROADMAP Sección B.
+P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  ya no es una tarea pendiente.
 P2-T49 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
@@ -720,7 +743,7 @@ P2_T41_STATUS=CLOSED_PRODUCTION_CHECKPOINTED (Terminal Read-Only Action Authoriz
 P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md; preserva TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO de P2-T12 y la autoridad de P2-T41/T42; no dependió de que P2-T44/G3 se resolviera; `P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO`, nunca promovida a main/Production)
 11. P2-T46 — TABLE ACCOUNT + TICKET + HISTORY CANONICAL DETAIL — READY_FUTURE (P1 — pago debe ir al cierre de cuenta no al pedido individual, "Tu cuenta" interactiva, ticket con jerarquía visual, historial Salón con detalle completo; agrupa puntos 4/6/7/8; punto 15 usado como referencia, NO bug; requiere autoridad de P2-T41 para cualquier acción mutante)
 12. P2-T49 — TERMINAL MOBILE SHELL + CHAT LAYOUT — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P1 — A0+R1 2026-09-19 resolvieron el layout del chat (h-dvh, min-h-0, composer en flow, logout compacto), R2 físico certificó los 4 casos de layout PASS (commit `443a37aa65520b65327e14c0e7603c622b4124fa`); la revisión física posterior encontró dos findings nuevos que bloquearon el cierre global: (A) `ChatProvider` global (root layout) sólo excluía `/mozo`, así que una sesión Cliente en el mismo navegador mostraba la burbuja/ChatSheet personal dentro de Terminal Operaciones — corregido con `shouldMountGlobalChat(pathname)` excluyendo también `/operaciones/**`, sin bypass server-side confirmado, chats dedicados de Operaciones nunca dependieron del Provider global; (B) el chat Terminal no refrescaba en una pestaña de background (`refresh()` bloqueaba todo GET si no visible, sin polling) — corregido con `startBackgroundTolerantRefresh` (10s, best-effort, preserva AbortController/generación); R1B 2026-09-19 implementó ambos, 127 tests pass (incluye 2 suites focales nuevas con fake timers, sin DOM/browser harness), cero API/schema/realtime/push, ChatFab no tocado; commit `6380c762bb4e8a97eaf03b035b9bcf050945bb0e`, TESTING deploy SUCCESS `8c7c7d2c-cd5f-4113-8f7b-fe5ee6b4d2e3`; R1B había dejado documentado que `useChatDeepLink`/`useChatActorReset` seguían corriendo siempre dentro de `ChatProvider` (incluso en Operaciones) por una restricción real de Reglas de los Hooks — R1C 2026-09-19 lo completó separando esos hooks en un componente hijo `GlobalChatRuntime` que `ChatProvider` monta o no monta por completo según `shouldMountGlobalChat`, así que en Operaciones ya no corre ningún runtime personal (ni hooks, ni FAB, ni Sheet); 1 archivo productivo + 1 test extendido (contrato estático, 17/17 pass), 105 tests de regresión pass, cero API/schema/realtime/push, ChatFab/ChatSheet/chat dedicado de Operaciones/background-refresh de R1B sin tocar; commit `b002958aaa613171283b9895dfb0fc0bfad7d3d2`, TESTING deploy SUCCESS `785f5614-df9c-4e5d-83a7-84bf46c7490e`; ver P2_T49_R1C_COMPLETE_GLOBAL_CHAT_ISOLATION.md; durante la revisión física R2B (layout A-D + Case E aislamiento, todos PASS) el operador encontró un finding nuevo: el panel PyR no mostraba ninguna señal de que un pedido tuviera conversación/mensajes nuevos sin entrar primero al pedido — R1D 2026-09-20 lo resolvió agregando `tieneMensajes`/`mensajesNoLeidos` al mismo `GET .../panel` (una sola query `groupBy` agregada para todos los pedidos, nunca N+1; gateado por `pyr.mensajes.ver`, fail-closed; sin exponer texto/adjuntos/clienteId; usa el campo `leido` ya existente de `ChatMensaje`, sin schema nuevo) y un badge en cada card ("Mensajes" neutro / "N mensajes nuevos" acentuado, sin click propio, sin timer nuevo — reutiliza el mismo `REFRESH_MS=5000` de T45); 2 archivos productivos + 2 archivos de test (19 tests nuevos/extendidos), 142 tests de regresión pass, cero API nueva/schema/realtime/push; commit `eccf1866292eca82db87f3c07ce5c92788da8131`, TESTING deploy SUCCESS `68952a90-44e1-40fe-a53f-24d4c9371fb0`; ver P2_T49_R1D_TERMINAL_ORDER_MESSAGE_INDICATOR.md; R2/R2B/R2C físico completo 2026-09-20 — layout A-D, Case E (aislamiento Cliente+Operaciones), Case F (background refresh real con mensaje de Cliente), Case G (regresión general), Case H (indicador de mensajes, "quedó perfecto") todos PASS; `P2_T49_PRODUCTION_PROMOTED=NO`; ver P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md — CERRADA, no reabrir salvo evidencia física nueva)
-13. P2-T47 — OPERATIONS PRODUCT PERSONALIZATION UX — IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION (P2_UX — A0 2026-09-20 identificó el target real: `ProductConfigurator`, inline en `src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx`, compartido vía re-export literal con `/operaciones/mi-panel/[slug]/pedido/[mesaId]` (Mozo y Operaciones personal son literalmente el mismo archivo); Terminal Salón kiosco NO tiene ningún flujo de personalización de producto; root cause de "Aderezos/aderezos" confirmado con evidencia exacta de código: `Agregado.categoria`/`Ingrediente.categoria` son texto libre sin constraint, la UI de catálogo del Negocio hacía un dedup case-sensitive al crear categorías nuevas, y `ProductDetailSheet` (Cliente storefront/Cliente Mesa/Vista previa del Negocio) agrupaba con un `Map` sin normalizar; `ProductConfigurator` nunca agrupó por categoría, así que estructuralmente no podía reproducir ese síntoma — el finding mezcló la inconsistencia visual general (`ProductConfigurator`) con la duplicación Aderezos/aderezos (`ProductDetailSheet`, vía Cliente Mesa); `ADEREZOS_DUPLICATION_CLASSIFICATION=DATA_INCONSISTENCY`; R1 2026-09-20 implementó los 3 targets 100% frontend: nuevo helper compartido `src/lib/category-normalization.ts` (`normalizeCategoryKey`/`findEquivalentCategory`/`groupByNormalizedCategory`); `ProductConfigurator` gana Badge "Obligatorio" (reemplaza `" *"`), contador vivo N/máximo, `ChoiceButton` con check+`aria-pressed` además del color, variante roja/tachada exclusiva para quitar ingredientes, `QuantityStepper` sin la papelera falsa dentro del configurador (`allowRemoveAtMin` preserva el borrado real en `CartLine`), safe-area en el bottom bar y touch targets a 44px — sin tocar `canAdd`/precio/payload; `ProductDetailSheet` agrupa ahora case-insensitive vía el helper compartido, conservando el primer label visto sin perder ningún item; `agregados-section.tsx`/`ingredientes-section.tsx` usan `findEquivalentCategory` en sus 5 puntos de creación/renombrado (recapitalizar la propia categoría sigue permitido, sólo se bloquea/reutiliza ante una OTRA categoría equivalente) — sin backfill, sin tocar datos existentes; 4 archivos productivos + 1 helper nuevo + 4 archivos de test nuevos (65 tests focales, 0 fail; 99 tests de regresión pass), TSC 31 baseline/0 nuevos, ESLint/build/diff-check PASS; commit `8994bc304ef7ad5c057acf1deeb83fd9354ad051`, TESTING deploy SUCCESS `0677ae36-c49e-4d42-9001-b5f6282c18d0` (servicio DeliGO Copy, boot limpio, sin migraciones pendientes); ver P2_T47_A0_PRODUCT_PERSONALIZATION_UX_AUDIT_DESIGN.md y P2_T47_R1_PRODUCT_PERSONALIZATION_UX.md; pendiente R2 físico (Cases A-K) — NO cerrar T47 sin esa certificación; punto 5)
+13. P2-T47 — OPERATIONS PRODUCT PERSONALIZATION UX — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P2_UX — A0 2026-09-20 identificó el target real: `ProductConfigurator`, inline en `src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx`, compartido vía re-export literal con `/operaciones/mi-panel/[slug]/pedido/[mesaId]` (Mozo y Operaciones personal son literalmente el mismo archivo); Terminal Salón kiosco NO tiene ningún flujo de personalización de producto; root cause de "Aderezos/aderezos" confirmado con evidencia exacta de código: `Agregado.categoria`/`Ingrediente.categoria` son texto libre sin constraint, la UI de catálogo del Negocio hacía un dedup case-sensitive al crear categorías nuevas, y `ProductDetailSheet` (Cliente storefront/Cliente Mesa/Vista previa del Negocio) agrupaba con un `Map` sin normalizar; `ProductConfigurator` nunca agrupó por categoría, así que estructuralmente no podía reproducir ese síntoma — el finding mezcló la inconsistencia visual general (`ProductConfigurator`) con la duplicación Aderezos/aderezos (`ProductDetailSheet`, vía Cliente Mesa); `ADEREZOS_DUPLICATION_CLASSIFICATION=DATA_INCONSISTENCY`; R1 2026-09-20 implementó los 3 targets 100% frontend: nuevo helper compartido `src/lib/category-normalization.ts` (`normalizeCategoryKey`/`findEquivalentCategory`/`groupByNormalizedCategory`); `ProductConfigurator` gana Badge "Obligatorio" (reemplaza `" *"`), contador vivo N/máximo, `ChoiceButton` con check+`aria-pressed` además del color, variante roja/tachada exclusiva para quitar ingredientes, `QuantityStepper` sin la papelera falsa dentro del configurador (`allowRemoveAtMin` preserva el borrado real en `CartLine`), safe-area en el bottom bar y touch targets a 44px — sin tocar `canAdd`/precio/payload; `ProductDetailSheet` agrupa ahora case-insensitive vía el helper compartido, conservando el primer label visto sin perder ningún item; `agregados-section.tsx`/`ingredientes-section.tsx` usan `findEquivalentCategory` en sus 5 puntos de creación/renombrado (recapitalizar la propia categoría sigue permitido, sólo se bloquea/reutiliza ante una OTRA categoría equivalente) — sin backfill, sin tocar datos existentes; 4 archivos productivos + 1 helper nuevo + 4 archivos de test nuevos (65 tests focales, 0 fail; 99 tests de regresión pass), TSC 31 baseline/0 nuevos, ESLint/build/diff-check PASS; commit `8994bc304ef7ad5c057acf1deeb83fd9354ad051`, TESTING deploy SUCCESS `0677ae36-c49e-4d42-9001-b5f6282c18d0` (servicio DeliGO Copy, boot limpio, sin migraciones pendientes); ver P2_T47_A0_PRODUCT_PERSONALIZATION_UX_AUDIT_DESIGN.md, P2_T47_R1_PRODUCT_PERSONALIZATION_UX.md y P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md; certificación física R2 completa 2026-09-20, Cases A-K todos PASS ("quedó perfecto absolutamente todo"); `P2_T47_PRODUCTION_PROMOTED=NO`, nunca promovida a main/Production; durante esta certificación el operador encontró el finding adyacente de pago de mesa corregido por separado en P2-T46-R2 (ver esa entrada) — CERRADA, no reabrir salvo evidencia física nueva; punto 5)
 14. P2-T50 — SALON STATISTICS CUSTOM DATE FILTERING — CLOSED_TESTING_CERTIFIED, RELEASE_ELIGIBLE=YES (P2 — A0 2026-09-20 confirmó que la pantalla objetivo es el dashboard de Negocio (`/negocio` → `SalonTab` → `EstadisticasSubTab`, backend `GET /api/negocio/salon/stats`), NO la pantalla homónima pero distinta de Terminal (`/operaciones/salon/estadisticas`, hoy/7d/30d, sólo conteos) ni el panel personal (que no tiene estadísticas en absoluto); halló una inconsistencia preexistente no reportada antes: el badge `mesasAsignadas` por mozo es un snapshot en vivo sin filtro de fecha, a diferencia de las demás 4 métricas que sí comparten el mismo `dateFilter` — documentada, preservada sin cambios (`MESAS_ASIGNADAS_RANGE_BEHAVIOR=UNCHANGED_LIVE_SNAPSHOT`, fuera de alcance); R1 2026-09-20 implementó el filtro custom (día/mes/rango) como extensión aditiva de `GET /api/negocio/salon/stats` (nuevos params opcionales `fecha`/`mes`/`desde`+`hasta`, precedencia fecha>mes>rango>periodo, parseo seguro por componentes sin `new Date(string)`, rango FROM inclusivo/TO exclusivo, 400 genérico ante combinaciones custom ambiguas) preservando 100% la semántica de los quick filters existentes (hoy/semana/mes/todo — ventanas rodantes, no calendario); UI en `EstadisticasSubTab` (`src/components/business/salon-tab.tsx`) agrega un control "Elegir fecha" (Popover con modos Día/Mes/Rango, reutilizando `Calendar`/`Select`/`Popover` ya instalados, primer uso real de `Calendar`) manteniendo intactas las 4 pastillas quick filter, con flujo Aplicar/Cancelar y `TanStack Query` `queryKey` que incluye el filtro completo (nunca reutiliza key entre filtros distintos); 2 archivos productivos + 2 archivos de test nuevos (53 tests focales, 30 backend + 23 frontend, 0 fail), commit `9f9f5c9299e801dd60a7eb0e342034521129e342`, TESTING deploy SUCCESS `b09e0acd-8aed-43d9-9942-35fc7e28546f`; certificación física del operador 2026-09-20 — R2 Case A (quick filters sin regresión) PASS, Cases B/C/D (día específico, mes específico, rango Desde/Hasta) PASS ("funciona todo perfecto incluyendo lo personalizado"), Case F (mobile) PASS ("quedó perfecto"), Case E boundary NOT_REQUIRED_CONDITIONAL (sin dato real cercano a medianoche disponible — no bloqueante, ya cubierto por tests automatizados de límite); ver P2_T50_A0_SALON_STATISTICS_DATE_FILTER_AUDIT_DESIGN.md, P2_T50_R1_SALON_STATISTICS_CUSTOM_DATE_FILTERING.md y P2_T50_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md; `P2_T50_PRODUCTION_PROMOTED=NO`, nunca promovida a main/Production; punto 9)
 15. P2-T51 — DELIGO OPERACIONES HOME VISUAL REDESIGN — READY_FUTURE (P2_UX — home sin identidad visual equivalente a otras superficies DeliGO, sin tocar workflows/permissions; punto 1)
 16. P2-T52 — OPERATIONS PWA IDENTITY CONSOLIDATION / LEGACY ARTIFACT CLEANUP — READY_FUTURE (RETITULADA 2026-09-09, ver P2_OPERATIONS_SINGLE_PWA_IDENTITY_AUTHORITY_CORRECTION.md — NO es reparación de arte: Empleado/Mozo/Salón fueron PWAs separadas en arquitectura ANTERIOR, hoy consolidadas en DeliGO Operaciones; auditoría confirmó que Mozo AÚN emite una identidad PWA separada activa y funcional en /mozo — vía DynamicManifest/role-config.ts, no vía T36 — objetivo: migrar esa identidad a Operaciones y evaluar limpieza de wiring inerte de Empleado/Salón; NO tocar los íconos 192px de notificación Push por área, que siguen siendo uso legítimo independiente)
