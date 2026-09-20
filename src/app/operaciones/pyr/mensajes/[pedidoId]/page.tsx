@@ -15,6 +15,7 @@ import {
   WifiOff,
   MessageSquare,
   Paperclip,
+  LogOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +27,7 @@ import {
   AttachmentUnavailableNotice,
   type AttachmentPreview,
 } from "@/components/chat/attachment-preview-modal"
+import { useTerminalLogout } from "@/components/operativo/terminal-logout-button"
 
 // Mismo tope que la API (texto plano).
 const MAX_TEXTO_LEN = 2000
@@ -470,6 +472,11 @@ function MensajesView({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [texto, setTexto] = useState("")
   const [preview, setPreview] = useState<AttachmentPreview>(null)
+  // P2-T49-R1: el botón flotante global de logout se excluye en esta ruta
+  // (choca con el composer) — este acceso compacto en el header reutiliza
+  // exactamente la misma lógica (mismo endpoint, mismo error, misma
+  // navegación) vía el hook compartido, sin duplicarla.
+  const { pending: loggingOut, logout } = useTerminalLogout()
 
   const handleManualRefresh = async () => {
     setRefreshing(true)
@@ -491,9 +498,11 @@ function MensajesView({
   const EntregaIcon = isDelivery ? Bike : Package
 
   return (
-    <main className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur-md border-b border-border/50">
+    <main className="h-dvh bg-background flex flex-col overflow-hidden">
+      {/* Header — P2-T49-R1: shrink-0 en vez de sticky top-0, ya no hace
+          falta: el padre es un viewport clamped (h-dvh + overflow-hidden),
+          no un documento que scrollea. */}
+      <header className="shrink-0 z-30 bg-background/95 backdrop-blur-md border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
           <Button asChild variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0">
             <Link href="/operaciones/pyr" aria-label="Volver a Pedidos y reseñas">
@@ -521,6 +530,16 @@ function MensajesView({
           >
             <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
             <span className="hidden sm:inline">Actualizar ahora</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 rounded-xl shrink-0"
+            onClick={logout}
+            disabled={loggingOut}
+            aria-label="Cerrar terminal"
+          >
+            {loggingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
           </Button>
         </div>
         {/* Sub-encabezado del pedido */}
@@ -550,8 +569,11 @@ function MensajesView({
         </div>
       </header>
 
-      {/* Mensajes */}
-      <div className="flex-1 max-w-3xl w-full mx-auto px-4 py-4 space-y-2 overflow-y-auto">
+      {/* Mensajes — P2-T49-R1: min-h-0 agregado. Sin él, este flex item no
+          puede encogerse por debajo de la altura de su contenido, así que
+          nunca queda realmente acotado por el padre clamped y el scroll
+          termina recayendo sobre la página entera en vez de sólo acá. */}
+      <div className="flex-1 min-h-0 max-w-3xl w-full mx-auto px-4 py-4 space-y-2 overflow-y-auto">
         {data.mensajes.length === 0 ? (
           <div className="text-center py-12 px-4 rounded-2xl border-2 border-dashed border-border/50 bg-muted/10">
             <MessageSquare className="h-10 w-10 mx-auto mb-2 text-muted-foreground/30" />
@@ -565,10 +587,17 @@ function MensajesView({
         )}
       </div>
 
-      {/* Compositor — solo con permiso de respuesta */}
+      {/* Compositor — solo con permiso de respuesta. P2-T49-R1: shrink-0 en
+          vez de sticky bottom-0 — al ser el último hijo de un flex column
+          clamped (h-dvh + overflow-hidden), queda siempre visible al pie
+          real de la pantalla por estructura, no por position. El padding
+          inferior combina el mismo valor base que ya tenía (py-3 = 0.75rem)
+          con el safe-area del dispositivo — nunca lo reemplaza: en un
+          dispositivo sin home indicator, env(...) resuelve a 0px y el
+          resultado es idéntico al padding actual. */}
       {data.capacidades.puedeResponderMensajes && (
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-border/50">
-          <div className="max-w-3xl mx-auto px-4 py-3 space-y-1.5">
+        <div className="shrink-0 bg-background/95 backdrop-blur-md border-t border-border/50">
+          <div className="max-w-3xl mx-auto px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] space-y-1.5">
             <div className="flex items-end gap-2">
               <input
                 ref={fileInputRef}
