@@ -339,7 +339,7 @@ R5A queda cerrada y no se reabre. No se inician T23, T24 ni T54.
 
 P2-T29, P2-T30, P2-T32, P2-T35, P2-T36, P2-T41, P2-T42, P2-T46 y P2-T48
 están excluidas del backlog activo. P2-T31, P2-T02, P2-T43, P2-T45,
-P2-T49, P2-T50, P2-T47 están cerradas con certificación de Testing
+P2-T49, P2-T50, P2-T47, P2-T55 están cerradas con certificación de Testing
 (`CLOSED_TESTING_CERTIFIED`, `RELEASE_ELIGIBLE=SI`/`YES`) y no se
 inventa un checkpoint Production que no esté demostrado — ninguna de
 ellas fue promovida a `main`/Production en esta reconciliación. P2-T53
@@ -386,6 +386,21 @@ P2_T47_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   certificación el operador encontró el finding adyacente de pago
   corregido en P2-T46-R2, ver esa entrada — nunca mezclado con el
   código de T47)
+P2_T55_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
+  PRODUCTION_PROMOTED=NO (filtro de fecha personalizado día/mes/rango
+  para Historial de Salón — modelo POR-MESA, `HistorialSubTab`,
+  extensión aditiva de `GET /api/negocio/pedidos`, reutilizando el
+  helper compartido `src/lib/date-range-filter.ts` extraído de T50 sin
+  regresión (T50 53/53 pass sin modificar); NO se agregó un quick
+  filter "Todo" a Historial (decisión de producto explícita); R1B
+  ajustó sólo `className` de las pills Hoy/Semana/Mes para paridad
+  visual exacta con Estadísticas, sin tocar lógica; T46
+  (`mesa-historial.ts`/`buildCuentaMesa`/autoridad de pago) intacto;
+  certificación física + visual completas, operador confirmó "quedó
+  perfecto todo" dos veces (funcional y visual) — ver
+  P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md y
+  P2_T55_R1B_HISTORY_FILTER_VISUAL_PARITY.md)
 P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
   falsifica) **con un gap de cobertura correctivo abierto**: durante la
@@ -432,56 +447,6 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T55 — Salon History Custom Date Filtering — P2 — IMPLEMENTATION_COMPLETE_TESTING_CERTIFIED_AUTOMATED_PENDING_PHYSICAL_CERTIFICATION
-          (A0 2026-09-20 confirmó que el target real —
-          `HistorialSubTab`, src/components/business/salon-tab.tsx —
-          es un modelo POR-MESA (grilla de mesas → Drawer con el
-          historial de esa mesa), estructuralmente distinto del
-          dashboard agregado de Estadísticas de T50; usa
-          `GET /api/negocio/pedidos?estado=historial&metodoEntrega=mesa`,
-          NO el endpoint de T50; el quick filter "Mes" de Historial sigue
-          siendo una ventana rodante de 30 DÍAS FIJOS (no 1 mes calendario
-          como en T50) — divergencia real preexistente, preservada sin
-          cambios; Historial SÍ incluye pedidos `cancelado` (Estadísticas
-          de T50 no) — también preservado. R1 (2026-09-20) implementó lo
-          diseñado en A0: extrajo el parseo seguro de fecha de T50 a
-          `src/lib/date-range-filter.ts` (helper compartido puro,
-          `resolveCustomDateFilter` con precedencia fecha>mes>rango>none),
-          refactorizó `negocio/salon/stats/route.ts` para consumirlo sin
-          cambio de comportamiento externo (T50 regression 53/53 pass,
-          sin modificar los tests existentes), extendió aditivamente
-          `GET /api/negocio/pedidos` con los mismos 4 params
-          (fecha/mes/desde/hasta), y agregó a `HistorialSubTab` el tipo
-          `HistorialFilter` (día/mes/rango) + Popover de "Elegir fecha"
-          — SIN agregar un nuevo quick filter "Todo" (decisión de
-          producto explícita del task; "Limpiar" en el selector custom
-          vuelve siempre a "Hoy"). `mesa-historial.ts`/
-          `buildMesaHistorialAccounts`/`accountKey`/`buildCuentaMesa`/
-          `withCuentaMesaPayment` (autoridad T46) sin tocar — sólo cambia
-          qué `Pedido[]` entra a esas funciones. 45 tests focales nuevos
-          + 53 regresión T50 + 8 regresión T46, todos PASS; TSC 31
-          baseline/0 nuevos, ESLint/build/diff-check PASS; commit
-          `da7d08b27ea15673ef42009fda996c2bd02b9b9a`, TESTING deploy
-          SUCCESS `50da9aa4-81dc-4f60-a31f-9c4197907c8b`, boot logs
-          limpios, sin migración pendiente (SCHEMA_CHANGED=NO). Fixture
-          candidata identificada (read-only) para certificación física
-          R2: negocio "burgerking" (slug `burgerking`), 15 pedidos
-          históricos de mesa reales spread 2026-08-06→2026-09-11 — ver
-          P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md.
-          R1B (2026-09-20, DESIGN_ONLY_CHANGE=SI): tras validación
-          funcional del operador, se detectó que las pills Hoy/Semana/
-          Mes de Historial habían quedado con el estilo visual PRE-T55
-          (pill individual con borde + color primario en activo) en vez
-          de heredar el patrón de segmented-control que Estadísticas ya
-          usa (el botón "Elegir fecha" y todo el Popover custom ya eran
-          byte-idénticos desde R1). Se igualaron único y exclusivamente
-          los `className` del contenedor y botón de esas 3 pills al
-          patrón exacto de `EstadisticasSubTab` — cero cambio de lógica,
-          cero cambio de API, `HISTORY_TODO_ADDED=NO`; 98/98 tests
-          existentes sin modificar siguen pasando; commit
-          `4f7b3355269768b9ef69ca650ac4faa6e1342bd2`, TESTING deploy
-          SUCCESS `7a3e8d12-66b4-4214-b963-6e5480a441df` — ver
-          P2_T55_R1B_HISTORY_FILTER_VISUAL_PARITY.md)
 P2-T51 — DeliGO Operaciones Home Visual Redesign — P2_UX — READY_FUTURE
 P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -565,9 +530,8 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T51
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=DeliGO Operaciones Home Visual Redesign
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=P2_UX
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50 y P2-T47 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 accionable en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55-R1 (2026-09-20) implementó, testeó y desplegó a TESTING el filtro de fecha custom de Historial (certificación automatizada PASS, ver P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md) pero queda pendiente de certificación física del operador — no es "lista para implementación" como T51, sino "lista para probar físicamente". Se mantiene T51 como recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva; la certificación física de T55-R1 es una acción operador-only, no una tarea de software nueva.
-ALTERNATIVE_NEXT_TASK_1=P2-T55-R1 PHYSICAL_CERTIFICATION (P2, IMPLEMENTATION_COMPLETE_TESTING_CERTIFIED_AUTOMATED_PENDING_PHYSICAL_CERTIFICATION — requiere al operador, no a Claude — ver P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md §7 para la fixture candidata "burgerking")
-ALTERNATIVE_NEXT_TASK_2=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47 y ahora P2-T55 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — no queda ningún P1 ni P2 con certificación física pendiente en el backlog activo. El finding adyacente de pago que T47 descubrió fue corregido por separado en P2-T46-R2 (también CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION). P2-T55 cerró su ronda completa (R1 funcional + R1B paridad visual) con certificación física y visual PASS del operador — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. T51 queda como única recomendación primaria de la próxima tarea de IMPLEMENTACIÓN nueva.
+ALTERNATIVE_NEXT_TASK_1=P2-T39/T38/T40 (funcionales independientes, PRIORITY_UNASSIGNED — T39 ya tiene diseño avanzado en su worktree separado, pendiente de reconciliar)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
@@ -577,6 +541,10 @@ P2-T49 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
 P2-T50 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T50_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
+P2-T55 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
+  RELEASE_ELIGIBLE=YES — ver P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
+  ya no es una tarea pendiente (certificación física R1 + visual R1B
+  ambas PASS del operador).
 P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
   requiere una decisión/sonda del operador antes de cualquier código nuevo.
 P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
