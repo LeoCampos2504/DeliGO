@@ -464,7 +464,44 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — READY_FUTURE
+P2-T52 — Operations PWA Identity Consolidation / Legacy Artifact Cleanup — PRIORITY_UNASSIGNED — AUDITED_DESIGNED_PENDING_OPERATOR_DECISION
+          (A0 2026-09-20, disparada por evidencia física del operador:
+          "/mozo" sigue completamente funcional y una CuentaOperativa
+          real puede autenticarse desde /mozo/iniciar-sesion — rechaza
+          la suposición previa de que era ruta muerta. Auditoría de
+          código confirmó que /mozo y /operaciones comparten TODO:
+          mismo login/registro/logout/`me` (`/api/operativo/*`), misma
+          cookie `deligo_operativo_session`, mismo modelo
+          CuentaOperativa/Empleado, mismo endpoint de unión por código
+          (`/api/operativo/mozos/unirse`, que sólo VINCULA una cuenta a
+          un Empleado ya existente — nunca crea el vínculo ni asigna
+          rol/área, eso lo fija el negocio por separado) — la
+          arquitectura real es RE-EXPORT LITERAL de componentes
+          (`/operaciones/mi-panel` = `export {default} from
+          "@/app/mozo/page"`, `/operaciones/mi-panel/[slug]` = mismo
+          re-export de `/mozo/panel/[slug]`), documentado en el propio
+          código como "compatibilidad temporal" — NO son dos
+          implementaciones, es UNA sola servida bajo dos árboles vía
+          `useOperativoNav()`. `Empleado.rol` ya NO autoriza acceso a
+          áreas (cerrado tras backfill) — `Empleado.areaOperativa`
+          (mozo|salon|pyr|sin_asignar, fijada exclusivamente por el
+          negocio) es la única autoridad real, vía
+          `resolveAreaOperativaEfectiva()`. Hallazgo crítico de riesgo:
+          Mozo SÍ tiene una PWA separada real e instalable HOY
+          (`manifest-mozo.json`, scope `/mozo/`, vía `DynamicManifest`
+          — Mozo no está en `PRINCIPAL_PWA_ROLES`), y el deep-link de
+          push "pedido listo" está hardcodeado a `/mozo/panel/[slug]`
+          (`mesa-order-ready-notification.ts`) con lógica del service
+          worker atada a ese string literal — clasificación final:
+          `CURRENT_REQUIRED`, NO `SAFE_TO_REMOVE`. 3 opciones
+          diseñadas (A: mantener /mozo como compatibility entrypoint
+          pero dejar de promover su PWA separada, RECOMENDADA; B:
+          redirect gradual, riesgo alto para instalaciones existentes
+          por ruptura de scope; C: no tocar nada). Cero código/tests/
+          manifest/SW/auth modificados en esta ronda — sólo auditoría
+          y diseño; decisión final de ejecutar R1 pendiente del
+          operador — ver
+          P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md)
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
@@ -546,8 +583,8 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y ahora P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — P2-T51 cerró tras aceptación visual general del operador ("quedó perfecto"), ver P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. No queda ningún P1 ni P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40) y P2-T52 (READY_FUTURE, sin auditoría propia todavía).
-ALTERNATIVE_NEXT_TASK_1=P2-T52 (PRIORITY_UNASSIGNED, Operations PWA Identity Consolidation / Legacy Artifact Cleanup — READY_FUTURE, requeriría su propia auditoría A0 antes de implementar)
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55 y P2-T51 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20). P2-T52 completó su auditoría A0 (2026-09-20, ver P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md) — clasificó /mozo como `CURRENT_REQUIRED` (no `SAFE_TO_REMOVE`) por dependencias reales de push/PWA/service-worker, y diseñó 3 opciones (A recomendada) — pero la decisión de EJECUTAR R1 requiere autorización explícita del operador antes de tocar manifests/push/service-worker, no es "lista para implementación" automática como lo era T51 tras su A0. No queda ningún P1/P2 con implementación nueva lista y sin decisión pendiente — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40).
+ALTERNATIVE_NEXT_TASK_1=P2-T52-R1 (PRIORITY_UNASSIGNED, AUDITED_DESIGNED_PENDING_OPERATOR_DECISION — requiere que el operador elija Option A/B/C antes de implementar, ver P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md §19)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
   ya no es una tarea pendiente.
