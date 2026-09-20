@@ -840,61 +840,74 @@ function ProductConfigurator({
               </OptionGroup>
             )}
 
-            {product.secciones.map((section) => (
-              <OptionGroup
-                key={section.nombre}
-                title={`${section.nombre}${section.obligatorio ? " *" : ""}`}
-                description={section.maximo > 1 ? `Hasta ${section.maximo}` : undefined}
-              >
-                {section.opciones.map((opt) => {
-                  const option = opt.nombre
-                  const priceLabel = formatOptionalPriceDelta(opt.precio, formatPrice)
-                  const selection = selectedSections[section.nombre]
-                  const quantitySelected = typeof selection === "object" ? selection[option] || 0 : 0
-                  if (section.maximo > 1) {
+            {product.secciones.map((section) => {
+              const selection = selectedSections[section.nombre]
+              const selectedCount =
+                typeof selection === "object"
+                  ? Object.values(selection).reduce((sum, qty) => sum + (qty || 0), 0)
+                  : selection
+                    ? 1
+                    : 0
+              return (
+                <OptionGroup
+                  key={section.nombre}
+                  title={section.nombre}
+                  obligatorio={section.obligatorio}
+                  description={section.maximo > 1 ? `${selectedCount}/${section.maximo}` : undefined}
+                >
+                  {section.opciones.map((opt) => {
+                    const option = opt.nombre
+                    const priceLabel = formatOptionalPriceDelta(opt.precio, formatPrice)
+                    const quantitySelected = typeof selection === "object" ? selection[option] || 0 : 0
+                    if (section.maximo > 1) {
+                      return (
+                        <div key={option} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                          <span className="text-sm font-medium">
+                            {option}
+                            {priceLabel && <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{priceLabel}</span>}
+                          </span>
+                          <QuantityStepper
+                            value={quantitySelected}
+                            onDecrease={() => setSectionValue(section, option, -1)}
+                            onIncrease={() => setSectionValue(section, option, 1)}
+                          />
+                        </div>
+                      )
+                    }
                     return (
-                      <div key={option} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                        <span className="text-sm font-medium">
-                          {option}
-                          {priceLabel && <span className="ml-1.5 text-xs font-semibold text-muted-foreground">{priceLabel}</span>}
-                        </span>
-                        <QuantityStepper
-                          value={quantitySelected}
-                          onDecrease={() => setSectionValue(section, option, -1)}
-                          onIncrease={() => setSectionValue(section, option, 1)}
-                        />
-                      </div>
+                      <ChoiceButton key={option} active={selection === option} onClick={() => setSectionValue(section, option)}>
+                        {option}
+                        {priceLabel && <span className="ml-1.5 text-xs font-semibold opacity-80">{priceLabel}</span>}
+                      </ChoiceButton>
                     )
-                  }
-                  return (
-                    <ChoiceButton key={option} active={selection === option} onClick={() => setSectionValue(section, option)}>
-                      {option}
-                      {priceLabel && <span className="ml-1.5 text-xs font-semibold opacity-80">{priceLabel}</span>}
-                    </ChoiceButton>
-                  )
-                })}
-              </OptionGroup>
-            ))}
+                  })}
+                </OptionGroup>
+              )
+            })}
 
-            {product.opcionesCompartidas.map((group) => (
-              <OptionGroup
-                key={group.id}
-                title={`${group.nombre}${group.obligatorio ? " *" : ""}`}
-                description={group.maximo > 0 ? `Hasta ${group.maximo}` : undefined}
-              >
-                {group.opciones.map((option) => {
-                  const key = `${group.id}::${option.nombre}`
-                  return (
-                    <ChoiceButton key={key} active={!!selectedShared[key]} onClick={() => toggleShared(group, option)}>
-                      <span>{option.nombre}</span>
-                      {typeof option.precio === "number" && option.precio > 0 && (
-                        <span className="text-xs text-muted-foreground">+{formatPrice(option.precio)}</span>
-                      )}
-                    </ChoiceButton>
-                  )
-                })}
-              </OptionGroup>
-            ))}
+            {product.opcionesCompartidas.map((group) => {
+              const selectedCount = Object.keys(selectedShared).filter((key) => key.startsWith(`${group.id}::`)).length
+              return (
+                <OptionGroup
+                  key={group.id}
+                  title={group.nombre}
+                  obligatorio={group.obligatorio}
+                  description={group.maximo > 0 ? `${selectedCount}/${group.maximo}` : undefined}
+                >
+                  {group.opciones.map((option) => {
+                    const key = `${group.id}::${option.nombre}`
+                    return (
+                      <ChoiceButton key={key} active={!!selectedShared[key]} onClick={() => toggleShared(group, option)}>
+                        <span>{option.nombre}</span>
+                        {typeof option.precio === "number" && option.precio > 0 && (
+                          <span className="text-xs text-muted-foreground">+{formatPrice(option.precio)}</span>
+                        )}
+                      </ChoiceButton>
+                    )
+                  })}
+                </OptionGroup>
+              )
+            })}
 
             {product.agregados.length > 0 && (
               <OptionGroup title="Agregados">
@@ -913,6 +926,7 @@ function ProductConfigurator({
                   <ChoiceButton
                     key={ingrediente.id}
                     active={!!removedIngredientes[ingrediente.id]}
+                    variant="remove"
                     onClick={() => {
                       setRemovedIngredientes((current) => {
                         const next = { ...current }
@@ -930,7 +944,7 @@ function ProductConfigurator({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border/60 bg-card p-4">
+        <div className="shrink-0 border-t border-border/60 bg-card px-4 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)]">
           <div className="mb-3 flex items-center justify-between gap-3">
             <QuantityStepper
               value={quantity}
@@ -1015,6 +1029,7 @@ function CartLine({
           value={item.cantidad}
           onDecrease={() => onQuantityChange(item.key, item.cantidad - 1)}
           onIncrease={() => onQuantityChange(item.key, item.cantidad + 1)}
+          allowRemoveAtMin
         />
         <p className="font-bold">{formatPrice(getOrderItemTotal(item))}</p>
       </div>
@@ -1026,18 +1041,36 @@ function QuantityStepper({
   value,
   onDecrease,
   onIncrease,
+  allowRemoveAtMin = false,
 }: {
   value: number
   onDecrease: () => void
   onIncrease: () => void
+  /**
+   * P2-T47-R1: dentro del configurador, `value` nunca baja de 1
+   * (`Math.max(1, ...)`), así que mostrar la papelera ahí era una
+   * promesa visual falsa — el botón queda deshabilitado en su lugar.
+   * En `CartLine`, bajar a 0 SÍ elimina la línea (`onQuantityChange`),
+   * así que ese único caso preserva la papelera como acción real.
+   */
+  allowRemoveAtMin?: boolean
 }) {
+  const atMin = value <= 1
+  const showTrash = atMin && allowRemoveAtMin
   return (
     <div className="flex items-center gap-2">
-      <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl" onClick={onDecrease}>
-        {value <= 1 ? <Trash2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-11 w-11 rounded-xl"
+        onClick={onDecrease}
+        disabled={atMin && !allowRemoveAtMin}
+      >
+        {showTrash ? <Trash2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
       </Button>
       <span className="w-7 text-center text-sm font-bold">{value}</span>
-      <Button type="button" variant="outline" size="icon" className="h-8 w-8 rounded-xl" onClick={onIncrease}>
+      <Button type="button" variant="outline" size="icon" className="h-11 w-11 rounded-xl" onClick={onIncrease}>
         <Plus className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -1048,22 +1081,34 @@ function ChoiceButton({
   active,
   onClick,
   children,
+  variant = "default",
 }: {
   active: boolean
   onClick: () => void
   children: ReactNode
+  /** P2-T47-R1: "remove" da a los ingredientes quitados un tratamiento
+   * visual opuesto a "agregar" (rojo + tachado), nunca el mismo chip. */
+  variant?: "default" | "remove"
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        "inline-flex min-h-9 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
-        active
-          ? "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-          : "border-border bg-card hover:border-amber-300/70 dark:hover:border-amber-800"
+        "inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
+        variant === "remove"
+          ? active
+            ? "border-red-300 bg-red-50 text-red-600 line-through dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
+            : "border-border bg-card hover:border-red-300/70 dark:hover:border-red-900"
+          : active
+            ? "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            : "border-border bg-card hover:border-amber-300/70 dark:hover:border-amber-800"
       )}
     >
+      {/* P2-T47-R1: señal de selección adicional al color/borde (WCAG
+          1.4.1) — un check visible, nunca sólo un cambio de tinte. */}
+      {active && <Check className="h-3.5 w-3.5 shrink-0" />}
       {children}
     </button>
   )
@@ -1072,16 +1117,25 @@ function ChoiceButton({
 function OptionGroup({
   title,
   description,
+  obligatorio,
   children,
 }: {
   title: string
   description?: string
+  obligatorio?: boolean
   children: ReactNode
 }) {
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-bold">{title}</h4>
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-bold">{title}</h4>
+          {obligatorio && (
+            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-semibold">
+              Obligatorio
+            </Badge>
+          )}
+        </div>
         {description && <span className="text-xs text-muted-foreground">{description}</span>}
       </div>
       <div className="flex flex-wrap gap-2">{children}</div>

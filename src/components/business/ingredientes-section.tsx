@@ -40,6 +40,7 @@ import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-gui
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
 import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
+import { findEquivalentCategory } from "@/lib/category-normalization"
 
 // ============================================
 // Types
@@ -268,7 +269,10 @@ export function IngredientesSection({ negocio, onDirtyChange }: IngredientesSect
       setEditingCategoryValue("")
       return
     }
-    if (allCategories.includes(trimmed)) {
+    // P2-T47-R1: excluye la propia categoría de la comparación — recapitalizar
+    // "Aderezos" -> "ADEREZOS" sigue permitido, sólo se bloquea si YA existe
+    // OTRA categoría equivalente (case/espacio-insensible).
+    if (findEquivalentCategory(allCategories.filter((c) => c !== editingCategory), trimmed)) {
       toast.error("Ya existe una categoría con ese nombre")
       return
     }
@@ -336,7 +340,7 @@ export function IngredientesSection({ negocio, onDirtyChange }: IngredientesSect
   const handleAddCategory = () => {
     const trimmed = categoryInput.trim()
     if (!trimmed) return
-    if (allCategories.includes(trimmed)) {
+    if (findEquivalentCategory(allCategories, trimmed)) {
       toast.error("La categoría ya existe")
       return
     }
