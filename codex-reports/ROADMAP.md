@@ -718,8 +718,19 @@ P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
          P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
 P2-T39 — Admin/SuperAdmin Functional Review —
-          R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION (ver
-          P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md). R0/R1 auditaron el
+          R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION (ver
+          P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md +
+          C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
+          P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md — R3A cerró los
+          gates que R3 dejó pendientes: DB integration tests contra
+          Testing real [14/15 PASS, 1 timeout ambiental documentado, no un
+          defecto de código], auth contract de actorFamily=superadmin
+          [gap real encontrado y cerrado con 3 archivos de test nuevos],
+          first-opt-in, manual-off, dispatcher wiring, y `next build`
+          PASS. 249/249 regresión T40 preservada. Test-only, commit
+          a1e5fdd, push a testing-codex, autodeploy SUCCESS. T39 sigue sin
+          cerrarse — el operador debe ejecutar la certificación física).
+          R0/R1 auditaron el
           productor de negocio_pendiente (ya presente, sin cambio de
           código); R2 diseñó, sin implementar, la entrega Web Push para
           SuperAdmin, bloqueada entonces por T44 compartiendo la misma

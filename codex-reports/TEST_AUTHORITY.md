@@ -1,5 +1,24 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## P2-T39-R3A — Pre-physical certification gate (2026-09-21)
+
+```text
+P2_T39_PREPHYSICAL_GATE=PASS_WITH_ONE_DOCUMENTED_ENVIRONMENTAL_CAVEAT
+P2_T39_STATUS=R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION
+REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md (ubicación canónica, no en este worktree)
+NEW_TEST_FILES=superadmin-actor-family-contract.test.ts [10 tests, auth contract A-I + manual-off/relogin],
+  superadmin-push-settings-static-contract.test.ts [5 tests, first-opt-in],
+  superadmin-push-dispatch-wiring-static-contract.test.ts [8 tests, 6-producer wiring post-commit]
+PRODUCT_CODE_CHANGED=NO
+T40_REGRESSION=249 pass / 0 fail
+BUILD=PASS (next build, con VAPID keys reales — un placeholder inválido falla la fase de page-data-collection, comportamiento correcto de web-push)
+TSC_NEW_ERRORS=0 (baseline 31 sin cambio)
+ESLINT=PASS
+DB_INTEGRATION_PASS=14
+DB_INTEGRATION_FAIL=1 (negocio_deuda alert crossing — timeout ambiental reproducido 2/2 veces contra latencia real de Postgres remoto, no un defecto: dispatchSuperadminPush es fire-and-forget y nunca bloquea la respuesta; los otros 3 productores con el mismo patrón sí completaron)
+TESTING_AUTODEPLOY=821752dd-b686-4990-8d84-335bbb61ca65_SUCCESS_EXACT_COMMIT (test-only, autodeploy del repo, no una decisión de esta ronda)
+```
+
 ## P2-T39-R3 — SuperAdmin Web Push delivery, implementation gate (2026-09-21)
 
 ```text
