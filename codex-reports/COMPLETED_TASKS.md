@@ -2170,3 +2170,61 @@ La evidencia física original y R2 quedó PASS; los findings T43 quedaron
 `RESOLVED_PHYSICALLY_CERTIFIED_TESTING`. Este cierre sólo documenta la
 certificación en Testing y no autoriza promoción automática.
 Reporte: `codex-reports/P2_T43_R3_OPERATOR_CERTIFICATION_CLOSEOUT.md`.
+
+## P2-T40-FINAL-PHYSICAL-CERTIFICATION-CLOSEOUT — 2026-09-21
+
+REASON: A0 (audit) → A1 (corrección de autoridad stale-owner/opt-out) →
+R1 (implementación: handoff firmado, limpieza de stale same-family owner,
+auto-rebind silencioso, opt-out manual M2, oferta de reactivación,
+reconciliación CuentaOperativa) → R2 (atribuyó CASE G al TTL de 120s, lo
+amplió a 600s — la recertificación física posterior refutó esa causa
+como suficiente) → R3 (leyó telemetría de runtime REAL en Railway y
+demostró la causa raíz verdadera: `resolveCorePushTargetsFromNormalized()`
+hace UNION intencional entre la tabla normalizada `PushSubscription` y el
+campo legacy per-modelo, p.ej. `Negocio.pushSubscription` — diseño de
+P2-T05 Stage4 nunca considerado por R1/R2 al limpiar sólo la tabla
+normalizada; corregido con `detachLegacyPushFieldIfMatches()`).
+
+RESULT: COMPLETE — certificación física final: CASE A-G PASS (CASE G, el
+gate bloqueante de R1/R2, PASS tras el fix de R3), CASE I PASS (denied
+UX). CASE H clasificado explícitamente `PASS_FOR_T40_CROSS_FAMILY_
+PRESERVATION_WITH_OPERATIVE_DELIVERY_CONDITIONAL_UNAVAILABLE` (Cliente +
+CuentaOperativa cross-family PASS; delivery operativo real es superficie
+de P2-T44, nunca bloqueante de T40). CASE J clasificado
+`CONDITIONAL_NOT_AVAILABLE_PHYSICALLY_T44_COVERAGE_AUTOMATED_T40_
+SECURITY_COVERAGE_PRESERVED` (nunca PASS total inventado ni FAIL — la
+propiedad de seguridad `SAME_FAMILY_CUENTA_OPERATIVA_A_TO_B` quedó
+cubierta por un nuevo test focal agregado en este mismo closeout,
+encadenando funciones reales ya existentes, cero cambio de código
+producto). Hallazgo separado NO corregido: 403 en
+`/api/destacado-solicitud` por ambigüedad de cookie pre-existente
+(P2-T18-BLOCKER-AUTH2-R2), enlazado a su autoridad correcta, no relacionado
+directamente con la causa del leak de Push ya resuelta.
+
+```text
+P2_T40_STATUS=CLOSED_TESTING_CERTIFIED
+RELEASE_ELIGIBLE_T40=YES_FUTURE_CURATED_PROMOTION_ONLY
+R3_COMMIT=fa4408dd855675365b9b0c90f4b75ed34ce0eb6e
+R3_TESTING_DEPLOYMENT=de1349d9-1f06-43ce-9984-49161554dbdf_SUCCESS_EXACT_COMMIT
+FOCAL_PASS=271
+FOCAL_FAIL=0
+REGRESSION_PASS=267
+REGRESSION_FAIL=4 (mismos pre-existentes ya confirmados independientes de T40)
+TSC_BASELINE_ERRORS=31
+TSC_FINAL_ERRORS=31
+TSC_NEW_ERRORS=0
+PRODUCT_FILES_CHANGED=0
+TEST_FILES_CHANGED=1
+PRISMA_FILES_CHANGED=0
+MIGRATION_FILES_CHANGED=0
+FUNCTIONAL_TREE_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+NEXT_ACTION=P2_T40_PRODUCTION_PROMOTION_EVALUATION (futura, no ejecutada
+  en este closeout)
+```
+
+Este cierre documenta la certificación física completa en Testing y NO
+autoriza ninguna promoción automática. `main`/Production permanecen sin
+tocar en `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`.
+Reporte: `codex-reports/P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md`.

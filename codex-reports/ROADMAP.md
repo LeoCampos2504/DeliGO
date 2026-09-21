@@ -451,6 +451,21 @@ P2_T52_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   consumidor, endpoint /api/manifest sin callers, y la Fase 4 de Mozo
   — migración de push target + Service Worker — que requiere su propia
   autorización explícita futura.)
+P2_T40_STATUS=CLOSED_TESTING_CERTIFIED (2026-09-21 — FINAL CLOSEOUT tras
+  certificación física completa: CASE A-G PASS (incluye CASE G, el gate
+  bloqueante de R1/R2, PASS final tras el fix de causa raíz real de R3),
+  CASE I PASS, CASE H clasificado `PASS_FOR_T40_CROSS_FAMILY_PRESERVATION_
+  WITH_OPERATIVE_DELIVERY_CONDITIONAL_UNAVAILABLE` (Cliente+CuentaOperativa
+  cross-family PASS físico; la mitad de delivery operativo real es
+  superficie de P2-T44, nunca bloqueante de T40), CASE J clasificado
+  `CONDITIONAL_NOT_AVAILABLE_PHYSICALLY_T44_COVERAGE_AUTOMATED_T40_
+  SECURITY_COVERAGE_PRESERVED` (nunca declarado PASS total ni FAIL — la
+  propiedad de seguridad queda soportada por el nuevo test automatizado
+  `SAME_FAMILY_CUENTA_OPERATIVA_A_TO_B`, agregado en este closeout sin
+  ningún cambio de código producto, único gap de cobertura confirmado).
+  `RELEASE_ELIGIBLE_T40=YES_FUTURE_CURATED_PROMOTION_ONLY` — ninguna
+  promoción ejecutada, `main`/Production intactos. Ver
+  P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.)
 P2_T40_R3_STATUS=R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
   (2026-09-21 — la recertificación física de R2 volvió a fallar CASE G de
   forma inmediata, refutando "el TTL era demasiado corto" como causa
@@ -672,31 +687,36 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 
 ```text
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
-P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED —
-         A0 (audit) + A1 (stale-owner/opt-out authority correction) + R1
-         (implementación) + R2 (TTL fix, insuficiente) + R3 (causa raíz
-         real: legacy union target, 2026-09-21) —
-         R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
-         (R1 certificó CASE A-F PASS, CASE G FAIL; R2 corrigió el TTL del
-         handoff pero la recertificación física SIGUIÓ fallando; R3 leyó
-         telemetría de runtime REAL en Railway y demostró la causa raíz
-         verdadera: `resolveCorePushTargetsFromNormalized()` hace UNION
-         normalizado+legacy por diseño (P2-T05 Stage4) — R1/R2 sólo
-         limpiaban la tabla normalizada, dejando `Negocio.pushSubscription`
-         (campo legacy per-modelo del owner stale) como target de envío
-         vivo indefinidamente. Corregido con `detachLegacyPushFieldIfMatches()`
-         — ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
+P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
+         CLOSED_TESTING_CERTIFIED (2026-09-21) — A0 (audit) + A1
+         (stale-owner/opt-out authority correction) + R1 (implementación)
+         + R2 (TTL fix, refutado como insuficiente por recertificación
+         física inmediata) + R3 (causa raíz real, demostrada con
+         telemetría de runtime real: `resolveCorePushTargetsFromNormalized()`
+         hace UNION normalizado+legacy por diseño de P2-T05 Stage4 —
+         R1/R2 sólo limpiaban la tabla normalizada, dejando el campo
+         legacy per-modelo del owner stale, p.ej. `Negocio.pushSubscription`,
+         como target de envío vivo; corregido con
+         `detachLegacyPushFieldIfMatches()`) + FINAL CLOSEOUT
+         (certificación física completa: CASE A-G PASS, CASE I PASS, CASE
+         H/J acotados correctamente a cross-family PASS + delivery
+         operativo bajo P2-T44, nunca "full physical PASS" inventado;
+         cobertura automatizada `SAME_FAMILY_CUENTA_OPERATIVA_A_TO_B`
+         agregada como único test focal faltante, cero cambio de código
+         producto). Hallazgo separado, NO corregido acá:
+         `/api/destacado-solicitud` puede resolver un actor incorrecto
+         (403) por ambigüedad de cookie pre-existente de
+         P2-T18-BLOCKER-AUTH2-R2 en navegadores de prueba con múltiples
+         sesiones acumuladas — fuera del selector family-aware que sí usa
+         `/api/push/reconcile-stale-owner`; enlazado a esa autoridad, no
+         reabre T40. `RELEASE_ELIGIBLE_T40=YES_FUTURE_CURATED_PROMOTION_ONLY`
+         — sin promoción ejecutada. Ver
+         P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
          P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md,
          P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md,
-         P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md y
-         P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md).
-         RELEASE_ELIGIBLE=NO hasta recertificación física completa
-         empezando por CASE G. Hallazgo separado, NO relacionado
-         directamente y NO corregido en este round: `/api/destacado-solicitud`
-         puede resolver un actor incorrecto (403) por ambigüedad de cookie
-         pre-existente (P2-T18-BLOCKER-AUTH2-R2) en navegadores de prueba
-         con múltiples sesiones acumuladas — fuera del selector
-         family-aware que sí usa `/api/push/reconcile-stale-owner`.
+         P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md,
+         P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
+         P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
           (diseño ya avanzado en el worktree separado
           C:/Leo Campos/Trabajo/deligo-t39-admin,
