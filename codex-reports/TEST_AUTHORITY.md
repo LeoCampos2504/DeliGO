@@ -1,5 +1,24 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## P2-T39-R3B — SuperAdmin push physical auth failure: root cause + fix (2026-09-21)
+
+```text
+P2_T39_STATUS=R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md
+ROOT_CAUSE=src/proxy.ts (middleware Edge) nunca reconocía "superadmin" como SessionFamily para el gate AUTH_REQUIRED_PREFIXES de /api/push/subscribe|unsubscribe — rechazaba 401 ANTES de requireSuperadminSession (idéntico al usado por /api/superadmin/dashboard, que sí funcionaba). Mismo patrón que P2-T44-R1G (cuenta_operativa).
+FIX=chequeo aislado de formato (SUPERADMIN_TOKEN_REGEX, hex-64) gateado por ?actorFamily=superadmin dentro de checkRouteProtection §4 — nunca tocó SessionFamily/FAMILY_SESSION_COOKIE_NAMES/ROLE_PROTECTED_ROUTES
+NEW_TEST_FILES=proxy.test.ts [+11 tests, describe "P2-T39-R3B"],
+  superadmin-push-auth-real-session.integration.test.ts [2 tests, sesión SuperAdmin real de punta a punta contra DELIGO_TEST_DATABASE_URL]
+REPRODUCTION=confirmado 2 veces: (1) proxy.ts revertido temporalmente vía git stash -> 3/10 tests nuevos fallan exactamente como predice la causa raíz; restaurado -> 10/10 PASS; (2) integration test de sesión real: dashboard=200/subscribe=401 pre-fix (inferido de (1), confirmado post-fix dashboard=200/subscribe=200)
+T40_REGRESSION=314 pass / 0 fail (16 archivos)
+TSC_NEW_ERRORS=0 (baseline 31 sin cambio)
+ESLINT=PASS
+BUILD=PASS
+REAL_AUTH_INTEGRATION=2 pass / 0 fail contra Testing real, cero fixtures huérfanos
+TESTING_DEPLOY=a6f6c66c-5478-4906-962d-68b22cee4631_SUCCESS_EXACT_COMMIT (1661d87)
+PRODUCTION_TOUCHED=NO
+```
+
 ## P2-T39-R3A — Pre-physical certification gate (2026-09-21)
 
 ```text

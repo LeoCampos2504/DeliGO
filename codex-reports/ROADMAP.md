@@ -718,10 +718,25 @@ P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
          P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
 P2-T39 — Admin/SuperAdmin Functional Review —
-          R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION (ver
-          P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md +
+          R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION (ver
           C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
-          P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md — R3A cerró los
+          P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md — la certificación
+          física real encontró un 401 en POST /api/push/subscribe
+          ?actorFamily=superadmin con sesión SuperAdmin válida
+          [GET /api/superadmin/dashboard misma sesión = 200]. Causa raíz:
+          src/proxy.ts, el middleware Edge, nunca reconocía "superadmin"
+          como family para el gate de AUTH_REQUIRED_PREFIXES — rechazaba
+          ANTES de llegar a requireSuperadminSession (idéntico al que usa
+          dashboard, nunca el bug del route handler). Mismo patrón exacto
+          que P2-T44-R1G (cuenta_operativa), ya documentado en el propio
+          archivo. Fix aislado (nunca tocó SessionFamily/
+          ROLE_PROTECTED_ROUTES): chequeo de formato hex-64 gateado por
+          ?actorFamily=superadmin. Reproducido y corregido en 2 niveles
+          (proxy.test.ts con token fabricado + integration test de sesión
+          real de punta a punta contra Testing). 314/314 regresión, tsc
+          baseline sin cambio, eslint limpio, build PASS. Commit 1661d87,
+          deploy Testing a6f6c66c SUCCESS. T39 sigue sin cerrarse — el
+          operador debe re-certificar físicamente. R3A había cerrado los
           gates que R3 dejó pendientes: DB integration tests contra
           Testing real [14/15 PASS, 1 timeout ambiental documentado, no un
           defecto de código], auth contract de actorFamily=superadmin
