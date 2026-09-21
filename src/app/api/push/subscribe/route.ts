@@ -10,9 +10,11 @@ import {
 } from "@/lib/push-subscription-http"
 import { registerPushSubscription, type PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
-// P2-T05 Stage3 (F-P2-T05-03): mapping server-derived — el enum normalizado
-// NO incluye `superadmin` (rama legacy dead/inert bajo la sesión aislada
-// actual de SuperAdmin, P2-T17). El owner/channel jamás se aceptan del body.
+// P2-T05 Stage3 (F-P2-T05-03): mapping server-derived para el switch por
+// `user.type` (cookie compartida) más abajo — `superadmin` NUNCA autentica
+// por esa cookie (P2-T17), así que sigue deliberadamente fuera de este mapa;
+// su owner moderno se resuelve en la rama `actorFamily=superadmin` de arriba,
+// con sesión dedicada (P2-T39-R3). El owner/channel jamás se aceptan del body.
 const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor" | "superadmin", PushSubscriptionOwnerType>> = {
   cliente: "cliente",
   negocio: "negocio",
@@ -37,6 +39,29 @@ export async function POST(req: NextRequest) {
       if (!normalizedInput) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
       await registerPushSubscription(
         { ownerType: "cuenta_operativa", ownerId: account.id, channel: "default" },
+        normalizedInput
+      )
+      return NextResponse.json({ ok: true, subscribed: true })
+    }
+
+    // P2-T39-R3: mismo patrón que cuenta_operativa arriba — sesión SuperAdmin
+    // dedicada (`deligo_superadmin_session`), nunca la cookie compartida.
+    // owner/ownerId siempre server-derived; nunca aceptados del body/query.
+    if (req.nextUrl.searchParams.get("actorFamily") === "superadmin") {
+      const { requireSuperadminSession } = await import("@/lib/superadmin-auth")
+      const session = await requireSuperadminSession(req)
+      if (!session.ok) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const rl = checkRateLimit("pushMutation", `${getClientIp(req)}:${session.admin.id}`)
+      if (!rl.allowed) return rateLimitResponse(rl)
+      const body = await req.json()
+      const subscription = (body as { subscription?: unknown }).subscription
+      if (typeof subscription !== "string" || !subscription) return NextResponse.json({ error: "subscription es obligatorio" }, { status: 400 })
+      const parsedShape = parsePushSubscriptionShape(subscription)
+      if (!parsedShape) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      const normalizedInput = toNormalizedPushSubscriptionInput(parsedShape)
+      if (!normalizedInput) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      await registerPushSubscription(
+        { ownerType: "superadmin", ownerId: session.admin.id, channel: "default" },
         normalizedInput
       )
       return NextResponse.json({ ok: true, subscribed: true })

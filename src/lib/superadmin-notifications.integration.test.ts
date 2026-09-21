@@ -153,13 +153,15 @@ describe("P2-T26-R2 — notifySuperadmins() generic helper", () => {
     const active = await ensureSuperadmin("helper-active")
     const inactive = await ensureSuperadmin("helper-inactive", false)
 
-    const count = await notifySuperadmins(db, {
+    const { count, recipientIds } = await notifySuperadmins(db, {
       tipo: "test_generic",
       titulo: "t",
       cuerpo: "c",
       datos: { entityId: "x" },
     })
     expect(count).toBeGreaterThanOrEqual(1) // at least our fixture — shared DB may have other real active admins too
+    expect(recipientIds).toContain(active.id)
+    expect(recipientIds).not.toContain(inactive.id)
 
     const activeRows = await db.notificacion.findMany({ where: { userId: active.id, userType: "superadmin", tipo: "test_generic" } })
     expect(activeRows.length).toBe(1)
@@ -171,7 +173,7 @@ describe("P2-T26-R2 — notifySuperadmins() generic helper", () => {
 
   test("2. recipientIds override bypasses the activo:true resolution entirely", async () => {
     const target = await ensureSuperadmin("helper-override")
-    const count = await notifySuperadmins(db, {
+    const { count, recipientIds } = await notifySuperadmins(db, {
       tipo: "test_generic_override",
       titulo: "t",
       cuerpo: "c",
@@ -179,14 +181,16 @@ describe("P2-T26-R2 — notifySuperadmins() generic helper", () => {
       recipientIds: [target.id],
     })
     expect(count).toBe(1)
+    expect(recipientIds).toEqual([target.id])
     const rows = await db.notificacion.count({ where: { userId: target.id, userType: "superadmin", tipo: "test_generic_override" } })
     expect(rows).toBe(1)
     await db.notificacion.deleteMany({ where: { tipo: "test_generic_override" } })
   })
 
   test("3. zero recipients (empty override) creates nothing and never throws", async () => {
-    const count = await notifySuperadmins(db, { tipo: "test_zero", titulo: "t", cuerpo: "c", datos: {}, recipientIds: [] })
+    const { count, recipientIds } = await notifySuperadmins(db, { tipo: "test_zero", titulo: "t", cuerpo: "c", datos: {}, recipientIds: [] })
     expect(count).toBe(0)
+    expect(recipientIds).toEqual([])
   })
 })
 

@@ -5,6 +5,7 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins } from "@/lib/superadmin-notifications"
+import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
 
 // Preset denuncia reasons
 const MOTIVOS_PRESET: Record<string, string> = {
@@ -137,6 +138,9 @@ export async function POST(req: NextRequest) {
           denuncia: Denuncia
           totalDenuncias: number
           bloqueado: boolean
+          notificationTitle: string
+          notificationBody: string
+          superadminRecipientIds: string[]
         }
 
     let outcome: PostOutcome
@@ -283,16 +287,26 @@ export async function POST(req: NextRequest) {
         // click, en el tab "denuncias". Participa de esta misma transacción
         // Serializable: si el conflicto de serialización revierte todo el
         // bloque, la notificación tampoco queda huérfana.
-        await notifySuperadmins(tx, {
+        const notificationTitle = "Nueva denuncia registrada"
+        const notificationBody = bloqueado
+          ? `Un cliente fue bloqueado automáticamente tras acumular ${totalDenuncias} denuncias.`
+          : `${user.nombre} denunció a un cliente (${totalDenuncias}/${MAX_DENUNCIAS_BEFORE_BLOCK}).`
+        const notified = await notifySuperadmins(tx, {
           tipo: "denuncia_nueva",
-          titulo: "Nueva denuncia registrada",
-          cuerpo: bloqueado
-            ? `Un cliente fue bloqueado automáticamente tras acumular ${totalDenuncias} denuncias.`
-            : `${user.nombre} denunció a un cliente (${totalDenuncias}/${MAX_DENUNCIAS_BEFORE_BLOCK}).`,
+          titulo: notificationTitle,
+          cuerpo: notificationBody,
           datos: { entityId: denuncia.id, navigateTo: "denuncias", targetClienteId: clienteId, autoBloqueo: bloqueado },
         })
 
-        return { kind: "creada" as const, denuncia, totalDenuncias, bloqueado }
+        return {
+          kind: "creada" as const,
+          denuncia,
+          totalDenuncias,
+          bloqueado,
+          notificationTitle,
+          notificationBody,
+          superadminRecipientIds: notified.recipientIds,
+        }
       })
     } catch (error) {
       if (error instanceof DuplicateDenunciaError) {
@@ -320,7 +334,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Ya denunciaste a este cliente por este pedido" }, { status: 409 })
     }
 
-    const { denuncia, totalDenuncias, bloqueado } = outcome
+    const { denuncia, totalDenuncias, bloqueado, notificationTitle, notificationBody, superadminRecipientIds } = outcome
+    if (superadminRecipientIds.length > 0) {
+      dispatchSuperadminPush(superadminRecipientIds, {
+        type: "denuncia_nueva",
+        titulo: notificationTitle,
+        cuerpo: notificationBody,
+        entityId: denuncia.id,
+        navigateTo: "denuncias",
+      }).catch(() => {})
+    }
     return NextResponse.json({
       ok: true,
       denuncia,

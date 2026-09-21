@@ -5,6 +5,7 @@ import {
   getReviewModerationExpiry,
 } from "@/lib/review-moderation-policy"
 import { notifyReviewModerationSuperadmins } from "@/lib/review-moderation-notifications"
+import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
 
 export const REVIEW_MODERATION_BUSINESS_INFORMATION_MAX_LENGTH = 2000
 const MAX_ATTEMPTS = 3
@@ -55,7 +56,7 @@ export async function addBusinessReviewModerationInformation(input: {
   const mensaje = input.mensaje.trim()
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await db.$transaction(async (tx) => {
+      const result = await db.$transaction(async (tx) => {
         const solicitud = await tx.solicitudRevisionResena.findFirst({
           where: { id: input.solicitudId, negocioId: input.negocioId },
           select: {
@@ -109,15 +110,33 @@ export async function addBusinessReviewModerationInformation(input: {
             detalle: JSON.stringify({ solicitudId: solicitud.id, resenaId: solicitud.resenaId, estadoAnterior: "REQUIERE_INFORMACION", estadoNuevo: "EN_REVISION", prorrogaAplicada }),
           },
         })
-        await notifyReviewModerationSuperadmins(tx, {
+        const notified = await notifyReviewModerationSuperadmins(tx, {
           solicitudId: solicitud.id,
           reviewerId: solicitud.revisadaPorSuperadminId,
           titulo: "Información adicional recibida",
           cuerpo: "Un negocio aportó información para una solicitud de revisión.",
         })
 
-        return { solicitud: { id: solicitud.id, estado: "EN_REVISION" as const, venceEn, updatedAt: now }, eventoId: evento.id }
+        return {
+          solicitud: { id: solicitud.id, estado: "EN_REVISION" as const, venceEn, updatedAt: now },
+          eventoId: evento.id,
+          superadminRecipientIds: notified.recipientIds,
+        }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 })
+      // P2-T39-R3: dispatch de Push POST-COMMIT — nunca dentro de la
+      // transacción de moderación; un fallo del proveedor Push acá nunca
+      // revierte ni afecta el resultado ya decidido.
+      const { superadminRecipientIds, ...publicResult } = result
+      if (superadminRecipientIds.length > 0) {
+        dispatchSuperadminPush(superadminRecipientIds, {
+          type: "review_moderation",
+          titulo: "Información adicional recibida",
+          cuerpo: "Un negocio aportó información para una solicitud de revisión.",
+          entityId: publicResult.solicitud.id,
+          navigateTo: "moderacion-resenas",
+        }).catch(() => {})
+      }
+      return publicResult
     } catch (error) {
       if (isSerializationConflict(error) && attempt < MAX_ATTEMPTS - 1) continue
       if (isSerializationConflict(error)) throw new ReviewModerationBusinessConflictError()

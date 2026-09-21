@@ -34,13 +34,22 @@ export interface NotifySuperadminsInput {
 // new helper carries zero regression risk for the two existing notification
 // types.
 //
-// Returns 0 (and creates nothing) when there are no recipients — the calling
-// business flow must never fail because no SuperAdmin exists/qualifies.
-export async function notifySuperadmins(tx: Tx, input: NotifySuperadminsInput): Promise<number> {
+export interface NotifySuperadminsResult {
+  count: number
+  /** P2-T39-R3: recipientIds resueltos DENTRO de esta transacción — el
+   * caller debe usarlos para el dispatch de Push POST-COMMIT (nunca dentro
+   * de la misma transacción de negocio). */
+  recipientIds: string[]
+}
+
+// Returns count:0/recipientIds:[] (and creates nothing) when there are no
+// recipients — the calling business flow must never fail because no
+// SuperAdmin exists/qualifies.
+export async function notifySuperadmins(tx: Tx, input: NotifySuperadminsInput): Promise<NotifySuperadminsResult> {
   const recipientIds =
     input.recipientIds ??
     (await tx.superAdmin.findMany({ where: { activo: true }, select: { id: true } })).map((admin) => admin.id)
-  if (!recipientIds.length) return 0
+  if (!recipientIds.length) return { count: 0, recipientIds: [] }
 
   await tx.notificacion.createMany({
     data: recipientIds.map((id) => ({
@@ -52,7 +61,7 @@ export async function notifySuperadmins(tx: Tx, input: NotifySuperadminsInput): 
       datos: JSON.stringify(input.datos),
     })),
   })
-  return recipientIds.length
+  return { count: recipientIds.length, recipientIds }
 }
 
 // ============================================

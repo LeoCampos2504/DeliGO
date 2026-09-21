@@ -1339,6 +1339,10 @@ enum PushSubscriptionOwnerType {
   repartidor
   empleado
   cuenta_operativa
+  // P2-T39-R3: owner moderno para Web Push de SuperAdmin. El campo legacy
+  // SuperAdmin.pushSubscription queda inerte (P2-T17) — deliberadamente no se
+  // le hace dual-write ni se lo une como legacyRaw en resolveCorePushTargets.
+  superadmin
 }
 
 enum PushSubscriptionChannel {

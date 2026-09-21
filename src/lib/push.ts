@@ -54,6 +54,14 @@ export type NotificationType =
   | "operaciones_pyr_new_order"
   | "operaciones_pyr_new_review"
   | "operaciones_pyr_chat"
+  // P2-T39-R3: los 5 tipos persistentes de Notificacion.tipo dirigidos a
+  // SuperAdmin (ver src/lib/superadmin-push-dispatch.ts). Nunca disparan una
+  // rama de dispatch por tipo en el service worker — sólo actorFamily lo hace.
+  | "negocio_pendiente"
+  | "destacado_solicitud"
+  | "denuncia_nueva"
+  | "negocio_deuda"
+  | "review_moderation"
 
 // P2-T31-R15R: inventario completo de `NotificationType` realmente producido
 // por las fábricas de payload de este archivo (ver PUSH_TYPE_URGENCY_MATRIX
@@ -407,7 +415,7 @@ export async function detachLegacyPushFieldIfMatches(
 // P2-T05 Stage4: normalized multi-device fan-out target resolution
 // ============================================
 
-export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado" | "cuenta_operativa"
+export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado" | "cuenta_operativa" | "superadmin"
 
 export interface PushFanoutTarget {
   /** JSON string listo para pasar a `sendPushNotification`. */

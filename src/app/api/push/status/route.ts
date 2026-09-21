@@ -38,6 +38,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ subscribed })
     }
 
+    if (req.nextUrl.searchParams.get("actorFamily") === "superadmin") {
+      const { requireSuperadminSession } = await import("@/lib/superadmin-auth")
+      const session = await requireSuperadminSession(req)
+      if (!session.ok) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const rl = checkRateLimit("pushStatus", `${getClientIp(req)}:${session.admin.id}`)
+      if (!rl.allowed) return rateLimitResponse(rl)
+      const body = await req.json().catch(() => ({}))
+      const subscription = (body as { subscription?: unknown }).subscription
+      if (typeof subscription !== "string") return NextResponse.json({ error: "subscription es obligatorio" }, { status: 400 })
+      const parsed = parsePushSubscriptionShape(subscription)
+      if (!parsed) return NextResponse.json({ error: "subscription debe ser un JSON válido" }, { status: 400 })
+      const subscribed = await hasPushSubscriptionForOwnerEndpoint(
+        { ownerType: "superadmin", ownerId: session.admin.id, channel: "default" },
+        parsed.endpoint
+      )
+      return NextResponse.json({ subscribed })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })

@@ -441,6 +441,14 @@ self.addEventListener("push", (event) => {
     };
     const recipientRole = data.data?.role;
 
+    // P2-T39-R3: actorFamily identifica al SuperAdmin de forma explícita e
+    // inequívoca — a diferencia de `role`/`notifType`, nunca se comparte con
+    // Cliente/Negocio/Repartidor. Nunca hace dispatch por tipo (5 tipos
+    // distintos de Notificacion.tipo comparten esta MISMA rama fija) — sólo
+    // decide ícono y, en notificationclick, el destino fijo /admin.
+    const actorFamily = data.data?.actorFamily || null;
+    const isSuperadminPush = actorFamily === "superadmin";
+
     // P2-T36: `badge` (el pequeño ícono monocromático que Android compone
     // sobre la propia notificación/status bar) NUNCA debe ser el mismo PNG
     // full-color que `icon` — Android lo recorta/tiñe igual, así que un PNG
@@ -453,7 +461,9 @@ self.addEventListener("push", (event) => {
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
     let icon;
-    if (recipientRole && ROLE_ICON[recipientRole]) {
+    if (isSuperadminPush) {
+      icon = "/icon-admin-192x192.png";
+    } else if (recipientRole && ROLE_ICON[recipientRole]) {
       icon = ROLE_ICON[recipientRole];
     } else {
       icon = "/icon-cliente-192x192.png";
@@ -493,6 +503,7 @@ self.addEventListener("push", (event) => {
         url: typeof data.data?.url === "string" ? data.data.url : null,
         type: notifType,
         role: data.data?.role || null,
+        actorFamily,
         pedidoId: data.data?.pedidoId || null,
         mesaNumero: data.data?.mesaNumero || null,
       },
@@ -886,6 +897,37 @@ self.addEventListener("notificationclick", (event) => {
 
   // Handle action button clicks
   const action = event.action;
+
+  // ── SuperAdmin (P2-T39-R3) ──
+  // Rama genérica y fija por `actorFamily`, nunca por `type` — los 5 tipos de
+  // Notificacion.tipo dirigidos a SuperAdmin (negocio_pendiente,
+  // destacado_solicitud, denuncia_nueva, negocio_deuda, review_moderation)
+  // comparten EXACTAMENTE este mismo destino, sin deep link por entidad
+  // (SUPERADMIN_PUSH_TAP_DESTINATION=/admin, EXACT_ENTITY_DEEP_LINK_
+  // REQUIRED=NO — decisión de diseño de R2, no cambiada en R3). Nunca navega
+  // a una URL externa o manipulada — el destino es siempre el literal fijo
+  // `/admin`, independiente de cualquier otro campo del payload.
+  if (notificationData.actorFamily === "superadmin") {
+    const adminTarget = self.location.origin + "/admin";
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+        const isAdminClientPathname = (pathname) => pathname === "/admin" || pathname.startsWith("/admin/");
+        const matchingClient = clients.find(
+          (client) => "focus" in client && "navigate" in client && isAdminClientPathname(new URL(client.url).pathname)
+        );
+        if (matchingClient) {
+          try {
+            const navigatedClient = await matchingClient.navigate(adminTarget);
+            return (navigatedClient || matchingClient).focus();
+          } catch {
+            return self.clients.openWindow(adminTarget);
+          }
+        }
+        return self.clients.openWindow(adminTarget);
+      })
+    );
+    return;
+  }
 
   // ── Operaciones — panel personal (cuenta_operativa) ──
   // Rama compartida por TODOS los tipos modernos de Operaciones cuyo
