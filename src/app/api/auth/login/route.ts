@@ -13,7 +13,7 @@ import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identit
 import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
 import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { signPushOwnerHandoff, setPushOwnerHandoffCookie } from "@/lib/push-owner-handoff"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint } from "@/lib/push-owner-handoff"
 import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): escribe SÓLO la cookie de la familia
@@ -78,6 +78,13 @@ export async function applyLoginCookies(
 
   const handoff = await signPushOwnerHandoff({ family, prevOwnerType, prevOwnerId })
   if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+  // P2-T40-R2 (CASE G diagnóstico seguro) — nunca ownerId/token crudos, sólo
+  // fingerprints no reversibles y booleanos. Telemetría útil para confirmar
+  // en logs reales si el handoff se está minteando cuando corresponde.
+  console.log(
+    `[PushOwnerHandoff] mint family=${family} newOwner=${safeFingerprint(newOwnerId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+  )
 }
 
 // AUTH-LOGIN-THROTTLE-HARDENING: dimensión por cuenta, compartida vía

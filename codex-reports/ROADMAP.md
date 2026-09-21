@@ -451,6 +451,34 @@ P2_T52_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   consumidor, endpoint /api/manifest sin callers, y la Fase 4 de Mozo
   — migración de push target + Service Worker — que requiere su propia
   autorización explícita futura.)
+P2_T40_R2_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+  (2026-09-21 — certificación física de R1 confirmó CASE A-F PASS y CASE G
+  FAIL bloqueante: Negocio A con Push activo, sin logout, login directo de
+  Negocio B en el mismo navegador/family — notificaciones de AMBAS cuentas
+  llegaban al mismo dispositivo (`CROSS_ACCOUNT_PUSH_LEAK=REPRODUCED`).
+  Auditó los 14 eslabones candidatos del propio prompt de R2 y descartó con
+  evidencia el mecanismo de reescritura de cookie de family en
+  `src/proxy.ts` (idéntico al de `/api/push/subscribe`, ya confirmado
+  funcionando físicamente en CASE F) y el montaje/disparo de
+  `PermissionPrompt`. Construyó un test de integración ENCADENADO nuevo
+  (`case-g-same-family-account-switch.test.ts`) que usa las funciones
+  exportadas reales de `login/route.ts` y el handler real de
+  `reconcile-stale-owner/route.ts`, pasando el valor literal de la cookie
+  de handoff de una respuesta a la siguiente exactamente como un
+  navegador — el caso sin demora PASA limpio, y el caso con el handoff YA
+  VENCIDO reproduce el síntoma físico exacto. Causa raíz demostrada:
+  `PUSH_OWNER_HANDOFF_TTL_SECONDS` (120s, calibrado para un round-trip
+  automático estilo OAuth) es insuficiente para el cambio de cuenta MANUAL
+  real que dispara `STALE_PREVIOUS_OWNER_RULE` — corregido a 600s, cero
+  cambio de arquitectura/schema. Agregó telemetría fingerprinted (SHA-256
+  truncado, nunca valores crudos) en los 4 puntos de minteo del handoff y
+  en su consumo, para diagnóstico seguro ante cualquier recurrencia. 163
+  tests focales (incluye los 3 nuevos de CASE G) + regresión combinada
+  260/264 (los 4 restantes, los mismos pre-existentes ya confirmados
+  independientes de T40 en R1). TSC 31/31/0 nuevos, ESLint/build/diff-check
+  PASS. `RELEASE_ELIGIBLE=NO` — recertificación física pendiente, empezando
+  por CASE G, antes de continuar con H/I/J. Ver
+  P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md.)
 P2_T40_A1_STATUS=STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY_COMPLETE
   (2026-09-20, read-only — corrige a A0. Confirmó, por lectura directa
   de `src/lib/push-subscription-repository.ts`, `src/lib/push.ts` y los
@@ -606,11 +634,18 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED —
          A0 (audit) + A1 (stale-owner/opt-out authority correction) + R1
-         (implementación, 2026-09-20) —
-         IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
-         (ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
-         P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md y
-         P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md)
+         (implementación) + R2 (fix CASE G, 2026-09-21) —
+         FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+         (certificación física R1 confirmó CASE A-F PASS, CASE G FAIL
+         bloqueante — fuga cross-account same-family sin logout; R2
+         demostró la causa raíz (TTL del handoff de 120s insuficiente para
+         un cambio de cuenta manual) con reproducción automatizada y la
+         corrigió — ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
+         P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md,
+         P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md y
+         P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md).
+         RELEASE_ELIGIBLE=NO hasta recertificación física completa
+         empezando por CASE G.
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
           (diseño ya avanzado en el worktree separado
           C:/Leo Campos/Trabajo/deligo-t39-admin,

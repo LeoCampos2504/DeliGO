@@ -7,6 +7,7 @@ import { detachPushSubscriptionByEndpoint, type PushSubscriptionOwnerType } from
 import {
   PUSH_OWNER_HANDOFF_COOKIE_NAME,
   clearPushOwnerHandoffCookie,
+  safeFingerprint,
   verifyPushOwnerHandoff,
   type PushHandoffFamily,
 } from "@/lib/push-owner-handoff"
@@ -91,18 +92,28 @@ export async function POST(req: NextRequest) {
     let newSession = false
     let response: NextResponse
 
+    // P2-T40-R2 (CASE G diagnóstico seguro) — nunca ownerId/token/endpoint
+    // crudos, sólo fingerprints no reversibles y booleanos. Se loguea ANTES
+    // de las ramas de abajo para capturar exactamente el punto de entrada
+    // (cookie presente/ausente, verificación exitosa/fallida, match de
+    // family) sin importar por cuál rama termine resolviendo.
+    console.log(
+      `[PushOwnerHandoff] consume family=${currentOwner.family} currentOwner=${safeFingerprint(currentOwner.ownerId)} cookiePresent=${Boolean(handoffToken)} verified=${Boolean(handoff)} familyMatch=${Boolean(handoff && handoff.family === currentOwner.family)} subscriptionPresent=${Boolean(subscriptionRaw)}`
+    )
+
     if (handoff && handoff.family === currentOwner.family) {
       // Handoff válido y de la family correcta: es de un solo uso, se
       // consume (se limpia) en esta misma respuesta independientemente del
       // resultado del cleanup de abajo.
       newSession = true
 
-      if (
+      const prevOwnerDiffersFromCurrent = Boolean(
         handoff.prevOwnerType &&
         handoff.prevOwnerId &&
-        (handoff.prevOwnerType !== currentOwner.ownerType || handoff.prevOwnerId !== currentOwner.ownerId) &&
-        subscriptionRaw
-      ) {
+        (handoff.prevOwnerType !== currentOwner.ownerType || handoff.prevOwnerId !== currentOwner.ownerId)
+      )
+
+      if (handoff.prevOwnerType && handoff.prevOwnerId && prevOwnerDiffersFromCurrent && subscriptionRaw) {
         const detachInput = resolvePushSubscriptionDetachInput(subscriptionRaw)
         if (detachInput.parsed) {
           const result = await detachPushSubscriptionByEndpoint(
@@ -115,6 +126,13 @@ export async function POST(req: NextRequest) {
           )
           staleCleanupPerformed = result.detached
         }
+        console.log(
+          `[PushOwnerHandoff] cleanup-attempt prevOwner=${safeFingerprint(handoff.prevOwnerId)} subscriptionParsed=${Boolean(detachInput.parsed)} detached=${staleCleanupPerformed}`
+        )
+      } else if (handoff.prevOwnerType && handoff.prevOwnerId) {
+        console.log(
+          `[PushOwnerHandoff] cleanup-skipped prevOwnerFound=SI prevOwnerDiffersFromCurrent=${prevOwnerDiffersFromCurrent} subscriptionPresent=${Boolean(subscriptionRaw)}`
+        )
       }
 
       response = NextResponse.json({ ok: true, newSession, staleCleanupPerformed })

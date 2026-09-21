@@ -4532,3 +4532,20 @@ sesiones (`MANUAL_OFF_AUTO_REBIND_ON_NEXT_LOGIN=NO`), pero DeliGO ofrece
 reactivarlo UNA vez en el próximo login (`MANUAL_OFF_NEXT_LOGIN_REENABLE_
 OFFER=SI`) — nunca obliga a navegar a Ajustes. Ver
 `codex-reports/P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md`.
+
+## P2-T40-R2 — handoff TTL invariant — 2026-09-21
+
+```text
+PUSH_OWNER_HANDOFF_TTL_SECONDS=600 (era 120 — CASE G físico demostró que
+  120s, calibrado para un round-trip automático estilo OAuth, es
+  insuficiente para el cambio de cuenta MANUAL real que dispara
+  STALE_PREVIOUS_OWNER_RULE; reproducido con un test automatizado que firma
+  un handoff real ya vencido y confirma el síntoma físico exacto)
+HANDOFF_STILL_NEVER_A_USER_SESSION=SI (sigue siendo de un solo uso, nunca
+  reutilizable como autenticación, nunca expone más que
+  {family, prevOwnerType, prevOwnerId})
+SAFE_FINGERPRINTED_TELEMETRY_ADDED=SI (mint + consume, SHA-256 truncado a
+  10 hex, nunca valores crudos — permanente, no temporal)
+```
+
+Ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.

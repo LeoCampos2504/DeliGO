@@ -10,7 +10,7 @@ import {
 import { auditLog } from "@/lib/audit"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { signPushOwnerHandoff, setPushOwnerHandoffCookie } from "@/lib/push-owner-handoff"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint } from "@/lib/push-owner-handoff"
 
 // ============================================
 // Bugfix-5C: callback de Google OAuth para CuentaOperativa
@@ -139,6 +139,10 @@ async function applyOperationalGoogleLoginCookies(req: NextRequest, response: Ne
     prevOwnerId,
   })
   if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+  console.log(
+    `[PushOwnerHandoff] mint family=cuenta_operativa newOwner=${safeFingerprint(newAccountId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+  )
 }
 
 export async function GET(req: NextRequest) {

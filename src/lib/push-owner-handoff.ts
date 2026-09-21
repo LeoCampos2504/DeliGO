@@ -15,19 +15,36 @@
 // recién autenticada" que usa la oferta de reactivación M2 (nunca un
 // sessionStorage/localStorage con el token de sesión — eso está prohibido
 // explícitamente por el prompt de R1).
-import { randomUUID } from "crypto"
+import { createHash, randomUUID } from "crypto"
 import { jwtVerify, SignJWT, type JWTPayload } from "jose"
 import type { NextResponse } from "next/server"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
+// P2-T40-R2 — fingerprint no reversible (SHA-256, 10 hex) para telemetría
+// segura de diagnóstico alrededor del handoff (login/reconcile-stale-owner).
+// Mismo patrón ya usado en rondas previas de este repo para correlacionar
+// evidencia sin loguear nunca el valor crudo (ownerId/endpoint/token).
+export function safeFingerprint(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 10)
+}
+
 export const PUSH_OWNER_HANDOFF_ISSUER = "deligo-push-owner-handoff"
 export const PUSH_OWNER_HANDOFF_AUDIENCE = "deligo-push-owner-handoff"
-// Corto a propósito: sólo necesita sobrevivir el round-trip inmediato
-// login -> primera reconciliación del cliente, nunca una sesión de usuario.
-// Mismo orden de magnitud que SOCKET_TOKEN_TTL_SECONDS (2 min) en
-// src/lib/realtime-auth.ts.
-export const PUSH_OWNER_HANDOFF_TTL_SECONDS = 120
+// P2-T40-R2 (CASE G — CROSS_ACCOUNT_PUSH_LEAK físico, causa raíz demostrada):
+// el valor original de 120s se calibró pensando en un round-trip AUTOMÁTICO
+// (login -> primera reconciliación del cliente, mismo orden de magnitud que
+// SOCKET_TOKEN_TTL_SECONDS en src/lib/realtime-auth.ts) — pero el escenario
+// real que dispara STALE_PREVIOUS_OWNER_RULE es un CAMBIO DE CUENTA MANUAL
+// (operador/usuario tipeando credenciales de una cuenta distinta sin cerrar
+// sesión primero), que puede tardar más de 2 minutos en la práctica. Un test
+// automatizado (case-g-same-family-account-switch.test.ts) reprodujo el bug
+// físico exacto usando un handoff real ya vencido: la limpieza queda en
+// silencio no-op y el binding stale del owner anterior sobrevive. Sigue
+// siendo deliberadamente corto (nunca una sesión de usuario, nunca
+// reutilizable como autenticación, de un solo uso) — sólo se amplía lo
+// suficiente para tolerar un cambio de cuenta manual real.
+export const PUSH_OWNER_HANDOFF_TTL_SECONDS = 600
 export const PUSH_OWNER_HANDOFF_COOKIE_NAME = "deligo_push_handoff"
 const HANDOFF_KIND = "push-owner-handoff"
 

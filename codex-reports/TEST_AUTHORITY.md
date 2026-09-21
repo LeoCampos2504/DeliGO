@@ -5204,3 +5204,36 @@ alcance, archivo nunca tocado por T40):
 ningún cambio de T40-R1 (confirmado por el mismo stash de verificación).
 
 `P2_T40_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION`.
+
+## P2-T40-R2 — CASE G fix (same-family stale binding) — 2026-09-21
+
+```text
+TSC_BASELINE_ERRORS=31
+TSC_FINAL_ERRORS=31
+TSC_NEW_ERRORS=0
+ESLINT=PASS
+BUILD=PASS
+DIFF_CHECK=PASS
+FOCAL_TEST_PASS=163 (incluye 3 nuevos de case-g-same-family-account-switch.test.ts)
+FOCAL_TEST_FAIL=0
+REGRESSION_TEST_PASS=260
+REGRESSION_TEST_FAIL_OR_ERROR=4 (los mismos 4 pre-existentes ya confirmados
+  independientes de T40 en R1 — no re-verificados contra stash limpio en
+  esta ronda porque ninguno de los 4 archivos involucrados en esa colisión
+  fue tocado por R2)
+NEW_FAIL=NO
+```
+
+1 archivo de test nuevo (3 tests):
+`src/app/api/push/reconcile-stale-owner/case-g-same-family-account-switch.test.ts`
+— encadena las funciones EXPORTADAS reales (`applyLoginCookies` de
+`login/route.ts`, el handler `POST` real de `reconcile-stale-owner/route.ts`)
+pasando el valor literal de la cookie de handoff de una respuesta a la
+siguiente, nunca mocks de la lógica bajo prueba. El caso "DELAYED" (handoff
+firmado con `iat`/`exp` desplazados al pasado, más allá del TTL anterior de
+120s) reproduce el síntoma físico exacto reportado por el operador
+(CASE G FAIL): `newSession:false`, `staleCleanupPerformed:false`, la fila
+de A sobrevive.
+
+`P2_T40_R2_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION`.
+Ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.

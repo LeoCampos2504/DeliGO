@@ -7,7 +7,7 @@ import {
   signGoogleOAuthPendingIdentity,
   setGoogleOAuthPendingCookie,
 } from "@/lib/google-oauth-pending"
-import { signPushOwnerHandoff, setPushOwnerHandoffCookie, type PushHandoffFamily } from "@/lib/push-owner-handoff"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint, type PushHandoffFamily } from "@/lib/push-owner-handoff"
 import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
@@ -301,6 +301,10 @@ export async function GET(req: NextRequest) {
       prevOwnerId,
     })
     if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+    console.log(
+      `[PushOwnerHandoff] mint family=${role} newOwner=${safeFingerprint(userId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+    )
 
     // Set session cookie
     response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {

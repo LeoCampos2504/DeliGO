@@ -17,7 +17,7 @@ import {
 } from "@/lib/auth-login-throttle"
 import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { signPushOwnerHandoff, setPushOwnerHandoffCookie } from "@/lib/push-owner-handoff"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint } from "@/lib/push-owner-handoff"
 
 // AUTH-LOGIN-THROTTLE-HARDENING: mismo helper que src/app/api/auth/login/route.ts
 // — no se extrajo a un módulo compartido porque cada ruta ya tiene su propio
@@ -80,6 +80,10 @@ export async function applyOperationalLoginCookies(req: NextRequest, response: N
     prevOwnerId,
   })
   if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+  console.log(
+    `[PushOwnerHandoff] mint family=cuenta_operativa newOwner=${safeFingerprint(newAccountId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+  )
 }
 
 export async function POST(req: NextRequest) {
