@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { evaluatePasswordHash, createSession, createSessionWithClient, getFamilySessionCookieName, SESSION_DURATION_HOURS, type SessionFamily } from "@/lib/auth"
+import { evaluatePasswordHash, createSession, createSessionWithClient, findSesionByToken, getFamilySessionCookieName, SESSION_DURATION_HOURS, type SessionFamily } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   checkLoginAccountThrottle,
@@ -13,6 +13,8 @@ import { getOrCreateDeviceIdentity, setDeviceCookie } from "@/lib/device-identit
 import { ensureClienteBloqueadoRecordForDevice } from "@/lib/client-block-security"
 import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie } from "@/lib/push-owner-handoff"
+import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): escribe SÓLO la cookie de la familia
 // autenticada — nunca toca la cookie de ninguna otra familia (login Cliente
@@ -30,6 +32,52 @@ function setCookie(response: NextResponse, token: string, family: SessionFamily)
     path: "/",
     maxAge: SESSION_DURATION_HOURS * 60 * 60,
   })
+}
+
+// P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE): antes de sobrescribir la cookie de
+// esta family, lee — sólo server-side, nunca de un input del cliente — el
+// owner que ocupaba ese MISMO slot inmediatamente antes (si lo hay,
+// independientemente de si su sesión ya expiró: findSesionByToken nunca
+// filtra por expiresAt). Si ese owner anterior es distinto al que acaba de
+// autenticarse, dejar un handoff corto y firmado para que la reconciliación
+// del cliente, inmediatamente después de este login, pueda limpiar
+// exactamente esa fila de Push — nunca ninguna otra. Se emite igual (con
+// prevOwner null) cuando no hay owner anterior o es el mismo, únicamente
+// para dar la señal "newSession" que habilita, como máximo una vez, la
+// oferta de reactivación de un opt-out manual (ver
+// codex-reports/P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md §20).
+// Nunca bloquea el login: cualquier fallo de firma (p.ej. secreto no
+// provisionado todavía) simplemente omite la cookie.
+// Exported ONLY for src/app/api/auth/login/apply-login-cookies.test.ts —
+// a focused unit test of the P2-T40-R1 handoff logic that avoids mocking
+// this route's unrelated dependencies (rate limiting, throttle, device
+// identity, password hashing). Never imported by any other product file.
+export async function applyLoginCookies(
+  req: NextRequest,
+  response: NextResponse,
+  token: string,
+  family: SessionFamily,
+  newOwnerId: string
+): Promise<void> {
+  setCookie(response, token, family)
+
+  let prevOwnerType: PushSubscriptionOwnerType | null = null
+  let prevOwnerId: string | null = null
+  try {
+    const previousToken = req.cookies.get(getFamilySessionCookieName(family))?.value
+    if (previousToken) {
+      const previousSession = await findSesionByToken(previousToken)
+      if (previousSession && previousSession.userType === family && previousSession.userId !== newOwnerId) {
+        prevOwnerType = family
+        prevOwnerId = previousSession.userId
+      }
+    }
+  } catch (error) {
+    console.error("[Login] push handoff previous-owner lookup failed:", safeErrorForLog(error))
+  }
+
+  const handoff = await signPushOwnerHandoff({ family, prevOwnerType, prevOwnerId })
+  if (handoff) setPushOwnerHandoffCookie(response, handoff)
 }
 
 // AUTH-LOGIN-THROTTLE-HARDENING: dimensión por cuenta, compartida vía
@@ -65,9 +113,9 @@ export async function POST(req: NextRequest) {
       case "cliente":
         return await loginCliente(body, req)
       case "negocio":
-        return await loginNegocio(body)
+        return await loginNegocio(body, req)
       case "repartidor":
-        return await loginRepartidor(body)
+        return await loginRepartidor(body, req)
       // 24-A: el acceso Superadmin por clave común queda retirado por
       // completo — "superadmin" ya no es un `tipo` reconocido acá. El único
       // camino de autenticación es Google OAuth vía
@@ -204,14 +252,14 @@ async function loginCliente(data: { email: string; password: string }, req: Next
       telefono: cliente.telefono,
     },
   })
-  setCookie(res, token, "cliente")
+  await applyLoginCookies(req, res, token, "cliente", cliente.id)
   if (deviceIdentity.isNew) {
     setDeviceCookie(res, deviceIdentity.token)
   }
   return res
 }
 
-async function loginNegocio(data: { usuario: string; password: string }) {
+async function loginNegocio(data: { usuario: string; password: string }, req: NextRequest) {
   const { usuario, password } = data
 
   if (!usuario?.trim() || !password) {
@@ -294,7 +342,7 @@ async function loginNegocio(data: { usuario: string; password: string }) {
         suspendido: true,
       },
     })
-    setCookie(res, token, "negocio")
+    await applyLoginCookies(req, res, token, "negocio", negocio.id)
     return res
   }
 
@@ -310,11 +358,11 @@ async function loginNegocio(data: { usuario: string; password: string }) {
       aprobado: negocio.aprobado,
     },
   })
-  setCookie(res, token, "negocio")
+  await applyLoginCookies(req, res, token, "negocio", negocio.id)
   return res
 }
 
-async function loginRepartidor(data: { email: string; password: string }) {
+async function loginRepartidor(data: { email: string; password: string }, req: NextRequest) {
   const { email, password } = data
 
   if (!email?.trim() || !password) {
@@ -384,6 +432,6 @@ async function loginRepartidor(data: { email: string; password: string }) {
       activo: repartidor.activo,
     },
   })
-  setCookie(res, token, "repartidor")
+  await applyLoginCookies(req, res, token, "repartidor", repartidor.id)
   return res
 }

@@ -5157,3 +5157,50 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 La suite completa local no es autoridad de regresión en este checkout porque
 las integraciones Prisma no pudieron iniciar sin `DATABASE_URL`; la batería
 focal y el build sí pasaron. No se usa ese resultado para cerrar T23.
+
+## P2-T40-R1 — Secure Push Session Reconciliation — 2026-09-20
+
+```text
+TSC_BASELINE_ERRORS=31
+TSC_FINAL_ERRORS=31
+TSC_NEW_ERRORS=0
+ESLINT=PASS
+BUILD=PASS
+DIFF_CHECK=PASS
+FOCAL_TEST_PASS=52
+FOCAL_TEST_FAIL=0
+REGRESSION_TEST_PASS=257
+REGRESSION_TEST_FAIL_OR_ERROR=4 (los 4 PRE-EXISTENTES, confirmados
+  independientes de T40-R1 contra un checkout con estos cambios revertidos
+  vía git stash — colisión cross-file mock.module() ya documentada entre
+  mozos/unirse + pyr/salon push-subscription + pyr/mensajes, más el gate
+  de integración DELIGO_TEST_DATABASE_URL de mozos/unirse. Cada uno PASA
+  en aislamiento)
+NEW_FAIL=NO
+```
+
+7 archivos de test nuevos (52 tests): `src/lib/push-owner-handoff.test.ts`,
+`src/lib/push-manual-optout.test.ts`,
+`src/app/api/push/reconcile-stale-owner/route.test.ts`,
+`src/lib/push-session-reconciliation-static-contract.test.ts` (porta,
+verbatim, los invariantes P2-T31-R5/R5A extraídos de PermissionPrompt),
+`src/app/api/auth/login/apply-login-cookies.test.ts`,
+`src/app/api/operativo/login/apply-operational-login-cookies.test.ts`, más
+`src/components/shared/permission-prompt-static-contract.test.ts`
+reescrito (el contrato anterior aseveraba literalmente la telemetría inerte
+que T40 reemplaza — ver `codex-reports/P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md`
+§6 para el detalle completo de por qué y qué se preservó).
+
+`src/lib/test-helpers/auth-mock.ts` (el mock canónico H4 compartido por los
+tests de `/api/push/*`) se extendió de forma puramente aditiva
+(`getOperationalAccountFromRequest`, `findSesionByToken`, y el resto de
+exports que los nuevos tests de login necesitan) — cero regresión posible
+para los 7+ archivos pre-existentes que ya lo usaban, verificado.
+
+Hallazgo incidental documentado, no corregido en este round (fuera de
+alcance, archivo nunca tocado por T40):
+`operativo-logout-wiring-static-contract.test.ts`'s
+`MOZO_MANUAL_DISABLE_O2_WIRING` falla incluso contra el checkout limpio sin
+ningún cambio de T40-R1 (confirmado por el mismo stash de verificación).
+
+`P2_T40_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION`.

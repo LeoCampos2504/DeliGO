@@ -32,6 +32,8 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "@/components/shared/logo"
 import { performOperativeLogout } from "@/lib/operativo-logout"
+import { runPushSessionReconciliation } from "@/lib/push-session-reconciliation"
+import { PushReenableOffer } from "@/components/shared/push-reenable-offer"
 
 interface CuentaOperativa {
   id: string
@@ -104,6 +106,14 @@ export default function MozoPanelPage() {
   // generación para nunca aplicar una respuesta vieja sobre una nueva.
   const refreshAcRef = useRef<AbortController | null>(null)
   const refreshGenRef = useRef(0)
+  // P2-T40-R1: la reconciliación de Push (limpieza de stale-owner +
+  // auto-rebind silencioso, ver src/lib/push-session-reconciliation.ts) debe
+  // correr UNA sola vez por mount de este panel — nunca en cada refresco
+  // silencioso de 15s ni en cada focus/visibilitychange, que reusarían la
+  // MISMA sesión ya reconciliada. Mismo patrón que el `hasValidated` ref de
+  // useAuth() (src/hooks/use-auth.ts) para los actores personales.
+  const pushReconcileRanRef = useRef(false)
+  const [showReenableOffer, setShowReenableOffer] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [joinOpen, setJoinOpen] = useState(false)
   const [queryWantsJoin, setQueryWantsJoin] = useState(false)
@@ -176,6 +186,12 @@ export default function MozoPanelPage() {
           cuenta: data.cuenta,
           vinculos: data.vinculos ?? [],
         })
+        if (!pushReconcileRanRef.current && data.cuenta?.id) {
+          pushReconcileRanRef.current = true
+          void runPushSessionReconciliation("cuenta_operativa", data.cuenta.id).then(({ shouldOfferReenable }) => {
+            if (shouldOfferReenable) setShowReenableOffer(true)
+          })
+        }
         return
       }
 
@@ -361,6 +377,13 @@ export default function MozoPanelPage() {
 
   return (
     <main className="min-h-screen bg-background">
+      {showReenableOffer && state.status === "operative" && (
+        <PushReenableOffer
+          ownerType="cuenta_operativa"
+          ownerId={state.cuenta.id}
+          onDismissed={() => setShowReenableOffer(false)}
+        />
+      )}
       <PanelHeader
         cuenta={cuenta}
         vinculosCount={vinculos.length}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import {
   createOperationalSession,
+  findSesionByToken,
   getOperationalAccountFromRequest,
   OPERATIONAL_SESSION_COOKIE_NAME,
   SESSION_DURATION_HOURS,
@@ -9,6 +10,7 @@ import {
 import { auditLog } from "@/lib/audit"
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie } from "@/lib/push-owner-handoff"
 
 // ============================================
 // Bugfix-5C: callback de Google OAuth para CuentaOperativa
@@ -105,6 +107,38 @@ function setOperationalCookie(response: NextResponse, token: string) {
     path: "/",
     maxAge: SESSION_DURATION_HOURS * 60 * 60,
   })
+}
+
+// P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE) — mismo tratamiento que el login por
+// contraseña de CuentaOperativa (src/app/api/operativo/login/route.ts) y el
+// callback de Google de Cliente/Repartidor
+// (src/app/api/auth/google/callback/route.ts). El caso mode=link (línea de
+// arriba con current.id) siempre resuelve prevOwnerId === newAccountId (es
+// la misma cuenta re-emitiendo su propia sesión), así que naturalmente no
+// genera ningún handoff de limpieza — sólo la señal newSession, inerte para
+// ese flujo.
+async function applyOperationalGoogleLoginCookies(req: NextRequest, response: NextResponse, token: string, newAccountId: string): Promise<void> {
+  setOperationalCookie(response, token)
+
+  let prevOwnerId: string | null = null
+  try {
+    const previousToken = req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
+    if (previousToken) {
+      const previousSession = await findSesionByToken(previousToken)
+      if (previousSession && previousSession.userType === "cuenta_operativa" && previousSession.userId !== newAccountId) {
+        prevOwnerId = previousSession.userId
+      }
+    }
+  } catch (error) {
+    console.error("[OperativoGoogle] push handoff previous-owner lookup failed:", safeErrorForLog(error))
+  }
+
+  const handoff = await signPushOwnerHandoff({
+    family: "cuenta_operativa",
+    prevOwnerType: prevOwnerId ? "cuenta_operativa" : null,
+    prevOwnerId,
+  })
+  if (handoff) setPushOwnerHandoffCookie(response, handoff)
 }
 
 export async function GET(req: NextRequest) {
@@ -266,7 +300,7 @@ export async function GET(req: NextRequest) {
 
       const sessionToken = await createOperationalSession(current.id)
       const response = redirectWithReason("/operaciones/cuenta", "linked")
-      setOperationalCookie(response, sessionToken)
+      await applyOperationalGoogleLoginCookies(req, response, sessionToken, current.id)
       return response
     }
 
@@ -293,7 +327,7 @@ export async function GET(req: NextRequest) {
 
       const sessionToken = await createOperationalSession(byGoogleId.id)
       const response = redirectToPanel()
-      setOperationalCookie(response, sessionToken)
+      await applyOperationalGoogleLoginCookies(req, response, sessionToken, byGoogleId.id)
       await auditLog({
         userId: byGoogleId.id,
         userType: "cuenta_operativa",
@@ -340,7 +374,7 @@ export async function GET(req: NextRequest) {
 
       const sessionToken = await createOperationalSession(created.id)
       const response = redirectToPanel()
-      setOperationalCookie(response, sessionToken)
+      await applyOperationalGoogleLoginCookies(req, response, sessionToken, created.id)
       await auditLog({
         userId: created.id,
         userType: "cuenta_operativa",
@@ -362,7 +396,7 @@ export async function GET(req: NextRequest) {
       if (retryAccount && retryAccount.googleId === googleUser.sub && retryAccount.activo && !retryAccount.eliminado) {
         const sessionToken = await createOperationalSession(retryAccount.id)
         const response = redirectToPanel()
-        setOperationalCookie(response, sessionToken)
+        await applyOperationalGoogleLoginCookies(req, response, sessionToken, retryAccount.id)
         return response
       }
       return redirectWithReason("/operaciones/ingresar", "error")

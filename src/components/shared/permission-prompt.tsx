@@ -7,76 +7,21 @@ import { Bell, X, Shield, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import {
-  applicationServerKeyMatches,
-  unsubscribeStalePushSubscription,
-  urlBase64ToUint8Array,
-} from "@/lib/push-subscription-key"
+import { PushReenableOffer } from "@/components/shared/push-reenable-offer"
+import { activatePushAfterGesture, runPushSessionReconciliation } from "@/lib/push-session-reconciliation"
+import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
+// P2-T40-A1 §23/§29: esta key representa EXCLUSIVAMENTE "¿ya se
+// mostró/decidió el prompt nativo del navegador en este dispositivo?" —
+// nunca un proxy de si el backend está vinculado (eso lo responde la
+// reconciliación real, server-side) ni de si el usuario lo apagó a
+// propósito (eso lo responde el marcador local de src/lib/push-manual-optout.ts).
 const STORAGE_KEY = "deligo-permissions-prompted"
 
 type PromptState = "idle" | "showing" | "requesting" | "done"
 
 function isMozoRoute(pathname: string) {
   return pathname === "/mozo" || pathname.startsWith("/mozo/")
-}
-
-// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): `family` es el selector
-// explícito de familia — mismo transporte ?actorFamily= ya certificado en
-// Fase 2, requerido para que /api/push/subscribe resuelva sin ambigüedad
-// bajo 2+ cookies de familia coexistiendo. El caller (dentro de
-// PermissionPrompt) siempre pasa `uType` del actor autenticado actual.
-// P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): antes no
-// verificaba `res.ok` en absoluto — no había forma de que el caller supiera
-// si el backend realmente persistió algo, así que tampoco podía decidir un
-// rollback correctamente. Ahora devuelve el resultado REAL del contrato de
-// `/api/push/subscribe` (ver src/app/api/push/subscribe/route.ts: éxito es
-// `NextResponse.json({ ok: true })` con status 200; cualquier falla usa un
-// status no-2xx) — nunca inventa un contrato distinto al real.
-async function savePushSubscription(subscription: PushSubscription, family: string | null): Promise<boolean> {
-  const url = family ? `/api/push/subscribe?actorFamily=${family}` : "/api/push/subscribe"
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription: JSON.stringify(subscription),
-      }),
-    })
-    if (!res.ok) return false
-    const data = await res.json().catch(() => ({}))
-    return data.ok === true
-  } catch {
-    return false
-  }
-}
-
-// P2-T05 Stage3R1 (F-P2-T05-12): read-only — NUNCA muta el binding
-// server-side. Antes del físico-detach de SERVER_DETACH_ONLY (F-P2-T05-02)
-// una PushSubscription física sólo existía si el actor seguía suscripto, así
-// que re-enviarla en cada mount era inofensivo. Ahora una subscription
-// física puede sobrevivir a un detach manual explícito — volver a postearla
-// automáticamente revertiría ese disable sin ninguna acción del usuario. Por
-// eso este chequeo es puramente informativo: rebind de un actor detached
-// exige siempre USER_EXPLICIT_ENABLE (el toggle de perfil/config).
-// P2-T18-BLOCKER-AUTH2-R13-R2 (F-P2-T18-AUTH02): idéntico selector para
-// /api/push/status.
-async function checkExistingPushSubscriptionStatus(subscription: PushSubscription, family: string | null): Promise<boolean> {
-  try {
-    const url = family ? `/api/push/status?actorFamily=${family}` : "/api/push/status"
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription: JSON.stringify(subscription),
-      }),
-    })
-    if (!res.ok) return false
-    const data = await res.json()
-    return data.subscribed === true
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -96,9 +41,11 @@ export function PermissionPrompt() {
   const isMozo = isMozoRoute(pathname)
   const [state, setState] = useState<PromptState>("idle")
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | "default">("default")
+  const [showReenableOffer, setShowReenableOffer] = useState(false)
 
   const isAuth = useAuthStore((s) => s.user !== null)
   const uType = useAuthStore((s) => s.user?.type ?? null)
+  const ownerId = useAuthStore((s) => s.user?.id ?? null)
 
   // Check current notification permission
   const checkPermission = useCallback(() => {
@@ -110,27 +57,21 @@ export function PermissionPrompt() {
     return perm
   }, [])
 
-  const syncExistingPushSubscription = useCallback(async () => {
-    if (isMozo) return
-
-    if (
-      typeof window === "undefined" ||
-      !("serviceWorker" in navigator) ||
-      !("PushManager" in window) ||
-      !("Notification" in window) ||
-      Notification.permission !== "granted"
-    ) {
-      return
-    }
-
-    const registration = await navigator.serviceWorker.getRegistration("/")
-    const subscription = await registration?.pushManager.getSubscription()
-    if (!subscription) return
-
-    // Read-only status probe — never re-registers automatically (see
-    // checkExistingPushSubscriptionStatus above, F-P2-T05-12).
-    await checkExistingPushSubscriptionStatus(subscription, uType)
-  }, [isMozo, uType])
+  // P2-T40-R1: reemplaza el antiguo `syncExistingPushSubscription` (telemetría
+  // pura, nunca reparaba nada — BUG-2 de P2_T40_A0). Corre SIEMPRE que hay un
+  // actor autenticado conocido (independiente de si el permiso ya es
+  // "granted"), porque la limpieza de stale-owner (STALE_PREVIOUS_OWNER_RULE,
+  // ver P2_T40_A1 §5/§20) es una corrección de seguridad, no una preferencia
+  // — nunca debe depender de si ESTE actor específico quiere Push. Nunca
+  // llama a Notification.requestPermission() acá (sólo el flujo explícito de
+  // handleAccept/PushReenableOffer, con gesto de usuario, puede hacerlo).
+  const reconcile = useCallback(
+    async (ownerType: PushSubscriptionOwnerType, id: string) => {
+      const { shouldOfferReenable } = await runPushSessionReconciliation(ownerType, id)
+      if (shouldOfferReenable) setShowReenableOffer(true)
+    },
+    []
+  )
 
   useEffect(() => {
     if (isMozo) {
@@ -138,14 +79,20 @@ export function PermissionPrompt() {
       return
     }
 
-    if (!isAuth || !uType) {
+    // SUPERADMIN_PUSH_LIFECYCLE_APPLICABLE=NO (P2_T40_A0 §11) — rama legacy
+    // inerte, sin tabla normalizada ni reconciliación: se excluye acá para
+    // no generar una llamada de red que sólo puede resolver 401.
+    const isReconcilableActor = uType === "cliente" || uType === "negocio" || uType === "repartidor"
+
+    if (!isAuth || !isReconcilableActor || !ownerId) {
       setState("idle")
       return
     }
 
     const perm = checkPermission()
+    void reconcile(uType as PushSubscriptionOwnerType, ownerId)
+
     if (perm === "granted") {
-      void syncExistingPushSubscription()
       localStorage.setItem(STORAGE_KEY, "true")
       return
     }
@@ -165,7 +112,7 @@ export function PermissionPrompt() {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [isMozo, isAuth, uType, checkPermission, syncExistingPushSubscription])
+  }, [isMozo, isAuth, uType, ownerId, checkPermission, reconcile])
 
   const handleAccept = async () => {
     if (isMozo) return
@@ -176,71 +123,11 @@ export function PermissionPrompt() {
       const result = await Notification.requestPermission()
       setNotifPerm(result)
 
-      // If granted, also subscribe to push
-      if (result === "granted") {
-        try {
-          const registration = await navigator.serviceWorker.ready
-
-          // P2-T31-R5A (PUSH-SUBSCRIPTION-FAILURE-CONTRACT-HARDENING): R5
-          // dejaba un gap real acá — si este fetch fallaba y YA había una
-          // subscription física, esa rama la reusaba y la persistía a
-          // ciegas, sin ninguna evidencia de que siguiera siendo compatible
-          // con la VAPID vigente (exactamente el patrón que produjo
-          // `VapidPkHashMismatch` en vivo). "No pude validar" NO es lo
-          // mismo que "es compatible", así que ahora se ABORTA por
-          // completo: la física existente (si la hay) queda intacta —
-          // nunca se destruye sin evidencia de que sea stale — pero
-          // tampoco se reusa/persiste como si estuviera confirmada. El
-          // usuario puede reintentar (el banner reaparece hasta que se
-          // marque `STORAGE_KEY`, y el switch de Perfil/Config sigue
-          // disponible como camino explícito).
-          const vapidRes = await fetch("/api/push/vapid-key")
-          const vapidData = vapidRes.ok ? await vapidRes.json().catch(() => ({})) : {}
-          const publicKey = typeof vapidData.publicKey === "string" ? vapidData.publicKey : null
-          if (!publicKey) return
-
-          const applicationServerKey = urlBase64ToUint8Array(publicKey)
-          let subscription = await registration.pushManager.getSubscription()
-          let createdSubscription = false
-
-          if (subscription && !applicationServerKeyMatches(subscription.options.applicationServerKey, applicationServerKey)) {
-            // Stale: atada a una key que ya no es la vigente. Nunca se
-            // reusa una subscription sana como colateral — sólo se destruye
-            // físicamente cuando se demostró la incompatibilidad, y sólo se
-            // avanza si la remoción queda CONFIRMADA (no basta el booleano
-            // de unsubscribe() por sí solo — ver
-            // push-subscription-key.ts::unsubscribeStalePushSubscription).
-            const removed = await unsubscribeStalePushSubscription(subscription, () =>
-              registration.pushManager.getSubscription()
-            )
-            if (!removed) return // fail-closed: no crear encima de una que podría seguir viva
-
-            subscription = await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: applicationServerKey as BufferSource,
-            })
-            createdSubscription = true
-          } else if (!subscription) {
-            subscription = await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: applicationServerKey as BufferSource,
-            })
-            createdSubscription = true
-          }
-          // Camino restante (subscription existía y su key coincide): se
-          // reusa exactamente como está — ni se destruye ni se recrea.
-
-          const saved = await savePushSubscription(subscription, uType)
-          if (!saved && createdSubscription) {
-            // Rollback: la física que ESTA operación acaba de crear nunca
-            // llegó a confirmarse server-side — no queda huérfana. Nunca se
-            // toca una subscription SANA preexistente ante un fallo de
-            // backend (createdSubscription es false en ese caso).
-            await subscription.unsubscribe().catch(() => undefined)
-          }
-        } catch (err) {
-          console.error("Push subscription error:", safeErrorForLog(err))
-        }
+      // If granted, also subscribe to push — misma lógica compartida que
+      // usa PushReenableOffer (P2-T40-R1 §26: nunca dos implementaciones
+      // divergentes de "activar Push tras un gesto explícito").
+      if (result === "granted" && uType) {
+        await activatePushAfterGesture(uType as PushSubscriptionOwnerType)
       }
     } catch (err) {
       console.error("Permission request error:", safeErrorForLog(err))
@@ -272,7 +159,15 @@ export function PermissionPrompt() {
   if (isMozo) return null
 
   return (
-    <AnimatePresence>
+    <>
+      {showReenableOffer && uType && ownerId && (
+        <PushReenableOffer
+          ownerType={uType as PushSubscriptionOwnerType}
+          ownerId={ownerId}
+          onDismissed={() => setShowReenableOffer(false)}
+        />
+      )}
+      <AnimatePresence>
       {state === "showing" && notifPerm === "default" && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -379,6 +274,7 @@ export function PermissionPrompt() {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </>
   )
 }

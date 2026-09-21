@@ -451,6 +451,112 @@ P2_T52_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   consumidor, endpoint /api/manifest sin callers, y la Fase 4 de Mozo
   — migración de push target + Service Worker — que requiere su propia
   autorización explícita futura.)
+P2_T40_A1_STATUS=STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY_COMPLETE
+  (2026-09-20, read-only — corrige a A0. Confirmó, por lectura directa
+  de `src/lib/push-subscription-repository.ts`, `src/lib/push.ts` y los
+  6 notification senders operativos, que la entrega de Push NO chequea
+  sesión activa en ningún punto
+  (`DOES_PUSH_DELIVERY_REQUIRE_ACTIVE_LOGIN_SESSION_AT_SEND_TIME=NO`):
+  un owner cuya sesión expiró sigue recibiendo Push físicamente
+  mientras su fila backend exista. Confirmó además, auditando
+  `src/app/api/auth/login/route.ts`/`operativo/login/route.ts`, que
+  NINGÚN login invalida la sesión de un owner anterior — el riesgo no
+  depende sólo de esperar el TTL de 12h, sino de cualquier
+  reautenticación directa sin logout previo en un dispositivo
+  compartido (escenario real de tablet de Mozo/Operaciones entre
+  turnos). Con eso, calificó
+  `CROSS_ACCOUNT_NOTIFICATION_LEAK_RISK=HIGH` y declaró el contrato de
+  auto-rebind original de A0 **inseguro tal como estaba escrito**
+  (`A0_AUTO_REBIND_CONTRACT_SAFE_AS_WRITTEN=NO`,
+  `A0_TEST_9_SAFE_AS_WRITTEN=NO`): crear la fila del nuevo owner sin
+  limpiar la del owner anterior en el mismo endpoint/family deja viva
+  la fuga. Diseñó el contrato corregido (`STALE_PREVIOUS_OWNER_RULE`,
+  limpieza sólo dentro de la MISMA family de cookie, endpoint exacto,
+  ejecutada en el login del nuevo owner — nunca en el 401-handler
+  propuesto originalmente por A0, descartado por falta de autoridad
+  server-side sobre el endpoint físico en ese punto). Confirmó también,
+  por auditoría exhaustiva de `prisma/schema.prisma` (40+ modelos,
+  ninguno de preferencias/opt-out), que HOY no existe ninguna forma de
+  distinguir un apagado manual de una rotura accidental
+  (`MANUAL_OFF_AND_BROKEN_BINDING_CURRENTLY_INDISTINGUISHABLE=SI`), y
+  recomendó una política M2 (persistente hasta reactivación explícita,
+  coherente con el copy real ya auditado del toggle) resoluble con un
+  marcador local scoped por owner, SIN cambio de schema
+  (`SCHEMA_CHANGE_REQUIRED_FOR_CORRECT_MANUAL_OPT_OUT=NO`). Cerró GAP-6
+  de A0 (expiración de `deligo_operativo_session`): mismo bug confirmado
+  en `src/app/mozo/page.tsx` (handler de 401 de `/api/operativo/me`,
+  transición de UI pura sin detach). Preservó intactos MODEL-C1,
+  `SERVER_DETACH_ONLY`, y el multi-bind legítimo cross-family
+  (Cliente+CuentaOperativa simultáneos en el mismo dispositivo).
+  `P2_T40_R1_AUTHORIZED=NO` — queda pendiente una única decisión de
+  producto (confirmar la política M2) antes de autorizar R1. Ver
+  `codex-reports/P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md`.)
+P2_T40_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+  (2026-09-20 — implementó el diseño CORREGIDO de A1, nunca el auto-rebind
+  inseguro original de A0. Política de producto autorizada:
+  MANUAL_OFF_POLICY=M2_DEVICE_SCOPED_WITH_NEXT_LOGIN_REENABLE_OFFER. Nueva
+  cookie corta firmada de un solo uso `deligo_push_handoff`
+  (src/lib/push-owner-handoff.ts, jose HS256, TTL 120s, secreto dedicado
+  PUSH_OWNER_HANDOFF_SECRET) emitida por TODO login que completa una sesión
+  (password Cliente/Negocio/Repartidor, Google Cliente/Repartidor, password
+  y Google CuentaOperativa) — lee server-side el owner que ocupaba ese
+  MISMO slot de cookie/family inmediatamente antes (nunca de un input del
+  cliente), y su mera presencia válida es también la señal tamper-proof de
+  "sesión nueva" para la oferta de reactivación M2, sin sessionStorage ni
+  token de sesión. Nuevo endpoint `POST /api/push/reconcile-stale-owner`
+  consume ese handoff y limpia ÚNICAMENTE la fila del owner anterior exacto
+  (mismo endpoint físico, vía la primitiva ya existente
+  `detachPushSubscriptionByEndpoint`) — nunca cruza de family (preserva el
+  multi-bind legítimo Cliente+CuentaOperativa simultáneos). Auto-rebind
+  silencioso del owner actual reutiliza `/api/push/subscribe` sin cambios.
+  Opt-out manual M2 nuevo (`src/lib/push-manual-optout.ts`, localStorage
+  scoped por ownerType+ownerId, sin PII, sin schema) cableado en las 4 UIs
+  reales de toggle (Cliente/Negocio/Repartidor/CuentaOperativa — scope
+  ACCOUNT confirmado). Nueva oferta de reactivación propia
+  (`push-reenable-offer.tsx`) implementa las 4 ramas de A1 (permiso
+  granted+física / granted+sin física / default / denied) reutilizando la
+  MISMA lógica de activación ya certificada por P2-T31-R5/R5A (extraída a
+  `src/lib/push-session-reconciliation.ts`, no duplicada). `use-auth.ts` NO
+  se tocó (A1 lo prohibió explícitamente para el 401-handler). Google OAuth
+  cerrado sin gap — mismo mecanismo de handoff en los 4 callbacks/logins.
+  52 tests focales nuevos PASS/0 FAIL, regresión combinada 257 pass (los 4
+  fail/error restantes son pre-existentes, confirmados independientes de
+  T40-R1 contra un checkout con estos cambios revertidos). TSC 31
+  baseline/31 final/0 nuevos, ESLint/build/diff-check PASS. `PUSH_OWNER_
+  HANDOFF_SECRET` pendiente de provisión en Railway TESTING antes de que el
+  mecanismo esté activo ahí (fail-open, nunca bloquea login mientras
+  tanto). Ver P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md.)
+P2_T40_A0_STATUS=AUDIT_AND_DESIGN_COMPLETE (2026-09-20, read-only —
+  cero implementación, cero mutación de push, cero cambio de
+  login/logout/SW/DB/schema, cero Production. Confirmó que
+  `resolveOperationalPushTargets()` es una arquitectura intencional
+  cuenta-primero-con-fallback-Empleado ya usada de forma consistente
+  por TODOS los envíos operativos (Mozo "pedido listo", cancelaciones,
+  chat/pedidos/reviews de PyR y Salón) — cero split-brain. Confirmó
+  MODEL-C1 (multi-bind del mismo endpoint físico a múltiples owners) y
+  `PHYSICAL_UNSUBSCRIBE_POLICY=SERVER_DETACH_ONLY` como diseño ya
+  correcto, no tocar. Identificó el bug cabecera: `syncSession()`
+  (`src/hooks/use-auth.ts`) sobre expiración natural de sesión (TTL 12h)
+  sólo limpia el estado cliente-side, sin detach de red ni físico —
+  deja la fila backend del actor expirado huérfana indefinidamente
+  (Estado D), sin reparación automática. Halló además que
+  `PermissionPrompt` usa una única key global de localStorage no
+  scoped por actor/sesión, que su `syncExistingPushSubscription()` es
+  telemetría inerte, y que el hook de reconciliación real
+  (`usePushNotifications`) sólo está montado en 4 páginas de
+  Ajustes/Perfil — nunca se dispara automáticamente tras login.
+  Diseñó los 7 estados canónicos A-G, la máquina de estados UX, y
+  recomendó Opción A (disparador de reconciliación centralizado cerca
+  de `useAuth`/root layout, reutilizando la infraestructura ya
+  madura de T05/T18/T31 sin rediseñarla) sobre una Opción C de
+  rediseño completo del modelo de datos, que la evidencia no
+  justifica. Hallazgo lateral sin expandir alcance:
+  `use-operativo-pyr-push.ts` no tiene ningún punto de montaje en
+  ninguna UI (código huérfano). T38/T39/T44/T45/T52 confirmados sin
+  tocar; SuperAdmin confirmado inerte para Push; Terminal excluido por
+  diseño. R1 (implementación del disparador de reconciliación) queda
+  `READY_PENDING_OPERATOR_AUTHORIZATION` — ver
+  P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md.)
 P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
   2026-09-11, `p2-t46-stable-2026-09-11` — NO se reescribe ni se
   falsifica) **con un gap de cobertura correctivo abierto**: durante la
@@ -498,7 +604,13 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 
 ```text
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
-P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED — READY_FUTURE
+P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED —
+         A0 (audit) + A1 (stale-owner/opt-out authority correction) + R1
+         (implementación, 2026-09-20) —
+         IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+         (ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
+         P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md y
+         P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md)
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
           (diseño ya avanzado en el worktree separado
           C:/Leo Campos/Trabajo/deligo-t39-admin,

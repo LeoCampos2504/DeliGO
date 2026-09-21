@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useAuthStore } from "@/store/auth-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { clearPushManualOptOut, setPushManualOptOut } from "@/lib/push-manual-optout"
 import { PushDebugPanel } from "@/components/shared/push-debug-panel"
 import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { toast } from "sonner"
@@ -481,9 +482,22 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
                 checked={push.isSubscribed}
                 onCheckedChange={(checked) => {
                   if (checked) {
-                    push.subscribe()
+                    // P2-T40-R1: sólo se borra el opt-out local cuando
+                    // `subscribed` confirma éxito real.
+                    push.subscribe().then((result) => {
+                      if (result.current && result.subscribed && authUser?.id) {
+                        clearPushManualOptOut("repartidor", authUser.id)
+                      }
+                    })
                   } else {
-                    push.unsubscribe()
+                    // P2-T40-R1 (MANUAL_OFF_POLICY=M2_DEVICE_SCOPED_WITH_NEXT_LOGIN_REENABLE_OFFER):
+                    // sólo se persiste el opt-out cuando el detach backend
+                    // confirmó éxito real (`subscribed === false`).
+                    push.unsubscribe().then((result) => {
+                      if (result.current && !result.subscribed && authUser?.id) {
+                        setPushManualOptOut("repartidor", authUser.id)
+                      }
+                    })
                   }
                 }}
                 disabled={push.loading}

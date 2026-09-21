@@ -103,6 +103,10 @@ const SELECTOR_ENDPOINT_PREFIXES = [
   "/api/push/subscribe",
   "/api/push/unsubscribe",
   "/api/push/status",
+  // P2-T40-R1: misma ambigüedad de cookie de familia que sus 3 hermanos de
+  // arriba — este endpoint también resuelve el owner actual vía
+  // getUserFromToken(SESSION_COOKIE)/getOperationalAccountFromRequest.
+  "/api/push/reconcile-stale-owner",
 ]
 
 const RESOLVED_ACTOR_FAMILY_HEADER = "x-resolved-actor-family"
@@ -217,6 +221,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/api/realtime",
   "/api/push/subscribe",
   "/api/push/unsubscribe",
+  "/api/push/reconcile-stale-owner",
 ]
 
 /** Check whether a path starts with any of the given prefixes */
