@@ -227,15 +227,21 @@ requiere ningún cambio de schema.
 
 ## 13-14. Commit y push
 
-Ver marcadores finales — commit único `fix: prevent stale same-family push
-binding after account switch`, pusheado a `origin/testing-codex`. `main` no
-tocado.
+Commit único `2e0ee2b97a4cf1fcf5684f5cde7ef4118616b3c2`
+(`fix: prevent stale same-family push binding after account switch`),
+pusheado `aa98d41..2e0ee2b` a `origin/testing-codex`. `main` no tocado.
 
 ---
 
 ## 15. Deploy Testing
 
-Ver marcadores finales.
+Deployment `1bcbc61e-6304-48e8-9b1b-4ba6d00a278e` — `SUCCESS`, commit exacto
+`2e0ee2b97a4cf1fcf5684f5cde7ef4118616b3c2` confirmado dos veces
+(`railway deployment list --json` y el propio `railway logs`). Logs:
+`33 migrations found`, `No pending migrations to apply`, servidor
+`Ready in 88ms`, cero línea de error/exception/fatal/500/unhandled.
+`PUSH_OWNER_HANDOFF_SECRET` confirmado presente en Railway TESTING
+(`railway variables --kv | grep -c` = 1, valor nunca impreso ni rotado).
 
 ---
 
@@ -261,7 +267,7 @@ MANUAL_OPTOUT_REGRESSION=NO (no tocado, tests en verde)
 T40_A_TO_F_REGRESSION=NO (suite completa en verde, ver sección 10)
 SCHEMA_CHANGE=NO
 MIGRATION=NO
-TESTING_DEPLOY=PENDIENTE_DE_COMPLETAR_ESTA_MISMA_RONDA
+TESTING_DEPLOY=SUCCESS_1bcbc61e-6304-48e8-9b1b-4ba6d00a278e_COMMIT_2e0ee2b_EXACT_MATCH
 PRODUCTION_TOUCHED=NO
 RELEASE_ELIGIBLE=NO
 PHYSICAL_RECERTIFICATION_REQUIRED=SI

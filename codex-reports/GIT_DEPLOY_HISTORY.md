@@ -3287,3 +3287,19 @@ push a main ni cambio en Production. Pendiente: provisionar
 `PUSH_OWNER_HANDOFF_SECRET` en Railway TESTING (el mecanismo de limpieza
 queda fail-open/inerte hasta entonces, nunca bloqueante). Ver
 `codex-reports/P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md`.
+
+## P2-T40-R2 — CASE G same-family stale binding fix — 2026-09-21
+
+El commit funcional `2e0ee2b97a4cf1fcf5684f5cde7ef4118616b3c2` se publicó
+sólo en `testing-codex` (`aa98d41..2e0ee2b`, fast-forward). El autodeploy
+(`1bcbc61e-6304-48e8-9b1b-4ba6d00a278e`) terminó `SUCCESS` con match exacto
+de commit. Logs: `No pending migrations to apply` (sin migración — el fix
+es un cambio de constante TTL + telemetría, cero schema), servidor
+`Ready in 88ms`, cero error/exception/fatal/500/unhandled.
+`PUSH_OWNER_HANDOFF_SECRET` confirmado presente en TESTING (conteo vía
+`railway variables --kv`, valor nunca impreso). `origin/main` permaneció
+sin tocar en `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`. Corrige la
+certificación física CASE G (fuga cross-account same-family sin logout) —
+ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.
+`RELEASE_ELIGIBLE=NO`, recertificación física pendiente empezando por
+CASE G.
