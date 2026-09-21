@@ -1,5 +1,22 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21)
+
+```text
+R3_COMMIT=a808453fd8ca8120412c4c257ed211098f8ea819
+R3_COMMIT_SUBJECT=feat: implement SuperAdmin Web Push delivery (P2-T39-R3)
+R3_PUSH_RESULT=SUCCESS origin/testing-codex (fast-forward from e1fee008d326b800cb311f5a65a391601c4dc1ab)
+TESTING_DEPLOYMENT_ID=081f9509-2321-4af2-87d2-b65850d9cfb4
+TESTING_DEPLOYMENT_STATUS=SUCCESS
+TESTING_DEPLOYMENT_COMMIT_MATCH=SI
+TESTING_MIGRATIONS=1_APPLIED (20260921120000_add_superadmin_push_owner — additive ALTER TYPE ... ADD VALUE, no backfill)
+TESTING_BOOT_HEALTH=PASS (Ready in 67ms, cero errores/excepciones en logs)
+TESTING_SMOKE=/admin -> 200
+ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (sin cambio)
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
 ## P2-T23-R3B — confirmed trajectory playback and replay harness (2026-09-13)
 
 ```text

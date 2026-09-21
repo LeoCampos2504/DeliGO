@@ -717,15 +717,35 @@ P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md,
          P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
          P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
-P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
-          (diseño ya avanzado en el worktree separado
-          C:/Leo Campos/Trabajo/deligo-t39-admin,
-          work/p2-t39-admin-notifications — commits "docs: record T39
-          admin request notification audit" y "docs: design superadmin
-          notification delivery architecture" — NO mergeado a
-          work/p2-t43-r2, por lo que sus reportes no aparecen en este
-          codex-reports/. No tocar ese worktree desde acá; la
-          reconciliación de esa rama queda pendiente de una tarea propia)
+P2-T39 — Admin/SuperAdmin Functional Review —
+          R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION (ver
+          P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md). R0/R1 auditaron el
+          productor de negocio_pendiente (ya presente, sin cambio de
+          código); R2 diseñó, sin implementar, la entrega Web Push para
+          SuperAdmin, bloqueada entonces por T44 compartiendo la misma
+          infraestructura de Push. Con T44 `PAUSED_UNRESOLVED_AFTER_TIMEBOX`
+          y T40 `CLOSED_TESTING_CERTIFIED`, R3 reconcilió el diseño de R2
+          contra el código actual (delta audit completo, ningún supuesto de
+          R2 invalidado) e implementó: owner moderno `superadmin` en
+          `PushSubscriptionOwnerType` (migración aditiva
+          `20260921120000_add_superadmin_push_owner`), rama
+          `actorFamily=superadmin` en las 3 rutas compartidas de push
+          (mismo patrón que `cuenta_operativa`, con `requireSuperadminSession`
+          dedicado), dispatcher post-commit best-effort
+          (`src/lib/superadmin-push-dispatch.ts`) cableado en los 6
+          callsites reales de `notifySuperadmins`/
+          `notifyReviewModerationSuperadmins`, rama genérica
+          `actorFamily=superadmin` en `public/sw.js` (target fijo `/admin`,
+          sin dispatch por tipo, sin tocar la rama pausada de T44) y un
+          nuevo switch ON/OFF en `ConfiguracionTab` de `/admin` reutilizando
+          `usePushNotifications`. El campo legacy
+          `SuperAdmin.pushSubscription` queda inerte, sin tocar (P2-T17).
+          Commit `a808453`, push a `testing-codex`, deploy Testing
+          verificado (`SUCCESS`, commit exacto, boot limpio, `/admin`
+          responde 200). Matriz de certificación física preparada,
+          encabezada por `negocio_pendiente`; el operador debe ejecutarla
+          antes de cerrar T39 — Claude no ejecutó ni simuló certificación
+          física en esta ronda.
 ```
 
 P2-T43 y P2-T53 se retiraron de esta sección en esta reconciliación — ambas
@@ -793,10 +813,10 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39/T38/T40
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad (PRIORITY_UNASSIGNED)
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T49, P2-T50, P2-T47, P2-T55, P2-T51 y ahora P2-T52 cerraron CLOSED_TESTING_CERTIFIED (2026-09-20) — P2-T52 cerró tras certificación física del operador de R1B (4 casos verificables PASS, Case E de PWA legacy instalada CONDITIONAL_NOT_AVAILABLE, no bloqueante), ver P2_T52_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md. No queda ningún P1/P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T39/T38/T40) y la Fase 4 de Mozo (push target + Service Worker), que requiere su propia autorización explícita futura, no automática.
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39_PHYSICAL_CERTIFICATION
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Certificación física del operador para P2-T39-R3 (SuperAdmin Web Push), headline negocio_pendiente
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_PHYSICAL_GATE
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T39-R3 implementó Web Push para SuperAdmin (ver P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md), commit a808453 desplegado y verificado en Testing (SUCCESS, migración aplicada, boot limpio). Falta exclusivamente la certificación física del operador (matriz preparada en el reporte, headline negocio_pendiente) antes de poder cerrar T39 — Claude no puede ejecutarla. T38/T40(cerrado)/T33 siguen sin prioridad asignada más allá de este gate.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,

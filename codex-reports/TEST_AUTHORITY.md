@@ -1,5 +1,33 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## P2-T39-R3 — SuperAdmin Web Push delivery, implementation gate (2026-09-21)
+
+```text
+P2_T39_R3_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+P2_T39_STATUS=R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+FOCAL_TESTS_PURE=254 pass / 0 fail (push.test.ts, superadmin-push-dispatch.test.ts [NEW, 7 tests],
+  push-subscription-repository.test.ts [updated MD57 owner-enum contract],
+  sw-push-role-icon-routing.test.ts, sw-notificationclick-target-routing.test.ts,
+  sw-superadmin-push-routing.test.ts [NEW, 10 tests], sw-push-dedupe.test.ts,
+  sw-icon-cache-bypass-static-contract.test.ts, push-owner-handoff.test.ts,
+  push-manual-optout.test.ts, push-session-reconciliation-static-contract.test.ts)
+FOCAL_TESTS_DB_INTEGRATION=NOT_RUN_NO_DATABASE_URL_IN_ISOLATED_WORKTREE
+  (superadmin-notifications.integration.test.ts updated for the new
+  {count, recipientIds} return shape but not executed this round — same
+  documented environment gap as R0/R1/R2; operator/CI must run it before
+  physical certification with DELIGO_TEST_DATABASE_URL configured)
+ESLINT=PASS (scoped to every file touched this round)
+TYPECHECK=REPO_BASELINE_MATCH_31_PREEXISTING_ERRORS_ZERO_NEW
+  (2 self-inflicted union-type errors from this round's own edits were
+  found and fixed before this count — ConfirmOutcome.debtAlert,
+  PostOutcome.notificationTitle/notificationBody/superadminRecipientIds)
+BUILD=NOT_RUN_NO_NEXT_BUILD_THIS_ROUND (dev/prod runtime verified instead
+  via the real Testing deployment boot log, Ready in 67ms, zero errors)
+TESTING_DEPLOYMENT_STATUS=SUCCESS_EXACT_COMMIT_RUNNING
+PRODUCTION_TOUCHED=NO
+PUBLIC_RELEASE_AUTHORIZED=NO
+```
+
 ## P2-T23-R3B — implementation gate (2026-09-13)
 
 ```text
