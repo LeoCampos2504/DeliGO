@@ -3303,3 +3303,24 @@ certificación física CASE G (fuga cross-account same-family sin logout) —
 ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.
 `RELEASE_ELIGIBLE=NO`, recertificación física pendiente empezando por
 CASE G.
+
+## P2-T40-R3 — CASE G real root cause (legacy union target) fix — 2026-09-21
+
+El commit funcional `fa4408dd855675365b9b0c90f4b75ed34ce0eb6e` se publicó
+sólo en `testing-codex` (`ab625ca..fa4408d`, fast-forward). El autodeploy
+(`de1349d9-1f06-43ce-9984-49161554dbdf`) terminó `SUCCESS` con match
+exacto de commit. Logs: `No pending migrations to apply` (sin
+migración — el fix reutiliza un campo legacy ya existente, cero schema),
+servidor `Ready in 59ms`, cero error/exception/fatal/500/unhandled.
+`PUSH_OWNER_HANDOFF_SECRET` confirmado presente en TESTING. `origin/main`
+permaneció sin tocar en `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`.
+R2's TTL fix quedó demostrado insuficiente por una recertificación física
+inmediata; R3 leyó telemetría de runtime real (nunca inferencia) y
+encontró la causa raíz verdadera: el resolver real de envío de Push
+(`resolveCorePushTargetsFromNormalized`) hace UNION normalizado+legacy por
+diseño (P2-T05 Stage4) — R1/R2 sólo limpiaban la tabla normalizada,
+dejando el campo legacy per-modelo del owner stale como target vivo
+indefinidamente. Ver
+`codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
+`RELEASE_ELIGIBLE=NO`, recertificación física pendiente empezando de
+nuevo por CASE G.

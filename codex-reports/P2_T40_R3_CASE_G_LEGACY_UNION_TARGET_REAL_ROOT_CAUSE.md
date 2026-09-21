@@ -342,11 +342,18 @@ el punto de stale-owner cleanup.
 
 ## 16-17. Commit y push
 
-Ver marcadores finales.
+Commit único `fa4408dd855675365b9b0c90f4b75ed34ce0eb6e`
+(`fix: fully detach stale business push target after account switch`),
+pusheado `ab625ca..fa4408d` a `origin/testing-codex`. `main` no tocado.
 
 ## 18. Deploy Testing
 
-Ver marcadores finales.
+Deployment `de1349d9-1f06-43ce-9984-49161554dbdf` — `SUCCESS`, commit
+exacto `fa4408dd855675365b9b0c90f4b75ed34ce0eb6e` confirmado. Logs:
+`33 migrations found`, `No pending migrations to apply`, servidor
+`Ready in 59ms`, cero línea de error/exception/fatal/500/unhandled.
+`PUSH_OWNER_HANDOFF_SECRET` confirmado presente (conteo=1, valor nunca
+impreso ni rotado).
 
 ## 19-20. Estado Production y matriz física pendiente
 
@@ -384,7 +391,7 @@ PHYSICAL_UNSUBSCRIBE_USED=NO
 CLIENT_SUPPLIED_OWNER_AUTHORITY=NO
 SCHEMA_CHANGE=NO
 MIGRATION=NO
-TESTING_DEPLOY=PENDIENTE_DE_COMPLETAR_ESTA_MISMA_RONDA
+TESTING_DEPLOY=SUCCESS_de1349d9-1f06-43ce-9984-49161554dbdf_COMMIT_fa4408d_EXACT_MATCH
 PRODUCTION_TOUCHED=NO
 RELEASE_ELIGIBLE=NO
 PHYSICAL_RECERTIFICATION_REQUIRED=SI
