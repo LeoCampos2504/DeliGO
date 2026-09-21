@@ -3270,3 +3270,20 @@ exacto de commit. Los logs confirmaron `No pending migrations to apply` y no
 reportaron errores DB. `origin/main` permaneció en
 `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`; no hubo push a main, deploy manual,
 migración ni cambio de Production.
+
+## P2-T40-R1 — secure push session reconciliation Testing deployment — 2026-09-20
+
+El commit funcional `1fc6edc5ca661050271a3c5a3ba64fda606cf919` se publicó
+sólo en `testing-codex` (`origin/testing-codex` avanzó de `e859bac839bddf4d69b7fba5aaa6f7c2e55d59cf`
+a `1fc6edc5ca661050271a3c5a3ba64fda606cf919`, fast-forward). El autodeploy de
+la única service de TESTING (`fe92d8fe-a378-4fab-829d-38d5f4b284d5`) terminó
+`SUCCESS` con match exacto de commit, confirmado dos veces
+(`railway deployment list --json` y `railway status --json`). Logs:
+`33 migrations found`, `No pending migrations to apply` (sin migración
+nueva — T40-R1 no tiene cambio de schema), servidor `Ready in 54ms`, cero
+línea de error/exception/fatal/500/unhandled. `origin/main` permaneció sin
+tocar en `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`; no hubo deploy manual,
+push a main ni cambio en Production. Pendiente: provisionar
+`PUSH_OWNER_HANDOFF_SECRET` en Railway TESTING (el mecanismo de limpieza
+queda fail-open/inerte hasta entonces, nunca bloqueante). Ver
+`codex-reports/P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md`.
