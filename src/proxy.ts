@@ -437,14 +437,33 @@ function checkRouteProtection(
 
   // 4. Any-auth routes (chat, push)
   if (matchesPrefix(pathname, AUTH_REQUIRED_PREFIXES)) {
-    if (!token) {
-      return {
-        allowed: false,
-        status: 401,
-        message: "Se requiere autenticación",
-      }
+    if (token) return { allowed: true }
+    // P2-T39-R3B (root cause de un 401 físico real en
+    // POST /api/push/subscribe?actorFamily=superadmin): SuperAdmin (24-A)
+    // usa su propia cookie/token aislados (deligo_superadmin_session,
+    // formato hex de 64, nunca UUID) y NUNCA es un SessionFamily válido
+    // (ver comentario de línea ~53 sobre P2-T44-R1G — el mismo bug ya
+    // ocurrió una vez con cuenta_operativa). resolveActorSession() por
+    // diseño no puede resolver "superadmin" como family (isSessionFamily
+    // lo excluye a propósito — mezclarlo con el selector multi-family
+    // compartido de cliente/negocio/repartidor/cuenta_operativa rompería
+    // la rama de ROLE_PROTECTED_ROUTES para /api/superadmin/*, que hoy
+    // funciona leyendo esta misma cookie directamente). En vez de tocar
+    // esa máquina de SessionFamily, se agrega acá un chequeo AISLADO,
+    // sólo de presencia/formato (igual que el resto de este archivo) —
+    // la autenticación real sigue siendo exclusivamente
+    // requireSuperadminSession, downstream, sin cambios ni debilitamiento.
+    if (
+      request.nextUrl.searchParams.get(SELECTOR_QUERY_PARAM) === "superadmin" &&
+      getCookieToken(request, SUPERADMIN_SESSION_COOKIE, SUPERADMIN_TOKEN_REGEX)
+    ) {
+      return { allowed: true }
     }
-    return { allowed: true }
+    return {
+      allowed: false,
+      status: 401,
+      message: "Se requiere autenticación",
+    }
   }
 
   // 5. Other API routes — allowed (no special protection at middleware level)

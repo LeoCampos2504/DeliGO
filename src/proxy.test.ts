@@ -20,10 +20,17 @@ const CLIENTE_COOKIE = "deligo_session_cliente"
 const NEGOCIO_COOKIE = "deligo_session_negocio"
 const REPARTIDOR_COOKIE = "deligo_session_repartidor"
 const CUENTA_OPERATIVA_COOKIE = "deligo_operativo_session"
+const SUPERADMIN_COOKIE = "deligo_superadmin_session"
 const LEGACY_COOKIE = "deligo_session"
 
 function uuid(): string {
   return crypto.randomUUID()
+}
+
+/** 32 bytes hex — mismo formato exacto que generateSuperadminSessionToken
+ * en src/lib/superadmin-auth.ts (nunca un UUID). */
+function superadminToken(): string {
+  return Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("")
 }
 
 function req(
@@ -292,6 +299,14 @@ describe("Superadmin: cookie propia, fuera de este mecanismo por completo", () =
     const res = proxy(req("/api/superadmin/panel", {}))
     expect(res.status).toBe(401)
   })
+
+  // P2-T39-R3B: regresión explícita de que el fix de AUTH_REQUIRED_PREFIXES
+  // (más abajo) nunca tocó esta ruta — ROLE_PROTECTED_ROUTES sigue leyendo
+  // deligo_superadmin_session directamente, sin pasar por SessionFamily.
+  test("/api/superadmin CON deligo_superadmin_session (formato real) -> nunca 401 en el middleware", () => {
+    const res = proxy(req("/api/superadmin/dashboard", { [SUPERADMIN_COOKIE]: superadminToken() }))
+    expect(res.status).not.toBe(401)
+  })
 })
 
 // ============================================
@@ -486,6 +501,132 @@ describe("P2-T44-R1G — cuenta_operativa: el middleware ya no bloquea con 401 a
       const res = proxy(req(`${path}?actorFamily=cuenta_operativa`, { [CUENTA_OPERATIVA_COOKIE]: token }, { method: "POST" }))
       expect(res.status).not.toBe(401)
     }
+  })
+})
+
+// ============================================
+// P2-T39-R3B — Root cause de un 401 físico real:
+// POST /api/push/subscribe?actorFamily=superadmin devolvía 401
+// ("Se requiere autenticación") con deligo_superadmin_session presente y
+// válida (GET /api/superadmin/dashboard, misma sesión física, sí devolvía
+// 200). Causa raíz: "superadmin" NUNCA es un SessionFamily válido (a
+// propósito — mezclarla con el selector multi-family compartido de
+// cliente/negocio/repartidor/cuenta_operativa rompería la rama de
+// ROLE_PROTECTED_ROUTES de /api/superadmin/*, que hoy funciona leyendo esa
+// cookie directamente, sin pasar por resolveActorSession). Por eso
+// resolveActorSession() nunca podía resolver family="superadmin" ni
+// encontrar su cookie entre los candidatos legacy/family conocidos, y
+// checkRouteProtection §4 (AUTH_REQUIRED_PREFIXES) bloqueaba con 401 ANTES
+// de que el request llegara a requireSuperadminSession (route handler
+// real, que sí sabe autenticar esta cookie). Mismo patrón de bug exacto
+// que P2-T44-R1G ya documentó para cuenta_operativa — pero el fix acá es
+// deliberadamente DISTINTO: nunca se agregó "superadmin" a SessionFamily
+// (evita el riesgo de romper ROLE_PROTECTED_ROUTES); en cambio, §4 gana un
+// chequeo aislado, sólo de presencia/formato de deligo_superadmin_session,
+// activado únicamente cuando el selector explícito es "superadmin".
+// ============================================
+describe("P2-T39-R3B — superadmin: el middleware ya no bloquea con 401 antes de requireSuperadminSession", () => {
+  test("A: /api/push/subscribe?actorFamily=superadmin CON deligo_superadmin_session (formato real) -> nunca 401", () => {
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: superadminToken() }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+  })
+
+  test("B: /api/push/subscribe?actorFamily=superadmin SIN deligo_superadmin_session -> 401 (el soft-check sigue exigiendo la cookie real, esto no es un bypass)", () => {
+    const res = proxy(req("/api/push/subscribe?actorFamily=superadmin", {}, { method: "POST" }))
+    expect(res.status).toBe(401)
+  })
+
+  test("C: /api/push/unsubscribe?actorFamily=superadmin CON cookie real -> nunca 401", () => {
+    const res = proxy(
+      req("/api/push/unsubscribe?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: superadminToken() }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+  })
+
+  test("D: /api/push/unsubscribe?actorFamily=superadmin SIN cookie -> 401", () => {
+    const res = proxy(req("/api/push/unsubscribe?actorFamily=superadmin", {}, { method: "POST" }))
+    expect(res.status).toBe(401)
+  })
+
+  test("E: cookie con formato inválido (UUID en vez de hex-64, o string corta) -> 401 — el chequeo es de FORMATO real, no sólo presencia", () => {
+    const resUuidShaped = proxy(
+      req("/api/push/subscribe?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: uuid() }, { method: "POST" })
+    )
+    expect(resUuidShaped.status).toBe(401)
+
+    const resTooShort = proxy(
+      req("/api/push/subscribe?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: "abc123" }, { method: "POST" })
+    )
+    expect(resTooShort.status).toBe(401)
+  })
+
+  test("F: sin ninguna cookie SuperAdmin real, y con AMBIGÜEDAD entre 2+ cookies de otra family, sigue fail-closed (401) — el chequeo nuevo de este fix nunca se activa con una cookie de forma/nombre distinto", () => {
+    // Nota de layering: §4 (AUTH_REQUIRED_PREFIXES) es, por diseño
+    // preexistente, un gate de "¿hay ALGÚN actor real autenticado?", no de
+    // "¿coincide con el selector pedido?" (el propio comentario de
+    // resolveActorSession documenta que el selector NUNCA es autoridad).
+    // Con exactamente UNA cookie de otra family presente y sin ambigüedad,
+    // ese fallback preexistente (candidates.length===1) ya dejaba pasar el
+    // request ANTES de este fix — sin relación con SuperAdmin, y sin que
+    // el aislamiento real se vea comprometido: requireSuperadminSession
+    // downstream jamás lee otra cosa que deligo_superadmin_session (ver
+    // superadmin-actor-family-contract.test.ts, test D). Este test verifica
+    // el caso donde ese fallback preexistente NO aplica (2 cookies
+    // candidatas, ambiguo) y confirma que el chequeo NUEVO de este fix
+    // tampoco lo rescata — ninguna cookie que no sea deligo_superadmin_session
+    // con formato hex-64 puede satisfacerlo.
+    const res = proxy(
+      req(
+        "/api/push/subscribe?actorFamily=superadmin",
+        { [NEGOCIO_COOKIE]: uuid(), [CUENTA_OPERATIVA_COOKIE]: uuid() },
+        { method: "POST" }
+      )
+    )
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(res.status).toBe(401)
+  })
+
+  test("G: selector case/formato-sensible — 'Superadmin'/'super_admin' con la cookie real presente sigue siendo 401 (nunca un match aproximado)", () => {
+    const token = superadminToken()
+    for (const selector of ["Superadmin", "SUPERADMIN", "super_admin", "superadmin "]) {
+      const res = proxy(
+        req(`/api/push/subscribe?actorFamily=${encodeURIComponent(selector)}`, { [SUPERADMIN_COOKIE]: token }, { method: "POST" })
+      )
+      expect(res.status).toBe(401)
+    }
+  })
+
+  test("H: cliente/negocio/repartidor/cuenta_operativa siguen funcionando sin cambios (regresión — este fix no tocó SessionFamily)", () => {
+    const clienteToken = uuid()
+    const resCliente = proxy(req("/api/push/subscribe?actorFamily=cliente", { [CLIENTE_COOKIE]: clienteToken }, { method: "POST" }))
+    expect(resCliente.status).not.toBe(401)
+    expect(forwardedCookie(resCliente)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+
+    const operativoToken = uuid()
+    const resOperativo = proxy(
+      req("/api/push/subscribe?actorFamily=cuenta_operativa", { [CUENTA_OPERATIVA_COOKIE]: operativoToken }, { method: "POST" })
+    )
+    expect(resOperativo.status).not.toBe(401)
+    expect(forwardedCookie(resOperativo)).toContain(`${LEGACY_COOKIE}=${operativoToken}`)
+  })
+
+  test("I: la cookie SuperAdmin NUNCA se reenvía bajo el nombre legacy deligo_session (a diferencia de cuenta_operativa) — requireSuperadminSession sigue leyendo la cookie original directamente", () => {
+    const token = superadminToken()
+    const res = proxy(
+      req("/api/push/subscribe?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: token }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
+    expect(hasResolvedSessionCookie(res)).toBe(false)
+    expect(forwardedCookie(res)).toContain(`${SUPERADMIN_COOKIE}=${token}`)
+  })
+
+  test("J: /api/push/status?actorFamily=superadmin (fuera de AUTH_REQUIRED_PREFIXES) nunca estuvo bloqueado — confirmado sin cambio", () => {
+    const res = proxy(
+      req("/api/push/status?actorFamily=superadmin", { [SUPERADMIN_COOKIE]: superadminToken() }, { method: "POST" })
+    )
+    expect(res.status).not.toBe(401)
   })
 })
 
