@@ -5237,3 +5237,39 @@ de A sobrevive.
 
 `P2_T40_R2_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION`.
 Ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.
+
+## P2-T40-R3 — CASE G real root cause (legacy union target) — 2026-09-21
+
+```text
+TSC_BASELINE_ERRORS=31
+TSC_FINAL_ERRORS=31
+TSC_NEW_ERRORS=0
+ESLINT=PASS
+BUILD=PASS
+DIFF_CHECK=PASS
+FOCAL_TEST_PASS=169 (incluye 3 nuevos de CASE_G_REAL_ROOT_CAUSE_REGRESSION)
+FOCAL_TEST_FAIL=0
+REGRESSION_TEST_PASS=263
+REGRESSION_TEST_FAIL_OR_ERROR=4 (mismos 4 pre-existentes ya confirmados
+  independientes de T40 — ninguno de los 3 archivos que R3 tocó
+  (push.ts, reconcile-stale-owner/route.ts, case-g test) participa de esa
+  colisión)
+NEW_FAIL=NO
+```
+
+R2's TTL fix was demonstrated INSUFFICIENT by a fresh physical
+recertification (CASE G failed immediately, not after any delay). R3
+started from REAL Railway runtime telemetry (never inference) and
+confirmed the normalized-table detach genuinely succeeded
+(`detached=true`) — yet A kept receiving push. Root cause:
+`resolveCorePushTargetsFromNormalized()` (src/lib/push.ts) does an
+intentional UNION of the normalized table + the legacy per-model field
+(`Negocio.pushSubscription`, P2-T05 Stage4 mixed-version compatibility)
+— R1/R2 never cleared that legacy field for a stale owner. New test
+`NEGOCIO_A_TO_B_WITHOUT_LOGOUT` in
+`case-g-same-family-account-switch.test.ts` uses the REAL send-path
+resolver (`resolveCorePushTargets`, imported not reimplemented) to prove
+A is no longer a target and B is, end-to-end.
+
+`P2_T40_R3_STATUS=R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION`.
+Ver `codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.

@@ -356,7 +356,49 @@ async function safeClearLegacyIfMatches(
     if (!currentParsed || !arePushSubscriptionsEquivalent(currentParsed, expectedShape)) return false
     return await casClearLegacyPushValue(model, id, field, currentRaw)
   } catch (error) {
-    console.error("[Push] Error en cleanup CAS de legacy:", safeErrorForLog(error))
+    console.error("[Push] Error en cleanup CAS de legacy (dead-endpoint):", safeErrorForLog(error))
+    return false
+  }
+}
+
+/**
+ * P2-T40-R3 (CASE G — causa raíz real): `resolveCorePushTargetsFromNormalized()`
+ * hace un UNION de las filas normalizadas de un owner + su valor legacy
+ * actual (P2-T05 Stage4, mixed-version rollout) — por eso limpiar
+ * ÚNICAMENTE la fila normalizada de un owner stale (lo único que hacía
+ * `detachPushSubscriptionByEndpoint` en R1/R2) deja el valor legacy como
+ * target de envío vivo: un Negocio A cuya fila normalizada ya fue borrada
+ * seguía recibiendo push porque `Negocio.pushSubscription` (su propio campo
+ * legacy, nunca tocado por la limpieza de stale-owner) todavía apuntaba al
+ * mismo endpoint físico. Mismo patrón CAS de `safeClearLegacyIfMatches`
+ * (nunca un blind-clear), pero comparando SÓLO endpoint+p256dh+auth — igual
+ * que `detachPushSubscriptionByEndpoint` sobre la tabla normalizada, nunca
+ * `expirationTime` (metadata de renovación, no identidad del dispositivo;
+ * mismo criterio ya establecido para `sameFanoutSubscriptionKeys`, P2-T05
+ * Hardening H1) — para que ambas limpiezas (normalizada + legacy) usen
+ * exactamente el mismo criterio de "misma subscription física".
+ */
+export async function detachLegacyPushFieldIfMatches(
+  model: string,
+  id: string,
+  field: string,
+  expected: { endpoint: string; p256dh: string; auth: string }
+): Promise<boolean> {
+  try {
+    const currentRaw = await readCurrentLegacyPushValue(model, id, field)
+    if (!currentRaw) return false
+    const currentParsed = parsePushSubscriptionShape(currentRaw)
+    if (
+      !currentParsed ||
+      currentParsed.endpoint !== expected.endpoint ||
+      currentParsed.keys.p256dh !== expected.p256dh ||
+      currentParsed.keys.auth !== expected.auth
+    ) {
+      return false
+    }
+    return await casClearLegacyPushValue(model, id, field, currentRaw)
+  } catch (error) {
+    console.error("[Push] Error en cleanup CAS de legacy (stale-owner):", safeErrorForLog(error))
     return false
   }
 }

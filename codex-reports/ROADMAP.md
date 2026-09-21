@@ -451,6 +451,46 @@ P2_T52_STATUS=CLOSED_TESTING_CERTIFIED / RELEASE_ELIGIBLE=YES /
   consumidor, endpoint /api/manifest sin callers, y la Fase 4 de Mozo
   — migración de push target + Service Worker — que requiere su propia
   autorización explícita futura.)
+P2_T40_R3_STATUS=R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+  (2026-09-21 — la recertificación física de R2 volvió a fallar CASE G de
+  forma inmediata, refutando "el TTL era demasiado corto" como causa
+  suficiente. R3 empezó por la telemetría de runtime REAL que R2 había
+  dejado en Railway (nunca inferencia): confirmó, con timestamps reales,
+  que login B mintió el handoff correcto con prevOwner=A, que B lo
+  presentó, que `verifyPushOwnerHandoff` lo validó, y que
+  `detachPushSubscriptionByEndpoint` SÍ borró exitosamente la fila
+  normalizada de A (`detached=true`). Con la limpieza normalizada
+  confirmada exitosa por evidencia directa, auditó TODAS las fuentes
+  reales de envío de Push para Negocio (nunca asumiendo que la tabla
+  normalizada era la única) y encontró que `resolveCorePushTargetsFromNormalized()`
+  en `src/lib/push.ts` (el resolver REAL que usa `createNotification()`
+  para cada notificación física) hace deliberadamente una UNIÓN de la
+  tabla normalizada + el campo legacy per-modelo
+  (`Negocio.pushSubscription`) — diseño intencional de P2-T05 Stage4 para
+  compatibilidad multi-dispositivo durante el rollout, documentado en el
+  propio código, que R1/R2 nunca tuvieron en cuenta al limpiar sólo la
+  tabla normalizada. El campo legacy de A (por fila, nunca compartido con
+  B) seguía apuntando al mismo endpoint físico indefinidamente. Corrigió
+  con una nueva función `detachLegacyPushFieldIfMatches()` (mismo patrón
+  CAS ya certificado, comparando sólo endpoint+p256dh+auth, nunca
+  expirationTime) invocada inmediatamente después del detach normalizado.
+  Nuevo test `NEGOCIO_A_TO_B_WITHOUT_LOGOUT` prueba el flujo completo
+  usando el resolver REAL (`resolveCorePushTargets`, nunca reimplementado)
+  y confirma A_NOT_TARGETED_AFTER_SWITCH + B_TARGETED_AFTER_SWITCH.
+  Investigó además, por pedido del operador, un 403 observado en
+  `/api/destacado-solicitud` durante la misma sesión física — determinó
+  que es un síntoma DISTINTO (ambigüedad de cookie pre-existente de
+  P2-T18-BLOCKER-AUTH2-R2 en rutas fuera del selector family-aware, en un
+  navegador de pruebas con múltiples sesiones acumuladas), NO relacionado
+  directamente con la causa del leak de Push (que ya tiene su propia
+  explicación completa e independiente) — no corregido en este round por
+  instrucción explícita, registrado como hallazgo separado para el
+  operador. 169 tests focales (incluye 3 nuevos de causa-raíz-real),
+  regresión 263/267 (mismos 4 pre-existentes ya confirmados
+  independientes). TSC 31/31/0 nuevos, ESLint/build/diff-check PASS.
+  `RELEASE_ELIGIBLE=NO` — recertificación física pendiente, empezando de
+  nuevo por CASE G. Ver
+  P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md.)
 P2_T40_R2_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
   (2026-09-21 — certificación física de R1 confirmó CASE A-F PASS y CASE G
   FAIL bloqueante: Negocio A con Push activo, sin logout, login directo de
@@ -634,18 +674,29 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment — PRIORITY_UNASSIGNED —
          A0 (audit) + A1 (stale-owner/opt-out authority correction) + R1
-         (implementación) + R2 (fix CASE G, 2026-09-21) —
-         FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
-         (certificación física R1 confirmó CASE A-F PASS, CASE G FAIL
-         bloqueante — fuga cross-account same-family sin logout; R2
-         demostró la causa raíz (TTL del handoff de 120s insuficiente para
-         un cambio de cuenta manual) con reproducción automatizada y la
-         corrigió — ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
+         (implementación) + R2 (TTL fix, insuficiente) + R3 (causa raíz
+         real: legacy union target, 2026-09-21) —
+         R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+         (R1 certificó CASE A-F PASS, CASE G FAIL; R2 corrigió el TTL del
+         handoff pero la recertificación física SIGUIÓ fallando; R3 leyó
+         telemetría de runtime REAL en Railway y demostró la causa raíz
+         verdadera: `resolveCorePushTargetsFromNormalized()` hace UNION
+         normalizado+legacy por diseño (P2-T05 Stage4) — R1/R2 sólo
+         limpiaban la tabla normalizada, dejando `Negocio.pushSubscription`
+         (campo legacy per-modelo del owner stale) como target de envío
+         vivo indefinidamente. Corregido con `detachLegacyPushFieldIfMatches()`
+         — ver P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md,
          P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md,
-         P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md y
-         P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md).
+         P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md,
+         P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md y
+         P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md).
          RELEASE_ELIGIBLE=NO hasta recertificación física completa
-         empezando por CASE G.
+         empezando por CASE G. Hallazgo separado, NO relacionado
+         directamente y NO corregido en este round: `/api/destacado-solicitud`
+         puede resolver un actor incorrecto (403) por ambigüedad de cookie
+         pre-existente (P2-T18-BLOCKER-AUTH2-R2) en navegadores de prueba
+         con múltiples sesiones acumuladas — fuera del selector
+         family-aware que sí usa `/api/push/reconcile-stale-owner`.
 P2-T39 — Admin/SuperAdmin Functional Review — PRIORITY_UNASSIGNED — READY_FUTURE
           (diseño ya avanzado en el worktree separado
           C:/Leo Campos/Trabajo/deligo-t39-admin,

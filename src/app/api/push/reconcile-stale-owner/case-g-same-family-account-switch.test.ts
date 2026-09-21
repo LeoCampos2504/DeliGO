@@ -1,18 +1,29 @@
-// P2-T40-R2 — CASE G diagnostic: chains the REAL exported handlers
-// (applyLoginCookies from login/route.ts, then the real POST handler of
-// reconcile-stale-owner/route.ts) across two sequential requests, exactly as
-// a browser would present them, to determine whether the pure server-side
-// logic holds up for the physically-reproduced bug: Negocio A authenticated
-// with Push working, Negocio B logs in on the SAME browser WITHOUT A logging
-// out first, and A's stale binding survives.
+// P2-T40-R2/R3 — CASE G diagnostic + real root cause regression.
 //
-// This is deliberately NOT a copy of the existing isolated unit tests — those
-// already proved each piece works with a HAND-CONSTRUCTED handoff cookie.
-// This test constructs the handoff the way the REAL login flow does (via
-// applyLoginCookies itself, fed A's real prior session row) and threads its
-// literal Set-Cookie value into the second request, to catch any gap between
-// "the logic is correct in isolation" and "the two requests actually agree
-// on the same cookie value in sequence."
+// R2 chained the REAL exported handlers (applyLoginCookies from
+// login/route.ts, then the real POST handler of reconcile-stale-owner/route.ts)
+// across two sequential requests, exactly as a browser would present them,
+// and found the pure handoff/cleanup logic correct — but raising the TTL
+// alone did NOT fix the physical bug on re-certification.
+//
+// R3 found the REAL root cause by reading actual runtime telemetry from
+// Railway (never inferred): the normalized-table detach reported
+// `detached=true`, yet A kept receiving push physically. The reason:
+// `resolveCorePushTargetsFromNormalized()` (src/lib/push.ts, the ACTUAL
+// resolver the physical "pedido nuevo" notification used) does a UNION of
+// the normalized PushSubscription rows AND the owner's legacy per-model
+// field (`Negocio.pushSubscription`) — a deliberate P2-T05 Stage4 design for
+// mixed-version multi-device rollout. R1/R2's stale-owner cleanup only ever
+// cleared the normalized row; A's OWN Negocio row's legacy field (nothing
+// shared with B's, since it's a per-row field, not a per-endpoint value)
+// still pointed at the same physical endpoint, so the UNION kept including
+// it as a live send target even after the normalized row was gone.
+//
+// These tests use the REAL resolver (`resolveCorePushTargets`, imported from
+// @/lib/push — the exact function `createNotification()` calls for
+// Negocio/Cliente/Repartidor/Empleado fan-out) to prove the fix end-to-end,
+// per the explicit requirement that CASE G's regression test must use "el
+// MISMO resolver real que usa la notificación física".
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { NextRequest, NextResponse } from "next/server"
 import * as jose from "jose"
@@ -21,7 +32,10 @@ import { authMockState, installAuthMock, resetAuthMockState } from "@/lib/test-h
 installAuthMock()
 
 type PushRow = { id: string; ownerType: string; ownerId: string; channel: string; endpoint: string; p256dh: string; auth: string }
+type NegocioRow = { id: string; pushSubscription: string | null }
+
 let pushRows: PushRow[]
+let negocioRows: NegocioRow[]
 
 mock.module("@/lib/db", () => ({
   db: {
@@ -30,6 +44,23 @@ mock.module("@/lib/db", () => ({
         const before = pushRows.length
         pushRows = pushRows.filter((r) => !Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v))
         return { count: before - pushRows.length }
+      },
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        pushRows.filter((r) => Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v)),
+    },
+    negocio: {
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const row = negocioRows.find((r) => r.id === where.id)
+        return row ? { pushSubscription: row.pushSubscription } : null
+      },
+      // CAS semantics, mirroring the real casClearLegacyPushValue in src/lib/push.ts.
+      updateMany: async ({ where, data }: { where: { id: string; pushSubscription?: string | null }; data: { pushSubscription: string | null } }) => {
+        const row = negocioRows.find(
+          (r) => r.id === where.id && (where.pushSubscription === undefined || r.pushSubscription === where.pushSubscription)
+        )
+        if (!row) return { count: 0 }
+        row.pushSubscription = data.pushSubscription
+        return { count: 1 }
       },
     },
   },
@@ -40,10 +71,11 @@ process.env.PUSH_OWNER_HANDOFF_SECRET = HANDOFF_SECRET
 
 const { applyLoginCookies } = await import("@/app/api/auth/login/route")
 const { POST: reconcilePOST } = await import("./route")
+const { resolveCorePushTargets } = await import("@/lib/push")
 
 const ENDPOINT = "https://push.example/SHARED-PHYSICAL-DEVICE"
-function subJson() {
-  return JSON.stringify({ endpoint: ENDPOINT, expirationTime: null, keys: { p256dh: "p", auth: "a" } })
+function subJson(endpoint = ENDPOINT, p256dh = "p", auth = "a") {
+  return JSON.stringify({ endpoint, expirationTime: null, keys: { p256dh, auth } })
 }
 
 function reqLoginB(previousTokenCookieValue: string | null): NextRequest {
@@ -80,72 +112,131 @@ async function signExpiredHandoffLikeApplyLoginCookiesWould(prevOwnerId: string)
     .setIssuer("deligo-push-owner-handoff")
     .setAudience("deligo-push-owner-handoff")
     .setIssuedAt(now - 300)
-    .setExpirationTime(now - 180) // expired 3 minutes ago, well past the 120s TTL
+    .setExpirationTime(now - 180) // expired well past any reasonable TTL
     .sign(secret)
 }
 
 beforeEach(() => {
   pushRows = []
+  negocioRows = [
+    { id: "negocio-A", pushSubscription: null },
+    { id: "negocio-B", pushSubscription: null },
+  ]
   resetAuthMockState()
 })
 
 describe("CASE G — same-family account switch without logout (chained, real handlers)", () => {
-  test("BASELINE (no delay): B logs in over A's live session -> handoff minted from A's real prior row -> reconcile cleans up A/X, keeps B able to bind", async () => {
-    // 1. A's prior session row exists (as it would after A's own earlier login).
+  test("BASELINE (no delay): B logs in over A's live session -> handoff minted from A's real prior row -> reconcile cleans up A/X (normalized), keeps B able to bind", async () => {
     authMockState.sesionByToken.set("token-A", { token: "token-A", userId: "negocio-A", userType: "negocio", expiresAt: new Date(Date.now() + 3600_000) })
-    // 2. A's physical binding already exists (Push was working for A).
     pushRows = [{ id: "row-1", ownerType: "negocio", ownerId: "negocio-A", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" }]
 
-    // 3. B logs in on the SAME browser, which still carries A's family cookie
-    //    (no explicit logout happened) — applyLoginCookies is the REAL
-    //    function login/route.ts calls, not a re-implementation.
     const loginReq = reqLoginB("token-A")
     const loginRes = NextResponse.json({ ok: true })
     await applyLoginCookies(loginReq, loginRes, "token-B", "negocio", "negocio-B")
 
     const handoffValue = loginRes.cookies.get("deligo_push_handoff")?.value
-    expect(handoffValue).toBeDefined() // the real login flow DID mint a handoff
+    expect(handoffValue).toBeDefined()
 
-    // 4. Client reconciles as B IMMEDIATELY (no artificial delay) — the
-    //    literal Set-Cookie value from step 3 is what the browser would
-    //    actually present on the very next request.
     authMockState.currentUser = { id: "negocio-B", type: "negocio" }
     const reconcileRes = await reconcilePOST(reqReconcile(handoffValue, subJson()))
     const body = await reconcileRes.json()
 
     expect(body.newSession).toBe(true)
     expect(body.staleCleanupPerformed).toBe(true)
-    expect(pushRows.some((r) => r.ownerId === "negocio-A")).toBe(false) // A/X is gone
+    expect(pushRows.some((r) => r.ownerId === "negocio-A")).toBe(false)
   })
 
-  test("DELAYED (>120s TTL elapsed before the client reconciles): the real login flow mints a valid handoff, but by the time the physical/manual flow reaches reconciliation it has expired — A/X survives", async () => {
+  test("DELAYED (TTL elapsed before the client reconciles): the real login flow mints a valid handoff, but an expired one leaves the normalized row stale", async () => {
     pushRows = [{ id: "row-1", ownerType: "negocio", ownerId: "negocio-A", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" }]
-
-    // Same handoff CONTENT applyLoginCookies would have produced from A's
-    // real prior session, but signed with iat/exp shifted into the past —
-    // simulating that > PUSH_OWNER_HANDOFF_TTL_SECONDS (120s) elapsed
-    // between the login response and the client's reconciliation call (a
-    // manual physical account-switch test plausibly takes longer than 2
-    // minutes: reading the next step, typing a different account's
-    // credentials, waiting for the page to reload).
     const expiredHandoff = await signExpiredHandoffLikeApplyLoginCookiesWould("negocio-A")
 
     authMockState.currentUser = { id: "negocio-B", type: "negocio" }
     const reconcileRes = await reconcilePOST(reqReconcile(expiredHandoff, subJson()))
     const body = await reconcileRes.json()
 
-    // This is the EXACT symptom CASE G reported: cleanup silently no-ops.
     expect(body.newSession).toBe(false)
     expect(body.staleCleanupPerformed).toBe(false)
-    expect(pushRows.some((r) => r.ownerId === "negocio-A")).toBe(true) // A/X SURVIVES — reproduces the leak
+    expect(pushRows.some((r) => r.ownerId === "negocio-A")).toBe(true)
   })
 
-  test("no handoff cookie at all reaching reconcile (e.g. it was dropped/never sent): cleanup silently no-ops the same way — same symptom, different mechanism", async () => {
+  test("no handoff cookie at all reaching reconcile: cleanup silently no-ops the same way — same symptom, different mechanism", async () => {
     pushRows = [{ id: "row-1", ownerType: "negocio", ownerId: "negocio-A", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" }]
     authMockState.currentUser = { id: "negocio-B", type: "negocio" }
     const reconcileRes = await reconcilePOST(reqReconcile(undefined, subJson()))
     const body = await reconcileRes.json()
     expect(body.newSession).toBe(false)
     expect(pushRows.some((r) => r.ownerId === "negocio-A")).toBe(true)
+  })
+})
+
+describe("CASE_G_REAL_ROOT_CAUSE_REGRESSION — legacy Negocio.pushSubscription UNION target, using the REAL send-path resolver", () => {
+  test("before the fix's legacy step existed, A's legacy field alone would have kept resolving A as a live target even with the normalized row gone (sanity check of the resolver's own UNION behavior)", async () => {
+    // A's legacy field still holds the physical endpoint (as it would from
+    // A's original subscribe, dual-write, never touched by a normalized-only
+    // detach) while the normalized row is ALREADY gone.
+    negocioRows = [{ id: "negocio-A", pushSubscription: subJson() }, { id: "negocio-B", pushSubscription: null }]
+    pushRows = []
+
+    const targetsForA = await resolveCorePushTargets("negocio", "negocio-A", negocioRows[0].pushSubscription)
+    expect(targetsForA.some((t) => t.endpoint === ENDPOINT)).toBe(true) // proves the UNION alone would leak
+  })
+
+  test("NEGOCIO_A_TO_B_WITHOUT_LOGOUT: full chained flow (login B over A, reconcile as B) -> A_NOT_TARGETED_AFTER_SWITCH, B_TARGETED_AFTER_SWITCH, using the REAL resolveCorePushTargets", async () => {
+    // A already had a live physical binding (dual-written at original
+    // subscribe time): normalized row + legacy field, same endpoint.
+    authMockState.sesionByToken.set("token-A", { token: "token-A", userId: "negocio-A", userType: "negocio", expiresAt: new Date(Date.now() + 3600_000) })
+    pushRows = [{ id: "row-1", ownerType: "negocio", ownerId: "negocio-A", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" }]
+    negocioRows = [{ id: "negocio-A", pushSubscription: subJson() }, { id: "negocio-B", pushSubscription: null }]
+
+    // B logs in over A without logout.
+    const loginReq = reqLoginB("token-A")
+    const loginRes = NextResponse.json({ ok: true })
+    await applyLoginCookies(loginReq, loginRes, "token-B", "negocio", "negocio-B")
+    const handoffValue = loginRes.cookies.get("deligo_push_handoff")?.value
+
+    // B reconciles immediately (same physical device/endpoint reported).
+    authMockState.currentUser = { id: "negocio-B", type: "negocio" }
+    const reconcileRes = await reconcilePOST(reqReconcile(handoffValue, subJson()))
+    const reconcileBody = await reconcileRes.json()
+    expect(reconcileBody.staleCleanupPerformed).toBe(true)
+
+    // B's own auto-rebind (independent call, /api/push/subscribe today) —
+    // simulated here directly at the DB level, since this test's focus is
+    // the resolver/cleanup contract, not the subscribe route itself.
+    negocioRows.find((r) => r.id === "negocio-B")!.pushSubscription = subJson()
+    pushRows.push({ id: "row-2", ownerType: "negocio", ownerId: "negocio-B", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" })
+
+    // THE ACTUAL PROOF: resolve targets with the SAME resolver the physical
+    // "pedido nuevo" notification uses.
+    const negocioAAfter = negocioRows.find((r) => r.id === "negocio-A")!
+    const negocioBAfter = negocioRows.find((r) => r.id === "negocio-B")!
+    const targetsForA = await resolveCorePushTargets("negocio", "negocio-A", negocioAAfter.pushSubscription)
+    const targetsForB = await resolveCorePushTargets("negocio", "negocio-B", negocioBAfter.pushSubscription)
+
+    expect(targetsForA.some((t) => t.endpoint === ENDPOINT)).toBe(false) // A_NOT_TARGETED_AFTER_SWITCH
+    expect(targetsForB.some((t) => t.endpoint === ENDPOINT)).toBe(true) // B_TARGETED_AFTER_SWITCH
+  })
+
+  test("cross-family multi-bind preserved: clearing Negocio A's legacy field never touches a CuentaOperativa row sharing the same physical endpoint", async () => {
+    // CuentaOperativa never has a legacy per-model field (A0 §11) — nothing
+    // for this fix to touch there; this test proves the negocio-scoped
+    // legacy clear only ever reads/writes negocio-A's own row.
+    negocioRows = [
+      { id: "negocio-A", pushSubscription: subJson() },
+      { id: "negocio-OTHER", pushSubscription: subJson() }, // a different Negocio, unrelated
+    ]
+    pushRows = [{ id: "row-1", ownerType: "negocio", ownerId: "negocio-A", channel: "default", endpoint: ENDPOINT, p256dh: "p", auth: "a" }]
+    authMockState.sesionByToken.set("token-A", { token: "token-A", userId: "negocio-A", userType: "negocio", expiresAt: new Date(Date.now() + 3600_000) })
+
+    const loginReq = reqLoginB("token-A")
+    const loginRes = NextResponse.json({ ok: true })
+    await applyLoginCookies(loginReq, loginRes, "token-B", "negocio", "negocio-B")
+    const handoffValue = loginRes.cookies.get("deligo_push_handoff")?.value
+
+    authMockState.currentUser = { id: "negocio-B", type: "negocio" }
+    await reconcilePOST(reqReconcile(handoffValue, subJson()))
+
+    expect(negocioRows.find((r) => r.id === "negocio-A")!.pushSubscription).toBeNull() // A's own row cleared
+    expect(negocioRows.find((r) => r.id === "negocio-OTHER")!.pushSubscription).not.toBeNull() // untouched
   })
 })

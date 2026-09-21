@@ -4,6 +4,7 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { resolvePushSubscriptionDetachInput } from "@/lib/push-subscription-http"
 import { detachPushSubscriptionByEndpoint, type PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
+import { detachLegacyPushFieldIfMatches } from "@/lib/push"
 import {
   PUSH_OWNER_HANDOFF_COOKIE_NAME,
   clearPushOwnerHandoffCookie,
@@ -38,6 +39,19 @@ const NORMALIZED_OWNER_TYPES: Partial<Record<"cliente" | "negocio" | "repartidor
   cliente: "cliente",
   negocio: "negocio",
   repartidor: "repartidor",
+}
+
+// P2-T40-R3 (CASE G): sólo los 4 owners "core" que dual-writen a un campo
+// legacy propio tienen algo que limpiar ahí — cuenta_operativa nunca lo
+// tuvo (A0 §11, siempre escribió sólo a la tabla normalizada). Empleado
+// nunca es prevOwnerType en la práctica (no tiene login propio, ver
+// applyLoginCookies/applyOperationalLoginCookies), pero se incluye por
+// completitud/defensa en profundidad — nunca por necesidad demostrada hoy.
+const LEGACY_PUSH_MODEL_BY_OWNER_TYPE: Partial<Record<PushSubscriptionOwnerType, string>> = {
+  cliente: "cliente",
+  negocio: "negocio",
+  repartidor: "repartidor",
+  empleado: "empleado",
 }
 
 const FAMILY_BY_USER_TYPE: Partial<Record<"cliente" | "negocio" | "repartidor", PushHandoffFamily>> = {
@@ -115,6 +129,7 @@ export async function POST(req: NextRequest) {
 
       if (handoff.prevOwnerType && handoff.prevOwnerId && prevOwnerDiffersFromCurrent && subscriptionRaw) {
         const detachInput = resolvePushSubscriptionDetachInput(subscriptionRaw)
+        let legacyCleared = false
         if (detachInput.parsed) {
           const result = await detachPushSubscriptionByEndpoint(
             { ownerType: handoff.prevOwnerType, ownerId: handoff.prevOwnerId, channel: "default" },
@@ -125,9 +140,30 @@ export async function POST(req: NextRequest) {
             }
           )
           staleCleanupPerformed = result.detached
+
+          // P2-T40-R3 (CASE G — causa raíz real): resolveCorePushTargetsFromNormalized()
+          // hace UNION normalizado+legacy — limpiar sólo la fila normalizada
+          // de arriba deja el campo legacy por-modelo del owner stale
+          // (Cliente/Negocio/Repartidor/Empleado.pushSubscription) como
+          // target de envío vivo. cuenta_operativa nunca tuvo ese campo
+          // (siempre escribió sólo a la tabla normalizada, ver A0 §11) —
+          // se omite para ese ownerType, nunca un no-op silencioso para los
+          // demás.
+          if (LEGACY_PUSH_MODEL_BY_OWNER_TYPE[handoff.prevOwnerType]) {
+            legacyCleared = await detachLegacyPushFieldIfMatches(
+              LEGACY_PUSH_MODEL_BY_OWNER_TYPE[handoff.prevOwnerType]!,
+              handoff.prevOwnerId,
+              "pushSubscription",
+              {
+                endpoint: detachInput.parsed.endpoint,
+                p256dh: detachInput.parsed.keys.p256dh,
+                auth: detachInput.parsed.keys.auth,
+              }
+            )
+          }
         }
         console.log(
-          `[PushOwnerHandoff] cleanup-attempt prevOwner=${safeFingerprint(handoff.prevOwnerId)} subscriptionParsed=${Boolean(detachInput.parsed)} detached=${staleCleanupPerformed}`
+          `[PushOwnerHandoff] cleanup-attempt prevOwner=${safeFingerprint(handoff.prevOwnerId)} subscriptionParsed=${Boolean(detachInput.parsed)} detached=${staleCleanupPerformed} legacyCleared=${legacyCleared}`
         )
       } else if (handoff.prevOwnerType && handoff.prevOwnerId) {
         console.log(

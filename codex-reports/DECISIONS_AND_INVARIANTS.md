@@ -4549,3 +4549,31 @@ SAFE_FINGERPRINTED_TELEMETRY_ADDED=SI (mint + consume, SHA-256 truncado a
 ```
 
 Ver `codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.
+
+## P2-T40-R3 — legacy union target invariant — 2026-09-21
+
+```text
+CORE_PUSH_OWNER_FANOUT_MODEL=UNION_NORMALIZED_PLUS_LEGACY (P2-T05 Stage4,
+  intencional, preservado sin cambios — NUNCA legacy-only ni
+  normalized-only)
+STALE_OWNER_CLEANUP_MUST_CLEAR_BOTH_SOURCES=SI (nuevo invariante R3:
+  cualquier limpieza de un owner stale que toque la tabla normalizada
+  DEBE también limpiar, con el mismo criterio CAS de exact-match
+  endpoint+p256dh+auth, el campo legacy per-modelo correspondiente —
+  cuenta_operativa exceptuada, nunca tuvo ese campo)
+LEGACY_FIELD_COMPARISON_CRITERIA=ENDPOINT_P256DH_AUTH_NUNCA_EXPIRATIONTIME
+  (mismo criterio que detachPushSubscriptionByEndpoint y
+  sameFanoutSubscriptionKeys — nunca el criterio de 4 campos de
+  arePushSubscriptionsEquivalent/safeClearLegacyIfMatches, pensado para un
+  contexto distinto — "el mismo objeto que acaba de fallar al enviarse")
+```
+
+Hallazgo separado, registrado pero NO corregido en este round por
+instrucción explícita del operador:
+`SESSION_OWNER_CONSISTENT_ACROSS_ENDPOINTS=NO` para rutas fuera del
+selector family-aware de `src/proxy.ts` (p.ej. `/api/destacado-solicitud`)
+— ambigüedad de cookie pre-existente de P2-T18-BLOCKER-AUTH2-R2, no
+introducida por T40, no relacionada directamente con la causa del leak de
+Push (que ya tiene su propia explicación completa).
+
+Ver `codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
