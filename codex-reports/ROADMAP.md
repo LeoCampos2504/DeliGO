@@ -717,12 +717,25 @@ P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md,
          P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
          P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
-P2-T39 — Admin/SuperAdmin Functional Review —
-          R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION (ver
+P2-T39 — Admin/SuperAdmin Functional Review — CLOSED_TESTING_CERTIFIED
+          (2026-09-21, ver
           C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
-          P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md — la certificación
-          física real encontró un 401 en POST /api/push/subscribe
-          ?actorFamily=superadmin con sesión SuperAdmin válida
+          P2_T39_FINAL_PHYSICAL_CERTIFICATION.md — re-certificación física
+          post-fix del operador: estado inicial de Push apagado sin
+          auto-enrollment PASS, primer opt-in manual PASS, entrega física
+          real de `negocio_pendiente` con `/admin` en background PASS
+          [desktop browser]. Por decisión explícita de producto, la
+          certificación en celular y que el tap navegue a un lugar exacto
+          quedan fuera del criterio de cierre de esta tarea — nunca un SKIP
+          por imposibilidad técnica. Los otros 5 triggers no se dispararon
+          físicamente; su garantía queda en la cobertura automatizada ya
+          certificada de R3/R3A/R3B. `RELEASE_ELIGIBLE_T39=
+          YES_FUTURE_CURATED_PROMOTION_ONLY`, sin promoción ejecutada.
+          `main`/Production intactos en
+          `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`).
+          Historia previa a este cierre, preservada sin alterar — R3B
+          encontró un 401 en POST /api/push/subscribe?actorFamily=superadmin
+          con sesión SuperAdmin válida
           [GET /api/superadmin/dashboard misma sesión = 200]. Causa raíz:
           src/proxy.ts, el middleware Edge, nunca reconocía "superadmin"
           como family para el gate de AUTH_REQUIRED_PREFIXES — rechazaba
@@ -735,8 +748,7 @@ P2-T39 — Admin/SuperAdmin Functional Review —
           (proxy.test.ts con token fabricado + integration test de sesión
           real de punta a punta contra Testing). 314/314 regresión, tsc
           baseline sin cambio, eslint limpio, build PASS. Commit 1661d87,
-          deploy Testing a6f6c66c SUCCESS. T39 sigue sin cerrarse — el
-          operador debe re-certificar físicamente. R3A había cerrado los
+          deploy Testing a6f6c66c SUCCESS. R3A había cerrado los
           gates que R3 dejó pendientes: DB integration tests contra
           Testing real [14/15 PASS, 1 timeout ambiental documentado, no un
           defecto de código], auth contract de actorFamily=superadmin
@@ -839,10 +851,10 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T39_PHYSICAL_CERTIFICATION
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Certificación física del operador para P2-T39-R3 (SuperAdmin Web Push), headline negocio_pendiente
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_PHYSICAL_GATE
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T39-R3 implementó Web Push para SuperAdmin (ver P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md), commit a808453 desplegado y verificado en Testing (SUCCESS, migración aplicada, boot limpio). Falta exclusivamente la certificación física del operador (matriz preparada en el reporte, headline negocio_pendiente) antes de poder cerrar T39 — Claude no puede ejecutarla. T38/T40(cerrado)/T33 siguen sin prioridad asignada más allá de este gate.
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T38_OR_P2-T33
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad, sin gate físico pendiente (PRIORITY_UNASSIGNED)
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T39 cerró CLOSED_TESTING_CERTIFIED (2026-09-21) tras R3 (implementación) + R3A (pre-physical gate) + R3B (root cause + fix de un 401 físico real en src/proxy.ts) + certificación física final (negocio_pendiente PASS, ver P2_T39_FINAL_PHYSICAL_CERTIFICATION.md). T40 también cerrado. No queda ningún P1/P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T38, T33) sin gate físico ni de implementación bloqueante.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,

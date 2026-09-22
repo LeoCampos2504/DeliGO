@@ -1,5 +1,21 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## P2-T39 — FINAL physical certification closeout (2026-09-21)
+
+```text
+P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
+T39_TESTING_CERTIFIED=SI
+RELEASE_ELIGIBLE_T39=YES_FUTURE_CURATED_PROMOTION_ONLY
+REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_FINAL_PHYSICAL_CERTIFICATION.md
+SUPERADMIN_INITIAL_OFF_PHYSICAL=PASS
+SUPERADMIN_FIRST_OPTIN_POST_R3B_PHYSICAL=PASS
+SUPERADMIN_PUSH_NEGOCIO_PENDIENTE_PHYSICAL=PASS (representativo; los otros 5 triggers quedan cubiertos sólo por tests automatizados, no disparados físicamente)
+MOBILE_PHYSICAL_CERT_REQUIRED=NO (decisión de alcance de producto)
+PUSH_CLICK_NAVIGATION_REQUIRED_FOR_T39=NO (decisión de alcance de producto)
+PRODUCT_CODE_CHANGED_THIS_CLOSEOUT=NO
+PRODUCTION_TOUCHED=NO
+```
+
 ## P2-T39-R3B — SuperAdmin push physical auth failure: root cause + fix (2026-09-21)
 
 ```text
