@@ -20,12 +20,33 @@ import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
 export function InstallPrompt() {
   const pathname = usePathname()
   if (isMozoRoute(pathname)) return null
+  if (isLegacyOperationsTombstoneRoute(pathname)) return null
 
   return <InstallPromptInner pathname={pathname} />
 }
 
-function isMozoRoute(pathname: string) {
+// Exportadas (P2-T52-R1B) únicamente para permitir un contrato de test
+// puro sobre la clasificación de ruta, sin necesitar montar el componente
+// completo (que depende de framer-motion/beforeinstallprompt/hooks de
+// navegador) — mismo patrón ya usado en otros archivos de este repo para
+// lógica de exclusión por pathname.
+export function isMozoRoute(pathname: string) {
   return pathname === "/mozo" || pathname.startsWith("/mozo/")
+}
+
+// P2-T52-R1B: /e y /s son tombstones legacy retirados (sirven únicamente
+// <LegacyAccessRetired/>, cero funcionalidad real) — nunca deben promover
+// instalar una PWA separada ("DeliGO Empleados"/"DeliGO Salón") cuyo único
+// contenido posible sería esa pantalla de retiro. Distinto de /mozo (arriba):
+// esa ruta sigue siendo un flujo funcional real y con compatibilidad activa,
+// no un tombstone — su exclusión tiene otra razón y no se toca acá.
+export function isLegacyOperationsTombstoneRoute(pathname: string) {
+  return (
+    pathname === "/e" ||
+    pathname.startsWith("/e/") ||
+    pathname === "/s" ||
+    pathname.startsWith("/s/")
+  )
 }
 
 function InstallPromptInner({ pathname }: { pathname: string }) {

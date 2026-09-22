@@ -40,6 +40,7 @@ import { useCatalogTutorialGuide } from "./catalog-tutorial/catalog-tutorial-gui
 import { CatalogTutorialTarget, useCatalogTutorialTargetRing } from "./catalog-tutorial/catalog-tutorial-target"
 import { useUnsavedChangesGuard, deepEqual } from "@/hooks/use-unsaved-changes-guard"
 import { CatalogUnsavedChangesDialog } from "./catalog-unsaved-changes-dialog"
+import { findEquivalentCategory } from "@/lib/category-normalization"
 
 // ============================================
 // Types
@@ -356,7 +357,10 @@ export function AgregadosSection({ negocio, onDirtyChange }: AgregadosSectionPro
       setEditingCategoryValue("")
       return
     }
-    if (categories.includes(trimmed)) {
+    // P2-T47-R1: excluye la propia categoría de la comparación — recapitalizar
+    // "Aderezos" -> "ADEREZOS" sigue permitido, sólo se bloquea si YA existe
+    // OTRA categoría equivalente (case/espacio-insensible).
+    if (findEquivalentCategory(categories.filter((c) => c !== editingCategory), trimmed)) {
       toast.error("Ya existe una categoría con ese nombre")
       return
     }
@@ -367,7 +371,7 @@ export function AgregadosSection({ negocio, onDirtyChange }: AgregadosSectionPro
   const handleAddCategory = () => {
     const trimmed = categoryInput.trim()
     if (!trimmed) return
-    if (categories.includes(trimmed)) {
+    if (findEquivalentCategory(categories, trimmed)) {
       toast.error("Esa categoría ya existe")
       return
     }
@@ -410,8 +414,12 @@ export function AgregadosSection({ negocio, onDirtyChange }: AgregadosSectionPro
   const handleAddCategoryInForm = () => {
     const trimmed = formCategoryInput.trim()
     if (!trimmed) return
-    if (categories.includes(trimmed)) {
-      setFormData((p) => ({ ...p, categoria: trimmed }))
+    // P2-T47-R1: reutiliza la categoría EXISTENTE (grafía ya persistida)
+    // cuando el texto ingresado es equivalente case/espacio-insensible —
+    // nunca crea "aderezos" si "Aderezos" ya existe.
+    const existing = findEquivalentCategory(categories, trimmed)
+    if (existing) {
+      setFormData((p) => ({ ...p, categoria: existing }))
       setNewCategoryInForm(false)
       setFormCategoryInput("")
       return

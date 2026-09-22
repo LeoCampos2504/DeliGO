@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   evaluatePasswordHash,
   createOperationalSession,
+  findSesionByToken,
   OPERATIONAL_SESSION_COOKIE_NAME,
   SESSION_DURATION_HOURS,
 } from "@/lib/auth"
@@ -16,6 +17,7 @@ import {
 } from "@/lib/auth-login-throttle"
 import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint } from "@/lib/push-owner-handoff"
 
 // AUTH-LOGIN-THROTTLE-HARDENING: mismo helper que src/app/api/auth/login/route.ts
 // — no se extrajo a un módulo compartido porque cada ruta ya tiene su propio
@@ -45,6 +47,43 @@ function setOperationalCookie(response: NextResponse, token: string) {
     path: "/",
     maxAge: SESSION_DURATION_HOURS * 60 * 60,
   })
+}
+
+// P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE) — mismo tratamiento que
+// src/app/api/auth/login/route.ts, para el actor CuentaOperativa: lee el
+// owner que ocupaba deligo_operativo_session inmediatamente antes de este
+// login (server-side, nunca de un input de cliente), y deja un handoff
+// corto para que la reconciliación posterior limpie esa fila exacta si
+// corresponde. Nunca bloquea el login ante un fallo de firma.
+// Exported ONLY for src/app/api/operativo/login/apply-operational-login-cookies.test.ts
+// — a focused unit test of the P2-T40-R1 handoff logic. Never imported by
+// any other product file.
+export async function applyOperationalLoginCookies(req: NextRequest, response: NextResponse, token: string, newAccountId: string): Promise<void> {
+  setOperationalCookie(response, token)
+
+  let prevOwnerId: string | null = null
+  try {
+    const previousToken = req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value
+    if (previousToken) {
+      const previousSession = await findSesionByToken(previousToken)
+      if (previousSession && previousSession.userType === "cuenta_operativa" && previousSession.userId !== newAccountId) {
+        prevOwnerId = previousSession.userId
+      }
+    }
+  } catch (error) {
+    console.error("[OperativoLogin] push handoff previous-owner lookup failed:", safeErrorForLog(error))
+  }
+
+  const handoff = await signPushOwnerHandoff({
+    family: "cuenta_operativa",
+    prevOwnerType: prevOwnerId ? "cuenta_operativa" : null,
+    prevOwnerId,
+  })
+  if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+  console.log(
+    `[PushOwnerHandoff] mint family=cuenta_operativa newOwner=${safeFingerprint(newAccountId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+  )
 }
 
 export async function POST(req: NextRequest) {
@@ -134,7 +173,7 @@ export async function POST(req: NextRequest) {
         activo: account.activo,
       },
     })
-    setOperationalCookie(response, sessionToken)
+    await applyOperationalLoginCookies(req, response, sessionToken, account.id)
     return noStore(response)
   } catch (error) {
     console.error("[OperativoLogin] Error:", safeErrorForLog(error))

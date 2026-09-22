@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { auditLog } from "@/lib/audit"
 import { getOperationalAccountFromRequest } from "@/lib/auth"
 import { hashMozoInvitationCode, normalizeMozoInvitationCode } from "@/lib/mozo-invitations"
+import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import {
   checkRateLimit,
   createRateLimitKey,
@@ -201,7 +202,14 @@ export async function POST(req: NextRequest) {
               nombre: true,
               codigo: true,
               rol: true,
+              areaOperativa: true,
               activo: true,
+              cuentaOperativa: {
+                select: {
+                  id: true,
+                  nombre: true,
+                },
+              },
               negocio: {
                 select: {
                   id: true,
@@ -221,7 +229,11 @@ export async function POST(req: NextRequest) {
             vinculo: empleado,
           }
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 10_000,
+          timeout: 30_000,
+        }
       )
     )
 
@@ -244,10 +256,20 @@ export async function POST(req: NextRequest) {
         vinculo: {
           empleado: {
             id: vinculo.id,
-            nombre: vinculo.nombre,
+            // La cuenta personal es la autoridad de identidad visible una
+            // vez completado el vínculo. Empleado.nombre se conserva sólo
+            // como compatibilidad legacy/operativa.
+            nombre: vinculo.cuentaOperativa?.nombre ?? vinculo.nombre,
+            displayName: vinculo.cuentaOperativa?.nombre ?? vinculo.nombre,
+            identityLinked: Boolean(vinculo.cuentaOperativa),
             codigo: vinculo.codigo,
             rol: vinculo.rol,
             activo: vinculo.activo,
+            areaOperativa: vinculo.areaOperativa,
+            areaOperativaEfectiva: resolveAreaOperativaEfectiva({
+              areaOperativa: vinculo.areaOperativa,
+              rol: vinculo.rol,
+            }),
           },
           negocio: vinculo.negocio,
         },

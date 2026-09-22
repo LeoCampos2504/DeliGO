@@ -19,6 +19,7 @@ import {
   HandMetal,
   Trash2,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +27,8 @@ import { Separator } from "@/components/ui/separator"
 import { cn, formatPrice, timeAgo, statusLabel } from "@/lib/utils"
 import { useRepartidorStore } from "@/store/repartidor-store"
 import { useRepartidorTracking } from "@/hooks/use-repartidor-tracking"
+import { DeliveryNavigation } from "./delivery-navigation"
+import type { TrackingLocationSample } from "@/lib/tracking-movement"
 import { toast } from "sonner"
 
 // ============================================
@@ -100,7 +103,7 @@ interface DeliveriesTabProps {
 // ============================================
 export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh }: DeliveriesTabProps) {
   const [filter, setFilter] = useState<DeliveryFilter>("disponibles")
-  const { trackingActive } = useRepartidorTracking(mios)
+  const { trackingActive, gpsPermissionDenied, latestPosition } = useRepartidorTracking(mios)
 
   if (isLoading) {
     return <DeliveriesSkeleton />
@@ -149,16 +152,34 @@ export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh
       </div>
 
       {/* Tracking indicator - only show when viewing "mios" */}
+      {/* P2-T02-B3 (OPTION-C, §12): BEST_EFFORT_BACKGROUND_TRACKING — nunca
+          "seguimiento garantizado en segundo plano". Distingue el caso
+          elegible-pero-sensor-denegado (gpsPermissionDenied) del caso normal,
+          sin lenguaje alarmista. */}
       {filter === "mios" && trackingActive && (
-        <div className="flex items-center gap-1.5 px-1">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-          </span>
-          <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            Seguimiento en vivo habilitado
-          </span>
-        </div>
+        gpsPermissionDenied ? (
+          <div className="flex items-start gap-1.5 px-1">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              Ubicación no disponible — activá el permiso de ubicación para compartir tu posición
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5 px-1">
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              </span>
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                Seguimiento en vivo habilitado
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground pl-4">
+              Compartiendo tu ubicación durante el delivery. Tu dispositivo puede pausarla en segundo plano.
+            </span>
+          </div>
+        )
       )}
 
       {/* Auto-cancel button */}
@@ -194,7 +215,7 @@ export function DeliveriesTab({ pedidos, disponibles, mios, isLoading, onRefresh
             filter === "disponibles" ? (
               <AvailableDeliveryCard key={pedido.id} pedido={pedido} onRefresh={onRefresh} />
             ) : (
-              <MyDeliveryCard key={pedido.id} pedido={pedido} />
+              <MyDeliveryCard key={pedido.id} pedido={pedido} currentPosition={latestPosition} />
             )
           ))}
         </AnimatePresence>
@@ -284,14 +305,6 @@ function AvailableDeliveryCard({ pedido, onRefresh }: { pedido: PedidoDelivery; 
     },
     onSettled: () => setAccepting(false),
   })
-
-  // Google Maps link
-  const mapsUrl =
-    pedido.lat && pedido.lng
-      ? `https://www.google.com/maps/dir/?api=1&destination=${pedido.lat},${pedido.lng}`
-      : pedido.direccion
-        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pedido.direccion)}`
-        : null
 
   return (
     <motion.div
@@ -413,9 +426,10 @@ function AvailableDeliveryCard({ pedido, onRefresh }: { pedido: PedidoDelivery; 
 // ============================================
 // My Delivery Card (already accepted)
 // ============================================
-function MyDeliveryCard({ pedido }: { pedido: PedidoDelivery }) {
+function MyDeliveryCard({ pedido, currentPosition }: { pedido: PedidoDelivery; currentPosition: TrackingLocationSample | null }) {
   const [expanded, setExpanded] = useState(false)
   const [delivering, setDelivering] = useState(false)
+  const [navigationOpen, setNavigationOpen] = useState(false)
   const queryClient = useQueryClient()
   const triggerRefresh = useRepartidorStore((s) => s.triggerRefresh)
 
@@ -443,24 +457,17 @@ function MyDeliveryCard({ pedido }: { pedido: PedidoDelivery }) {
     onSettled: () => setDelivering(false),
   })
 
-  // Google Maps link
-  const mapsUrl =
-    pedido.lat && pedido.lng
-      ? `https://www.google.com/maps/dir/?api=1&destination=${pedido.lat},${pedido.lng}`
-      : pedido.direccion
-        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pedido.direccion)}`
-        : null
-
   const isConfirmed = pedido.clienteConfirmaRecibido
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="rounded-2xl bg-card border border-border/50 overflow-hidden shadow-sm"
-    >
+    <>
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="rounded-2xl bg-card border border-border/50 overflow-hidden shadow-sm"
+      >
       {/* Negocio header */}
       <div
         className="px-4 py-3 flex items-center justify-between"
@@ -582,14 +589,10 @@ function MyDeliveryCard({ pedido }: { pedido: PedidoDelivery }) {
 
         {/* Action buttons */}
         <div className="flex gap-2">
-          {mapsUrl && (
-            <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
-              <Button variant="outline" className="w-full gap-2 rounded-xl h-10">
-                <Navigation className="h-4 w-4" />
-                Navegar
-              </Button>
-            </a>
-          )}
+          <Button variant="outline" className="flex-1 gap-2 rounded-xl h-10" onClick={() => setNavigationOpen(true)}>
+            <Navigation className="h-4 w-4" />
+            Navegar
+          </Button>
 
           {isConfirmed ? (
             <Button
@@ -612,7 +615,19 @@ function MyDeliveryCard({ pedido }: { pedido: PedidoDelivery }) {
           )}
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+      {navigationOpen ? (
+        <DeliveryNavigation
+          pedidoId={pedido.id}
+          destination={{ lat: pedido.lat, lng: pedido.lng, address: pedido.direccion }}
+          destinationReference={pedido.referencia}
+          currentPosition={currentPosition}
+          trackingEligible={pedido.estado === "en_camino" && pedido.trackingEligibleNow === true}
+          open={navigationOpen}
+          onClose={() => setNavigationOpen(false)}
+        />
+      ) : null}
+    </>
   )
 }
 

@@ -6,6 +6,7 @@ import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-no
 import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins, crossedDebtAlertThreshold } from "@/lib/superadmin-notifications"
+import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
 
 // Confirmar recepción es la única operación que procesa tarifa/deuda del pedido
 // (Seguridad-2B). Este error de dominio dispara el rollback completo de la
@@ -198,7 +199,11 @@ export async function PUT(
         | { kind: "not_found" }
         | { kind: "invalid_state" }
         | { kind: "already_confirmed"; clienteConfirmaFecha: Date | null }
-        | { kind: "confirmed"; clienteConfirmaFecha: Date }
+        | {
+            kind: "confirmed"
+            clienteConfirmaFecha: Date
+            debtAlert: { negocioId: string; negocioNombre: string; recipientIds: string[] } | null
+          }
 
       let outcome: ConfirmOutcome
       try {
@@ -262,6 +267,7 @@ export async function PUT(
           // una única vez, atada al ganador del CAS. `pedido.tarifaServicio` es el
           // único monto usado (nunca un literal fijo ni un valor del cliente). Los
           // pedidos de mesa con tarifaServicio=0 nunca generan deuda.
+          let debtAlert: { negocioId: string; negocioNombre: string; recipientIds: string[] } | null = null
           if (current.tarifaServicio > 0 && !current.deudaAcumulada) {
             const negocio = await tx.negocio.findUnique({
               where: { id: current.negocioId },
@@ -334,16 +340,19 @@ export async function PUT(
             const deudaDespues = negocioTrasIncremento.deudaTarifa
             const deudaAntes = deudaDespues - current.tarifaServicio
             if (crossedDebtAlertThreshold(deudaAntes, deudaDespues, limiteDeuda)) {
-              await notifySuperadmins(tx, {
+              const notified = await notifySuperadmins(tx, {
                 tipo: "negocio_deuda",
                 titulo: "Alerta de deuda",
                 cuerpo: `${negocio.nombre} superó el 80% de su límite de deuda.`,
                 datos: { entityId: current.negocioId, navigateTo: "deudas", level: "alert" },
               })
+              if (notified.recipientIds.length > 0) {
+                debtAlert = { negocioId: current.negocioId, negocioNombre: negocio.nombre, recipientIds: notified.recipientIds }
+              }
             }
           }
 
-          return { kind: "confirmed" as const, clienteConfirmaFecha: now }
+          return { kind: "confirmed" as const, clienteConfirmaFecha: now, debtAlert }
         })
       } catch (error) {
         if (error instanceof DebtLimitExceededError) {
@@ -383,6 +392,16 @@ export async function PUT(
         // Repetición idempotente: mismo éxito, sin un segundo efecto financiero ni
         // una segunda ronda de notificaciones.
         return noStoreJson(responseBody)
+      }
+
+      if (outcome.debtAlert && outcome.debtAlert.recipientIds.length > 0) {
+        dispatchSuperadminPush(outcome.debtAlert.recipientIds, {
+          type: "negocio_deuda",
+          titulo: "Alerta de deuda",
+          cuerpo: `${outcome.debtAlert.negocioNombre} superó el 80% de su límite de deuda.`,
+          entityId: outcome.debtAlert.negocioId,
+          navigateTo: "deudas",
+        }).catch(() => {})
       }
 
       // Notify negocio and repartidor that client confirmed receipt

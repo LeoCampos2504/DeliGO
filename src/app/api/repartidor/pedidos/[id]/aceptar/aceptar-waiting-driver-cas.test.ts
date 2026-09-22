@@ -30,7 +30,7 @@ setDefaultTimeout(60_000)
 
 const prefix = "test-t29c-aceptar-"
 
-async function ensureNegocio(suffix: string) {
+async function ensureNegocio(suffix: string, seguimientoDeliveryActivo = false) {
   return db.negocio.create({
     data: {
       nombre: `${prefix}${suffix}`,
@@ -41,6 +41,7 @@ async function ensureNegocio(suffix: string) {
       aprobado: true,
       suspendido: false,
       ofreceDelivery: true,
+      seguimientoDeliveryActivo,
     },
   })
 }
@@ -85,6 +86,10 @@ async function crearPedidoDomicilio(params: {
   clienteId?: string | null
   metodoEntrega?: string
 }) {
+  const negocio = await db.negocio.findUniqueOrThrow({
+    where: { id: params.negocioId },
+    select: { seguimientoDeliveryActivo: true },
+  })
   const pedido = await db.pedido.create({
     data: {
       negocioId: params.negocioId,
@@ -98,6 +103,8 @@ async function crearPedidoDomicilio(params: {
       direccion: "Calle Falsa 123",
       estado: params.estado,
       repartidorId: params.repartidorId ?? null,
+      seguimientoDeliveryHabilitado:
+        (params.metodoEntrega ?? "domicilio") === "domicilio" && negocio.seguimientoDeliveryActivo,
       idempotencyKey: `${prefix}${randomUUID()}`,
     },
   })
@@ -228,6 +235,91 @@ describe("P2-T29C — aceptación canónica (esperando_repartidor -> en_camino)"
   })
 })
 
+describe("P2-T02-R4 — snapshot final de tracking en aceptación", () => {
+  test("Caso A: delivery creado con tracking OFF, negocio ON antes de aceptar -> snapshot true y pedido elegible", async () => {
+    const negocio = await ensureNegocio("r4-off-then-on", false)
+    const repartidor = await ensureRepartidor("r4-off-then-on")
+    await ensureAsociacion(repartidor.id, negocio.id, "r4-off-then-on")
+    const session = await createSession(repartidor.id, "repartidor")
+    const pedidoId = await crearPedidoDomicilio({ negocioId: negocio.id, estado: CANONICAL_WAITING_DRIVER_STATE })
+
+    const before = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(before.seguimientoDeliveryHabilitado).toBe(false)
+    await db.negocio.update({ where: { id: negocio.id }, data: { seguimientoDeliveryActivo: true } })
+
+    const res = await aceptar(pedidoId, session)
+    expect(res.status).toBe(200)
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(fresh.estado).toBe("en_camino")
+    expect(fresh.repartidorId).toBe(repartidor.id)
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(true)
+  })
+
+  test("Caso B: delivery creado y aceptado con tracking OFF -> snapshot false", async () => {
+    const negocio = await ensureNegocio("r4-off-at-accept", false)
+    const repartidor = await ensureRepartidor("r4-off-at-accept")
+    await ensureAsociacion(repartidor.id, negocio.id, "r4-off-at-accept")
+    const session = await createSession(repartidor.id, "repartidor")
+    const pedidoId = await crearPedidoDomicilio({ negocioId: negocio.id, estado: CANONICAL_WAITING_DRIVER_STATE })
+
+    const res = await aceptar(pedidoId, session)
+    expect(res.status).toBe(200)
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(fresh.estado).toBe("en_camino")
+    expect(fresh.repartidorId).toBe(repartidor.id)
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(false)
+  })
+
+  test("Caso C: delivery creado y aceptado con tracking ON -> snapshot true", async () => {
+    const negocio = await ensureNegocio("r4-on-at-accept", true)
+    const repartidor = await ensureRepartidor("r4-on-at-accept")
+    await ensureAsociacion(repartidor.id, negocio.id, "r4-on-at-accept")
+    const session = await createSession(repartidor.id, "repartidor")
+    const pedidoId = await crearPedidoDomicilio({ negocioId: negocio.id, estado: CANONICAL_WAITING_DRIVER_STATE })
+
+    const res = await aceptar(pedidoId, session)
+    expect(res.status).toBe(200)
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(fresh.estado).toBe("en_camino")
+    expect(fresh.repartidorId).toBe(repartidor.id)
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(true)
+  })
+
+  test("Caso D: retiro nunca activa el snapshot de tracking", async () => {
+    const negocio = await ensureNegocio("r4-retiro", true)
+    const repartidor = await ensureRepartidor("r4-retiro")
+    await ensureAsociacion(repartidor.id, negocio.id, "r4-retiro")
+    const session = await createSession(repartidor.id, "repartidor")
+    const pedidoId = await crearPedidoDomicilio({
+      negocioId: negocio.id,
+      estado: CANONICAL_WAITING_DRIVER_STATE,
+      metodoEntrega: "retiro",
+    })
+
+    const res = await aceptar(pedidoId, session)
+    expect(res.status).toBe(400)
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(fresh.repartidorId).toBeNull()
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(false)
+  })
+
+  test("Caso E: driver inválido/no asociado rechaza sin mutar el snapshot", async () => {
+    const negocio = await ensureNegocio("r4-invalid-driver", true)
+    const repartidor = await ensureRepartidor("r4-invalid-driver")
+    const session = await createSession(repartidor.id, "repartidor")
+    const pedidoId = await crearPedidoDomicilio({ negocioId: negocio.id, estado: CANONICAL_WAITING_DRIVER_STATE })
+
+    const before = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(before.seguimientoDeliveryHabilitado).toBe(true)
+    const res = await aceptar(pedidoId, session)
+    expect(res.status).toBe(403)
+    const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+    expect(fresh.estado).toBe(CANONICAL_WAITING_DRIVER_STATE)
+    expect(fresh.repartidorId).toBeNull()
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(true)
+  })
+})
+
 describe("P2-T29C — rechazos explícitos", () => {
   test("pedido en estado no disponible (preparando) -> 400, nunca asigna repartidor", async () => {
     const negocio = await ensureNegocio("reject-preparando")
@@ -315,7 +407,7 @@ describe("P2-T29C — rechazos explícitos", () => {
 
 describe("P2-T29C — dos repartidores concurrentes (single-winner real, CAS de DB)", () => {
   test("race: A y B aceptan el mismo pedido simultáneamente — exactamente 1 winner (200), 1 loser (409), 1 sólo asignado, 1 solo PedidoEvento", async () => {
-    const negocio = await ensureNegocio("cas-race")
+    const negocio = await ensureNegocio("cas-race", true)
     const repartidorA = await ensureRepartidor("cas-race-a")
     const repartidorB = await ensureRepartidor("cas-race-b")
     await ensureAsociacion(repartidorA.id, negocio.id, "cas-race-a")
@@ -332,6 +424,7 @@ describe("P2-T29C — dos repartidores concurrentes (single-winner real, CAS de 
     expect(fresh.estado).toBe("en_camino")
     // Nunca ambos, nunca null — exactamente uno de los dos.
     expect(fresh.repartidorId === repartidorA.id || fresh.repartidorId === repartidorB.id).toBe(true)
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(true)
 
     const eventos = await db.pedidoEvento.findMany({ where: { pedidoId } })
     expect(eventos).toHaveLength(1)
@@ -339,7 +432,7 @@ describe("P2-T29C — dos repartidores concurrentes (single-winner real, CAS de 
   })
 
   test("race legacy: A y B aceptan el mismo pedido en_camino+null simultáneamente — mismo invariante single-winner", async () => {
-    const negocio = await ensureNegocio("cas-race-legacy")
+    const negocio = await ensureNegocio("cas-race-legacy", true)
     const repartidorA = await ensureRepartidor("cas-race-legacy-a")
     const repartidorB = await ensureRepartidor("cas-race-legacy-b")
     await ensureAsociacion(repartidorA.id, negocio.id, "cas-race-legacy-a")
@@ -355,6 +448,7 @@ describe("P2-T29C — dos repartidores concurrentes (single-winner real, CAS de 
     const fresh = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
     expect(fresh.estado).toBe("en_camino")
     expect(fresh.repartidorId === repartidorA.id || fresh.repartidorId === repartidorB.id).toBe(true)
+    expect(fresh.seguimientoDeliveryHabilitado).toBe(true)
   })
 })
 

@@ -16,9 +16,12 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
 import { Logo } from "@/components/shared/logo"
 import { toast } from "sonner"
 import { performOperativeLogout } from "@/lib/operativo-logout"
+import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { clearPushManualOptOut, setPushManualOptOut } from "@/lib/push-manual-optout"
 
 // ============================================
 // DeliGO Operaciones — Mi cuenta (Bugfix-5C)
@@ -30,6 +33,7 @@ import { performOperativeLogout } from "@/lib/operativo-logout"
 // negocio/área/rol/permisos.
 
 interface Cuenta {
+  id: string
   nombre: string
   email: string
   googleLinked: boolean
@@ -54,6 +58,10 @@ function CuentaContent() {
   const searchParams = useSearchParams()
   const [state, setState] = useState<PageState>({ kind: "checking" })
   const [loggingOut, setLoggingOut] = useState(false)
+  const push = usePushNotifications({
+    actorFamily: "cuenta_operativa",
+    actorKey: "cuenta_operativa",
+  })
 
   useEffect(() => {
     let active = true
@@ -69,6 +77,7 @@ function CuentaContent() {
         setState({
           kind: "ready",
           cuenta: {
+            id: data.cuenta?.id ?? "",
             nombre: data.cuenta?.nombre ?? "",
             email: data.cuenta?.email ?? "",
             googleLinked: Boolean(data.cuenta?.googleLinked),
@@ -185,6 +194,42 @@ function CuentaContent() {
                     </a>
                   </Button>
                 )}
+              </div>
+
+              <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/50 p-4">
+                <div>
+                  <p className="text-sm font-semibold">Avisos personales</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Recibí avisos de los negocios y áreas donde tenés una relación operativa válida.
+                  </p>
+                </div>
+                <Switch
+                  checked={push.statusResolved && push.isSubscribed}
+                  onCheckedChange={(checked) => {
+                    const accountId = state.kind === "ready" ? state.cuenta.id : null
+                    if (checked) {
+                      // P2-T40-R1: sólo se borra el opt-out local cuando
+                      // `subscribed` confirma éxito real.
+                      void push.subscribe().then((result) => {
+                        if (result.current && result.subscribed && accountId) {
+                          clearPushManualOptOut("cuenta_operativa", accountId)
+                        }
+                      })
+                    } else {
+                      // P2-T40-R1 (MANUAL_OFF_POLICY=M2_DEVICE_SCOPED_WITH_NEXT_LOGIN_REENABLE_OFFER):
+                      // sólo se persiste el opt-out cuando el detach backend
+                      // confirmó éxito real (`subscribed === false`) —
+                      // scope ACCOUNT (OPERATIVE_MANUAL_OFF_SCOPE=ACCOUNT).
+                      void push.unsubscribe().then((result) => {
+                        if (result.current && !result.subscribed && accountId) {
+                          setPushManualOptOut("cuenta_operativa", accountId)
+                        }
+                      })
+                    }
+                  }}
+                  disabled={!push.isSupported || push.loading || !push.statusResolved && push.statusCheckError}
+                  aria-label="Avisos personales"
+                />
               </div>
 
               <Button asChild variant="outline" className="h-10 w-full gap-2 rounded-xl">

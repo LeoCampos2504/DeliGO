@@ -670,10 +670,10 @@ describe("T20-T21 — permission denied / position unavailable", () => {
 })
 
 // ============================================
-// T22-T23 — visibility lifecycle (OPTION-V2)
+// T22-T23 — visibility lifecycle (P2-T02-B3, OPTION-C — replaces OPTION-V2)
 // ============================================
 describe("T22-T23 — visibility lifecycle", () => {
-  test("T22: hidden clears the watch (OPTION-V2)", () => {
+  test("T22 (P2-T02-B3): hidden does NOT clear the watch — best-effort background tracking, no voluntary stop", () => {
     controller = createController()
     controller.render([delivery("p1")])
     expect(activeWatchCount()).toBe(1)
@@ -682,11 +682,11 @@ describe("T22-T23 — visibility lifecycle", () => {
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
-    expect(clearWatchMock).toHaveBeenCalledTimes(1)
-    expect(activeWatchCount()).toBe(0)
+    expect(clearWatchMock).toHaveBeenCalledTimes(0)
+    expect(activeWatchCount()).toBe(1) // same watch, still alive
   })
 
-  test("T23: returning to visible restarts the watcher", async () => {
+  test("T23: returning to visible still performs the defensive hard-restart recovery, even though hidden never cleared anything", async () => {
     controller = createController()
     controller.render([delivery("p1")])
 
@@ -694,13 +694,16 @@ describe("T22-T23 — visibility lifecycle", () => {
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
-    expect(activeWatchCount()).toBe(0)
+    expect(activeWatchCount()).toBe(1) // P2-T02-B3: unchanged by hidden
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
       await Promise.resolve() // flush the coalesced foreground-recovery microtask
     })
+    // Still exactly one hard restart on return-to-visible — Stage 6I/6J's
+    // defensive posture (never trust the pre-existing watch blindly) is
+    // preserved even though hidden itself no longer tore anything down.
     expect(watchPositionMock).toHaveBeenCalledTimes(2)
     expect(activeWatchCount()).toBe(1)
   })
@@ -943,7 +946,12 @@ describe("T35-T36 — foreground and re-enable staleness", () => {
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
-    advanceTime(120000) // well past SAMPLE_REUSE_MAX_AGE_MS
+    // Well past SAMPLE_REUSE_MAX_AGE_MS=5000, but deliberately kept under
+    // STATIONARY_HEARTBEAT_MS=60000/FOREGROUND_WATCHDOG_WINDOW_MS=75000 — this
+    // test isolates ONE behavior (recovery-on-return never reuses a stale
+    // cached sample); the heartbeat/watchdog's own best-effort activity
+    // while hidden (P2-T02-B3) is covered separately below.
+    advanceTime(6000)
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
@@ -1219,7 +1227,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
-    expect(activeWatchCount()).toBe(0) // hidden always clears the physical watch
+    expect(activeWatchCount()).toBe(1) // P2-T02-B3: hidden no longer clears the physical watch
 
     await act(async () => {
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
@@ -1228,7 +1236,8 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     })
 
     // The delivery is still core-eligible — a POST in flight is NOT
-    // tracking ineligibility — the watcher must restart.
+    // tracking ineligibility — the defensive hard-restart on return-to-visible
+    // still happens regardless (Stage 6I/6J, unaffected by B3).
     expect(activeWatchCount()).toBe(1)
     expect(watchPositionMock).toHaveBeenCalledTimes(2)
 
@@ -1334,7 +1343,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     expect(fetchMock).toHaveBeenCalledTimes(2) // never a same-window duplicate
   })
 
-  test("T51: a POST that resolves successfully after the tab went hidden does not recreate the heartbeat/pending timers (OPTION-V2: zero timers while hidden)", async () => {
+  test("T51 (P2-T02-B3): a POST that resolves successfully after the tab went hidden DOES rearm the heartbeat — best-effort, no voluntary stop", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -1348,16 +1357,61 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
       Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
       document.dispatchEvent(new Event("visibilitychange"))
     })
+    // Nothing has succeeded yet (still in flight) — no heartbeat exists to
+    // preserve or clear at this exact instant either way.
     expect(heartbeatTimerCount()).toBe(0)
     expect(pendingSendTimerCount()).toBe(0)
 
     await resolveNextFetch(200) // resolves while still hidden
 
-    // A 2xx while hidden may still update local bookkeeping (harmless
-    // data), but must NEVER create a heartbeat or pending-send timer — that
-    // would violate OPTION-V2 (hidden = zero timers).
-    expect(heartbeatTimerCount()).toBe(0)
+    // P2-T02-B3 (OPTION-C): a 2xx while hidden DOES rearm the heartbeat —
+    // the old OPTION-V2 guarantee ("hidden = zero timers") is exactly what
+    // was removed. Best-effort means the pipeline keeps running as if
+    // nothing happened; only Android/Chromium's own throttling (never
+    // DeliGO itself) may later prevent this timer from actually firing.
+    expect(heartbeatTimerCount()).toBe(1)
     expect(pendingSendTimerCount()).toBe(0)
+  })
+
+  test("T51b (P2-T02-B3): an already-armed heartbeat timer survives a hidden transition untouched — never cleared just because the page went hidden", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId = lastWatchId()
+    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5) // establishes lastSentSample + arms the heartbeat
+    expect(heartbeatTimerCount()).toBe(1)
+
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(heartbeatTimerCount()).toBe(1) // untouched by going hidden
+    expect(clearWatchMock).toHaveBeenCalledTimes(0)
+  })
+
+  test("T51c (P2-T02-B3): a pending-send timer scheduled just before going hidden is never invalidated, and still fires (and sends) while hidden", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId = lastWatchId()
+    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5)
+
+    advanceTime(2000) // still inside MIN_SEND_INTERVAL_MS
+    fireWatchSuccess(watchId, -34.59, -58.4, 5) // significant movement -> queued as pending
+    expect(pendingSendTimerCount()).toBe(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // not sent yet
+
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(pendingSendTimerCount()).toBe(1) // never invalidated by going hidden
+
+    advanceTime(3000) // reaches earliestNextSendAt while still hidden
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The pending send actually fires and sends even though the page never
+    // became visible again — the core best-effort guarantee of P2-T02-B3.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   test("T52: a delivery removed while its POST is still in flight is not revived by a late 2xx (no leftover timers/state)", async () => {
@@ -1533,12 +1587,12 @@ describe("FG01-FG12 — robust foreground-recovery model", () => {
     expect(watchPositionMock).toHaveBeenCalledTimes(1)
 
     goHidden()
-    expect(activeWatchCount()).toBe(0)
+    expect(activeWatchCount()).toBe(1) // P2-T02-B3: hidden no longer clears the watch
 
     advanceTime(6000) // well past SAMPLE_REUSE_MAX_AGE_MS while hidden
     await goVisible()
 
-    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one new watch (hard restart)
+    expect(watchPositionMock).toHaveBeenCalledTimes(2) // exactly one new watch (defensive hard restart, unchanged by B3)
     expect(activeWatchCount()).toBe(1)
     expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // exactly one recovery fresh-acquisition attempt
   })
@@ -1550,7 +1604,7 @@ describe("FG01-FG12 — robust foreground-recovery model", () => {
     await sendInitialAndResolve("p1", watchId1, -34.6, -58.4, 5)
 
     goHidden()
-    expect(activeWatchCount()).toBe(0)
+    expect(activeWatchCount()).toBe(1) // P2-T02-B3: hidden no longer clears the watch
     advanceTime(6000)
 
     // document.visibilityState already reports "visible" but the
@@ -1736,7 +1790,7 @@ describe("FG01-FG12 — robust foreground-recovery model", () => {
     expect(body.lat).toBe(-1)
   })
 
-  test("FG12: going hidden again while a recovery fresh-acquisition is in flight discards it — no POST, no revived timers", async () => {
+  test("FG12 (P2-T02-B3): going hidden again while a recovery fresh-acquisition is in flight no longer discards it — the best-effort send still lands", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId1 = lastWatchId()
@@ -1747,15 +1801,18 @@ describe("FG01-FG12 — robust foreground-recovery model", () => {
     await goVisible()
     expect(getCurrentPositionMock).toHaveBeenCalledTimes(1) // recovery one-shot in flight
 
-    // Hidden again before the recovery one-shot resolves.
+    // Hidden again before the recovery one-shot resolves. Under OPTION-V2
+    // this used to bump the watch generation (via stopWatcher) and silently
+    // discard the in-flight recovery result — P2-T02-B3 removes that: going
+    // hidden no longer touches the generation, so the in-flight one-shot
+    // remains valid.
     goHidden()
-    expect(heartbeatTimerCount()).toBe(0)
-    expect(pendingSendTimerCount()).toBe(0)
 
-    // The stale one-shot now resolves.
+    // The recovery one-shot now resolves — still the same generation, the
+    // delivery is still core-eligible, so this best-effort send lands.
     await resolveNextFreshAcquisitionAsync(-1, -1, 5)
-    expect(fetchCallCountFor("p1")).toBe(1) // still just the original send — no revival
-    expect(heartbeatTimerCount()).toBe(0)
+    expect(fetchCallCountFor("p1")).toBe(2) // original(1) + this recovery send(2) — no longer discarded
+    expect(heartbeatTimerCount()).toBe(1) // rearmed by the successful send, exactly like any other
   })
 })
 
@@ -1938,7 +1995,7 @@ describe("J01-J16 — adversarial foreground-recovery pre-commit review", () => 
     // superseded by the watch-triggered send above) is irrelevant here.
     getCurrentPositionMock.mockClear()
 
-    goHidden() // stopWatcher, pendingForegroundRecoveryRef=true — the in-flight POST is untouched
+    goHidden() // P2-T02-B3: only pendingForegroundRecoveryRef=true now — the watch and the in-flight POST are both untouched
     advanceTime(6000)
     await goVisible() // forces recovery: new watch, new generation, recovery fresh-acquisition begins
 
@@ -2088,7 +2145,7 @@ describe("J01-J16 — adversarial foreground-recovery pre-commit review", () => 
     expect(getCurrentPositionMock).toHaveBeenCalledTimes(0)
   })
 
-  test("J15: the watchdog timer is cleared on hidden and on unmount — never fires afterward", async () => {
+  test("J15 (P2-T02-B3): the watchdog timer survives hidden untouched — best-effort, only unmount ever clears it", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId1 = lastWatchId()
@@ -2096,11 +2153,16 @@ describe("J01-J16 — adversarial foreground-recovery pre-commit review", () => 
     expect(watchdogTimerCount()).toBe(1)
 
     goHidden()
-    expect(watchdogTimerCount()).toBe(0)
+    // P2-T02-B3: the watchdog is exactly the kind of best-effort mechanism
+    // that must keep running while hidden — it's the safety net for when
+    // Chromium silently breaks the watcher without ever dispatching an
+    // event; clearing it on hidden (the old OPTION-V2 behavior) would defeat
+    // its own purpose.
+    expect(watchdogTimerCount()).toBe(1)
 
     advanceTime(6000)
     await goVisible()
-    expect(watchdogTimerCount()).toBe(1)
+    expect(watchdogTimerCount()).toBe(1) // still exactly one, never accumulated
 
     controller.unmount()
     controller = null
@@ -2124,5 +2186,62 @@ describe("J01-J16 — adversarial foreground-recovery pre-commit review", () => 
 
     await fireWindowFocus()
     expect(watchdogTimerCount()).toBe(1)
+  })
+})
+
+// ============================================
+// B01-B04 — P2-T02-B3 additions: delivery-state-driven stop (entregado/
+// cancelado, explicit) and the gpsPermissionDenied UI signal
+// ============================================
+describe("B01-B04 — P2-T02-B3: delivery-end stop + gpsPermissionDenied signal", () => {
+  test("B01: a delivery whose estado changes to 'entregado' loses core-eligibility and stops the watcher, exactly like trackingEligibleNow=false", () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    expect(activeWatchCount()).toBe(1)
+
+    controller.render([delivery("p1", { estado: "entregado" })])
+    expect(clearWatchMock).toHaveBeenCalledTimes(1)
+    expect(activeWatchCount()).toBe(0)
+  })
+
+  test("B02: a delivery whose estado changes to 'cancelado' loses core-eligibility and stops the watcher", () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    expect(activeWatchCount()).toBe(1)
+
+    controller.render([delivery("p1", { estado: "cancelado" })])
+    expect(clearWatchMock).toHaveBeenCalledTimes(1)
+    expect(activeWatchCount()).toBe(0)
+  })
+
+  test("B03: gpsPermissionDenied becomes true after PERMISSION_DENIED, and false again once a fresh watch callback succeeds", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    expect(controller.getApi().gpsPermissionDenied).toBe(false)
+
+    const watchId = lastWatchId()
+    fireWatchError(watchId, GEO_ERROR_CODES.PERMISSION_DENIED)
+    controller.render([delivery("p1")]) // force a fresh render to read the updated state
+    expect(controller.getApi().gpsPermissionDenied).toBe(true)
+
+    // Permission restored + a fresh eligible mios restarts the watcher.
+    advanceTime(1)
+    controller.render([delivery("p1")])
+    const newWatchId = lastWatchId()
+    fireWatchSuccess(newWatchId, -1, -1, 5)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    controller.render([delivery("p1")])
+    expect(controller.getApi().gpsPermissionDenied).toBe(false)
+  })
+
+  test("B04: gpsPermissionDenied stays false through the normal PERMISSION_DENIED-free lifecycle", async () => {
+    controller = createController()
+    controller.render([delivery("p1")])
+    const watchId = lastWatchId()
+    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5)
+    controller.render([delivery("p1")])
+    expect(controller.getApi().gpsPermissionDenied).toBe(false)
   })
 })

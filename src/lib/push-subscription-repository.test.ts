@@ -500,8 +500,23 @@ describe("CHANNEL_ENUM_SCHEMA_CONTRACT (MD57)", () => {
     expect(Object.values(PushSubscriptionChannel).sort()).toEqual(["default", "salon"])
   })
 
-  test("PushSubscriptionOwnerType generado por Prisma es exactamente {cliente, negocio, repartidor, empleado}", () => {
-    expect(Object.values(PushSubscriptionOwnerType).sort()).toEqual(["cliente", "empleado", "negocio", "repartidor"])
+  // P2-T44-R1D agregó "cuenta_operativa" como owner de Push personal
+  // account-level (Personal Operaciones) — este contrato quedó stale al
+  // introducirse ese schema change y nunca se actualizó (encontrado en
+  // R1E, reconciliado en R1I). P2-T39-R3 agregó "superadmin" como owner
+  // moderno de Push para SuperAdmin (el campo legacy SuperAdmin.
+  // pushSubscription queda inerte, P2-T17). Sigue siendo una aserción
+  // exhaustiva, no un toContain débil: el set completo debe coincidir
+  // EXACTAMENTE con el enum real generado por Prisma, nada más y nada menos.
+  test("PushSubscriptionOwnerType generado por Prisma es exactamente {cliente, negocio, repartidor, empleado, cuenta_operativa, superadmin}", () => {
+    expect(Object.values(PushSubscriptionOwnerType).sort()).toEqual([
+      "cliente",
+      "cuenta_operativa",
+      "empleado",
+      "negocio",
+      "repartidor",
+      "superadmin",
+    ])
   })
 
   test("registerPushSubscription rechaza un channel fuera del enum (fail closed)", async () => {

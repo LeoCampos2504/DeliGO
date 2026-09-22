@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -35,18 +36,75 @@ interface NavigationData {
     cliente?: string
     negocio?: string
     repartidor?: string
+    empleado?: string
   }
+  /**
+   * P2-T44-R1P2 (G1): contrato moderno de los productores de Operaciones
+   * (mesa_order_ready, operaciones_salon_new_order,
+   * operaciones_order_cancelled, operaciones_pyr_new_order,
+   * operaciones_pyr_new_review, operaciones_pyr_chat) — una ruta interna
+   * completa, nunca un nombre de pestaña. Ver isSafeInternalPath/
+   * handleNotifClick para la precedencia real de navegación.
+   */
+  url?: string
   [key: string]: unknown
 }
 
-function getNavigateTab(notif: NotificationItem): string | null {
+/**
+ * P2-T44-R1P2 (G1): misma lógica exacta que `isSafeInternalUrl` en
+ * public/sw.js (reimplementada acá porque sw.js es un asset público, fuera
+ * del grafo de módulos de Next.js — no importable desde un componente
+ * React). Rechaza cualquier valor que no sea una ruta interna de un solo
+ * segmento `/` inicial (nunca `http(s)://`, `//`, `javascript:`, etc.).
+ */
+export function isSafeInternalPath(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//")
+}
+
+/** Parseo tolerante — una fila histórica con `datos` inválido nunca debe
+ * romper el click de toda la campana, sólo perder su propia navegación. */
+export function parseNotificationData(notif: NotificationItem): NavigationData {
   try {
-    const datos: NavigationData = JSON.parse(notif.datos || "{}")
-    const userType = notif.userType as "cliente" | "negocio" | "repartidor"
-    return datos.navigateTo?.[userType] || null
+    return JSON.parse(notif.datos || "{}") as NavigationData
   } catch {
-    return null
+    return {}
   }
+}
+
+export function getNavigateTab(notif: NotificationItem): string | null {
+  const datos = parseNotificationData(notif)
+  const userType = notif.userType as "cliente" | "negocio" | "repartidor" | "empleado"
+  return datos.navigateTo?.[userType] || null
+}
+
+export type NotificationNavigationDecision =
+  | { kind: "url"; url: string }
+  | { kind: "tab"; tab: string }
+  | { kind: "none" }
+
+/**
+ * P2-T44-R1P2 (G1): decisión PURA de navegación — extraída para poder
+ * testearla sin renderizar el componente (mismo criterio que
+ * mesa-cliente-cuenta-ui.ts: sin React, sin DOM, sin infraestructura).
+ * Nunca ejecuta la navegación en sí (eso lo hace `handleNotifClick`, el
+ * único lugar que llama a `router.push`) — sólo decide QUÉ haría falta
+ * hacer, dado el contrato real documentado en R1P1A §18.3:
+ *   1. `datos.url` si es una ruta interna segura → navegar ahí (contrato
+ *      moderno, los 6 tipos de Operaciones lo usan, nunca `navigateTo`).
+ *   2. si no, `navigateTo`/`onNavigate` legacy — SIEMPRE un nombre de
+ *      pestaña, nunca una URL — sin cambios de comportamiento.
+ *   3. si ninguno, "none".
+ */
+export function resolveNotificationNavigation(notif: NotificationItem): NotificationNavigationDecision {
+  const datos = parseNotificationData(notif)
+  if (isSafeInternalPath(datos.url)) {
+    return { kind: "url", url: datos.url }
+  }
+  const tab = getNavigateTab(notif)
+  if (tab) {
+    return { kind: "tab", tab }
+  }
+  return { kind: "none" }
 }
 
 // ============================================
@@ -69,6 +127,19 @@ function getNotifIcon(tipo: string) {
       return <MessageSquare className="h-4 w-4 text-violet-500" />
     case "account_update":
       return <Settings className="h-4 w-4 text-gray-500" />
+    // P2-T44-R1P2 (G1): tipos de Operaciones — antes caían todos al ícono
+    // genérico (default) por falta de casos dedicados.
+    case "mesa_order_ready":
+    case "salon_new_order":
+    case "operaciones_salon_new_order":
+    case "operaciones_pyr_new_order":
+      return <Package className="h-4 w-4 text-primary" />
+    case "operaciones_order_cancelled":
+      return <AlertTriangle className="h-4 w-4 text-red-500" />
+    case "operaciones_pyr_new_review":
+      return <Star className="h-4 w-4 text-amber-500" />
+    case "operaciones_pyr_chat":
+      return <MessageSquare className="h-4 w-4 text-violet-500" />
     default:
       return <Bell className="h-4 w-4 text-muted-foreground" />
   }
@@ -100,12 +171,15 @@ function timeAgo(dateStr: string): string {
 interface NotificationBellProps {
   /** Called when a notification is clicked — should navigate to the target tab */
   onNavigate?: (tab: string, notif: NotificationItem) => void
+  /** Uses the authenticated operational account and its employee feed. */
+  operational?: boolean
 }
 
-export function NotificationBell({ onNavigate }: NotificationBellProps) {
+export function NotificationBell({ onNavigate, operational = false }: NotificationBellProps) {
   const { noLeidos, setNoLeidos, decrementNoLeidos, isOpen, setIsOpen } = useNotificationStore()
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   // Fetch unread count
   const { data: notifData } = useQuery({
@@ -116,7 +190,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       return res.json() as Promise<{ noLeidos: number }>
     },
     refetchInterval: 10000, // Poll every 10s
-    enabled: !!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor"),
+    enabled: operational || (!!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor")),
   })
 
   // Fetch full notification list (only when popover is open)
@@ -127,7 +201,7 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
       if (!res.ok) return { notificaciones: [] as NotificationItem[], noLeidos: 0 }
       return res.json() as Promise<{ notificaciones: NotificationItem[]; noLeidos: number }>
     },
-    enabled: isOpen && !!user,
+    enabled: isOpen && (operational || !!user),
     staleTime: 0,
   })
 
@@ -169,22 +243,32 @@ export function NotificationBell({ onNavigate }: NotificationBellProps) {
     } catch {}
   }, [setNoLeidos, queryClient])
 
-  // Handle notification click — navigate + mark as read
+  // Handle notification click — navigate + mark as read.
+  // P2-T44-R1P2 (G1): precedencia de navegación —
+  //   1. `datos.url` si es una ruta interna segura (isSafeInternalPath) →
+  //      router.push directo, resuelto ACÁ dentro del componente, sin
+  //      depender de que el host pase `onNavigate` (contrato moderno de los
+  //      6 tipos de Operaciones, todos embeben `url`, nunca `navigateTo`).
+  //   2. si no, el contrato legacy sin cambios: `navigateTo`/`onNavigate`
+  //      (siempre un NOMBRE DE PESTAÑA — "pedidos"/"resenas"/etc. — nunca
+  //      una URL; jamás se pasa a router.push).
+  //   3. si ninguno, sólo se marca como leído (comportamiento actual).
   const handleNotifClick = useCallback(async (notif: NotificationItem) => {
     // Mark as read
     if (!notif.leido) {
       await markAsRead(notif.id)
     }
 
-    // Navigate
-    const targetTab = getNavigateTab(notif)
-    if (targetTab && onNavigate) {
-      onNavigate(targetTab, notif)
+    const decision = resolveNotificationNavigation(notif)
+    if (decision.kind === "url") {
+      router.push(decision.url)
+    } else if (decision.kind === "tab" && onNavigate) {
+      onNavigate(decision.tab, notif)
     }
 
     // Close popover
     setIsOpen(false)
-  }, [markAsRead, onNavigate, setIsOpen])
+  }, [markAsRead, onNavigate, setIsOpen, router])
 
   const notificaciones = listData?.notificaciones ?? []
 

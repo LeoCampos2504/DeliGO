@@ -44,10 +44,29 @@ export interface AuthMockState {
   operationalSessionByToken: Map<string, { cuentaOperativaId: string } | null>
   /** Backing store for `deleteOperationalSession()` — consumed by operativo/logout. */
   deletedOperationalSessionTokens: string[]
+  /**
+   * P2-T40-R1: backing store for `getOperationalAccountFromRequest()` —
+   * consumed by /api/push/subscribe|unsubscribe|reconcile-stale-owner's
+   * `actorFamily=cuenta_operativa` branch. Purely additive to the canonical
+   * superset (H4) — every pre-existing test file that never sets this field
+   * keeps getting `null` (its previous implicit behavior, since none of
+   * them exercised this branch), so this addition cannot regress them.
+   */
+  currentOperationalAccount: { id: string } | null
+  /**
+   * P2-T40-R1: backing store for `findSesionByToken()` — consumed by
+   * applyLoginCookies()/applyOperationalLoginCookies() (STALE_PREVIOUS_OWNER_RULE
+   * handoff-minting). Purely additive; every pre-existing test that never
+   * sets this keeps getting `null` (its previous implicit behavior).
+   */
+  sesionByToken: Map<string, { token: string; userId: string; userType: string; expiresAt: Date } | null>
 }
 
 /** The exact literal every push/* test's request cookie carries as the "authenticated" token — matches the pre-H4 per-file constant verbatim. */
 export const AUTH_MOCK_VALID_TOKEN = "valid-token"
+
+/** P2-T40-R1: matching literal for the operational session cookie in tests exercising `actorFamily=cuenta_operativa`. */
+export const AUTH_MOCK_VALID_OPERATIONAL_TOKEN = "valid-operational-token"
 
 function createAuthMockState(): AuthMockState {
   return {
@@ -55,6 +74,8 @@ function createAuthMockState(): AuthMockState {
     currentUser: null,
     operationalSessionByToken: new Map(),
     deletedOperationalSessionTokens: [],
+    currentOperationalAccount: null,
+    sesionByToken: new Map(),
   }
 }
 
@@ -90,6 +111,8 @@ export function resetAuthMockState(state: AuthMockState = authMockState): void {
   state.currentUser = null
   state.operationalSessionByToken = new Map()
   state.deletedOperationalSessionTokens = []
+  state.currentOperationalAccount = null
+  state.sesionByToken = new Map()
   authMockHooks.onDeleteOperationalSession = undefined
 }
 
@@ -104,6 +127,27 @@ function buildAuthMockModule() {
       authMockState.deletedOperationalSessionTokens.push(token)
       authMockHooks.onDeleteOperationalSession?.(token)
     },
+    // P2-T40-R1: matches the real signature shape used by
+    // src/app/api/push/*/route.ts (reads the operational cookie off the
+    // request) closely enough for these tests — real token match only,
+    // never trusts anything else from the request.
+    getOperationalAccountFromRequest: async (req: { cookies: { get: (name: string) => { value: string } | undefined } }) => {
+      const token = req.cookies.get("deligo_operativo_session")?.value
+      return token === AUTH_MOCK_VALID_OPERATIONAL_TOKEN ? authMockState.currentOperationalAccount : null
+    },
+    // P2-T40-R1: consumed by applyLoginCookies()/applyOperationalLoginCookies()
+    // to look up the owner occupying a cookie slot immediately before the
+    // current login — never filters by expiresAt (matches the real
+    // src/lib/auth.ts, which only enforces expiry inside
+    // validateSession/validateOperationalSession, never here).
+    findSesionByToken: async (token: string) => authMockState.sesionByToken.get(token) ?? null,
+    getFamilySessionCookieName: (family: string) => `deligo_session_${family}`,
+    SESSION_DURATION_HOURS: 12,
+    evaluatePasswordHash: async () => ({ valid: false, needsUpgrade: false }),
+    createSession: async () => "unused-in-auth-mock",
+    createSessionWithClient: async () => "unused-in-auth-mock",
+    createOperationalSession: async () => "unused-in-auth-mock",
+    hashPassword: async () => "unused-in-auth-mock",
   }
 }
 

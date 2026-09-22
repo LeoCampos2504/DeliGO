@@ -1,16 +1,14 @@
 import { db } from "@/lib/db"
 import {
   buildOperationsCancellationUrl,
-  mergePushFanoutTargets,
   operacionesOrderCancelledNotification,
   reservePushEndpoint,
-  resolveCorePushTargetsFromNormalized,
   sendPushToTargets,
   type OperationsCancellationArea,
   type PushFanoutTarget,
 } from "@/lib/push"
-import { getPushSubscriptionsForOwners } from "@/lib/push-subscription-repository"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { resolveOperationalPushTargets, type OperationalPushEmployee } from "@/lib/operational-push-targets"
 
 type NotifyOperationsCancellationParams = {
   pedidoId: string
@@ -24,6 +22,7 @@ type NotifyOperationsCancellationParams = {
 
 type OperationsRecipient = {
   id: string
+  cuentaOperativaId: string | null
   pushSubscription: string | null
 }
 
@@ -62,7 +61,7 @@ export async function notifyOperationsOrderCancelled({
       ...(excludeEmpleadoId ? { id: { not: excludeEmpleadoId } } : {}),
       cuentaOperativa: { activo: true, eliminado: false },
     },
-    select: { id: true, pushSubscription: true },
+    select: { id: true, cuentaOperativaId: true, pushSubscription: true },
   })
 
   const recipients = empleados as OperationsRecipient[]
@@ -96,29 +95,7 @@ export async function notifyOperationsOrderCancelled({
     )
   )
 
-  // P2-T05 H2/F21: una lectura normalizada batch por wave. El builder común
-  // conserva la unión normalized+legacy y toda la semántica Stage4/H1 por
-  // recipient; un fallo batch deja normalized vacío y permite legacy-only sin
-  // reintentar N lecturas individuales.
-  let normalizedByOwner: Awaited<ReturnType<typeof getPushSubscriptionsForOwners>> = new Map()
-  try {
-    normalizedByOwner = await getPushSubscriptionsForOwners(
-      "empleado",
-      recipients.map((empleado) => empleado.id),
-      "default"
-    )
-  } catch (error) {
-    console.error("[Push/OperacionesCancelacion] Error leyendo targets normalizados en batch:", safeErrorForLog(error))
-  }
-  const perRecipientTargets = recipients.map((empleado) =>
-    resolveCorePushTargetsFromNormalized(
-      "empleado",
-      empleado.id,
-      empleado.pushSubscription,
-      normalizedByOwner.get(empleado.id) ?? []
-    )
-  )
-  let targets: PushFanoutTarget[] = mergePushFanoutTargets(perRecipientTargets)
+  let targets: PushFanoutTarget[] = await resolveOperationalPushTargets(recipients as OperationalPushEmployee[])
   if (reservedPushEndpoints) {
     targets = targets.filter((t) => reservePushEndpoint(t.raw, reservedPushEndpoints))
   }

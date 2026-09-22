@@ -49,13 +49,34 @@ const SUPERADMIN_TOKEN_REGEX = /^[0-9a-f]{64}$/i
 // autoriza, sólo produce el mismo 401/403 que ya producía antes de esta
 // tarea. Debe permanecer sincronizado manualmente con
 // FAMILY_SESSION_COOKIE_NAMES de src/lib/auth.ts (nunca importado acá).
+//
+// P2-T44-R1G (root cause de R1F): "cuenta_operativa" (Personal Operaciones,
+// R1D) usa su PROPIA cookie dedicada (deligo_operativo_session, nunca una
+// FAMILY_SESSION_COOKIE_NAMES ni la legacy SESSION_COOKIE) y su propio
+// modelo Sesion.userType="cuenta_operativa" — nunca tuvo entrada acá,
+// dejando ?actorFamily=cuenta_operativa como un selector "desconocido" que
+// resolveActorSession ignoraba (fail-closed), resolviendo token=null y
+// bloqueando /api/push/subscribe|unsubscribe con 401 en este middleware
+// ANTES de que getOperationalAccountFromRequest (route handler real, que sí
+// sabe autenticarla) llegara a correr. La rama family="cuenta_operativa" de
+// resolveActorSession nunca cae en el fallback legacy de la línea de abajo
+// (getSessionToken/SESSION_COOKIE) — SIEMPRE devuelve directamente el token
+// de deligo_operativo_session o null; ese token viaja downstream sólo
+// reenviado bajo el nombre legacy SESSION_COOKIE (rewriteResolvedSessionCookieHeaders),
+// que ningún route handler de cuenta_operativa lee (todos usan
+// getOperationalAccountFromRequest, que lee deligo_operativo_session
+// directamente) — inerte para este actor, sin afectar a los otros tres.
+// Sigue siendo sólo un soft-check de presencia/formato: la autenticación
+// real de la cuenta sigue siendo exclusivamente
+// getOperationalAccountFromRequest, downstream, sin cambios.
 
-type SessionFamily = "cliente" | "negocio" | "repartidor"
+type SessionFamily = "cliente" | "negocio" | "repartidor" | "cuenta_operativa"
 
 const FAMILY_SESSION_COOKIE_NAMES: Record<SessionFamily, string> = {
   cliente: "deligo_session_cliente",
   negocio: "deligo_session_negocio",
   repartidor: "deligo_session_repartidor",
+  cuenta_operativa: "deligo_operativo_session",
 }
 
 const SELECTOR_QUERY_PARAM = "actorFamily"
@@ -82,12 +103,16 @@ const SELECTOR_ENDPOINT_PREFIXES = [
   "/api/push/subscribe",
   "/api/push/unsubscribe",
   "/api/push/status",
+  // P2-T40-R1: misma ambigüedad de cookie de familia que sus 3 hermanos de
+  // arriba — este endpoint también resuelve el owner actual vía
+  // getUserFromToken(SESSION_COOKIE)/getOperationalAccountFromRequest.
+  "/api/push/reconcile-stale-owner",
 ]
 
 const RESOLVED_ACTOR_FAMILY_HEADER = "x-resolved-actor-family"
 
 function isSessionFamily(value: string | null): value is SessionFamily {
-  return value === "cliente" || value === "negocio" || value === "repartidor"
+  return value === "cliente" || value === "negocio" || value === "repartidor" || value === "cuenta_operativa"
 }
 
 /** Familia implícita por prefijo de path — nunca anulable por selector. */
@@ -196,6 +221,7 @@ const AUTH_REQUIRED_PREFIXES = [
   "/api/realtime",
   "/api/push/subscribe",
   "/api/push/unsubscribe",
+  "/api/push/reconcile-stale-owner",
 ]
 
 /** Check whether a path starts with any of the given prefixes */
@@ -411,14 +437,33 @@ function checkRouteProtection(
 
   // 4. Any-auth routes (chat, push)
   if (matchesPrefix(pathname, AUTH_REQUIRED_PREFIXES)) {
-    if (!token) {
-      return {
-        allowed: false,
-        status: 401,
-        message: "Se requiere autenticación",
-      }
+    if (token) return { allowed: true }
+    // P2-T39-R3B (root cause de un 401 físico real en
+    // POST /api/push/subscribe?actorFamily=superadmin): SuperAdmin (24-A)
+    // usa su propia cookie/token aislados (deligo_superadmin_session,
+    // formato hex de 64, nunca UUID) y NUNCA es un SessionFamily válido
+    // (ver comentario de línea ~53 sobre P2-T44-R1G — el mismo bug ya
+    // ocurrió una vez con cuenta_operativa). resolveActorSession() por
+    // diseño no puede resolver "superadmin" como family (isSessionFamily
+    // lo excluye a propósito — mezclarlo con el selector multi-family
+    // compartido de cliente/negocio/repartidor/cuenta_operativa rompería
+    // la rama de ROLE_PROTECTED_ROUTES para /api/superadmin/*, que hoy
+    // funciona leyendo esta misma cookie directamente). En vez de tocar
+    // esa máquina de SessionFamily, se agrega acá un chequeo AISLADO,
+    // sólo de presencia/formato (igual que el resto de este archivo) —
+    // la autenticación real sigue siendo exclusivamente
+    // requireSuperadminSession, downstream, sin cambios ni debilitamiento.
+    if (
+      request.nextUrl.searchParams.get(SELECTOR_QUERY_PARAM) === "superadmin" &&
+      getCookieToken(request, SUPERADMIN_SESSION_COOKIE, SUPERADMIN_TOKEN_REGEX)
+    ) {
+      return { allowed: true }
     }
-    return { allowed: true }
+    return {
+      allowed: false,
+      status: 401,
+      message: "Se requiere autenticación",
+    }
   }
 
   // 5. Other API routes — allowed (no special protection at middleware level)

@@ -63,6 +63,7 @@ interface MesaCuentaDialogProps {
   mesaId: string
   mesaNumero: number
   className?: string
+  onClosed?: () => void
   // P2-T41: la UI nunca es la autoridad — el servidor ya deniega el POST de
   // cierre para actores sin permiso (ver ocupaciones/[id]/cuenta/route.ts).
   // Este prop solo evita mostrar una acción que el servidor va a rechazar,
@@ -90,7 +91,7 @@ async function parseErrorCode(res: Response): Promise<{ code?: string; error?: s
   }
 }
 
-export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = true }: MesaCuentaDialogProps) {
+export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canClose = true }: MesaCuentaDialogProps) {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<Status>("idle")
   const [cuenta, setCuenta] = useState<CuentaResponse | null>(null)
@@ -218,6 +219,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, canClose = tru
 
       setCuenta(data)
       setConfirmCloseOpen(false)
+      onClosed?.()
       toast.success("Cuenta cerrada. La mesa quedó libre.")
     } catch {
       toast.error("No se pudo cerrar la cuenta. Intentá de nuevo.")

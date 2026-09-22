@@ -110,14 +110,35 @@ export function useChatActorReset() {
   }, [actorKey])
 }
 
-export function ChatProvider() {
-  const pathname = usePathname()
+// P2-T49-R1B: rutas donde el Chat PERSONAL global (ChatFab + ChatSheet)
+// nunca debe montarse, sin importar qué sesión personal (Cliente/Negocio/
+// Repartidor) esté hidratada en el mismo navegador — cada una tiene su
+// propio flujo de chat dedicado, no comparte contexto con el personal.
+// Función pura para poder testearla sin montar React (ver
+// chat-provider-route-boundary.test.ts).
+export function shouldMountGlobalChat(pathname: string | null): boolean {
+  if (!pathname) return true
+  if (pathname === "/mozo" || pathname.startsWith("/mozo/")) return false
+  if (pathname === "/operaciones" || pathname.startsWith("/operaciones/")) return false
+  return true
+}
+
+// P2-T49-R1C: los hooks personales y ChatFab/ChatSheet viven en este
+// componente HIJO separado, nunca directamente en ChatProvider. Esto (y
+// no un `return null` antes de llamar hooks dentro de la MISMA instancia
+// de componente) es el patrón correcto de React para "hooks
+// condicionales": un early-return previo a un hook, en el mismo
+// componente, rompería el orden de hooks apenas el usuario navegara entre
+// una ruta excluida y una no excluida. Montar o no montar un componente
+// HIJO completo es distinto — cuando GlobalChatRuntime no se renderiza,
+// su instancia entera no existe, así que useChatDeepLink/
+// useChatActorReset simplemente no corren, sin violar ninguna regla.
+// Antes de R1C corrían siempre (incluso en /operaciones/**) porque
+// estaban en el propio ChatProvider; R1C completa el aislamiento que R1B
+// dejó documentado como pendiente.
+function GlobalChatRuntime() {
   useChatDeepLink()
   useChatActorReset()
-
-  if (pathname === "/mozo" || pathname.startsWith("/mozo/")) {
-    return null
-  }
 
   return (
     <>
@@ -125,4 +146,14 @@ export function ChatProvider() {
       <ChatSheet />
     </>
   )
+}
+
+export function ChatProvider() {
+  const pathname = usePathname()
+
+  if (!shouldMountGlobalChat(pathname)) {
+    return null
+  }
+
+  return <GlobalChatRuntime />
 }

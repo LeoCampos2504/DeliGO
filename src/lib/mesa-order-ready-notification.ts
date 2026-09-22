@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { buildPedidoDeepLinkUrl } from "@/lib/notification-deep-link"
-import { mesaOrderReadyNotification, resolveCorePushTargets, sendPushToTargets } from "@/lib/push"
+import { mesaOrderReadyNotification, sendPushToTargets } from "@/lib/push"
+import { resolveOperationalPushTargets, type OperationalPushEmployee } from "@/lib/operational-push-targets"
 
 type ReadyMesaPedido = {
   id: string
@@ -15,6 +16,7 @@ type ReadyMesaPedido = {
 
 type MozoDestino = {
   id: string
+  cuentaOperativaId: string | null
   pushSubscription: string | null
   source: "pedido" | "mesa"
 }
@@ -64,6 +66,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
       },
       select: {
         id: true,
+        cuentaOperativaId: true,
         pushSubscription: true,
       },
     })
@@ -71,6 +74,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
     if (empleadoDelPedido) {
       return {
         id: empleadoDelPedido.id,
+        cuentaOperativaId: empleadoDelPedido.cuentaOperativaId,
         pushSubscription: empleadoDelPedido.pushSubscription,
         source: "pedido",
       }
@@ -87,8 +91,9 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
     },
     select: {
       empleado: {
-        select: {
+      select: {
           id: true,
+          cuentaOperativaId: true,
           areaOperativa: true,
           activo: true,
           eliminado: true,
@@ -112,6 +117,7 @@ async function resolveMozoDestino(pedido: ReadyMesaPedido): Promise<MozoDestino 
 
   return {
     id: empleado.id,
+    cuentaOperativaId: empleado.cuentaOperativaId,
     pushSubscription: empleado.pushSubscription,
     source: "mesa",
   }
@@ -248,7 +254,7 @@ export async function notifyMesaOrderReadyForMozo({
   // P2-T05 Stage4: fan-out multi-device (normalizado UNION legacy) — un
   // mozo con varios dispositivos recibe el aviso en TODOS sus endpoints
   // únicos, con exactamente 1 Notificacion lógica ya persistida arriba.
-  const targets = await resolveCorePushTargets("empleado", mozo.id, mozo.pushSubscription)
+  const targets = await resolveOperationalPushTargets([mozo as OperationalPushEmployee])
 
   if (targets.length === 0) {
     logMesaOrderReady("mesa_order_ready_subscription_missing", {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
@@ -7,6 +8,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+const PENDING_EMPLOYEE_NAME = "Pendiente de vinculación"
 
 /** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
 function normalizeAreaOperativa(value: unknown): string | null {
@@ -77,7 +79,19 @@ export async function GET(req: NextRequest) {
 
     // GET es estrictamente de lectura: no crea, modifica, regenera ni revoca
     // tokens legacy, y tampoco expone el campo físico aunque exista en DB.
-    return noStoreJson(empleados.map((empleado) => serializeEmpleado(empleado)))
+    // La identidad visible vinculada se proyecta desde CuentaOperativa; el
+    // nombre de Empleado queda como dato legacy/operativo y no como autoridad
+    // personal.
+    return noStoreJson(
+      empleados.map((empleado) => {
+        const identityLinked = Boolean(empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado)
+        return {
+          ...serializeEmpleado(empleado),
+          displayName: identityLinked ? empleado.cuentaOperativa?.nombre ?? null : null,
+          identityLinked,
+        }
+      })
+    )
   } catch (error) {
     console.error("Error listing empleados:", safeErrorForLog(error))
     return noStoreJson(
@@ -102,7 +116,9 @@ export async function POST(req: NextRequest) {
 
     const negocioId = user.id
     const body = await req.json()
-    const { nombre, codigo, rol, activo } = body
+    const nombreInput = typeof body.nombre === "string" ? body.nombre.trim() : ""
+    const nombre = nombreInput || PENDING_EMPLOYEE_NAME
+    const { codigo, rol, activo } = body
 
     // Estado final de actividad del empleado (resuelto una sola vez).
     const empleadoActivo = activo !== undefined ? Boolean(activo) : true
@@ -140,13 +156,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (!nombre?.trim()) {
-      return noStoreJson(
-        { error: "El nombre es obligatorio" },
-        { status: 400 }
-      )
-    }
-
     if (!codigo?.trim()) {
       return noStoreJson(
         { error: "El código es obligatorio" },
@@ -155,8 +164,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Check for duplicate codigo within negocio
-    const existing = await db.empleado.findUnique({
-      where: { negocioId_codigo: { negocioId, codigo: codigo.trim().toUpperCase() } },
+    const existing = await db.empleado.findFirst({
+      where: {
+        negocioId,
+        codigo: codigo.trim().toUpperCase(),
+        eliminado: false,
+      },
+      select: { id: true },
     })
     if (existing) {
       return noStoreJson(
@@ -197,6 +211,12 @@ export async function POST(req: NextRequest) {
 
     return noStoreJson(serializeEmpleado(empleado), { status: 201 })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return noStoreJson(
+        { error: "Ya existe un empleado con ese código" },
+        { status: 409 }
+      )
+    }
     console.error("Error creating empleado:", safeErrorForLog(error))
     return noStoreJson(
       { error: "Error al crear empleado" },

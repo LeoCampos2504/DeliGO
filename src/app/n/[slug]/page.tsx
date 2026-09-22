@@ -53,6 +53,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
 import { resolveEffectiveMesa, shouldFetchCustomerMesaData } from "@/lib/mesa-checkout-transition"
 import { getCatalogoPathActual } from "@/lib/cliente-catalog-navigation"
+import { groupByNormalizedCategory } from "@/lib/category-normalization"
 import dynamic from "next/dynamic"
 import { toast } from "sonner"
 
@@ -1701,27 +1702,19 @@ function ProductDetailSheet({
       .filter(Boolean) as Array<{ id: string; nombre: string; opciones: Array<{ nombre: string; precio: number }>; obligatorio: boolean; maximo: number }>
   }, [product.opcionesCompartidasIds, negocio.opcionesCompartidas])
 
-  // Group agregados by category
-  const agregadosByCategory = useMemo(() => {
-    const map = new Map<string, ProductoAPI["agregados"]>()
-    for (const a of product.agregados || []) {
-      const cat = a.categoria || "Sin categoría"
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat)!.push(a)
-    }
-    return map
-  }, [product.agregados])
+  // P2-T47-R1: agrupamiento case/espacio-insensible — "Aderezos" y
+  // "aderezos" (o " ADEREZOS ") ahora colapsan en una sola sección
+  // visible, conservando el primer label no vacío visto y sin perder
+  // ningún item. Nunca toca los datos guardados, sólo la presentación.
+  const agregadosByCategory = useMemo(
+    () => groupByNormalizedCategory(product.agregados || [], (a) => a.categoria, "Sin categoría"),
+    [product.agregados]
+  )
 
-  // Group ingredientes by category
-  const ingredientesByCategory = useMemo(() => {
-    const map = new Map<string, ProductoAPI["ingredientes"]>()
-    for (const i of product.ingredientes || []) {
-      const cat = i.categoria || "Sin categoría"
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat)!.push(i)
-    }
-    return map
-  }, [product.ingredientes])
+  const ingredientesByCategory = useMemo(
+    () => groupByNormalizedCategory(product.ingredientes || [], (i) => i.categoria, "Sin categoría"),
+    [product.ingredientes]
+  )
 
   // OWN-PRODUCT-OPTION-PRICES-R1: own-section selections carry a price
   // delta now (previously secciones never affected the total at all).
@@ -2360,19 +2353,19 @@ function ProductDetailSheet({
           )}
 
           {/* ===== INGREDIENTES (hidden for ropa) ===== */}
-          {!isRopa && ingredientesByCategory.size > 0 && (
+          {!isRopa && ingredientesByCategory.length > 0 && (
             <div className="mb-5">
-              {Array.from(ingredientesByCategory.entries()).map(([cat, ings]) => (
-                <div key={cat} className="mb-4">
+              {ingredientesByCategory.map((group) => (
+                <div key={group.label} className="mb-4">
                   <h4 className="font-bold text-sm mb-2">
                     Ingredientes{" "}
-                    <span className="font-normal text-muted-foreground">— {cat}</span>
+                    <span className="font-normal text-muted-foreground">— {group.label}</span>
                   </h4>
                   <p className="text-xs text-muted-foreground mb-2">
                     Tocá para quitar los que no quieras
                   </p>
                   <div className="flex gap-2 flex-wrap">
-                    {ings.map((i) => (
+                    {group.items.map((i) => (
                       <button
                         key={i.id}
                         onClick={() => toggleIngrediente(i.id)}
@@ -2393,16 +2386,16 @@ function ProductDetailSheet({
           )}
 
           {/* ===== AGREGADOS ===== */}
-          {agregadosByCategory.size > 0 && (
+          {agregadosByCategory.length > 0 && (
             <div className="mb-5">
-              {Array.from(agregadosByCategory.entries()).map(([cat, agrs]) => (
-                <div key={cat} className="mb-4">
+              {agregadosByCategory.map((group) => (
+                <div key={group.label} className="mb-4">
                   <h4 className="font-bold text-sm mb-2">
                     Agregados{" "}
-                    <span className="font-normal text-muted-foreground">— {cat}</span>
+                    <span className="font-normal text-muted-foreground">— {group.label}</span>
                   </h4>
                   <div className="space-y-1.5">
-                    {agrs.map((a) => {
+                    {group.items.map((a) => {
                       const isSelected = selectedAgregados.has(a.id)
                       return (
                         <button

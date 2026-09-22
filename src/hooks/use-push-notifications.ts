@@ -376,7 +376,14 @@ interface UsePushNotificationsReturn {
   loading: boolean
 }
 
-export function usePushNotifications(): UsePushNotificationsReturn {
+export interface UsePushNotificationsOptions {
+  /** Optional server-selected family for sessions outside the normal auth store. */
+  actorFamily?: string
+  /** Local race-isolation key; never sent as an owner identifier to the server. */
+  actorKey?: string
+}
+
+export function usePushNotifications(options?: UsePushNotificationsOptions): UsePushNotificationsReturn {
   const [isSupported, setIsSupported] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(false)
   // P2-T31-R7: starts unresolved on every fresh mount (and again on every
@@ -427,8 +434,9 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   // (`/api/push/status`, que deriva el owner de la sesión) — este valor
   // nunca se envía al servidor ni participa en ninguna decisión de owner.
   const actorId = useAuthStore((s) => s.user?.id ?? null)
-  const actorType = useAuthStore((s) => s.user?.type ?? null)
-  const actorKey = actorId && actorType ? `${actorType}:${actorId}` : null
+  const actorTypeFromStore = useAuthStore((s) => s.user?.type ?? null)
+  const actorType = options?.actorFamily ?? actorTypeFromStore
+  const actorKey = options?.actorKey ?? (actorId && actorTypeFromStore ? `${actorTypeFromStore}:${actorId}` : null)
   const isFirstActorKeyRef = useRef(true)
 
   // P2-T31-R6A (PUSH-LIFECYCLE-TIMELINE-DIAGNOSTIC): purely observational —

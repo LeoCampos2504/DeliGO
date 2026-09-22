@@ -51,6 +51,17 @@ export type NotificationType =
   | "salon_new_order"
   | "operaciones_salon_new_order"
   | "operaciones_order_cancelled"
+  | "operaciones_pyr_new_order"
+  | "operaciones_pyr_new_review"
+  | "operaciones_pyr_chat"
+  // P2-T39-R3: los 5 tipos persistentes de Notificacion.tipo dirigidos a
+  // SuperAdmin (ver src/lib/superadmin-push-dispatch.ts). Nunca disparan una
+  // rama de dispatch por tipo en el service worker — sólo actorFamily lo hace.
+  | "negocio_pendiente"
+  | "destacado_solicitud"
+  | "denuncia_nueva"
+  | "negocio_deuda"
+  | "review_moderation"
 
 // P2-T31-R15R: inventario completo de `NotificationType` realmente producido
 // por las fábricas de payload de este archivo (ver PUSH_TYPE_URGENCY_MATRIX
@@ -70,6 +81,8 @@ const TIME_SENSITIVE_NOTIFICATION_TYPES: ReadonlySet<NotificationType> = new Set
   "salon_new_order",
   "operaciones_salon_new_order",
   "operaciones_order_cancelled",
+  "operaciones_pyr_new_order",
+  "operaciones_pyr_chat",
 ])
 
 export function isTimeSensitivePushType(type: NotificationType | undefined): boolean {
@@ -351,7 +364,49 @@ async function safeClearLegacyIfMatches(
     if (!currentParsed || !arePushSubscriptionsEquivalent(currentParsed, expectedShape)) return false
     return await casClearLegacyPushValue(model, id, field, currentRaw)
   } catch (error) {
-    console.error("[Push] Error en cleanup CAS de legacy:", safeErrorForLog(error))
+    console.error("[Push] Error en cleanup CAS de legacy (dead-endpoint):", safeErrorForLog(error))
+    return false
+  }
+}
+
+/**
+ * P2-T40-R3 (CASE G — causa raíz real): `resolveCorePushTargetsFromNormalized()`
+ * hace un UNION de las filas normalizadas de un owner + su valor legacy
+ * actual (P2-T05 Stage4, mixed-version rollout) — por eso limpiar
+ * ÚNICAMENTE la fila normalizada de un owner stale (lo único que hacía
+ * `detachPushSubscriptionByEndpoint` en R1/R2) deja el valor legacy como
+ * target de envío vivo: un Negocio A cuya fila normalizada ya fue borrada
+ * seguía recibiendo push porque `Negocio.pushSubscription` (su propio campo
+ * legacy, nunca tocado por la limpieza de stale-owner) todavía apuntaba al
+ * mismo endpoint físico. Mismo patrón CAS de `safeClearLegacyIfMatches`
+ * (nunca un blind-clear), pero comparando SÓLO endpoint+p256dh+auth — igual
+ * que `detachPushSubscriptionByEndpoint` sobre la tabla normalizada, nunca
+ * `expirationTime` (metadata de renovación, no identidad del dispositivo;
+ * mismo criterio ya establecido para `sameFanoutSubscriptionKeys`, P2-T05
+ * Hardening H1) — para que ambas limpiezas (normalizada + legacy) usen
+ * exactamente el mismo criterio de "misma subscription física".
+ */
+export async function detachLegacyPushFieldIfMatches(
+  model: string,
+  id: string,
+  field: string,
+  expected: { endpoint: string; p256dh: string; auth: string }
+): Promise<boolean> {
+  try {
+    const currentRaw = await readCurrentLegacyPushValue(model, id, field)
+    if (!currentRaw) return false
+    const currentParsed = parsePushSubscriptionShape(currentRaw)
+    if (
+      !currentParsed ||
+      currentParsed.endpoint !== expected.endpoint ||
+      currentParsed.keys.p256dh !== expected.p256dh ||
+      currentParsed.keys.auth !== expected.auth
+    ) {
+      return false
+    }
+    return await casClearLegacyPushValue(model, id, field, currentRaw)
+  } catch (error) {
+    console.error("[Push] Error en cleanup CAS de legacy (stale-owner):", safeErrorForLog(error))
     return false
   }
 }
@@ -360,7 +415,7 @@ async function safeClearLegacyIfMatches(
 // P2-T05 Stage4: normalized multi-device fan-out target resolution
 // ============================================
 
-export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado"
+export type CorePushOwnerType = "cliente" | "negocio" | "repartidor" | "empleado" | "cuenta_operativa" | "superadmin"
 
 export interface PushFanoutTarget {
   /** JSON string listo para pasar a `sendPushNotification`. */
@@ -1250,6 +1305,91 @@ export function operacionesOrderCancelledNotification(
       url: panelUrl,
     },
     actions: [{ action: "view", title: area === "salon" ? "Ver salón" : "Ver pedidos" }],
+    requireInteraction: true,
+  }
+}
+
+// ============================================
+// Operaciones PyR — Personal push (P2-T44-R1P2)
+// ============================================
+// Contraparte de operacionesSalonNewOrderNotification/notifyMesaOrderReadyForMozo
+// para el área PyR — cubre nuevo pedido retiro/domicilio, nueva reseña y chat
+// de cliente sobre un pedido no-mesa. Reemplazo moderno (account-level,
+// cuenta_operativa) de la capacidad legacy retirada en el commit 13e651a
+// (empleadosNewOrderNotification/empleadosNewReviewNotification, PWA
+// /e/[token], Negocio.pushSubscriptionEmpleados) — ver
+// codex-reports/P2_T44_R1P0_COMPLETE_OPERATIONS_NOTIFICATION_MATRIX_AUDIT.md
+// §4A para la reconciliación histórica completa. Nunca lee/escribe
+// pushSubscriptionEmpleados ni ninguna ruta /e/.
+
+export function pyrNewOrderNotification(
+  pedidoId: string,
+  clienteNombre: string,
+  total: number,
+  metodoEntrega: "retiro" | "domicilio",
+  panelUrl: string
+): PushNotificationPayload {
+  const entregaLabel = metodoEntrega === "domicilio" ? "Delivery" : "Retiro"
+  return {
+    title: `¡Nuevo pedido! 📩 (${entregaLabel})`,
+    body: `${clienteNombre} hizo un pedido de $${total.toFixed(0)}`,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-new-order-${pedidoId}`,
+    data: {
+      type: "operaciones_pyr_new_order",
+      pedidoId,
+      metodoEntrega,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Ver pedido" }],
+    requireInteraction: true,
+  }
+}
+
+export function pyrNewReviewNotification(
+  resenaId: string,
+  puntuacion: number,
+  clienteNombre: string,
+  panelUrl: string,
+  pedidoId?: string | null
+): PushNotificationPayload {
+  const stars = "⭐".repeat(Math.max(1, Math.min(5, puntuacion)))
+  return {
+    title: "Nueva reseña ⭐",
+    body: `${clienteNombre} dejó ${stars}`,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-new-review-${resenaId}`,
+    data: {
+      type: "operaciones_pyr_new_review",
+      resenaId,
+      pedidoId: pedidoId ?? undefined,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Ver reseña" }],
+    requireInteraction: false,
+  }
+}
+
+export function pyrChatMessageNotification(
+  pedidoId: string,
+  senderName: string,
+  messagePreview: string,
+  panelUrl: string
+): PushNotificationPayload {
+  return {
+    title: `Mensaje de ${senderName}`,
+    body: messagePreview,
+    icon: "/icon-empleado-192x192.png",
+    badge: "/icon-empleado-192x192.png",
+    tag: `operaciones-pyr-chat-${pedidoId}`,
+    data: {
+      type: "operaciones_pyr_chat",
+      pedidoId,
+      url: panelUrl,
+    },
+    actions: [{ action: "view", title: "Responder" }],
     requireInteraction: true,
   }
 }

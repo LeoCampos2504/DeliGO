@@ -81,6 +81,7 @@ import { useAuthStore } from "@/store/auth-store"
 import { useCartStore } from "@/store/cart-store"
 import { useNavStore } from "@/store/nav-store"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { clearPushManualOptOut, setPushManualOptOut } from "@/lib/push-manual-optout"
 import { PushDebugPanel } from "@/components/shared/push-debug-panel"
 import { recordPushDebugEvent } from "@/lib/push-debug-trace"
 import { TermsContent as SharedTermsContent, PrivacyContent as SharedPrivacyContent, CookiesContent as SharedCookiesContent } from "@/components/shared/legal-content"
@@ -859,6 +860,7 @@ function PasswordSection() {
 function SettingsSection() {
   const { theme, setTheme } = useTheme()
   const push = usePushNotifications()
+  const authUser = useAuthStore((s) => s.user)
   // P2-T31: el seed inicial ya NO viene de `perfil.pushSubscription` (un
   // booleano derivado server-side de la columna legacy `Cliente.
   // pushSubscription` — ni por-dispositivo ni conocedor de la tabla
@@ -911,11 +913,19 @@ function SettingsSection() {
       const result = await push.subscribe()
       if (result.current) {
         setNotifications(result.subscribed)
+        // P2-T40-R1: sólo se borra el opt-out local cuando `subscribed`
+        // confirma éxito real — nunca de forma optimista sobre un resultado
+        // fallido (result.subscribed seguiría false en ese caso).
+        if (result.subscribed && authUser?.id) clearPushManualOptOut("cliente", authUser.id)
       }
     } else {
       const result = await push.unsubscribe()
       if (result.current) {
         setNotifications(result.subscribed)
+        // P2-T40-R1 (MANUAL_OFF_POLICY=M2_DEVICE_SCOPED_WITH_NEXT_LOGIN_REENABLE_OFFER):
+        // sólo se persiste el opt-out cuando el detach backend confirmó
+        // éxito real (`subscribed === false`) — nunca si el detach falló.
+        if (!result.subscribed && authUser?.id) setPushManualOptOut("cliente", authUser.id)
       }
     }
   }

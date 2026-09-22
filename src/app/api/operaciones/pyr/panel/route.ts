@@ -36,6 +36,11 @@ export async function GET(req: NextRequest) {
 
     // Capacidad de gestión derivada en servidor (habilita acciones por pedido más abajo).
     const puedeGestionarPedido = hasTerminalScope(auth.context, "pyr.pedidos.gestionar")
+    // P2-T49-R1D: gatea también la metadata de mensajes — sin este scope, la
+    // Terminal no debe poder inferir siquiera que un pedido tiene
+    // conversación (ver más abajo, se fuerza tieneMensajes=false/
+    // mensajesNoLeidos=0 sin consultar chatMensaje en absoluto).
+    const puedeVerMensajes = hasTerminalScope(auth.context, "pyr.mensajes.ver")
 
     // Solo pedidos del negocio, NO-mesa y en estados activos. P2-T42: orden
     // newest-first (más nuevos primero, antes FIFO oldest-first) con `id`
@@ -76,6 +81,36 @@ export async function GET(req: NextRequest) {
       },
     })
 
+    // P2-T49-R1D: presencia + contador de mensajes no leídos por pedido,
+    // en UNA sola query agregada para todos los pedidos ya visibles del
+    // panel (nunca 1 query por pedido — el panel hace polling periódico,
+    // T45). `groupBy` es el mismo patrón agregado ya usado en este repo
+    // (estadisticas/route.ts, resenas/route.ts). Nunca se devuelve texto,
+    // adjuntos, clienteId, IDs de mensaje ni remitente individual — sólo
+    // presencia booleana + un contador. El mismo filtro de remitente que
+    // ya usa el chat real (GET .../mensajes/[pedidoId]): sólo
+    // cliente|vendedor cuentan como "conversación visible" acá;
+    // repartidor nunca aparece en este chat.
+    const mensajesMetaByPedido = new Map<string, { tieneMensajes: boolean; mensajesNoLeidos: number }>()
+    if (puedeVerMensajes && pedidos.length > 0) {
+      const grouped = await db.chatMensaje.groupBy({
+        by: ["pedidoId", "remitente", "leido"],
+        where: {
+          pedidoId: { in: pedidos.map((p) => p.id) },
+          remitente: { in: ["cliente", "vendedor"] },
+        },
+        _count: { _all: true },
+      })
+      for (const row of grouped) {
+        const entry = mensajesMetaByPedido.get(row.pedidoId) ?? { tieneMensajes: false, mensajesNoLeidos: 0 }
+        entry.tieneMensajes = true
+        if (row.remitente === "cliente" && row.leido === false) {
+          entry.mensajesNoLeidos += row._count._all
+        }
+        mensajesMetaByPedido.set(row.pedidoId, entry)
+      }
+    }
+
     const pedidosOut = pedidos.map((p) => ({
       id: p.id,
       estado: p.estado,
@@ -104,6 +139,11 @@ export async function GET(req: NextRequest) {
           p.clienteConfirmaRecibido === true,
         puedeCancelar: puedeGestionarPedido,
       },
+      // P2-T49-R1D: presencia + no-leídos, nunca contenido — ver el batch
+      // de arriba. `false`/`0` sin permiso o sin filas, nunca por defecto
+      // `true` (fail-closed respecto de revelar existencia de conversación).
+      tieneMensajes: mensajesMetaByPedido.get(p.id)?.tieneMensajes ?? false,
+      mensajesNoLeidos: mensajesMetaByPedido.get(p.id)?.mensajesNoLeidos ?? 0,
       items: p.items.map((item) => ({
         id: item.id,
         nombre: item.nombre,
@@ -131,7 +171,7 @@ export async function GET(req: NextRequest) {
           puedeGestionarPedido: hasTerminalScope(auth.context, "pyr.pedidos.gestionar"),
           puedeVerResenas: hasTerminalScope(auth.context, "pyr.resenas.ver"),
           puedeResponderResena: hasTerminalScope(auth.context, "pyr.resenas.responder"),
-          puedeVerMensajes: hasTerminalScope(auth.context, "pyr.mensajes.ver"),
+          puedeVerMensajes,
           puedeResponderMensajes: hasTerminalScope(auth.context, "pyr.mensajes.responder"),
           // Historial/Estadísticas PyR (solo lectura) usan el mismo scope base de lectura.
           puedeVerHistorial: hasTerminalScope(auth.context, "pyr.pedidos.ver"),

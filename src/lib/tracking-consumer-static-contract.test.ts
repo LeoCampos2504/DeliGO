@@ -136,8 +136,15 @@ describe("Shared realtime client Tracking consumer contract", () => {
 
   test("the server version authority is never derived from any timestamp, Date, or client clock value", () => {
     const source = trackingMap()
-    expect(source).not.toContain("Date.now()")
+    // P2-T02-B3 (OPTION-C, §11): the file DOES read Date.now() now — but only
+    // for the client-side stale-location badge (isTrackingLocationStale), a
+    // UX display concern entirely separate from the version authority these
+    // two precise checks actually protect. Scoping to the authority
+    // functions' own call sites (rather than banning Date.now() anywhere in
+    // the file) is what actually matters here — never let a clock value
+    // reach the ordering/causality decision itself.
     expect(source).not.toMatch(/applyTrackingServerVersion\([^)]*timestamp/i)
+    expect(source).not.toMatch(/applyTrackingServerVersion\([^)]*Date\.now/i)
     expect(source).not.toMatch(/canUntrustedTrackingSourceOverridePosition\([^)]*timestamp/i)
   })
 

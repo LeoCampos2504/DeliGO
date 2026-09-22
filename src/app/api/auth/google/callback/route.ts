@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { createSession, findSesionByToken, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   type GoogleOAuthAccountType,
   signGoogleOAuthPendingIdentity,
   setGoogleOAuthPendingCookie,
 } from "@/lib/google-oauth-pending"
+import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint, type PushHandoffFamily } from "@/lib/push-owner-handoff"
+import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
@@ -265,6 +267,44 @@ export async function GET(req: NextRequest) {
     redirectUrl.searchParams.set("auth_success", "google")
 
     const response = NextResponse.redirect(redirectUrl.toString())
+
+    // P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE): igual que el login por
+    // contraseña (src/app/api/auth/login/route.ts) — antes de sobrescribir
+    // esta cookie compartida (Google usa la legacy SESSION_COOKIE_NAME para
+    // cliente/repartidor, nunca la cookie por family de contraseña), lee
+    // server-side el owner que ocupaba ese MISMO slot inmediatamente antes.
+    // El role anterior puede no coincidir con `role` (p.ej. Cliente ->
+    // Repartidor, ambos comparten esta cookie vía Google) — eso es
+    // exactamente el caso que esta regla debe limpiar, nunca ignorar.
+    let prevOwnerType: PushSubscriptionOwnerType | null = null
+    let prevOwnerId: string | null = null
+    try {
+      const previousToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
+      if (previousToken) {
+        const previousSession = await findSesionByToken(previousToken)
+        if (
+          previousSession &&
+          (previousSession.userType === "cliente" || previousSession.userType === "repartidor") &&
+          previousSession.userId !== userId
+        ) {
+          prevOwnerType = previousSession.userType
+          prevOwnerId = previousSession.userId
+        }
+      }
+    } catch (handoffError) {
+      console.error("[GoogleCallback] push handoff previous-owner lookup failed:", safeErrorForLog(handoffError))
+    }
+
+    const handoff = await signPushOwnerHandoff({
+      family: role as PushHandoffFamily,
+      prevOwnerType,
+      prevOwnerId,
+    })
+    if (handoff) setPushOwnerHandoffCookie(response, handoff)
+
+    console.log(
+      `[PushOwnerHandoff] mint family=${role} newOwner=${safeFingerprint(userId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
+    )
 
     // Set session cookie
     response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {

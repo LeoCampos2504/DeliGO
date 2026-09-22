@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatPrice } from "@/lib/utils"
+import { SuperadminPushSettings } from "./superadmin-push-settings"
 
 interface PlatformConfigResponse {
   tarifaServicio: number
@@ -121,6 +122,8 @@ export function ConfiguracionTab() {
         </Button>
         <p className="mt-3 text-xs text-muted-foreground">Actualizado: {new Date(configQuery.data.updatedAt).toLocaleString("es-AR")}</p>
       </section>
+
+      <SuperadminPushSettings />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

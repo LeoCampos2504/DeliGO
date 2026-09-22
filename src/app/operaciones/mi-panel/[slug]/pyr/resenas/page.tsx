@@ -138,6 +138,26 @@ export default function PyRPersonalPage() {
   const [openReplyIds, setOpenReplyIds] = useState<Set<string>>(() => new Set())
   const [filtro, setFiltro] = useState<Filtro>("todas")
 
+  // P2-T44-R1P2 (G4 deep link): mismo patrón exacto de consumo-único ya
+  // certificado (Mozo/PyR-pedidos) — lee `?resenaId=` una sola vez al
+  // montar (deep-link desde operaciones_pyr_new_review), limpia el
+  // parámetro de inmediato, y sólo hace scroll/highlight si esa reseña
+  // sigue existiendo en la lista ya autorizada server-side — nunca un
+  // fetch lateral por id, nunca una modal nueva.
+  const [focusResenaId, setFocusResenaId] = useState<string | null>(null)
+  const [focusResolved, setFocusResolved] = useState(false)
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const rid = urlParams.get("resenaId")
+    if (!rid) return
+    setFocusResenaId(rid)
+    setFocusResolved(false)
+    urlParams.delete("resenaId")
+    const newSearch = urlParams.toString()
+    window.history.replaceState({}, "", `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`)
+  }, [])
+
   // Una sola solicitud activa (abort de la anterior) + guardia de generación contra
   // respuestas fuera de orden. refreshGenRef invalida respuestas de GET/polling; no
   // protege respuestas de POST /responder en vuelo (ver mutationContextGenRef, más abajo).
@@ -430,6 +450,18 @@ export default function PyRPersonalPage() {
     }
   }
 
+  // Scroll/highlight de la reseña exacta una vez que la lista (ya autorizada
+  // server-side) resolvió — si el id no existe ahí (ajena, fuera de alcance,
+  // ya eliminada), simplemente no hace nada, sin error ni fetch adicional.
+  useEffect(() => {
+    if (state.status !== "ready" || !focusResenaId || focusResolved) return
+    setFocusResolved(true)
+    const exists = state.data.resenas.some((r) => r.id === focusResenaId)
+    if (!exists) return
+    const el = document.getElementById(`pyr-resena-${focusResenaId}`)
+    el?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [state, focusResenaId, focusResolved])
+
   const filteredResenas = useMemo(() => {
     if (state.status !== "ready") return [] as ResenaItem[]
     if (filtro === "sin_responder") return state.data.resenas.filter((r) => !r.respuestaNegocio)
@@ -614,25 +646,32 @@ export default function PyRPersonalPage() {
       ) : (
         <div className="space-y-2">
           {filteredResenas.map((resena) => (
-            <ResenaCard
+            <div
               key={resena.id}
-              resena={resena}
-              accent={accent}
-              responding={respondingIds.has(resena.id)}
-              error={resenaErrors[resena.id] ?? null}
-              open={openReplyIds.has(resena.id)}
-              draft={drafts[resena.id] ?? ""}
-              onToggleOpen={() =>
-                setOpenReplyIds((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(resena.id)) next.delete(resena.id)
-                  else next.add(resena.id)
-                  return next
-                })
-              }
-              onDraftChange={(value) => setDrafts((prev) => ({ ...prev, [resena.id]: value }))}
-              onResponder={() => handleResponder(resena.id, drafts[resena.id] ?? "")}
-            />
+              id={`pyr-resena-${resena.id}`}
+              className={cn(
+                focusResenaId === resena.id && "ring-2 ring-primary rounded-xl transition-shadow"
+              )}
+            >
+              <ResenaCard
+                resena={resena}
+                accent={accent}
+                responding={respondingIds.has(resena.id)}
+                error={resenaErrors[resena.id] ?? null}
+                open={openReplyIds.has(resena.id)}
+                draft={drafts[resena.id] ?? ""}
+                onToggleOpen={() =>
+                  setOpenReplyIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(resena.id)) next.delete(resena.id)
+                    else next.add(resena.id)
+                    return next
+                  })
+                }
+                onDraftChange={(value) => setDrafts((prev) => ({ ...prev, [resena.id]: value }))}
+                onResponder={() => handleResponder(resena.id, drafts[resena.id] ?? "")}
+              />
+            </div>
           ))}
         </div>
       )}

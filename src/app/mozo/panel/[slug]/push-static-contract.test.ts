@@ -79,9 +79,15 @@ describe("P2-T31-R5 — Mozo (app/mozo/panel/[slug]/page.tsx) validates an exist
 
   test("the disable path (handleDisablePush) is untouched — still SERVER_DETACH_ONLY, no physical unsubscribe added there", () => {
     const handleDisableStart = src.indexOf("const handleDisablePush = async")
-    const handleDisableEnd = src.indexOf("const handleSendTestPush")
+    const handleDisableEnd = src.indexOf("const handleInstallApp")
     const handleDisableBody = src.slice(handleDisableStart, handleDisableEnd)
     expect(handleDisableBody).not.toContain(".unsubscribe()")
     expect(handleDisableBody).toContain('method: "DELETE"')
+  })
+
+  test("normal Mozo push UI does not expose the diagnostic send-test action", () => {
+    expect(src).not.toContain("Enviar prueba")
+    expect(src).not.toContain("push-subscription/test")
+    expect(src).not.toContain("handleSendTestPush")
   })
 })

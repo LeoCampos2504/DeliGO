@@ -78,6 +78,9 @@ import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacio
 import type { CuentaMesaHistorialResult } from "@/lib/mesa-historial"
 import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
 import { MesaAccountTicketDialog } from "@/components/shared/mesa-account-ticket-dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as StatsDatePicker } from "@/components/ui/calendar"
+import type { DateRange } from "react-day-picker"
 
 // ============================================
 // Types
@@ -112,6 +115,8 @@ interface Empleado {
     activo: boolean
     eliminado: boolean
   } | null
+  displayName?: string | null
+  identityLinked?: boolean
 }
 
 interface MozoInvitation {
@@ -537,13 +542,123 @@ export function SalonTab({ negocio }: SalonTabProps) {
 // ============================================
 // Estadísticas Sub-Tab
 // ============================================
+
+// P2-T50-R1: modelo de filtro de estadísticas de Salón. Sólo un modo
+// puede estar activo a la vez — el filtro custom (día/mes/rango)
+// reemplaza por completo al quick filter cuando está aplicado, y
+// viceversa (ver §18-20 del task spec).
+export type QuickPeriodo = "hoy" | "semana" | "mes" | "todo"
+export type StatsFilter =
+  | { kind: "quick"; periodo: QuickPeriodo }
+  | { kind: "day"; fecha: string }
+  | { kind: "month"; mes: string }
+  | { kind: "range"; desde: string; hasta: string }
+
+const MONTH_LABELS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+// Nunca `date.toISOString()` (desplaza a UTC) — siempre componentes
+// locales, igual que el parseo del backend en route.ts.
+export function dateToIsoDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+export function isoDateStringToDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number)
+  return new Date(year, month - 1, day)
+}
+
+export function buildStatsQuery(filter: StatsFilter): string {
+  const params = new URLSearchParams()
+  switch (filter.kind) {
+    case "quick":
+      params.set("periodo", filter.periodo)
+      break
+    case "day":
+      params.set("fecha", filter.fecha)
+      break
+    case "month":
+      params.set("mes", filter.mes)
+      break
+    case "range":
+      params.set("desde", filter.desde)
+      params.set("hasta", filter.hasta)
+      break
+  }
+  return params.toString()
+}
+
+export function getStatsFilterQueryKey(negocioId: string, filter: StatsFilter): (string)[] {
+  switch (filter.kind) {
+    case "quick":
+      return ["salon-stats", negocioId, "quick", filter.periodo]
+    case "day":
+      return ["salon-stats", negocioId, "day", filter.fecha]
+    case "month":
+      return ["salon-stats", negocioId, "month", filter.mes]
+    case "range":
+      return ["salon-stats", negocioId, "range", filter.desde, filter.hasta]
+  }
+}
+
+export function formatDayLabel(fecha: string): string {
+  const [year, month, day] = fecha.split("-")
+  return `${day}/${month}/${year}`
+}
+
+export function formatMonthLabel(mes: string): string {
+  const [year, month] = mes.split("-").map(Number)
+  return `${MONTH_LABELS[month - 1] ?? mes} ${year}`
+}
+
+const QUICK_PERIODO_LABELS: Record<QuickPeriodo, string> = {
+  hoy: "Hoy",
+  semana: "Semana",
+  mes: "Mes",
+  todo: "Todo",
+}
+
+export function getStatsFilterLabel(filter: StatsFilter): string {
+  switch (filter.kind) {
+    case "quick":
+      return QUICK_PERIODO_LABELS[filter.periodo]
+    case "day":
+      return formatDayLabel(filter.fecha)
+    case "month":
+      return formatMonthLabel(filter.mes)
+    case "range":
+      return `${formatDayLabel(filter.desde)} – ${formatDayLabel(filter.hasta)}`
+  }
+}
+
+export function validateStatsRangeDraft(
+  desde: string | null | undefined,
+  hasta: string | null | undefined
+): { valid: true } | { valid: false; reason: "incomplete" | "reversed" } {
+  if (!desde || !hasta) return { valid: false, reason: "incomplete" }
+  if (desde > hasta) return { valid: false, reason: "reversed" }
+  return { valid: true }
+}
+
 function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
-  const [periodo, setPeriodo] = useState<"hoy" | "semana" | "mes" | "todo">("hoy")
+  const [appliedFilter, setAppliedFilter] = useState<StatsFilter>({ kind: "quick", periodo: "hoy" })
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [draftMode, setDraftMode] = useState<"day" | "month" | "range">("day")
+  const [draftDate, setDraftDate] = useState<Date | undefined>(undefined)
+  const now = new Date()
+  const [draftYear, setDraftYear] = useState<number>(now.getFullYear())
+  const [draftMonth, setDraftMonth] = useState<number>(now.getMonth() + 1)
+  const [draftRange, setDraftRange] = useState<DateRange | undefined>(undefined)
 
   const { data: stats, isLoading } = useQuery<SalonStats>({
-    queryKey: ["salon-stats", negocio.id, periodo],
+    queryKey: getStatsFilterQueryKey(negocio.id, appliedFilter),
     queryFn: async () => {
-      const res = await fetch(`/api/negocio/salon/stats?periodo=${periodo}`)
+      const res = await fetch(`/api/negocio/salon/stats?${buildStatsQuery(appliedFilter)}`)
       if (!res.ok) throw new Error("Error cargando estadísticas")
       return res.json()
     },
@@ -556,6 +671,61 @@ function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) 
     { value: "mes" as const, label: "Mes" },
     { value: "todo" as const, label: "Todo" },
   ]
+
+  const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i)
+
+  const handleQuickFilterClick = (periodo: QuickPeriodo) => {
+    setAppliedFilter({ kind: "quick", periodo })
+  }
+
+  const handlePopoverOpenChange = (open: boolean) => {
+    setPopoverOpen(open)
+    if (!open) return
+    if (appliedFilter.kind === "day") {
+      setDraftMode("day")
+      setDraftDate(isoDateStringToDate(appliedFilter.fecha))
+    } else if (appliedFilter.kind === "month") {
+      setDraftMode("month")
+      const [y, m] = appliedFilter.mes.split("-").map(Number)
+      setDraftYear(y)
+      setDraftMonth(m)
+    } else if (appliedFilter.kind === "range") {
+      setDraftMode("range")
+      setDraftRange({
+        from: isoDateStringToDate(appliedFilter.desde),
+        to: isoDateStringToDate(appliedFilter.hasta),
+      })
+    } else {
+      setDraftMode("day")
+      setDraftDate(undefined)
+      setDraftRange(undefined)
+    }
+  }
+
+  const rangeValidation = validateStatsRangeDraft(
+    draftRange?.from ? dateToIsoDateString(draftRange.from) : undefined,
+    draftRange?.to ? dateToIsoDateString(draftRange.to) : undefined
+  )
+
+  const canApply =
+    draftMode === "day" ? Boolean(draftDate) : draftMode === "month" ? true : rangeValidation.valid
+
+  const handleApplyCustomFilter = () => {
+    if (draftMode === "day" && draftDate) {
+      setAppliedFilter({ kind: "day", fecha: dateToIsoDateString(draftDate) })
+      setPopoverOpen(false)
+    } else if (draftMode === "month") {
+      setAppliedFilter({ kind: "month", mes: `${draftYear}-${String(draftMonth).padStart(2, "0")}` })
+      setPopoverOpen(false)
+    } else if (draftMode === "range" && rangeValidation.valid) {
+      setAppliedFilter({
+        kind: "range",
+        desde: dateToIsoDateString(draftRange!.from!),
+        hasta: dateToIsoDateString(draftRange!.to!),
+      })
+      setPopoverOpen(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -576,22 +746,149 @@ function EstadisticasSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) 
 
   return (
     <div className="space-y-4">
-      {/* Period selector pills */}
-      <div className="flex bg-muted/60 rounded-xl p-1">
-        {periodos.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => setPeriodo(p.value)}
-            className={cn(
-              "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
-              periodo === p.value
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
+      {/* Period selector pills + custom date filter */}
+      <div className="flex items-center gap-2">
+        <div className="flex bg-muted/60 rounded-xl p-1 flex-1 min-w-0">
+          {periodos.map((p) => {
+            const isActive = appliedFilter.kind === "quick" && appliedFilter.periodo === p.value
+            return (
+              <button
+                key={p.value}
+                onClick={() => handleQuickFilterClick(p.value)}
+                className={cn(
+                  "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  isActive
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <Popover open={popoverOpen} onOpenChange={handlePopoverOpenChange}>
+          <PopoverTrigger asChild>
+            <button
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border shrink-0 max-w-[128px]",
+                appliedFilter.kind !== "quick"
+                  ? "border-transparent"
+                  : "border-border/50 text-muted-foreground hover:text-foreground bg-background"
+              )}
+              style={
+                appliedFilter.kind !== "quick"
+                  ? { backgroundColor: `${negocio.colorPrincipal}15`, color: negocio.colorPrincipal }
+                  : undefined
+              }
+            >
+              <Calendar className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {appliedFilter.kind === "quick" ? "Elegir fecha" : getStatsFilterLabel(appliedFilter)}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-[min(320px,calc(100vw-2rem))] p-3 space-y-3"
           >
-            {p.label}
-          </button>
-        ))}
+            <div className="flex bg-muted/60 rounded-lg p-1">
+              {(["day", "month", "range"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setDraftMode(m)}
+                  className={cn(
+                    "flex-1 py-1 rounded-md text-[11px] font-semibold transition-all",
+                    draftMode === m
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {m === "day" ? "Día" : m === "month" ? "Mes" : "Rango"}
+                </button>
+              ))}
+            </div>
+
+            {draftMode === "day" && (
+              <div className="flex justify-center">
+                <StatsDatePicker mode="single" selected={draftDate} onSelect={setDraftDate} />
+              </div>
+            )}
+
+            {draftMode === "month" && (
+              <div className="flex gap-2">
+                <Select value={String(draftMonth)} onValueChange={(v) => setDraftMonth(Number(v))}>
+                  <SelectTrigger className="flex-1 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_LABELS.map((label, idx) => (
+                      <SelectItem key={label} value={String(idx + 1)}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(draftYear)} onValueChange={(v) => setDraftYear(Number(v))}>
+                  <SelectTrigger className="w-24 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={String(year)}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {draftMode === "range" && (
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <StatsDatePicker
+                    mode="range"
+                    numberOfMonths={1}
+                    selected={draftRange}
+                    onSelect={setDraftRange}
+                  />
+                </div>
+                {draftRange?.from && draftRange?.to && (
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    {formatDayLabel(dateToIsoDateString(draftRange.from))} –{" "}
+                    {formatDayLabel(dateToIsoDateString(draftRange.to))}
+                  </p>
+                )}
+                {!rangeValidation.valid && rangeValidation.reason === "reversed" && (
+                  <p className="text-[11px] text-red-500 text-center">
+                    &quot;Desde&quot; no puede ser posterior a &quot;Hasta&quot;
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setPopoverOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleApplyCustomFilter}
+                disabled={!canApply}
+              >
+                Aplicar
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Revenue cards */}
@@ -735,6 +1032,7 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   const queryClient = useQueryClient()
   const [selectedMesa, setSelectedMesa] = useState<Mesa | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [occupationRefreshKey, setOccupationRefreshKey] = useState(0)
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -1349,7 +1647,10 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
       {/* ===== MESA DETAIL DRAWER ===== */}
       <Drawer open={detailOpen} onOpenChange={(open) => { if (!open) { setDetailOpen(false); setSelectedMesa(null) } }}>
-        <DrawerContent className="max-h-[85vh]">
+        {/* Vaul keeps this drawer in a transform compositor layer via will-change.
+            Keep its translate3d animation/drag behavior, but avoid persistent
+            compositing of the mesa detail content that can soften text on mobile. */}
+        <DrawerContent className="max-h-[85vh]" style={{ willChange: "auto" }}>
           {selectedMesa && (
             <MesaDetailDrawer
               key={selectedMesa.id}
@@ -1357,6 +1658,11 @@ function SalonFloorPlan({ negocio }: { negocio: SalonTabProps["negocio"] }) {
               negocio={negocio}
               allMesas={mesas}
               orders={mesaOrdersMap.get(selectedMesa.numero) ?? []}
+              occupationRefreshKey={occupationRefreshKey}
+              onOccupationClosed={() => {
+                void queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })
+                setOccupationRefreshKey((current) => current + 1)
+              }}
               onClose={() => { setDetailOpen(false); setSelectedMesa(null) }}
               onToggleActiva={(activa) => toggleMesaMutation.mutate({ id: selectedMesa.id, activa })}
               onDelete={() => deleteMutation.mutate(selectedMesa.id)}
@@ -1445,6 +1751,8 @@ function MesaDetailDrawer({
   negocio,
   allMesas,
   orders,
+  occupationRefreshKey,
+  onOccupationClosed,
   onClose,
   onToggleActiva,
   onDelete,
@@ -1462,6 +1770,8 @@ function MesaDetailDrawer({
   negocio: SalonTabProps["negocio"]
   allMesas: Mesa[]
   orders: PedidoMesa[]
+  occupationRefreshKey: number
+  onOccupationClosed: () => void
   onClose: () => void
   onToggleActiva: (activa: boolean) => void
   onDelete: () => void
@@ -1774,12 +2084,13 @@ function MesaDetailDrawer({
           <MesaOccupancyControl
             mesaId={mesa.id}
             mesaNumero={mesa.numero}
+            refreshKey={occupationRefreshKey}
             onClosed={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             onAccessDenied={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             allowClose={false}
           />
           {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
+          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} onClosed={onOccupationClosed} />
         </div>
 
         {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}
@@ -1978,11 +2289,89 @@ function MesaDetailDrawer({
 // ============================================
 // Historial Sub-Tab
 // ============================================
+// P2-T55-R1: modelo de filtro de historial de Salón. Mismo patrón que
+// `StatsFilter` (T50) — el filtro custom (día/mes/rango) reemplaza por
+// completo al quick filter cuando está aplicado, y viceversa — pero SIN
+// el modo "todo": decisión de producto explícita, no agregar un nuevo
+// quick filter "Todo" a Historial (ver P2_T55_R1 task spec §2).
+export type HistorialQuickPeriodo = "hoy" | "semana" | "mes"
+export type HistorialFilter =
+  | { kind: "quick"; periodo: HistorialQuickPeriodo }
+  | { kind: "day"; fecha: string }
+  | { kind: "month"; mes: string }
+  | { kind: "range"; desde: string; hasta: string }
+
+export function buildHistorialQuery(filter: HistorialFilter): string {
+  const params = new URLSearchParams()
+  switch (filter.kind) {
+    case "quick":
+      params.set("periodo", filter.periodo)
+      break
+    case "day":
+      params.set("fecha", filter.fecha)
+      break
+    case "month":
+      params.set("mes", filter.mes)
+      break
+    case "range":
+      params.set("desde", filter.desde)
+      params.set("hasta", filter.hasta)
+      break
+  }
+  return params.toString()
+}
+
+export function getHistorialFilterQueryKey(
+  negocioId: string,
+  mesaNumero: number | undefined,
+  filter: HistorialFilter
+): (string | number)[] {
+  const base: (string | number)[] = ["mesa-history", negocioId, mesaNumero ?? "none"]
+  switch (filter.kind) {
+    case "quick":
+      return [...base, "quick", filter.periodo]
+    case "day":
+      return [...base, "day", filter.fecha]
+    case "month":
+      return [...base, "month", filter.mes]
+    case "range":
+      return [...base, "range", filter.desde, filter.hasta]
+  }
+}
+
+const HISTORIAL_QUICK_PERIODO_LABELS: Record<HistorialQuickPeriodo, string> = {
+  hoy: "Hoy",
+  semana: "Semana",
+  mes: "Mes",
+}
+
+export function getHistorialFilterLabel(filter: HistorialFilter): string {
+  switch (filter.kind) {
+    case "quick":
+      return HISTORIAL_QUICK_PERIODO_LABELS[filter.periodo]
+    case "day":
+      return formatDayLabel(filter.fecha)
+    case "month":
+      return formatMonthLabel(filter.mes)
+    case "range":
+      return `${formatDayLabel(filter.desde)} – ${formatDayLabel(filter.hasta)}`
+  }
+}
+
 function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
-  const [periodo, setPeriodo] = useState<"hoy" | "semana" | "mes">("hoy")
+  const [appliedFilter, setAppliedFilter] = useState<HistorialFilter>({ kind: "quick", periodo: "hoy" })
   const [selectedMesa, setSelectedMesa] = useState<Mesa | null>(null)
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false)
   const [selectedHistoryAccount, setSelectedHistoryAccount] = useState<CuentaMesaHistorialResult | null>(null)
+
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [draftMode, setDraftMode] = useState<"day" | "month" | "range">("day")
+  const [draftDate, setDraftDate] = useState<Date | undefined>(undefined)
+  const now = new Date()
+  const [draftYear, setDraftYear] = useState<number>(now.getFullYear())
+  const [draftMonth, setDraftMonth] = useState<number>(now.getMonth() + 1)
+  const [draftRange, setDraftRange] = useState<DateRange | undefined>(undefined)
+  const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i)
 
   // Fetch mesas
   const { data: mesas = [], isLoading: mesasLoading } = useQuery<Mesa[]>({
@@ -1996,9 +2385,9 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   // Fetch history for selected mesa
   const { data: historyData, isLoading: historyLoading } = useQuery({
-    queryKey: ["mesa-history", negocio.id, selectedMesa?.numero, periodo],
+    queryKey: getHistorialFilterQueryKey(negocio.id, selectedMesa?.numero, appliedFilter),
     queryFn: async () => {
-      const res = await fetch(`/api/negocio/pedidos?metodoEntrega=mesa&mesaNumero=${selectedMesa!.numero}&estado=historial&limit=50&periodo=${periodo}`)
+      const res = await fetch(`/api/negocio/pedidos?metodoEntrega=mesa&mesaNumero=${selectedMesa!.numero}&estado=historial&limit=50&${buildHistorialQuery(appliedFilter)}`)
       if (!res.ok) throw new Error("Error cargando historial")
       return res.json() as Promise<{ cuentas: CuentaMesaHistorialResult[]; pagination: { total: number } }>
     },
@@ -2008,6 +2397,67 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
   const handleMesaClick = (mesa: Mesa) => {
     setSelectedMesa(mesa)
     setHistoryDrawerOpen(true)
+  }
+
+  const handleQuickFilterClick = (periodo: HistorialQuickPeriodo) => {
+    setAppliedFilter({ kind: "quick", periodo })
+  }
+
+  const handlePopoverOpenChange = (open: boolean) => {
+    setPopoverOpen(open)
+    if (!open) return
+    if (appliedFilter.kind === "day") {
+      setDraftMode("day")
+      setDraftDate(isoDateStringToDate(appliedFilter.fecha))
+    } else if (appliedFilter.kind === "month") {
+      setDraftMode("month")
+      const [y, m] = appliedFilter.mes.split("-").map(Number)
+      setDraftYear(y)
+      setDraftMonth(m)
+    } else if (appliedFilter.kind === "range") {
+      setDraftMode("range")
+      setDraftRange({
+        from: isoDateStringToDate(appliedFilter.desde),
+        to: isoDateStringToDate(appliedFilter.hasta),
+      })
+    } else {
+      setDraftMode("day")
+      setDraftDate(undefined)
+      setDraftRange(undefined)
+    }
+  }
+
+  const rangeValidation = validateStatsRangeDraft(
+    draftRange?.from ? dateToIsoDateString(draftRange.from) : undefined,
+    draftRange?.to ? dateToIsoDateString(draftRange.to) : undefined
+  )
+
+  const canApply =
+    draftMode === "day" ? Boolean(draftDate) : draftMode === "month" ? true : rangeValidation.valid
+
+  const handleApplyCustomFilter = () => {
+    if (draftMode === "day" && draftDate) {
+      setAppliedFilter({ kind: "day", fecha: dateToIsoDateString(draftDate) })
+      setPopoverOpen(false)
+    } else if (draftMode === "month") {
+      setAppliedFilter({ kind: "month", mes: `${draftYear}-${String(draftMonth).padStart(2, "0")}` })
+      setPopoverOpen(false)
+    } else if (draftMode === "range" && rangeValidation.valid) {
+      setAppliedFilter({
+        kind: "range",
+        desde: dateToIsoDateString(draftRange!.from!),
+        hasta: dateToIsoDateString(draftRange!.to!),
+      })
+      setPopoverOpen(false)
+    }
+  }
+
+  // P2-T55-R1 §2: "Limpiar" dentro del selector custom vuelve siempre al
+  // quick filter histórico por defecto (Hoy) — nunca a "ausencia total de
+  // periodo" (eso sería un comportamiento de producto nuevo, no pedido).
+  const handleClearCustomFilter = () => {
+    setAppliedFilter({ kind: "quick", periodo: "hoy" })
+    setPopoverOpen(false)
   }
 
   if (mesasLoading) {
@@ -2029,22 +2479,161 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 
   return (
     <div className="space-y-4">
-      {/* Period filter */}
-      <div className="flex gap-2">
-        {(["hoy", "semana", "mes"] as const).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriodo(p)}
-            className={cn(
-              "px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-              periodo === p
-                ? "border-primary/30 bg-primary/10 text-primary"
-                : "border-transparent bg-muted/50 text-muted-foreground hover:bg-muted"
-            )}
+      {/* Period filter + custom date filter — mismo patrón visual de
+          segmented control que EstadisticasSubTab (P2-T55-R1B: paridad
+          visual, misma lógica, sin agregar el modo "todo" de T50). */}
+      <div className="flex items-center gap-2">
+        <div className="flex bg-muted/60 rounded-xl p-1 flex-1 min-w-0">
+          {(["hoy", "semana", "mes"] as const).map((p) => {
+            const isActive = appliedFilter.kind === "quick" && appliedFilter.periodo === p
+            return (
+              <button
+                key={p}
+                onClick={() => handleQuickFilterClick(p)}
+                className={cn(
+                  "flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  isActive
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {p === "hoy" ? "Hoy" : p === "semana" ? "Semana" : "Mes"}
+              </button>
+            )
+          })}
+        </div>
+
+        <Popover open={popoverOpen} onOpenChange={handlePopoverOpenChange}>
+          <PopoverTrigger asChild>
+            <button
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border shrink-0 max-w-[128px]",
+                appliedFilter.kind !== "quick"
+                  ? "border-transparent"
+                  : "border-border/50 text-muted-foreground hover:text-foreground bg-background"
+              )}
+              style={
+                appliedFilter.kind !== "quick"
+                  ? { backgroundColor: `${negocio.colorPrincipal}15`, color: negocio.colorPrincipal }
+                  : undefined
+              }
+            >
+              <Calendar className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {appliedFilter.kind === "quick" ? "Elegir fecha" : getHistorialFilterLabel(appliedFilter)}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-[min(320px,calc(100vw-2rem))] p-3 space-y-3"
           >
-            {p === "hoy" ? "Hoy" : p === "semana" ? "Semana" : "Mes"}
-          </button>
-        ))}
+            <div className="flex bg-muted/60 rounded-lg p-1">
+              {(["day", "month", "range"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setDraftMode(m)}
+                  className={cn(
+                    "flex-1 py-1 rounded-md text-[11px] font-semibold transition-all",
+                    draftMode === m
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {m === "day" ? "Día" : m === "month" ? "Mes" : "Rango"}
+                </button>
+              ))}
+            </div>
+
+            {draftMode === "day" && (
+              <div className="flex justify-center">
+                <StatsDatePicker mode="single" selected={draftDate} onSelect={setDraftDate} />
+              </div>
+            )}
+
+            {draftMode === "month" && (
+              <div className="flex gap-2">
+                <Select value={String(draftMonth)} onValueChange={(v) => setDraftMonth(Number(v))}>
+                  <SelectTrigger className="flex-1 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_LABELS.map((label, idx) => (
+                      <SelectItem key={label} value={String(idx + 1)}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(draftYear)} onValueChange={(v) => setDraftYear(Number(v))}>
+                  <SelectTrigger className="w-24 h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={String(year)}>
+                        {year}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {draftMode === "range" && (
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <StatsDatePicker
+                    mode="range"
+                    numberOfMonths={1}
+                    selected={draftRange}
+                    onSelect={setDraftRange}
+                  />
+                </div>
+                {draftRange?.from && draftRange?.to && (
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    {formatDayLabel(dateToIsoDateString(draftRange.from))} –{" "}
+                    {formatDayLabel(dateToIsoDateString(draftRange.to))}
+                  </p>
+                )}
+                {!rangeValidation.valid && rangeValidation.reason === "reversed" && (
+                  <p className="text-[11px] text-red-500 text-center">
+                    &quot;Desde&quot; no puede ser posterior a &quot;Hasta&quot;
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              {appliedFilter.kind !== "quick" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs mr-auto"
+                  onClick={handleClearCustomFilter}
+                >
+                  Limpiar
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setPopoverOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleApplyCustomFilter}
+                disabled={!canApply}
+              >
+                Aplicar
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Mesa grid — grouped by zona */}
@@ -2219,11 +2808,9 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   const [copiedInvitationId, setCopiedInvitationId] = useState<string | null>(null)
   const [generatedInvitation, setGeneratedInvitation] = useState<GeneratedMozoInvitation | null>(null)
 
-  const [formNombre, setFormNombre] = useState("")
   const [formCodigo, setFormCodigo] = useState("")
   const [formArea, setFormArea] = useState<string>("sin_asignar")
 
-  const [editNombre, setEditNombre] = useState("")
   const [editCodigo, setEditCodigo] = useState("")
   const [editArea, setEditArea] = useState<string>("sin_asignar")
 
@@ -2234,6 +2821,8 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       if (!res.ok) throw new Error("Error cargando empleados")
       return res.json()
     },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: invitationsData, isLoading: invitationsLoading } = useQuery<{ invitaciones: MozoInvitation[] }>({
@@ -2243,6 +2832,8 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
       if (!res.ok) throw new Error("Error cargando invitaciones")
       return res.json()
     },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   })
 
   // Fetch mesas to show assigned mesas per mozo
@@ -2292,7 +2883,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   }, [invitationsData])
 
   const addMutation = useMutation({
-    mutationFn: async (data: { nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
+    mutationFn: async (data: { codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch("/api/negocio/empleados", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2318,11 +2909,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   })
 
   const editMutation = useMutation({
-    mutationFn: async (data: { id: string; nombre: string; codigo: string; rol: string; areaOperativa: string }) => {
+    mutationFn: async (data: { id: string; codigo: string; rol: string; areaOperativa: string }) => {
       const res = await fetch(`/api/negocio/empleados/${data.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: data.nombre, codigo: data.codigo, rol: data.rol, areaOperativa: data.areaOperativa }),
+        body: JSON.stringify({ codigo: data.codigo, rol: data.rol, areaOperativa: data.areaOperativa }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -2431,7 +3022,6 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   })
 
   const resetAddForm = () => {
-    setFormNombre("")
     setFormCodigo("")
     setFormArea("sin_asignar")
     setShowAddForm(false)
@@ -2449,16 +3039,11 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
   }
 
   const handleAddEmpleado = () => {
-    if (!formNombre.trim()) {
-      toast.error("Ingresá el nombre del empleado")
-      return
-    }
     if (!formCodigo.trim()) {
       toast.error("Ingresá el código del empleado")
       return
     }
     addMutation.mutate({
-      nombre: formNombre.trim(),
       codigo: formCodigo.trim(),
       rol: "mozo",
       areaOperativa: formArea,
@@ -2467,23 +3052,17 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
 
   const startEditing = (empleado: Empleado) => {
     setEditingId(empleado.id)
-    setEditNombre(empleado.nombre)
     setEditCodigo(empleado.codigo)
     setEditArea(empleado.areaOperativa ?? "sin_asignar")
   }
 
   const handleSaveEdit = (id: string) => {
-    if (!editNombre.trim()) {
-      toast.error("El nombre es obligatorio")
-      return
-    }
     if (!editCodigo.trim()) {
       toast.error("El código es obligatorio")
       return
     }
     editMutation.mutate({
       id,
-      nombre: editNombre.trim(),
       codigo: editCodigo.trim(),
       rol: "mozo",
       areaOperativa: editArea,
@@ -2524,27 +3103,19 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             className="p-3 rounded-xl border border-border/50 bg-muted/20 space-y-3"
           >
             <p className="text-xs font-semibold">Nuevo empleado</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div>
-                <Label className="text-[11px] font-semibold mb-1 block">Nombre *</Label>
-                <Input
-                  value={formNombre}
-                  onChange={(e) => setFormNombre(e.target.value)}
-                  className="rounded-xl h-8 text-sm"
-                  placeholder="Juan Pérez"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <Label className="text-[11px] font-semibold mb-1 block">Código *</Label>
-                <Input
-                  value={formCodigo}
-                  onChange={(e) => setFormCodigo(e.target.value.toUpperCase())}
-                  className="rounded-xl h-8 text-sm font-mono"
-                  placeholder="JUAN"
-                  maxLength={10}
-                />
-              </div>
+            <div>
+              <Label className="text-[11px] font-semibold mb-1 block">Código interno *</Label>
+              <Input
+                value={formCodigo}
+                onChange={(e) => setFormCodigo(e.target.value.toUpperCase())}
+                className="rounded-xl h-8 text-sm font-mono"
+                placeholder="MOZO1"
+                maxLength={10}
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                La identidad personal la declara el empleado al vincular su CuentaOperativa.
+              </p>
             </div>
             <div>
               <Label className="text-[11px] font-semibold mb-1 block">Área operativa</Label>
@@ -2588,9 +3159,10 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
             const stats = mozoStatsData?.stats?.find((s) => s.id === empleado.id)
             const totalPedidos = stats?.totalPedidos ?? 0
             const pedidosHoy = stats?.pedidosHoy ?? 0
-            const linkedAccount = empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado
+            const linkedAccount = empleado.identityLinked === true || (empleado.cuentaOperativa && !empleado.cuentaOperativa.eliminado)
               ? empleado.cuentaOperativa
               : null
+            const displayName = linkedAccount?.nombre ?? empleado.displayName ?? "Pendiente de vinculación"
             const pendingInvitation = invitationByEmpleado.get(empleado.id) ?? null
             const generatedForEmpleado = generatedInvitation?.empleadoObjetivoId === empleado.id
               ? generatedInvitation
@@ -2618,12 +3190,13 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
-                        <Label className="text-[11px] font-semibold mb-1 block">Nombre</Label>
-                        <Input
-                          value={editNombre}
-                          onChange={(e) => setEditNombre(e.target.value)}
-                          className="rounded-xl h-7 text-sm"
-                        />
+                        <Label className="text-[11px] font-semibold mb-1 block">Identidad</Label>
+                        <div className="rounded-xl border border-border/50 bg-muted/30 px-3 py-1.5 min-h-7">
+                          <p className="text-sm truncate">{displayName}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {linkedAccount ? "CuentaOperativa · sólo lectura" : "Pendiente de vinculación · sólo lectura"}
+                          </p>
+                        </div>
                       </div>
                       <div>
                         <Label className="text-[11px] font-semibold mb-1 block">Código</Label>
@@ -2688,7 +3261,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold truncate">{empleado.nombre}</p>
+                        <p className="text-sm font-semibold truncate">{displayName}</p>
                         <Badge variant="outline" className="text-[10px] font-mono h-4 px-1.5">
                           {empleado.codigo}
                         </Badge>
@@ -2759,7 +3332,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                               </Badge>
                             </div>
                             <p className="text-[10px] text-muted-foreground truncate">
-                              {linkedAccount.nombre}
+                              Identidad personal de CuentaOperativa
                             </p>
                           </>
                         ) : currentInvitation ? (
@@ -2842,7 +3415,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                             <div className="flex items-center gap-1.5">
                               <AlertCircle className="h-3.5 w-3.5 text-muted-foreground/60" />
                               <span className="text-[11px] font-semibold text-muted-foreground">
-                                Sin cuenta vinculada
+                                Pendiente de vinculación
                               </span>
                             </div>
                             <Button

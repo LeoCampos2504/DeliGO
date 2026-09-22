@@ -8,14 +8,26 @@ import { toast } from "sonner"
 
 const TERMINAL_SURFACE_PREFIXES = ["/operaciones/terminal", "/operaciones/salon", "/operaciones/pyr"]
 
-/** Visible only on current TerminalOperativa surfaces, never personal legacy pages. */
-export function TerminalLogoutButton() {
-  const pathname = usePathname()
-  const [pending, setPending] = useState(false)
+// P2-T49-R1: el chat de Terminal PyR trae su propio acceso de logout
+// compacto en el header (ver page.tsx de .../pyr/mensajes/[pedidoId]) —
+// el botón flotante global chocaba con el composer ahí. En cualquier
+// otra superficie Terminal (incluida /operaciones/pyr sin subruta) el
+// flotante sigue exactamente igual que siempre.
+const CHAT_ROUTE_PREFIX = "/operaciones/pyr/mensajes/"
 
-  if (!TERMINAL_SURFACE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
-    return null
-  }
+function isTerminalSurface(pathname: string | null): boolean {
+  if (!pathname) return false
+  return TERMINAL_SURFACE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
+
+/**
+ * Lógica de logout de Terminal compartida por el botón flotante global y
+ * por cualquier acceso equivalente que una pantalla puntual (ej. el chat)
+ * necesite renderizar en su propio layout — mismo endpoint, mismo manejo
+ * de error, misma navegación posterior, una sola implementación.
+ */
+export function useTerminalLogout() {
+  const [pending, setPending] = useState(false)
 
   const logout = async () => {
     if (pending) return
@@ -28,6 +40,18 @@ export function TerminalLogoutButton() {
       setPending(false)
       toast.error("No se pudo cerrar la terminal. Revisá la conexión e intentá de nuevo.")
     }
+  }
+
+  return { pending, logout }
+}
+
+/** Visible only on current TerminalOperativa surfaces, never personal legacy pages, and never on the chat route (which renders its own compact logout in-header, see page.tsx). */
+export function TerminalLogoutButton() {
+  const pathname = usePathname()
+  const { pending, logout } = useTerminalLogout()
+
+  if (!isTerminalSurface(pathname) || pathname?.startsWith(CHAT_ROUTE_PREFIX)) {
+    return null
   }
 
   return (

@@ -64,6 +64,11 @@ self.addEventListener("activate", (event) => {
       )
       .then(() => self.clients.claim())
   );
+  // P2-T44-R1P6E: cada activación (deploy nuevo, o el navegador simplemente
+  // reactivando este mismo SW) es una oportunidad segura de reintentar
+  // cualquier traza de click que quedó pendiente de una sesión anterior —
+  // independiente del waitUntil de arriba, nunca lo bloquea ni depende de él.
+  event.waitUntil(flushPendingSwTraces());
 });
 
 // Helper: trim cache to MAX_CACHE_ENTRIES (LRU-ish by deletion order)
@@ -436,6 +441,14 @@ self.addEventListener("push", (event) => {
     };
     const recipientRole = data.data?.role;
 
+    // P2-T39-R3: actorFamily identifica al SuperAdmin de forma explícita e
+    // inequívoca — a diferencia de `role`/`notifType`, nunca se comparte con
+    // Cliente/Negocio/Repartidor. Nunca hace dispatch por tipo (5 tipos
+    // distintos de Notificacion.tipo comparten esta MISMA rama fija) — sólo
+    // decide ícono y, en notificationclick, el destino fijo /admin.
+    const actorFamily = data.data?.actorFamily || null;
+    const isSuperadminPush = actorFamily === "superadmin";
+
     // P2-T36: `badge` (el pequeño ícono monocromático que Android compone
     // sobre la propia notificación/status bar) NUNCA debe ser el mismo PNG
     // full-color que `icon` — Android lo recorta/tiñe igual, así que un PNG
@@ -448,7 +461,9 @@ self.addEventListener("push", (event) => {
     // Pick the icon/badge per notification type so the user can tell at a
     // glance which PWA the notification belongs to.
     let icon;
-    if (recipientRole && ROLE_ICON[recipientRole]) {
+    if (isSuperadminPush) {
+      icon = "/icon-admin-192x192.png";
+    } else if (recipientRole && ROLE_ICON[recipientRole]) {
       icon = ROLE_ICON[recipientRole];
     } else {
       icon = "/icon-cliente-192x192.png";
@@ -488,6 +503,7 @@ self.addEventListener("push", (event) => {
         url: typeof data.data?.url === "string" ? data.data.url : null,
         type: notifType,
         role: data.data?.role || null,
+        actorFamily,
         pedidoId: data.data?.pedidoId || null,
         mesaNumero: data.data?.mesaNumero || null,
       },
@@ -506,7 +522,46 @@ self.addEventListener("push", (event) => {
       return;
     }
 
-    event.waitUntil(self.registration.showNotification(title, options));
+    // P2-T44-R1P5B: traza TESTING-only, únicamente para los 3 tipos PyR de
+    // Operaciones que son objeto de la investigación de G3 — nunca para el
+    // resto de Web Push (Cliente/Negocio/Repartidor/Salón/Mozo). Responde,
+    // con evidencia real del propio evento `push`, si la URL ya se perdió
+    // ACÁ (antes de notificationclick siquiera existir) o llegó intacta.
+    let swTraceCompletion = Promise.resolve();
+    if (
+      notifType === "operaciones_pyr_new_order" ||
+      notifType === "operaciones_pyr_new_review" ||
+      notifType === "operaciones_pyr_chat"
+    ) {
+      const payloadUrl = data.data?.url;
+      swTraceCompletion = sendSwTrace({
+        event: "push_received",
+        type: notifType,
+        pedidoId: typeof data.data?.pedidoId === "string" ? data.data.pedidoId : null,
+        payloadUrlPresent: typeof payloadUrl === "string",
+        payloadUrlType: typeof payloadUrl,
+        payloadUrl: typeof payloadUrl === "string" ? payloadUrl : null,
+      }).then(() =>
+        sendSwTrace({
+          event: "show_notification",
+          type: notifType,
+          pedidoId: options.data.pedidoId,
+          notificationDataUrlPresent: typeof options.data.url === "string",
+          notificationDataUrlType: typeof options.data.url,
+          notificationDataUrl: options.data.url,
+        })
+      );
+    }
+
+    event.waitUntil(
+      Promise.allSettled([self.registration.showNotification(title, options), swTraceCompletion])
+    );
+    // P2-T44-R1P6E: cada `push` (de cualquier tipo/actor, no sólo PyR) es
+    // otra oportunidad segura de reintentar una traza de click que haya
+    // quedado pendiente de un tap anterior — independiente del waitUntil de
+    // arriba. Resuelve casi instantáneo cuando no hay nada pendiente (el
+    // caso normal para el resto de la app).
+    event.waitUntil(flushPendingSwTraces());
   } catch {
     // Fallback for non-JSON push data
     event.waitUntil(
@@ -517,6 +572,234 @@ self.addEventListener("push", (event) => {
     );
   }
 });
+
+// ============================================
+// P2-T44-R1P5B/R1P6E: TESTING-only diagnostic trace for G3 Operations click
+// routing (push_received / show_notification / notificationclick_decision /
+// notificationclick_client / notificationclick_routing_result). See
+// P2_T44_R1P5_G3_SW_CLICK_TRACE_INSTRUMENTATION.md for why the existing
+// push-debug-trace.ts engine can't be reused here (no window/localStorage
+// inside a Service Worker), P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md for
+// the original network-only design, and P2_T44_R1P6E_DURABLE_SW_CLICK_TRACE.md
+// for why that wasn't enough: R1P6A and R1P6D both showed push_received/
+// show_notification arriving reliably while EVERY notificationclick trace
+// silently vanished — the SW answering a click after a period of inactivity
+// can have degraded/delayed network access at exactly that moment, and a
+// single fire-and-forget POST with a short timeout has no way to recover
+// from that. This block ONLY observes values the routing logic below
+// already computes — it never changes
+// isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/client
+// matching/focus/navigate/openWindow.
+const SW_TRACE_VERSION = "P2_T44_R1P6E_SW_TRACE_V2";
+const SW_ROUTING_VERSION = "P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET";
+const SW_TRACE_ENDPOINT = "/api/push/debug-sw-trace";
+const SW_TRACE_TIMEOUT_MS = 1500;
+const SW_DEBUG_DB_NAME = "deligo-sw-debug";
+const SW_DEBUG_STORE_NAME = "pending-traces";
+// P2-T44-R1P6E: trazas son diagnóstico TEMPORAL, nunca un registro
+// permanente — TTL + tope de registros acotan el crecimiento sin depender
+// de que el flush siempre tenga éxito.
+const SW_DEBUG_TRACE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const SW_DEBUG_TRACE_MAX_RECORDS = 50;
+
+// Un único intento de red, sin persistencia — usado por el flush (que ya
+// decide qué hacer con el resultado) y por el envío inmediato "best effort"
+// de push_received/show_notification (nunca críticos para el diagnóstico
+// del click: si push_received se pierde una vez, no es motivo para
+// arrastrar infraestructura durable a CADA Push del sistema). Nunca lanza,
+// resuelve `true` sólo si el servidor confirmó recepción (2xx).
+function sendSwTraceOnce(payload) {
+  try {
+    if (typeof fetch !== "function") return Promise.resolve(false);
+    const body = JSON.stringify(payload);
+    let signal;
+    let timeoutId = null;
+    if (typeof AbortController === "function") {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), SW_TRACE_TIMEOUT_MS);
+      signal = controller.signal;
+    }
+    return fetch(SW_TRACE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal,
+    })
+      .then((res) => {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        return Boolean(res && res.ok);
+      })
+      .catch(() => {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        return false;
+      });
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
+// Best-effort, never-throwing diagnostic POST — network-only, no durable
+// backup. Deliberately NOT awaited before any real routing decision:
+// callers fire the real focus()/navigate()/openWindow() call synchronously
+// first, then fold this promise into whatever Promise.allSettled(...) they
+// already pass to event.waitUntil.
+function sendSwTrace(fields) {
+  const payload = Object.assign({ traceVersion: SW_TRACE_VERSION, routingVersion: SW_ROUTING_VERSION }, fields);
+  return sendSwTraceOnce(payload).then(() => {});
+}
+
+// ---- P2-T44-R1P6E: durable IndexedDB backing for click-critical traces ----
+// Mismo patrón técnico ya usado en este archivo para share-target
+// (`openShareTargetDb`/`putPendingShare`) — una sola store, keyPath simple,
+// sin índices adicionales.
+function openSwDebugDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SW_DEBUG_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SW_DEBUG_STORE_NAME)) {
+        db.createObjectStore(SW_DEBUG_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function getAllPendingTraces(db) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readonly");
+      const req = tx.objectStore(SW_DEBUG_STORE_NAME).getAll();
+      req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+      req.onerror = () => resolve([]);
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+function putPendingTrace(db, record) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readwrite");
+      tx.objectStore(SW_DEBUG_STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function deletePendingTrace(db, id) {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(SW_DEBUG_STORE_NAME, "readwrite");
+      tx.objectStore(SW_DEBUG_STORE_NAME).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+// Persiste UN evento de click de forma durable, ANTES de intentar la red —
+// nunca lanza, nunca bloquea/espera antes de la decisión de ruteo real
+// (llamado en paralelo, nunca `await`ado por el código de ruteo). `fields`
+// ya es el mismo objeto sanitizado que antes se mandaba directo a
+// `sendSwTrace` — ningún dato nuevo, sólo un respaldo local antes del
+// intento de red.
+function persistPendingTrace(fields) {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  const now = Date.now();
+  const record = {
+    id: shareTargetToken(),
+    traceVersion: SW_TRACE_VERSION,
+    routingVersion: SW_ROUTING_VERSION,
+    createdAt: now,
+    expiresAt: now + SW_DEBUG_TRACE_TTL_MS,
+    attemptCount: 0,
+    fields: Object.assign({}, fields),
+  };
+  return openSwDebugDb()
+    .then((db) =>
+      getAllPendingTraces(db).then((existing) => {
+        // Bounded storage — evicción oldest-first, nunca toca el registro
+        // recién creado.
+        const sorted = existing.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const overflow = sorted.length - (SW_DEBUG_TRACE_MAX_RECORDS - 1);
+        const toDelete = overflow > 0 ? sorted.slice(0, overflow) : [];
+        return Promise.all(toDelete.map((r) => deletePendingTrace(db, r.id)))
+          .then(() => putPendingTrace(db, record))
+          .then(() => record);
+      })
+    )
+    .catch(() => null);
+}
+
+// Reintenta enviar TODO lo pendiente — llamado en cada momento seguro en que
+// el SW ya está despierto (activate/push/notificationclick), nunca por
+// timer/polling propio. Un registro sólo se borra tras confirmación HTTP
+// real; si falla, se conserva con `attemptCount` incrementado para el
+// próximo intento. Un registro vencido (TTL) se descarta sin intentar
+// enviarlo.
+function flushPendingSwTraces() {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return openSwDebugDb()
+    .then((db) =>
+      getAllPendingTraces(db).then((records) => {
+        const now = Date.now();
+        return Promise.all(
+          records.map((record) => {
+            if (!record || typeof record.id !== "string") return Promise.resolve();
+            if (typeof record.expiresAt === "number" && record.expiresAt <= now) {
+              return deletePendingTrace(db, record.id);
+            }
+            const payload = Object.assign(
+              {
+                traceRecordId: record.id,
+                traceVersion: record.traceVersion || SW_TRACE_VERSION,
+                routingVersion: record.routingVersion || SW_ROUTING_VERSION,
+                attemptCount: typeof record.attemptCount === "number" ? record.attemptCount : 0,
+              },
+              record.fields || {}
+            );
+            return sendSwTraceOnce(payload).then((ok) => {
+              if (ok) return deletePendingTrace(db, record.id);
+              const updated = Object.assign({}, record, { attemptCount: (record.attemptCount || 0) + 1 });
+              return putPendingTrace(db, updated);
+            });
+          })
+        );
+      })
+    )
+    .catch(() => {});
+}
+
+// Punto de entrada único para los 3 eventos críticos del click
+// (notificationclick_decision/_client/_routing_result): persiste primero
+// (durable), luego intenta un flush inmediato de TODO lo pendiente — en el
+// caso común (red disponible) esto se ve y comporta igual que el viejo
+// sendSwTrace inmediato; si la red falla/tarda, el registro sobrevive para
+// el próximo flush oportunista.
+function recordAndSendTrace(fields) {
+  return persistPendingTrace(fields)
+    .then((record) => {
+      if (record) return flushPendingSwTraces();
+      // Sin IndexedDB disponible (o la persistencia falló): conserva el
+      // comportamiento inmediato-only de antes de R1P6E, para que la traza
+      // todavía tenga oportunidad de llegar en un entorno sin storage
+      // durable en vez de perderse en silencio.
+      const payload = Object.assign(
+        { traceVersion: SW_TRACE_VERSION, routingVersion: SW_ROUTING_VERSION },
+        fields
+      );
+      return sendSwTraceOnce(payload).then(() => {});
+    })
+    .catch(() => {});
+}
 
 // Helper: focus the first open client whose pathname starts with one of the
 // given prefixes. Returns true if a client was focused, false otherwise.
@@ -615,76 +898,204 @@ self.addEventListener("notificationclick", (event) => {
   // Handle action button clicks
   const action = event.action;
 
-  // ── Operaciones — Salón (cuenta personal, Legacy-Cleanup-1C.2B) ──
-  // Tipo moderno, independiente del canal legacy de abajo (salon_new_order /
-  // /s/). Solo navega a una URL relativa, del mismo origen, que empiece con
-  // /operaciones/mi-panel/ y contenga el segmento /salon — cualquier otro
-  // valor (ausente, externo, con otro protocolo) cae al fallback fijo
-  // /operaciones/ingresar. Rama aislada con `return` propio: nunca continúa
-  // hacia la lógica legacy de salon_new_order/mesa_order_ready ni hacia las
-  // notificaciones personales de más abajo.
-  if (type === "operaciones_salon_new_order") {
-    const rawUrl = notificationData.url;
-    const isSafeSalonUrl =
-      isSafeInternalUrl(rawUrl) &&
-      rawUrl.startsWith("/operaciones/mi-panel/") &&
-      rawUrl.includes("/salon");
-    const targetUrl = isSafeSalonUrl ? rawUrl : "/operaciones/ingresar";
-
+  // ── SuperAdmin (P2-T39-R3) ──
+  // Rama genérica y fija por `actorFamily`, nunca por `type` — los 5 tipos de
+  // Notificacion.tipo dirigidos a SuperAdmin (negocio_pendiente,
+  // destacado_solicitud, denuncia_nueva, negocio_deuda, review_moderation)
+  // comparten EXACTAMENTE este mismo destino, sin deep link por entidad
+  // (SUPERADMIN_PUSH_TAP_DESTINATION=/admin, EXACT_ENTITY_DEEP_LINK_
+  // REQUIRED=NO — decisión de diseño de R2, no cambiada en R3). Nunca navega
+  // a una URL externa o manipulada — el destino es siempre el literal fijo
+  // `/admin`, independiente de cualquier otro campo del payload.
+  if (notificationData.actorFamily === "superadmin") {
+    const adminTarget = self.location.origin + "/admin";
     event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
-              client.focus();
-              client.navigate(targetUrl);
-              return;
-            }
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+        const isAdminClientPathname = (pathname) => pathname === "/admin" || pathname.startsWith("/admin/");
+        const matchingClient = clients.find(
+          (client) => "focus" in client && "navigate" in client && isAdminClientPathname(new URL(client.url).pathname)
+        );
+        if (matchingClient) {
+          try {
+            const navigatedClient = await matchingClient.navigate(adminTarget);
+            return (navigatedClient || matchingClient).focus();
+          } catch {
+            return self.clients.openWindow(adminTarget);
           }
         }
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            client.focus();
-            client.navigate(targetUrl);
-            return;
-          }
-        }
-        return self.clients.openWindow(targetUrl);
+        return self.clients.openWindow(adminTarget);
       })
     );
     return;
   }
 
-  // ── Operaciones — cancellation (current personal panels) ──
-  if (type === "operaciones_order_cancelled") {
+  // ── Operaciones — panel personal (cuenta_operativa) ──
+  // Rama compartida por TODOS los tipos modernos de Operaciones cuyo
+  // contrato de navegación es una URL bajo /operaciones/mi-panel/ (P2-T44-
+  // R1P2, generaliza lo que antes eran 2 ramas casi idénticas —
+  // operaciones_salon_new_order y operaciones_order_cancelled — para
+  // cubrir también los 3 productores PyR nuevos sin triplicar la lógica).
+  // `mesa_order_ready` NO entra acá: su URL moderna es /mozo/panel/..., un
+  // contrato distinto — sigue en su rama propia más abajo, sin tocar.
+  // Solo navega a una URL relativa, del mismo origen, que empiece con
+  // /operaciones/mi-panel/ y contenga /salon o /pyr — cualquier otro valor
+  // (ausente, externo, con otro protocolo) cae al fallback fijo
+  // /operaciones/ingresar. Rama aislada con `return` propio: nunca continúa
+  // hacia la lógica legacy de salon_new_order/mesa_order_ready ni hacia las
+  // notificaciones personales de más abajo.
+  if (
+    type === "operaciones_salon_new_order" ||
+    type === "operaciones_order_cancelled" ||
+    type === "operaciones_pyr_new_order" ||
+    type === "operaciones_pyr_new_review" ||
+    type === "operaciones_pyr_chat"
+  ) {
     const rawUrl = notificationData.url;
     const isSafeOperationsUrl =
       isSafeInternalUrl(rawUrl) &&
       rawUrl.startsWith("/operaciones/mi-panel/") &&
       (rawUrl.includes("/salon") || rawUrl.includes("/pyr"));
     const targetUrl = isSafeOperationsUrl ? rawUrl : "/operaciones/ingresar";
+    const absoluteTarget = self.location.origin + targetUrl;
+
+    // P2-T44-R1P5B: traza TESTING-only — observa EXACTAMENTE los mismos
+    // valores ya calculados arriba (rawUrl/isSafeOperationsUrl/targetUrl),
+    // nunca los recalcula ni los altera. `usedFallback`/`fallbackReason` no
+    // participan en la decisión real, sólo describen por qué se llegó a ella.
+    const usedFallback = !isSafeOperationsUrl;
+    const fallbackReason = !usedFallback
+      ? null
+      : !isSafeInternalUrl(rawUrl)
+        ? "NOT_SAFE_INTERNAL_URL"
+        : !rawUrl.startsWith("/operaciones/mi-panel/")
+          ? "MISSING_OPERATIONS_PREFIX"
+          : "MISSING_PYR_OR_SALON_SEGMENT";
+
+    // P2-T44-R1P6E: otra oportunidad segura de reintentar trazas de un click
+    // anterior que hayan quedado pendientes — independiente de la traza de
+    // ESTE click (abajo), nunca la bloquea ni depende de ella.
+    event.waitUntil(flushPendingSwTraces());
+
+    const decisionTrace = recordAndSendTrace({
+      event: "notificationclick_decision",
+      type: type || null,
+      pedidoId: typeof pedidoId === "string" ? pedidoId : null,
+      rawUrlPresent: typeof rawUrl === "string",
+      rawUrlType: typeof rawUrl,
+      rawUrl: typeof rawUrl === "string" ? rawUrl : null,
+      safeInternalUrl: isSafeInternalUrl(rawUrl),
+      operationsPanelPrefixMatch: typeof rawUrl === "string" && rawUrl.startsWith("/operaciones/mi-panel/"),
+      containsPyrOrSalon: typeof rawUrl === "string" && (rawUrl.includes("/salon") || rawUrl.includes("/pyr")),
+      selectedTargetUrl: targetUrl,
+      usedFallback,
+      fallbackReason,
+    });
 
     event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.pathname.startsWith("/operaciones/mi-panel/")) {
-              client.focus();
-              client.navigate(targetUrl);
-              return;
-            }
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+        // P2-T44-R1P6C (root cause: P2_T44_R1P6B_EXISTING_CLIENT_VS_CLOSED_APP_AUDIT.md):
+        // un client sólo cuenta como "Operations client" reutilizable si su
+        // pathname es EXACTAMENTE el Home bare (`/operaciones/mi-panel`, la
+        // pantalla real de "los tres negocios" — Next.js nunca le agrega
+        // barra final) o cualquier ruta bajo `/operaciones/mi-panel/` — NUNCA
+        // cualquier otro client del origin (/cliente, /negocio, /repartidor,
+        // /mozo). Reemplaza el viejo par de loops donde el segundo aceptaba
+        // CUALQUIER client con focus+navigate sin mirar su pathname en
+        // absoluto — esa fue la causa raíz confirmada físicamente (A/B: con
+        // el Home de Operaciones ya abierto, ese loop sin filtro lo
+        // capturaba y le pasaba el deep link real sin ninguna garantía de
+        // que `navigate()` surtiera efecto).
+        const isOperationsClientPathname = (pathname) =>
+          pathname === "/operaciones/mi-panel" || pathname.startsWith("/operaciones/mi-panel/");
+
+        // Una línea de traza por client considerado, ANTES de decidir el
+        // ruteo — nunca cambia qué client se elige.
+        const clientTraces = clients.map((client, index) => {
+          const canFocusNavigate = "focus" in client && "navigate" in client;
+          const clientPathname = canFocusNavigate ? new URL(client.url).pathname : null;
+          return recordAndSendTrace({
+            event: "notificationclick_client",
+            type: type || null,
+            clientIndex: index,
+            clientCount: clients.length,
+            clientPathname,
+            matchesOperationsPanel: Boolean(clientPathname && isOperationsClientPathname(clientPathname)),
+            canFocus: canFocusNavigate,
+            canNavigate: canFocusNavigate,
+          });
+        });
+
+        const matchingClient = clients.find(
+          (client) =>
+            "focus" in client &&
+            "navigate" in client &&
+            isOperationsClientPathname(new URL(client.url).pathname)
+        );
+
+        // P2-T44-R1P6C: mismo patrón técnico ya certificado en la rama de
+        // notificaciones personales más abajo (nunca copiado su rol/ruta,
+        // sólo la forma) — `navigate()` PRIMERO y ESPERADO, `focus()` sobre
+        // el client que `navigate()` efectivamente devolvió (nunca sobre el
+        // client viejo si hay uno nuevo), y un `catch` que jamás deja al
+        // usuario silenciosamente en la pantalla vieja: cae a
+        // `clients.openWindow(absoluteTarget)`, el único camino que esta
+        // investigación confirmó físicamente que funciona con la app
+        // cerrada.
+        if (matchingClient) {
+          try {
+            const navigatedClient = await matchingClient.navigate(absoluteTarget);
+            const routingTrace = recordAndSendTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "NAVIGATE_FOCUS_OPERATIONS_CLIENT",
+              navigateTarget: absoluteTarget,
+              navigateResult: navigatedClient ? "RESOLVED_CLIENT" : "RESOLVED_NULL",
+            });
+            return Promise.allSettled([
+              decisionTrace,
+              routingTrace,
+              ...clientTraces,
+              (navigatedClient || matchingClient).focus(),
+            ]);
+          } catch (err) {
+            const routingTrace = recordAndSendTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "NAVIGATE_REJECTED_OPEN_WINDOW",
+              navigateTarget: absoluteTarget,
+              errorName: err && err.name ? String(err.name) : "Unknown",
+              errorMessage: err && err.message ? String(err.message) : null,
+            });
+            return Promise.allSettled([
+              decisionTrace,
+              routingTrace,
+              ...clientTraces,
+              self.clients.openWindow(absoluteTarget),
+            ]);
           }
         }
-        for (const client of clients) {
-          if ("focus" in client && "navigate" in client) {
-            client.focus();
-            client.navigate(targetUrl);
-            return;
-          }
-        }
-        return self.clients.openWindow(targetUrl);
+
+        // Sin ningún Operations client abierto (incluye "app cerrada" — el
+        // camino ya probado físicamente, sin cambios conceptuales).
+        const openWindowTrace = self.clients.openWindow(absoluteTarget).then(
+          () =>
+            recordAndSendTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "NO_MATCH_OPEN_WINDOW",
+              openWindowTarget: absoluteTarget,
+            }),
+          (err) =>
+            recordAndSendTrace({
+              event: "notificationclick_routing_result",
+              type: type || null,
+              routingAction: "NO_MATCH_OPEN_WINDOW_REJECTED",
+              openWindowTarget: absoluteTarget,
+              errorName: err && err.name ? String(err.name) : "Unknown",
+              errorMessage: err && err.message ? String(err.message) : null,
+            })
+        );
+        return Promise.allSettled([decisionTrace, openWindowTrace, ...clientTraces]);
       })
     );
     return;

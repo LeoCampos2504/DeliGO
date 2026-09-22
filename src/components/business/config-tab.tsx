@@ -44,6 +44,8 @@ import { ImageUpload } from "@/components/shared/image-upload"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
 import { PushDebugPanel } from "@/components/shared/push-debug-panel"
 import { recordPushDebugEvent } from "@/lib/push-debug-trace"
+import { useAuthStore } from "@/store/auth-store"
+import { clearPushManualOptOut, setPushManualOptOut } from "@/lib/push-manual-optout"
 import { DeliveryZonesSection } from "./delivery-zones-section"
 import { TerminalesOperativasSection } from "./terminales-operativas-section"
 
@@ -1222,6 +1224,7 @@ function TimeField({
 // ============================================
 function PushNotificationsConfig({ color }: { color: string }) {
   const push = usePushNotifications()
+  const authUser = useAuthStore((s) => s.user)
   const [enabled, setEnabled] = useState(push.isSubscribed)
   // Sync enabled state with the async isSubscribed value from the hook.
   // Ajustada durante el render (patrón de React para "adjusting state when a
@@ -1253,11 +1256,13 @@ function PushNotificationsConfig({ color }: { color: string }) {
       const result = await push.subscribe()
       if (result.current) {
         setEnabled(result.subscribed)
+        if (result.subscribed && authUser?.id) clearPushManualOptOut("negocio", authUser.id)
       }
     } else {
       const result = await push.unsubscribe()
       if (result.current) {
         setEnabled(result.subscribed)
+        if (!result.subscribed && authUser?.id) setPushManualOptOut("negocio", authUser.id)
       }
     }
   }

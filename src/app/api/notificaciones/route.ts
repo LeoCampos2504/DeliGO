@@ -6,6 +6,24 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // GET /api/notificaciones — List notifications for current user
 export async function GET(req: NextRequest) {
   try {
+    if (req.cookies.get("deligo_operativo_session")?.value) {
+      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
+      const account = await getOperationalAccountFromRequest(req)
+      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const employeeIds = account.empleados.map((empleado) => empleado.id)
+      const url = new URL(req.url)
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100)
+      const offset = parseInt(url.searchParams.get("offset") || "0")
+      const soloNoLeidos = url.searchParams.get("unread") === "true"
+      const where = { userId: { in: employeeIds }, userType: "empleado", ...(soloNoLeidos ? { leido: false } : {}) }
+      const [notificaciones, total, noLeidos] = await Promise.all([
+        db.notificacion.findMany({ where, orderBy: { createdAt: "desc" }, take: limit, skip: offset }),
+        db.notificacion.count({ where }),
+        db.notificacion.count({ where: { userId: { in: employeeIds }, userType: "empleado", leido: false } }),
+      ])
+      return NextResponse.json({ notificaciones, total, noLeidos })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
@@ -54,6 +72,27 @@ export async function GET(req: NextRequest) {
 // PATCH /api/notificaciones — Mark notifications as read
 export async function PATCH(req: NextRequest) {
   try {
+    if (req.cookies.get("deligo_operativo_session")?.value) {
+      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
+      const account = await getOperationalAccountFromRequest(req)
+      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
+      const employeeIds = account.empleados.map((empleado) => empleado.id)
+      const body = await req.json()
+      const { action, notificationId } = body as { action: "mark_read" | "mark_all_read"; notificationId?: string }
+      if (action === "mark_read" && notificationId) {
+        const notif = await db.notificacion.findFirst({ where: { id: notificationId, userType: "empleado", userId: { in: employeeIds } } })
+        if (!notif) return NextResponse.json({ error: "Notificación no encontrada" }, { status: 404 })
+        await db.notificacion.update({ where: { id: notificationId }, data: { leido: true } })
+        const noLeidos = await db.notificacion.count({ where: { userId: { in: employeeIds }, userType: "empleado", leido: false } })
+        return NextResponse.json({ ok: true, noLeidos })
+      }
+      if (action === "mark_all_read") {
+        await db.notificacion.updateMany({ where: { userId: { in: employeeIds }, userType: "empleado", leido: false }, data: { leido: true } })
+        return NextResponse.json({ ok: true, noLeidos: 0 })
+      }
+      return NextResponse.json({ error: "Acción no válida" }, { status: 400 })
+    }
+
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
     if (!token) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })

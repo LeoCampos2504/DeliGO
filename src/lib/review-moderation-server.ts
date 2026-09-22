@@ -7,6 +7,7 @@ import {
   type ReviewModerationReason,
 } from "@/lib/review-moderation-policy";
 import { notifyReviewModerationSuperadmins } from "@/lib/review-moderation-notifications";
+import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch";
 
 export const REVIEW_MODERATION_EXPLANATION_MAX_LENGTH = 2000;
 
@@ -83,7 +84,7 @@ export async function createReviewModerationRequest(input: {
     const now = new Date();
     const venceEn = getReviewModerationExpiry(now);
     try {
-      return await db.$transaction(
+      const result = await db.$transaction(
         async (tx) => {
           const resena = await tx.resena.findFirst({
             where: { id: input.resenaId, negocioId: input.negocioId },
@@ -151,20 +152,34 @@ export async function createReviewModerationRequest(input: {
             },
           });
 
-          await notifyReviewModerationSuperadmins(tx, {
+          const notified = await notifyReviewModerationSuperadmins(tx, {
             solicitudId: solicitud.id,
             titulo: "Nueva solicitud de revisión",
             cuerpo: "Un negocio solicitó la revisión de una reseña.",
           });
 
           await recomputePublicReviewRating(tx, input.negocioId);
-          return { ...solicitud, eventoId: evento.id };
+          return { ...solicitud, eventoId: evento.id, superadminRecipientIds: notified.recipientIds };
         },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           timeout: 15_000,
         },
       );
+      // P2-T39-R3: dispatch de Push POST-COMMIT — la transacción de arriba ya
+      // confirmó y persistió la fila Notificacion; un fallo del proveedor
+      // Push acá nunca debe revertir ni afectar el resultado ya decidido.
+      const { superadminRecipientIds, ...publicResult } = result;
+      if (superadminRecipientIds.length > 0) {
+        dispatchSuperadminPush(superadminRecipientIds, {
+          type: "review_moderation",
+          titulo: "Nueva solicitud de revisión",
+          cuerpo: "Un negocio solicitó la revisión de una reseña.",
+          entityId: publicResult.id,
+          navigateTo: "moderacion-resenas",
+        }).catch(() => {});
+      }
+      return publicResult;
     } catch (error) {
       if (isSerializationConflict(error) && attempt < 2) continue;
       throw error;

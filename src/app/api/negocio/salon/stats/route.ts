@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { resolveCustomDateFilter } from "@/lib/date-range-filter"
 
 type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
 
@@ -35,34 +36,73 @@ export async function GET(req: NextRequest) {
     }
 
     const negocioId = user.id
-    const periodo = req.nextUrl.searchParams.get("periodo") || "hoy"
+    const periodoParam = req.nextUrl.searchParams.get("periodo") || "hoy"
 
-    // ── Date filters ──────────────────────────────────────────
-    const now = new Date()
-    let startDate: Date | null = null
+    // ── P2-T50-R1: filtro de fecha personalizado (día/mes/rango) ──
+    // Extensión aditiva del contrato `periodo=hoy|semana|mes|todo`: si
+    // llega un filtro custom válido, éste manda sobre `periodo` (que los
+    // clientes actuales siguen enviando siempre). Precedencia explícita:
+    // 1) fecha  2) mes  3) desde+hasta  4) periodo (fallback histórico).
+    // Combinar más de un modo custom a la vez es ambiguo => 400 genérico.
+    const fechaParam = req.nextUrl.searchParams.get("fecha")
+    const mesParam = req.nextUrl.searchParams.get("mes")
+    const desdeParam = req.nextUrl.searchParams.get("desde")
+    const hastaParam = req.nextUrl.searchParams.get("hasta")
 
-    switch (periodo) {
-      case "semana":
-        startDate = new Date(now)
-        startDate.setDate(now.getDate() - 7)
-        startDate.setHours(0, 0, 0, 0)
-        break
-      case "mes":
-        startDate = new Date(now)
-        startDate.setMonth(now.getMonth() - 1)
-        startDate.setHours(0, 0, 0, 0)
-        break
-      case "todo":
-        startDate = null // no start filter
-        break
-      case "hoy":
-      default:
-        startDate = new Date(now)
-        startDate.setHours(0, 0, 0, 0)
-        break
+    const invalidFilterResponse = () =>
+      NextResponse.json({ error: "Filtro de fecha inválido" }, { status: 400, headers: NO_STORE_HEADERS })
+
+    const customOutcome = resolveCustomDateFilter({
+      fecha: fechaParam,
+      mes: mesParam,
+      desde: desdeParam,
+      hasta: hastaParam,
+    })
+
+    if (customOutcome.status === "invalid") {
+      return invalidFilterResponse()
     }
 
-    const dateFilter = startDate ? { gte: startDate } : undefined
+    let from: Date | null = null
+    let toExclusive: Date | null = null
+    let periodo: string = periodoParam
+
+    if (customOutcome.status === "custom") {
+      from = customOutcome.from
+      toExclusive = customOutcome.toExclusive
+      periodo = customOutcome.periodo
+    } else {
+      // ── Quick filters (sin cambios de semántica) ──────────────
+      const now = new Date()
+      let startDate: Date | null = null
+
+      switch (periodoParam) {
+        case "semana":
+          startDate = new Date(now)
+          startDate.setDate(now.getDate() - 7)
+          startDate.setHours(0, 0, 0, 0)
+          break
+        case "mes":
+          startDate = new Date(now)
+          startDate.setMonth(now.getMonth() - 1)
+          startDate.setHours(0, 0, 0, 0)
+          break
+        case "todo":
+          startDate = null // no start filter
+          break
+        case "hoy":
+        default:
+          startDate = new Date(now)
+          startDate.setHours(0, 0, 0, 0)
+          break
+      }
+
+      from = startDate
+      toExclusive = null
+      periodo = periodoParam
+    }
+
+    const dateFilter = from ? (toExclusive ? { gte: from, lt: toExclusive } : { gte: from }) : undefined
 
     // ── 1. Revenue by period (only entregado orders count for revenue) ──
 

@@ -71,6 +71,9 @@ interface PedidoPyR {
   clienteNombre: string | null
   acciones: PedidoAcciones
   items: PedidoItem[]
+  // P2-T49-R1D: presencia + no-leídos, nunca contenido — ver panel/route.ts.
+  tieneMensajes: boolean
+  mensajesNoLeidos: number
 }
 
 function normalizeAcciones(raw: unknown): PedidoAcciones {
@@ -176,6 +179,34 @@ function formatDateTime(dateStr: string): string {
   })
 }
 
+// P2-T45-R1: mismo intervalo que Terminal Salón (src/app/operaciones/salon/page.tsx),
+// mismo patrón — polling + derivación visual local, sin Push/Service Worker/realtime.
+const REFRESH_MS = 5000
+
+// Función pura para poder testearla sin montar el componente. El snapshot del
+// panel ya es la fuente de verdad (server-filtrado por negocio/área) — esto
+// sólo cuenta, nunca decide autorización ni persiste nada.
+export function countPedidosRecibidos(pedidos: readonly Pick<PedidoPyR, "estado">[]): number {
+  return pedidos.filter((pedido) => pedido.estado === "recibido").length
+}
+
+// P2-T49-R1D: indicador de mensajes por pedido — distinto conceptualmente
+// del "pedido nuevo" de T45 (countPedidosRecibidos de arriba). Función pura
+// para poder testearla sin montar el componente; el servidor ya entrega
+// `tieneMensajes`/`mensajesNoLeidos` como fuente de verdad (gateado por el
+// scope pyr.mensajes.ver de la Terminal, ver panel/route.ts) — esto sólo
+// deriva qué mostrar, nunca decide permisos ni marca nada como leído.
+export type MessageIndicatorKind = "none" | "read" | "unread_one" | "unread_many"
+
+export function getMessageIndicator(
+  pedido: Pick<PedidoPyR, "tieneMensajes" | "mensajesNoLeidos">
+): { kind: MessageIndicatorKind; count: number } {
+  if (!pedido.tieneMensajes) return { kind: "none", count: 0 }
+  if (pedido.mensajesNoLeidos <= 0) return { kind: "read", count: 0 }
+  if (pedido.mensajesNoLeidos === 1) return { kind: "unread_one", count: 1 }
+  return { kind: "unread_many", count: pedido.mensajesNoLeidos }
+}
+
 // ============================================
 // Página
 // ============================================
@@ -248,7 +279,12 @@ export default function OperacionesPyRPage() {
             puedeVerEstadisticas: data.capacidades?.puedeVerEstadisticas === true,
           },
           pedidos: Array.isArray(data.pedidos)
-            ? data.pedidos.map((p: PedidoPyR) => ({ ...p, acciones: normalizeAcciones(p.acciones) }))
+            ? data.pedidos.map((p: PedidoPyR) => ({
+                ...p,
+                acciones: normalizeAcciones(p.acciones),
+                tieneMensajes: p.tieneMensajes === true,
+                mensajesNoLeidos: typeof p.mensajesNoLeidos === "number" && p.mensajesNoLeidos > 0 ? p.mensajesNoLeidos : 0,
+              }))
             : [],
         },
         stale: false,
@@ -332,10 +368,18 @@ export default function OperacionesPyRPage() {
     [refresh]
   )
 
-  // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
+  // P2-T45-R1: mismo patrón que Terminal Salón — carga al abrir (solo si
+  // visible) + polling cada REFRESH_MS mientras la pestaña esté visible +
+  // foco/visibilidad. `refresh` ya protege contra requests solapados (aborta
+  // el anterior vía AbortController + `gen`), así que el interval nunca
+  // necesita su propio guard de concurrencia — reutiliza el existente.
   // NUNCA se ejecutan requests automáticas con la pestaña oculta.
   useEffect(() => {
     if (document.visibilityState === "visible") void refresh()
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void refresh()
+    }, REFRESH_MS)
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh()
@@ -348,6 +392,7 @@ export default function OperacionesPyRPage() {
     window.addEventListener("focus", onFocus)
 
     return () => {
+      clearInterval(interval)
       document.removeEventListener("visibilitychange", onVisible)
       window.removeEventListener("focus", onFocus)
       acRef.current?.abort()
@@ -478,6 +523,12 @@ function PyRView({
   const selectedPedido =
     selectedPedidoId != null ? data.pedidos.find((p) => p.id === selectedPedidoId) ?? null : null
 
+  // P2-T45-R1: derivado directamente de `data` (snapshot ya filtrado por
+  // negocio/área en el servidor) — nunca guardado en su propio useState,
+  // nunca acumulado entre polls. Recalculado en cada render, igual que el
+  // badge de "N nuevos" de Terminal Salón.
+  const pedidosRecibidosCount = countPedidosRecibidos(data.pedidos)
+
   return (
     <main className="min-h-screen bg-background">
       {/* Header */}
@@ -582,6 +633,14 @@ function PyRView({
           <Badge className="text-[10px] h-5 px-1.5 bg-primary/10 text-primary border-0">
             {data.pedidos.length}
           </Badge>
+          {pedidosRecibidosCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-semibold">
+                {pedidosRecibidosCount === 1 ? "1 nuevo" : `${pedidosRecibidosCount} nuevos`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Listado de pedidos activos */}
@@ -859,6 +918,7 @@ function StatusBadge({ estado }: { estado: string }) {
 function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void }) {
   const entrega = entregaInfo(pedido.metodoEntrega)
   const EIcon = entrega.icon
+  const messageIndicator = getMessageIndicator(pedido)
   return (
     <button
       onClick={onClick}
@@ -871,6 +931,12 @@ function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
+          {pedido.estado === "recibido" && (
+            <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+            </span>
+          )}
           <StatusBadge estado={pedido.estado} />
           <span className="text-[10px] font-semibold text-muted-foreground">{entrega.label}</span>
           <span className="text-[10px] text-muted-foreground">{getTimeAgo(pedido.fecha)}</span>
@@ -879,6 +945,26 @@ function PedidoRow({ pedido, onClick }: { pedido: PedidoPyR; onClick: () => void
           {pedido.items.length} {pedido.items.length === 1 ? "ítem" : "ítems"}
           {pedido.clienteNombre ? ` · ${pedido.clienteNombre}` : ""}
         </p>
+        {/* P2-T49-R1D: discoverability — el operador debe poder detectar
+            un pedido con mensajes/mensajes nuevos SIN entrar primero al
+            drawer. Distinto del dot ámbar de "pedido nuevo" (T45, arriba)
+            para no confundir ambos conceptos — icono + copy explícito,
+            sin animación nueva. */}
+        {messageIndicator.kind !== "none" && (
+          <div className="mt-1">
+            {messageIndicator.kind === "read" ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground border border-border/50 rounded-full px-1.5 py-0.5">
+                <MessageSquare className="h-3 w-3" />
+                Mensajes
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/30 rounded-full px-1.5 py-0.5">
+                <MessageSquare className="h-3 w-3" />
+                {messageIndicator.kind === "unread_one" ? "1 mensaje nuevo" : `${messageIndicator.count} mensajes nuevos`}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <span className="text-sm font-bold shrink-0">{formatPrice(pedido.total)}</span>
     </button>

@@ -8,6 +8,7 @@ import {
 } from "@/lib/operativo-mozo"
 import { sendPushNotification, type PushNotificationPayload } from "@/lib/push"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { isPushTestRouteAllowed } from "@/lib/push-test-route-guard"
 
 const TEST_PUSH_WINDOW_MS = 10 * 60 * 1000
 const TEST_PUSH_MAX_ATTEMPTS = 3
@@ -113,6 +114,13 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    // This endpoint is retained only as explicit Testing diagnostic tooling.
+    // A valid operational session alone must never expose a production-capable
+    // "send test" action.
+    if (!isPushTestRouteAllowed(req)) {
+      return noStore(NextResponse.json({ error: "Not found" }, { status: 404 }))
+    }
+
     const { slug } = await params
     const auth = await resolveOperativoMozoForSlug(req, slug)
     if (!auth.ok) return authErrorResponse(auth)

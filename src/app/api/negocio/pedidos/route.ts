@@ -9,6 +9,7 @@ import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacio
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
 import { buildMesaHistorialAccounts } from "@/lib/mesa-historial"
+import { resolveCustomDateFilter } from "@/lib/date-range-filter"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -54,6 +55,27 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1", 10)
     const limit = parseInt(searchParams.get("limit") || "20", 10)
 
+    // P2-T55-R1: filtro de fecha personalizado (día/mes/rango), extensión
+    // aditiva del contrato `periodo` existente — mismo helper/precedencia
+    // que P2-T50-R1 (fecha > mes > rango > periodo). Los otros dos
+    // llamadores de este endpoint (orders-tab.tsx, current-mesa surface)
+    // nunca envían estos params, así que quedan sin cambio de comportamiento.
+    const fechaParam = searchParams.get("fecha")
+    const mesParam = searchParams.get("mes")
+    const desdeParam = searchParams.get("desde")
+    const hastaParam = searchParams.get("hasta")
+
+    const customOutcome = resolveCustomDateFilter({
+      fecha: fechaParam,
+      mes: mesParam,
+      desde: desdeParam,
+      hasta: hastaParam,
+    })
+
+    if (customOutcome.status === "invalid") {
+      return NextResponse.json({ error: "Filtro de fecha inválido" }, { status: 400 })
+    }
+
     const where: Record<string, unknown> = { negocioId }
     const currentMesaSurface = estado === "activos" && metodoEntrega === "mesa"
     const historyMesaSurface = estado === "historial" && metodoEntrega === "mesa"
@@ -74,8 +96,12 @@ export async function GET(req: NextRequest) {
       where.mesaNumero = parseInt(mesaNumero, 10)
     }
 
-    // Apply periodo date filter
-    if (periodo) {
+    if (customOutcome.status === "custom") {
+      where.fecha = { gte: customOutcome.from, lt: customOutcome.toExclusive }
+    } else if (periodo) {
+      // Apply periodo date filter (sin cambios de semántica: "mes" acá son
+      // 30 días fijos, NO mes calendario — diverge intencionalmente de
+      // negocio/salon/stats/route.ts, ver P2_T55_A0 audit)
       const now = new Date()
       let startDate: Date
       if (periodo === "hoy") {

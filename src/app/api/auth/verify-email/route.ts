@@ -4,6 +4,7 @@ import { createSessionWithClient, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } 
 import { hashVerificationToken } from "@/lib/email"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins } from "@/lib/superadmin-notifications"
+import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
 
 function setSessionCookie(response: NextResponse, token: string): void {
   response.cookies.set(SESSION_COOKIE_NAME, token, {
@@ -92,13 +93,15 @@ export async function GET(req: NextRequest) {
       // que este bloque corre como máximo una vez por negocio — un segundo
       // click sobre el mismo link de verificación falla el CAS (count 0) y
       // nunca vuelve a notificar.
+      let superadminRecipientIds: string[] = []
       if (!negocio.aprobado) {
-        await notifySuperadmins(tx, {
+        const notified = await notifySuperadmins(tx, {
           tipo: "negocio_pendiente",
           titulo: "Nuevo negocio pendiente",
           cuerpo: `${negocio.nombre} verificó su email y espera aprobación.`,
           datos: { entityId: negocio.id, navigateTo: "pendientes" },
         })
+        superadminRecipientIds = notified.recipientIds
       }
 
       return {
@@ -106,10 +109,26 @@ export async function GET(req: NextRequest) {
         sessionToken: negocio.aprobado
           ? await createSessionWithClient(tx, negocio.id, "negocio")
           : null,
+        negocioId: negocio.id,
+        negocioNombre: negocio.nombre,
+        superadminRecipientIds,
       }
     })
     if (negocioOutcome) {
       const sessionToken = negocioOutcome.sessionToken
+
+      // P2-T39-R3: dispatch de Push POST-COMMIT — la transacción de arriba ya
+      // confirmó (CAS) y persistió la fila Notificacion; un fallo del
+      // proveedor Push acá nunca debe afectar la respuesta HTTP ya decidida.
+      if (negocioOutcome.superadminRecipientIds.length > 0) {
+        dispatchSuperadminPush(negocioOutcome.superadminRecipientIds, {
+          type: "negocio_pendiente",
+          titulo: "Nuevo negocio pendiente",
+          cuerpo: `${negocioOutcome.negocioNombre} verificó su email y espera aprobación.`,
+          entityId: negocioOutcome.negocioId,
+          navigateTo: "pendientes",
+        }).catch(() => {})
+      }
 
       if (!negocioOutcome.approved) {
         return renderHtmlPage({

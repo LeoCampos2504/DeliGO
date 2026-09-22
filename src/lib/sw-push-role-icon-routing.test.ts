@@ -20,7 +20,10 @@ interface SwHarness {
   showNotificationCalls: Array<{ title: string; options: Record<string, unknown> }>
 }
 
-function loadServiceWorker(): SwHarness {
+// P2-T44-R1P5B: `fetchImpl` optional, same non-invasive pattern as
+// sw-notificationclick-target-routing.test.ts — omitted here keeps every
+// existing test below on the exact "no fetch global" path it always ran.
+function loadServiceWorker(fetchImpl?: (url: string, init: { body?: string }) => Promise<{ ok: boolean }>): SwHarness {
   const source = readFileSync(resolve(import.meta.dir, "..", "..", "public", "sw.js"), "utf8")
 
   const listeners = new Map<string, (event: unknown) => void>()
@@ -43,7 +46,7 @@ function loadServiceWorker(): SwHarness {
   }
   selfObj.self = selfObj
 
-  const context = vm.createContext({
+  const contextGlobals: Record<string, unknown> = {
     self: selfObj,
     Date,
     console,
@@ -56,7 +59,15 @@ function loadServiceWorker(): SwHarness {
         put: async () => {},
       }),
     },
-  })
+  }
+  if (fetchImpl) {
+    contextGlobals.fetch = fetchImpl
+    contextGlobals.AbortController = AbortController
+    contextGlobals.setTimeout = setTimeout
+    contextGlobals.clearTimeout = clearTimeout
+  }
+
+  const context = vm.createContext(contextGlobals)
 
   vm.runInContext(source, context, { filename: "sw.js" })
 
@@ -66,7 +77,9 @@ function loadServiceWorker(): SwHarness {
 function firePush(sw: SwHarness, payload: unknown) {
   const handler = sw.listeners.get("push")
   if (!handler) throw new Error("push listener was not registered")
-  handler({ data: { json: () => payload }, waitUntil: (p: Promise<unknown>) => p })
+  const waits: Array<Promise<unknown>> = []
+  handler({ data: { json: () => payload }, waitUntil: (p: Promise<unknown>) => waits.push(p) })
+  return Promise.all(waits)
 }
 
 function lastCall(sw: SwHarness) {
@@ -80,7 +93,7 @@ function lastCall(sw: SwHarness) {
 // campo agregado por `personalRoleFor(userType)`.
 function payload(
   type: string,
-  opts: { role?: string; area?: string; icon?: string; badge?: string } = {}
+  opts: { role?: string; area?: string; icon?: string; badge?: string; pedidoId?: string; url?: string } = {}
 ) {
   return {
     title: "t",
@@ -91,6 +104,8 @@ function payload(
       type,
       ...(opts.role ? { role: opts.role } : {}),
       ...(opts.area ? { area: opts.area } : {}),
+      ...(opts.pedidoId ? { pedidoId: opts.pedidoId } : {}),
+      ...(opts.url ? { url: opts.url } : {}),
     },
   }
 }
@@ -322,5 +337,69 @@ describe("P2-T31-R22A — Service Worker push icon routing prioriza data.role so
       expect(badgeNegocio).toBe(DELIGO_BADGE)
       expect(badgeRepartidor).toBe(DELIGO_BADGE)
     })
+  })
+})
+
+describe("P2-T44-R1P5B — traza push_received/show_notification (observa, nunca altera options.data.url)", () => {
+  interface TraceCall {
+    body: Record<string, unknown>
+  }
+
+  function makeCapturingFetch(): { fetchImpl: (url: string, init: { body?: string }) => Promise<{ ok: boolean }>; calls: TraceCall[] } {
+    const calls: TraceCall[] = []
+    const fetchImpl = async (_url: string, init: { body?: string }) => {
+      calls.push({ body: init?.body ? (JSON.parse(init.body) as Record<string, unknown>) : {} })
+      return { ok: true }
+    }
+    return { fetchImpl, calls }
+  }
+
+  test("payload.data.url=X -> options.data.url=X idéntico, y la traza reporta la MISMA X en ambos eventos", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker(fetchImpl)
+    const url = "/operaciones/mi-panel/mi-negocio/pyr/pedidos?pedidoId=pedido-1"
+    await firePush(sw, payload("operaciones_pyr_new_order", { pedidoId: "pedido-1", url }))
+    const { options } = lastCall(sw)
+    expect((options.data as Record<string, unknown>).url).toBe(url)
+
+    const pushReceived = calls.find((c) => c.body.event === "push_received")
+    const showNotification = calls.find((c) => c.body.event === "show_notification")
+    expect(pushReceived!.body.payloadUrl).toBe(url)
+    expect(pushReceived!.body.payloadUrlPresent).toBe(true)
+    expect(showNotification!.body.notificationDataUrl).toBe(url)
+    expect(showNotification!.body.notificationDataUrlPresent).toBe(true)
+    expect(showNotification!.body.pedidoId).toBe("pedido-1")
+  })
+
+  test("sin url en el payload -> options.data.url queda null (sin cambios), traza reporta present=false en ambos eventos", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker(fetchImpl)
+    await firePush(sw, payload("operaciones_pyr_chat", { pedidoId: "pedido-2" }))
+    const { options } = lastCall(sw)
+    expect((options.data as Record<string, unknown>).url).toBeNull()
+
+    const pushReceived = calls.find((c) => c.body.event === "push_received")
+    const showNotification = calls.find((c) => c.body.event === "show_notification")
+    expect(pushReceived!.body.payloadUrlPresent).toBe(false)
+    expect(showNotification!.body.notificationDataUrlPresent).toBe(false)
+  })
+
+  test("el fetch de traza fallando NUNCA impide mostrar la notificación (options.data.url igual sin la traza)", async () => {
+    const failingFetch = async () => {
+      throw new Error("simulated trace network failure")
+    }
+    const sw = loadServiceWorker(failingFetch)
+    const url = "/operaciones/mi-panel/mi-negocio/pyr/resenas?resenaId=r1"
+    await firePush(sw, payload("operaciones_pyr_new_review", { url }))
+    const { options } = lastCall(sw)
+    expect((options.data as Record<string, unknown>).url).toBe(url)
+  })
+
+  test("CONTROL — tipos no-PyR (order_update/chat/salon) nunca generan traza push", async () => {
+    const { fetchImpl, calls } = makeCapturingFetch()
+    const sw = loadServiceWorker(fetchImpl)
+    await firePush(sw, payload("order_update", { role: "cliente" }))
+    await firePush(sw, payload("operaciones_salon_new_order"))
+    expect(calls).toEqual([])
   })
 })

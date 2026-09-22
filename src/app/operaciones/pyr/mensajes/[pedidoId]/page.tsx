@@ -15,6 +15,7 @@ import {
   WifiOff,
   MessageSquare,
   Paperclip,
+  LogOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,9 +27,22 @@ import {
   AttachmentUnavailableNotice,
   type AttachmentPreview,
 } from "@/components/chat/attachment-preview-modal"
+import { useTerminalLogout } from "@/components/operativo/terminal-logout-button"
+import { startBackgroundTolerantRefresh } from "@/lib/terminal-chat-background-refresh"
 
 // Mismo tope que la API (texto plano).
 const MAX_TEXTO_LEN = 2000
+
+// P2-T49-R1B: mientras esta pestaña siga MONTADA (no cerrada), reintentar
+// un GET de lectura cada 10s aunque la pestaña esté en background — sin
+// esto, un mensaje nuevo podía tardar minutos en aparecer al volver a la
+// pestaña porque `refresh()` bloqueaba TODO request con
+// `document.visibilityState !== "visible"`. Best-effort: los navegadores
+// pueden throttlear timers de pestañas ocultas (más agresivo cuanto más
+// tiempo lleva oculta) — esto NO es realtime ni Push, es sólo "más fresco
+// que nunca actualizar hasta volver". App cerrada / navegador cerrado
+// siguen sin recibir nada, por diseño (T12).
+const TERMINAL_CHAT_REFRESH_INTERVAL_MS = 10000
 
 // ============================================
 // Tipos (espejo del endpoint seguro de mensajes)
@@ -115,11 +129,14 @@ export default function OperacionesPyRMensajesPage() {
     setPhase((prev) => (prev.kind === "ready" ? { ...prev, stale: true } : { kind: "error" }))
   }, [])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { allowHidden?: boolean }) => {
     if (stoppedRef.current || !pedidoId) return
-    // Nunca disparar un request con la pestaña oculta (p.ej. refresh posterior a una
-    // mutación cuando el usuario ya cambió de pestaña). La mutación en curso no se altera.
-    if (document.visibilityState !== "visible") return
+    // Con la pestaña oculta, sólo se permite el request si el llamador lo
+    // pidió explícitamente (`allowHidden`, usado por el interval de
+    // background de P2-T49-R1B) — una mutación (enviar/adjuntar) nunca pasa
+    // `allowHidden`, así que su propio refresh posterior sigue sin disparar
+    // nada con la pestaña oculta, igual que siempre.
+    if (document.visibilityState !== "visible" && !opts?.allowHidden) return
     acRef.current?.abort()
     const ac = new AbortController()
     acRef.current = ac
@@ -323,23 +340,26 @@ export default function OperacionesPyRMensajesPage() {
     [pedidoId, refresh]
   )
 
-  // Sin polling. Carga al abrir (solo si visible) + foco/visibilidad.
+  // P2-T49-R1B: carga al abrir (solo si visible) + foco/visibilidad +
+  // interval de background cada TERMINAL_CHAT_REFRESH_INTERVAL_MS mientras
+  // la pestaña siga montada, aunque esté oculta. La política de CUÁNDO
+  // llamar a refresh() vive en startBackgroundTolerantRefresh (testeable
+  // con fake timers, sin React) — refresh() sigue siendo el único dueño
+  // del fetch/AbortController/generación, sin ningún guard de concurrencia
+  // nuevo acá.
   useEffect(() => {
-    if (document.visibilityState === "visible") void refresh()
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh()
-    }
-    const onFocus = () => {
-      if (document.visibilityState === "visible") void refresh()
-    }
-
-    document.addEventListener("visibilitychange", onVisible)
-    window.addEventListener("focus", onFocus)
+    const stop = startBackgroundTolerantRefresh({
+      intervalMs: TERMINAL_CHAT_REFRESH_INTERVAL_MS,
+      isVisible: () => document.visibilityState === "visible",
+      run: (opts) => void refresh(opts),
+      setInterval: (handler, ms) => window.setInterval(handler, ms),
+      clearInterval: (id) => window.clearInterval(id),
+      addEventListener: (target, type, handler) => (target === "document" ? document : window).addEventListener(type, handler),
+      removeEventListener: (target, type, handler) => (target === "document" ? document : window).removeEventListener(type, handler),
+    })
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisible)
-      window.removeEventListener("focus", onFocus)
+      stop()
       acRef.current?.abort()
     }
   }, [refresh])
@@ -470,6 +490,11 @@ function MensajesView({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [texto, setTexto] = useState("")
   const [preview, setPreview] = useState<AttachmentPreview>(null)
+  // P2-T49-R1: el botón flotante global de logout se excluye en esta ruta
+  // (choca con el composer) — este acceso compacto en el header reutiliza
+  // exactamente la misma lógica (mismo endpoint, mismo error, misma
+  // navegación) vía el hook compartido, sin duplicarla.
+  const { pending: loggingOut, logout } = useTerminalLogout()
 
   const handleManualRefresh = async () => {
     setRefreshing(true)
@@ -491,9 +516,11 @@ function MensajesView({
   const EntregaIcon = isDelivery ? Bike : Package
 
   return (
-    <main className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur-md border-b border-border/50">
+    <main className="h-dvh bg-background flex flex-col overflow-hidden">
+      {/* Header — P2-T49-R1: shrink-0 en vez de sticky top-0, ya no hace
+          falta: el padre es un viewport clamped (h-dvh + overflow-hidden),
+          no un documento que scrollea. */}
+      <header className="shrink-0 z-30 bg-background/95 backdrop-blur-md border-b border-border/50">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
           <Button asChild variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0">
             <Link href="/operaciones/pyr" aria-label="Volver a Pedidos y reseñas">
@@ -521,6 +548,16 @@ function MensajesView({
           >
             <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
             <span className="hidden sm:inline">Actualizar ahora</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 rounded-xl shrink-0"
+            onClick={logout}
+            disabled={loggingOut}
+            aria-label="Cerrar terminal"
+          >
+            {loggingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
           </Button>
         </div>
         {/* Sub-encabezado del pedido */}
@@ -550,8 +587,11 @@ function MensajesView({
         </div>
       </header>
 
-      {/* Mensajes */}
-      <div className="flex-1 max-w-3xl w-full mx-auto px-4 py-4 space-y-2 overflow-y-auto">
+      {/* Mensajes — P2-T49-R1: min-h-0 agregado. Sin él, este flex item no
+          puede encogerse por debajo de la altura de su contenido, así que
+          nunca queda realmente acotado por el padre clamped y el scroll
+          termina recayendo sobre la página entera en vez de sólo acá. */}
+      <div className="flex-1 min-h-0 max-w-3xl w-full mx-auto px-4 py-4 space-y-2 overflow-y-auto">
         {data.mensajes.length === 0 ? (
           <div className="text-center py-12 px-4 rounded-2xl border-2 border-dashed border-border/50 bg-muted/10">
             <MessageSquare className="h-10 w-10 mx-auto mb-2 text-muted-foreground/30" />
@@ -565,10 +605,17 @@ function MensajesView({
         )}
       </div>
 
-      {/* Compositor — solo con permiso de respuesta */}
+      {/* Compositor — solo con permiso de respuesta. P2-T49-R1: shrink-0 en
+          vez de sticky bottom-0 — al ser el último hijo de un flex column
+          clamped (h-dvh + overflow-hidden), queda siempre visible al pie
+          real de la pantalla por estructura, no por position. El padding
+          inferior combina el mismo valor base que ya tenía (py-3 = 0.75rem)
+          con el safe-area del dispositivo — nunca lo reemplaza: en un
+          dispositivo sin home indicator, env(...) resuelve a 0px y el
+          resultado es idéntico al padding actual. */}
       {data.capacidades.puedeResponderMensajes && (
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-border/50">
-          <div className="max-w-3xl mx-auto px-4 py-3 space-y-1.5">
+        <div className="shrink-0 bg-background/95 backdrop-blur-md border-t border-border/50">
+          <div className="max-w-3xl mx-auto px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] space-y-1.5">
             <div className="flex items-end gap-2">
               <input
                 ref={fileInputRef}

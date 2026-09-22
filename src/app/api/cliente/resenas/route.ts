@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit
 import { createNotification, newReviewNotification } from "@/lib/push"
 import { recomputePublicReviewRating } from "@/lib/review-moderation-server"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { notifyPyrNewReview } from "@/lib/pyr-new-review-notification"
 
 // Seguridad-6B.3: creación de reseña depende de la sesión del cliente — nunca cacheable.
 function noStoreJson<T>(data: T, init?: ResponseInit) {
@@ -126,7 +127,12 @@ export async function POST(req: NextRequest) {
       return created
     })
 
-    // Send push notification to the negocio about the new review
+    // Send push notification to the negocio about the new review.
+    // P2-T44-R1P2: reservedPushEndpoints compartido con el fan-out PyR de
+    // más abajo — Negocio se envía PRIMERO (sin cambios de posición), gana
+    // la precedencia determinista si comparte dispositivo con una
+    // CuentaOperativa PyR (ver R1P1A §18.2).
+    const reservedPushEndpoints = new Set<string>()
     try {
       // Legacy-Cleanup-1C.1: se retiró el envío adicional a la PWA legacy de
       // empleados (Negocio.pushSubscriptionEmpleados) — sin consumidor moderno.
@@ -155,9 +161,27 @@ export async function POST(req: NextRequest) {
         pushSubscription: negocioData?.pushSubscription ?? null,
         pushPayload: notification,
         cleanupExpired: { model: "negocio", id: pedido.negocioId },
+        reservedPushEndpoints,
       })
     } catch (pushError) {
       console.error("[Push] Failed to send review notification:", safeErrorForLog(pushError))
+    }
+
+    // Fan-out moderno a PyR (P2-T44-R1P2, gap G4) — reemplazo account-level
+    // de la capacidad legacy retirada (empleadosNewReviewNotification,
+    // /e/[token], ver R1P0 §4A). No reemplaza al dueño del Negocio, es un
+    // envío independiente y adicional.
+    try {
+      await notifyPyrNewReview({
+        resenaId: resena.id,
+        negocioId: pedido.negocioId,
+        pedidoId,
+        puntuacion: Math.round(puntuacion),
+        clienteNombre: user.nombre,
+        reservedPushEndpoints,
+      })
+    } catch (pyrReviewError) {
+      console.error("[Push] Failed to send PyR new review notification:", safeErrorForLog(pyrReviewError))
     }
 
     return noStoreJson(resena, { status: 201 })
