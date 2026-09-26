@@ -1,65 +1,5671 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## HANDOFF COMPACTO VIGENTE — 2026-09-25
-
-### Estado global
-
-- Production RC1 está certificado y estable en
-  `42ca5005d2ecd412de87e454b52820f38aaec5c0`.
-- Production no fue tocada por la auditoría documental y no existe
-  autorización implícita para nuevos cambios Production.
-- El snapshot RC1 curado incluye el contenido funcional certificado de T39 y
-  T40; esto no debe confundirse con ancestría directa de sus commits en
-  `origin/main`.
-
-### Testing
-
-- `origin/testing-codex=3eef96f203277a2fb6a71f1de76cec48e15f938d`.
-- Secret Hygiene TESTING, pasos 1–6: `CLOSED`.
-- PostgreSQL password rotation: `FINAL_GATE=PASS`.
-- Physical DB smoke: `PASS`.
-- Post-smoke log gate: `PASS`.
-
-### Worktree histórico
-
-`C:\Leo Campos\Trabajo\deligo-main-limpio` no debe usarse como base de nueva
-implementación en su estado actual: está 8 commits detrás, tiene 4 tracked
-modifications documentales, 26.732 entradas untracked y ningún commit local
-ahead. Debe preservarse hasta una reconciliación explícita.
-
-### Backlog actual
-
-Abiertos o condicionados relevantes: T23, T24, T33, T34, T37, T38, T44 y
-T54. T23 espera decisión/sonda H4; T24 depende de T23; T33/T37 son revisiones
-posteriores; T34 requiere Android físico; T44 está pausada tras timebox; T54
-espera T02/T23/T24. No listar T02 ni T39–T53/T55 como pendientes: sus estados
-vigentes están cerrados o certificados, con la excepción explícita de T44.
-
-### Próxima acción
+## CURRENT AUTHORITATIVE STATE — DOCUMENTATION DRIFT RECONCILIATION (2026-09-26)
 
 ```text
-NEXT_RECOMMENDED_TASK=P2-T38
-NEXT_RECOMMENDED_TASK_TITLE=PWA Installation UX
-PRECONDITION=PREPARE_CLEAN_TESTING_WORKTREE
-DO_NOT_START_AUTOMATICALLY=SI
+CURRENT_TASK=P2 — DOCUMENTATION DRIFT RECONCILIATION BEFORE P2-T38 IMPLEMENTATION
+CURRENT_TASK_STATUS=DOCUMENTATION_DRIFT_RECONCILED
+ORIGIN_TESTING_CODEX_BASE=cf46781ffc999024b19063a8ed9ab34a1557b92c
+ORIGIN_MAIN_CURRENT=42ca5005d2ecd412de87e454b52820f38aaec5c0
+PRODUCTION_MAIN_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0
+PRODUCTION_RC1=CERTIFIED
+PRODUCTION_NEW_CHANGES_AUTHORIZED=NO
+TESTING_SECRET_HYGIENE_STEPS_1_6=CLOSED
+TESTING_POSTGRES_ROTATION_FINAL_GATE=PASS
+TESTING_POSTGRES_PHYSICAL_DB_SMOKE=PASS
+TESTING_POST_PHYSICAL_LOG_GATE=PASS
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+HISTORICAL_DIRTY_WORKTREE=C:\Leo Campos\Trabajo\deligo-main-limpio
+T39_WORKTREE=C:\Leo Campos\Trabajo\deligo-t39-admin
+T39_BRANCH=work/p2-t39-r3
+T39_WORKTREE_HEAD=cf46781ffc999024b19063a8ed9ab34a1557b92c
+T39_WORKTREE_CLEAN=SI
+T38_WORKTREE=C:\Leo Campos\Trabajo\deligo-t38-installation-ux
+T38_BRANCH=work/p2-t38-installation-ux
+T38_WORKTREE_HEAD_BEFORE_DOC_SYNC=cf46781ffc999024b19063a8ed9ab34a1557b92c
+T38_WORKTREE_CLEAN_BEFORE_DOC_SYNC=SI
+P2_T38_STATUS=READY_FUTURE
+P2_T38_TECHNICAL_PREFLIGHT=RECONSTRUCTED (ver codex-reports/P2_T38_PWA_INSTALLATION_UX_PREFLIGHT.md)
+P2_T38_DOCUMENTATION_GATE=PASS_AFTER_THIS_DOCUMENTATION_PUSH
+P2_T38_PREFLIGHT_EFFECTIVE_STATUS=PASS_READY_FOR_IMPLEMENTATION_AUTHORIZATION
+P2_T38_IMPLEMENTATION_AUTHORIZED=NO
+T38_WORKTREE_RECHECK_AFTER_DOC_PUSH=REQUIRED (sincronizar sólo el commit documental antes de implementar)
+T39_STATUS=CLOSED_TESTING_CERTIFIED
+T40_STATUS=CLOSED_TESTING_CERTIFIED
+T42_STATUS=CLOSED_PRODUCTION
+T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX
+T44_G3_PHYSICAL_CERTIFIED=NO
+T23_STATUS=REOPENED_AWAITING_FILTER_CALIBRATION_DECISION (H4)
+T24_STATUS=DEPENDS_ON_T23; RELEASE_ELIGIBLE=NO
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+DB_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T38_IMPLEMENTATION_AUTHORIZATION
 ```
 
-### Lectura obligatoria para un chat nuevo
+Production RC1 está certificado sobre `origin/main`; este handoff no autoriza
+cambios nuevos en Production. La rotación de password PostgreSQL de TESTING y
+Secret Hygiene pasos 1–6 están cerrados. El smoke físico de DB y su auditoría
+posterior de logs dieron PASS.
 
-1. `CODEX_REPORT.md`
-2. `DELIGO_FULL_CONTEXT_LATEST.md`
-3. `codex-reports/ROADMAP.md`
-4. `codex-reports/P2_CURRENT_STATE_AND_BACKLOG_PRIORITY_RECONCILIATION.md`
-5. `codex-reports/P2_TESTING_POSTGRES_PASSWORD_ROTATION_EXECUTION.md`
+El worktree histórico está dirty y debe preservarse. T39 también se conserva.
+El worktree T38 se preparó limpio en la base conocida; el push documental que
+resuelve este drift lo dejará un commit documental detrás. Antes de una futura
+implementación se debe revalidar y sincronizar esa base. P2-T38 sigue
+`READY_FUTURE`; su implementación no está autorizada por esta reconciliación.
 
-## HISTORICAL SNAPSHOTS BELOW
+### Backlog vigente preservado
 
-Todo el contenido posterior a este bloque es histórico y puede contener
-estados anteriores. Para el estado vigente deben prevalecer este handoff,
-`CODEX_REPORT.md` y la sección `CURRENT AUTHORITATIVE BACKLOG HANDOFF` de
-`codex-reports/ROADMAP.md`.
+T39/T40/T42 continúan cerradas según su certificación; no se reabren. T44 sigue
+pausada por timebox y G3 continúa sin certificación física. T23 espera la
+decisión de calibración del filtro H4; T24 mantiene su dependencia de T23 y no
+es release eligible. El resto del backlog se conserva según ROADMAP y los
+reportes canónicos, sin cambios de prioridad aquí.
 
-## CURRENT AUTHORITATIVE STATE — P2-T24-R5.14B (2026-09-15)
+## HISTORICAL / SUPERSEDED CONTEXT BELOW
+
+Las entradas debajo son snapshots históricos conservados para trazabilidad.
+Sus títulos pueden reflejar el estado vigente en la fecha de cada snapshot;
+ninguno sustituye el bloque CURRENT AUTHORITATIVE STATE de este encabezado.
+
+### Snapshot compacto remoto conservado (2026-09-25; superseded)
+
+El handoff compacto que estaba en el blob remoto registraba `origin/testing-codex`
+en `3eef96f`, RC1 de Production en `42ca500`, Secret Hygiene y PostgreSQL
+rotation como PASS, worktree histórico 8 commits detrás, T23 esperando H4,
+T24 dependiente de T23, T44 pausada y P2-T38 como recomendación futura tras
+preparar un worktree limpio. Se conserva aquí la información única de ese
+snapshot; su baseline y siguiente acción quedaron supersedidos por los bloques
+documentales posteriores y el preflight T38.
+
+## HISTORICAL SNAPSHOTS — registros previos preservados
+
+## HISTORICAL SNAPSHOT — P2-T38 CLEAN WORKTREE PREPARATION — READY FUTURE (2026-09-25)
+
+```text
+NEXT_WORKTREE=C:\Leo Campos\Trabajo\deligo-t38-installation-ux
+NEXT_BRANCH=work/p2-t38-installation-ux
+NEXT_BASE_SHA=cf46781ffc999024b19063a8ed9ab34a1557b92c
+P2_T38_STATUS=READY_FUTURE
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T38_PREFLIGHT_AND_IMPLEMENTATION_AUTHORIZATION
+```
+
+The isolated worktree is clean and exactly aligned with `origin/testing-codex`.
+No product code, tests, database, Railway, or Production were changed by this
+preparation. The historical dirty worktree and the T39 worktree remain intact.
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: RETRY FINAL DEL CHECKPOINT DE POSTGRES EN WAIT (2026-09-25 22:02Z)
+
+```text
+CURRENT_TASK=P2 — TESTING POSTGRES PASSWORD ROTATION, PHASE 2: FINAL CUTOVER CHECKPOINT RETRY
+CURRENT_TASK_STATUS=STOPPED_CUTOVER_CHECKPOINT_WAIT
+REPORT=codex-reports/P2_TESTING_POSTGRES_ROTATION_CUTOVER_CHECKPOINT.md (sección Retry final)
+CUTOVER_CHECKPOINT=WAIT
+TESTING_POSTGRES_PASSWORD_ROTATED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+El retry se hizo de 22:02:06Z a 22:02:46Z, dentro de la ventana.
+
+- **Review:** a las 22:02:41Z la corrida de las 22:00 todavía no había
+  arrancado. Apareció la de las 21:00: arrancó a las 21:02:58Z y
+  terminó bien, con `errors: 0`.
+- **Mesa:** la corrida de las 22:00 terminó con `errors: 0`.
+- **El resto dio PASS:** backup, deployments, `SELECT 1` (como
+  `postgres`, en solo lectura), referencias y Production.
+
+Recomendación: como Review arranca entre 1 y 3 minutos tarde, conviene
+usar una ventana de **23:05 a 23:08 UTC (20:05 a 20:08 ART)**.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: RETRY DEL CHECKPOINT DE POSTGRES EN WAIT (2026-09-25 21:02Z)
+
+```text
+CURRENT_TASK=P2 — TESTING POSTGRES PASSWORD ROTATION, PHASE 2: CUTOVER CHECKPOINT RETRY
+CURRENT_TASK_STATUS=STOPPED_CUTOVER_CHECKPOINT_WAIT
+REPORT=codex-reports/P2_TESTING_POSTGRES_ROTATION_CUTOVER_CHECKPOINT.md (sección Retry)
+CUTOVER_CHECKPOINT=WAIT
+TESTING_POSTGRES_PASSWORD_ROTATED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+El retry se hizo de 21:02:06Z a 21:02:51Z, dentro de la ventana, y casi
+todo dio PASS:
+
+- el backup coincide por SHA-256;
+- los deployments están estables;
+- `SELECT 1` funcionó como `postgres`;
+- las referencias están intactas;
+- Production está intacta.
+
+La excepción es el cron de Review Expiry: su corrida de las 21:00 no
+dejó ningún log, así que no se puede confirmar que haya terminado.
+
+Próxima ventana: **22:02–22:05 UTC (19:02–19:05 ART)**.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: CHECKPOINT DEL CUTOVER DE POSTGRES EN WAIT (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING POSTGRES PASSWORD ROTATION, PHASE 2: CUTOVER CHECKPOINT (READ-ONLY)
+CURRENT_TASK_STATUS=STOPPED_CUTOVER_CHECKPOINT_WAIT
+REPORT=codex-reports/P2_TESTING_POSTGRES_ROTATION_CUTOVER_CHECKPOINT.md
+CUTOVER_CHECKPOINT=WAIT
+TESTING_POSTGRES_PASSWORD_ROTATED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+El checkpoint se hizo de 20:04:43Z a 20:06:26Z y todas las condiciones
+técnicas dieron PASS:
+
+- el backup coincide por SHA-256;
+- los dos crons ya terminaron sus corridas de las 20:00;
+- no hay deployments en curso y todos están estables;
+- la conexión actual funciona (`SELECT 1`, como `postgres`);
+- el modelo de referencias sigue intacto;
+- Production está intacta.
+
+La única condición que falló es la hora: el checkpoint terminó después
+de la ventana de 20:02 a 20:05Z.
+
+Próxima ventana: **21:02–21:05 UTC (18:02–18:05 hora Argentina)**, con
+re-checkpoint rápido y luego la autorización del paso `ALTER ROLE`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: BACKUP PREVIO A ROTAR POSTGRES LISTO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING POSTGRES PASSWORD ROTATION, PHASE 2 STEP 0: FRESH BACKUP
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_PHASE_2_CUTOVER_CHECKPOINT
+REPORT=codex-reports/P2_TESTING_POSTGRES_FRESH_BACKUP_BEFORE_ROTATION.md
+TESTING_POSTGRES_FRESH_BACKUP_GATE=PASS
+TESTING_POSTGRES_PASSWORD_ROTATED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Se creó y validó un backup fresco de la base de TESTING, en
+`C:\Leo Campos\Trabajo\deligo-testing-backups\deligo-testing-pre-postgres-rotation-20260925.dump`,
+de 995771 bytes, con SHA-256
+`f0ab1ab6b55f2c4e490eb47ae0cdcf72a0db2edb9462cc147acc58f4a1764ba7`.
+
+- El formato es custom (cabecera `PGDMP`).
+- `pg_restore --list` terminó bien: 298 entradas y 48 tablas, todas con
+  datos.
+- Las credenciales se usaron solo como variables de entorno del
+  proceso, y la sesión fue de solo lectura.
+
+No se ejecutó la rotación, no se cambió ninguna variable, no hubo
+deploy y el `.env` no se tocó.
+
+Siguiente paso: el operador autoriza el cutover de la Fase 2 y elige
+una ventana entre :02 y :05.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PREFLIGHT DE LA PASSWORD DE POSTGRES LISTO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING POSTGRES PASSWORD ROTATION, PHASE 1: PREFLIGHT (read-only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_AUTHORIZATION_FOR_PHASE_2
+REPORT=codex-reports/P2_TESTING_POSTGRES_PASSWORD_ROTATION_PREFLIGHT.md
+TESTING_POSTGRES_ROTATION_PREFLIGHT=PASS_READY_FOR_OPERATOR_AUTHORIZATION
+TESTING_MUTATIONS_PERFORMED=NO / PRODUCTION_TOUCHED=NO
+```
+
+**Corrección importante.** La auditoría anterior dijo que las URLs de
+conexión eran literales en 9 lugares. Era falso, por un error de escape
+del regex.
+
+En realidad, en Railway todo deriva de **una sola variable**,
+`POSTGRES_PASSWORD`, en el servicio Postgres:
+
+- `PGPASSWORD`, `DATABASE_URL` y `DATABASE_PUBLIC_URL` la referencian.
+- DeliGO Copy, Mesa Cron y Review Expiry usan
+  `${{Postgres.DATABASE_URL}}`.
+
+La única copia literal está en el `.env` local.
+
+**Role y mecanismo.** El role es `postgres`, superusuario y único
+login, en PostgreSQL 18.6 con SCRAM. Railway **no** ofrece rotación
+nativa para este servicio: la única opción existe para plugins legacy,
+y el proyecto no tiene ninguno. Cambiar solo la variable **no** cambia
+la password del cluster ya inicializado.
+
+**Método definido para la fase 2.** `ALTER ROLE` con un verificador
+SCRAM calculado localmente y enviado por stdin: el texto plano nunca
+llega al servidor ni a los logs. El plan:
+
+1. Backup fresco de TESTING.
+2. `ALTER ROLE` y `POSTGRES_PASSWORD` con `--skip-deploys`, en un solo
+   proceso.
+3. Verificar la URL re-renderizada y una conexión nueva.
+4. Redeploy de DeliGO Copy y de los dos crons.
+5. Smoke.
+6. Actualizar el `.env` local al final. Hasta ese momento, el `.env`
+   sirve de vía de rollback de emergencia.
+
+**Ventana recomendada.** Entre 2 y 5 minutos después de la hora en
+punto, antes de la corrida de Mesa de las :15.
+
+**Punto a verificar en la fase 2.** El deployment activo de Mesa Cron
+es `05eb7e6c`, con varios deployments `SKIPPED` posteriores: hay que
+confirmar qué queda activo después del redeploy.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 5 CERRADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING REALTIME SECRETS POST-PHYSICAL-SMOKE FINAL CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_STEP_5_OF_TESTING_SECRET_HYGIENE
+REPORT=codex-reports/P2_TESTING_REALTIME_SECRETS_ROTATION.md
+TESTING_REALTIME_FINAL_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+NEXT_ACTION=REQUEST_OPERATOR_AUTHORIZATION_FOR_TESTING_POSTGRES_PASSWORD_ROTATION
+```
+
+La rotación coordinada de los 3 secretos realtime quedó cerrada.
+
+- **Smoke físico:** el chat del pedido conectó y los mensajes llegaron
+  en tiempo real en los dos sentidos.
+- **Logs:** cada secreto nuevo muestra evidencia positiva.
+  - Token de socket: se emitieron tokens y el chat aceptó las
+    conexiones.
+  - Session-check: respondió 200.
+  - Publicación interna: `published`, una por cada mensaje.
+  - No hubo errores de firma ni de autenticación.
+- **Configuración:** los 3 secretos siguen iguales entre DeliGO Copy y
+  chat.
+
+Pasos 1 a 5 cerrados. Solo queda el paso 6, la password de Postgres de
+TESTING. Es la rotación de mayor riesgo: la credencial es literal en 9
+lugares y hay que confirmar el mecanismo con el operador o con Railway.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 5 (SECRETOS REALTIME) ROTADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING SECRET HYGIENE: COORDINATED ROTATION OF THE 3 REALTIME SECRETS
+CURRENT_TASK_STATUS=TECHNICAL_PASS_AWAITING_OPERATOR_PHYSICAL_SMOKE
+REPORT=codex-reports/P2_TESTING_REALTIME_SECRETS_ROTATION.md
+TESTING_REALTIME_ROTATION_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+```
+
+Se rotaron de forma coordinada los 3 secretos realtime de TESTING.
+
+- **Carga:** en un solo proceso se generaron 3 valores nuevos de 32
+  bytes. Cada uno se escribió en DeliGO Copy **y** en chat en vivo
+  antes de redeployar cualquiera de los dos, siempre con
+  `--skip-deploys`. Las 6 escrituras salieron bien y nunca se mostró un
+  valor.
+- **Verificación previa:** antes del cutover los 3 secretos eran SAME
+  entre los dos servicios.
+- **Cutover:**
+  - DeliGO Copy, deployment `56ce1ae1`: SUCCESS a las 18:26:23Z.
+  - chat, deployment `6e40b950`: se disparó cuando DeliGO Copy entró en
+    DEPLOYING y llegó a SUCCESS a las 18:27:07Z.
+  - La ventana de desincronización fue de unos 45 a 60 segundos.
+  - Los dos siguen sobre el mismo commit `3eef96f`.
+- **Logs:** limpios y sin errores de firma o autenticación. Los únicos
+  "error" son el apagado normal del contenedor viejo de chat, cuando
+  npm recibe SIGTERM.
+- Production y los crons no se tocaron.
+
+Pendiente: el smoke físico del operador, un chat de pedido en tiempo
+real. Después solo queda el paso 6, la password de la base de TESTING,
+que requiere confirmar el mecanismo con el operador o el proveedor.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 4 CERRADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING PRIVATE EVIDENCE CLOUDINARY POST-SMOKE CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_STEP_4_OF_TESTING_SECRET_HYGIENE
+REPORT=codex-reports/P2_TESTING_PRIVATE_EVIDENCE_CLOUDINARY_ROTATION.md
+TESTING_PRIVATE_EVIDENCE_FINAL_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+NEXT_ACTION=REQUEST_OPERATOR_AUTHORIZATION_TO_ROTATE_TESTING_REALTIME_SECRETS
+```
+
+El operador rotó él mismo la API key y el secret de Cloudinary de
+evidencia privada en TESTING. Conservó el mismo cloud y dejó la key
+vieja **deshabilitada**, no borrada.
+
+- **Evidencia física:** la subida y la lectura desde SuperAdmin
+  funcionaron antes y después de deshabilitar la key vieja. No había
+  evidencias anteriores para probar; se registra como N/A, no como
+  fallo.
+- **Verificación técnica:** las 3 variables están presentes y son
+  distintas de las de Production.
+- **Deployment:** hubo un único deployment nuevo, `2ab80cf7`, solo de
+  DeliGO Copy y sobre el mismo commit.
+- **Logs:** subida y lecturas de Negocio y de SuperAdmin, todas con
+  200, sin errores de credencial.
+
+Nota: en los logs aparece una sola subida, mientras el operador informó
+dos. Es informativo y no bloqueante.
+
+Pasos 1 a 4 cerrados. Quedan:
+
+- el paso 5, los 3 secretos realtime, con un cutover coordinado entre
+  DeliGO Copy y chat en vivo;
+- el paso 6, la password de la base, que requiere confirmar el
+  mecanismo con el operador o el proveedor.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 3 CERRADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING REGISTRATION_LIMIT POST-SMOKE CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_STEP_3_OF_TESTING_SECRET_HYGIENE
+REPORT=codex-reports/P2_TESTING_REGISTRATION_LIMIT_SECRET_ROTATION.md
+TESTING_REGISTRATION_LIMIT_FINAL_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+NEXT_ACTION=REQUEST_OPERATOR_AUTHORIZATION_TO_ROTATE_TESTING_PRIVATE_EVIDENCE_CLOUDINARY
+```
+
+El paso 3 del plan de higiene de TESTING quedó cerrado.
+
+- El operador completó un registro de prueba de Cuenta Operativa, sin
+  errores 500.
+- Los logs del deployment `648d94e7` lo confirman: el registro
+  respondió 200 y la sesión de la cuenta nueva quedó activa, sin
+  ningún error.
+- Se mantiene el efecto esperado y no bloqueante: el historial del
+  límite de los últimos 7 días deja de contar.
+
+Pasos 1 a 3 cerrados. Siguiente: pedir autorización para el paso 4,
+las credenciales de Cloudinary de evidencia privada. Esa rotación
+permite que la key vieja y la nueva convivan, así que no hay caída.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 3 (REGISTRATION_LIMIT_SECRET) ROTADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING SECRET HYGIENE: ROTATE REGISTRATION_LIMIT_SECRET
+CURRENT_TASK_STATUS=TECHNICAL_PASS_AWAITING_OPERATOR_PHYSICAL_SMOKE
+REPORT=codex-reports/P2_TESTING_REGISTRATION_LIMIT_SECRET_ROTATION.md
+TESTING_REGISTRATION_LIMIT_ROTATION_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+```
+
+Se rotó `REGISTRATION_LIMIT_SECRET` en TESTING / DeliGO Copy.
+
+- El valor nuevo, de 32 bytes, se generó y se escribió directamente por
+  un pipe, sin mostrarse nunca.
+- Es distinto del valor viejo.
+- El redeploy `648d94e7` terminó en SUCCESS sobre el mismo commit
+  `3eef96f`, y los logs están limpios.
+- Production y los demás servicios de TESTING no se tocaron.
+
+Efecto esperado, y aceptado en TESTING: el historial del límite de
+registro de los últimos 7 días deja de contar, porque los hashes viejos
+ya no coinciden. No se corrompió ningún dato y no se tocó la base.
+
+Pendiente: el smoke físico del operador, un registro de Cuenta
+Operativa o una prueba de la ruta sin crear datos. Después sigue el
+paso 4, las credenciales de Cloudinary de evidencia privada.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 2 CERRADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING GOOGLE_OAUTH_PENDING POST-SMOKE CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_STEP_2_OF_TESTING_SECRET_HYGIENE
+REPORT=codex-reports/P2_TESTING_GOOGLE_OAUTH_PENDING_SECRET_ROTATION.md
+TESTING_GOOGLE_OAUTH_PENDING_FINAL_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+NEXT_ACTION=REQUEST_OPERATOR_AUTHORIZATION_TO_ROTATE_TESTING_REGISTRATION_LIMIT_SECRET
+```
+
+El paso 2 del plan de higiene de TESTING quedó cerrado.
+
+- El operador completó un alta con Google usando una cuenta de prueba
+  nueva: llegó al consentimiento, lo aceptó y el alta terminó bien.
+- Los logs del deployment `b0233d72` lo confirman: el `POST /consent`
+  respondió 200 (solo posible si la cookie pendiente verifica con el
+  secreto nuevo) y la sesión quedó activa.
+- Sin errores y sin respuestas 4xx ni 5xx en `/api/auth`.
+
+Pasos 1 y 2 cerrados. Siguiente: pedir autorización para el paso 3,
+`REGISTRATION_LIMIT_SECRET`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 2 (GOOGLE_OAUTH_PENDING_SECRET) ROTADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING SECRET HYGIENE: ROTATE GOOGLE_OAUTH_PENDING_SECRET
+CURRENT_TASK_STATUS=TECHNICAL_PASS_AWAITING_OPERATOR_PHYSICAL_SMOKE
+REPORT=codex-reports/P2_TESTING_GOOGLE_OAUTH_PENDING_SECRET_ROTATION.md
+TESTING_GOOGLE_OAUTH_PENDING_ROTATION_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+```
+
+Se rotó `GOOGLE_OAUTH_PENDING_SECRET` en TESTING / DeliGO Copy.
+
+- El valor nuevo, de 32 bytes, se generó y se escribió directamente por
+  un pipe, sin mostrarse nunca.
+- Es distinto del valor viejo y del de Production.
+- El redeploy `b0233d72` terminó en SUCCESS sobre el mismo commit
+  `3eef96f`, y los logs están limpios.
+- El cliente OAuth de Google no cambió: `GOOGLE_CLIENT_ID` y
+  `GOOGLE_CLIENT_SECRET` siguen iguales a los de Production.
+- Production y los demás servicios de TESTING no se tocaron.
+
+Pendiente: el smoke físico del operador, un alta con Google usando una
+cuenta todavía no registrada para llegar al consentimiento. Después
+sigue el paso 3, `REGISTRATION_LIMIT_SECRET`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 1 CERRADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING PUSH_OWNER_HANDOFF POST-SMOKE CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_STEP_1_OF_TESTING_SECRET_HYGIENE
+REPORT=codex-reports/P2_TESTING_PUSH_OWNER_HANDOFF_SECRET_ROTATION.md
+TESTING_PUSH_OWNER_HANDOFF_FINAL_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+NEXT_ACTION=REQUEST_OPERATOR_AUTHORIZATION_TO_ROTATE_TESTING_GOOGLE_OAUTH_PENDING_SECRET
+```
+
+El paso 1 del plan de higiene de TESTING quedó cerrado.
+
+- El operador confirmó el login y que Push sigue activo.
+- Los logs del deployment `4545aed0` muestran que el handoff se firmó
+  (`signed=true`) y se verificó (`verified=true`) con el secreto nuevo,
+  sin ninguna falla.
+
+Nota: el único login visible en los logs fue de tipo Cliente, por
+Google (`family=cliente`), no un login de Negocio con contraseña. Es
+informativo: todas las rutas de login usan el mismo código de firma y
+verificación.
+
+Siguiente: pedir autorización para el paso 2, `GOOGLE_OAUTH_PENDING_SECRET`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE TESTING: PASO 1 (PUSH_OWNER_HANDOFF_SECRET) ROTADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING SECRET HYGIENE: ROTATE PUSH_OWNER_HANDOFF_SECRET
+CURRENT_TASK_STATUS=TECHNICAL_PASS_AWAITING_OPERATOR_PHYSICAL_SMOKE
+REPORT=codex-reports/P2_TESTING_PUSH_OWNER_HANDOFF_SECRET_ROTATION.md
+TESTING_PUSH_OWNER_HANDOFF_ROTATION_GATE=PASS
+PRODUCTION_BASELINE_UNCHANGED=SI
+```
+
+Se rotó `PUSH_OWNER_HANDOFF_SECRET` en TESTING / DeliGO Copy.
+
+- El valor nuevo, de 32 bytes, se generó y se escribió directamente por
+  un pipe, sin mostrarse nunca.
+- Es distinto del valor viejo expuesto y del de Production.
+- El redeploy `4545aed0` terminó en SUCCESS sobre el mismo commit
+  `3eef96f`, y los logs están limpios.
+- Production y los demás servicios de TESTING no se tocaron.
+
+Pendiente: el smoke físico del operador (login de Negocio, estado de
+Push y ausencia de errores de handoff). Después sigue el paso 2 del
+plan, `GOOGLE_OAUTH_PENDING_SECRET`, con su propia autorización.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 HIGIENE DE SECRETOS DE TESTING: PLAN LISTO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — TESTING SECRET HYGIENE AUDIT + SAFE ROTATION PLAN (read-only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_TESTING_SECRET_HYGIENE_AUDIT_AND_ROTATION_PLAN.md
+TESTING_SECRET_HYGIENE_AUDIT=PASS
+TESTING_SECRET_ROTATION_EXECUTED=NO
+PRODUCTION_BASELINE_UNCHANGED=SI
+```
+
+La auditoría de los 8 secretos de TESTING expuestos se hizo sobre el
+código real que corre en TESTING (`3eef96f`) y en modo solo lectura
+sobre Railway (solo presencia y SAME/DIFFERENT).
+
+**Rotación simple** (solo DeliGO Copy):
+
+- `PUSH_OWNER_HANDOFF_SECRET`: cookie de 10 min.
+- `GOOGLE_OAUTH_PENDING_SECRET`: cookie de 10 min; no afecta sesiones.
+- `REGISTRATION_LIMIT_SECRET`: rotarlo reinicia el historial del límite
+  de 7 días.
+
+**Rotación con el proveedor, sin downtime:** las credenciales de
+Cloudinary de evidencia privada. La cuenta es propia de TESTING.
+
+**Rotación coordinada:** los 3 secretos realtime. Tienen que ser
+iguales en DeliGO Copy y en chat en vivo, y no hay forma de que
+convivan un valor viejo y uno nuevo. Se hace un solo cutover:
+
+1. cargar los valores nuevos en ambos servicios con `--skip-deploys`;
+2. redeploy de DeliGO Copy;
+3. redeploy de chat.
+
+**Mayor riesgo, la password de la base de TESTING.** El role es
+`postgres` y la credencial es literal en 9 ubicaciones:
+
+- las variables de Postgres;
+- el `DATABASE_URL` de DeliGO Copy, del cron de ocupación de mesas y de
+  Review Expiry;
+- una variable suelta llamada `Postgres` en DeliGO Copy;
+- el `.env` local.
+
+No hay referencias de Railway, así que nada se propaga solo. Hace falta
+confirmar el mecanismo con el operador o el proveedor antes de
+ejecutar.
+
+Ya resueltos, no se re-rotan: Cloudinary principal, Resend y Google.
+
+Primer paso recomendado: rotar `PUSH_OWNER_HANDOFF_SECRET` en TESTING.
+Requiere autorización.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 POST-RELEASE: WORKTREE Y BRANCH LOCAL DEL RC ELIMINADOS (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — POST-RELEASE LOCAL RC CLEANUP RETRY
+CURRENT_TASK_STATUS=DONE_AWAITING_OPERATOR
+REPORT=codex-reports/P2_POST_RELEASE_LOCAL_RC_CLEANUP.md
+POST_RELEASE_LOCAL_RC_CLEANUP=PASS
+PRODUCTION_MAIN_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (sin cambios)
+```
+
+Con autorización del operador se borró solo `tsconfig.tsbuildinfo`.
+Después se eliminó el worktree `deligo-production-rc1` sin `--force`, y
+la branch local `release/p2-production-rc1-20260921` con `-d`.
+
+Quedó en disco una carpeta `.next` vacía que contenía un junction
+colgante de Next.js. Se retiró de forma segura: se borró solo el link y
+luego las carpetas vacías, sin recursión y sin borrar ningún archivo.
+
+Worktrees restantes: `deligo-main-limpio` y `deligo-t39-admin`. No hubo
+push, deploy ni cambios en Railway.
+
+El resto del cleanup opcional sigue a decisión del operador.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 POST-RELEASE: CLEANUP DEL WORKTREE LOCAL BLOQUEADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — POST-RELEASE CLEANUP: WORKTREE LOCAL DEL RC Y BRANCH LOCAL
+CURRENT_TASK_STATUS=BLOCKED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_POST_RELEASE_LOCAL_RC_CLEANUP.md
+POST_RELEASE_LOCAL_RC_CLEANUP=BLOCKED
+PRODUCTION_MAIN_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (sin cambios)
+```
+
+No se eliminó nada. El preflight encontró **un archivo untracked** en
+el worktree `deligo-production-rc1`: `tsconfig.tsbuildinfo`, el cache
+de compilación de TypeScript que generó el quality gate del RC. La
+regla de la tarea exige STOP ante cualquier archivo untracked.
+
+El worktree y la branch local siguen como estaban, en `42ca5005`. El
+resto de los chequeos pasó.
+
+Para desbloquear, el operador tiene que autorizar el borrado de ese
+único archivo y después repetir la tarea tal cual.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 POST-RELEASE: RELEASE BRANCH REMOTA ELIMINADA (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — POST-RELEASE CLEANUP: RELEASE BRANCH DELETION
+CURRENT_TASK_STATUS=DONE_AWAITING_OPERATOR
+REPORT=codex-reports/P2_POST_RELEASE_RELEASE_BRANCH_CLEANUP.md
+POST_RELEASE_RELEASE_BRANCH_CLEANUP=PASS
+PRODUCTION_MAIN_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (sin cambios; release RC1 certificado)
+```
+
+Se eliminó solo la branch remota `release/p2-production-rc1-20260921`,
+que apuntaba a `42ca5005`, igual que `main`. El commit sigue siendo el
+HEAD de `main`. Production siguió en el mismo deployment `6bf1ee84`. La
+branch local y el worktree `deligo-production-rc1` quedaron intactos.
+
+Observación: el CLI de Railway, desde ese worktree (que estaba enlazado
+a RC-PREPROD), dijo que el entorno está eliminado. Eso indica que el
+operador ya borró el PREPROD, pero no se verificó más allá del mensaje.
+
+El resto del cleanup post-release sigue a decisión del operador.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 RC1 EN PRODUCTION: RELEASE CERTIFICADO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION RC1 FINAL RELEASE CLOSEOUT (solo documentación)
+CURRENT_TASK_STATUS=CLOSED_PRODUCTION_CERTIFIED
+REPORT=codex-reports/P2_PRODUCTION_RC1_FINAL_RELEASE_CLOSEOUT.md
+PRODUCTION_FINAL_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0
+PRODUCTION_DEPLOYMENT_ID=6bf1ee84-702e-41e1-80a8-d075e3ce9362 (SUCCESS, sigue activo)
+PRODUCTION_TECHNICAL_RELEASE_GATE=PASS
+PRODUCTION_PHYSICAL_SMOKE=PASS
+PRODUCTION_RELEASE_CERTIFIED=SI
+PRODUCTION_RELEASE_BLOCKERS=0
+NEXT_ACTION=POST_RELEASE_CLEANUP_OPERATOR_DECISION
+```
+
+El release RC1 quedó **validado técnica y físicamente en Production**.
+
+El operador hizo el smoke físico en `deligo.ar` y pasaron los 6 casos:
+login de Negocio, activación de Push, pedido real, llegada real del
+Push al dispositivo, logout y login con el mismo Negocio, y Push activo
+después del nuevo login sin rehabilitarlo ni un nuevo pedido de permiso
+nativo. No se repitieron las baterías de T40 A–J, T39 ni T46, que ya
+estaban certificadas en TESTING y en RC PREPROD.
+
+Todos los gates previos siguen en PASS: backup fresco, seguridad final,
+y rotación o aislamiento de Resend, Cloudinary, Google y
+`PUSH_OWNER_HANDOFF_SECRET`.
+
+Esto certifica el release RC1, no todo P2:
+
+- T44-G3 sigue `PAUSED_UNRESOLVED_AFTER_TIMEBOX`.
+- T23 y T24 siguen fuera.
+- T33, T37 y el backlog siguen su propia planificación.
+
+Cleanup pendiente de decisión del operador, nada ejecutado:
+
+- borrar el PREPROD temporal;
+- decidir si se conserva o se borra la release branch;
+- borrar los secretos viejos deshabilitados de Google y Cloudinary;
+- limpiar el PostgreSQL portable;
+- rotar los secretos de TESTING que quedaron expuestos;
+- a futuro, un OAuth Client de Google separado por ambiente.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 RC1 PROMOVIDO A PRODUCTION: SUCCESS TÉCNICO (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION RC1 PROMOTION
+CURRENT_TASK_STATUS=TECHNICAL_SUCCESS_AWAITING_OPERATOR_PHYSICAL_SMOKE
+REPORT=codex-reports/P2_PRODUCTION_RC1_PROMOTION.md
+PRODUCTION_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (antes: ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763)
+PRODUCTION_DEPLOYMENT_ID=6bf1ee84-702e-41e1-80a8-d075e3ce9362 (SUCCESS)
+PRODUCTION_DATABASE_MIGRATION_STATUS=UP_TO_DATE (3 aplicadas, 0 inesperadas)
+PRODUCTION_PROMOTION_STATUS=SUCCESS
+PRODUCTION_TECHNICAL_RELEASE_GATE=PASS
+```
+
+Con autorización explícita del operador, `main` avanzó por
+**fast-forward exacto** de `ff4cc2f8` a `42ca5005`
+(`git push origin 42ca5005…:refs/heads/main`, sin `--force`). El push
+disparó el deploy automático de los 4 servicios de Production y los 4
+terminaron en SUCCESS sobre `42ca5005`.
+
+El `preDeployCommand` aplicó exactamente las 3 migraciones esperadas, y
+el chequeo posterior confirma que el schema está al día. El sitio
+responde bien en las rutas públicas, `/admin` incluida. No hay errores
+reales en los logs, y las variables críticas están presentes.
+`PUSH_OWNER_HANDOFF_SECRET` ya está en uso.
+
+**Pendiente:** el smoke físico del operador sobre Production. La
+certificación física de Production todavía **no** está declarada.
+
+A propósito, no se tocó nada de lo siguiente: el PREPROD, la release
+branch, los secretos viejos deshabilitados de Google y Cloudinary, el
+PostgreSQL portable ni el backlog (T33/T37).
+
+Si hiciera falta volver atrás: redesplegar `ff4cc2f8` conservando el
+schema aditivo. Eso requiere una autorización nueva.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 FRESH BACKUP: PASS, LISTO PARA PEDIR AUTORIZACIÓN DE PROMOCIÓN (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — FRESH PRODUCTION BACKUP RETRY
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_FRESH_PRODUCTION_BACKUP_BEFORE_PROMOTION.md
+FRESH_BACKUP_GATE=PASS
+FRESH_PRODUCTION_BACKUP_SHA256=1f9c566ace469ca175e94205a69a6454c5b26774e5716ece65f4b9fc5d954ac4
+PRODUCTION_CODE_PROMOTED=NO / PRODUCTION_DATABASE_MUTATED=NO / RC_DRIFT=NO
+```
+
+El reintento con los binarios portables de PostgreSQL 18.6 que preparó
+el operador creó un backup fresco de Production:
+`C:\Leo Campos\Trabajo\deligo-production-backups\deligo-production-pre-rc1-20260925.dump`,
+en formato custom, de 220413 bytes.
+
+La validación dio bien: header `PGDMP`; `pg_restore --list` terminó sin
+error, con 298 entradas y 48 tablas, cada una con sus datos. Las tablas
+centrales están presentes; no existe una tabla única `usuarios`, cada
+tipo de actor tiene la suya. El conjunto de tablas es el mismo que en el
+backup del 22, que sigue intacto.
+
+Una corrección: el "96 tablas" del reporte del 22 eran 48 tablas
+contadas dos veces. La cantidad real es 48.
+
+Production no cambió y está sana.
+
+Con la re-auditoría de seguridad en PASS y el backup fresco en PASS, el
+próximo paso es pedir la **autorización explícita del operador** para
+promover el RC `42ca5005` a Production. El runbook está en
+`P2_PRODUCTION_PREPROMOTION_SAFETY_AUDIT.md` §7.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 FRESH BACKUP: BLOCKED BY TOOLING (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — FRESH PRODUCTION BACKUP BEFORE RC PROMOTION
+CURRENT_TASK_STATUS=BLOCKED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_FRESH_PRODUCTION_BACKUP_BEFORE_PROMOTION.md
+FRESH_BACKUP_GATE=BLOCKED
+FRESH_BACKUP_TOOLING_AVAILABLE=NO
+PRODUCTION_CODE_PROMOTED=NO / RC_DRIFT=NO / PRODUCTION_DATABASE_MUTATED=NO
+```
+
+No se pudo crear el backup fresco. Solo existe `pg_dump` 12.15 local,
+que no puede volcar el servidor PostgreSQL 18.6 de Production. Los
+binarios 18 se retiraron el 2026-09-22 y Docker no está instalado.
+
+Siguiendo la regla de la tarea, no se reinstaló nada ni se improvisó
+ningún otro método, y no se abrió ninguna conexión a la base. El backup
+del 2026-09-22 sigue intacto.
+
+Siguiente paso: que el operador autorice herramientas PostgreSQL 18.
+Lo recomendado son los binarios portables oficiales de EnterpriseDB en
+`.zip`, solo cliente, sin instalador ni servicio. Después se repite la
+tarea tal cual.
+
+La seguridad sigue en verde (`FINAL_SECURITY_REAUDIT=PASS` desde el
+audit delta de Resend). Solo falta este backup antes de pedir la
+autorización de promoción.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 FINAL SECURITY RE-AUDIT: PASS (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — RESEND ROTATION FINAL DELTA AUDIT (read-only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_RESEND_ROTATION_FINAL_DELTA_AUDIT.md
+FINAL_SECURITY_REAUDIT=PASS
+PRODUCTION_PROMOTION_READY=SI (solo gates de seguridad; NO es autorización para promover)
+PRODUCTION_CODE_PROMOTED=NO (Production sigue en ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763)
+RC_FINAL_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (sin drift)
+PRODUCTION_TOUCHED_BY_THIS_AUDIT=NO
+```
+
+El único blocker del re-audit final (la key de Resend de Production
+coincidía con la de TESTING y PREPROD, y era la expuesta) quedó
+**RESOLVED**. La comparación en memoria (solo `SAME/DIFFERENT`) da
+Production ≠ TESTING ≠ PREPROD.
+
+El operador revocó la key vieja y confirmó email real en Production y
+en TESTING después de revocarla, así que ninguno de los dos la usa. La
+key vieja queda solo en el PREPROD temporal, y el operador lo aceptó.
+
+Nota informativa: PREPROD tiene un redeploy a las 15:14:05Z sobre el
+mismo commit del RC, posterior al audit anterior. No se puede saber qué
+lo disparó y no afecta a Production. Conviene que el operador confirme
+que fue intencional.
+
+Siguiente paso: crear un backup fresco de Production justo antes de la
+promoción. Después, pedir la autorización explícita del operador para
+promover el RC.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 FINAL SECURITY RE-AUDIT: BLOCKED BY RESEND (2026-09-25)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION FINAL SECURITY RE-AUDIT (read-only)
+CURRENT_TASK_STATUS=BLOCKED_AWAITING_OPERATOR
+REPORT=codex-reports/P2_PRODUCTION_FINAL_SECURITY_REAUDIT.md
+FINAL_SECURITY_REAUDIT=BLOCKED
+PRODUCTION_PROMOTION_READY=NO
+PRODUCTION_CODE_PROMOTED=NO (Production sigue en ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763)
+RC_FINAL_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (sin drift)
+PRODUCTION_TOUCHED_BY_THIS_AUDIT=NO
+```
+
+Re-auditoría final hecha comparando secretos **en memoria** (hash
+SHA-256 dentro del proceso, salida solo `SAME/DIFFERENT`, nunca
+valores ni hashes).
+
+**Único blocker**: `RESEND_API_KEY` de Production es idéntico al de
+TESTING y PREPROD. Como el valor de TESTING quedó expuesto el
+2026-09-22 y ese mismo día se copió sin cambios a PREPROD, y hoy los
+tres coinciden sin ninguna rotación registrada, la key de Resend de
+Production **es la key expuesta**. Hay que rotarla (key nueva exclusiva
+de Production, instalación por `--stdin`, redeploy de solo-variable,
+smoke de email real, revocar la vieja) y re-ejecutar solo esa
+comparación.
+
+**En verde**: Cloudinary aislado (API key y secret distintos entre
+Prod y TESTING, ninguno es la key vieja compartida); Google rotado (el
+mismo secreto nuevo en los 3 entornos, como corresponde a un cliente
+compartido — el aislamiento por OAuth Client queda como higiene
+futura); `PUSH_OWNER_HANDOFF_SECRET` de Production exclusivo (inerte
+hasta que el RC se despliegue); secretos internos de Production
+distintos de TESTING; exactamente las 3 migraciones pendientes;
+backup verificado (hash + header `PGDMP`, conviene refrescarlo justo
+antes de promover); RC sin drift, sin T23/T24; los 3 servicios sanos.
+
+Nota documental: la corrección del 2026-09-22 que decía que el cliente
+clásico de Google no admite secretos paralelos quedó desmentida por la
+práctica — el operador sí pudo crear un segundo secreto con el viejo
+temporalmente activo.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 SECRET ROTATION PLAN CORRECTED (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — SECRET ROTATION PLAN CORRECTION (documentation only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_SHARED_SECRET_ROTATION_PREP.md (mismo archivo, actualizado in-place)
+PRODUCTION_TOUCHED=NO / TESTING_TOUCHED=NO / PREPROD_TOUCHED=NO
+```
+
+Dos correcciones importantes al plan de rotación de la ronda anterior,
+ninguna ejecutada — solo documentación:
+
+**Google OAuth**: el supuesto de "Add Secret manteniendo el viejo
+activo" era incorrecto para el cliente OAuth 2.0 clásico que usa
+DeliGO — ese tipo de cliente solo soporta **Reset Secret**, que revoca
+el valor anterior de inmediato. El plan pasa a ser un **cutover
+coordinado**: apenas se resetea, actualizar los 3 servicios
+(Production primero, luego TESTING, luego PREPROD) lo más rápido
+posible uno tras otro, aceptando una ventana breve e inevitable de
+login-OAuth caído — no existe rollback al secreto viejo una vez
+reseteado.
+
+**Cloudinary**: la estrategia pasa de "un secreto nuevo compartido" a
+**aislamiento real por ambiente** — crear dos pares API key/secret
+nuevos y separados (uno exclusivo de Production, uno exclusivo de
+TESTING) dentro del mismo cloud. A diferencia de Google, Cloudinary sí
+permite múltiples pares activos a la vez, así que esta rotación es sin
+downtime y puede hacerse por fases con un smoke real entre cada paso.
+
+**Orden global actualizado**: Cloudinary primero (sin presión de
+tiempo) → Google después (cutover de una sola vez, ventana breve,
+máxima atención) → `PUSH_OWNER_HANDOFF_SECRET` de Production →
+re-auditoría de seguridad final → promoción del RC a Production.
+
+Nada se tocó en Google Cloud/Cloudinary/Railway en esta tarea — fue
+exclusivamente una corrección documental del reporte ya existente.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 SHARED SECRET ROTATION PLAN READY (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION SHARED SECRET ROTATION PREP (read-only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_SHARED_SECRET_ROTATION_PREP.md
+PRODUCTION_TOUCHED=NO / TESTING_TOUCHED=NO / PREPROD_TOUCHED=NO / MAIN_TOUCHED=NO
+```
+
+Confirmado con identificadores públicos (nunca secretos): Production,
+TESTING y PREPROD comparten **literalmente el mismo cliente OAuth de
+Google** (mismo `GOOGLE_CLIENT_ID`) — afecta los 4 flows de login
+(Cliente, Repartidor, Cuenta Operativa, SuperAdmin), no solo
+SuperAdmin. Buena noticia: Google Cloud permite tener dos client
+secrets activos a la vez, así que la rotación coordinada (PREPROD →
+TESTING → Production) **no requiere ninguna ventana de
+indisponibilidad forzosa**, plan completo ya preparado en el reporte.
+
+También se **confirmó, no solo sospechó**, que Production y TESTING
+comparten la misma credencial de Cloudinary: esta vez se comparó
+`CLOUDINARY_API_KEY` (no solo el nombre del cloud), que mapea 1:1 con
+su secreto — coincide exactamente, así que el secreto SÍ está
+compartido y expuesto. `RESEND_API_KEY` queda `UNKNOWN`: no existe
+ningún identificador público en este proyecto para comparar cuentas de
+Resend sin materializar el secreto.
+
+**Buena noticia importante**: se encontró evidencia autoritativa de
+una tarea anterior (`PRODUCTION_SYNC_R2.md`) que ya verificó, vía
+fingerprint SHA-256 legítimo (nunca en texto plano), que los 4
+secretos internos de Realtime/registro
+(`REALTIME_INTERNAL_PUBLISH_SECRET`, `REALTIME_SESSION_CHECK_SECRET`,
+`REALTIME_SOCKET_TOKEN_SECRET`, `REGISTRATION_LIMIT_SECRET`) son
+**diferentes entre Production y TESTING** (`PRODUCTION_TESTING_SECRET
+_REUSE_COUNT=0`) — no requieren rotación. `GOOGLE_OAUTH_PENDING_SECRET`
+también queda `CONFIRMED_UNIQUE` por evidencia documental de
+aprovisionamiento independiente.
+
+`PRODUCTION_NEW_PUSH_OWNER_HANDOFF_SECRET_REQUIRED=SI` sigue vigente
+(sin generar todavía) — confirmado que cambiar esta variable siempre
+requiere redeploy/restart del servicio `DeliGO`.
+
+**Nada se rotó, generó ni modificó en esta tarea.** Se espera al
+operador para coordinar la rotación real de Google OAuth y Cloudinary,
+y para decidir cómo confirmar el estado de Resend.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 PRODUCTION BACKUP GATE: PASS (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION PREPROMOTION BACKUP GATE
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_PREPROMOTION_BACKUP_GATE.md
+PRODUCTION_BACKUP_GATE=PASS_WITH_RESTORE_NOT_EXECUTED
+PRODUCTION_TOUCHED=NO / TESTING_TOUCHED=NO / PREPROD_TOUCHED=NO / MAIN_TOUCHED=NO
+```
+
+Se creó un backup real de Production vía `pg_dump` (formato custom,
+219149 bytes, SHA-256
+`d4bbbc26f584afbaf00d11c61df52055daf321268fb3a837bd5de244fc4cb78a`),
+guardado fuera del repositorio en
+`C:\Leo Campos\Trabajo\deligo-production-backups\
+deligo-production-pre-rc1-20260922.dump`. Validación estructural
+completa vía `pg_restore --list`: PASS (313 entradas de TOC, 96
+tablas, todas las tablas críticas presentes, cero indicadores de
+error). La `DATABASE_PUBLIC_URL` real de Production se usó
+exclusivamente dentro de pipes/variables de entorno de proceso —
+nunca impresa.
+
+El restore real a un servidor local descartable **no pudo
+completarse**: se instaló PostgreSQL 18 (misma versión que el
+servidor real de Production) oficialmente vía winget, pero establecer
+autenticación seguirapara conectar al servidor local fue bloqueado
+correctamente por el propio clasificador de seguridad del entorno
+(rechazó flexibilizar `pg_hba.conf` a `trust` y rechazó detener el
+servicio para resetear la contraseña), y un intento de reinstalación
+limpia con contraseña explícita chocó con un problema de permisos de
+Windows que requiere sesión elevada. `RESTORE_CAPABILITY_VERIFIED=PARCIAL`
+— no `NO`, porque las herramientas sí estaban disponibles y se
+usaron con éxito para el backup+validación estructural; solo la
+verificación de restore EN VIVO no se completó.
+
+**Corrección importante aceptada del hallazgo previo**: que
+Production comparta el mismo `CLOUDINARY_CLOUD_NAME` que TESTING NO
+prueba que compartan el mismo secreto — Cloudinary permite múltiples
+pares de credenciales por cloud. `CLOUDINARY_SHARED_SECRET_STATUS`
+pasa a `UNCONFIRMED_PENDING_PUBLIC_API_KEY_COMPARISON` (antes se
+había afirmado compartido, ahora corregido a incierto).
+`GOOGLE_SHARED_OAUTH_SECRET_BLOCKER` sigue `OPEN`, sin rotar.
+
+Nada se escribió en Production/Testing/PREPROD/main en esta tarea.
+Nota de limpieza pendiente, sin riesgo: quedan archivos residuales de
+la instalación de PostgreSQL 18 en `C:\Program Files\PostgreSQL\18`
+(el servicio ya fue desinstalado) que requieren una sesión elevada
+para removerse por completo.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 PRODUCTION PREPROMOTION AUDIT: BLOCKED (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION PREPROMOTION SAFETY AUDIT (read-only)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_PREPROMOTION_SAFETY_AUDIT.md
+PREPROMOTION_SAFETY_AUDIT=BLOCKED
+PRODUCTION_TOUCHED_DURING_AUDIT=NO
+```
+
+**Bloqueo doble, ninguno relacionado con el código del RC**:
+
+1. **Sin backup real de Production**: PITR confirmado deshabilitado
+   (`railway postgres pitr status` → `enabled: false`), sin réplica
+   HA, sin evidencia de ningún backup existente. No se puede promover
+   sin resolver esto primero.
+2. **Secreto compartido y ya expuesto, vigente HOY en Production**:
+   comparando únicamente identificadores públicos no-secretos
+   (`GOOGLE_CLIENT_ID`, `CLOUDINARY_CLOUD_NAME` — ninguno de los dos es
+   un secreto), se confirmó que Production usa el **mismo** cliente
+   OAuth de Google y la **misma** cuenta principal de Cloudinary que
+   TESTING. Los secretos reales de ambos (`GOOGLE_CLIENT_SECRET`,
+   `CLOUDINARY_API_SECRET`) fueron expuestos accidentalmente en la
+   transcripción local de la ronda de deploy inicial de PREPROD — lo
+   que significa que las credenciales reales de Production para esos
+   dos proveedores **están expuestas hoy**, independientemente de si
+   el RC se promueve o no. Esto es más urgente que la propia
+   promoción. No se pudo descartar que `RESEND_API_KEY` y los secretos
+   internos `REALTIME_*`/`REGISTRATION_LIMIT_SECRET`/
+   `GOOGLE_OAUTH_PENDING_SECRET` también estén compartidos (un intento
+   de comparación adicional fue bloqueado, correctamente, por el propio
+   entorno de ejecución).
+
+Todo lo demás quedó en verde: las 3 migraciones esperadas (y solo
+esas) están pendientes contra la DB real de Production, son aditivas
+y de bajo riesgo, y el servicio `DeliGO` ya tiene configurado
+`preDeployCommand: npx prisma migrate deploy` — se aplicarían solas en
+el próximo deploy. Ninguna variable requerida por el RC falta en
+Production (solo `PUSH_OWNER_HANDOFF_SECRET` necesita reemplazo por
+uno nuevo — sorprendentemente ya existe ahí con origen no
+documentado). El RC sigue sin drift, sin T23/T24, y el plan de
+rollback es de riesgo nulo en todos los escenarios (migraciones
+puramente aditivas).
+
+**Nada se escribió en Production en esta tarea.** Se espera que el
+operador resuelva ambos bloqueos — especialmente la rotación de
+secretos compartidos, que es urgente por sí sola — antes de continuar
+con la preparación real de la promoción.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 PRODUCTION RC1 PHYSICALLY CERTIFIED (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION RC1 PHYSICAL CERTIFICATION CLOSEOUT
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_RC1_PHYSICAL_CERTIFICATION_CLOSEOUT.md
+RC_FINAL_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0
+RC_RELEASE_CANDIDATE_CERTIFIED=SI
+RC_REQUIRED_PHYSICAL_GATE=PASS (T39, T40 casos A-G relevantes, T46-R2 — todo evidencia física real del operador)
+RC_AUTOMATED_GATE=PASS (con la salvedad ya documentada de T41, ambiental/preexistente en main, no una regresión)
+PRODUCTION_TOUCHED=NO / PRODUCTION_PROMOTION_PERFORMED=NO
+```
+
+El Release Candidate `release/p2-production-rc1-20260921` @
+`42ca5005` queda **certificado físicamente** — T39 (login SuperAdmin
+real + email real + `negocio_pendiente` real + Push real, PC y
+teléfono), T40 (casos A-G repetidos físicamente sobre el RC, incluido
+el caso same-family Negocio A→B sin logout que originó T40-R2/R3; H/J
+mantienen su clasificación previa condicionada por T44, no reabiertos)
+y T46-R2 (selector de pago ausente en pedido individual de Mozo) todos
+`PASS` según evidencia reportada directamente por el operador.
+
+T44-G3 sigue `PAUSED_UNRESOLVED_AFTER_TIMEBOX` — el RC transporta su
+estado compartido pero **no cierra T44**. T23/T24 confirmados fuera
+del RC. T53 se mantiene `CLOSED_OPERATOR_PASS`, no reabierto. La
+rotación pendiente de secretos de TESTING (hallazgo de la ronda de
+deploy inicial) sigue sin ejecutarse.
+
+**Este closeout NO autoriza promoción a Production.** La siguiente
+fase, `PRODUCTION_PREPROMOTION_SAFETY_PREP`, debe ser una tarea
+separada y explícitamente autorizada: verificar backup/restore real de
+Production, crear un `PUSH_OWNER_HANDOFF_SECRET` nuevo exclusivo de
+Production (nunca reutilizar el de Testing/PREPROD), verificar las 3
+migraciones contra el esquema real de Production sin ejecutarlas,
+auditar variables requeridas solo por nombre, y preparar el plan
+exacto de promoción — sin ejecutar la promoción todavía.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 RC1 PREPROD: EMAIL ENABLED, T39 FLOW READY (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — RC1 PREPROD EMAIL ENABLEMENT (for T39 negocio_pendiente)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_RC1_PREPROD_EMAIL_ENABLEMENT.md
+RC_T39_EMAIL_FLOW_READY_FOR_OPERATOR=SI
+PREPROD_EMAIL_REDEPLOY_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (coincide con RC_FINAL_SHA)
+PRODUCTION_TOUCHED=NO / EXISTING_TESTING_SERVICE_TOUCHED=NO
+```
+
+Se auditó `src/lib/email.ts` (real, sin asumir): `EMAIL_ENABLED =
+!!RESEND_API_KEY` — sin esa variable, el registro de Negocio seguía
+funcionando pero ningún email real salía (`sendVerificationEmail`
+retorna temprano, sin error). Se transfirió `RESEND_API_KEY` desde el
+secret store de TESTING a `RC-PREPROD-web` con el mismo mecanismo
+seguro de pipe/stdin ya usado para las credenciales de Google OAuth
+(nunca impreso, nunca escrito a archivo). `EMAIL_FROM` y las 3
+variables de URL base ya estaban correctas desde tareas anteriores.
+Redeploy limpio, SHA exacto verificado. Smoke: `GET /registro/negocio`
+→ 200, sin crear ningún negocio real ni enviar ningún email de prueba
+(reservado para la certificación física real del operador).
+
+Con esto, **tanto el login de SuperAdmin (ronda anterior) como el
+envío real de email de verificación (esta ronda) quedan listos** en
+`https://rc-preprod-web-rc-preprod.up.railway.app` — el flujo completo
+de certificación física de T39 `negocio_pendiente` puede ejecutarse
+ahora.
+
+**Pendiente, sin ejecutar todavía**: rotar los secretos de TESTING
+expuestos en la transcripción local de la ronda de deploy inicial (ver
+`codex-reports/P2_PRODUCTION_RC1_PREPROD_DEPLOY.md` §0).
+
+Esta tarea se detuvo tal como fue instruida: sin envío de email real,
+sin creación de negocio real, sin tocar Production/TESTING.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 RC1 PREPROD: SUPERADMIN GOOGLE LOGIN READY (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — RC1 PREPROD SUPERADMIN OAUTH ENABLEMENT
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_RC1_PREPROD_SUPERADMIN_OAUTH.md
+RC_SUPERADMIN_OAUTH_READY_FOR_OPERATOR=SI
+PREPROD_REDEPLOY_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (coincide con RC_FINAL_SHA)
+PRODUCTION_TOUCHED=NO / EXISTING_TESTING_SERVICE_TOUCHED=NO
+```
+
+Se configuró `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` en
+`RC-PREPROD-web` transfiriendo el valor directamente desde el secret
+store de TESTING mediante un único comando de shell en pipe (nunca
+impreso, nunca escrito a archivo) — mismo cliente OAuth real que el
+operador ya extendió en Google Cloud Console con el nuevo redirect URI
+de PREPROD. Verificado end-to-end con un smoke técnico real (sin
+completar login): `GET /admin` → 200, `GET
+/api/superadmin/auth/google` redirige correctamente a
+`accounts.google.com` con `redirect_uri` exactamente igual al
+configurado por el operador. No se configuraron
+`SUPERADMIN_GOOGLE_SUB`/`EMAIL`/`BOOTSTRAP_ENABLED` — el SuperAdmin
+real ya existe vinculado en la misma base de datos compartida de
+Testing, así que autenticará por la rama de identidad ya existente,
+sin bootstrap ni mutación de DB.
+
+**Pendiente, sin ejecutar todavía (diferido a propósito)**: rotar los
+secretos de TESTING que quedaron expuestos en la transcripción local
+de la ronda anterior (ver
+`codex-reports/P2_PRODUCTION_RC1_PREPROD_DEPLOY.md` §0).
+
+Esta tarea se detuvo tal como fue instruida: sin login real completado,
+sin certificación de T39/T40/T46-R2, sin tocar Production. Se espera
+que el operador haga el smoke físico real de login en
+`https://rc-preprod-web-rc-preprod.up.railway.app/admin`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 PRODUCTION RC1 DEPLOYED TO ISOLATED PREPROD (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION RC1 PRE-PROD ENVIRONMENT (isolated Railway deploy)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_RC1_PREPROD_DEPLOY.md (ubicación canónica, worktree deligo-main-limpio)
+RC_PREPROD_URL=https://rc-preprod-web-rc-preprod.up.railway.app
+RC_PREPROD_DEPLOYED_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0 (coincide exacto con RC_FINAL_SHA)
+RC_PREPROD_DEPLOY_STATUS=SUCCESS
+PRODUCTION_TOUCHED=NO (verificado antes/después, sin cambios)
+TESTING_CODEX_TOUCHED=NO (DeliGO Copy sigue sirviendo su deploy previo, sin tocar)
+```
+
+Se creó un environment Railway nuevo y vacío (`RC-PREPROD`) con un
+único servicio (`RC-PREPROD-web`) apuntando exactamente a
+`release/p2-production-rc1-20260921` @ `42ca5005`. Reutiliza la base de
+datos segura de Testing (misma que ya validó toda la regresión del RC)
+sin crear Postgres nuevo; genera secretos internos propios (nunca
+copiados de Testing/Production); reutiliza las claves VAPID ya
+autorizadas para permitir Push real durante certificación física.
+Smoke automático limpio: `GET /` 200, `GET /admin` 200 (gate real de
+SuperAdmin), assets/service worker disponibles, sin errores fatales.
+
+**Limitación conocida documentada**: el login de SuperAdmin usa
+exclusivamente Google OAuth, y el dominio nuevo de PREPROD no está
+whitelisteado en el cliente OAuth real — por decisión deliberada, no
+se copiaron `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` reales (requiere
+acción del operador en Google Cloud Console). Esto bloquea únicamente
+la certificación física de T39 (`negocio_pendiente`) y el tramo
+SuperAdmin de T40 CASE A-J; T46-R2 y el resto de T40 (Negocio/Cuenta
+Operativa) no dependen de Google y pueden certificarse ya.
+
+**Aviso de seguridad**: durante la auditoría de variables, un comando
+imprimió temporalmente varios secretos reales de TESTING en la
+transcripción local de la sesión (nunca en Git). Se recomienda rotar
+esos secretos — lista exacta en
+`codex-reports/P2_PRODUCTION_RC1_PREPROD_DEPLOY.md` §0.
+
+Esta tarea se detuvo tal como fue instruida: sin certificación física,
+sin promoción a `main`, sin tocar Production, sin eliminar el entorno
+RC-PREPROD. Se espera decisión del operador.
+
+---
+
+## HISTORICAL SNAPSHOT — P2 PRODUCTION RC1 BUILT, STOPPED AWAITING OPERATOR (2026-09-22)
+
+```text
+CURRENT_TASK=P2 — PRODUCTION RELEASE CANDIDATE RC1 (build + automated gate)
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+REPORT=codex-reports/P2_PRODUCTION_RC1_BUILD_AND_AUTOMATED_GATE.md (ubicación canónica, worktree deligo-main-limpio)
+RELATED_AUDIT=codex-reports/P2_PRODUCTION_PROMOTION_AUDIT.md
+RC_BASE_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (tag p2-t46-stable-2026-09-11)
+RC_FINAL_SHA=42ca5005d2ecd412de87e454b52820f38aaec5c0
+RC_BRANCH=release/p2-production-rc1-20260921 (pushed to origin, NEVER main)
+RC_WORKTREE=C:\Leo Campos\Trabajo\deligo-production-rc1
+PRODUCTION_TOUCHED=NO
+PRODUCTION_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (verified unchanged before/after)
+```
+
+El RC ensambla 14 paquetes certificados (T02 final, T31, T39 incl. R3B,
+T40 incl. su estado final CASE-G corregido, T43+R2, T45, T46-R2, T47,
+T49, T50, T51, T52, T53 R1B/R2, T55) + infraestructura T44-R1D, mediante
+un manifiesto por archivo (nunca "copiar todo menos carpeta"), excluye
+T23/T24 por completo (reconstrucción a último commit candidato donde
+hubo mezcla real), y carga T44-G3 como carry-forward no resuelto por
+autorización explícita del operador. Regresión automatizada sobre el
+RC ensamblado: **513 pass, 0 fail** a través de push/auth/PyR/Salón/
+Terminal/DB-integration; el único fallo encontrado
+(`p2-t41-terminal-cierre-cuenta.test.ts`, timeout fijo de 5s de
+`bun:test` bajo latencia real) se confirmó **byte-idéntico a
+`origin/main` de hoy** — preexistente, no una regresión de este RC.
+Puerta de calidad completa en verde (TSC/ESLint sin issues nuevos,
+build PASS, diff-check limpio). Exactamente 3 migraciones, ninguna 4ª,
+verificadas aplicadas limpias contra la base segura de Testing. Commit
+de release único creado y el branch fue empujado a `origin` (nunca a
+`main`, nunca force). **No existe hoy un entorno Railway seguro para
+desplegar este RC sin repuntar TESTING (perdiendo su estado actual) o
+provisionar infraestructura nueva no autorizada** —
+`RC_TESTING_DEPLOY_STATUS=BLOCKED_REQUIRES_OPERATOR_DECISION`. La guía
+de certificación física (T40 CASE A-J, T39 `negocio_pendiente`, T46-R2
+selector de pago ausente) quedó preparada pero **no ejecutada**.
+
+Esta tarea se detuvo tal como fue instruida: sin certificación física,
+sin provisión de Production, sin promoción a `main`, sin tocar
+T33/T37/T38, sin resolver T44-G3, sin reiniciar T23/T24. Se espera
+decisión explícita del operador sobre el deploy de verificación y la
+certificación física antes de cualquier siguiente paso.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T39 CLOSED_TESTING_CERTIFIED (2026-09-21)
+
+```text
+P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
+T39_TESTING_CERTIFIED=SI
+RELEASE_ELIGIBLE_T39=YES_FUTURE_CURATED_PROMOTION_ONLY
+REPORT=codex-reports/P2_T39_FINAL_PHYSICAL_CERTIFICATION.md (ubicación canónica en este worktree)
+PRODUCTION_TOUCHED=NO
+PRODUCTION_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+```
+
+Re-certificación física del operador tras el fix de R3B: (1) estado
+inicial de Push en `/admin` → Configuración = **apagadas**, sin ningún
+auto-enrollment previo; (2) el primer click en "Activar notificaciones"
+activa correctamente; (3) con `/admin` en segundo plano, se creó un
+Negocio nuevo en una sesión separada, se verificó su email, y **el Push de
+`negocio_pendiente` llegó realmente al SuperAdmin** — el caso
+representativo elegido para esta certificación. Dispositivo: desktop
+browser.
+
+Por decisión explícita de producto (no una limitación técnica): la
+certificación física en celular NO es requisito para T39, y que el
+tap/click de la notificación navegue a un lugar exacto tampoco lo es —
+sólo se exige que el Push llegue. Los otros 5 triggers
+(`destacado_solicitud`, `denuncia_nueva`, `negocio_deuda`,
+`review_moderation` ×2) no se dispararon físicamente; su garantía de
+wiring/auth/dedupe/best-effort queda exclusivamente respaldada por la
+cobertura automatizada ya certificada en R3/R3A/R3B (nunca reinterpretada
+como evidencia física).
+
+**T39 queda `CLOSED_TESTING_CERTIFIED`.** Esta ronda fue documentación
+únicamente — cero cambio de código. No se ejecutó ni se autorizó ninguna
+promoción a Production; `RELEASE_ELIGIBLE_T39` es elegibilidad para una
+futura evaluación curada, nunca un deploy inmediato. Trazabilidad completa
+preservada sin alterar: R3 (implementación) → R3A (pre-physical gate) →
+R3B (root cause físico real en `src/proxy.ts` + fix mínimo) → FINAL
+(re-certificación física). Ver también
+`codex-reports/P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md`,
+`codex-reports/P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md` y
+`codex-reports/P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md`.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T39-R3B R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION (2026-09-21)
+
+```text
+P2_T39_STATUS=R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+REPORT=codex-reports/P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md (ubicación canónica en este worktree)
+FIX_COMMIT=1661d87b10db4c35e3fafc35c2e6186198d14a83
+TESTING_DEPLOY=a6f6c66c-5478-4906-962d-68b22cee4631_SUCCESS_EXACT_COMMIT
+PRODUCTION_TOUCHED=NO
+```
+
+La certificación física real de P2-T39 (tras R3A) encontró un fallo
+genuino: `POST /api/push/subscribe?actorFamily=superadmin` devolvía `401
+{"error":"Se requiere autenticación"}` con una sesión SuperAdmin real y
+válida — la MISMA sesión que `GET /api/superadmin/dashboard` aceptaba con
+`200`. Investigación forense: el mensaje de error exacto no existe en
+ningún route handler, sólo en `src/proxy.ts` (el middleware Edge) —
+prueba directa de que el request nunca llegó a
+`requireSuperadminSession()` (idéntica en dashboard y en push; el bug
+nunca estuvo ahí). Causa raíz: `"superadmin"` deliberadamente nunca es un
+`SessionFamily` válido en el middleware (mezclarlo rompería
+`ROLE_PROTECTED_ROUTES` de `/api/superadmin/*`, que hoy funciona leyendo
+su cookie directamente), así que el gate `AUTH_REQUIRED_PREFIXES` de
+`/api/push/subscribe|unsubscribe` — que exige un token resuelto por
+`resolveActorSession()`, el cual nunca mira `deligo_superadmin_session` —
+rechazaba con 401 antes de que el route handler real (agregado en R3)
+pudiera ejecutar. Mismo patrón exacto que **P2-T44-R1G** (`cuenta_operativa`),
+ya documentado dentro del propio `proxy.ts`.
+
+También explica por qué R3A's `superadmin-actor-family-contract.test.ts`
+dio PASS con este bug presente: los tests de ruta invocan el handler
+exportado directamente, nunca pasan por `src/proxy.ts` (una capa Edge
+Middleware separada, invocada sólo por el runtime real de Next.js) —
+certificaron correctamente la auth DENTRO del handler, nunca la puerta de
+entrada delante de él.
+
+Fix mínimo y aislado en `src/proxy.ts`: un chequeo de presencia+formato
+(reutilizando `SUPERADMIN_TOKEN_REGEX`, ya usado por
+`ROLE_PROTECTED_ROUTES`) gateado exclusivamente por
+`?actorFamily=superadmin`, dentro de la rama `AUTH_REQUIRED_PREFIXES`.
+Deliberadamente NO se agregó `"superadmin"` a `SessionFamily` (la opción
+que mirror-earía el fix de `cuenta_operativa`) porque eso habría cambiado
+el comportamiento del ternario de `ROLE_PROTECTED_ROUTES` para
+`/api/superadmin/*` — analizado y descartado explícitamente, con el
+razonamiento completo en el reporte.
+
+Reproducido en 2 niveles antes de fijar la causa: (1) `proxy.test.ts`
+extendido con 11 tests nuevos contra la función `proxy()` real, con un
+token fabricado pero de formato real — revertido el fix temporalmente vía
+`git stash`, 3/10 tests fallan exactamente como predice la causa raíz;
+restaurado, 10/10 PASS; (2) un nuevo test de integración
+(`superadmin-push-auth-real-session.integration.test.ts`) que genera una
+sesión SuperAdmin REAL con `createSuperadminSession()` (la misma función
+real del callback OAuth) y encadena la MISMA cookie a través de
+`proxy()` → dashboard real → subscribe real, contra
+`DELIGO_TEST_DATABASE_URL` — 2/2 PASS, cero fixtures huérfanos.
+
+314/314 tests de regresión T40+push (16 archivos), tsc en el baseline de
+31 (0 nuevos), eslint limpio, `next build` PASS. Commit `1661d87`, push a
+`testing-codex`, deploy Testing `a6f6c66c` verificado `SUCCESS` con el
+commit exacto, boot limpio, `/admin` responde `200`. Production intacta en
+`ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`.
+
+**T39 sigue sin cerrarse.** No se marcó la certificación física como PASS
+— el operador debe re-certificar físicamente contra Testing con el fix ya
+desplegado (headline: repetir exactamente el mismo paso que falló —
+activar Push desde Configuración en `/admin`).
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T39-R3A R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION (2026-09-21)
+
+```text
+P2_T39_STATUS=R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION
+P2_T39_PREPHYSICAL_GATE=PASS_WITH_ONE_DOCUMENTED_ENVIRONMENTAL_CAVEAT
+REPORT=codex-reports/P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md (ubicación canónica en este worktree, por instrucción explícita de esta ronda — no en deligo-t39-admin)
+IMPLEMENTATION_COMMIT=a808453fd8ca8120412c4c257ed211098f8ea819 (R3)
+TEST_ONLY_COMMIT=a1e5fdd (R3A)
+TESTING_AUTODEPLOY=821752dd-b686-4990-8d84-335bbb61ca65_SUCCESS_EXACT_COMMIT
+PRODUCTION_TOUCHED=NO
+```
+
+R3A cerró exactamente los gates que R3 había dejado explícitamente
+pendientes (`DB_INTEGRATION_TESTS_EXECUTED=NO`, `BUILD=NOT_RUN`, y
+contratos auth/lifecycle sin evidencia ejecutable), sin tocar producto.
+Encontró y cerró un gap real: la rama nueva `actorFamily=superadmin` de
+las 3 rutas compartidas de push tenía **cero** tests propios (sólo la rama
+legacy inalcanzable estaba cubierta) — cerrado con 3 archivos de test
+nuevos (23 tests: auth contract A-I + §7 manual-off/relogin, first-opt-in,
+wiring post-commit de los 6 productores). Resultado: 249/249 regresión
+T40, `next build` PASS (con las VAPID keys reales del `.env`, nunca
+placeholders — `web-push` valida el formato al importar incluso en build),
+tsc en el baseline de 31 (0 nuevos), eslint limpio, y 14/15 tests de
+integración contra la DB real de Testing (`DELIGO_TEST_DATABASE_URL`).
+
+El único test que no completó (`negocio_deuda` alert crossing, el más
+pesado del archivo: 4 confirmaciones reales + 1 pago real) se reprodujo
+dos veces con timeout a los ~60s fijos que el propio archivo define vía
+`setDefaultTimeout` — diagnosticado como latencia real de red contra
+Postgres remoto (nunca localhost), no un defecto de código: el nuevo
+`dispatchSuperadminPush` es fire-and-forget y nunca bloquea la respuesta
+HTTP, y los otros 3 productores que comparten exactamente el mismo patrón
+sí completaron sus propios tests sin problema. Cero fixtures huérfanos
+confirmado tras el timeout (cleanup por prefijo corrió igual). Reportado
+como `PASS_WITH_ONE_DOCUMENTED_ENVIRONMENTAL_CAVEAT`, nunca maquillado
+como PASS liso ni escalado a BLOCKED sin justificación.
+
+`P2_T39_STATUS=R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION` — el operador
+puede proceder con la matriz de certificación física preparada en el
+reporte de R3 (headline `negocio_pendiente`). T39 sigue sin cerrarse.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T39-R3 R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION (2026-09-21)
+
+```text
+P2_T39_STATUS=R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+REPORT=codex-reports/P2_T39_R3_SUPERADMIN_PUSH_IMPLEMENTATION.md
+WORKTREE=C:\Leo Campos\Trabajo\deligo-t39-admin
+BRANCH=work/p2-t39-r3 (pushed to origin/testing-codex)
+IMPLEMENTATION_COMMIT=a808453fd8ca8120412c4c257ed211098f8ea819
+DOCS_COMMIT=7441866
+TESTING_DEPLOYMENT=081f9509-2321-4af2-87d2-b65850d9cfb4_SUCCESS_EXACT_COMMIT
+PRODUCTION_TOUCHED=NO
+PRODUCTION_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (sin cambio)
+```
+
+Continuación de R0/R1 (auditoría del productor `negocio_pendiente`, sin
+cambio de código) y R2 (diseño de Web Push para SuperAdmin, bloqueado
+entonces por compartir infraestructura con P2-T44). Con T44
+`PAUSED_UNRESOLVED_AFTER_TIMEBOX` y T40 `CLOSED_TESTING_CERTIFIED` (arriba),
+R3 reconcilió el diseño de R2 contra el código actual con un delta audit
+completo (10 preguntas A-J, ningún supuesto de R2 invalidado por T40) e
+implementó de punta a punta: `superadmin` agregado como owner moderno de
+`PushSubscriptionOwnerType` (migración aditiva, sin backfill), rama
+`actorFamily=superadmin` en las 3 rutas compartidas de push (mismo patrón
+ya usado por `cuenta_operativa`, con `requireSuperadminSession` dedicado —
+se prefirió esto sobre las rutas dedicadas que R2 había recomendado, dado
+que ese patrón compartido es el que T40 mismo terminó consolidando),
+dispatcher post-commit best-effort (`src/lib/superadmin-push-dispatch.ts`)
+cableado en los 6 callsites reales (`verify-email`, `destacado-solicitud`,
+`denuncias`, `cliente/pedidos/[id]`, `review-moderation-server`,
+`review-moderation-business`), rama fija `actorFamily=superadmin` en
+`public/sw.js` (siempre navega/enfoca `/admin`, nunca deep-link por
+entidad, sin tocar la rama pausada de T44) y un switch ON/OFF nuevo en la
+tab Configuración de `/admin` reutilizando el hook compartido
+`usePushNotifications`. El campo legacy `SuperAdmin.pushSubscription`
+queda inerte, nunca dual-escrito (P2-T17).
+
+254 tests puros pasan (0 fail) — incluye 2 archivos nuevos
+(`superadmin-push-dispatch.test.ts`, `sw-superadmin-push-routing.test.ts`)
+y una actualización del contrato de enum `push-subscription-repository.
+test.ts` (MD57). TSC: 31 errores baseline preexistentes, cero nuevos (2
+errores auto-inducidos por este mismo round, en los tipos union
+`ConfirmOutcome`/`PostOutcome`, se encontraron y corrigieron antes de este
+conteo). ESLint limpio en todos los archivos tocados. Los tests de
+integración contra DB real (`superadmin-notifications.integration.test.ts`,
+actualizado para el nuevo shape `{count, recipientIds}`) NO se ejecutaron
+en este round — mismo gap de entorno ya documentado por R0/R1/R2 (worktree
+aislado sin `DATABASE_URL`); el operador/CI debe correrlos antes de la
+certificación física.
+
+Deploy Testing verificado: `SUCCESS`, commit exacto, migración
+`20260921120000_add_superadmin_push_owner` aplicada, boot limpio (`Ready
+in 67ms`), cero errores en logs, `/admin` responde `200`. Production
+permanece intacta. **T39 NO se cierra en este round** — la matriz de
+certificación física (encabezada por `negocio_pendiente`) queda preparada
+en el reporte para el operador; Claude no ejecutó ni simuló certificación
+física.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T40 CLOSED_TESTING_CERTIFIED (2026-09-21)
+
+```text
+P2_T40_STATUS=CLOSED_TESTING_CERTIFIED
+RELEASE_ELIGIBLE_T40=YES_FUTURE_CURATED_PROMOTION_ONLY
+PRODUCTION_TOUCHED=NO
+PRODUCTION_PROMOTION_PERFORMED=NO
+R3_COMMIT=fa4408dd855675365b9b0c90f4b75ed34ce0eb6e
+R3_TESTING_DEPLOY=de1349d9-1f06-43ce-9984-49161554dbdf_SUCCESS_EXACT_COMMIT
+PRODUCTION_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+```
+
+Certificación física final completa, tras A0 (audit) → A1 (corrección de
+autoridad) → R1 (implementación) → R2 (fix de TTL, refutado insuficiente
+por recertificación física) → R3 (causa raíz real demostrada con
+telemetría de runtime: `resolveCorePushTargetsFromNormalized()` hace
+UNION normalizado+legacy por diseño de P2-T05 Stage4 — R1/R2 sólo
+limpiaban la tabla normalizada, dejando el campo legacy per-modelo del
+owner stale como target de envío vivo; corregido con
+`detachLegacyPushFieldIfMatches()`).
+
+**Resultado de la certificación física final**: CASE A-F PASS (sin
+cambios desde R1), **CASE G PASS** (el gate bloqueante de R1/R2, ahora
+resuelto: Negocio A sin logout → login real de Negocio B → Push de B
+llega, Push de A NO llega), CASE I PASS (denied UX). CASE H clasificado
+explícitamente como PASS para la preservación cross-family que le
+corresponde a T40 (Cliente + CuentaOperativa coexistiendo en el mismo
+dispositivo, binding de Cliente sobrevive) con la mitad de delivery
+operativo real marcada `CONDITIONAL_NOT_AVAILABLE_DUE_TO_T44_PUSH_COVERAGE`
+— nunca un fallo de T40, una superficie ya conocida de P2-T44 (qué
+producers/avisos Push existen para CuentaOperativa). CASE J (mismo
+patrón: CuentaOperativa A → B sin logout) mostró el auto-rebind silencioso
+esperado para la cuenta B nueva, pero la verificación física de "B recibe
+/ A no recibe" no fue posible por la misma ausencia de delivery operativo
+de P2-T44 — nunca declarado PASS total ni FAIL, la propiedad de seguridad
+correspondiente quedó respaldada por un nuevo test automatizado agregado
+en el propio closeout (`SAME_FAMILY_CUENTA_OPERATIVA_A_TO_B`, cero cambio
+de código producto — cadena las funciones reales ya existentes
+`applyOperationalLoginCookies`/el handler real de
+`reconcile-stale-owner`).
+
+**Hallazgo separado, no relacionado directamente, no corregido**: un 403
+en `/api/destacado-solicitud` observado durante la certificación resultó
+ser una ambigüedad de cookie PRE-EXISTENTE (P2-T18-BLOCKER-AUTH2-R2, no
+introducida por T40) en rutas fuera del selector family-aware de
+`src/proxy.ts` — enlazado a su autoridad correcta, sin reabrir T40 ni
+tocar código.
+
+271 tests focales (267 pre-existentes + 4 nuevos de este closeout), 267
+pass en la regresión combinada de 271 (los 4 restantes son los mismos
+pre-existentes ya confirmados independientes de T40). TSC 31/31/0 nuevos,
+ESLint/diff-check PASS.
+
+**T40 queda `CLOSED_TESTING_CERTIFIED`**. Este closeout NO autoriza ni
+ejecuta ninguna promoción a Production — `RELEASE_ELIGIBLE_T40` es
+elegibilidad para una futura evaluación de promoción curada, nunca un
+deploy inmediato. `main`/Production permanecen exactamente en
+`ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`, sin tocar. Ver
+`codex-reports/P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md`.
+
+## HISTORICAL SNAPSHOT — P2-T40-R3 R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION (2026-09-21)
+
+```text
+P2_T40_R3_STATUS=R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+T40_STATUS=R3_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+RELEASE_ELIGIBLE=NO
+PRODUCTION_TOUCHED=NO
+CASE_G_TRUE_ROOT_CAUSE_IDENTIFIED=SI
+R3_COMMIT_SHA=fa4408dd855675365b9b0c90f4b75ed34ce0eb6e
+R3_TESTING_DEPLOYMENT=de1349d9-1f06-43ce-9984-49161554dbdf_SUCCESS_EXACT_COMMIT
+R2_TTL_ROOT_CAUSE_SUFFICIENT=NO (refutado por recertificación física
+  inmediata tras el deploy de R2)
+```
+
+R2's TTL fix (120s → 600s) fue puesto a prueba de nuevo físicamente y
+**CASE G volvió a fallar, esta vez de forma inmediata** — refutando "el
+TTL era demasiado corto" como causa suficiente.
+
+**R3 empezó por la telemetría de runtime REAL** (nunca inferencia): R2
+había dejado logging fingerprinted en cada punto de minteo/consumo del
+handoff, exactamente para este caso. Se leyeron los logs reales de
+Railway (`railway logs -d --filter "PushOwnerHandoff" --json`) del
+deployment de R2 y se construyó el timeline exacto de la reproducción:
+login B minteó el handoff correcto con `prevOwner=A`; B lo presentó; el
+servidor lo verificó válido; **`detachPushSubscriptionByEndpoint` SÍ
+borró exitosamente la fila normalizada de A** (`detached=true`,
+confirmado por el propio log). Con la limpieza normalizada confirmada
+exitosa por evidencia directa (no un test sintético — el runtime real),
+la pregunta pasó a ser: ¿de dónde sigue saliendo el push para A?
+
+**Causa raíz real**: `resolveCorePushTargetsFromNormalized()` (en
+`src/lib/push.ts`, el resolver que `createNotification()` usa REALMENTE
+para cada notificación física, incluida la que el operador usó para
+probar CASE G) hace, por diseño intencional documentado desde P2-T05
+Stage4 (compatibilidad multi-dispositivo durante rollout), una **UNIÓN**
+de la tabla normalizada `PushSubscription` + el campo legacy per-modelo
+(`Negocio.pushSubscription`, uno por cada fila de Negocio, nunca
+compartido). R1/R2 sólo limpiaban la tabla normalizada — el campo legacy
+de A, en su propia fila de Negocio, seguía apuntando al mismo endpoint
+físico indefinidamente, y la UNIÓN seguía incluyéndolo como target de
+envío vivo aunque la fila normalizada ya no existiera.
+
+**Fix mínimo aplicado**: nueva función `detachLegacyPushFieldIfMatches()`
+(exportada de `src/lib/push.ts`, reutilizando las primitivas CAS ya
+existentes de dead-endpoint cleanup) invocada inmediatamente después del
+detach normalizado en `reconcile-stale-owner/route.ts` — mismo criterio
+de "misma subscription física" (endpoint+p256dh+auth, nunca
+expirationTime) que la limpieza normalizada, para consistencia. Cero
+cambio de arquitectura, cero cambio de schema (el campo legacy ya
+existía). `cuenta_operativa` excluido explícitamente (nunca tuvo ese
+campo).
+
+**Nuevo test de regresión usa el resolver REAL**: `NEGOCIO_A_TO_B_WITHOUT_LOGOUT`
+en `case-g-same-family-account-switch.test.ts` importa
+`resolveCorePushTargets` de `@/lib/push` (nunca reimplementado) y prueba
+el flujo encadenado completo end-to-end: tras el switch, A deja de ser
+target y B lo es, usando el mismo código que la notificación física.
+
+**Hallazgo separado investigado por pedido del operador, NO corregido en
+este round**: un 403 observado en `/api/destacado-solicitud` durante la
+misma sesión física resultó ser una ambigüedad de cookie PRE-EXISTENTE
+(P2-T18-BLOCKER-AUTH2-R2, no introducida por T40) en rutas fuera del
+selector family-aware — síntoma de la misma familia de problema
+arquitectónico más amplio (cookies residuales de rondas de prueba
+anteriores en el mismo navegador), pero NO relacionado directamente con
+la causa del leak de Push, que ya tiene su propia explicación completa e
+independiente. Registrado como hallazgo separado para una decisión
+futura del operador.
+
+169 tests focales, regresión combinada 263/267 pass (los 4 restantes son
+los mismos pre-existentes ya confirmados independientes de T40). TSC
+31/31/0 nuevos, ESLint/build/diff-check PASS. Deploy Testing confirmado
+SUCCESS con match exacto de commit, cero migración pendiente, cero error
+de boot.
+
+**T40 sigue sin cerrarse** — `RELEASE_ELIGIBLE=NO`, recertificación
+física pendiente, empezando de nuevo por CASE G. Ver
+`codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
+
+## HISTORICAL SNAPSHOT — P2-T40-R2 FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION (2026-09-21)
+
+```text
+P2_T40_R2_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+T40_STATUS=FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+RELEASE_ELIGIBLE=NO
+PRODUCTION_TOUCHED=NO
+CASE_G_ROOT_CAUSE_IDENTIFIED=SI
+R2_COMMIT_SHA=2e0ee2b97a4cf1fcf5684f5cde7ef4118616b3c2
+R2_TESTING_DEPLOYMENT=1bcbc61e-6304-48e8-9b1b-4ba6d00a278e_SUCCESS_EXACT_COMMIT
+```
+
+La certificación física de R1 confirmó CASE A-F PASS pero encontró un
+BLOQUEANTE en CASE G: Negocio A autenticado con Push funcionando; sin
+logout explícito, se logueó Negocio B en el mismo navegador; tras la
+recarga, B quedó autenticado correctamente pero **notificaciones dirigidas
+tanto a A como a B llegaban al mismo dispositivo**
+(`CROSS_ACCOUNT_PUSH_LEAK=REPRODUCED`).
+
+**Causa raíz demostrada (no especulada)**: se construyó un test de
+integración encadenado nuevo
+(`src/app/api/push/reconcile-stale-owner/case-g-same-family-account-switch.test.ts`)
+que usa las funciones EXPORTADAS reales (`applyLoginCookies` de
+`login/route.ts`, el handler `POST` real de `reconcile-stale-owner/route.ts`),
+pasando el valor literal de la cookie de handoff de una respuesta a la
+siguiente exactamente como lo haría un navegador. El caso SIN demora pasa
+limpio (descarta cualquier bug de lógica pura); el caso con el handoff
+firmado con `iat`/`exp` desplazados al pasado (más allá del TTL) reproduce
+el síntoma físico EXACTO. Conclusión: `PUSH_OWNER_HANDOFF_TTL_SECONDS`
+(120s, calibrado para un round-trip automático estilo redirect OAuth) es
+insuficiente para el cambio de cuenta MANUAL real (operador leyendo el
+paso siguiente, tipeando credenciales de otra cuenta, esperando la
+recarga) — el handoff vence antes de que el cliente reconcilie, y la
+limpieza queda en silencio no-op. El auto-rebind de B (independiente del
+handoff) sigue funcionando normalmente, por lo que B recibía sus propias
+notificaciones sin ningún indicio visible de que la limpieza de A había
+fallado.
+
+**Fix mínimo aplicado**: `PUSH_OWNER_HANDOFF_TTL_SECONDS` de 120 a 600
+segundos — sigue siendo deliberadamente corto (nunca una sesión de
+usuario, nunca reutilizable como autenticación, de un solo uso), sólo
+ampliado para tolerar un cambio de cuenta manual real. Se agregó también
+telemetría fingerprinted (SHA-256 truncado a 10 hex, nunca valores crudos)
+en los 4 puntos de minteo del handoff y en su consumo, como diagnóstico
+seguro permanente ante cualquier recurrencia futura. Cero cambio de
+arquitectura, cero cambio de schema/migración.
+
+163 tests focales (3 nuevos de CASE G), regresión combinada 260/264 pass
+(los 4 restantes son los mismos pre-existentes ya confirmados
+independientes de T40 en R1). TSC 31/31/0 nuevos, ESLint/build/diff-check
+PASS. Deploy Testing confirmado SUCCESS con match exacto de commit, cero
+migración pendiente, cero error de boot.
+
+**T40 NO se cierra** — `RELEASE_ELIGIBLE=NO`, recertificación física
+pendiente, empezando por CASE G, antes de continuar con H/I/J. Ver
+`codex-reports/P2_T40_R2_CASE_G_SAME_FAMILY_STALE_BINDING_FIX.md`.
+
+## HISTORICAL SNAPSHOT — P2-T40-R1 IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION (2026-09-20)
+
+```text
+P2_T40_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+P2_T40_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+MANUAL_OFF_POLICY=M2_DEVICE_SCOPED_WITH_NEXT_LOGIN_REENABLE_OFFER
+PRODUCTION_TOUCHED=NO
+PUSH_OWNER_HANDOFF_SECRET_PROVISIONED_IN_RAILWAY_TESTING=NO_AUN
+```
+
+Implementó el diseño CORREGIDO de A1 (nunca el auto-rebind inseguro original
+de A0). Nueva cookie corta firmada de un solo uso `deligo_push_handoff`
+(`src/lib/push-owner-handoff.ts`, jose HS256, TTL 120s), emitida por TODO
+login que completa una sesión (password Cliente/Negocio/Repartidor, Google
+Cliente/Repartidor, password y Google CuentaOperativa) — lee server-side, de
+la propia fila `Sesion`, el owner que ocupaba ese MISMO slot de cookie/family
+inmediatamente antes (nunca de un input del cliente). Un nuevo endpoint
+(`POST /api/push/reconcile-stale-owner`) consume ese handoff, en el primer
+mount posterior al login, y limpia ÚNICAMENTE la fila de ese owner anterior
+exacto (mismo endpoint físico) — cerrando la fuga cross-account confirmada
+por A1 (`CROSS_ACCOUNT_NOTIFICATION_LEAK_RISK=HIGH`) sin tocar jamás una fila
+de una family distinta (preserva Cliente+CuentaOperativa simultáneos en el
+mismo dispositivo). El auto-rebind silencioso del owner actual reutiliza
+`/api/push/subscribe` sin ningún cambio de infraestructura.
+
+Se implementó también un marcador local de opt-out manual M2
+(`src/lib/push-manual-optout.ts`, localStorage scoped por
+`ownerType:ownerId`, sin PII, sin cambio de schema), cableado en las 4 UIs
+reales de toggle de Push, y una nueva oferta de reactivación propia
+(`push-reenable-offer.tsx`) que aparece como máximo una vez por sesión nueva
+cuando el opt-out está vigente — su garantía de "una sola vez" viene del
+consumo de un solo uso del propio handoff firmado, nunca de
+sessionStorage/token de sesión. La lógica de activación (VAPID key
+stale-detection, remoción confirmada, rollback sólo de subscriptions propias)
+ya certificada por P2-T31-R5/R5A se extrajo verbatim a un módulo compartido
+para que Ajustes y la nueva oferta usen exactamente la misma implementación.
+
+`src/hooks/use-auth.ts` NO se tocó — A1 prohibió explícitamente modificar su
+401-handler para esto (falta de autoridad server-side sobre el endpoint
+físico en ese instante); la limpieza vive enteramente en el momento del
+login, con autoridad completa. Google OAuth cerró sin gap, con el mismo
+mecanismo de handoff, sin necesitar ningún canal adicional para atravesar el
+redirect.
+
+52 tests focales nuevos, 0 fallos. Regresión combinada: 257 pass / 4
+fail-o-error, los 4 confirmados PRE-EXISTENTES (reproducidos idénticos contra
+un checkout con todos los cambios de T40-R1 revertidos vía git stash) — cero
+regresión nueva. TSC 31 baseline / 31 final / 0 nuevos, ESLint/build/
+diff-check PASS.
+
+Pendiente antes de que el mecanismo esté activo en Testing: provisionar
+`PUSH_OWNER_HANDOFF_SECRET` en Railway TESTING (existe sólo en `.env` local
+por ahora) — su ausencia es fail-open (nunca bloquea login, sólo el
+mecanismo de limpieza/oferta no se activa todavía). Ver
+`codex-reports/P2_T40_R1_SECURE_PUSH_SESSION_RECONCILIATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T40-A1 STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY_COMPLETE (2026-09-20)
+
+```text
+P2_T40_A1_STATUS=AUDIT_AND_DESIGN_CORRECTION_COMPLETE
+P2_T40_R1_AUTHORIZED=NO
+P2_T40_STATUS=AUDITED_PENDING_PRODUCT_OR_SECURITY_DECISION
+CROSS_ACCOUNT_NOTIFICATION_LEAK_RISK=HIGH
+A0_AUTO_REBIND_CONTRACT_SAFE_AS_WRITTEN=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría read-only de corrección sobre A0 (58→37 secciones adicionales
+del propio prompt de A1), sin implementación, sin mutación de push, sin
+cambio de login/logout/API/SW/DB/schema, sin Production.
+
+**Confirmó por lectura directa de código (no supuesto) que la entrega
+de Push nunca chequea sesión activa**: `src/lib/push-subscription-repository.ts`,
+`src/lib/push.ts` (incluida la llamada real a `webpush.sendNotification()`)
+y los 6 notification senders operativos no tienen ninguna referencia a
+`Sesion`/`expiresAt`. Por tanto, un owner cuya sesión expiró — o que
+simplemente fue reemplazado por un login directo de otra cuenta sin
+logout explícito previo, confirmado como igualmente posible al auditar
+`login/route.ts`/`operativo/login/route.ts` (ningún login invalida la
+sesión anterior) — sigue recibiendo notificaciones push reales
+físicamente en el dispositivo mientras su fila backend exista. En un
+dispositivo compartido (el caso real ya documentado de tablet de
+Mozo/Operaciones entre turnos) esto es una fuga cross-account
+confirmada, no hipotética: `CROSS_ACCOUNT_NOTIFICATION_LEAK_RISK=HIGH`.
+
+**Declaró el contrato de auto-rebind propuesto originalmente por A0
+como inseguro tal como estaba escrito** (creaba la fila del nuevo owner
+sin limpiar nunca la del owner anterior en el mismo endpoint): lo
+corrigió con `STALE_PREVIOUS_OWNER_RULE` — limpieza condicional,
+ejecutada únicamente en el momento del login del nuevo owner (nunca en
+el 401-handler que A0 proponía tocar, descartado por falta de autoridad
+server-side sobre el endpoint físico en ese instante), acotada
+estrictamente a: misma family de cookie, owner distinto, endpoint
+físico coincidente exacto. Preserva intacto el multi-bind legítimo
+cross-family (p. ej. Cliente y CuentaOperativa autenticados
+simultáneamente en el mismo dispositivo vía cookies independientes) y
+el resolver de cuenta de CuentaOperativa — nunca borra nada fuera de
+ese scope exacto.
+
+**Confirmó, por auditoría exhaustiva de los 40+ modelos de
+`prisma/schema.prisma`, que no existe ningún campo de opt-out/preferencia
+de push** — por tanto un apagado manual del usuario y una rotura
+accidental de la vinculación son HOY exactamente el mismo estado
+observable (`MANUAL_OFF_AND_BROKEN_BINDING_CURRENTLY_INDISTINGUISHABLE=SI`).
+Recomendó una política M2 (el apagado persiste hasta reactivación
+explícita — coherente con el copy real ya auditado del toggle,
+"Activadas"/"Desactivadas" sin ninguna advertencia de temporalidad)
+resoluble con un marcador local scoped por owner, sin necesidad de
+ningún cambio de schema (`SCHEMA_CHANGE_REQUIRED_FOR_CORRECT_MANUAL_OPT_OUT=NO`).
+Queda como única decisión de producto pendiente (no técnica) que el
+operador confirme esa política antes de autorizar R1.
+
+Cerró GAP-6 de A0 (expiración de `deligo_operativo_session`, el actor
+que A0 había dejado como pendiente): mismo bug exacto confirmado en
+`src/app/mozo/page.tsx` (el handler del 401 de `/api/operativo/me` sólo
+hace una transición de UI, cero detach) — `OPERATIVE_STALE_BINDING_POSSIBLE=SI`.
+Confirmó también que el toggle de Push de CuentaOperativa es
+`OPERATIVE_MANUAL_OFF_SCOPE=ACCOUNT` (una sola fila cubre todos los
+negocios/vínculos de la cuenta, confirmado por el propio copy de la UI).
+
+Preservado sin cambios: MODEL-C1, `SERVER_DETACH_ONLY`,
+`resolveOperationalPushTargets()`, y todos los hallazgos no cuestionados
+de A0. T38/T39/T44/T45/T52 confirmados sin tocar. Ver
+`codex-reports/P2_T40_A1_STALE_OWNER_AND_MANUAL_OPTOUT_AUTHORITY.md`
+para el detalle completo (máquina de estados de 11 estados corregida,
+plan de archivos R1 corregido, matriz de 10 tests corregida).
+
+## HISTORICAL SNAPSHOT — P2-T40-A0 AUDIT_AND_DESIGN_COMPLETE (2026-09-20)
+
+```text
+P2_T40_A0_STATUS=AUDIT_AND_DESIGN_COMPLETE
+IMPLEMENTATION_PERFORMED=NO
+PRODUCTION_TOUCHED=NO
+T38_T39_T44_T45_T52_REOPENED=NO
+NEXT_RECOMMENDED_ACTION=P2_T40_R1_IMPLEMENTATION_PENDING_OPERATOR_AUTHORIZATION
+```
+
+Auditoría read-only completa de lifecycle de sesión/login de Push
+(58 secciones del prompt original), sin ninguna implementación,
+mutación de push, cambio de login/logout/SW/DB/schema, ni Production.
+Actores cubiertos: Cliente, Negocio, Repartidor, CuentaOperativa
+(Operaciones/Mozo/Salón/PyR), SuperAdmin (confirmado inerte). Terminal
+excluido por diseño del propio prompt.
+
+**Hallazgo cabecera**: `syncSession()` (`src/hooks/use-auth.ts`) sobre
+expiración natural de sesión (TTL 12h, `SESSION_DURATION_HOURS` en
+`src/lib/auth.ts`) sólo limpia el estado cliente-side Zustand — cero
+detach de red, cero destrucción física, cero unlink backend. Deja la
+fila `PushSubscription` del actor expirado huérfana indefinidamente
+(Estado D, "detached"), sin ningún código que la detecte o repare, ni
+siquiera pasivamente. Bajo el modelo multi-bind ya vigente (MODEL-C1),
+un actor distinto que luego use el mismo dispositivo nunca limpia esa
+fila huérfana (su propio subscribe sólo agrega una fila independiente).
+
+**Confirmado como arquitectura intencional y correcta, NO tocar**:
+`resolveOperationalPushTargets()` (cuenta-primero-con-fallback-Empleado,
+usado de forma consistente y verificada por TODOS los envíos
+operativos: Mozo "pedido listo", cancelaciones, chat/pedidos/reviews de
+PyR y Salón — cero split-brain); MODEL-C1 (multi-bind del mismo
+endpoint físico a múltiples owners sin colisión); política
+`PHYSICAL_UNSUBSCRIBE_POLICY=SERVER_DETACH_ONLY` (nunca destruir la
+subscription física del navegador).
+
+**Otros hallazgos**: `PermissionPrompt` usa una única key global de
+localStorage no scoped por actor/sesión; su
+`syncExistingPushSubscription()` obtiene un resultado de status-check
+que nunca inspecciona ni usa (telemetría inerte); el único hook con
+capacidad real de reconciliación (`usePushNotifications`) sólo está
+montado en 4 páginas de Ajustes/Perfil, nunca se dispara
+automáticamente tras un login. Hallazgo lateral sin expandir alcance:
+`use-operativo-pyr-push.ts` no tiene ningún punto de montaje en
+ninguna UI del producto (código huérfano).
+
+**Diseño recomendado (Opción A, no implementado)**: disparador de
+reconciliación centralizado cerca de `useAuth`/root layout que
+reutiliza la infraestructura ya madura de rondas previas (T05/T18/T31)
+en vez de rediseñarla — auto-rebind silencioso (sin diálogo de
+navegador) cuando el permiso ya es `granted` y la subscription física
+existe pero falta la fila backend del owner actual, siempre derivando
+el owner server-side y sin revertir nunca un manual-off explícito. Se
+descartó explícitamente una Opción C de rediseño completo del modelo
+de datos — la evidencia muestra un sistema de bajo nivel ya correcto,
+el gap es exclusivamente de cuándo se dispara la reconciliación.
+
+T38/T39/T44/T45/T52 confirmados sin tocar. Ver
+`codex-reports/P2_T40_A0_PUSH_SESSION_LIFECYCLE_AUDIT_DESIGN.md` para
+el detalle completo (mapa de actores, 7 estados canónicos A-G, máquina
+de estados UX, matriz de 19 tests, tests de seguridad obligatorios, y
+matriz de certificación física futura preparada sin ejecutar).
+
+## HISTORICAL SNAPSHOT — P2-T52 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T52_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T52_RELEASE_ELIGIBLE=YES
+P2_T52_PRODUCTION_PROMOTED=NO
+P2_T52_CERTIFIED_RUNTIME_SHA=5f4804c0d903475ca1949bd5428145a80ca6dc15
+P2_T52_CERTIFIED_DEPLOY_ID=2aae4685-8c1a-4e04-815d-ae3197682724
+PRODUCTION_TOUCHED=NO
+```
+
+Cierre formal de P2-T52 (Operations PWA Identity Consolidation /
+Legacy Artifact Cleanup) tras certificación física del operador —
+DOCUMENTATION-ONLY, cero código de producto en esta ronda, sin
+redeploy. Resumen de las 3 rondas de auditoría + 1 de implementación:
+
+- **A0**: `/mozo` comparte TODO con Operaciones (login, sesión,
+  modelo, unión por código) vía re-export literal de componentes,
+  documentado en el propio código como "compatibilidad temporal" —
+  clasificación final `CURRENT_REQUIRED`, nunca `SAFE_TO_REMOVE`, por
+  dependencias reales de push/PWA/service-worker.
+- **A1**: investigó con fuentes oficiales (web.dev, Chrome for
+  Developers) el ciclo de actualización de manifest de Chrome/WebAPK y
+  confirmó que el objetivo "dejar de promover instalaciones nuevas de
+  PWA Mozo" YA estaba cumplido en código antes de esta sesión — cero
+  cambio necesario para Mozo.
+- **A2**: Empleado/Salón (`/e/{token}`, `/s/{token}`) resultaron estar
+  YA completamente retirados desde una limpieza anterior a esta sesión
+  ("Legacy-Cleanup-1B") — pero encontró el único residuo real:
+  `install-prompt.tsx` no los excluía (a diferencia de Mozo), pudiendo
+  ofrecer instalar una PWA cuyo único contenido es la pantalla de
+  retiro.
+- **R1B**: corrigió exactamente eso — agregó
+  `isLegacyOperationsTombstoneRoute()` a
+  `src/components/shared/install-prompt.tsx` (excluye
+  `/e`/`/e/**`/`/s`/`/s/**`, mismo patrón que `isMozoRoute()`), sin
+  tocar role-config/DynamicManifest/manifests/íconos/service worker/
+  push/auth. 13 tests focales + 14 de regresión, todos PASS.
+
+**Certificación física del operador (esta ronda)**: `/e/test` y
+`/s/test` muestran correctamente el tombstone "Este acceso fue
+reemplazado" sin banner de instalación (Cases A/B PASS); `/operaciones`
+(home T51) y `/mozo` sin regresión (Cases C/D PASS); no había una PWA
+"DeliGO Empleados"/"DeliGO Salón" ya instalada disponible para probar
+(Case E `CONDITIONAL_NOT_AVAILABLE`, no bloqueante — R1B nunca tocó
+manifest/scope/start_url, sólo dejó de OFRECER instalaciones nuevas).
+
+Preservado sin cambios: Mozo (rutas, manifest, íconos, push, SW), los
+manifests/íconos de Empleado/Salón (en particular
+`icon-empleado-192x192.png`/`icon-salon-192x192.png`, dependencias
+activas de Push). Deuda opcional no bloqueante registrada para el
+futuro: limpieza de `role-config.ts` para empleado/salón, íconos
+`-512x512.png` sin consumidor, endpoint `/api/manifest` sin callers, y
+la Fase 4 de Mozo (migración de push target + Service Worker), que
+requiere su propia autorización explícita.
+
+Ver `codex-reports/P2_T52_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md` para
+el detalle completo de cierre.
+
+## HISTORICAL SNAPSHOT — P2-T52-R1B IMPLEMENTED_DEPLOYED (2026-09-20)
+
+```text
+P2_T52_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_OPERATOR_CERTIFICATION
+COMMIT_SHA=5f4804c0d903475ca1949bd5428145a80ca6dc15
+PUSH_TARGET=origin/testing-codex (fast-forward 1e5ad4b..5f4804c)
+TESTING_DEPLOY_ID=2aae4685-8c1a-4e04-815d-ae3197682724
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash match, boot logs clean, no migrations)
+PRODUCTION_TOUCHED=NO (origin/main = ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763, sin cambios)
+```
+
+Implementó exactamente Option A del diseño A2 (sección inmediatamente
+debajo): agregó `isLegacyOperationsTombstoneRoute()` a
+`src/components/shared/install-prompt.tsx`, excluyendo
+`/e`/`/e/**`/`/s`/`/s/**` del banner/FAB de instalación — mismo patrón
+textual que `isMozoRoute()` (`/mozo`, sin cambios, ahora exportada
+junto a la nueva función sólo para permitir test puro). Deja de
+ofrecer "Instalar DeliGO Empleados"/"Instalar DeliGO Salón" en las
+pantallas tombstone (`LegacyAccessRetired`, intactas). **Cero cambio**
+de `role-config.ts`, `DynamicManifest`, manifests, íconos, service
+worker, push o auth.
+
+13 tests focales nuevos (contrato puro de clasificación de ruta,
+`src/components/shared/install-prompt.test.ts`) + 14 tests de
+regresión existentes de InstallPrompt, todos PASS. TSC 31 baseline/0
+nuevos, ESLint/build/diff-check PASS. Prevalidación técnica en Browser
+pane: `/e/test` y `/s/test` muestran el tombstone sin ningún banner de
+instalación; `/operaciones` (home T51) y `/mozo` sin cambios de
+comportamiento observable.
+
+**Pendiente**: certificación física del operador (gate que Claude no
+puede sustituir) — especialmente el Case E condicional (confirmar que
+una PWA "DeliGO Empleados"/"DeliGO Salón" YA instalada, si existiera,
+sigue abriendo el tombstone sin romperse). Sin eso, T52 no puede
+cerrarse formalmente. Ver
+`codex-reports/P2_T52_R1B_DISABLE_EMPLOYEE_SALON_LEGACY_INSTALL_PROMOTION.md`
+para el detalle completo.
+
+## HISTORICAL SNAPSHOT — P2-T52-A2 ONE ACTIONABLE ITEM FOUND (2026-09-20)
+
+```text
+P2_T52_STATUS=AUDITED_ONE_ACTIONABLE_ITEM_PENDING_AUTHORIZATION
+PRODUCT_CODE_CHANGED=NO
+MANIFEST_CHANGED=NO
+ROLE_CONFIG_CHANGED=NO
+SERVICE_WORKER_CHANGED=NO
+PUSH_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría read-only de los residuos PWA de Empleado (`/e/{token}`) y
+Salón (`/s/{token}`), construida explícitamente sobre una auditoría
+PREVIA A ESTA SESIÓN
+(`codex-reports/P2_OPERATIONS_SINGLE_PWA_IDENTITY_AUTHORITY_CORRECTION.md`,
+2026-09-09) que ya había clasificado ambas rutas como "wireadas pero
+funcionalmente inertes" — confirmado de nuevo con evidencia de código
+fresca, no re-derivado desde cero: ambas rutas son pantallas estáticas
+(`LegacyAccessRetired`, 4 consumidores totales, cero fetch/token/auth/
+DB) que pueden servir indefinidamente como compatibility tombstones
+sin ningún riesgo.
+
+**Hallazgo nuevo de esta ronda, no cubierto en 2026-09-09**:
+`install-prompt.tsx` excluye `/mozo` (confirmado en A1) pero **NO
+excluye `/e` ni `/s`** — hoy, técnicamente, puede ofrecer activamente
+"Instalar DeliGO Empleados"/"Instalar DeliGO Salón", una PWA cuyo único
+contenido posible es la pantalla "Este acceso fue reemplazado". Es el
+único residuo/bug real y accionable encontrado en las 3 rondas de
+auditoría de T52 — corrección de bajo riesgo (~3-5 líneas, 1 archivo,
+mismo patrón textual ya usado y probado para Mozo).
+
+Confirmado con evidencia (no supuesto): `icon-empleado-192x192.png` e
+`icon-salon-192x192.png` son dependencias ACTIVAS de Push HOY (`sw.js`
+los usa para seleccionar el ícono de notificaciones por área/tipo,
+incluyendo `salon_new_order`, que sigue siendo generado por 2 flujos
+de pedido reales) — **nunca deben tocarse**, independientemente de
+cualquier limpieza de identidad PWA. Los archivos `-512x512.png`
+(ambos con dimensión real 2133×2133 pese al nombre, sin ningún
+consumidor funcional) son candidatos opcionales de limpieza futura,
+sin urgencia — igual que `role-config.ts`/manifests, seguros de tocar
+eventualmente (efecto sólo cosmético) pero no bloqueantes.
+
+Recomienda **T52-R1B acotado a `install-prompt.tsx` únicamente** como
+la sola implementación de bajo riesgo/valor real pendiente en todo el
+backlog activo hoy — separado de la Fase 4 de Mozo (A1, push target +
+SW, requiere su propia autorización) y de cualquier limpieza opcional
+de assets 512/role-config (sin urgencia).
+
+Ver `codex-reports/P2_T52_A2_EMPLOYEE_SALON_LEGACY_PWA_ARTIFACT_AUDIT.md`
+para las tablas completas de campos/consumidores/safe-delete-matrix.
+
+## HISTORICAL SNAPSHOT — P2-T52-A1 RESOLVED (2026-09-20)
+
+```text
+P2_T52_STATUS=AUDITED_RESOLVED_PENDING_PHASE4_AUTHORIZATION
+PRODUCT_CODE_CHANGED=NO
+MANIFEST_CHANGED=NO
+SERVICE_WORKER_CHANGED=NO
+PUSH_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría profunda de compatibilidad (sin código) que resuelve la
+decisión que A0 dejó abierta. **Hallazgo central, el más importante de
+esta ronda**: el objetivo "dejar de promover instalaciones nuevas de
+la PWA separada de Mozo" **ya estaba cumplido en código antes de esta
+sesión** — `install-prompt.tsx` y `permission-prompt.tsx` YA excluyen
+por completo `/mozo` (`if (isMozoRoute(pathname)) return null`),
+confirmado leyendo ambos archivos completos. Combinado con el hallazgo
+de A0 de que ningún archivo bajo `/operaciones` enlaza a `/mozo`, la
+conclusión es que **no existe hoy ningún camino de código activo que
+dirija a un empleado nuevo hacia instalar "DeliGO Mozos"**.
+
+`DynamicManifest` fue investigado a fondo y **no debe tocarse**: su
+caso especial de `/mozo` (exacto, sin barra final) protege
+específicamente el home del panel personal, que `getRoleFromPath()` NO
+resolvería correctamente sin él (esa función sólo matchea `/mozo/` CON
+barra). Se investigó con fuentes oficiales (citadas en el reporte:
+web.dev "How Chrome handles updates to the web app manifest", Chrome
+for Developers blog) cómo Chrome verifica actualizaciones de manifest
+de una PWA instalada — el lanzamiento de una app ya instalada usa
+SIEMPRE su propio `start_url` registrado (`/mozo/`, CON barra, que ya
+resuelve correctamente sin cambios), nunca "redecide" su identidad
+contra lo que otra pestaña esté sirviendo hoy. Icono/nombre se tratan
+como cambios "security sensitive" — opcionales para el usuario, nunca
+forzados.
+
+El único trabajo real identificado (migrar el deep-link de push
+"pedido listo", hoy hardcodeado a `/mozo/panel/[slug]`, hacia
+`/operaciones/mi-panel/[slug]`, junto con una actualización mínima y
+compatible del Service Worker — nunca por separado) se **difiere
+explícitamente a una Fase 4 futura** con su propia autorización: hoy
+mejoraría la experiencia de usuarios modernos a costa de degradar
+(no romper) la de un grupo fijo y no creciente que ya tiene "DeliGO
+Mozos" instalada.
+
+Hallazgo lateral importante: **Empleado (`/e/{token}`) y Salón
+(`/s/{token}`) YA fueron completamente retirados** en una limpieza
+anterior a esta sesión ("Legacy-Cleanup-1B") — `/api/empleado/` y
+`/api/salon/` ni siquiera existen en el repo; ambas rutas sólo
+muestran una pantalla estática "Este acceso fue reemplazado". Su
+modelo de auth (magic-link sin sesión) es completamente distinto al
+de Mozo (CuentaOperativa con sesión) — clasificados como
+`SAFE_TO_REMOVE` en el sentido de assets (manifest/iconos/
+role-config), pero su limpieza no se ejecuta en esta ronda.
+
+Ver `codex-reports/P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md`
+para el contrato completo, las fuentes técnicas citadas, y el diseño
+de fases 1-5.
+
+## HISTORICAL SNAPSHOT — P2-T52-A0 AUDITED_DESIGNED (2026-09-20)
+
+```text
+P2_T52_STATUS=AUDITED_DESIGNED_PENDING_OPERATOR_DECISION
+PRODUCT_CODE_CHANGED=NO
+AUTH_CHANGED=NO
+MANIFEST_CHANGED=NO
+SERVICE_WORKER_CHANGED=NO
+DB_MUTATED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría + diseño (sin código) disparada por evidencia física del
+operador que **corrige una suposición previa**: `/mozo` NO está muerto
+— sigue siendo completamente funcional hoy, y una `CuentaOperativa`
+real puede autenticarse tanto desde `/mozo/iniciar-sesion` como desde
+`/operaciones/ingresar`.
+
+**Hallazgo central, confirmado por código (no sólo por evidencia
+física)**: `/mozo` y `/operaciones` NO son dos sistemas paralelos —
+comparten absolutamente todo (login/registro/logout/`me` vía
+`/api/operativo/*`, cookie `deligo_operativo_session`, modelo
+`CuentaOperativa`/`Empleado`, endpoint de unión por código). La
+arquitectura real es **re-export literal de componentes React**:
+`/operaciones/mi-panel` = `export { default } from "@/app/mozo/page"`,
+`/operaciones/mi-panel/[slug]` = mismo re-export de
+`/mozo/panel/[slug]` — UN solo código, servido bajo dos árboles de
+ruta, con un único helper (`useOperativoNav()`) que resuelve
+`homeHref`/`loginHref`/`panelHref` según el pathname. El propio código
+lo documenta como *"compatibilidad temporal"*.
+
+`Empleado.rol` ya NO autoriza acceso a áreas (cerrado tras la
+migración `backfill_employee_operational_areas`) — `Empleado.areaOperativa`
+(mozo|salon|pyr|sin_asignar, fijada EXCLUSIVAMENTE por el negocio,
+nunca por el empleado) es la única autoridad real, vía
+`resolveAreaOperativaEfectiva()`. El endpoint de unión por código
+(`/api/operativo/mozos/unirse`) sólo VINCULA una cuenta a un Empleado
+YA EXISTENTE — nunca crea el vínculo, nunca asigna rol/área.
+
+**Hallazgo crítico de riesgo que impide un cierre apresurado**: Mozo
+SÍ tiene una PWA separada, real e instalable HOY (`manifest-mozo.json`,
+scope `/mozo/`, vía el mecanismo `DynamicManifest` — Mozo no está en
+`PRINCIPAL_PWA_ROLES`), y el deep-link de push "pedido listo" está
+**hardcodeado** a `/mozo/panel/[slug]` (`mesa-order-ready-notification.ts`),
+con lógica del service worker atada a ese string literal. Clasificación
+final: `LEGACY_MOZO_ROUTE_FINAL_CLASSIFICATION=CURRENT_REQUIRED` — NO
+`SAFE_TO_REMOVE`.
+
+3 opciones diseñadas: **Option A** (mantener `/mozo` como
+compatibility entrypoint pero dejar de PROMOVER su PWA separada —
+RECOMENDADA), Option B (redirect gradual — riesgo alto de romper el
+`scope` de instalaciones existentes), Option C (no tocar nada). La
+decisión de ejecutar R1 requiere autorización explícita del operador,
+no es automática.
+
+Ver `codex-reports/P2_T52_A0_MOZO_OPERATIONS_COEXISTENCE_AND_PWA_CONSOLIDATION_AUDIT.md`
+para el detalle completo (tablas de rutas, comparación login legacy vs
+moderno, plan R1 condicional, plan de tests).
+
+## HISTORICAL SNAPSHOT — P2-T51 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T51_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T51_RELEASE_ELIGIBLE=YES
+P2_T51_PRODUCTION_PROMOTED=NO
+P2_T51_CERTIFIED_RUNTIME_SHA=c713650708855c5bd40efede3674b48581c65a11
+P2_T51_CERTIFIED_DEPLOY_ID=f31a69d8-2dbe-4929-9870-f616db9454fb
+PRODUCTION_TOUCHED=NO
+```
+
+Cierre formal de P2-T51 (DeliGO Operaciones Home Visual Redesign) tras
+aceptación visual general del operador — DOCUMENTATION-ONLY, cero
+código de producto en esta ronda, sin redeploy. R1 (`c713650`, deploy
+`f31a69d8-2dbe-4929-9870-f616db9454fb`) implementó Option A: accent
+amber para "Ingresar con mi cuenta" (heredado de
+`/operaciones/ingresar`), accent slate fijo para "Usar o activar esta
+terminal", decoración de fondo sutil, shadow refinado — cero cambio de
+`href`, copy o lectura de sesión. El operador abrió el home rediseñado
+en TESTING y confirmó *"quedó perfecto"* —
+`OPERATOR_OVERALL_VISUAL_ACCEPTANCE=PASS`, una aceptación general, no
+la ejecución registrada caso por caso de los 10 casos R2 preparados.
+
+Preservado sin cambios: `HOME_SESSION_READ_ADDED=NO` (server component
+puro, sin `"use client"`, sin auth/session), `PERSONAL_ROUTE_CHANGED=NO`,
+`TERMINAL_ROUTE_CHANGED=NO`, `COPY_CHANGED=NO`, T52/T38/T40 sin tocar.
+
+Ver `codex-reports/P2_T51_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md` para
+el detalle completo de cierre.
+
+## HISTORICAL SNAPSHOT — P2-T51-R1 IMPLEMENTED_DEPLOYED (2026-09-20)
+
+```text
+P2_T51_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION
+COMMIT_SHA=c713650708855c5bd40efede3674b48581c65a11
+PUSH_TARGET=origin/testing-codex (fast-forward 9c4b9d2..c713650)
+TESTING_DEPLOY_ID=f31a69d8-2dbe-4929-9870-f616db9454fb
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash match, boot logs clean, no migrations)
+PRODUCTION_TOUCHED=NO (origin/main = ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763, sin cambios)
+```
+
+Implementó exactamente Option A del diseño A0 (sección inmediatamente
+debajo) en `src/app/operaciones/page.tsx`: accent AMBER heredado de
+`/operaciones/ingresar` para "Ingresar con mi cuenta", accent SLATE fijo
+(nunca `negocio.colorPrincipal`, desconocido antes de autenticar la
+terminal) para "Usar o activar esta terminal", decoración de fondo con
+2 blurs sutiles (mismo patrón de `/operaciones/ingresar`), `shadow-sm`→
+`shadow-lg shadow-black/5 dark:shadow-black/20`, helper local
+`EntryOptionCard` para evitar duplicación de markup entre las dos
+opciones. **Cero cambio de `href`, copy, o lectura de sesión** — el
+archivo sigue siendo un server component puro (`○` estático en el
+build), sin `"use client"`, sin importar auth/session/cookies.
+
+17 tests focales nuevos (`src/app/operaciones/page.test.tsx`) — contrato
+ESTÁTICO sobre el source del archivo (no render con DOM, dado que
+`page.tsx` compone `<Link>` de `next/link` sin contexto de App Router
+disponible fuera de Next — mismo patrón "contrato estático puro" ya
+usado en T45/T47/T49/T50). TSC 31 baseline/0 nuevos, ESLint/build/
+diff-check PASS. Prevalidación técnica (no física) en Browser pane:
+desktop, 375px, 320px (sin overflow horizontal), dark mode forzado vía
+`localStorage.deligo-theme` (el ThemeProvider del repo usa su propio
+storage key, no `prefers-color-scheme` directo) — ambos accents
+legibles, consola sin errores, rutas de los 2 `<a>` confirmadas
+idénticas a las originales.
+
+T52/T38/T40 confirmados fuera de alcance y sin tocar (sin manifest, SW,
+push, install prompts).
+
+**Pendiente**: certificación física del operador en TESTING (gate que
+Claude no puede sustituir) — 10 casos preparados (desktop, mobile,
+accent Personal/Terminal, tap de ambas opciones, volver, dark mode,
+320px, PWA instalada condicional). Sin eso, T51 no puede cerrarse ni
+considerarse `CLOSED_TESTING_CERTIFIED`. Ver
+`codex-reports/P2_T51_R1_OPERATIONS_HOME_VISUAL_REDESIGN.md` para el
+detalle completo.
+
+## HISTORICAL SNAPSHOT — P2-T51-A0 AUDITED_DESIGNED (2026-09-20)
+
+```text
+P2_T51_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+PRODUCT_CODE_CHANGED=NO
+AUTH_CHANGED=NO
+DB_MUTATED=NO
+SCHEMA_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría + diseño (sin código) del rediseño visual del home de DeliGO
+Operaciones.
+
+**Home real**: `src/app/operaciones/page.tsx` (`OperacionesEntryPage`)
+— un único `<Card>` server-side (sin `"use client"`, sin lectura de
+cookies/sesión), selector NEUTRAL con exactamente 2 opciones:
+"Ingresar con mi cuenta" (`/operaciones/ingresar`, cuenta personal
+`CuentaOperativa`, cookie `deligo_operativo_session`) y "Usar o activar
+esta terminal" (`/operaciones/terminal`, cookie
+`deligo_operaciones_terminal`). El propio código documenta la
+neutralidad: el selector no consulta ni resuelve ninguna identidad
+antes de que el usuario elija. Hoy ambos íconos comparten el mismo
+color neutro `bg-muted` — el único gap real es visual, no de contenido
+(el copy ya es preciso).
+
+**Lenguaje visual compartido de DeliGO** (auditado en Cliente/Negocio/
+Operaciones-ingresar/Operaciones-terminal): shell centrado max-w-sm/md,
+Card con `shadow-lg shadow-<accent>/5`, icon badge redondeado con
+accent por actor, `Logo` decorativo constante (nunca un `<Link>` en
+todo el repo), soporte `dark:` universal vía `ThemeProvider` global.
+`/operaciones/ingresar` ya estableció **amber** como accent de "cuenta
+personal de Operaciones" — el diseño hereda ese mismo amber para la
+opción personal del home, y propone un accent **slate** fijo/genérico
+para Terminal (nunca `negocio.colorPrincipal`, desconocido antes de
+autenticar la terminal — preserva la neutralidad arquitectónica).
+
+**Diseño recomendado**: Option A (refinamiento del Card único
+existente — accent color + decoración de fondo sutil + shadow-lg, diff
+mínimo, cero cambio estructural) sobre Option B (hero + 2 cards en
+grid, mayor cambio, más riesgo de "sentirse como dashboard"). R1
+planificado: 1 archivo de producto (`page.tsx`, sólo className/colores
+— cero `href`, cero texto, cero import de auth tocado) + 1 archivo de
+test nuevo. `NEW_ASSET_REQUIRED=NO`. T52/T38/T40 confirmados fuera de
+alcance y sin tocar.
+
+Ver `codex-reports/P2_T51_A0_OPERATIONS_HOME_VISUAL_REDESIGN_AUDIT_DESIGN.md`
+para el detalle completo (tabla de flujos, ambas opciones de diseño,
+plan de tests, casos de certificación física R2 preparados).
+
+## HISTORICAL SNAPSHOT — P2-T55 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T55_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T55_RELEASE_ELIGIBLE=YES
+P2_T55_PRODUCTION_PROMOTED=NO
+P2_T55_CERTIFIED_RUNTIME_SHA=4f7b3355269768b9ef69ca650ac4faa6e1342bd2
+P2_T55_CERTIFIED_DEPLOY_ID=7a3e8d12-66b4-4214-b963-6e5480a441df
+PRODUCTION_TOUCHED=NO
+```
+
+Cierre formal de P2-T55 (Salon History Custom Date Filtering) tras
+certificación física + visual del operador — DOCUMENTATION-ONLY, cero
+código de producto en esta ronda. R1 (`da7d08b`, deploy
+`50da9aa4-81dc-4f60-a31f-9c4197907c8b`) implementó el filtro custom
+día/mes/rango; R1B (`4f7b335`, deploy
+`7a3e8d12-66b4-4214-b963-6e5480a441df`) alineó visualmente las pills
+Hoy/Semana/Mes de Historial con Estadísticas. El operador confirmó
+*"quedó perfecto todo"* dos veces — una vez para lo funcional (R1), una
+vez para lo visual (R1B). Todo lo certificado en R1 (Hoy/Semana/Mes
+rápido, Día/Mes específico, Rango Desde/Hasta, Aplicar/Cancelar/Limpiar,
+detalle de cuenta, ticket, autoridad de pago T46) queda confirmado sin
+regresión tras el ajuste puramente visual de R1B.
+
+Preservado sin cambios: `NEW_TODO_FILTER_ADDED=NO`,
+`CUSTOM_CLEAR_TARGET=hoy`, `HISTORIAL_QUICK_MES_SEMANTICS=30_DIAS_FIJOS`
+(diverge de T50 por diseño), paginación por-pedido límite 50 sin
+cursor, `mesa-historial.ts`/`buildCuentaMesa`/autoridad de pago T46
+intactos, T50 `CLOSED_TESTING_CERTIFIED` sin regresión.
+
+Ver `codex-reports/P2_T55_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md` para
+el detalle completo de cierre.
+
+## HISTORICAL SNAPSHOT — P2-T55-R1B VISUAL PARITY (2026-09-20)
+
+```text
+P2_T55_R1B_STATUS=IMPLEMENTATION_COMPLETE_TESTING_DEPLOYED_PENDING_OPERATOR_VISUAL_CONFIRMATION
+COMMIT_SHA=4f7b3355269768b9ef69ca650ac4faa6e1342bd2
+PUSH_TARGET=origin/testing-codex (fast-forward c28fdbd..4f7b335)
+TESTING_DEPLOY_ID=7a3e8d12-66b4-4214-b963-6e5480a441df
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash match, boot logs clean, no migrations)
+PRODUCTION_TOUCHED=NO (origin/main = ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763, sin cambios)
+DESIGN_ONLY_CHANGE=SI
+```
+
+Después de que el operador confirmara T55-R1 funcionalmente correcto en
+TESTING, pidió paridad VISUAL de Historial con Estadísticas para
+Hoy/Semana/Mes/Elegir fecha (sin cambiar lógica). Auditoría: el botón
+"Elegir fecha" y todo el Popover custom (Día/Mes/Rango,
+`StatsDatePicker`, `Select`, Cancelar/Aplicar) ya eran byte-idénticos
+entre ambos desde R1. La única diferencia real estaba en las pills
+Hoy/Semana/Mes de Historial, que habían quedado con el estilo visual
+PRE-T55 (pill individual con borde, activo en color `primary`) en vez
+del patrón de segmented-control que Estadísticas usa (track
+`bg-muted/60 rounded-xl p-1`, segmentos `flex-1 rounded-lg`, activo
+`bg-background shadow-sm`).
+
+Cambio aplicado: único archivo (`src/components/business/salon-tab.tsx`,
+`HistorialSubTab`), sólo los `className` del contenedor y botón de esas
+3 pills, copiados exactos del patrón de `EstadisticasSubTab`. Nada de
+lógica/handlers/array de valores tocado. `HISTORY_TODO_ADDED=NO` — el
+array de quick filters de Historial sigue siendo exactamente
+`["hoy","semana","mes"]`.
+
+98/98 tests existentes (T55 + T50 + helper compartido) siguen pasando
+sin modificar ni un solo assert — confirma que ningún contrato de
+lógica/query/endpoint cambió. TSC 31 baseline/0 nuevos, ESLint/build/
+diff-check PASS.
+
+**Pendiente**: confirmación visual del operador en TESTING. Ver
+`codex-reports/P2_T55_R1B_HISTORY_FILTER_VISUAL_PARITY.md` para el
+detalle completo (diff exacto de clases Tailwind antes/después).
+
+## HISTORICAL SNAPSHOT — P2-T55-R1 IMPLEMENTATION_COMPLETE (2026-09-20)
+
+```text
+P2_T55_R1_STATUS=IMPLEMENTATION_COMPLETE_TESTING_CERTIFIED_AUTOMATED_PENDING_PHYSICAL_CERTIFICATION
+COMMIT_SHA=da7d08b27ea15673ef42009fda996c2bd02b9b9a
+PUSH_TARGET=origin/testing-codex (fast-forward 345ab11..da7d08b)
+TESTING_DEPLOY_ID=50da9aa4-81dc-4f60-a31f-9c4197907c8b
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash match, boot logs clean, no migrations)
+PRODUCTION_TOUCHED=NO (origin/main = ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763, sin cambios)
+BRANCH=work/p2-t43-r2
+```
+
+Implementó lo diseñado en la auditoría A0 (sección inmediatamente
+debajo): filtro de fecha custom día/mes/rango para `HistorialSubTab`
+(Historial de Salón, POR-MESA), extendiendo aditivamente
+`GET /api/negocio/pedidos` con los mismos 4 params que T50
+(fecha/mes/desde/hasta), reutilizando un nuevo helper compartido
+`src/lib/date-range-filter.ts` (`resolveCustomDateFilter`, precedencia
+fecha>mes>rango>none) del que `negocio/salon/stats/route.ts` (T50)
+también pasó a depender — refactor puro, cero cambio de comportamiento
+externo, certificado por la suite de T50 sin modificar (53/53 pass).
+
+**Decisión de producto explícita seguida**: NO se agregó un quick
+filter "Todo" a Historial (a diferencia de Estadísticas, que sí lo
+tiene) — "Limpiar" en el selector custom vuelve siempre a "Hoy", nunca
+a "sin filtro". Las dos divergencias reales de Historial frente a T50
+documentadas en A0 (quick "Mes" = 30 días fijos, no calendario;
+Historial incluye `cancelado`) se preservaron sin tocar, como estaba
+previsto.
+
+`mesa-historial.ts`/`buildMesaHistorialAccounts`/`accountKey`/
+`buildCuentaMesa`/`withCuentaMesaPayment` (autoridad T46) NO se
+tocaron — sólo cambia qué `Pedido[]` entra a esas funciones.
+
+Evidencia: 45 tests focales nuevos + 53 regresión T50 + 8 regresión T46
+(ejecutado aislado por una colisión preexistente de mocks de módulo en
+bun:test, reproducida idéntica contra el baseline sin este diff) — todos
+PASS. TSC 31 baseline/0 nuevos. ESLint/build/diff-check PASS.
+
+**Fixture candidata identificada (read-only) para certificación física
+R2**: negocio TESTING "burgerking" (`negocioId=cmsgzkpo70000pf0ac5pk9zff`,
+slug `burgerking`) — 1 mesa, 15 pedidos históricos reales de mesa
+(entregado+cancelado) con fechas dispersas 2026-08-06→2026-09-11, útil
+para ejercitar Día/Mes/Rango sin fixtures sintéticas nuevas.
+
+**Pendiente**: certificación física del operador en TESTING (gate que
+Claude no puede sustituir). Sin eso, T55 no puede cerrarse ni
+considerarse `CLOSED_TESTING_CERTIFIED`. Ver
+`codex-reports/P2_T55_R1_SALON_HISTORY_CUSTOM_DATE_FILTERING.md` para
+el detalle completo.
+
+Ver `codex-reports/P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md`
+para el diseño original (aún vigente como referencia arquitectónica).
+
+## HISTORICAL SNAPSHOT — P2-T55-A0 AUDITED_DESIGNED (2026-09-20)
+
+```text
+P2_T55_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+PRODUCT_CODE_CHANGED=NO
+DB_MUTATED=NO
+SCHEMA_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría + diseño (sin código) de filtros de fecha personalizados para
+el Historial de Salón del panel Negocio.
+
+**Hallazgo arquitectónico central**: a diferencia de Estadísticas
+(T50, dashboard agregado a nivel negocio), Historial es un modelo
+**POR-MESA** — grilla de mesas agrupadas por zona → click en una mesa →
+`Drawer` con el historial de ESA mesa específica. El target real es
+`HistorialSubTab` (`src/components/business/salon-tab.tsx:2290-2520`,
+mismo archivo que `EstadisticasSubTab` de T50, nunca extraído), backend
+`GET /api/negocio/pedidos?estado=historial&metodoEntrega=mesa` —
+**endpoint completamente distinto** al de T50
+(`/api/negocio/salon/stats`).
+
+**Divergencias reales confirmadas frente a T50** (no asumidas):
+mismo campo canónico `Pedido.fecha`, pero el quick filter "Mes" de
+Historial es una ventana rodante de **30 días fijos** (T50: 1 mes
+calendario rodante, que varía 28-31 días) — dos "Mes" con semántica
+distinta, ambos preservados sin cambios. Historial SÍ incluye pedidos
+`cancelado` (T50 sólo cuenta `entregado`). Agrupamiento por
+`Pedido.ocupacionMesaId`, reutilizando `buildCuentaMesa`/
+`withCuentaMesaPayment` — la MISMA autoridad de T46, sin tocar.
+Paginación actual: por-pedido, límite fijo de 50, sin "cargar más" (no
+por-cuenta) — riesgo preexistente documentado, no introducido por T55.
+
+**Reuso de T50, acotado y explícito**: SÍ los helpers de fecha
+(`dateToIsoDateString`/`isoDateStringToDate`, ya exportados en el MISMO
+archivo — cero fricción de import) y el patrón de UI
+(Popover/Calendar/Select ya importados desde T50); NO el tipo/funciones
+de Stats literalmente (formas distintas: Historial no tiene "Todo" como
+quick filter, y su grouping es por-mesa). Recomienda extraer a
+`src/lib/date-range-filter.ts` el parseo seguro de fecha por componentes
+que hoy vive privado dentro de `negocio/salon/stats/route.ts`, para que
+ambos endpoints lo compartan sin duplicar código.
+
+```text
+NEW_ENDPOINT_REQUIRED=NO — extensión aditiva de GET /api/negocio/pedidos
+BACKEND_CHANGE_REQUIRED=SI (extensión aditiva, mismo patrón que T50)
+DETAIL_CONTRACT_CHANGE_REQUIRED=NO (MesaAccountDetail/MesaAccountTicketDialog sin tocar)
+```
+
+Ver `codex-reports/P2_T55_A0_SALON_HISTORY_CUSTOM_DATE_FILTERING_AUDIT_DESIGN.md`
+para el detalle completo (matriz de 5 superficies "Historial" auditadas,
+contrato HTTP propuesto, modelo de rango FROM inclusivo/TO exclusivo,
+plan R1 archivo por archivo, plan de tests, preparación de casos R2).
+
+`P2-T47=CLOSED_TESTING_CERTIFIED`, `P2-T50=CLOSED_TESTING_CERTIFIED`,
+`P2-T46 original=CLOSED_PRODUCTION`,
+`P2-T46-R2=CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION`
+permanecen sin tocar (ver sección inmediatamente debajo, ahora
+histórica de este handoff).
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T47 + P2-T46-R2 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T47_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T47_RELEASE_ELIGIBLE=YES
+P2_T47_PRODUCTION_PROMOTED=NO
+P2_T46_R2_STATUS=CLOSED_TESTING_CERTIFIED_AWAITING_PRODUCTION_PROMOTION
+P2_T46_ORIGINAL_STATUS=CLOSED_PRODUCTION (checkpoint histórico de
+  T46-R4, 2026-09-11 — NO reescrito, NO falsificado)
+PRODUCTION_TOUCHED=NO
+```
+
+Certificación física completa del operador sobre TESTING, cerrando dos
+frentes relacionados pero distintos:
+
+**P2-T47** (`8994bc304ef7ad5c057acf1deeb83fd9354ad051`, TESTING deploy
+SUCCESS `0677ae36-c49e-4d42-9001-b5f6282c18d0`): Cases A-K todos PASS
+— *"quedó perfecto absolutamente todo"*. `ProductConfigurator`
+(Badge Obligatorio, contador N/máximo, aria-pressed+check, variante de
+remoción, QuantityStepper sin papelera falsa, safe-area, touch targets
+44px), agrupamiento case-insensitive de categorías en
+`ProductDetailSheet`, y guardas contra categorías duplicadas por case
+en el catálogo de Negocio — todo certificado, ninguna regla de
+producto/precio/payload cambió. Ver
+`codex-reports/P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md`.
+
+**P2-T46-R2** (`55187a66f253e377df27f36a416f31cbd73642e0`, TESTING
+deploy SUCCESS `d458fc4f-9064-46e2-8851-f36f3f21fe20`): durante la
+certificación de T47 el operador encontró el selector Efectivo/
+Transferencia todavía visible al levantar un pedido manual de mesa
+desde Mozo/Operaciones personal — un gap adyacente y preexistente de
+T46 (`PAYMENT_METHOD_SELECTION_DURING_INDIVIDUAL_TABLE_ORDER=NO`),
+nunca introducido por T47. Corregido, testeado, desplegado a TESTING y
+ahora certificado físicamente: *"quedó todo perfecto ya lo probé"* —
+selector ausente, `SesionOcupacionMesa` sigue siendo la única autoridad
+de pago (cierre de cuenta sin tocar), delivery/retiro sin cambios. Ver
+`codex-reports/P2_T46_R2_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md`.
+`P2_T46_STATUS=CLOSED_PRODUCTION` (T46-R4, 2026-09-11) permanece
+intacto como hecho histórico — la ronda R2 se registra por separado,
+`AWAITING_PRODUCTION_PROMOTION`, nunca reescribiendo ese checkpoint.
+
+```text
+PRODUCTION_LIKELY_AFFECTED_BY_SAME_GAP=SI (verificado read-only contra
+  origin/main; T46 fue promovida a Production en 2026-09-11, antes de
+  que este gap se descubriera físicamente — el mismo selector vive hoy
+  en la copia de Production de este archivo; NO promovido en esta
+  ronda, pendiente de autorización explícita y curada futura)
+CLIENT_MESA_SILENT_DEFAULT_PAYMENT_FINDING=OPEN (POST /api/pedidos
+  sigue exigiendo metodoPago incluso para metodoEntrega="mesa" pese a
+  que el selector visual de Cliente Mesa ya estaba oculto antes de
+  esta ronda — no corregido, documentado bajo la misma autoridad T46)
+```
+
+`P2-T55` (Salon History Custom Date Filtering) permanece `READY_FUTURE`,
+no iniciada. `P2-T50`/`P2-T49` sin cambios
+(`CLOSED_TESTING_CERTIFIED`). `P2-T44` sin cambios
+(`PAUSED_UNRESOLVED_AFTER_TIMEBOX`). `NEXT_RECOMMENDED_SOFTWARE_TASK`
+pasa a `P2-T51` (DeliGO Operaciones Home Visual Redesign).
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T46-R2 IMPLEMENTED_DEPLOYED_TESTING (2026-09-20)
+
+```text
+P2_T46_R2_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico T46-R4 2026-09-11,
+  NO reescrito) con gap correctivo abierto, ver abajo
+PRODUCTION_TOUCHED=NO
+PRODUCTION_LIKELY_AFFECTED_BY_SAME_GAP=SI (verificado read-only)
+```
+
+Durante la certificación física de P2-T47 el operador encontró un
+finding ADYACENTE, preexistente y no introducido por T47: el flujo de
+pedido manual de Mozo/Operaciones personal
+(`src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx`, compartido vía
+re-export literal con `/operaciones/mi-panel/[slug]/pedido/[mesaId]`)
+todavía mostraba un selector Efectivo/Transferencia al tomar un pedido
+de mesa — violando la regla ya establecida en T46
+(`PAYMENT_METHOD_SELECTION_DURING_INDIVIDUAL_TABLE_ORDER=NO`,
+`PAYMENT_METHOD_SELECTION_AT_ACCOUNT_CLOSE=SI`). T46-R1 (2026-09-11)
+nunca tocó este archivo específico — sólo cuenta/ticket/historial —,
+así que el gap viene de origen, no de una regresión posterior.
+
+**Hallazgo importante**: `git show origin/main:".../page.tsx"`
+confirma que el MISMO selector ya existe en Production hoy (T46 está
+`CLOSED_PRODUCTION` desde 2026-09-11) — este gap probablemente también
+afecta Production, no sólo Testing. No se tocó Production en esta
+ronda bajo ninguna circunstancia; el hallazgo queda documentado para
+una futura autorización explícita.
+
+**P2-T46-R2** (2026-09-20) implementó, testeó y desplegó a TESTING la
+corrección: eliminado el estado `metodoPago`, los botones Efectivo/
+Transferencia, la dependencia de `aceptaTransferencia`, y el envío de
+`metodoPago` en el POST del frontend; en el backend
+(`POST /api/operativo/mozo/panel/[slug]/pedidos`) eliminada la
+validación 400, el campo del fingerprint de idempotencia, la
+comprobación de `aceptaTransferencia`, y el seteo explícito de
+`metodoPago` en `Pedido.create` (la columna toma su default de schema
+sin ser tratada como autoridad). La autoridad de pago de T46
+(`SesionOcupacionMesa.metodoPago` al cierre de cuenta) permanece
+exactamente igual, sin tocar. Delivery/Retiro sin cambios.
+
+Auditadas las 7 superficies que podrían crear un pedido de mesa:
+Cliente Mesa ya tenía el selector visual oculto (`cart-panel.tsx:1344`,
+`{!isMesaOrder && ...}`, no tocado); Negocio ya lee el método
+confirmado desde `ocupacionMesa`, nunca `Pedido.metodoPago`; Terminal
+Salón y el panel personal de Salón no pueden crear pedidos. Hallazgo
+lateral documentado, NO corregido: `POST /api/pedidos` (checkout
+compartido de Cliente retiro/domicilio/mesa) sigue exigiendo
+`metodoPago` incluso para `metodoEntrega="mesa"` — fuera del alcance
+quirúrgico de esta ronda (endpoint mucho más grande y compartido).
+
+```text
+COMMIT_SHA=55187a66f253e377df27f36a416f31cbd73642e0
+PUSH_TARGET=origin/testing-codex — SUCCESS
+TESTING_DEPLOY_ID=d458fc4f-9064-46e2-8851-f36f3f21fe20 (servicio DeliGO Copy)
+TESTING_DEPLOY_STATUS=SUCCESS, boot limpio, sin migraciones pendientes
+FOCAL_TESTS=21 (0 fail); T47_REGRESSION_TESTS=29 (0 fail, sin cambios)
+TSC_NEW_ERRORS=0 (31 total, baseline sin cambios)
+```
+
+Ver `codex-reports/P2_T46_R2_MOZO_PAYMENT_TIMING_PARITY.md` para el
+detalle completo. NO se certificó físicamente esta ronda por Claude. NO
+se creó ninguna tarea `P2-Txx` nueva — es una corrección de una regla
+ya perteneciente a T46. `P2-T50`/`P2-T55`/`P2-T49`/`P2-T44` sin cambios.
+
+Sobre P2-T47: el operador confirmó evidencia física acumulada completa
+(`P2_T47_R2_OPERATOR_RESULT=ALL_CASES_PASS`, Cases A-K todos PASS,
+`P2_T47_PHYSICAL_CERTIFICATION=PASS`) — el finding de pago no bloquea
+T47 (pertenece a T46). El closeout formal de T47 con esta evidencia
+queda para una tarea de cierre dedicada, no se hizo acá.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T47-R1 IMPLEMENTED_DEPLOYED_TESTING (2026-09-20)
+
+```text
+P2_T47_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION
+P2_T47_STATUS=IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION
+PRODUCTION_TOUCHED=NO
+```
+
+Implementó los 3 targets diseñados en A0, 100% frontend, cero API/
+schema/migración:
+
+**Nuevo helper compartido** `src/lib/category-normalization.ts`
+(`normalizeCategoryKey`, `findEquivalentCategory`,
+`groupByNormalizedCategory`) — única autoridad para tratar nombres de
+categoría como equivalentes cuando sólo difieren en mayúsculas/espacios,
+sin tocar nunca los datos guardados.
+
+**ProductConfigurator** (`src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx`,
+compartido verbatim con Operaciones vía re-export literal): Badge
+"Obligatorio" reemplaza `" *"`; contador vivo `N/máximo` reemplaza el
+texto "Hasta N"; `ChoiceButton` gana check + `aria-pressed` además del
+color existente, y una variante roja/tachada exclusiva para "Quitar
+ingredientes"; el `QuantityStepper` del configurador ya no muestra una
+papelera que `Math.max(1, ...)` nunca dejaba usar (`allowRemoveAtMin`
+preserva el borrado real en `CartLine`); safe-area en el bottom bar;
+touch targets a 44px. `canAdd`, el cálculo de precio y el payload del
+pedido no se tocaron.
+
+**ProductDetailSheet** (`src/app/n/[slug]/page.tsx`): el agrupamiento
+de agregados/ingredientes migró a `groupByNormalizedCategory` — "Aderezos"/
+"aderezos"/" ADEREZOS " ahora colapsan en una sola sección, conservando
+el primer label visto, sin perder ningún item.
+
+**Catálogo de Negocio** (`agregados-section.tsx`/`ingredientes-section.tsx`):
+los 5 puntos de creación/renombrado de categoría usan
+`findEquivalentCategory` en vez de `Array.includes` case-sensitive —
+ya no se pueden crear nuevos duplicados por case, pero recapitalizar la
+propia categoría única sigue permitido. Sin backfill: ninguna categoría
+existente en Postgres fue tocada/renombrada/fusionada.
+
+```text
+COMMIT_SHA=8994bc304ef7ad5c057acf1deeb83fd9354ad051
+PUSH_TARGET=origin/testing-codex — SUCCESS
+TESTING_DEPLOY_ID=0677ae36-c49e-4d42-9001-b5f6282c18d0 (servicio DeliGO Copy)
+TESTING_DEPLOY_STATUS=SUCCESS, boot limpio, sin migraciones pendientes
+FOCAL_TESTS=65 (0 fail); REGRESSION_TESTS=99 (0 fail)
+TSC_NEW_ERRORS=0 (31 total, baseline sin cambios)
+```
+
+Ver `codex-reports/P2_T47_R1_PRODUCT_PERSONALIZATION_UX.md` para el
+detalle completo. NO se certificó físicamente esta ronda — R2 (Cases
+A-K, ya preparados en el reporte A0) queda pendiente antes de poder
+cerrar T47. `P2-T55` (Salon History Custom Date Filtering) permanece
+`READY_FUTURE`, no iniciada.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T47-A0 AUDITED_DESIGNED (2026-09-20)
+
+```text
+P2_T47_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+PRODUCT_CODE_CHANGED=NO
+DB_MUTATED=NO
+SCHEMA_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría + diseño (sin código) del personalizador de producto de
+Operaciones + reconciliación de backlog post-T50 + registro de una
+nueva tarea futura.
+
+**Reconciliación T50**: confirmado (sin cambios adicionales
+necesarios) que `ROADMAP.md` ya reflejaba
+`P2_T50_STATUS=CLOSED_TESTING_CERTIFIED` desde su cierre físico previo
+— ningún `READY_FUTURE`/`ACTIVE`/`IN_PROGRESS` residual encontrado en
+la autoridad vigente (`CODEX_REPORT.md` la menciona sólo en una nota
+histórica de agrupación de 2026-09-09, no como estado vigente — no se
+edita ese archivo, no es la autoridad mantenida en esta sesión).
+
+**Nueva tarea registrada**: `P2-T55 — Salon History Custom Date
+Filtering` (`READY_FUTURE`, `P2`) — el operador pidió, durante la
+certificación física de T50, los mismos filtros día/mes/rango pero para
+el Historial de Salón (no las Estadísticas que T50 ya modificó). ID
+verificado libre por grep exhaustivo (0 colisiones). NO implementada;
+su propia auditoría deberá confirmar si Historial comparte
+endpoint/campo de fecha con T50 antes de tocar código — no se asume.
+
+**Target real de T47 identificado**: `ProductConfigurator`, inline en
+`src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx` — compartido vía
+**re-export literal** con `/operaciones/mi-panel/[slug]/pedido/
+[mesaId]` (Mozo y Operaciones personal son el mismo archivo). Terminal
+Salón kiosco NO tiene ningún flujo de personalización de producto
+(`OPERACIONES_AREAS=["salon","pyr"]`, sin scope de pedidos — comentario
+explícito "NUNCA mozo" en el código de permisos).
+
+**Root cause "Aderezos/aderezos" confirmado con evidencia exacta**:
+`Agregado.categoria`/`Ingrediente.categoria` son texto libre sin
+constraint en el schema (sin enum/unique/index); la UI de catálogo del
+Negocio (`agregados-section.tsx`/`ingredientes-section.tsx`) hace un
+dedup **case-sensitive** (`Array.includes`) al crear categorías nuevas
+— un typo de mayúscula crea una categoría "nueva" válida; el
+agrupamiento por categoría en `ProductDetailSheet` (Cliente storefront
+`/n/[slug]`, Cliente Mesa `/n/[slug]?mesa=X`, y la Vista previa del
+Negocio) usa un `Map` sin normalizar `.toLowerCase()`/`.trim()` — dos
+categorías que difieren sólo en case se renderizan como dos encabezados
+separados. **`ProductConfigurator` (el personalizador real de
+Operaciones) nunca agrupa por categoría — estructuralmente no puede
+reproducir ese síntoma específico.** Conclusión: el finding original
+mezcló dos problemas reales pero distintos que coincidieron en la misma
+revisión física ("Operaciones... Cliente Mesa"): la inconsistencia
+visual general (target real: `ProductConfigurator`) y la duplicación
+Aderezos/aderezos (target real: `ProductDetailSheet`, alcanzado como
+Cliente Mesa, no como Operaciones en sentido estricto).
+`ADEREZOS_DUPLICATION_CLASSIFICATION=DATA_INCONSISTENCY`.
+
+R1 diseñado 100% frontend (`BACKEND_CHANGE_REQUIRED=NO`,
+`API_CHANGE_REQUIRED=NO`, `SCHEMA_CHANGE_REQUIRED=NO`): rediseño visual
+de `ProductConfigurator` (Badge "Obligatorio", contador N/max, variante
+roja/tachada para quitar ingredientes, `aria-pressed`, safe-area en el
+bottom bar, touch targets ≥44px) + normalización case-insensitive del
+agrupamiento en `ProductDetailSheet` (conservando el primer texto visto
+como label). El fix del dedup en el catálogo de Negocio queda como
+hallazgo documentado, separado, fuera de este backlog item.
+
+Ver `codex-reports/P2_T47_A0_PRODUCT_PERSONALIZATION_UX_AUDIT_DESIGN.md`
+para el detalle completo (matriz de superficies, mapeo de modelo de
+producto, comparación contra `ProductDetailSheet`, plan R1 archivo por
+archivo, plan de tests, preparación de casos R2).
+
+`P2_T50_STATUS=CLOSED_TESTING_CERTIFIED` permanece sin tocar (ver
+sección inmediatamente debajo, ahora histórica de este handoff).
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T50 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T50_STATUS=CLOSED_TESTING_CERTIFIED
+RELEASE_ELIGIBLE=YES
+PRODUCTION_PROMOTED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Certificación física completa del operador sobre TESTING, sobre la
+implementación R1 (commit `9f9f5c9299e801dd60a7eb0e342034521129e342`,
+TESTING deploy SUCCESS `b09e0acd-8aed-43d9-9942-35fc7e28546f`, servicio
+DeliGO Copy):
+
+```text
+R2_CASE_A (quick filters, sin regresión)         PASS
+R2_CASE_B (día específico)                       PASS
+R2_CASE_C (mes específico)                       PASS
+R2_CASE_D (rango Desde/Hasta)                    PASS
+R2_CASE_E (boundary medianoche)                  NOT_REQUIRED_CONDITIONAL
+R2_CASE_F (mobile)                               PASS
+```
+
+Confirmación literal del operador: *"funciona todo perfecto incluyendo
+lo personalizado"* (Cases B/C/D) y *"quedó perfecto"* (Case F, mobile).
+Case E era explícitamente condicional a que existiera un pedido real
+cercano a medianoche — no se fabricó ningún dato sólo para producir esa
+evidencia; el límite FROM inclusivo/TO exclusivo ya está cubierto por
+los tests automatizados de boundary (route.test.ts, casos N/O).
+
+Quality gate reutilizado de R1 (última ronda con cambio de código: 53
+tests focales pass/0 fail — 30 backend + 23 frontend —, TSC 31
+baseline/0 nuevos, ESLint/build/diff-check PASS) — sin repetir en este
+cierre documental, sin cambios de código.
+
+`mesasAsignadas` permanece exactamente igual — snapshot en vivo sin
+filtro de fecha (`MESAS_ASIGNADAS_RANGE_BEHAVIOR=UNCHANGED_LIVE_SNAPSHOT`),
+inconsistencia ya documentada en A0, nunca "corregida" en este cierre.
+
+Invariantes preservadas: `P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX`
+y `P2_T49_STATUS=CLOSED_TESTING_CERTIFIED` (sin tocar), timezone sin
+cambios de arquitectura (`TIMEZONE_MODEL_CHANGED=NO`), sin nuevo
+endpoint, sin schema/migración/DB mutation.
+
+Ver `codex-reports/P2_T50_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md` para
+el detalle completo. NO se promovió a Production en esta tarea ni en
+ninguna ronda anterior de T50.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T50-R1 IMPLEMENTED_DEPLOYED_TESTING (2026-09-20)
+
+```text
+P2_T50_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2_PHYSICAL_CERTIFICATION
+P2_T50_STATUS=IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION
+PRODUCTION_TOUCHED=NO
+```
+
+Implementó el filtro de fecha personalizado (día/mes/rango) diseñado en
+A0, como extensión ADITIVA de `GET /api/negocio/salon/stats`
+(`src/app/api/negocio/salon/stats/route.ts`) — nuevos params opcionales
+`fecha=YYYY-MM-DD` / `mes=YYYY-MM` / `desde`+`hasta=YYYY-MM-DD`,
+precedencia explícita fecha > mes > rango > `periodo` (fallback
+histórico, sin cambios de semántica en hoy/semana/mes/todo). Parseo
+seguro por componentes con roundtrip anti-fecha-inválida (nunca
+`new Date(string)`); rango FROM inclusivo/TO exclusivo; combinaciones
+custom ambiguas (p.ej. `fecha`+`mes`) → 400 genérico.
+
+UI (`src/components/business/salon-tab.tsx`, `EstadisticasSubTab`):
+control "Elegir fecha" nuevo junto a las 4 pastillas quick filter
+existentes (sin tocarlas), Popover con modos Día/Mes/Rango reutilizando
+`Calendar`/`Popover` (antes instalados pero nunca usados en `src/`) y un
+`Select` de mes+año para el modo Mes (más simple/mobile-friendly que
+forzar el Calendar). Un único `StatsFilter` (discriminated union)
+controla el estado; flujo Aplicar/Cancelar evita disparar fetch a mitad
+de selección; `queryKey` de TanStack Query incluye el filtro completo
+(nunca comparte cache entre filtros distintos).
+
+`mesasAsignadas` se dejó exactamente igual — sigue siendo un snapshot
+en vivo sin filtro de fecha (`MESAS_ASIGNADAS_RANGE_BEHAVIOR=
+UNCHANGED_LIVE_SNAPSHOT`), inconsistencia ya documentada en A0 y fuera
+de alcance de esta ronda.
+
+```text
+COMMIT_SHA=9f9f5c9299e801dd60a7eb0e342034521129e342
+PUSH_TARGET=origin/testing-codex — SUCCESS
+TESTING_DEPLOY_ID=b09e0acd-8aed-43d9-9942-35fc7e28546f (servicio DeliGO Copy)
+TESTING_DEPLOY_STATUS=SUCCESS, boot limpio, sin migraciones pendientes
+FOCAL_TESTS=53 (30 backend + 23 frontend), 0 fail
+TSC_NEW_ERRORS=0 (31 total, baseline sin cambios)
+```
+
+Ver `codex-reports/P2_T50_R1_SALON_STATISTICS_CUSTOM_DATE_FILTERING.md`
+para el detalle completo (contrato exacto, tests caso por caso, diff
+review, logs de deploy). NO se certificó físicamente esta ronda — R2
+(Cases A-F, ya preparados en el reporte A0) queda pendiente antes de
+poder cerrar T50.
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T50-A0 AUDITED_DESIGNED (2026-09-20)
+
+```text
+P2_T50_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION
+PRODUCT_CODE_CHANGED=NO
+DB_MUTATED=NO
+SCHEMA_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Auditoría + diseño (sin código de producto) de filtrado de fecha
+personalizado para estadísticas de Salón. Pantalla objetivo confirmada:
+dashboard de **Negocio** (`/negocio` → `SalonTab` → `EstadisticasSubTab`,
+`src/components/business/salon-tab.tsx:542-731`), backend
+`GET /api/negocio/salon/stats` (`src/app/api/negocio/salon/stats/route.ts`).
+Esto es DISTINTO de la pantalla de estadísticas de Salón de Terminal
+(`/operaciones/salon/estadisticas`, filtros hoy/7d/30d, sólo conteos —
+contrato y auth completamente diferentes, no tocar) y distinto del panel
+personal de cuenta operativa (`/operaciones/mi-panel/[slug]/salon`, que
+no tiene ninguna pantalla de estadísticas — sólo un tablero de ocupación
+en vivo).
+
+Hallazgos clave verificados por lectura directa de código:
+- Filtros actuales `hoy|semana|mes|todo` son ventanas RODANTES (no
+  calendario) calculadas 100% en servidor con `Date` nativo, sin
+  timezone explícito (mismo patrón "medianoche local del servidor" ya
+  usado en el endpoint de Terminal).
+- 4 de 5 métricas de la pantalla comparten el mismo `dateFilter`
+  (revenue Salón, revenue Negocio, proporción %, pedidos/monto por
+  empleado) — **inconsistencia preexistente no reportada antes**: el
+  badge `mesasAsignadas` por mozo es un snapshot EN VIVO sin filtro de
+  fecha, documentada pero no corregida en A0 (fuera de alcance).
+- `T50_API_DECISION=B` — el endpoint existente es reutilizable con
+  parámetros aditivos (`fecha`/`mes`/`desde`+`hasta` junto al `periodo`
+  actual); no se requiere endpoint nuevo.
+- `Calendar`/`Popover` (react-day-picker v9, shadcn) ya están instalados
+  en el design system pero sin ningún uso real en `src/` — candidatos
+  naturales para el picker de R1, serían su primer consumidor.
+- `Pedido` no tiene índice sobre `negocioId`/`fecha`/`estado` — costo de
+  escaneo preexistente, no una regresión introducida por T50 (no se
+  cambia schema en A0).
+
+Ver `codex-reports/P2_T50_A0_SALON_STATISTICS_DATE_FILTER_AUDIT_DESIGN.md`
+para el detalle completo (contrato HTTP, semántica exacta de cada
+filtro, modelo de rango recomendado, diseño UX, plan de implementación
+R1 archivo-por-archivo, plan de tests, preparación de casos R2).
+
+`P2_T49_STATUS=CLOSED_TESTING_CERTIFIED` permanece sin tocar (ver
+sección inmediatamente debajo, ahora histórica de este handoff).
+
+---
+
+## HISTORICAL SNAPSHOT — P2-T49 CLOSED_TESTING_CERTIFIED (2026-09-20)
+
+```text
+P2_T49_STATUS=CLOSED_TESTING_CERTIFIED
+RELEASE_ELIGIBLE=YES
+PRODUCTION_PROMOTED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Certificación física completa del operador sobre TESTING, cubriendo las
+4 rondas de implementación:
+
+```text
+R1  (layout móvil del chat)                 443a37aa65520b65327e14c0e7603c622b4124fa
+R1B (aislamiento visual + background refresh) 6380c762bb4e8a97eaf03b035b9bcf050945bb0e
+R1C (aislamiento completo del runtime)       b002958aaa613171283b9895dfb0fc0bfad7d3d2
+R1D (indicador de mensajes en el panel)      eccf1866292eca82db87f3c07ce5c92788da8131
+TESTING_DEPLOY_ID=68952a90-44e1-40fe-a53f-24d4c9371fb0 SUCCESS
+```
+
+**Casos físicos, todos PASS**: layout A-D (mobile portrait/teclado/panel,
+desktop); R2B Case E (Cliente autenticado + Terminal en el mismo
+navegador → sin burbuja/ChatSheet personal en Operaciones, Chat Cliente
+intacto en su propia ruta, sesión Cliente nunca cerrada); R2B Case F
+(chat Terminal en pestaña de background recibe un mensaje real de
+Cliente sin necesidad de volver primero a la pestaña — confirma
+físicamente el polling best-effort de 10s de R1B); R2C Case H (indicador
+de mensajes del panel PyR funciona end-to-end, "quedó perfecto" según el
+operador); R2B Case G (regresión general, sin repetir pruebas —
+evidencia acumulada de las rondas anteriores).
+
+Quality gate reutilizado de R1D (última ronda con cambio de código,
+142 tests pass/0 fail, TSC 31 baseline/0 nuevos, ESLint/build/diff-check
+PASS) — sin repetir en este cierre documental, sin cambios de código.
+
+**Invariantes preservadas**: `P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX`
+(sin tocar), `TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO` (T49
+completo nunca agregó PushSubscription/owner/columna a Terminal),
+`REALTIME_USER_TYPES` sin cambios (Terminal nunca se agregó como actor
+realtime), worktree T39 intacto, `origin/main` reconfirmado en
+`ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763` sin cambios.
+
+Reporte completo:
+`codex-reports/P2_T49_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md`.
+Historial completo de la implementación (A0, R1, R1B, R1C, R1D)
+preservado íntegro debajo, sin borrar nada.
+
+## PREVIOUS STATE — P2-T49-R1D — TERMINAL ORDER MESSAGE INDICATOR DEPLOYED TESTING (2026-09-20)
+
+`P2_T49_R1D_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2C_PHYSICAL_CERTIFICATION`,
+`P2_T49_STATUS=IN_PROGRESS_AWAITING_R2C_PHYSICAL_CERTIFICATION`. Durante
+la certificación física R2/R2B (layout A-D PASS, aislamiento Cliente+
+Operaciones Case E PASS) el operador reportó un finding nuevo: el panel
+`/operaciones/pyr` no daba ninguna visibilidad de si un pedido tenía
+conversación o mensajes nuevos sin entrar primero al pedido.
+
+**Fix**: `src/app/api/operaciones/pyr/panel/route.ts` ahora agrega a
+cada pedido `tieneMensajes: boolean` y `mensajesNoLeidos: number`, en
+UNA sola query agregada (`db.chatMensaje.groupBy`) para todos los
+pedidos visibles — nunca 1 query por pedido. Gateado por el scope ya
+existente `pyr.mensajes.ver`: sin él, ni siquiera se consulta la tabla
+(fail-closed, no sólo ocultar UI). Nunca expone texto/adjuntos/
+clienteId/ids de mensaje — sólo presencia + contador. `leido` sigue
+siendo el mismo campo compartido de `ChatMensaje` (sin schema nuevo, sin
+read-state por Terminal). `src/app/operaciones/pyr/page.tsx` — cada
+card de pedido ahora muestra un badge: nada si nunca tuvo mensajes,
+"Mensajes" neutro si tiene conversación sin pendientes, "1 mensaje
+nuevo"/"N mensajes nuevos" acentuado (sin animación nueva, distinto del
+dot de "pedido nuevo" de T45) si hay mensajes de Cliente sin leer. El
+badge vive dentro del botón existente de la card (sin click propio,
+sin stopPropagation) — abrir el chat sigue siendo el botón "Mensajes"
+del drawer. Viaja en el mismo `GET .../panel` y el mismo
+`REFRESH_MS=5000` de T45, sin timer nuevo.
+
+```text
+PANEL_MESSAGE_METADATA_FIELDS=tieneMensajes, mensajesNoLeidos
+MESSAGE_METADATA_QUERY_COUNT_PER_PANEL_REFRESH=0 sin permiso/pedidos, 1
+  con pedidos y permiso — nunca N+1
+PRODUCT_FILES_CHANGED=2 (panel/route.ts, pyr/page.tsx)
+TEST_FILES_CHANGED=2 (panel/route.test.ts nuevo 11/11, page.test.ts
+  extendido +8 tests)
+REGRESSION_TESTS=142 pass / 0 fail total
+API_FILES_CHANGED=NO (mismo endpoint, contrato extendido aditivamente) /
+  SCHEMA=NO / MIGRATION=NO / REALTIME=NO / PUSH=NO
+TSC_NEW_ERRORS=0 (31 baseline) / ESLINT=PASS / BUILD=PASS
+P2_T49_R1D_COMMIT_SHA=eccf1866292eca82db87f3c07ce5c92788da8131
+TESTING_DEPLOY_ID=68952a90-44e1-40fe-a53f-24d4c9371fb0
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado, boot limpio)
+```
+
+Reporte completo:
+`codex-reports/P2_T49_R1D_TERMINAL_ORDER_MESSAGE_INDICATOR.md`.
+
+**Certificación física preparada, NO ejecutada**: Case H (indicador de
+mensajes — mensaje sin abrir pedido aparece "1 mensaje nuevo", abrir/
+confirmar pasa a "Mensajes" neutro, nunca desaparece del todo); Case F
+(background freshness, sin cambios de R1B) y Case G (regresión general)
+siguen pendientes como ya estaban. Ninguno ejecutado.
+
+`T49_R1_LAYOUT_FIX_PRESERVED=SI` / `R1B_BACKGROUND_REFRESH_PRESERVED=SI` /
+`R1C_GLOBAL_CHAT_ISOLATION_PRESERVED=SI` / `P2_T44_STATUS_UNCHANGED=
+PAUSED_UNRESOLVED_AFTER_TIMEBOX` — todos sin tocar.
+
+## PREVIOUS STATE — P2-T49-R1C — COMPLETE GLOBAL CHAT ISOLATION DEPLOYED TESTING (2026-09-19)
+
+`P2_T49_R1C_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2B_PHYSICAL_CERTIFICATION`,
+`P2_T49_STATUS=IN_PROGRESS_AWAITING_R2B_PHYSICAL_CERTIFICATION` (sin
+cambio de estado macro — R1C es un refactor interno, no cambia lo que el
+operador debe certificar físicamente en R2B).
+
+R1B había dejado documentada una desviación explícita: `useChatDeepLink()`
+y `useChatActorReset()` seguían ejecutándose SIEMPRE dentro de
+`ChatProvider`, incluso en `/operaciones/**`, porque un `return null`
+antes de esos hooks en la misma instancia de componente habría roto las
+Reglas de los Hooks al navegar entre rutas. R1C cierra esa desviación con
+la arquitectura correcta: `src/providers/chat-provider.tsx` se separó en
+`ChatProvider` (sólo `usePathname()` + el gate `shouldMountGlobalChat`,
+sin cambios de comportamiento) y un componente hijo nuevo
+`GlobalChatRuntime` (contiene los dos hooks + `ChatFab`/`ChatSheet`).
+Cuando la ruta es `/operaciones/**`, `GlobalChatRuntime` completo no se
+monta — su instancia no existe, así que los hooks tampoco corren, sin
+violar ninguna regla de React (montar/no montar un componente hijo es
+distinto de saltear hooks dentro del mismo componente).
+
+```text
+GLOBAL_CHAT_RUNTIME_COMPONENT=GlobalChatRuntime (local, no exportado)
+OPERACIONES_GLOBAL_CHAT_RUNTIME_MOUNTED=NO (hooks incluidos, no sólo FAB/Sheet)
+OPERACIONES_PERSONAL_CHAT_DEEPLINK_CONSUMER_ACTIVE=NO
+OPERACIONES_PERSONAL_CHAT_ACTOR_RESET_ACTIVE=NO
+PERSONAL_ROUTES_CHAT_DEEPLINK_PRESERVED=SI (/cliente, /negocio,
+  /repartidor siguen montando GlobalChatRuntime normalmente)
+OPERACIONES_DEDICATED_CHAT_DEPENDS_ON_GLOBAL_CHAT_RUNTIME=NO (confirmado
+  de nuevo, sin tocar esos archivos)
+R1B_BACKGROUND_REFRESH_PRESERVED=SI (terminal-chat-background-refresh.ts
+  sin diff)
+PRODUCT_FILES_CHANGED=1 (chat-provider.tsx)
+TEST_FILES_CHANGED=1 (chat-provider-route-boundary.test.ts extendido,
+  17/17 pass — contrato estático sobre el código fuente, sin harness de
+  DOM real: verifica que los hooks vivan en GlobalChatRuntime y no en
+  ChatProvider, y que el gate preceda al montaje)
+REGRESSION_TESTS=105 pass / 0 fail (deep-link 36 + consumer contract 28 +
+  layout T49-R1 18 + background-refresh R1B 6 + focal 17)
+API_FILES_CHANGED=NO / SCHEMA=NO / MIGRATION=NO / REALTIME_CHANGED=NO /
+  PUSH_CHANGED=NO / ChatFab/ChatSheet NO tocados
+TSC_NEW_ERRORS=0 (31 baseline) / ESLINT=PASS / BUILD=PASS
+P2_T49_R1C_COMMIT_SHA=b002958aaa613171283b9895dfb0fc0bfad7d3d2
+TESTING_DEPLOY_ID=785f5614-df9c-4e5d-83a7-84bf46c7490e
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado, boot limpio)
+```
+
+Reporte completo:
+`codex-reports/P2_T49_R1C_COMPLETE_GLOBAL_CHAT_ISOLATION.md`.
+
+**R2B sigue preparado, NO ejecutado** (mismos 3 casos de R1B: E aislamiento
+Cliente+Operaciones mismo browser, F frescura de background >20s, G
+regresión general) — R1C no cambia qué debe observar el operador
+físicamente, sólo completa la garantía interna de que ningún runtime
+personal corre de fondo en Operaciones.
+
+`T49_R1_LAYOUT_FIX_PRESERVED=SI` (sin tocar) /
+`P2_T45_BEHAVIOR_PRESERVED=SI` (sin tocar) /
+`P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX`.
+
+## PREVIOUS STATE — P2-T49-R1B — OPERATIONS CHAT ISOLATION + BACKGROUND FRESHNESS DEPLOYED TESTING (2026-09-19)
+
+`P2_T49_R1B_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_R2B_PHYSICAL_CERTIFICATION`,
+`P2_T49_STATUS=IN_PROGRESS_AWAITING_R2B_PHYSICAL_CERTIFICATION` (era
+`IN_PROGRESS_BLOCKED_BY_R1B_NEW_FINDINGS`). La certificación física R2 de
+R1 (layout) siguió PASS en los 4 casos A-D — **no se revirtió nada de
+eso** — pero la revisión física posterior encontró dos findings nuevos
+que bloqueaban el cierre global de T49, ambos ya corregidos y
+desplegados en esta ronda.
+
+**Finding A — Chat personal contaminaba Operaciones**: `ChatProvider`
+(montado globalmente desde `src/app/layout.tsx`) sólo excluía `/mozo` de
+renderizar `ChatFab`/`ChatSheet` — nunca `/operaciones`. Con una sesión
+Cliente hidratada en el mismo navegador, abrir Terminal
+(`/operaciones/pyr`) mostraba la burbuja naranja del Chat personal y
+podía abrir el `ChatSheet` de Cliente encima de Operaciones. Fix: nueva
+función pura `shouldMountGlobalChat(pathname)` en `chat-provider.tsx`
+que excluye `/operaciones`/`/operaciones/**` (mismo patrón ya usado para
+`/mozo`). Confirmado: sin bypass de autorización server-side
+(`SERVER_SIDE_CROSS_ROLE_DATA_AUTH_BYPASS=NO`) — era contaminación de
+ruta/UI, nunca de datos entre roles. Los dos chats dedicados de
+Operaciones (Terminal PyR y el panel personal de cuenta operativa) nunca
+dependieron de `ChatProvider`/`ChatFab`/`ChatSheet` — sin impacto.
+
+**Finding B — Chat Terminal no actualizaba en pestaña de background**:
+`refresh()` bloqueaba TODO GET si `document.visibilityState !== "visible"`,
+sin ningún polling — un mensaje nuevo podía tardar todo lo que la pestaña
+estuviera oculta en aparecer. Fix: `refresh({ allowHidden })` + nuevo
+`src/lib/terminal-chat-background-refresh.ts`
+(`startBackgroundTolerantRefresh`) que agrega un `setInterval` de 10s que
+corre SIEMPRE (visible u oculta), preservando intactos
+`AbortController`/generación/`stoppedRef`. Explícitamente
+`BEST_EFFORT_BROWSER_TIMER` — no es realtime, no es Push, no cubre app
+cerrada.
+
+```text
+PRODUCT_FILES_CHANGED=2 modificados (chat page + chat-provider.tsx) + 1
+  nuevo (terminal-chat-background-refresh.ts)
+TEST_FILES_CHANGED=2 nuevos (chat-provider-route-boundary.test.ts 13/13,
+  terminal-chat-background-refresh.test.ts 6/6 — fake timers, sin DOM/
+  browser harness)
+REGRESSION_TESTS=127 pass / 0 fail total (deep-link/actor-reset 64,
+  layout T49-R1 18, panel T45 5, API chat 18, T06 terminal 4, T07
+  pairing 4)
+API_FILES_CHANGED=NO / SCHEMA=NO / MIGRATION=NO / REALTIME_CHANGED=NO /
+  PUSH_CHANGED=NO / ChatFab NO tocado (gate correcto a nivel Provider)
+TSC_NEW_ERRORS=0 (31 baseline) / ESLINT=PASS / BUILD=PASS
+P2_T49_R1B_COMMIT_SHA=6380c762bb4e8a97eaf03b035b9bcf050945bb0e
+TESTING_DEPLOY_ID=8c7c7d2c-cd5f-4113-8f7b-fe5ee6b4d2e3
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado, boot limpio)
+```
+
+Reporte completo:
+`codex-reports/P2_T49_R1B_OPERATIONS_CHAT_ISOLATION_BACKGROUND_FRESHNESS.md`.
+
+**Certificación física R2B preparada, NO ejecutada** (3 casos nuevos): E)
+Cliente + Terminal en pestañas distintas del mismo navegador → sin
+burbuja/ChatSheet personal en Operaciones, chats dedicados intactos; F)
+chat Terminal en background >20s + mensaje nuevo desde Cliente →
+confirmar vía DevTools Network que hubo al menos un GET oculto ANTES de
+volver el foco; G) regresión general (chat Terminal, chat Cliente, panel
+T45). Ninguno ejecutado — sin pedido, sin mensaje real, sin teléfono,
+sin sesión cerrada.
+
+`T49_R1_LAYOUT_FIX_PRESERVED=SI` / `P2_T45_BEHAVIOR_PRESERVED=SI` /
+`P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX`.
+
+## PREVIOUS STATE — P2-T49-R1 — TERMINAL MOBILE CHAT LAYOUT IMPLEMENTED + DEPLOYED TESTING (2026-09-19)
+
+`P2_T49_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION`,
+`P2_T49_STATUS=IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION` (era
+AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION). Implementa exactamente la
+arquitectura recomendada en A0.
+
+**Cambio, 2 archivos productivos**:
+`src/app/operaciones/pyr/mensajes/[pedidoId]/page.tsx` — `<main>` pasó de
+`min-h-screen flex flex-col` a `h-dvh flex flex-col overflow-hidden`;
+header de `sticky top-0` a `shrink-0`; panel de mensajes ganó `min-h-0`
+(junto a `flex-1 overflow-y-auto` ya existentes); composer pasó de
+`sticky bottom-0` a `shrink-0` con
+`pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]` (mismo padding base
+que ya tenía, `env()` resuelve a 0 sin home indicator); se agregó un
+botón de logout compacto en el header del chat. `src/components/operativo/terminal-logout-button.tsx`
+— se extrajo `useTerminalLogout()` (mismo fetch/endpoint/redirect, sin
+duplicar) y el botón flotante global ahora excluye
+`/operaciones/pyr/mensajes/*` de su propio render. Sin JS de teclado
+nuevo (mismo `IOSKeyboardFix`/`interactiveWidget` globales de siempre) —
+mismo patrón ya probado en `chat-sheet.tsx`/`chat-view.tsx` (chat
+personal).
+
+```text
+PRODUCT_FILES_CHANGED=2 (chat page + terminal-logout-button.tsx)
+TEST_FILES_CHANGED=1 (page.test.ts nuevo, contrato estático — 18/18 pass)
+API_FILES_CHANGED=NO / SCHEMA_CHANGED=NO / MIGRATION_CREATED=NO /
+  REALTIME_CHANGED=NO / PUSH_CHANGED=NO (todos confirmados por
+  git diff --stat vacío)
+LOGOUT_LOGIC_DUPLICATED=NO / TERMINAL_LOGOUT_BACKEND_CHANGED=NO
+OTHER_TERMINAL_PAGES_CHANGED=NO (las 7 pantallas de scroll completo
+  conservan min-h-screen + pb-24 sin cambios)
+REGRESSION_TESTS=logout (T06, 4/4) + pairing (T07, 4/4) + chat API
+  (18/18) + PyR panel T45 (5/5) — todos pass
+TSC_NEW_ERRORS=0 (31 baseline preservada) / ESLINT=PASS / BUILD=PASS
+P2_T49_R1_COMMIT_SHA=443a37aa65520b65327e14c0e7603c622b4124fa
+TESTING_DEPLOY_ID=9b3ede3f-8bbf-42b3-bec4-fb49a4ef3746
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado, boot limpio)
+```
+
+Reporte completo:
+`codex-reports/P2_T49_R1_TERMINAL_MOBILE_CHAT_LAYOUT_IMPLEMENTATION.md`.
+
+**Certificación física R2 preparada, NO ejecutada** (4 casos): A) chat
+mobile portrait teclado cerrado → sin área vacía, composer visible,
+logout compacto en header; B) teclado abierto → composer accesible sin
+salto; C) otra pantalla Terminal → floating "Cerrar terminal" intacto;
+D) desktop → sin regresión. Ningún caso ejecutado — sin pedido, sin
+mensaje real, sin teléfono, sin terminal nueva.
+
+`P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX` — no tocado.
+
+## PREVIOUS STATE — P2-T49-A0 — TERMINAL MOBILE SHELL + CHAT LAYOUT AUDITED + DESIGNED (2026-09-19)
+
+`P2_T49_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION` (era
+READY_FUTURE). Auditoría completa de los dos bugs agrupados en T49
+(#17: área vacía enorme + composer mal contenido en el chat móvil de
+Terminal PyR; #18: botón flotante "Cerrar terminal" superpuesto al
+composer). Reporte completo:
+`codex-reports/P2_T49_A0_TERMINAL_MOBILE_SHELL_CHAT_LAYOUT_AUDIT_DESIGN.md`.
+Sin implementación, sin deploy, sin prueba física, sin Production.
+
+**Hallazgo central**: Terminal Operativa no tiene un shell compartido real
+— cada `page.tsx` bajo `src/app/operaciones/` construye su propio
+`<main>`; sólo `TerminalLogoutButton` (fixed bottom-4 right-4 z-50,
+`src/components/operativo/terminal-logout-button.tsx`) se inyecta
+globalmente desde `src/app/operaciones/layout.tsx`. 7 de 8 pantallas
+(Salón, PyR panel, historial ×2, reseñas, estadísticas ×2) usan scroll de
+página completa con `min-h-screen` + `pb-24` para no chocar con el botón
+— funcionan bien. La única rota es
+`src/app/operaciones/pyr/mensajes/[pedidoId]/page.tsx` (el chat): usa
+`min-h-screen` (no `dvh`) en un `flex flex-col`, le falta `min-h-0` en el
+panel de mensajes (`flex-1 overflow-y-auto`), su composer es `sticky
+bottom-0` sin reserva de espacio ni safe-area, y es la única pantalla sin
+el `pb-24` equivalente — de ahí ambos bugs.
+
+**El propio repo ya tiene la solución correcta implementada y probada**:
+`src/components/chat/chat-sheet.tsx` (`h-dvh flex flex-col
+overflow-hidden`) + `chat-view.tsx` (`flex-1 min-h-0 overflow-y-auto` +
+composer `shrink-0` sin sticky) — el chat personal de Cliente/Negocio/
+Repartidor. Un comentario en `globals.css` (`IOS-24-FIX-A`) documenta que
+el proyecto YA probó y descartó una variable JS de altura de viewport por
+quedar stale tras cerrar el teclado en iOS real, y adoptó `dvh` nativo
+como la solución vigente — exactamente lo recomendado acá, sin inventar
+JS de teclado nuevo (`IOSKeyboardFix` ya es global, cubre Terminal sin
+cambios).
+
+```text
+RECOMMENDED_CHAT_ARCHITECTURE=replicar chat-sheet.tsx/chat-view.tsx:
+  h-dvh flex-col overflow-hidden + mensajes flex-1 min-h-0 overflow-y-auto
+  + composer shrink-0 en flow (sin sticky)
+RECOMMENDED_LOGOUT_PLACEMENT=ocultar el botón fixed global sólo en
+  /operaciones/pyr/mensajes/* y agregar un botón de logout compacto
+  dentro del header que el chat ya tiene (2 archivos: la page del chat +
+  terminal-logout-button.tsx)
+T49_PROBLEM_CLASSIFICATION=dos defectos distintos, un solo archivo local
+  para el fix principal (la page del chat) + una extensión puntual del
+  gate de pathname del botón global
+EXPECTED_PRODUCT_FILES=2 (chat page.tsx + terminal-logout-button.tsx)
+EXPECTED_API_FILES=NONE / SCHEMA=NONE / MIGRATIONS=NONE / REALTIME=NONE / PUSH=NONE
+P2_T45_BEHAVIOR_PRESERVED_BY_DESIGN=SI (archivo distinto, no tocado)
+P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX
+IMPLEMENTATION_BLOCKERS=ninguno
+```
+
+Próxima acción sugerida (NO iniciada): `P2-T49-R1` (implementación del
+diseño de arriba).
+
+## PREVIOUS STATE — P2-T45-R2-FIX — CLOSEOUT DEFECTS FIXED + BACKLOG RECONCILED (2026-09-19)
+
+Corrección documental sobre el cierre de T45 (sin tocar código/tests/DB/
+Production): el reporte de cierre
+(`codex-reports/P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md`)
+no incluía el SHA/push del propio commit de cierre (imposible saberlo en
+el momento de escribirlo) ni una referencia interna correcta — ambos
+corregidos con evidencia real
+(`P2_T45_R2_CLOSEOUT_COMMIT_SHA=1fa492cdc312abfabd074c58138cfa73e02cbaf7`,
+ya pusheado a `origin/testing-codex` desde el turno anterior, confirmado,
+no duplicado).
+
+**Reconciliación de backlog más amplia** (auditando reportes reales, no
+snapshots viejos): `codex-reports/ROADMAP.md` tenía su sección
+"Backlog vigente por estado" desactualizada desde 2026-09-09 —
+**P2-T02** (`CLOSED_TESTING_CERTIFIED`, R6 13/09), **P2-T43**
+(`CLOSED_TESTING_CERTIFIED`, R3 — Employee Join Identity + Admin
+Feedback ya se implementó y certificó, R2/R3), y **P2-T53**
+(`CLOSED_OPERATOR_PASS`, R1B+R2 14/09) llevaban días cerrados sin que la
+sección autoritativa lo reflejara — los tres se movieron a la sección de
+cerrados. **P2-T23** se reabrió después de su cierre R3C por un hallazgo
+de calibración (H1-H4, hasta 15/09) — status real:
+`REOPENED_H2A_PHYSICALLY_VALIDADA_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION`,
+ya no depende de T02 (que cerró). **P2-T24** está
+`IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE`, no
+"not started" como decía el roadmap viejo. También se corrigió un error
+propio de una reconciliación anterior de esta misma sesión: **P2-T42**
+había sido sugerida como "próxima tarea (formal closeout pendiente)"
+cuando en realidad ya está `CLOSED_PRODUCTION` desde
+`P2_T42_R1_FORMAL_CLOSEOUT_AND_CURATED_PRODUCTION_PROMOTION.md` (deploy
+Production `SUCCESS`, tag `p2-t42-stable-2026-09-10`) — no vuelve a
+aparecer como candidata.
+
+```text
+P2_T02_CURRENT_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T23_CURRENT_STATUS=REOPENED_AWAITING_FILTER_CALIBRATION_DECISION
+P2_T24_CURRENT_STATUS=IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE
+P2_T42_CURRENT_STATUS=CLOSED_PRODUCTION
+P2_T43_CURRENT_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T45_CURRENT_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T53_CURRENT_STATUS=CLOSED_OPERATOR_PASS
+P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX (sin cambios, no tocado)
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T49 (único P1 restante en el backlog activo)
+```
+
+Nota importante: `codex-reports/ROADMAP.md` ahora es el que refleja esta
+reconciliación completa — este archivo (`DELIGO_FULL_CONTEXT_LATEST.md`)
+sólo la resume, no la duplica en detalle. T39 tiene diseño ya avanzado en
+su worktree separado (`C:/Leo Campos/Trabajo/deligo-t39-admin`,
+`work/p2-t39-admin-notifications`) — no mergeado, no tocado desde acá.
+
+`PRODUCTION_TOUCHED=NO`. `NEXT_TASK_STARTED=NO` — ningún candidato fue
+iniciado, sólo identificado.
+
+## PREVIOUS STATE — P2-T45 CLOSED_TESTING_CERTIFIED (R2, 2026-09-19)
+
+```text
+P2_T45_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T45_RELEASE_ELIGIBLE=YES
+P2_T45_PRODUCTION_PROMOTION_AUTHORIZED=NO
+PRODUCTION_TOUCHED=NO
+```
+
+Resumen compacto: A0 (auditoría + diseño de arquitectura) PASS → R1
+(implementación, único archivo `src/app/operaciones/pyr/page.tsx`: polling
+5s foreground + chip "N nuevos" + dot pulsante por pedido `recibido`,
+commit `361e3cee21b0b075f32426987f89a34220441f21`, TESTING deploy SUCCESS
+`8c47fed2-48ab-4eee-bf94-aaa99551a7e3`, DEPLOY_COMMIT_MATCH=SI) → R2
+(certificación física del operador, 2026-09-19, 3/3 casos PASS):
+
+```text
+CASE_A (arribo): pedido nuevo Negocio B, Terminal PyR foreground sin
+  recarga manual → apareció, chip "nuevo" visible, dot pulsante en el
+  pedido — PASS
+CASE_B (resolución): aceptar el pedido desde Terminal PyR → indicador y
+  chip desaparecieron correctamente en el siguiente poll, sin toast
+  espurio, transición normal — PASS ("quedó perfecto", operador)
+CASE_C (aislamiento cross-business): dos Terminales PyR simultáneas,
+  negocios distintos, pedido sólo en Negocio B → sólo Negocio B mostró la
+  alerta, el otro negocio no mostró nada — PASS
+```
+
+Terminal sigue sin ser actor Push (`TERMINAL_OPERATIVA_PUSH=
+NO_ES_ACTOR_PUSH_POR_DISEÑO` de P2-T12 intacto — cero
+owner/subscription/columna de Push agregado). T41 (autorización) y T42
+(workflow de estados PyR) preservados sin cambios — R1/R2 no tocaron
+`mesa-pedido-cancelacion.ts`, `mesa-occupancy.ts`, ni el endpoint de
+transición de estado. `P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX`
+sigue sin cambios, sin relación con T45 (T45 nunca dependió de que G3 se
+resolviera). Datos de prueba física (pedidos de R2) preservados, sin
+limpieza automática. Reporte completo:
+`codex-reports/P2_T45_R2_PHYSICAL_CERTIFICATION_AND_TESTING_CLOSEOUT.md`.
+
+Próxima acción (NO iniciada): cualquiera de las candidatas ya registradas
+— P2-T42 formal closeout + curated promotion, P2-T43, o P2-T39/T40/T38.
+
+## PREVIOUS STATE — P2-T45-R1 — TERMINAL PYR POLLING ALERTS IMPLEMENTED + DEPLOYED TESTING (2026-09-18)
+
+`P2_T45_R1_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION`,
+`P2_T45_STATUS=IN_PROGRESS_AWAITING_R2_PHYSICAL_CERTIFICATION` (era
+AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION). Implementa exactamente la
+arquitectura recomendada en A0: extiende a Terminal PyR el mismo patrón
+ya en producción de Terminal Salón (polling + derivación visual local,
+sin Push/SW/realtime/sonido).
+
+**Cambio, único archivo productivo**
+(`src/app/operaciones/pyr/page.tsx`): agrega `REFRESH_MS=5000` +
+`setInterval` dentro del efecto existente (gateado por
+`document.visibilityState`, reutilizando el `AbortController`/`gen` ya
+existente de `refresh()` — sin guard de concurrencia nuevo); agrega
+`countPedidosRecibidos(pedidos)` (función pura exportada, testeada
+5/5 en `page.test.ts` nuevo); agrega un chip "N nuevos" (pulse amber) en
+el resumen y un dot ping/pulse por fila cuando `estado === "recibido"`
+(mismo patrón CSS que la tile de mesa de Salón), sin duplicar el texto
+"Recibido" que el `StatusBadge` ya muestra. Cero endpoint nuevo, cero
+mutación nueva — el badge es puramente informativo, reutiliza la
+selección de pedido ya existente y ya gateada por `pyr.ver`.
+
+```text
+PRODUCT_FILES_CHANGED=1 (src/app/operaciones/pyr/page.tsx)
+TEST_FILES_CHANGED=1 (src/app/operaciones/pyr/page.test.ts, nuevo, 5/5 pass)
+API_FILES_CHANGED=NO / SW_CHANGED=NO / PUSH_TS_CHANGED=NO /
+  REALTIME_CHANGED=NO / SCHEMA_CHANGED=NO / MIGRATION_CREATED=NO /
+  TERMINAL_AUTH_CHANGED=NO / SALON_CHANGED=NO (todos confirmados por
+  git diff --stat vacío)
+TERMINAL_PUSH_OWNER_ADDED=NO / TERMINAL_PUSH_SUBSCRIPTION_ADDED=NO
+  (TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO de P2-T12 intacto)
+T41_AUTHORITY_PRESERVED=SI / T42_WORKFLOW_PRESERVED=SI
+REGRESSION_TESTS=109 pass / 8 fail (los 8 son integración real de DB
+  pre-existentes — mesa-pedido-cancelacion/T41-cierre-cuenta/T06-T07 —
+  cero diff en esos archivos, confirmado no-regresión)
+TSC_NEW_ERRORS=0 (31 baseline preservada) / ESLINT=PASS / BUILD=PASS
+P2_T45_R1_COMMIT_SHA=361e3cee21b0b075f32426987f89a34220441f21
+TESTING_DEPLOY_ID=8c47fed2-48ab-4eee-bf94-aaa99551a7e3
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado, boot limpio)
+```
+
+Reporte completo:
+`codex-reports/P2_T45_R1_TERMINAL_PYR_POLLING_ALERT_IMPLEMENTATION.md`.
+
+**Certificación física R2 preparada, NO ejecutada** (3 casos): A) pedido
+nuevo Negocio B con Terminal PyR abierta/foreground → chip "1 nuevo" +
+dot en ~5-10s sin recarga manual; B) aceptar el pedido → chip/dot
+desaparecen en el siguiente poll; C) dos negocios simultáneos → sólo el
+negocio con el pedido nuevo muestra la alerta (aislamiento server-side ya
+existente, sin cambios). Ningún caso ejecutado — sin pedido creado, sin
+terminal abierta, sin teléfono tocado.
+
+`P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX` — no tocado, no
+reabierto.
+
+## PREVIOUS STATE — P2-T45-A0 — TERMINAL NOTIFICATION ARCHITECTURE AUDITED + DESIGNED (2026-09-18)
+
+`P2_T45_STATUS=AUDITED_DESIGNED_READY_FOR_IMPLEMENTATION` (era
+READY_FUTURE). Auditoría completa + diseño de arquitectura para el gap de
+avisos de Terminal PyR (Terminal Salón tiene avisos, Terminal PyR no).
+Reporte completo:
+`codex-reports/P2_T45_A0_TERMINAL_NOTIFICATION_ARCHITECTURE_AUDIT_DESIGN.md`.
+Sin implementación, sin deploy, sin prueba física, sin Production.
+
+**Hallazgo central**: el "aviso" de Terminal Salón hoy NO es Web Push ni
+Service Worker ni realtime ni sonido — es un badge/pulse puramente visual
+(CSS `animate-ping`/`animate-pulse`) derivado localmente de un polling de
+5 segundos contra `GET /api/operaciones/salon/panel`
+(`src/app/operaciones/salon/page.tsx:180,398-406,723-728`), recomputado
+desde cero en cada poll (snapshot, no evento — por eso nunca tuvo que
+resolver dedupe/reconexión, a diferencia de toda la investigación de
+Push de T44). Terminal PyR (`src/app/operaciones/pyr/page.tsx`) tiene
+MENOS que eso: ni siquiera tiene el timer de polling, sólo refetch por
+visibilidad/foco. Su endpoint (`/api/operaciones/pyr/panel`) YA devuelve
+`estado` por pedido incluyendo `"recibido"` — el mismo dato que Salón usa.
+
+**Decisión de arquitectura**: extender exactamente el mismo patrón de
+Salón (polling + badge derivado) a PyR. Cero schema, cero migración, cero
+nuevo actor Push, cero canal realtime nuevo (`REALTIME_USER_TYPES` sigue
+siendo sólo `cliente|negocio|repartidor`,
+`src/lib/realtime-policy.ts:1` — Terminal nunca fue un actor realtime).
+Confirmado por auditoría de código real que
+`TerminalOperativa.pushSubscription` fue eliminado deliberadamente en
+P2-T12 (columna inerte, cero writers/readers,
+`prisma/migrations/20260826230000_drop_terminal_operativa_push_subscription`)
+y que `TerminalOperativa` no tiene ningún `userId`/`employeeId` — es
+identidad de dispositivo (`negocioId` + `areas` JSON, nunca de persona) —
+por lo que no puede leer el `Notificacion` Center de cuenta (indexado por
+`userId`+`userType`, nunca "terminal") sin inventar una identidad nueva,
+exactamente lo que T12 evitó. `TERMINAL_OPERATIVA_PUSH=NO_ES_ACTOR_PUSH_POR_DISEÑO`
+se preserva intacto.
+
+**T41 preservado**: el badge propuesto sólo hace selección/scroll visual
+dentro de la misma página ya gateada por `pyr.ver` — cero endpoint
+mutante nuevo, cero camino lateral hacia una acción prohibida
+(`salon_terminal` sigue sin poder cancelar pedidos de mesa ni cerrar
+cuenta comercial).
+
+**T42 no se reabre**: ya dejó el workflow de estados de PyR Terminal en
+paridad completa con el panel personal — T45 sólo agrega la capa de
+aviso, no toca workflow.
+
+```text
+RECOMMENDED_ARCHITECTURE=extender polling+badge de Salón a PyR (mismo
+  patrón, mismo endpoint, sin transporte nuevo)
+EXPECTED_PRODUCT_FILES=src/app/operaciones/pyr/page.tsx (único archivo)
+EXPECTED_SCHEMA_FILES=ninguno / EXPECTED_MIGRATIONS=ninguna
+EXPECTED_SW_CHANGES=ninguno / EXPECTED_PUSH_TS_CHANGES=ninguno
+IMPLEMENTATION_BLOCKERS=ninguno identificado
+P2_T44_STATUS_UNCHANGED=PAUSED_UNRESOLVED_AFTER_TIMEBOX (T45 no depende
+  de que G3 se resuelva — arquitecturas ortogonales)
+```
+
+Próxima acción sugerida (NO iniciada en esta tarea):
+`P2-T45-R1 — IMPLEMENT TERMINAL PYR NOTIFICATION PARITY` (implementación
+del diseño de arriba), o alternativamente cualquiera de
+`NEXT_CANDIDATE_TASKS` ya registradas en el cierre de T44
+(P2-T42 formal closeout, P2-T43).
+
+## PREVIOUS STATE — P2-T44 CLOSED BY TIMEBOX (R1P6N, 2026-09-18)
+
+**Resumen ejecutivo de T44** (para una sesión nueva que no haya leído todo
+el historial R1P0-R1P6N):
+
+- **Objetivo original de T44**: UX de Push personal de Operaciones + cobertura
+  PyR ("Enviar prueba" visible en UI normal de Mozo, popover roto en móvil,
+  PyR sin notificaciones equivalentes). Esa parte **ya se implementó y
+  desplegó en TESTING en R1P0-R1P2**, sin relación con lo que sigue.
+- **Sub-problema G3** (descubierto durante T44, la parte que consumió
+  R1P3-R1P6N): en iOS, con la PWA de Operaciones ya abierta (WindowClient
+  existente) en background, un Push de Operaciones (`operaciones_pyr_new_order`
+  y los otros 4 tipos modernos) se entrega correctamente (1 Push, título
+  correcto) pero al tocarlo **siempre vuelve a Home de Operaciones**, nunca
+  abre PyR ni el pedido correcto.
+- **Qué SÍ funciona** (consolidado, PASS físico real): entrega de Push
+  (delivery, recipient resolution, endpoint dedupe, provider, payload URL),
+  y el control de referencia — Cliente con WindowClient existente en
+  background, `order_update`, Push, tap → abre el pedido correcto
+  (R1P6H, mismo iPhone). Esto refuta que el problema sea "iOS no ejecuta
+  notificationclick" o "WindowClient existente rompe todo" como explicación
+  global.
+- **Qué sigue fallando**: el deep-link de Operaciones con client existente
+  (background y foreground), siempre termina en Home. El PASS histórico de
+  "app cerrada" (pre-R1P6C) nunca se revalidó tras los cambios posteriores.
+- **4 fixes de código probados y descartados como causa suficiente** (cada
+  uno con su propia prueba física FAIL_HOME): (A) R1P6C hardening de
+  matching/await de client existente — bug real corregido, no resolvió;
+  (B) R1P6E traza durable por IndexedDB — nunca capturó evidencia de click,
+  se mantiene sólo como herramienta de diagnóstico en TESTING; (C) R1P6I
+  URL relativa→absoluta en Operations — no resolvió,
+  `RELATIVE_URL_ROOT_CAUSE=REFUTED_AS_SUFFICIENT_CAUSE`; (D) R1P6L remover
+  `actions` de las 5 notificaciones modernas — no resolvió
+  (`ACTIONS_ROOT_CAUSE=REFUTED_AS_SUFFICIENT_CAUSE`) y **fue revertido**
+  en R1P6N (commit `5536b12f1abe75abf121e9ce7312c76db290c91d`, restauración
+  exacta y mínima, sólo las 5 propiedades `actions`, confirmado
+  byte-idéntico a pre-R1P6L vía diff) porque sólo costaba UX real sin
+  ningún beneficio.
+- **Código que queda mantenido**: R1P6C (fix real, correcto) y R1P6I
+  (alineación standards-safe con el patrón Personal) se mantienen tal cual
+  — ninguno se revierte, ninguno se consideró "el problema". R1P6E (traza
+  durable) se mantiene sólo en TESTING como instrumentación, sin overhead
+  en Production (Production nunca recibió esta línea de cambios).
+- **Decisión de timebox** (definida de antemano en R1P6L, ejecutada en
+  R1P6N tras el FAIL físico final de R1P6M):
+
+```text
+P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX
+G3_PHYSICAL_CERTIFIED=NO
+G3_PUSH_DELIVERY_PHYSICAL=PASS
+T44_RELEASE_ELIGIBLE=NO
+T44_PRODUCTION_ELIGIBLE=NO
+ROOT_CAUSE_FINAL=UNRESOLVED_IOS_OPERATIONS_PUSH_DEEP_LINK
+ROOT_CAUSE_LAYER_FINAL=CLIENT_PLATFORM_INTERACTION_UNRESOLVED
+ROOT_CAUSE_CONFIDENCE_FINAL=MEDIUM/UNRESOLVED
+CLEANUP_COMMIT_SHA=5536b12f1abe75abf121e9ce7312c76db290c91d
+TESTING_DEPLOY_ID=cc065db2-64e6-4b65-9b84-c848971b57ea
+TESTING_DEPLOY_STATUS=SUCCESS (commit exacto confirmado)
+```
+
+- **Condiciones de reapertura** (`T44_REOPEN_ONLY_IF`): evidencia técnica
+  nueva y concreta; una futura versión de iOS/WebKit cambia el
+  comportamiento; se dispone de Safari Web Inspector/macOS para evidencia
+  directa; el problema sube de prioridad producto; o se decide rediseñar
+  por completo el mecanismo de apertura. **No reabrir sólo para "probar
+  otra cosa".**
+- **Fixture preservado intacto**: CuentaOperativa compartida, Negocio
+  A/B/C, empleados, productos mínimos, Cliente fixture, PushSubscription
+  de Operaciones y de Cliente, mesas core — nada rotado, nada deslogueado.
+  Los pedidos/notificaciones transitorios de R1P6A-R1P6M quedan
+  documentados como descartables.
+- **Roadmap**: `codex-reports/ROADMAP.md` actualizado — T44 movida a
+  `BLOCKED_EXTERNAL_OR_OPERATOR` con este estado, ya no aparece como
+  `ALTERNATIVE_NEXT_TASK`. Ninguna otra tarea del roadmap tenía una
+  dependencia dura documentada con T44 (T39/T40/T38 son independientes,
+  READY_FUTURE sin cambios). Próxima tarea recomendada:
+  **P2-T42 formal closeout + curated promotion** (ya
+  implementado/testeado/desplegado, sólo falta el cierre formal) o
+  **P2-T43** (siguiente P1 en secuencia). Ninguna se inició en R1P6N.
+
+Reporte completo del cierre:
+`codex-reports/P2_T44_R1P6N_FINAL_TIMEBOX_CLOSURE.md`. Historial completo
+de la investigación (R1P0 a R1P6M) preservado íntegro debajo, sin borrar
+nada.
+
+## PREVIOUS STATE — P2-T44-R1P6L — FINAL TIMEBOXED FIX: ACTIONS REMOVED (2026-09-18)
+
+Decisión explícita del operador: T44 recibe UN ÚLTIMO fix de
+comportamiento para el deep-link roto de Operaciones. Si la próxima
+prueba física (R1P6M, aún NO ejecutada) vuelve a terminar en Home, T44
+pasa inmediatamente a `PAUSED_UNRESOLVED_AFTER_TIMEBOX` — sin más fixes,
+sin más A/B, sin más investigación de WebKit, sin más sondas.
+
+```text
+T44_DEEP_LINK_DEBUG_TIMEBOX_ACTIVE=SI
+FINAL_BEHAVIOR_FIX_ATTEMPT=R1P6L
+MAX_ADDITIONAL_BEHAVIOR_FIXES_AFTER_R1P6L=0
+```
+
+Basado en R1P6K (Cliente PASS sin `actions`/`requireInteraction` vs
+Operaciones FAIL con ambos, con respaldo externo específico de iOS/WebKit
+para `actions`), se eliminó ÚNICAMENTE `actions` de las 5 fábricas
+modernas de Operaciones en `src/lib/push.ts`
+(operaciones_salon_new_order, operaciones_order_cancelled,
+operaciones_pyr_new_order, operaciones_pyr_new_review,
+operaciones_pyr_chat). `requireInteraction` NO se tocó (queda exactamente
+igual por tipo — true/true/true/false/true). `public/sw.js`, el ruteo de
+notificationclick, `absoluteTarget` (R1P6I), la traza durable (R1P6E), y
+la rama Personal (Cliente/Negocio/Repartidor) permanecen sin cambios.
+
+```text
+R1P6L_COMMIT_SHA=436cf886ca215df6bac8a5fe70a75a06d3caed39
+TESTING_DEPLOY_ID=6b34eca0-c30d-4687-9294-c07eda7ad170
+TESTING_DEPLOY_STATUS=SUCCESS
+TESTING_DEPLOY_COMMIT=436cf886ca215df6bac8a5fe70a75a06d3caed39 (coincide exacto)
+LIVE_TRACE_VERSION=P2_T44_R1P6E_SW_TRACE_V2 (sin cambios, confirmado live)
+LIVE_ROUTING_VERSION=P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET (sin cambios, confirmado live)
+FOCAL_TESTS=push.test.ts 64/64 pass (5 nuevos); regresión 9 archivos 134/134 pass
+TSC_NEW_ERRORS=0 (31 baseline preservada)
+G3_PHYSICAL_CERTIFIED=NO
+```
+
+Reporte completo:
+`codex-reports/P2_T44_R1P6L_FINAL_ACTIONS_REMOVAL_FIX.md`. Próxima y
+ÚLTIMA prueba física (R1P6M) preparada conceptualmente pero NO ejecutada
+en esta tarea — requiere autorización explícita separada. Estado:
+`AWAITING_FINAL_TIMEBOXED_PHYSICAL_PROBE`. Si R1P6M falla: NO revert
+automático de R1P6L — decisión de mantener/revertir se toma en una tarea
+de cierre documental separada.
+
+## PREVIOUS STATE — P2-T44-R1P6K — CLIENTE PASS vs OPERACIONES FAIL POST-ABSOLUTE-URL (2026-09-18)
+
+R1P6J (prueba física) ejecutó el código absoluto de R1P6I (confirmado live
+vía `routingVersion=P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET` en la propia
+traza real del push) y **volvió a fallar**: Push Operaciones recibido
+(1, título correcto) → tap → destino final Home de Operaciones (no PyR, no
+el pedido). Por lo tanto:
+
+```text
+RELATIVE_URL_ROOT_CAUSE_AS_SUFFICIENT_CAUSE=REFUTED
+G3_R1P6J_PUSH_DELIVERY=PASS
+G3_R1P6J_ABSOLUTE_TARGET_ACTIVE=SI
+G3_R1P6J_DEEP_LINK_VISUAL=FAIL
+G3_R1P6J_DESTINATION=HOME_OPERACIONES
+G3_PHYSICAL_CERTIFIED=NO
+```
+
+Análisis comparativo completo en
+`codex-reports/P2_T44_R1P6K_CLIENT_PASS_VS_OPERATIONS_FAIL_ANALYSIS.md`.
+Ver reporte para el detalle campo-por-campo de `showNotification`, pero el
+hallazgo central: la traza de click sigue en cero (push_received/
+show_notification SÍ llegan, notificationclick_decision/_client/
+_routing_result NUNCA, ni siquiera horas después) — igual que en R1P6D y
+R1P6F, así que no se repite la conclusión descartada de "iOS no ejecuta
+notificationclick" (el control Cliente R1P6H la refuta). La diferencia
+concreta y verificada entre la instancia PASS real (Cliente, `order_update`
+estado `aceptado`) y la instancia FAIL real (Operaciones,
+`operaciones_pyr_new_order` de R1P6J) es que **Operaciones siempre define
+`actions: [{action:"view",...}]` y `requireInteraction: true`**, mientras
+que esa instancia de Cliente no definía ninguno de los dos — ambas
+variables covarían siempre juntas en la muestra actual (confundidas, no
+aisladas). Un hilo de Apple Developer Forums (726793) describe exactamente
+este patrón en iOS Safari (actions ignoradas, evento degradado, siempre
+termina en la home de la PWA) — evidencia de plataforma coincidente pero no
+concluyente (fuente no oficial, variable confundida, sin reproducción
+instrumentada propia). `ROOT_CAUSE_CONFIDENCE=MEDIA`, no ALTA.
+
+```text
+FIX_CAN_BE_DESIGNED_FROM_CURRENT_EVIDENCE=NO
+NEXT_ACTION=un futuro control físico A/B EN Operaciones mismo, aislando
+  actions vs requireInteraction — NO autorizado ni ejecutado en R1P6K.
+```
+
+Sin cambios de código/test, sin DB mutada, sin Push enviado, sin teléfono
+tocado, sin Production — R1P6K fue análisis puro.
+
+## PREVIOUS STATE — P2-T44-R1P6I RECOVERY AUDIT — CONFIRMED COMPLETE, NO REPEAT NEEDED (2026-09-18)
+
+Por error operativo, el prompt de R1P6I (alinear `navigate()`/
+`openWindow()` de Operaciones a URL absoluta) se envió a Codex en vez de a
+Claude. Esta entrada reconcilia el estado real tras una auditoría
+completa read-only — ver
+`codex-reports/P2_T44_R1P6I_CODEX_EXECUTION_RECOVERY_AUDIT.md`.
+
+**Codex trabajó en el worktree/rama correctos** (el mismo `work/p2-t43-r2`
+de siempre, NO T39 — `T39_WORKTREE_UNTOUCHED=SI` confirmado), implementó
+EXACTAMENTE el cambio mínimo esperado (sólo `public/sw.js`: `absoluteTarget
+= self.location.origin + targetUrl`, usado en los `navigate()`/
+`openWindow()` de la rama de Operaciones — validación, client matching,
+orden focus/navigate, fallback y traza durable R1P6E intactos,
+confirmado por diff línea por línea, no sólo por su reporte), actualizó
+correctamente las pruebas de regresión ya existentes de R1P6C/R1P6E (107
+tests, re-ejecutados de forma independiente en esta auditoría: 107 pass/0
+fail), hizo commit (`d6cde93fb35b822ff839bf25353922f3a41437ce`) y push a
+`origin/testing-codex`. El propio reporte de Codex dejó el deploy como
+`PENDING_DEPLOY` (nunca lo verificó) — pero el autodeploy de Railway
+sobre el push **sí se disparó y completó con éxito**
+(`b1cb99fb-da12-4b3d-af26-f629d0a0410c`, `SUCCESS`, commit exacto
+confirmado), y el `sw.js` servido en TESTING contiene el código y la
+`routingVersion` correctos — todo confirmado de forma independiente en
+esta auditoría (TSC/ESLint/build/diff-check también limpios).
+
+```text
+CODEX_ACTION_CLASSIFICATION=CODEX_COMMITTED_AND_DEPLOYED_TESTING
+CODEX_CHANGE_MATCHES_INTENDED_R1P6I=SI
+T39_WORKTREE_UNTOUCHED=SI
+
+R1P6I_COMMIT_SHA=d6cde93fb35b822ff839bf25353922f3a41437ce
+TESTING_DEPLOY_ID=b1cb99fb-da12-4b3d-af26-f629d0a0410c
+TESTING_DEPLOY_STATUS=SUCCESS
+TESTING_DEPLOY_COMMIT=d6cde93fb35b822ff839bf25353922f3a41437ce (coincide exacto)
+LIVE_TRACE_VERSION=P2_T44_R1P6E_SW_TRACE_V2 (preservado)
+LIVE_ROUTING_VERSION=P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET (confirmado live)
+LIVE_ABSOLUTE_OPERATIONS_TARGET_CODE=SI
+
+FOCAL_TESTS=107 pass / 0 fail (re-verificado de forma independiente, no sólo leído del reporte de Codex)
+TSC_NEW_ERRORS=0 (31 baseline sin cambios)
+BUILD=OK
+DIFF_CHECK=limpio (sólo 2 líneas de whitespace cosmético en el .md del reporte)
+
+HALLAZGO_ADICIONAL=el pedido de control de R1P6H (cmu7ctl4g000fnu0am3i5c681) ya pasó de recibido a aceptado — confirma que el control físico R1P6H realmente se ejecutó y dio PASS, exactamente como se diseñó (no es una anomalía ni requiere remediación)
+
+P2_T44_R1P6I_STATUS=IMPLEMENTED_TESTED_COMMITTED_PUSHED_DEPLOYED_TESTING_SUCCESS (corrige el marcador desactualizado PENDING_COMMIT_DEPLOY que Codex nunca actualizó tras completar esos pasos)
+R1P6H_PERSONAL_CONTROL_PHYSICAL=PASS (preservado)
+RELATIVE_URL_ROOT_CAUSE=SUPPORTED_BUT_UNPROVEN (preservado — R1P6I lo corrige por diseño, todavía no certificado físicamente)
+G3_PHYSICAL_CERTIFIED=NO
+
+NO_CODE_REPEATED=SI — Claude NO reimplementa R1P6I, ya está completo y correcto
+NEXT_ACTION=P2_T44_R1P6J_SINGLE_PHYSICAL_ABSOLUTE_URL_PROBE (no ejecutada; requiere autorización explícita de una tarea futura; identificar/preparar un pedido retiro `recibido` NUEVO del fixture para G3 — el pedido usado en el control de Cliente de R1P6H ya no sirve, quedó en `aceptado`)
+
+PRODUCT_CODE_CHANGED_BY_THIS_AUDIT=NO
+TEST_CODE_CHANGED_BY_THIS_AUDIT=NO
+DB_MUTATED_BY_THIS_AUDIT=NO
+PUSH_SENT_BY_THIS_AUDIT=NO
+PHONE_TOUCHED_BY_THIS_AUDIT=NO
+PRODUCTION_TOUCHED=NO
+```
+
+## PRIOR STATE — P2-T44-R1P6I ABSOLUTE OPERATIONS TARGET (2026-09-18) — escrito por Codex, marcador de deploy desactualizado, ver reconciliación arriba
+
+R1P6H quedó confirmado físicamente en iOS: Cliente con un WindowClient
+existente en background recibió un único Push `order_update`, el tap abrió
+Pedidos y mostró el pedido correcto. Este control refuta un fallo global de
+`notificationclick`, de `WindowClient` o de `navigate()` en este dispositivo.
+G3 sigue sin certificación física.
+
+R1P6I implementa únicamente en `public/sw.js` la alineación de la rama
+Operations: conserva `targetUrl` como path validado y usa
+`absoluteTarget = self.location.origin + targetUrl` para cada
+`navigate()`/`openWindow()` de los cinco tipos Operations. La selección de
+clients, el orden navigate→focus, fallback, validación y ramas ajenas quedan
+sin cambios. `traceVersion` permanece
+`P2_T44_R1P6E_SW_TRACE_V2`; el nuevo `routingVersion` es
+`P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET`.
+
+Ver reporte completo:
+`codex-reports/P2_T44_R1P6I_ABSOLUTE_OPERATIONS_PUSH_TARGET.md`.
+
+```text
+P2_T44_R1P6I_STATUS=IMPLEMENTED_TESTED_PENDING_COMMIT_DEPLOY
+R1P6H_PERSONAL_CONTROL_PHYSICAL=PASS
+IOS_NOTIFICATIONCLICK_GLOBALLY_BROKEN_ON_THIS_DEVICE=REFUTED
+EXISTING_WINDOWCLIENT_ALONE_CAUSES_FAILURE=REFUTED
+WINDOWCLIENT_NAVIGATE_GLOBALLY_BROKEN_ON_THIS_DEVICE=REFUTED
+SHARED_SW_GLOBALLY_BROKEN=REFUTED
+RELATIVE_URL_ROOT_CAUSE=SUPPORTED_BUT_UNPROVEN
+TRACE_VERSION=P2_T44_R1P6E_SW_TRACE_V2
+ROUTING_VERSION=P2_T44_R1P6I_ABSOLUTE_OPERATIONS_TARGET
+TARGET_VALIDATION_CHANGED=NO
+CLIENT_MATCH_POLICY_CHANGED=NO
+FOCUS_ORDER_CHANGED=NO
+FALLBACK_SEMANTICS_CHANGED=NO
+PUSH_PRODUCER_CHANGED=NO
+AUTH_CHANGED=NO
+DB_CHANGED=NO
+SCHEMA_CHANGED=NO
+MIGRATION_CREATED=NO
+MANIFEST_CHANGED=NO
+FOCUSED_TESTS=87_PASS_0_FAIL
+TSC_NEW_ERRORS=0
+ESLINT=PASS
+BUILD=PASS
+SW_SYNTAX_CHECK=PASS
+DIFF_CHECK=PASS
+G3_PHYSICAL_CERTIFIED=NO
+R1P6J_PREPARATION_READY=SI
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PHONE_TOUCHED=NO
+CLIENT_PUSH_SWITCH_TOUCHED=NO
+OPERATIONS_PUSH_SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+PRODUCTION_TOUCHED=NO
+FULL_CONTEXT_CONSISTENCY_CHECK=PASS_R1P6H_EVIDENCE_AND_R1P6I_SCOPE_ALIGNED
+NEXT_ACTION=P2_T44_R1P6J_SINGLE_PHYSICAL_ABSOLUTE_URL_PROBE
+```
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P6H1 CLIENT PUSH SUBSCRIPTION VERIFIED — READY FOR PHYSICAL CONTROL (2026-09-18)
+
+El operador activó manualmente el switch de notificaciones Push en la
+PWA Cliente del iPhone. Verificación read-only confirma que se creó
+correctamente **1 sola** `PushSubscription` (`cmu7dldyk000lnu0aemo0e3w4`,
+`ownerType=cliente`, `ownerId=cmu4o5h5r0006riw8u1sujatk`, `channel=default`,
+sin duplicados). El pedido de control
+(`cmu7ctl4g000fnu0am3i5c681`, retiro, Negocio B) sigue en `recibido`, sin
+cambios. **El control físico diseñado en R1P6H queda listo para
+ejecutarse** — ver
+`codex-reports/P2_T44_R1P6H1_CLIENT_PUSH_SUBSCRIPTION_VERIFICATION.md`.
+
+```text
+CLIENT_PUSH_SUBSCRIPTION_COUNT=1
+ACTIVE_SUBSCRIPTION_COUNT=1
+READY_FOR_PHYSICAL_CONTROL=SI
+
+ORDER_ID=cmu7ctl4g000fnu0am3i5c681 (retiro, recibido, sin cambios — reusar, NO crear uno nuevo)
+CONTROL_ACTION_ACCEPT_AVAILABLE=SI (endpoint /api/operativo/pyr/pedidos/[id]/aceptar, sesión PyR ya autenticada)
+NOTIFICATION_TYPE=order_update / EXPECTED_TITLE=Actualización de pedido / EXPECTED_PUSH_COUNT=1
+TARGET_ESPERADO=/cliente/?tab=pedidos&pedidoId=cmu7ctl4g000fnu0am3i5c681&focusPedido=1 (URL ABSOLUTA una vez que sw.js le antepone self.location.origin)
+
+DB_MUTATED=NO (esta tarea de verificación; la suscripción la creó el propio operador desde el dispositivo)
+ORDER_CHANGED=NO
+PUSH_SENT=NO
+CODE_CHANGED=NO
+DEPLOY_PERFORMED=NO
+PRODUCTION_TOUCHED=NO
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+ROOT_CAUSE_CONFIDENCE=MEDIUM (sin cambios — esta tarea no ejecutó el control)
+
+NEXT_ACTION=ejecutar (en una tarea futura, con autorización explícita) el control físico ya diseñado en R1P6H: tocar "Aceptar pedido" sobre cmu7ctl4g000fnu0am3i5c681 desde Operaciones-PyR, confirmar 1 Push "Actualización de pedido", tocarlo una vez, observar destino — sin crear ningún pedido nuevo.
+```
+
+## PRIOR STATE — P2-T44-R1P6H iOS PERSONAL CONTROL PREPARED — AWAITING CLIENT PUSH SUBSCRIPTION (2026-09-18)
+
+Preparado (no ejecutado) un control A/B físico: Cliente con un client
+existente en background recibiendo un `order_update` real, para comparar
+contra `FAIL_HOME` ya conocido de Operaciones. Elegido por ser el único
+evento ejecutable con actores YA disponibles: la acción "Aceptar pedido"
+del empleado PyR ya autenticado sobre `cmu7ctl4g000fnu0am3i5c681` (pedido
+YA existente, `retiro`, `recibido`, del Cliente `test_t44_r1n_cliente_
+4135ea7a@example.test` en Negocio B) — dispara `order_update` (título fijo
+"Actualización de pedido") vía `orderUpdateNotification` +
+`createNotification`, sin necesitar ningún actor/credencial nueva.
+
+**Bloqueo encontrado, respetado sin mutar nada**: el Cliente fixture NO
+tiene ninguna `PushSubscription` activa (0 filas, ni normalizada ni
+legacy). Por instrucción explícita de la tarea, STOP — no se habilitó
+nada. Ver `codex-reports/P2_T44_R1P6H_IOS_PERSONAL_CONTROL_PREPARATION.md`.
+
+```text
+CONTROL_SURFACE=Cliente (representa también Negocio/Repartidor — mismo código compartido, R1P6G)
+SELECTED_CONTROL_NOTIFICATION_TYPE=order_update
+ORDER_ID_IF_REQUIRED=cmu7ctl4g000fnu0am3i5c681 (ya existente, NO crear uno nuevo)
+CLIENT_PUSH_SUBSCRIPTION_COUNT=0
+READY_FOR_PHYSICAL_CONTROL=NO
+
+ACCION_HUMANA_REQUERIDA=el operador debe abrir la PWA Cliente en el iPhone (contraseña ya entregada en el reseteo de credenciales previo) y activar el switch de notificaciones Push desde su perfil/configuración — sin esto, no hay forma de recibir el Push de control.
+
+CONTROL_TARGET_PATH=/cliente/?tab=pedidos&pedidoId=cmu7ctl4g000fnu0am3i5c681&focusPedido=1
+CONTROL_ABSOLUTE_TARGET_FORM=self.location.origin + targetPath (URL ABSOLUTA — a diferencia de Operaciones, que usa la URL relativa tal cual)
+CONTROL_BRANCH=rama Personal (Cliente/Negocio/Repartidor compartida), estructuralmente idéntica a Operaciones desde R1P6C salvo por esa diferencia de forma de URL
+
+CASE_CONTROL_PASS_MEANING=si Cliente navega correctamente: refuerza mucho la hipótesis de URL relativa-vs-absoluta como causa real, y debilita la teoría de plataforma como única explicación
+CASE_CONTROL_FAIL_HOME_MEANING=si Cliente TAMBIÉN falla: refuerza mucho la hipótesis de plataforma iOS/WebKit (bug de despacho de notificationclick con client existente) con evidencia PROPIA del dispositivo, y debilita relativa-vs-absoluta como causa suficiente — en ese caso NO implementar el cambio de URL absoluta esperando que resuelva el síntoma
+
+WEBKIT_NOTIFICATIONCLICK_BUG=POSSIBLE_SUPPORTED_EXTERNALLY (preservado, no confirmado con evidencia propia todavía)
+OPERATIONS_TARGET_FORM=RELATIVE
+PERSONAL_TARGET_FORM=ABSOLUTE
+RELATIVE_URL_ROOT_CAUSE=UNPROVEN (este control es exactamente el experimento diseñado para resolverlo)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+ROOT_CAUSE_CONFIDENCE=MEDIUM (sin cambios — esta tarea no ejecutó la prueba, sólo la preparó)
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_PLATFORM_LEVEL_ROOT_CAUSE_RESOLUTION_OR_DEVICE_INSPECTION
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+DB_MUTATED=NO
+PUSH_SENT=NO
+PHONE_TOUCHED=NO
+DEPLOY_PERFORMED=NO
+PRODUCTION_TOUCHED=NO
+
+NEXT_ACTION=AWAITING_CLIENT_PUSH_SUBSCRIPTION — el operador debe activar notificaciones Push en la PWA Cliente del iPhone; recién después de eso se puede ejecutar (en una tarea futura, con autorización explícita) el control físico ya diseñado en esta tarea (tocar "Aceptar pedido" sobre cmu7ctl4g000fnu0am3i5c681 desde Operaciones-PyR, confirmar 1 Push "Actualización de pedido", tocarlo una vez, observar destino).
+```
+
+## PRIOR STATE — P2-T44-R1P6G iOS NOTIFICATIONCLICK COMPARATIVE AUDIT — PLATFORM-LEVEL ROOT CAUSE (2026-09-18)
+
+**Corrección crítica de plataforma**: `DEVICE_PLATFORM=iOS`, no Android —
+esto invalida retroactivamente la hipótesis de R1P6D ("Android Doze
+restringe la red en el momento del click"), que nunca aplicó a este
+dispositivo. También se resolvió el "segundo pedido no explicado" de
+R1P6F: fue un segundo test INTENCIONAL del operador con Operaciones
+abierta (resultado: FAIL_HOME, igual que el primero) — no un accidente.
+
+Auditoría completa de `public/sw.js` (control-flow línea por línea) no
+encontró NINGÚN `return`/`throw` propio alcanzable por el payload REAL de
+G3 antes de la primera traza durable — es decir, si el listener
+`notificationclick` llega a ejecutarse con los datos que el servidor
+confirmó (payload/URL siempre correctos en las 4 rondas), SIEMPRE debería
+producir al menos `notificationclick_decision`. Como eso nunca ocurrió,
+la explicación más respaldada ahora es de **plataforma, no de código
+propio**: dos bugs de WebKit documentados públicamente y de forma
+independiente — **bugs.webkit.org #268797** ("notificationclick events in
+serviceworkers not firing" en Home Screen PWAs de iOS, iOS 16.4 a 26.6.1)
+y un hilo del foro de desarrolladores de Apple (`indexedDB` es
+`undefined` cuando el Service Worker es despertado por una notificación
+Push en iOS Safari, exclusivo de Safari) — explican, combinados, por qué
+ni la traza de red (R1P5B) ni la traza durable en IndexedDB (R1P6E)
+pudieron capturar nunca el click, sin necesidad de asumir ningún bug
+adicional en el código de DeliGO.
+
+También se encontró una diferencia de código REAL (no sólo teoría de
+plataforma): la rama de Operaciones pasa una URL RELATIVA a
+`navigate()`/`openWindow()`, mientras que el patrón ya certificado de
+Cliente/Negocio/Repartidor SIEMPRE usa una URL ABSOLUTA
+(`self.location.origin + path`). Es la única diferencia de código real
+que sobrevive tras el fix de R1P6C — de bajo riesgo y bajo costo de
+alinear, aunque no hay evidencia de que sea la causa principal dado el
+hallazgo de plataforma. Ver
+`codex-reports/P2_T44_R1P6G_IOS_NOTIFICATIONCLICK_COMPARATIVE_AUDIT.md`.
+
+```text
+DEVICE_PLATFORM=iOS
+R1P6F_SECOND_ORDER_MYSTERY=RESOLVED (segundo test intencional con Operaciones abierta, mismo resultado FAIL_HOME)
+
+NOTIFICATIONCLICK_LISTENER_ENTRY_INSTRUMENTED=NO
+CAN_NOTIFICATIONCLICK_EXECUTE_WITHOUT_OPERATIONS_DURABLE_TRACE=SI (si type no matchea ningún tipo conocido, cae a la rama Personal sin ninguna instrumentación remota; o si el listener directamente nunca se despacha — ver hallazgo de plataforma)
+ALL_OPERATIONS_BRANCH_GUARDS_PASS=SI (con los valores reales confirmados server-side en las 4 rondas)
+G3_CAN_ROUTE_HOME_WITH_ZERO_DURABLE_TRACE=SI — la explicación más respaldada: notificationclick nunca se despacha en absoluto (bug de plataforma documentado), y iOS simplemente trae a primer plano el client Home ya existente, sin que ningún código de sw.js intervenga
+
+H1_NOTIFICATIONCLICK_NOT_FIRED_IOS=SUPPORTED (por documentación externa oficial: bugs.webkit.org #268797)
+H2 a H4, H6, H8=REFUTED (guards de G3 pasan siempre con datos reales; Operaciones es la primera rama; fallback genérico apunta a /cliente/, no a Home Operaciones; SW único sin fragmentación de scope)
+H5/H7=UNPROVEN pero real — diferencia URL relativa (Operaciones) vs. absoluta (known-good)
+
+ROOT_CAUSE_LAYER=PLATFORM_NOTIFICATIONCLICK_DISPATCH (iOS/WebKit) — reclasificado desde UNPROVEN_CLICK_EXECUTION de R1P6F
+ROOT_CAUSE_CONFIDENCE=MEDIUM (la más respaldada de la investigación completa, sin llegar a HIGH — sin confirmación device-side directa)
+
+FIX_CAN_BE_DESIGNED_FROM_CURRENT_EVIDENCE=SI (parcial, sólo el cambio de bajo riesgo)
+PROPOSED_FIX_SCOPE=alinear navigate()/openWindow() de la rama Operaciones a URL absoluta (self.location.origin + targetUrl), igual que el patrón ya certificado — NO implementado en esta tarea
+NEXT_DIAGNOSTIC=si el operador puede conectar el iPhone a una Mac (Web Inspector remoto vía Safari), inspeccionar directamente el Service Worker + IndexedDB tras un tap respondería de forma directa, no inferida, lo que ninguna telemetría remota pudo confirmar en 4 rondas
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_PLATFORM_LEVEL_ROOT_CAUSE_RESOLUTION_OR_DEVICE_INSPECTION
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada; contexto externo obtenido vía documentación pública MDN/WebKit/Apple, nunca contra infraestructura DeliGO)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PHONE_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+
+NEXT_ACTION=decidir con el operador entre (a) intentar la inspección device-side directa vía Safari Web Inspector remoto antes de cualquier cambio de código, o (b) implementar el fix de bajo riesgo de URL absoluta en la rama de Operaciones como mejora de todas formas, entendiendo que puede no resolver una causa de plataforma. Ninguna de las dos se ejecuta todavía sin autorización explícita de una tarea futura.
+```
+
+## PRIOR STATE — P2-T44-R1P6F DURABLE TRACE PROBE — CLICK STILL UNOBSERVED, EVEN DURABLY (2026-09-18)
+
+Tercera ronda física consecutiva con el mismo síntoma visual (Push → tap
+→ Home), esta vez con la traza durable de R1P6E ya desplegada. Resultado
+clave: **tampoco apareció ningún evento de `notificationclick`, ni
+inmediato ni recuperado en un flush posterior** — pese a que hubo una
+oportunidad real de recuperación (un segundo Push, ~69s después, con red
+confirmada funcionando en ese momento, ya que ESE mismo push sí completó
+su propia traza por red exitosamente). Esto **debilita** la hipótesis de
+R1P6D ("la red falló justo en el instante del click") porque la
+persistencia en IndexedDB no depende de la red — su ausencia total
+apunta ahora a que el código de `notificationclick` probablemente **nunca
+se ejecuta** en el dispositivo real para este tap, una hipótesis más
+profunda que ningún test unitario en sandbox puede exponer. Hallazgo
+lateral: la DB muestra DOS pedidos nuevos en esta ventana (no uno como
+describió el operador) — documentado transparentemente, sin resolver la
+discrepancia por suposición; ambos con evidencia server-side idéntica
+(correcta) y ninguno con traza de click. Ver
+`codex-reports/P2_T44_R1P6F_DURABLE_TRACE_PHYSICAL_PROBE_ANALYSIS.md`.
+
+```text
+R1P6F_ORDER_ID=cmu7chaqn0003nu0alrnmeioy (pedido principal; segundo candidato no explicado: cmu7cirge0009nu0abr392ddt, ~69s después)
+TRACE_PUSH_RECEIVED_FOUND=SI (ambos pedidos)
+TRACE_SHOW_NOTIFICATION_FOUND=SI (ambos)
+TRACE_PUSH_VERSION=P2_T44_R1P6E_SW_TRACE_V2 (confirmado, dispositivo real)
+TRACE_PUSH_ROUTING_VERSION=P2_T44_R1P6C_EXISTING_CLIENT_FIX (confirmado)
+
+DURABLE_CLICK_DECISION_FOUND=NO
+DURABLE_CLICK_CLIENT_EVENTS_FOUND=NO
+DURABLE_CLICK_ROUTING_RESULT_FOUND=NO
+DURABLE_TRACE_RECOVERY_USED=NO (hubo oportunidad real de recuperación con red confirmada — nada se recuperó)
+
+PYR_API_AFTER_CLICK=NO (a diferencia de R1P6D, esta ronda ni siquiera muestra el acceso ambiguo aislado a /api/operativo/pyr/pedidos — comportamiento limpio: Home antes, silencio, Home después)
+
+H8_DURABLE_TRACE_FAILURE=SUPPORTED, con más fuerza que nunca
+HALLAZGO_MAS_PROFUNDO=la ausencia de recuperación durable con red confirmada sugiere que el código de notificationclick probablemente no llega a ejecutarse en absoluto en el dispositivo real para este tap — no sólo que su telemetría se pierde
+
+ROOT_CAUSE_LAYER=UNPROVEN_CLICK_EXECUTION (reclasificado, más cauto que INSTRUMENTATION_DELIVERY_GAP de R1P6D — ya no se puede asumir que el código de ruteo corrió)
+ROOT_CAUSE_CONFIDENCE=MEDIUM (sin subir a HIGH — la evidencia de esta ronda reduce certeza sobre el mecanismo exacto en vez de confirmarlo; sin bajar a LOW — el lado servidor sigue impecable, 4ta ronda consecutiva)
+
+FIX_CAN_BE_IMPLEMENTED_NOW=NO
+NEXT_ACTION_SUGERIDA_NO_EJECUTADA=inspección directa vía chrome://inspect/remote debugging del Service Worker + IndexedDB (deligo-sw-debug) inmediatamente después de un tap, si el operador tiene esa capacidad — respondería de forma directa, no inferida, las preguntas que ninguna telemetría remota pudo resolver en 3 rondas
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_R1P6F_DEEP_LINK_VISUAL=FAIL
+G3_R1P6F_DESTINATION=HOME_OPERACIONES
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DEVICE_SIDE_INSPECTION_OR_NEW_DIAGNOSTIC_APPROACH
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada en esta tarea)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+ORDER_CREATED_BY_ANALYSIS=NO (los 2 pedidos ya existían antes de esta tarea)
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+
+NEXT_ACTION=no ejecutar otra sonda física a ciegas. Evaluar con el operador si es posible una inspección device-side directa (chrome://inspect) del Service Worker/IndexedDB inmediatamente después de un tap, antes de intentar cualquier otro cambio de código o instrumentación remota adicional.
+```
+
+## PRIOR STATE — P2-T44-R1P6E DURABLE SW CLICK TRACE — IMPLEMENTED, TESTED, LIVE IN TESTING (2026-09-18)
+
+Cerrada (a nivel de instrumentación, no de causa raíz) la brecha de
+observabilidad que R1P6A y R1P6D expusieron dos veces: `notificationclick`
+ahora persiste sus 3 eventos críticos (`_decision`/`_client`/
+`_routing_result`) en IndexedDB (`deligo-sw-debug`/`pending-traces`) ANTES
+de intentar la red, con reintento automático (`flushPendingSwTraces()`)
+en cada punto seguro en que el SW despierta (`activate`/`push`/
+`notificationclick`) — TTL 24h, tope de 50 registros (el más viejo se
+descarta primero), borrado sólo tras confirmación HTTP real. La rama de
+ruteo de R1P6C (client matching, orden `navigate()→focus()`, fallback
+`openWindow`) es **byte-idéntica** — sólo cambió qué función construye y
+envía cada evento de traza. Nueva versión de traza
+`P2_T44_R1P6E_SW_TRACE_V2` + campo independiente
+`routingVersion=P2_T44_R1P6C_EXISTING_CLIENT_FIX` en TODOS los eventos.
+Ver `codex-reports/P2_T44_R1P6E_DURABLE_SW_CLICK_TRACE.md`.
+
+```text
+G3_EXISTING_CLIENT_FIX_IMPLEMENTED=SI (preservado, R1P6C)
+DURABLE_CLICK_TRACE_IMPLEMENTED=SI
+TRACE_VERSION_OLD=P2_T44_R1P5B_SW_TRACE_V1
+TRACE_VERSION_NEW=P2_T44_R1P6E_SW_TRACE_V2
+ROUTING_VERSION=P2_T44_R1P6C_EXISTING_CLIENT_FIX
+INDEXEDDB_DB_NAME=deligo-sw-debug
+INDEXEDDB_STORE_NAME=pending-traces
+TRACE_TTL=86400000 (24h)
+TRACE_MAX_RECORDS=50
+
+R1P6E_COMMIT_SHA=ab168a981d81104f2a240ab0cadbcb1e7394d3dd
+TESTING_DEPLOY_ID=d45fc2c4-a863-4c25-9338-1e9d3e16d4bd
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash confirmado exacto)
+LIVE_SW_TRACE_VERSION=P2_T44_R1P6E_SW_TRACE_V2 (confirmado en sw.js servido)
+LIVE_SW_ROUTING_VERSION=P2_T44_R1P6C_EXISTING_CLIENT_FIX (confirmado)
+LIVE_DURABLE_TRACE_CODE_PRESENT=SI (flushPendingSwTraces/deligo-sw-debug/isOperationsClientPathname confirmados)
+R1P6C_ROUTING_FIX_STILL_PRESENT=SI
+ACCOUNT_PUSH_SUBSCRIPTION_COUNT=1 (sin cambios)
+SWITCH_EXPECTED_STATE=ON
+
+FOCAL_TESTS=107 pass / 0 fail (40 en sw-notificationclick-target-routing.test.ts incluyendo 8 nuevos de traza durable con fake IndexedDB propio del test; 67 en sw-push-role-icon-routing/sw-push-dedupe/sw-icon-cache-bypass/debug-sw-trace incluyendo 2 nuevos en el endpoint)
+TSC_NEW_ERRORS=0 (31 preexistentes, baseline sin cambios)
+BUILD=OK
+
+R1P6F_PREPARATION_READY=SI — una sola sonda inicial: app abierta en Home → background → UN pedido → Push → tap → observar destino; NO crear segundo pedido hasta analizar la traza durable. Criterio de éxito diagnóstico: obtener durablemente notificationclick_decision/_client/_routing_result con traceVersion=V2 y routingVersion=R1P6C, incluso si llegan recién tras un flush posterior (DURABLE_TRACE_RECOVERY=PASS sería el resultado esperado en ese caso, no una falla).
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_PRE_FIX_EXISTING_HOME_PHYSICAL=FAIL
+G3_PRE_FIX_CLOSED_APP_PHYSICAL=PASS
+G3_POST_FIX_EXISTING_HOME_PHYSICAL=FAIL
+G3_POST_FIX_FAILURE_REPRODUCED_TWICE_BY_OPERATOR=SI
+G3_PHYSICAL_CERTIFIED=NO (sin cambios — esta tarea es de instrumentación, no de routing)
+ROOT_CAUSE_CONFIDENCE=MEDIUM (sin cambios — esta tarea no reevalúa causa raíz)
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DURABLE_CLICK_TRACE_AND_RECERTIFICATION
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada — ninguna request a Production en esta tarea)
+
+PRODUCT_CODE_CHANGED=SI (public/sw.js + src/app/api/push/debug-sw-trace/route.ts, únicamente)
+TEST_CODE_CHANGED=SI (sw-notificationclick-target-routing.test.ts + debug-sw-trace/route.test.ts)
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PHONE_TOUCHED=NO
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+PRODUCTION_TOUCHED=NO
+
+NEXT_ACTION=P2_T44_R1P6F_DURABLE_TRACE_SINGLE_PHYSICAL_PROBE (no ejecutada; requiere autorización explícita de una tarea futura — una sola sonda, no dos, hasta analizar la traza durable resultante)
+```
+
+## PRIOR STATE — P2-T44-R1P6D POST-FIX PHYSICAL FAILURE — ROOT CAUSE BACK TO MEDIUM (2026-09-17)
+
+El fix de R1P6C (commit `fb1f228`, live en TESTING desde ~59 min antes)
+se probó físicamente DOS veces con la app abierta en Home — **el síntoma
+persiste en ambos intentos** (`DESTINO_FINAL=HOME_OPERACIONES` ambas
+veces). Confirmado por DB read-only: fueron DOS pedidos reales distintos
+(`cmu65zh040001li0burtu54zg`, `cmu660x5q0007li0b9wbdoe20`), no la misma
+notificación tocada dos veces — cada uno con su propia `Notificacion`,
+Push (1 envío, providerStatus=201) y traza `push_received`/
+`show_notification` correctas. **Pero, otra vez, ningún
+`notificationclick_decision`/`_client`/`_routing_result` llegó al
+servidor en ninguno de los dos intentos** — el mismo vacío de
+observabilidad de R1P6A, ahora confirmado una segunda vez, incluso con el
+fix ya desplegado. Un detalle nuevo y genuinamente ambiguo: entre los dos
+intentos hubo UN solo acceso a `/api/operativo/pyr/pedidos` (el panel
+PyR), rodeado de polling de Home antes y después — no se pudo determinar
+si fue el deep link funcionando transitoriamente (y algo lo revirtió) o
+una exploración manual del operador; el intento 2 no tuvo NINGÚN acceso
+al panel PyR. `ROOT_CAUSE_CONFIDENCE` **baja de `HIGH` a `MEDIUM`**: la
+debilidad que R1P6C corrigió era real y el fix es código correcto (97
+tests lo prueban), pero el síntoma físico persiste, así que esa debilidad
+no era (o no era la única) causa suficiente. Ver
+`codex-reports/P2_T44_R1P6D_POST_FIX_PHYSICAL_FAILURE_TRACE_ANALYSIS.md`.
+
+```text
+PRE_FIX_ROOT_CAUSE_CONFIDENCE=HIGH
+POST_FIX_ROOT_CAUSE_CONFIDENCE=MEDIUM
+POST_FIX_RESULT_INVALIDATES_SUFFICIENCY_OF_R1P6B_ROOT_CAUSE=SI
+ROOT_CAUSE_LAYER=INSTRUMENTATION_DELIVERY_GAP (otra vez la capa dominante — idéntica a R1P6A)
+DEVICE_EXECUTED_R1P6C_ROUTING_CODE=UNPROVEN (sin click trace, imposible de confirmar cuál código ejecutó el click)
+
+POST_FIX_ORDER_IDS=cmu65zh040001li0burtu54zg, cmu660x5q0007li0b9wbdoe20
+POST_FIX_NOTIFICATION_IDS=cmu65zh1l0005li0bguw326tf, cmu660x6z000bli0bm1t1zpiq
+POST_FIX_PUSH_SEND_COUNTS=1, 1 (ambos correctos, server-side sin problema por tercera vez consecutiva)
+CLICK_TRACE_FOUND=NO (ambos intentos)
+
+NEXT_FIX_DESIGN=cerrar la brecha de observabilidad del click de forma DURABLE antes de tocar routing de nuevo — retomar la propuesta de R1P6A (persistir el evento de notificationclick en IndexedDB dentro del propio SW, antes de intentar la red, con reintento en el siguiente despertar). La evidencia A/B de R1P6B era real pero insuficiente por sí sola.
+FIX_CAN_BE_IMPLEMENTED_NOW=NO (otro fix de comportamiento sin ver el click real repetiría el mismo error)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_PRE_FIX_EXISTING_HOME_PHYSICAL=FAIL
+G3_PRE_FIX_CLOSED_APP_PHYSICAL=PASS
+G3_POST_FIX_EXISTING_HOME_PHYSICAL=FAIL
+G3_POST_FIX_FAILURE_REPRODUCED_TWICE_BY_OPERATOR=SI
+G3_PHYSICAL_CERTIFIED=NO (R1P6C NO se certifica físicamente)
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DURABLE_CLICK_TRACE_AND_RECERTIFICATION
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada — ninguna request a Production en esta tarea)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+ORDER_CREATED_BY_ANALYSIS=NO (los 2 pedidos analizados fueron creados por el operador antes de esta tarea)
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+
+NEXT_ACTION=diseñar e implementar (tarea futura) la instrumentación durable de notificationclick vía IndexedDB, redesplegar TESTING, y ejecutar una cuarta sonda física con esa telemetría reforzada antes de intentar cualquier otro cambio de comportamiento de routing.
+```
+
+## PRIOR STATE — P2-T44-R1P6C G3 EXISTING-CLIENT ROUTING FIX — IMPLEMENTED, TESTED, LIVE IN TESTING (2026-09-17)
+
+Implementado el fix mínimo del bug de G3 aislado con `ROOT_CAUSE_CONFIDENCE=HIGH`
+en R1P6B. `public/sw.js`, rama compartida de `notificationclick` de
+Operaciones (los 5 tipos): ya no existe el segundo loop sin filtro que
+aceptaba cualquier client con `focus`/`navigate`; el único client
+reutilizable ahora es uno cuyo pathname sea el Home bare
+(`/operaciones/mi-panel`, sin barra) o cualquier ruta bajo
+`/operaciones/mi-panel/`. La navegación sigue el mismo patrón robusto ya
+certificado en la rama personal: `await navigate(targetUrl)` → `focus()`
+sobre el client que `navigate()` realmente devolvió (o el original si
+resolvió `null`) → `catch` → `clients.openWindow(targetUrl)` (el camino
+ya probado físicamente que funciona con la app cerrada). La traza R1P5B
+se preservó íntegra, con `routingAction` actualizado
+(`NAVIGATE_FOCUS_OPERATIONS_CLIENT` / `NAVIGATE_REJECTED_OPEN_WINDOW` /
+`NO_MATCH_OPEN_WINDOW[_REJECTED]`) para que la próxima sonda confirme por
+trace real qué rama se ejecutó. Ver
+`codex-reports/P2_T44_R1P6C_G3_EXISTING_CLIENT_ROUTING_FIX.md`.
+
+```text
+G3_EXISTING_CLIENT_FIX_IMPLEMENTED=SI
+R1P6C_COMMIT_SHA=fb1f228ffc39ea4a8e5c7eee10a85053859bfc7a
+TESTING_DEPLOY_ID=d26f3334-274b-4360-8122-b9b3f5dcf094
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash confirmado exacto)
+LIVE_SW_FIX_PRESENT=SI (isOperationsClientPathname + NAVIGATE_FOCUS_OPERATIONS_CLIENT confirmados en sw.js servido)
+LIVE_SW_TRACE_MARKER_PRESENT=SI (P2_T44_R1P5B_SW_TRACE_V1 preservado)
+ACCOUNT_PUSH_ROW_COUNT=1 (sin cambios, cmu4ni2t0000up90btelfflhq)
+SWITCH_EXPECTED_STATE=ON (CuentaOperativa activo=true, sin tocar)
+
+FOCAL_TESTS=97 pass / 0 fail (32 en sw-notificationclick-target-routing.test.ts incluyendo 7 nuevos: Home bare, nested client, foreign client, navigate reject, navigate null, orden navigate-antes-que-focus, regresión de los 5 tipos; 65 en sw-push-role-icon-routing/sw-push-dedupe/sw-icon-cache-bypass/debug-sw-trace sin regresiones)
+TSC_NEW_ERRORS=0 (31 preexistentes, baseline sin cambios)
+BUILD=OK
+
+MESA_ORDER_READY_CHANGED=NO
+MESA_ORDER_READY_EXISTING_CLIENT_ROUTING_LATENT_RISK=SI (comparte la misma debilidad estructural que G3 tenía; su certificación previa sólo cubrió entrega, nunca tap con client existente — no corregido en esta tarea, scope explícitamente limitado a G3)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_DEEP_LINK_WITH_EXISTING_OPERATIONS_HOME=FAIL (evidencia histórica pre-fix, preservada)
+G3_DEEP_LINK_WITH_APP_CLOSED=PASS (evidencia histórica pre-fix, preservada)
+G3_PHYSICAL_CERTIFIED=NO (el fix todavía no fue probado físicamente)
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada — todos los curl de esta tarea fueron contra la URL de TESTING ya conocida)
+
+PRODUCT_CODE_CHANGED=SI (public/sw.js únicamente)
+TEST_CODE_CHANGED=SI (sw-notificationclick-target-routing.test.ts únicamente)
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PRODUCTION_TOUCHED=NO
+
+R1P6D_PREPARATION_READY=SI — PROBE A (prioridad): app abierta en Home de Operaciones → background → 1 pedido retiro nuevo → Push → tap → debe abrir el pedido correcto en PyR. PROBE B (sólo si A pasa): app cerrada → pedido nuevo separado → Push → tap → debe seguir funcionando (no regresar el camino ya certificado). Ninguna ejecutada todavía.
+
+NEXT_ACTION=P2_T44_R1P6D_G3_POST_FIX_EXISTING_HOME_PHYSICAL_PROBE (no ejecutada en esta tarea; requiere autorización explícita de una tarea futura)
+```
+
+## PRIOR STATE — P2-T44-R1P6B G3 ROOT CAUSE HIGH CONFIDENCE — EXISTING CLIENT VS CLOSED APP (2026-09-17)
+
+Nueva evidencia física A/B del operador (no planificada originalmente,
+registrada sin minimizar): con la PWA de Operaciones YA ABIERTA en el Home
+("3 negocios"), el tap del Push G3 falla — igual que R1P4/R1P6A (dos
+veces). Pero con la app CERRADA, el mismo tipo de Push, mismo productor,
+mismo payload, mismo dispositivo, **el tap SÍ abre el pedido correcto en
+el panel PyR** (`G3_CLOSED_APP_DEEPLINK_PHYSICAL=PASS`). Esta comparación
+A/B aísla causalmente el bug al camino de "client ya existente" dentro de
+la rama compartida de Operaciones en `notificationclick`
+(`public/sw.js`): un segundo bucle de selección de client acepta
+CUALQUIER ventana con `focus`/`navigate` sin filtrar por pathname (porque
+el Home genérico `/operaciones/mi-panel`, sin barra final, nunca matchea
+el primer bucle más estricto `startsWith("/operaciones/mi-panel/")`), y
+llama `focus()`+`navigate(targetUrl)` sin `await`, sin verificar el
+resultado, sin `try/catch`. El camino sin client existente
+(`clients.openWindow(targetUrl)`) es una operación atómica del navegador
+que SÍ funciona — confirmado ahora físicamente. El patrón conocido-bueno
+de notificaciones personales (Cliente/Negocio/Repartidor) nunca tiene un
+"cualquier client sin filtrar": su único fallback es siempre `openWindow`,
+y su camino de client existente SÍ espera (`await`) el resultado de
+`navigate()` y tiene `try/catch` con reintento vía `openWindow`. Con esta
+triangulación (aislamiento causal físico + auditoría de código +
+contraste con patrón conocido-bueno), `ROOT_CAUSE_CONFIDENCE` sube de
+`MEDIUM` a **`HIGH`** por primera vez en esta investigación. Ver
+`codex-reports/P2_T44_R1P6B_EXISTING_CLIENT_VS_CLOSED_APP_AUDIT.md`.
+
+```text
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_DEEP_LINK_WITH_EXISTING_OPERATIONS_HOME=FAIL
+G3_DEEP_LINK_WITH_APP_CLOSED=PASS
+G3_PHYSICAL_CERTIFIED=NO (el caso más común — app ya abierta — sigue roto)
+
+ROOT_CAUSE_LAYER=SERVICE_WORKER_CLICK_ROUTING — EXISTING_CLIENT_NAVIGATION_SUBPATH
+ROOT_CAUSE_FILE=public/sw.js
+ROOT_CAUSE_FUNCTION=notificationclick, rama compartida de Operaciones (P2-T44-R1P2) — segundo bucle de matching de clients sin filtro + focus()/navigate() sin await/catch
+ROOT_CAUSE_CONFIDENCE=HIGH
+
+HALLAZGO_LATERAL=mesa_order_ready comparte la MISMA debilidad estructural (mismo patrón Loop1+Loop2 sin filtro, mismo focus/navigate sin await/catch) — su certificación física previa (R1L/R1M) sólo cubrió ENTREGA del Push, nunca tap+destino con un client ya abierto. Posible bug latente, no confirmado, NO tocado en el fix de G3 (scope explícitamente limitado al branch de Operaciones).
+
+FIX_DISEÑADO_NO_IMPLEMENTADO=(1) eliminar el segundo bucle sin filtro; (2) sobre el bucle restante, usar el mismo patrón robusto de la rama personal: await client.navigate(targetUrl), focus() sobre el client resuelto, try/catch; (3) catch o "ningún client matcheó" → self.clients.openWindow(targetUrl) (el camino ya probado). Scoped únicamente a public/sw.js, sólo el branch de 5 tipos de Operaciones — Mozo/Salón/cancelación/G4/G5/Notification Center sin tocar.
+INDEXEDDB_TRACE_STILL_REQUIRED_BEFORE_FIX=NO (la evidencia A/B ya aísla la causa sin necesitar más telemetría; la traza R1P5B se mantiene activa para confirmar el fix en la próxima sonda, no para seguir diagnosticando)
+NEEDS_TEST=SI (caso nuevo: client Home bare sin slug + un caso de navigate() que rechaza)
+NEEDS_TESTING_DEPLOY=SI
+NEEDS_POST_FIX_PHYSICAL_PROBE=SI (2 casos: app abierta en Home, y app cerrada — no regresar el camino ya certificado)
+
+FIXTURE_KNOWN_LIMITATION=UNDERSCORE_SLUG_LIMITS_MESA_ACCOUNT_TEST_REUSE (los slugs A/B/C usan "_", el alta de cuenta de mesa sólo acepta letras/números/guiones — no bloquea nada hoy, limita pruebas futuras de cuenta de mesa nueva; no corregido, sólo documentado)
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada en esta tarea)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+COMMIT_CREATED=NO
+DEPLOY_EXECUTED=NO
+THIRD_ORDER_CREATED=NO
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+
+NEXT_ACTION=implementar el fix diseñado en public/sw.js (tarea futura, p. ej. R1P6C), extender los tests del harness con los 2 casos nuevos identificados, testear/typecheck/build, commit+push+deploy TESTING, y ejecutar una tercera sonda física con AMBOS casos (app abierta en Home / app cerrada) antes de certificar G3.
+```
+
+## PRIOR STATE — P2-T44-R1P6A G3 DIAGNOSTIC TRACE ANALYSIS — CLICK TRACE MISSING (2026-09-17)
+
+Segunda sonda física G3 ejecutada con el SW instrumentado de R1P5B.
+Síntoma físico IDÉNTICO a R1P4 (Push PASS, deep link FAIL, termina en el
+selector de "3 negocios"). El trace capturó correctamente
+`push_received`/`show_notification` (URL correcta confirmada por primera
+vez directamente desde el dispositivo, no sólo server-side) — pero
+**ningún evento de `notificationclick` llegó a los logs**, pese a que el
+operador confirma haber tocado la notificación. Ver
+`codex-reports/P2_T44_R1P6A_G3_DIAGNOSTIC_TRACE_ANALYSIS.md` para el
+análisis completo (14 valores extraídos por evidencia real, 8 hipótesis
+reevaluadas, causa raíz de la BRECHA DE TRAZA identificada con confianza
+razonable, causa raíz del ROUTING original todavía en MEDIUM).
+
+```text
+R1P6_ORDER_ID=cmu61sjzh0001mv0btmjj7l4j
+R1P6_ORDER_CREATED_AT=2026-09-17T21:34:49.134Z
+R1P6_NOTIFICATION_ID=cmu61sk0u0005mv0bins8mflm
+
+TRACE_EVENT_COUNT=2 (push_received, show_notification — ambos con traceVersion=P2_T44_R1P5B_SW_TRACE_V1 y la URL correcta preservada byte a byte)
+CLICK_TRACE_MISSING=SI (notificationclick_decision/_client/_routing_result: 0 encontrados)
+
+CAUSA_MAS_RESPALDADA=el notificationclick probablemente SÍ ejecutó la rama de Operaciones instrumentada (única versión de SW desplegada en toda la ventana), pero el POST de traza no llegó al servidor — muy probablemente por un arranque en frío del Service Worker tras ~94s de inactividad, coincidiendo con restricciones de red en segundo plano del sistema operativo en el momento exacto del tap
+ROOT_CAUSE_LAYER=INSTRUMENTATION_DELIVERY_GAP (la capa de ROUTING original sigue SOSPECHADA, no PROBADA)
+ROOT_CAUSE_CONFIDENCE=MEDIUM (sin subir a HIGH — el vacío de evidencia está exactamente en el punto crítico)
+
+FIX_DISEÑADO_NO_IMPLEMENTADO=persistir cada evento de notificationclick en IndexedDB (mismo patrón ya usado en sw.js para share-target) ANTES de intentar la red, con reintento en el siguiente despertar del SW — ataca la capa de observabilidad, nunca la lógica de ruteo/seguridad (isSafeInternalUrl/isSafeOperationsUrl/targetUrl/fallback/focus/navigate/openWindow sin tocar)
+NEEDS_THIRD_G3_PHYSICAL_TAP_PROBE=SI (después de implementar y desplegar ese fix de entrega de traza)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_SECOND_PROBE_PUSH_DELIVERY=PASS
+G3_SECOND_PROBE_PUSH_COUNT=1
+G3_SECOND_PROBE_DEEP_LINK=FAIL
+G3_DEEP_LINK_PHYSICAL=FAIL (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DEEP_LINK_ROOT_CAUSE_AND_FIX
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (respetada en esta tarea)
+
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+COMMIT_CREATED=NO
+DEPLOY_EXECUTED=NO
+THIRD_ORDER_CREATED=NO
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+
+NEXT_ACTION=diseñar e implementar (tarea futura, p. ej. R1P6B) el fix de entrega de traza descrito arriba, redesplegar TESTING, y ejecutar una TERCERA sonda física G3 enfocada en obtener por fin la traza completa de notificationclick.
+```
+
+## PRIOR STATE — P2-T44-R1P5C TRACE DEPLOY EVIDENCE CLOSEOUT (READ-ONLY) (2026-09-17)
+
+R1P5C re-verificó de forma independiente y READ-ONLY (sin código/test
+modificado, sin commit, sin push, sin redeploy) los 5 valores que el
+reporte de R1P5B dejaba sólo en la salida del chat — ahora están escritos
+en `codex-reports/P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md` §13, y el
+reporte queda autosuficiente sin depender de esta conversación.
+
+```text
+CURRENT_BRANCH=work/p2-t43-r2
+HEAD_SHA=ca3166745885f4b0d0a83c423d3c858051bd575a
+ORIGIN_TESTING_CODEX_SHA=ca3166745885f4b0d0a83c423d3c858051bd575a (idéntico a HEAD)
+
+R1P5B_COMMIT_SHA=ca3166745885f4b0d0a83c423d3c858051bd575a
+TESTING_DEPLOY_ID=36ed8593-539f-4707-95b6-b2fb87babaf5
+TESTING_DEPLOY_STATUS=SUCCESS
+TESTING_DEPLOY_COMMIT=ca3166745885f4b0d0a83c423d3c858051bd575a (expuesto directamente por Railway en meta.commitHash, coincide byte a byte)
+LIVE_SW_TRACE_MARKER_PRESENT=SI
+TRACE_ENDPOINT_SELF_TEST=PASS
+TRACE_ENDPOINT_SELF_TEST_TIMESTAMP=2026-09-17T19:40:56.507Z (log real re-encontrado, no se generó uno nuevo)
+
+R1P6_OPERATOR_ACTION_READY=SI (los 4 requisitos del deploy gate se cumplen)
+R1P6_PREPARATION_READY=SI (preservado)
+
+NO_PRODUCTION_NETWORK_REQUESTS_DURING_T44_TESTING=SI (nueva regla permanente para el resto de la línea T44, motivada por la desviación documentada en R1P5B §12 — un curl accidental a un dominio de Production adivinado; a partir de R1P5C, Production se verifica EXCLUSIVAMENTE por Git/estado local, nunca por red)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_DEEP_LINK_PHYSICAL=FAIL (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+COMMIT_CREATED=NO
+DEPLOY_EXECUTED=NO
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1P6_SW_REFRESH — el gate está listo (R1P6_OPERATOR_ACTION_READY=SI), pero esta tarea NO le pidió nada al operador todavía; comunicar el refresh mínimo de PWA (abrir/recargar una vez, sin logout/borrado/switch) y luego ejecutar R1P6 (crear UN pedido retiro nuevo, confirmar Push, tocarlo, leer railway logs por pedidoId) queda para una tarea futura explícita.
+```
+
+## PRIOR STATE — P2-T44-R1P5B G3 SW CLICK TRACE IMPLEMENTED, LIVE IN TESTING (2026-09-17)
+
+R1P5B implementó la instrumentación que R1P5 había diseñado pero no
+creado (autorización explícita del operador para el archivo nuevo). Nuevo
+endpoint `POST /api/push/debug-sw-trace` (TESTING-only, 404 fuera de
+TESTING, allowlist cerrada de campos, sin DB, sólo `console.info` — leído
+vía `railway logs`) + instrumentación en `public/sw.js` (marcador
+`P2_T44_R1P5B_SW_TRACE_V1`) alrededor del evento `push` (sólo tipos PyR) y
+de la rama compartida de `notificationclick` de Operaciones (5 tipos). **La
+lógica de ruteo real es semánticamente idéntica** — 90 tests pasan (25 en
+`sw-notificationclick-target-routing.test.ts`, incluyendo 9 nuevos que
+prueban explícitamente que la traza nunca cambia el target ni el fallback,
+y que un fetch de traza que falla o no existe nunca rompe el ruteo real).
+Ver `codex-reports/P2_T44_R1P5B_G3_SW_TRACE_IMPLEMENTATION.md`.
+
+```text
+NEW_TRACE_FILE_CREATED=SI (src/app/api/push/debug-sw-trace/route.ts)
+TRACE_CHANGES_ROUTING_BEHAVIOR=NO
+PRODUCT_CODE_CHANGED=SI (public/sw.js, sólo instrumentación aditiva)
+TEST_CODE_CHANGED=SI (90 tests pasan, 0 fallos, en los archivos tocados)
+TSC_NEW_ERRORS=0 (31 preexistentes, baseline sin cambios)
+BUILD=OK
+
+R1P5B_COMMIT_SHA=ca3166745885f4b0d0a83c423d3c858051bd575a
+TESTING_DEPLOY_ID=36ed8593-539f-4707-95b6-b2fb87babaf5
+TESTING_DEPLOY_STATUS=SUCCESS (commitHash confirmado exacto)
+LIVE_SW_TRACE_MARKER_PRESENT=SI (P2_T44_R1P5B_SW_TRACE_V1 confirmado en sw.js servido)
+TRACE_ENDPOINT_SELF_TEST=PASS (1 línea [SW_TRACE] sanitizada confirmada en railway logs, event=endpoint_self_test, no repetido)
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PRODUCTION_TOUCHED=NO (git: origin/main sin cambios; DEVIACIÓN A REPORTAR: un curl GET read-only accidental a un dominio de Production adivinado y no confirmado, ver §12 del reporte R1P5B — no repetido, sin mutación, sin datos expuestos)
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado)
+G3_DEEP_LINK_PHYSICAL=FAIL (preservado)
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DIAGNOSTIC_PHYSICAL_PROBE
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+
+NEXT_ACTION=P2_T44_R1P6_G3_DIAGNOSTIC_DEEPLINK_PHYSICAL_PROBE — crear UN pedido retiro nuevo en Negocio B, confirmar 1 Push, tocarlo una vez, leer railway logs filtrando por el pedidoId nuevo para capturar push_received/show_notification/notificationclick_decision/notificationclick_client*N/notificationclick_routing_result, y reportar el destino físico observado. NO ejecutada todavía — requiere autorización explícita de una tarea futura (R1P6).
+```
+
+## PRIOR STATE — P2-T44-R1P5 G3 SW CLICK TRACE INSTRUMENTATION — STOPPED, NEW FILE REQUIRED (2026-09-17)
+
+R1P5 auditó a fondo el mecanismo de debug trace ya existente
+(`src/lib/push-debug-trace.ts` + `push-debug-snapshot.ts` +
+`PushDebugPanel` + `/api/push/debug-guard`, todo de P2-T31-R6/R6A/R6B/R7)
+y concluyó que **no es reutilizable tal cual** para instrumentar
+`notificationclick`/`push` dentro de `public/sw.js`: (a) un Service
+Worker no tiene `window`/`localStorage` — el motor de trace degrada a un
+buffer en memoria efímero, perdido si el SW es terminado entre el evento
+`push` y el tap real (el mismo riesgo H8 que R1P4 dejó abierto); (b) el
+único componente de lectura (`PushDebugPanel`) tiene un `actorFamily`
+cerrado (cliente/negocio/repartidor), está atado a un endpoint de
+snapshot de suscripción PERSONAL que no aplica al modelo de
+cuenta_operativa de G3, y nunca estuvo montado en `/operaciones` — ni
+esta línea de tarea (T44) lo usó nunca como canal de evidencia en sus 4
+sondas físicas previas (siempre DB + `railway logs`).
+
+Por instrucción explícita de la propia tarea R1P5 (§14: "si se requiere
+un nuevo archivo, STOP primero y reportar — no expandir silenciosamente
+scope"), esta tarea **NO modificó `public/sw.js` ni ningún archivo de
+producto**, no corrió tests nuevos, no hizo commit/push/deploy. Se
+diseñó (sin implementar) la alternativa mínima viable: un endpoint POST
+de ingesta gateado por el mismo `isPushDebugAllowedEnvironment()` que
+`/api/push/debug-guard` (404 liso fuera de TESTING), llamado desde
+`sw.js` de forma fire-and-forget, que aterriza evidencia sanitizada en
+`railway logs` — el mismo canal que R1P4 ya usó con éxito. Ver
+`codex-reports/P2_T44_R1P5_G3_SW_CLICK_TRACE_INSTRUMENTATION.md` para el
+detalle completo (incluye NEW_TRACE_FILE_REQUIRED/WHY/SECURITY_MODEL).
+
+```text
+NEW_TRACE_FILE_REQUIRED=SI
+TRACE_CHANGES_ROUTING_BEHAVIOR=NO (nada se implementó)
+PRODUCT_CODE_CHANGED=NO
+TEST_CODE_CHANGED=NO
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+PRODUCTION_TOUCHED=NO
+
+G3_PUSH_DELIVERY_PHYSICAL=PASS (preservado de R1P4)
+G3_DEEP_LINK_PHYSICAL=FAIL (preservado de R1P4)
+G3_PHYSICAL_CERTIFIED=NO
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DEEP_LINK_DIAGNOSTIC_PROBE
+
+P2_T44_REUSABLE_TESTING_FIXTURE_POLICY=PRESERVE_CORE_FIXTURE_AFTER_CERTIFICATION
+P2_T44_FIXTURE_CREDENTIAL_POLICY=NO_AUTOMATIC_PASSWORD_ROTATION_WITHOUT_OPERATOR_AUTHORIZATION
+
+NEXT_ACTION=decidir (operador) si autoriza crear el nuevo endpoint POST
+de ingesta diseñado en el reporte R1P5 (o una alternativa), para recién
+ahí implementar+testear+deploy la instrumentación real y preparar la
+segunda sonda física G3 enfocada en el tap/deep-link.
+```
+
+## PRIOR STATE — P2-T44-R1P4 G3 DEEP LINK FAIL — ROOT CAUSE ANALYSIS (2026-09-17)
+
+Sonda física G3 EJECUTADA. Resultado mixto, con evidencia preservada:
+**entrega física del Push = PASS** (1 solo Push, copia correcta), pero
+**el deep link falló** — al tocar el Push, la PWA abrió la pantalla
+genérica de "los tres negocios" (`/operaciones/mi-panel` sin slug), no
+el panel PyR del pedido nuevo. Confirmado con evidencia de logs
+server-side (no sólo el reporte del operador). G3 sigue sin
+certificarse físicamente — falta el deep link. R1P (disable) sigue
+PAUSADO.
+
+```text
+G3_PUSH_DELIVERY_PHYSICAL=PASS
+G3_PUSH_COUNT_PHYSICAL=1
+G3_PUSH_COPY_PHYSICAL=PASS
+G3_DEEP_LINK_PHYSICAL=FAIL
+G3_PHYSICAL_CERTIFIED=NO
+PRODUCT_CODE_CHANGED=NO (tarea analysis-only)
+
+PEDIDO=cmu5w76f10003r00bxao7r4im (Negocio B, retiro, creado 2026-09-17T18:58:13.693Z). Notificacion in-app cmu5w76hn0007r00bessvk61x con url EXACTA y correcta persistida (/operaciones/mi-panel/test_t44_r1d_negocio_b_4135ea7a/pyr/pedidos?pedidoId=cmu5w76f10003r00bxao7r4im). Push enviado con éxito: [Push] Enviado OK (tipo=operaciones_pyr_new_order actorFamily=cuenta_operativa providerStatus=201). Payload server-side auditado y confirmado correcto por 3 vías independientes — el bug NO está en la construcción del payload.
+
+EVIDENCIA_DECISIVA=logs de Railway muestran 6 llamadas GET /api/operativo/me cada 15000ms exactos entre 18:59:15 y 19:00:30 — ese es el endpoint/intervalo EXACTO de src/app/mozo/page.tsx (reusado sin cambios por /operaciones/mi-panel sin slug, la pantalla de "los tres negocios"), NUNCA el endpoint de la página destino real (/api/operativo/pyr/pedidos, usado por pyr/pedidos/page.tsx) que no aparece ni una vez en toda la ventana de logs. Prueba server-side, no sólo inferencia, de que el navegador nunca llegó a montar la página correcta.
+
+ROOT_CAUSE_CONFIDENCE=MEDIUM. FAILURE_LAYER=SERVICE_WORKER_CLICK_ROUTING (public/sw.js, rama compartida de Operaciones agregada en R1P2, líneas 632-660). Confirmado (por ser la ÚNICA fuente posible de la ruta "/operaciones/ingresar" en todo el archivo, y porque esa ruta redirige automáticamente a /operaciones/mi-panel para una sesión ya autenticada — comentario propio del código lo confirma) que el click SÍ reconoció el tipo correctamente pero cayó al fallback fijo — es decir, `isSafeOperationsUrl` evaluó falso en el dispositivo real pese a que el payload enviado era correcto. La causa EXACTA de por qué la validación falló en ese momento no pudo probarse con logs/código server-side — 8 hipótesis evaluadas explícitamente (H1-H8), la mayoría REFUTADAS con evidencia directa (incluida la hipótesis de un Service Worker viejo, refutada porque incluso el fallback MÁS genérico del archivo también prioriza la url correcta primero), dejando sólo H3 (SUPPORTED) y H7/H8-débil (UNPROVEN, requieren el dispositivo).
+
+FIX_RECOMENDADO=NO adivinar un cambio de comportamiento sin evidencia. Se recomienda primero agregar instrumentación defensiva (reusando el mecanismo push-debug-trace ya existente en el codebase, TESTING-only) en la rama de Operaciones de sw.js para capturar rawUrl/type/decision reales en el próximo tap — recién con esa evidencia diseñar el fix de comportamiento correcto. NEEDS_SECOND_PHYSICAL_G3_PROBE=SI.
+
+G3_PUSH_DELIVERY_PHYSICAL preservado como evidencia positiva — la próxima sonda no necesita re-demostrar toda la cadena desde cero, sólo el tap/deep-link.
+
+R1P_PREPARATION_READY=SI (preservado)
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_G3_DEEP_LINK_FIX_AND_RECERTIFICATION
+
+G4_PHYSICAL_CERTIFIED=NO
+G5_PHYSICAL_CERTIFIED=NO
+G6_PHYSICAL_CERTIFIED=NO
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+SECOND_ORDER_CREATED=NO
+
+NEXT_ACTION=diseñar e implementar la instrumentación/fix de sw.js para el deep link de Operaciones (tarea separada, no ejecutada aquí), luego re-certificar G3 con una segunda sonda enfocada en tap/deep-link.
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (evidencia verbatim del operador, correlación exacta
+log↔DB del pedido/notificación/payload, auditoría línea por línea del
+`notificationclick`, 8 hipótesis evaluadas con evidencia, causa raíz
+con nivel de confianza honesto, plan de instrumentación antes de
+cualquier fix a ciegas): `codex-reports/P2_T44_R1P4_G3_PHYSICAL_DELIVERY_PASS_DEEPLINK_FAIL_ANALYSIS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P3 G3 PHYSICAL PROBE PREPARED, NOT EXECUTED (2026-09-17)
+
+Preparación completa (sin ejecutar) de la primera sonda física real de
+un productor nuevo: G3 (nuevo pedido retiro → PyR). Reconfirmado que
+R1P2 sigue vivo en TESTING (sw.js real, subscription intacta). Ningún
+otro gap (G4/G5/G6/G1) se toca todavía — una sonda por vez.
+
+```text
+G3_PHYSICAL_PREPARATION_READY=SI
+PRODUCT_CODE_CHANGED=NO
+
+RECONFIRMADO_R1P2_LIVE=sw.js servido en TESTING contiene "operaciones_pyr_new_order"; /operaciones/mi-panel/.../pyr/pedidos responde 200; subscription account-level sin cambios (misma fila cmu4ni2t0000up90btelfflhq desde R1M).
+
+FIXTURE_MUTATION_REQUIRED=NO — Negocio B (cmu1xe6ok0002rip8yc707wze) ya estaba abierto (horarioMode=simple) y con ofreceRetiro=true desde R1L/R1N, sin cambios necesarios. Producto (cmu4o5gc10003riw8b6lk839d) y Cliente fixture (test_t44_r1n_cliente_4135ea7a@example.test) reutilizados de R1N/R1O sin crear nada nuevo.
+
+UNICA_MUTACION=contraseña runtime del Cliente fixture rotada (la de R1N era irrecuperable, hash unidireccional nunca persistido) — mismo mecanismo hashPassword/comparePassword ya establecido, roundtrip verificado, id/email/nombre sin cambios, password entregada sólo en el chat de esta tarea.
+
+BASELINE=1 pedido previo en Negocio B (el de R1J/R1O, ya cancelado, no relacionado), 0 notificaciones operaciones_pyr_new_order previas (nunca disparado físicamente), 1 fila de subscription account-level (sin cambios).
+
+FLUJO_PREPARADO=Cliente (Desktop) crea 1 pedido RETIRO de TEST_T44_R1N_PRODUCTO en Negocio B → CuentaOperativa PyR (Teléfono, ya autenticada, sin logout/switch) debería recibir exactamente 1 Push operaciones_pyr_new_order. Se permite UN tap del deep link en la misma sonda (certifica entrega + SW + deep-link consumer juntos) — la campana G1 NO se prueba todavía.
+
+CRITERIO_SI_NO_LLEGA=clasificar DEVICE_DELIVERY_MISS, NO tocar switch automáticamente, NO repetir de inmediato (lección de R1M). CRITERIO_SI_LLEGAN_2+=STOP, no crear segundo pedido, analizar después.
+
+R1P_PREPARATION_READY=SI (preservado)
+R1P_PHYSICAL_PROBE=PAUSED (sin cambios)
+G3_PHYSICAL_CERTIFIED=NO (todavía — sólo preparado)
+G4_PHYSICAL_CERTIFIED=NO
+G5_PHYSICAL_CERTIFIED=NO
+G6_PHYSICAL_CERTIFIED=NO
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+ORDER_CREATED=NO
+PUSH_SENT=NO
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_G3_PHYSICAL_PROBE
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (URLs exactas, baselines, expectativa server-side y
+física diseñada, pasos manuales, plantilla de respuesta, plan de
+observabilidad post-sonda, criterios de PASS/STOP):
+`codex-reports/P2_T44_R1P3_G3_REAL_PYR_NEW_ORDER_PUSH_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P2 NOTIFICATION GAPS IMPLEMENTED + DEPLOYED TESTING (2026-09-17)
+
+Implementación real (no sólo diseño) de G3+G4+G5+G1, commit + push +
+deploy TESTING exitoso. G6 no requirió código (ya existente). **Sin
+certificación física todavía** — sólo preparado el terreno de código;
+R1P (disable) sigue PAUSADO, switch/subscription intactos.
+
+```text
+P2_T44_R1P2_STATUS=IMPLEMENTATION_COMPLETE_DEPLOYED_TESTING_AWAITING_NEW_PRODUCER_PHYSICAL_CERTIFICATION
+PRODUCT_CODE_CHANGED=SI (11 archivos de producto, dentro del allowlist de R1P1/R1P1A) / TEST_CODE_CHANGED=SI (9 archivos, 7 nuevos + 2 extendidos con justificación documentada)
+
+G3_IMPLEMENTED_TESTING=SI — notifyPyrNewOrder, tipo operaciones_pyr_new_order, call-site en POST /api/pedidos (rama no-mesa, dentro del guard de idempotencia existente — replay nunca duplica). Deep link consumer agregado a pyr/pedidos/page.tsx (mismo patrón ya certificado en Mozo).
+G4_IMPLEMENTED_TESTING=SI — notifyPyrNewReview, tipo operaciones_pyr_new_review, call-site en POST /api/cliente/resenas junto al newReviewNotification existente (intacto). Deep link (scroll/highlight) agregado a pyr/resenas/page.tsx.
+G5_IMPLEMENTED_TESTING=SI — notifyPyrChatMessage, tipo operaciones_pyr_chat, call-site en POST /api/chat/mensajes/[pedidoId] (sólo rama cliente→negocio, sólo no-mesa). CERO cambios al modelo de chat (ChatMensaje/remitente/ownership/autorización intactos). Deep link ya exacto por construcción de ruta, sin cambios de UI.
+G1_IMPLEMENTED_TESTING=SI — notification-center.tsx únicamente (confirmado: ningún host de Operaciones necesitó tocarse). Nueva función pura resolveNotificationNavigation (url segura > tab legacy > none), helper isSafeInternalPath, íconos dedicados para los 6 tipos modernos de Operaciones.
+G6_IMPLEMENTED_EXISTING_AWAITING_PHYSICAL_CERT=SI (sin cambio de código — notifyOperationsOrderCancelled ya soporta area=salon idéntico a pyr, ya certificado R1N/R1O para PyR; falta certificación física de la rama Salón, no de código)
+
+DEDUPE_CROSS_OWNER=mismo Set<string> reservedPushEndpoints compartido en los 3 call-sites (Negocio primero por posición de código existente, PyR después) — gana Negocio por precedencia determinista si comparten endpoint físico. Confirmado con evidencia de código: createNotification persiste la fila Notificacion incondicionalmente ANTES de resolver targets físicos — el dedupe nunca borra evidencia lógica. Verificado con tests reales (mismo endpoint → 1 Push físico + 2 filas lógicas; endpoints distintos → 2 Push).
+
+SW=las 2 ramas casi idénticas ya existentes (operaciones_salon_new_order/operaciones_order_cancelled) se generalizaron a UNA sola condición de tipo compartida, cubriendo también los 3 tipos PyR nuevos — sin duplicar lógica. mesa_order_ready NO se tocó (contrato de URL distinto, /mozo/panel/... — verificado explícitamente antes de editar, sin regresión confirmada por test real).
+
+TESTS=353 pass / 0 fail (aislados, 20 archivos — 5 nuevos + 15 sibling/integración con DB real). TSC=31 errores totales, TODOS baseline pre-existente (0 nuevos — el único error en un archivo tocado, push.ts:751, confirmado no relacionado por rango de diff). ESLint=PASS. Build=PASS. sw.js sintaxis=PASS. Static contract lateral=mismo 1/65 fallo pre-existente de siempre, sin relación.
+
+COMMIT=32ff570f14a5590bd908d621f957740e2a40ab56 ("feat: restore personal operations notifications")
+PUSH=origin/testing-codex (c2848d7→32ff570)
+DEPLOY_TESTING=5908c926-22ac-4393-a3a5-87bb2d35b9d1, SUCCESS — confirmado por contenido real (sw.js servido en vivo contiene "operaciones_pyr_new_order")
+SMOKE_POST_DEPLOY=PASS, sin generar eventos reales — subscription account-level intacta (misma fila, mismo id/createdAt desde R1M), páginas PyR cargan 200.
+
+NO_TOCADO=use-push-notifications.ts, /api/push/subscribe|unsubscribe|status, auth de CuentaOperativa, logout, schema/migraciones Prisma, switch, Production.
+
+NEXT_ACTION=P2_T44_R1P3_G3_REAL_PYR_NEW_ORDER_PUSH_PHYSICAL_CERT_PREPARATION
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (archivos exactos, dedupe verificado con tests reales,
+generalización del Service Worker, resultados de tests/build/security
+review, commit/push/deploy/smoke): `codex-reports/P2_T44_R1P2_IMPLEMENT_NOTIFICATION_GAPS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P1A DESIGN CORRECTED — READY FOR IMPLEMENTATION (2026-09-17)
+
+Corrección pre-implementación de dos puntos del diseño R1P1, antes de
+autorizar cualquier código. Ninguna decisión de producto (G3/G4/G5/G6)
+se reabrió — sólo se corrigieron un defecto de diseño (G3 sin dedupe
+cross-owner) y una sobre-estimación de superficie de cambio (G1 no
+necesita tocar ningún host de Operaciones). R1P sigue PAUSADO, switch
+sigue ON.
+
+```text
+P2_T44_R1P1A_STATUS=DESIGN_CORRECTED_READY_FOR_IMPLEMENTATION
+PRODUCT_CODE_CHANGED=NO
+
+G3_CORRECCION=el diseño original dejaba PHYSICAL_ENDPOINT_DEDUPE=N/A razonando que Negocio y PyR "no comparten dispositivo en el flujo normal" — INSUFICIENTE, ya que el dueño del Negocio puede operar también como CuentaOperativa PyR desde el mismo navegador (mismo endpoint físico devuelto por PushManager en ambos logins, mecanismo ya confirmado en R1M). Corregido: mismo mecanismo reservedPushEndpoints/Set compartido ya usado por G4/G5, con precedencia Negocio-gana-el-endpoint-compartido (porque su llamada ya existe primero en el código; PyR se agrega después, mismo Set) — decisión determinista por orden de código, no first-wins accidental. Confirmado con evidencia de código: createNotification SIEMPRE persiste la fila Notificacion antes de intentar el envío físico, así que el dedupe nunca borra evidencia lógica, sólo evita un segundo Push físico redundante en el mismo dispositivo.
+
+G1_CORRECCION=el diseño original proponía tocar los 3 hosts de Operaciones (pyr/pedidos, salon, mozo/panel) para pasarles `onNavigate`. Auditado el contrato real: `onNavigate(tab)` siempre recibe un NOMBRE DE PESTAÑA ("pedidos","resenas","config"...), nunca una URL — pasar router.push directo ahí sería incorrecto. PERO no hace falta resolver eso: los 6 tipos de notificación de Operaciones (los 3 ya certificados + los 3 nuevos de G3/G4/G5) YA embeben `datos.url` directamente (confirmado en el propio código de notifyOperationsOrderCancelled/notifySalonNewOrderForOperations/mesa-order-ready-notification, ninguno pasa por el mecanismo navigateTo). Diseño corregido: notification-center.tsx resuelve la navegación moderna por sí solo (useRouter().push(url) tras validar con un helper isSafeInternalPath, misma lógica que ya usa sw.js) — CERO cambios de host. G1_FILES se reduce de 4 archivos a 1 solo.
+
+SERVICE_WORKER=generalizar la condición de tipo de las 2 ramas ya existentes en sw.js para cubrir los 3 tipos nuevos con la MISMA validación (isSafeInternalUrl + prefijo /operaciones/mi-panel/), en vez de escribir 3 ramas nuevas casi idénticas.
+
+HTTP_STATUS_AUDITADO=POST /api/pedidos → 201 (nuevo) / 200 (idempotente); POST /api/cliente/resenas → 201; POST chat mensaje → 200 (default). Ninguno cambia — los 3 bloques de notificación nuevos van dentro del mismo try/catch best-effort ya existente, después de la operación principal.
+
+Todo lo demás del diseño R1P1 (arquitectura G3/G4/G5, decisión de producto G5, plan G6, tests, orden de implementación) queda vigente sin cambios — la corrección se agregó como sección 18 del mismo archivo de reporte, sin borrar nada.
+
+R1P_PREPARATION_READY=SI (preservado)
+R1P_PHYSICAL_PROBE=PAUSED (sin cambios)
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+PUSH_SENT=NO
+
+NEXT_ACTION=P2_T44_R1P2_IMPLEMENT_NOTIFICATION_GAPS
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte: la corrección se agregó como sección `18` dentro del mismo
+archivo de R1P1 (nada borrado, las partes superadas quedan marcadas
+inline con tachado + referencia a §18):
+`codex-reports/P2_T44_R1P1_OPERATIONS_NOTIFICATION_GAPS_IMPLEMENTATION_DESIGN.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P1 IMPLEMENTATION DESIGN READY (2026-09-17)
+
+Diseño completo (sin implementar) de los 4 gaps de T44 dentro de
+alcance (G1, G3, G4, G6) + decisión de producto para G5 (SÍ notificar
+a PyR ante chat de cliente, sin cambiar el modelo de chat). R1P
+(disable) sigue PAUSADO. Switch sigue ON, sin tocar.
+
+```text
+P2_T44_R1P1_STATUS=DESIGN_READY_NOT_IMPLEMENTED
+PRODUCT_CODE_CHANGED=NO
+
+G3_DESIGN_READY=SI — notifyPyrNewOrder, tipo nuevo operaciones_pyr_new_order, call-site en POST /api/pedidos (rama no-mesa), reutiliza resolveOperationalPushTargets sin cambios, deep link /operaciones/mi-panel/{slug}/pyr/pedidos?pedidoId={id} (requiere adaptación mínima de la UI para leer el query param, mismo patrón ya usado por Mozo).
+
+G4_DESIGN_READY=SI — notifyPyrNewReview, tipo operaciones_pyr_new_review, call-site en POST /api/cliente/resenas junto al newReviewNotification existente (sin tocarlo), dedupe de endpoint físico compartido con Negocio vía el mismo mecanismo reservedPushEndpoints ya certificado.
+
+G5_PRODUCT_DECISION=INCLUDE_PYR_NOTIFICATION_FANOUT_WITHOUT_CHANGING_CHAT_PARTICIPANT_MODEL. Diseño: notifyPyrChatMessage, tipo operaciones_pyr_chat, call-site en la rama cliente→negocio de POST /api/chat/mensajes/[pedidoId] (metodoEntrega ya disponible en la query existente, sin query adicional), dedupe físico con Negocio vía Set compartido. Deep link YA es exacto sin cambios de UI (la ruta de mensajes PyR es dinámica por pedidoId). Cero cambios a ChatMensaje/remitente/autorización.
+
+G1_DESIGN_READY=SI — hallazgo adicional durante el diseño: ninguna de las 3 páginas host de Operaciones (pyr/pedidos, salon, mozo/panel) pasa `onNavigate` al NotificationBell — hoy NINGÚN tipo de notificación navega al clickear, no sólo los 4 modernos. Diseño: precedencia de navegación (url interna validada > navigateTo legacy > fallback), un helper mínimo isSafeInternalPath (misma lógica que sw.js, reimplementada porque sw.js no es importable desde componentes React), mapa de íconos Lucide ya disponibles, sin migración de filas históricas.
+
+G6_PHYSICAL_DESIGN_READY=SI — sin cambio de código (notifyOperationsOrderCancelled ya soporta area=salon idéntico a pyr, ya certificado en R1N/R1O). Plan: Negocio (login propio, Desktop) cancela un pedido de mesa nuevo, CuentaOperativa Salón (Teléfono) recibe — mismo patrón cross-role que Mozo/PyR, evitando self-cancel vía operaciones/pedidos/[id]/cancelar (excludeEmpleadoId dejaría 0 destinatarios con 1 solo empleado Salón fixture).
+
+SCHEMA_CHANGE_REQUIRED=NO / MIGRATION_REQUIRED=NO (toda la infraestructura ya existe; Notificacion.tipo es String, no enum — valores nuevos no requieren migración).
+
+STATIC_CONTRACT_BLOCKS_R1P1_IMPLEMENTATION=NO (el hook de suscripción/desuscripción no se toca en ninguno de los 4 diseños).
+
+ORDEN_DE_IMPLEMENTACION=helper compartido resolvePyrOperationalRecipients → G3 → G4 → G5 → G1 → tests → commit → deploy TESTING (con autorización explícita) → sondas físicas una por vez (G3→G4→G5→G6) → retomar R1P disable → re-enable controlado + logout cleanup → cierre T44.
+
+Allowlist de archivos, plan de tests por gap, y plan de fixtures reutilizables para las sondas futuras quedan documentados en el reporte — nada de esto se ejecutó.
+
+R1P_PREPARATION_READY=SI (preservado)
+R1P_PHYSICAL_PROBE=PAUSED (sin cambios)
+R1P_DISABLE_STATUS=PAUSED_PENDING_NOTIFICATION_MATRIX_GAPS (sin cambios — ahora con diseño listo para resolverlos)
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+PUSH_SENT=NO
+
+NEXT_ACTION=P2_T44_R1P2_IMPLEMENT_NOTIFICATION_GAPS
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (arquitectura por gap, factories/tipos/call-sites,
+dedupe cross-owner, deep links, cambios de Notification Center y
+Service Worker, plan de tests, allowlist de archivos, orden de
+implementación, plan de certificación física):
+`codex-reports/P2_T44_R1P1_OPERATIONS_NOTIFICATION_GAPS_IMPLEMENTATION_DESIGN.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P0A HISTORICAL EVIDENCE RECONCILED — G3/G4 RECLASSIFIED (2026-09-16)
+
+Corrección de una contradicción factual detectada en R1P0: la sección
+histórica de esa auditoría afirmó (por grep incompleto, sin consultar
+`git log --all`) que los identificadores legacy de "nuevo pedido"/
+"nueva reseña" para empleados nunca existieron. **Verificado con
+historial real de Git (diff exacto) que SÍ existieron** y fueron
+retirados como código huérfano al jubilar el token compartido
+`/e/[token]`, sin reemplazo moderno construido después. G3 y G4
+quedan reclasificados en consecuencia. R1P (disable) sigue PAUSADO,
+sin ejecutar. Switch sigue ON, sin tocar.
+
+```text
+P2_T44_R1P0A_STATUS=HISTORICAL_EVIDENCE_RECONCILED_GAPS_RECLASSIFIED
+PRODUCT_CODE_CHANGED=NO
+
+HALLAZGO=git log --all -S"empleadosNewOrderNotification" (y las otras 3 variantes) confirma: introducidas en commit ac5ec92 (2026-06-17), eliminadas en commit 13e651a ("fix: remove retired legacy endpoints and employee push", 2026-08-03 14:32 -03) — 76 minutos después de que c68eef9 (13:16 -03, mismo día) retirara la página /e/[token] a un stub. El propio commit de eliminación documenta la razón: "sin consumidor moderno" — un cleanup de código huérfano tras retirar el token compartido, NUNCA una decisión de producto de dejar de notificar pedidos/reseñas a empleados.
+
+CONFIRMADO_CON_DIFF_EXACTO=empleadosNewOrderNotification(pedidoId,clienteNombre,total,metodoEntrega) existía en src/lib/push.ts, llamada desde la rama retiro/domicilio de POST /api/pedidos, leyendo Negocio.pushSubscriptionEmpleados, tipo "empleados_new_order". empleadosNewReviewNotification existía igual, llamada desde POST /api/cliente/resenas, mismo campo. Ninguna de las dos tiene reemplazo moderno hoy (Salón SÍ lo tiene: notifySalonNewOrderForOperations).
+
+CHAT_LEGACY=confirmado que NUNCA existió una notificación de chat para la PWA legacy de empleados — G5 (chat→PyR) sigue siendo puramente una decisión de producto hacia adelante, sin antecedente de migración.
+
+G3_RECLASIFICADO=LOST_LEGACY_CAPABILITY_MISSING_MODERN_ACCOUNT_LEVEL_REPLACEMENT (antes decía "nunca se construyó" — corregido). Sigue T44_SCOPE=SI, prioridad máxima (urgencia alta + paridad de migración).
+
+G4_RECLASIFICADO=de T44_SCOPE=NO a T44_SCOPE=SI. Se separaron dos preguntas: NOTIFICATION_PRODUCT_EXPECTATION (sigue OPTIONAL — una reseña no es urgente, eso no cambió) vs MIGRATION_PARITY_EXPECTATION (REQUIRED — es una capacidad legacy real, perdida, sin reemplazo, igual que G3). Prioridad menor que G3/G6 dentro de T44, pero ya no se difiere fuera de alcance.
+
+T44_SCOPE_GAPS_CORREGIDO=G1, G3, G4, G6 (antes: G1, G3, G6 — G4 se agregó)
+DEFER_TO_OTHER_TASK_GAPS_CORREGIDO=sólo expiración automática de ocupación de mesa (sin antecedente legacy confirmado)
+PRODUCT_DECISION_REQUIRED_GAPS=G5 (sin cambios, confirmado sin antecedente legacy)
+
+CURRENT_CERTIFIED_PRODUCERS=SALON_NEW_ORDER (R1J/R1K), MOZO_READY (R1L/R1M), PYR_CANCELLATION (R1N/R1O) — preservados, no reabiertos.
+
+R1P_PREPARATION_READY=SI
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_NOTIFICATION_MATRIX_GAPS (sin cambios)
+
+SWITCH_TOUCHED=NO
+LOGOUT_PERFORMED=NO
+PUSH_SENT=NO
+
+NEXT_ACTION=P2_T44_R1P1_OPERATIONS_NOTIFICATION_GAPS_IMPLEMENTATION_DESIGN (orden de prioridad dentro de R1P1: G3, G6, G4, G1)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte: la corrección se agregó como sección `4A`/`7A` dentro del
+mismo archivo de R1P0 (no se creó un archivo nuevo, no se borró nada
+de la auditoría original):
+`codex-reports/P2_T44_R1P0_COMPLETE_OPERATIONS_NOTIFICATION_MATRIX_AUDIT.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P0 NOTIFICATION MATRIX AUDIT — GAPS FOUND, R1P DISABLE PAUSED (2026-09-16)
+
+Auditoría exhaustiva (4 investigaciones paralelas de código, sólo
+lectura) de TODA la matriz de notificaciones de Operaciones Personal
+(PyR/Mozo/Salón) — no sólo lo ya certificado. Switch sigue ON,
+suscripción account-level intacta (misma fila desde R1M), R1P
+(disable) queda PAUSADO, no ejecutado, hasta resolver los gaps
+encontrados que pertenecen a T44.
+
+```text
+P2_T44_STATUS=CURRENT_KNOWN_PRODUCERS_CERTIFIED_NOTIFICATION_MATRIX_GAPS_OPEN
+PRODUCT_CODE_CHANGED=NO
+
+CURRENT_CERTIFIED_PRODUCERS=SALON_NEW_ORDER (R1J/R1K), MOZO_READY (R1L/R1M), PYR_CANCELLATION (R1N/R1O) — preservados, no reabiertos.
+
+OPERATIONS_NOTIFICATION_MATRIX_COMPLETE=NO (auditoría en sí exhaustiva=SI; cobertura funcional=NO, 3 gaps dentro de T44)
+
+GAP_MAS_IMPORTANTE=G3: PyR NO tiene ningún Push de "nuevo pedido" para retiro/domicilio — confirmado por auditoría exhaustiva de POST /api/pedidos, cero notificación de cualquier tipo hacia PyR (a diferencia de Salón, que sí tiene notifySalonNewOrderForOperations para mesa). No es una regresión de la migración legacy (no hay evidencia de que existiera antes) — es una funcionalidad nunca construida para esa área. NOTIFICATION_PRODUCT_EXPECTATION=REQUIRED. T44_SCOPE=SI (es literalmente el motivo de "PyR Coverage" en el nombre de T44).
+
+G6=la rama SALÓN de notifyOperationsOrderCancelled (misma función que la PyR ya certificada en R1O) nunca fue certificada físicamente con un dispositivo real — R1J/R1K sólo probaron "nuevo pedido" de Salón, no su cancelación. Mismo código, alta confianza, pero sin evidencia física propia. T44_SCOPE=SI (cerrar cobertura de un productor que T44 ya construyó).
+
+G1=el Notification Center (campana in-app) no tiene ícono ni navegación dedicados para ninguno de los 4 NotificationType de Operaciones (mesa_order_ready, salon_new_order, operaciones_salon_new_order, operaciones_order_cancelled) — cae a campana genérica sin click funcional. El Push físico SÍ navega bien (vía sw.js, verificado). Gap de coherencia in-app, no de entrega. T44_SCOPE=SI.
+
+DEFERIDOS_FUERA_DE_T44=G4 (nueva reseña no llega a PyR — bajo valor operacional, sólo Negocio la recibe hoy), ocupación de mesa auto-expirada sin push (opcional).
+
+DECISION_DE_PRODUCTO_PENDIENTE=G5: chat de cliente sobre un pedido llega sólo a la cuenta Negocio, nunca a una CuentaOperativa/PyR separada — requiere decidir si PyR debe ser un tercer participante/observador del hilo de chat antes de poder clasificarlo dentro o fuera de T44.
+
+SIN_GAP=deduplicación cross-area confirmada por diseño de código (cada evento se resuelve scoped a un (negocioId, areaOperativa) específico — el mismo CuentaOperativa con 3 relaciones en 3 negocios nunca puede recibir 2-3 Push por un solo evento). Autonotificación evitada correctamente en todas las rutas self-service (excludeEmpleadoId donde aplica).
+
+LEGACY_CONFIRMADO=Negocio.pushSubscriptionEmpleados sigue en el schema (0 lectores, ya documentado como SCHEMA_DEAD_FIELD_CANDIDATE en tarea previa P2-T15-T17-CLEANUP-R1, fuera de T44). /e/ y /s/ retirados a tombstones estáticos, sin código de push residual — reemplazo de Salón completo y sin pérdida funcional.
+
+R1P_PREPARATION_READY=SI (preservado, no invalidado)
+R1P_PHYSICAL_PROBE=PAUSED
+R1P_DISABLE_STATUS=PAUSED_PENDING_NOTIFICATION_MATRIX_GAPS
+
+NEXT_ACTION=P2_T44_R1P1_OPERATIONS_NOTIFICATION_GAPS_IMPLEMENTATION_DESIGN
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (inventario técnico exhaustivo de factories/
+NotificationType/call-sites/service worker/notification center,
+inventario funcional por PyR/Mozo/Salón, matriz evento×cobertura,
+6 gaps clasificados con expectativa funcional, decisión de alcance
+T44): `codex-reports/P2_T44_R1P0_COMPLETE_OPERATIONS_NOTIFICATION_MATRIX_AUDIT.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1P ACCOUNT-LEVEL PUSH DISABLE PREPARATION (2026-09-16)
+
+Preparación (sin ejecutar) de la certificación física del apagado (OFF)
+del switch account-level de Push. Con los 3 productores reales ya
+certificados (Salón/Mozo/PyR), esta tarea audita exactamente qué pasa
+cuando el operador toca OFF, sin tocarlo todavía.
+
+```text
+P2_T44_R1P_STATUS=ACCOUNT_LEVEL_PUSH_DISABLE_PREPARATION_READY_TESTING (sonda física NO ejecutada)
+PRODUCT_CODE_CHANGED=NO
+
+SUBSCRIPTION_REVERIFICADA=1 fila (cmu4ni2t0000up90btelfflhq, ownerType=cuenta_operativa, ownerId=cmu1xe5p10000rip8gbsxes0l, channel=default) — misma de R1M/R1O, sin tocar. Legacy de los 3 empleados fixture (Mozo/PyR/Salón): 0.
+
+HALLAZGO_CLAVE_DE_CODIGO=el hook usePushNotifications (src/hooks/use-push-notifications.ts) documenta explícitamente la política PHYSICAL_UNSUBSCRIBE_POLICY_FINAL=SERVER_DETACH_ONLY: al tocar OFF, el cliente SOLO llama a POST /api/push/unsubscribe?actorFamily=cuenta_operativa (DELETE real de la fila en DB, exact-match por ownerType+ownerId+channel+endpoint+p256dh+auth vía detachPushSubscriptionByEndpoint) — deliberadamente NUNCA llama a PushSubscription.unsubscribe() del navegador. Esto explica RETROACTIVAMENTE, con evidencia de código (no sólo inferencia), el hallazgo de R1M: el endpoint físico permanece idéntico antes/después de un OFF→ON porque el navegador nunca es instruido a destruirlo — sólo se desvincula server-side.
+
+CONTRATO_OFF=/api/push/status?actorFamily=cuenta_operativa responde subscribed:false cuando no existe fila que coincida exactamente con (ownerType, ownerId, channel, endpoint-actual-del-browser). La UI refleja OFF inmediatamente vía estado local (finishMutation→applySubscribed), sin esperar un refetch.
+
+SEGURIDAD_CONFIRMADA=ownerId siempre derivado server-side de la cookie deligo_operativo_session (getOperationalAccountFromRequest), nunca del body del cliente — DISABLE_SERVER_DERIVED_OWNER=SI, DISABLE_CROSS_ACTOR_DELETE_PROTECTED=SI. Idempotente: un segundo toque no falla ni duplica nada (deleteMany sobre 0 filas es un no-op silencioso, HTTP 200 igual).
+
+ALCANCE=account-level real — la misma fila sirve a los 3 roles (Mozo/PyR/Salón) a la vez; no existe forma de "apagar sólo uno". EXPECTED_POST_DISABLE_ACCOUNT_PUSH_COUNT=0. POST_DISABLE_PRODUCER_PROBE_REQUIRED=NO (no hace falta otro pedido/Push para demostrarlo — DB+status+UI ya son evidencia completa).
+
+DISEÑO_FUTURO_LOGOUT=auditado (sin ejecutar) src/app/api/operativo/logout/route.ts — SÍ tiene su propio detach-en-logout (fila de cuenta + legacy de TODOS los empleados de esa cuentaOperativaId), más amplio que /api/push/unsubscribe. LOGOUT_CLEANUP_REQUIRES_PUSH_ON_BEFORE_LOGOUT=SI — una futura tarea de logout necesitará re-suscribir de forma controlada ANTES de hacer logout real, o ese camino de código nunca se ejercitaría (no hay nada que limpiar si R1P ya lo dejó en 0). Secuencia futura diseñada, no ejecutada.
+
+FOCAL_TESTS=200 pass / 0 fail (aislados: push/unsubscribe, push/status, push-subscription-repository, proxy.test, operativo/logout, 4 tests funcionales de use-push-notifications). Lateral conocido (use-push-notifications-static-contract.test.ts) no bloquea.
+
+P2-T44 sigue NO cerrada tras R1P — pendiente: ejecutar la sonda física de disable, logout cleanup (con la secuencia diseñada en §16 del reporte), hallazgo de cuenta de mesa (fixture slug, no relacionado) y hallazgo lateral de R1I si se decide reconciliar antes del cierre.
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1P_ACCOUNT_PUSH_DISABLE_PHYSICAL_PROBE
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (flujo ON→OFF auditado línea por línea, contrato real
+de "OFF", distinción backend/browser/permiso, idempotencia, diseño de
+la secuencia futura de logout, criterio de PASS diseñado):
+`codex-reports/P2_T44_R1P_ACCOUNT_LEVEL_PUSH_DISABLE_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1O PyR CANCELLATION PUSH CERTIFIED — ALL 3 REAL PRODUCERS PHYSICALLY CERTIFIED (2026-09-16)
+
+Sonda física PyR (R1N) EJECUTADA por el operador y analizada con logs
+Railway TESTING + DB, correlación exacta al milisegundo. PASS completo,
+sin OFF→ON, sin reproducir el incidente de entrega de R1M.
+
+```text
+P2_T44_R1O_STATUS=PYR_CANCELLATION_REAL_PUSH_PHYSICALLY_CERTIFIED_TESTING
+R1N_PYR_PUSH_PHYSICAL_PASS=SI
+
+PEDIDO=cmu4oj061000zp90baof718ap (Negocio B, metodoEntrega=retiro, total=1100, cliente=fixture R1N). Creado 22:35:42.301Z (POST /api/pedidos 200, SIN ningún intento de Push — correcto, no existe productor de "nuevo pedido" PyR en T44, sólo el de cancelación). Cancelado 22:36:18.997Z (PATCH /api/negocio/pedidos/[id]/estado 200, recibido→cancelado, canceladoPor=vendedor).
+
+CADENA_TECNICA_CONFIRMADA=PATCH cancelación 200 → [Push] Enviado OK (tipo=operaciones_order_cancelled actorFamily=cuenta_operativa endpointFingerprint=04a319fa providerStatus=201) → Notificacion in-app creada (título="Pedido cancelado ❌", cuerpo="Un pedido fue cancelado por el local", userId=cmu1xe79q0006rip8lbdqmvpz) → operador confirmó exactamente 1 Push visible real, sin error en ningún lado.
+
+TARGET_OWNER_TYPE=cuenta_operativa / TARGET_OWNER_ID=cmu1xe5p10000rip8gbsxes0l / TARGET_SUBSCRIPTION_ID=cmu4ni2t0000up90btelfflhq (MISMA fila de R1M, sin cambios de id/createdAt — confirma que el switch no fue tocado, doblemente verificado por DB + endpointFingerprint idéntico al de R1M). LEGACY_FALLBACK_USED=NO.
+
+R1M_DEVICE_DELIVERY_MISS_REPRODUCED_IN_R1N=NO (mismo endpoint físico, mismo resultado server-side 201, esta vez SÍ se vio en el dispositivo a la primera, sin reintento). ACCOUNT_PUSH_REQUIRES_REENABLE_ISSUE=NO — reforzado por una tercera certificación consecutiva sin necesitar reactivar nada (Salón, Mozo-intento-2, PyR).
+
+AUSENCIA_PUSH_PEDIDO_RECIBIDO_PyR=esperada y confirmada por diseño (no es un bug) — R1N/R1O certifican exclusivamente el productor de CANCELACIÓN (notifyOperationsOrderCancelled); no existe en T44 un productor de "nuevo pedido" para el área PyR.
+
+Con esto, los 3 productores reales account-level de T44 quedan físicamente certificados en TESTING: Salón (R1J/R1K), Mozo (R1L/R1M, con el primer intento de entrega no observado preservado en el historial, no ocultado) y PyR-cancelación (R1N/R1O).
+
+P2_T44_STATUS=ALL_REAL_PRODUCERS_PHYSICALLY_CERTIFIED_AWAITING_DISABLE_AND_LOGOUT
+
+Pendiente: disable del switch account-level, logout cleanup, hallazgo de cuenta de mesa (fixture slug, ver sección aparte, no relacionado), hallazgo lateral de R1I (use-push-notifications-static-contract.test.ts) si se decide reconciliar antes del cierre, limpieza de fixtures si se decide al final.
+
+NEXT_ACTION=P2_T44_R1P_ACCOUNT_LEVEL_PUSH_DISABLE_PHYSICAL_CERTIFICATION_PREPARATION
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+PRODUCT_CODE_CHANGED=NO (sólo análisis de logs/DB de sólo lectura)
+```
+
+Reporte completo (delimitación exacta de la ventana R1N, identificación
+del pedido, correlación log↔DB de creación/cancelación, investigación
+explícita de 2 llamadas unsubscribe previas descartadas como
+irrelevantes al target de cuenta, criterio de PASS evaluado punto por
+punto, sección dedicada a por qué la ausencia de Push al crear el
+pedido es esperada):
+`codex-reports/P2_T44_R1O_REAL_PYR_PUSH_PHYSICAL_CERTIFICATION_ANALYSIS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1N PyR PUSH CERT PREPARATION (2026-09-16)
+
+Preparación (sin ejecutar) de la certificación física del tercer
+productor account-level de T44: PyR — cancelación de pedido
+(`notifyOperationsOrderCancelled`, `src/lib/operations-cancellation-notification.ts`).
+No se reabrió Salón ni Mozo. No se tocó el switch de Push (se deja tal
+cual quedó tras R1M, deliberadamente, para no ocultar un problema real).
+
+```text
+P2_T44_R1N_STATUS=PYR_REAL_PUSH_PREPARATION_READY_TESTING (sonda física NO ejecutada)
+PRODUCT_CODE_CHANGED=NO
+
+SUBSCRIPTION_REVERIFICADA=1 fila (cmu4ni2t0000up90btelfflhq, ownerType=cuenta_operativa, ownerId=cmu1xe5p10000rip8gbsxes0l, channel=default) — misma de R1M, sin tocar.
+
+PYR_FIXTURE=Negocio B (cmu1xe6ok0002rip8yc707wze, slug test_t44_r1d_negocio_b_4135ea7a) — Empleado PyR ya existente desde R1D (cmu1xe79q0006rip8lbdqmvpz, cuentaOperativaId=cmu1xe5p10000rip8gbsxes0l, coincide). Negocio B estaba cerrado (mismo patrón horarioMode="experto"/horarios="{}" ya conocido) — corregido a "simple" (fixture-only, ya verificado isOpen:true en vivo). Sin catálogo ni pedidos previos — se creó 1 sección + 1 producto ($1000) + 1 cuenta Cliente mínima (ofreceRetiro ya era true, sin cambios ahí).
+
+DISEÑO_ELEGIDO=cross-role, igual patrón que Mozo: Desktop=Negocio B (login propio) crea el pedido de RETIRO (áreaForMetodoEntrega resuelve retiro/domicilio→"pyr", mesa→"salon") vía Cliente autenticado (retiro/domicilio EXIGEN Cliente real, a diferencia de mesa que admite invitado), luego cancela vía PATCH /api/negocio/pedidos/[id]/estado {estado:"cancelado", motivo}. Teléfono=CuentaOperativa/PyR sólo recibe el Push, sin acción propia — se descartó la ruta self-service operaciones/pyr/pedidos/[id]/estado para evitar autonotificación ambigua (único empleado PyR del fixture).
+
+EXPECTED_TARGET=ownerType=cuenta_operativa/ownerId=cmu1xe5p10000rip8gbsxes0l (misma fila de R1H/R1M, legacy no usado, subscriptionCount=1, sendCount=1).
+EXPECTED_PAYLOAD=title:"Pedido cancelado ❌" (fijo) / body:"Un pedido fue cancelado por el local" / type:operaciones_order_cancelled / url:/operaciones/mi-panel/test_t44_r1d_negocio_b_4135ea7a/pyr/pedidos?pedidoId=<id>.
+
+FOCAL_TESTS=121 pass / 0 fail (aislados: operations-cancellation-notification, operations-cancellation-push, push-subscription-repository, proxy.test, order-transition-cas-concurrency). Lateral conocido (use-push-notifications-static-contract.test.ts, cliente-side, desde R1I) no bloquea — server-side de PyR no lo usa.
+
+FIXTURE_SLUG_UNDERSCORE_BLOCKS_PYR_PROBE=NO (SLUG_PATTERN restrictivo sólo aplica a /api/public/mesa-cuenta, exclusivo de mesa — PyR nunca pasa por ahí).
+
+LECCION_R1M_APLICADA=no se reactivó el switch preventivamente (ACCOUNT_PUSH_REQUIRES_REENABLE_ISSUE=NO de R1M) — si en la sonda futura el proveedor da éxito y el dispositivo no muestra el Push, la instrucción es NO reactivar y NO repetir, sólo registrar si el fenómeno DEVICE_DELIVERY de R1M se reproduce.
+
+Credenciales (Negocio B + Cliente fixture) generadas runtime-only, verificadas por roundtrip, entregadas sólo en el chat — no persistidas aquí ni en el reporte.
+
+P2-T44 sigue NO cerrada tras R1N — pendiente: ejecutar la sonda física PyR, disable del switch account-level, logout cleanup, hallazgo de cuenta de mesa (fixture slug, ver sección aparte) y hallazgo lateral de R1I (use-push-notifications-static-contract.test.ts) si se decide reconciliar.
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1N_PYR_REAL_PUSH_PHYSICAL_PROBE
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte completo (trigger auditado con 7 call-sites reales, diseño
+cross-role, fixture completo, payload/target auditados, tests,
+baseline, criterio de PASS diseñado, credenciales sin secretos):
+`codex-reports/P2_T44_R1N_REAL_PYR_PUSH_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1M MOZO PUSH CERTIFIED (TWO-ATTEMPT, DEVICE-DELIVERY VARIANCE) (2026-09-16)
+
+Sonda física Mozo (R1L) EJECUTADA por el operador. No fue una sonda
+limpia: hubo DOS pedidos/intentos, con un OFF→ON del switch de
+notificaciones Mozo en el medio. Analizado con logs Railway TESTING +
+DB, correlación exacta al milisegundo.
+
+```text
+P2_T44_R1M_STATUS=MOZO_REAL_PUSH_PHYSICALLY_CERTIFIED_TESTING_DEVICE_DELIVERY_VARIANCE_NOTED
+R1L_MOZO_PUSH_PHYSICAL_PASS=SI
+
+RESUMEN_DOS_INTENTOS=orden de CREACIÓN de pedidos ≠ orden de TRANSICIÓN/disparo de Push (importante, no confundir). ATTEMPT_1 (por orden de transición, SIN Push recibido) = pedido cmu4ng86s000pp90bjqsbn3ca, transicionado 22:06:22.386Z. ATTEMPT_2 (CON Push recibido) = pedido cmu4nfa58000jp90bkmfaitpr, transicionado 22:07:06.592Z, DESPUÉS del OFF→ON.
+
+ATTEMPT_1=server-side IDÉNTICO a ATTEMPT_2: productor ejecutado, target de cuenta correcto (cuenta_operativa/cmu1xe5p10000rip8gbsxes0l), 1 solo envío, proveedor aceptó con HTTP 201, notificación in-app creada. NO hubo 404/410, NO se disparó ningún cleanup de subscription. La diferencia (Push no visto vs visto) ocurrió DESPUÉS del punto que el servidor puede observar — capa dispositivo/navegador, fuera del alcance de este backend.
+
+OFF_ON_ENTRE_AMBOS=POST /api/push/unsubscribe (22:06:57.289Z) → POST /api/push/subscribe (22:06:59.490Z). Mecanismo confirmado: unsubscribe hace DELETE real de la fila; el navegador devolvió el MISMO endpoint físico de siempre (mismo endpointFingerprint=04a319fa antes y después) — sólo cambió el id/createdAt de la fila en DB (fila nueva, mismo endpoint). REACTIVATION_CAUSALLY_EXPLAINS_SECOND_SUCCESS=UNPROVEN — correlación temporal, no causalidad demostrada server-side.
+
+ACCOUNT_PUSH_REQUIRES_REENABLE_ISSUE=NO. No se encontró ningún defecto de persistencia/lifecycle de subscription — la fila fue aceptada por el proveedor (201) en AMBOS intentos, sin excepción, sin rechazo. FIRST_ATTEMPT_ROOT_CAUSE_CATEGORY=DEVICE_DELIVERY (identificado a nivel de etapa; el mecanismo exacto dentro del dispositivo/navegador no es observable desde los logs del servidor).
+
+POST_R1M_ACCOUNT_PUSH_SUBSCRIPTION=1 fila activa (cmu4ni2t0000up90btelfflhq, misma endpoint física de siempre, usada con éxito en el envío más reciente).
+
+Salón (R1J/R1K) sigue PASS limpio, sin reabrir. Mozo ahora también PASS, con la salvedad honesta del intento 1 documentada (no oculta). PyR todavía NO ejecutado. Disable del switch / logout siguen pendientes (no se tocan hasta que el operador decida cerrar T44).
+
+NEXT_ACTION=P2_T44_R1N_REAL_PYR_PUSH_PHYSICAL_CERTIFICATION_PREPARATION
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+PRODUCT_CODE_CHANGED=NO (sólo análisis de logs/DB de sólo lectura)
+```
+
+Reporte completo (cronología exacta minuto a minuto, correlación
+log↔DB de ambos intentos, mecanismo exacto del OFF→ON, dos
+conclusiones separadas — certificación del productor vs confiabilidad
+de persistencia de subscription):
+`codex-reports/P2_T44_R1M_MOZO_REAL_PUSH_TWO_ATTEMPT_ANALYSIS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1L FIXTURE READINESS CORRECTED (2026-09-16)
+
+Continuación de R1L: el operador encontró el fixture Negocio A/Mesa 1
+con dos bloqueos reales. Ambos auditados y el primero corregido
+(fixture-only); el segundo root-caused con evidencia directa pero
+dejado sin implementar (fuera de alcance, no bloquea Push). Sonda física
+Mozo SIGUE sin ejecutarse.
+
+```text
+P2_T44_R1L_FIXTURE_READINESS_STATUS=READY_FOR_OPERATOR_R1L_MOZO_REAL_PUSH_PHYSICAL_PROBE
+PRODUCT_CODE_CHANGED=NO
+
+BLOQUEO_1_CERRADO=RESUELTO. Causa: Negocio A tenía horarioMode="experto" con horarios="{}" — abiertoManual=true (ya estaba en true desde R1L) se ignora por completo en ese modo (isBusinessOpenAt sólo lo lee en modo "simple"). Fix fixture-only: horarioMode->"simple". Verificado en vivo (GET /api/negocios/{slug} → isOpen:true) y visualmente en la tienda real ("Abierto", "Mesa 1", producto visible, $1.000,00).
+
+BLOQUEO_2_CUENTA_DE_MESA=ROOT-CAUSED, NO IMPLEMENTADO (decisión del operador). "No pudimos cargar tu cuenta de mesa." reproducido en vivo: GET /api/public/mesa-cuenta?slug=...&mesa=1 devuelve HTTP 400 real ("slug y mesa son requeridos") porque SLUG_PATTERN=/^[a-z0-9-]{1,80}$/ (src/app/api/public/mesa-cuenta/route.ts) rechaza el guion bajo del slug del fixture (test_t44_r1d_negocio_a_4135ea7a). NO es bug de producto: generateSlug() (src/lib/utils.ts) nunca produce guion bajo — es un problema de LOS FIXTURES de esta sesión (A, B y C, todos con slugs con "_"), no del código. Esto resuelve el hallazgo que R1K había dejado abierto para Negocio C (antes sin root cause confirmado). Fix disponible si se desea: renombrar los slugs de fixture a formato con guiones — no implementado, no bloquea Push. Estado esperado ANTES de cualquier check-in real es "hidden"/sin mensaje (sin_sesion) — el mensaje visible confirma que es un error real, no el estado normal pre-checkin.
+
+GEOLOCALIZACION_TEMPORAL=NO_APLICADA. No hace falta: POST /api/pedidos sólo bloquea por geocerca si el negocio está calibrado (lat/lng no nulos) — Negocio A sigue sin calibrar y el bloqueo se salta entero. El check-in automático de la tienda tampoco se dispara sin calibrar (mesaGeofenceReady=false, cero requests a mesa-geofence observadas). Aunque se calibrara, el bug de slug seguiría rompiendo la cuenta de mesa igual — son independientes.
+
+BASELINES_RECONFIRMADOS=PRE_R1L_ORDER_COUNT_NEGOCIO_A=0 / PRE_R1L_MOZO_NOTIFICATION_COUNT=0 / PRE_R1L_ACCOUNT_PUSH_SUBSCRIPTION_COUNT=1 (switch R1H intacto, sin segunda suscripción)
+
+NO se creó pedido, no se cambió estado, no se envió Push, no se creó ocupación manual por DB, no se tocó Negocio C, no se tocó PyR, no se hizo logout, no se tocó Production.
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1L_MOZO_REAL_PUSH_PHYSICAL_PROBE
+```
+
+Reporte completo: `codex-reports/P2_T44_R1L_FIXTURE_READINESS_CORRECTION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1L MOZO REAL PUSH CERT PREPARATION (2026-09-16)
+
+Preparación (sin ejecutar) de la certificación física del productor
+Push de Mozo. Restricción arquitectónica nueva descubierta:
+`Empleado.@@unique([negocioId, cuentaOperativaId])` — una cuenta sólo
+puede tener un área por negocio, por lo que no se pudo reutilizar el
+fixture/pedido de Salón (R1J/R1K, Negocio C) para Mozo. Se usó Negocio A
+(que ya tenía la relación Mozo desde R1D) con un fixture nuevo mínimo
+(mesa + catálogo), sin tocar Negocio C ni la suscripción de cuenta de R1H.
+
+```text
+P2_T44_R1L_STATUS=MOZO_REAL_PUSH_PREPARATION_READY_TESTING (sonda física NO ejecutada)
+PRODUCT_CODE_CHANGED=NO
+
+DESIGN_PIVOT=cross-role: Negocio A (login propio, Desktop) dispara la transición preparando->listo_para_retirar via PUT /api/negocio/pedidos (UI real: salon-tab.tsx, botón "Listo para servir"); la CuentaOperativa/Mozo (Teléfono, ya suscripta desde R1H) sólo recibe el Push. La ruta operativo/salon/pedidos/[id]/listo NO es utilizable por esta cuenta en Negocio A (exige área "salon", la cuenta tiene "mozo" ahí).
+MOZO_FIXTURE_NEGOCIO=A (cmu1xe6780001rip85yygdszn) / MESA=cmu4egqut0001rixojiu53s6d (numero=1, empleadoId=cmu1xe6vr0004rip8eqkwkziq) / PRODUCTO=cmu4egrno0005rixo1k7inlg3 ($1000)
+EXPECTED_MOZO_PUSH_TARGET=ownerType cuenta_operativa / ownerId cmu1xe5p10000rip8gbsxes0l (misma fila de R1H, cmu4ayhgp0001nj0b73casku3 — no se crea una segunda)
+EXPECTED_MOZO_PUSH_PAYLOAD=title:"Pedido listo" / body:"Mesa 1 lista para entregar" / type:mesa_order_ready / url:/mozo/panel/test_t44_r1d_negocio_a_4135ea7a?pedidoId=<id>
+
+PRE_R1L_MOZO_NOTIFICATION_COUNT=0 / PRE_R1L_ACCOUNT_PUSH_SUBSCRIPTION_COUNT=1 (sin cambios, R1H intacta)
+TESTS_FOCALES_AISLADOS=110 pass / 0 fail (order-transition-cas-mesa, mesa-order-ready-notification, push-subscription-repository, proxy.test) — 2 fallos sólo al correr los 4 archivos JUNTOS, aislados a un artefacto de bun:test entre archivos (TypeError db.negocio undefined en el cleanup de un solo archivo), no una regresión — confirmado corriendo ese archivo solo (3 pass / 0 fail, DB real). No se investigó más a fondo (fuera de alcance de una tarea de preparación).
+
+Negocio A: salonActivo=true (fixture-only), lat/lng/ubicacionCalibradaEn siguen null (no se recreó el hallazgo de privacidad de R1K — no hace falta para certificar sólo el Push; el check-in de mesa completo, si se quiere, requeriría repetir el patrón de coordenadas temporales de R1J/R1K bajo la misma disciplina).
+Password temporal de Negocio A generada y verificada, NO persistida en Git/reportes/este contexto — entregada sólo en el chat final.
+
+P2-T44 NO cerrada — pendiente tras R1L: ejecutar la sonda física Mozo, Push real PyR, disable account-level, logout cleanup, hallazgo de cuenta de mesa (R1K, si se decide incorporar), hallazgo lateral de R1I sobre use-push-notifications-static-contract.test.ts (si se decide reconciliar)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+
+NEXT_PUSH_ACTION=WAIT_FOR_OPERATOR_R1L_MOZO_REAL_PUSH_PHYSICAL_PROBE
+```
+
+Reporte completo (constraint de Empleado, pivote de rol/ruta auditado en
+código, fixture, payload/target auditados, tests, baseline, criterio de
+PASS diseñado, credenciales para la sonda futura sin secretos):
+`codex-reports/P2_T44_R1L_REAL_MOZO_PUSH_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1J SALON REAL PUSH CERTIFIED (2026-09-16)
+
+Análisis de la sonda física R1J ya ejecutada: pedido real de mesa creado
+por el operador, Push real de Salón certificado con evidencia técnica
+directa (logs + DB), no sólo el reporte humano. Hallazgo lateral no
+bloqueante (error visual de "cuenta de mesa") auditado por separado, sin
+implementar fix. Coordenadas temporales del operador ya limpiadas del
+fixture.
+
+```text
+P2_T44_R1J_STATUS=SALON_REAL_PUSH_PHYSICALLY_CERTIFIED_TESTING
+R1J_SALON_PUSH_PHYSICAL_PASS=SI
+
+R1J_ORDER_ID=cmu4dqnsp0005p90b0zeotd9x (metodoEntrega=mesa, mesaNumero=1, total=1000, clienteNombre=Invitado/guest, createdAt=2026-09-16T17:33:43.802Z)
+CADENA_TECNICA_CONFIRMADA=POST /api/pedidos 200 (17:33:43.706Z) → [Push/OperacionesSalon] resumen (destinatarios=1, endpointsUnicos=1) → [Push] Enviado OK (actorFamily=cuenta_operativa, providerStatus=201, 1 solo endpointFingerprint) → Notificacion in-app creada (tipo=operaciones_salon_new_order, mismo pedidoId) → operador confirmó 1 Push visible real en el teléfono, sin error ahí
+TARGET_OWNER_TYPE=cuenta_operativa / TARGET_OWNER_ID=cmu1xe5p10000rip8gbsxes0l / TARGET_SUBSCRIPTION_ID=cmu4ayhgp0001nj0b73casku3 (misma fila de R1H)
+LEGACY_EMPLOYEE_FALLBACK_USED=NO / NEW_EMPLOYEE_PUSH_SUBSCRIPTION_CREATED=NO
+EXACTLY_ONE_PHYSICAL_PUSH_ATTEMPT=SI (confirmado server-side, no sólo por el reporte humano de "1 Push")
+Los 10 criterios de PASS de la tarea se cumplieron simultáneamente con evidencia técnica directa.
+
+HALLAZGO_NO_BLOQUEANTE=error visual "No pudimos cargar tu cuenta de mesa." observado por el operador SOLO en este fixture (Negocio C), no en otro negocio. Mecanismo confirmado: fetchMesaClienteCuenta (src/lib/mesa-cliente-cuenta-client.ts) mapea CUALQUIER fetch-exception/HTTP-no-ok/JSON-inválido/data.ok!==true/shape-"activa"-incompleto al mismo {kind:"error"} genérico. Descartado como problema de datos del fixture: el pedido creado (cmu4dqnsp0005p90b0zeotd9x) tiene su ocupacionMesaId perfectamente enlazado con Mesa.ocupacionActualId, sin ningún desajuste — verificado por consulta directa. Cero excepciones servidor logueadas, 100% de ~30 requests GET /api/public/mesa-cuenta en la ventana devolvieron 200. TABLE_ACCOUNT_ROOT_CAUSE_IDENTIFIED=NO (mecanismo confirmado, trigger exacto no confirmable desde los logs disponibles — no especulado más allá). TABLE_ACCOUNT_FAILURE_BLOCKS_PUSH_CERTIFICATION=NO (features de código/endpoint/disparador completamente independientes; el pedido/productor/Push ya estaban confirmados correctos con evidencia propia antes de que este panel importara). NO se implementó fix — sólo diseñado (witness-only en mesa-cliente-cuenta-client.ts) para una tarea futura separada, NO mezclada con T44 Push.
+
+TEMP_OPERATOR_COORDINATES_CLEANED=SI / POST_CLEANUP_BUSINESS_LAT_IS_NULL=SI / POST_CLEANUP_BUSINESS_LNG_IS_NULL=SI (confirmado por DB directa y por el endpoint público GET /api/negocios/{slug} — mesaGeofenceReady vuelve a false, sin exponer más la ubicación real del operador)
+FIXTURE_OPEN_MODE_LEFT_FOR_TESTING=SI (horarioMode=simple/abiertoManual=true quedan así, sin razón operativa para revertir, sin impacto de privacidad)
+R1H_PHYSICAL_SUBSCRIPTION_PRESERVED=SI (misma fila cmu4ayhgp0001nj0b73casku3)
+
+P2-T44 NO cerrada — pendiente: Push real Mozo, Push real PyR, disable account-level, logout cleanup, hallazgo de cuenta de mesa (si se decide incorporar al backlog), hallazgo lateral de R1I sobre use-push-notifications-static-contract.test.ts (si se decide reconciliar)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+PRODUCTION_TOUCHED=NO
+
+NEXT_PUSH_ACTION=P2_T44_R1L_REAL_MOZO_PUSH_PHYSICAL_CERTIFICATION_PREPARATION (recomendada, no ejecutada)
+NEXT_TABLE_ACCOUNT_ACTION=P2-TXX_TABLE_ACCOUNT_ERROR_DIAGNOSTIC_WITNESS (sugerida, no ejecutada, no mezclar con T44 Push)
+```
+
+Reporte completo (correlación exacta log↔DB de la cadena Push, evaluación
+explícita de los 10 criterios de PASS, sección separada "Hallazgo no
+bloqueante: cuenta de mesa del fixture" con mecanismo confirmado y
+descarte de causas por evidencia directa, fix propuesto sin implementar,
+limpieza de coordenadas confirmada):
+`codex-reports/P2_T44_R1K_REAL_SALON_PUSH_PHYSICAL_CERTIFICATION_ANALYSIS.md`.
+
+No se guardaron las coordenadas reales del operador en ningún lado de
+este contexto ni en Git.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1J FIXTURE ADJUSTED FOR PROBE (2026-09-16)
+
+Ajuste de fixture TESTING (sin código de producto) para destrabar los dos
+bloqueos prácticos que el operador encontró antes de poder correr la
+sonda física R1J: negocio mostrado como cerrado, y geocerca de mesa sin
+calibrar. La sonda física en sí sigue SIN ejecutarse.
+
+```text
+P2_T44_R1J_FIXTURE_ADJUSTMENT_STATUS=READY_FOR_OPERATOR_R1J_SALON_REAL_PUSH_PHYSICAL_PROBE
+
+BUSINESS_CLOSED_REASON=horarioMode="experto" con horarios="{}" (sin ningún día configurado) — isBusinessOpenAt() devuelve false siempre en ese modo cuando no hay ninguna entrada de horario para el día actual; confirmado leyendo src/lib/business-hours.ts, no asumido
+BUSINESS_OPEN_FIX_TYPE=activación del toggle manual ya soportado por el producto (horarioMode="simple" + abiertoManual=true) — no es una fórmula "siempre abierto" inventada, es un modo real que cualquier negocio puede elegir; documentado explícitamente como fixture-only para esta cuenta TESTING
+BUSINESS_OPEN_FOR_R1J=SI (confirmado en vivo: GET /api/negocios/test_t44_r1d_negocio_c_4135ea7a → isOpen:true)
+
+FIXTURE_BUSINESS_LOCATION_UPDATED=SI (Negocio C: lat/lng seteados a la ubicación real del operador + ubicacionCalibradaEn=now() — sin las 3 condiciones simultáneas, evaluateMesaGeofence() devuelve "business_unconfigured" y mesa-occupancy nunca se abre; confirmado en src/lib/mesa-geofence.ts)
+GEOFENCE_EXPECTED_TO_PASS_AT_OPERATOR_LOCATION=SI (verificado con evaluateMesaGeofence() real contra las mismas coordenadas → status="inside", distanceMeters=0, dentro del radio de 200m/precisión máxima 150m — sin tocar el radio ni la lógica de geofencing)
+BUSINESS_OPEN_CHECK_EXPECTED_TO_PASS=SI (confirmado en vivo, no sólo "esperado")
+
+ADVERTENCIA_DE_PRIVACIDAD=GET /api/negocios/{slug} es un endpoint PÚBLICO no autenticado que devuelve lat/lng del negocio a cualquiera — dado que esas coordenadas son ahora la ubicación física real del operador, quedan expuestas públicamente en TESTING mientras dure la calibración. Recomendado: limpiar lat/lng/ubicacionCalibradaEn de este fixture (volver a null) apenas termine la sonda física, en una tarea de limpieza separada — NO hecho automáticamente en esta tarea porque el operador todavía necesita la calibración ACTIVA para correr la sonda.
+
+STORE_ACCESSIBLE=SI / MESA_CONTEXT_RECOGNIZED=SI / TEST_PRODUCT_VISIBLE=SI (los 3 confirmados en vivo vía GET /api/negocios/test_t44_r1d_negocio_c_4135ea7a: isOpen=true, mesaGeofenceReady=true, salonHabilitado=true, productos=[TEST_T44_R1J_PRODUCTO]) — sin crear ningún pedido
+
+PRE_R1J_ORDER_COUNT_FOR_FIXTURE=0 / PRE_R1J_NOTIFICATION_COUNT_FOR_SALON_EMPLEADO=0 / PRE_R1J_ACCOUNT_PUSH_SUBSCRIPTION_COUNT=1 (reverificados después del ajuste — sin cambios inesperados, ningún STOP)
+
+R1J_ACCOUNT_PUSH_SUBSCRIPTION_PRESENT=SI / EXPECTED_PUSH_OWNER_TYPE=cuenta_operativa / EXPECTED_PUSH_SUBSCRIPTION_COUNT=1 / EXPECTED_LEGACY_EMPLOYEE_FALLBACK_USED=NO (sin cambios, no reabierto)
+
+PRODUCT_CODE_CHANGED=NO (sólo 2 campos del Negocio C de TESTING + 1 registro de contexto — cero commit/push/deploy)
+PRODUCTION_TOUCHED=NO
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+
+Sonda física Salón todavía NO ejecutada — pedido real todavía no creado, Push real todavía no enviado.
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1J_SALON_REAL_PUSH_PHYSICAL_PROBE
+```
+
+Las coordenadas exactas del operador NO se guardan acá ni en ningún
+reporte — sólo existen en la fila `Negocio` de la base TESTING mientras
+dure la calibración de esta sonda.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1J REAL SALON PUSH PREPARATION (2026-09-16)
+
+Preparación (sin ejecutar) de la primera certificación física de un Push
+REAL producido por una acción real de negocio: pedido de mesa en Negocio C
+→ `salon-new-order-notification` → `resolveOperationalPushTargets` →
+CuentaOperativa account-level → Web Push real. P2-T44 sigue sin cerrarse.
+
+```text
+P2_T44_R1J_STATUS=READY_FOR_OPERATOR_R1J_SALON_REAL_PUSH_PHYSICAL_PROBE
+
+R1J_ACCOUNT_PUSH_SUBSCRIPTION_PRESENT=SI (reverificado, misma fila de R1H: cmu4ayhgp0001nj0b73casku3, sin reabrir R1H/R1I)
+
+HALLAZGO=Negocio C (T44_SALON, salonActivo=true desde R1D) NO tenía ninguna Mesa ni Producto — un pedido real habría fallado. Se creó el fixture mínimo autorizado por la tarea: 1 Mesa (TEST_T44_R1J_MESA_SALON, numero=1, activa=true, id=cmu4d8vf30001rio4gtphv04w), 1 SeccionCatalogo + 1 Producto (TEST_T44_R1J_PRODUCTO, $1000, id=cmu4d8w6q0005rio46fgxwvpd) + su SeccionProducto de vínculo — nada de más.
+
+SALON_PUSH_TRIGGER_ROUTE=POST /api/pedidos (línea ~1886) — SALON_PUSH_TRIGGER_EVENT=creación del pedido (no una transición de estado posterior) — SALON_PUSH_REQUIRED_DELIVERY_METHOD=metodoEntrega="mesa" + mesaNumero truthy
+CERT_TRIGGER_USES_REAL_PRODUCT_FLOW=SI (mismo POST /api/pedidos que usa la app Cliente real; sin atajos/scripts/inserciones manuales)
+
+SALON_ORDER_CREATION_URL=https://deligo-copy-production.up.railway.app/n/test_t44_r1d_negocio_c_4135ea7a?mesa=1
+CLIENT_LOGIN_REQUIRED=NO (guest checkout — /api/pedidos está en PUBLIC_API_PREFIXES, clienteId nullable) — sin necesitar segundo teléfono ni cuenta Cliente
+PHONE_ROLE=PUSH_RECIPIENT (ya con Push ON de R1H, no hace falta re-activar) / DESKTOP_ROLE=SALON_ORDER_CREATOR
+PHONE_BROWSER_PWA_STATE_FOR_TEST=cualquiera (public/sw.js registra un listener `push` estándar, independiente de foreground/background/cerrado — comportamiento nativo de Web Push, nada inventado)
+
+EXPECTED_PUSH_OWNER_TYPE=cuenta_operativa / EXPECTED_PUSH_OWNER_ID=cmu1xe5p10000rip8gbsxes0l / EXPECTED_PUSH_SUBSCRIPTION_COUNT=1 / EXPECTED_LEGACY_EMPLOYEE_FALLBACK_USED=NO / EXPECTED_PHYSICAL_PUSH_SEND_COUNT=1
+EXPECTED_PUSH_TITLE_PATTERN="Mesa 1 — Nuevo pedido 📩" / EXPECTED_PUSH_TAG=operaciones-salon-new-order-<pedidoId> / EXPECTED_NOTIFICATION_TYPE=operaciones_salon_new_order
+
+WITNESS_DISPONIBLE_SIN_INSTRUMENTAR=SI — "[Push/OperacionesSalon] resumen" (destinatarios/endpointsUnicos), "[Push] Enviado OK (...actorFamily=cuenta_operativa...providerStatus=...)" (ya gateado a TESTING vía isPushDebugAllowedEnvironment(), activo en este entorno), fila Notificacion consultable directamente — CERO instrumentación nueva agregada, no hizo falta
+
+PRE_R1J_ORDER_COUNT_FOR_FIXTURE=0 / PRE_R1J_NOTIFICATION_COUNT_FOR_SALON_EMPLEADO=0 / PRE_R1J_ACCOUNT_PUSH_SUBSCRIPTION_COUNT=1 / PRE_R1J_RELEVANT_PUSH_LOG_TIMESTAMP=2026-09-16T17:21:21Z
+
+STATIC_CONTRACT_FAILURE_BLOCKS_R1J=NO (el hallazgo lateral de R1I sobre use-push-notifications-static-contract.test.ts es sobre el hook del switch, sin relación funcional con el envío server-side disparado por creación de pedido — auditado, no corregido, documentado)
+
+FOCAL_TESTS=291 pass/0 fail (salon-new-order-notification + push-subscription-repository/http/key + push/status+subscribe+unsubscribe+debug-guard + push.test.ts + proxy.test.ts) + 42 pass/0 fail (sw-push-dedupe + sw-push-role-icon-routing)
+
+BLOCKER_FOUND=NO / PRODUCT_CODE_CHANGED=NO / R1J_RUNTIME_CODE_CHANGED=NO / R1J_TESTING_DEPLOY_REQUIRED=NO (sólo fixture DB + reporte + contexto, cero commit/push/deploy)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+T23_TOUCHED=NO / T24_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+
+P2-T44: R1H switch physically certified; R1I producer tests reconciled; R1J Salón real Push preparado — envío físico Salón AÚN NO ejecutado; Mozo/PyR siguen pendientes; P2-T44 NO cerrada
+
+NEXT_ACTION=WAIT_FOR_OPERATOR_R1J_SALON_REAL_PUSH_PHYSICAL_PROBE
+```
+
+Reporte completo (auditoría exacta del trigger en código, diseño de los 10
+criterios de PASS, payload esperado, witness disponible sin
+instrumentar, fixture mínimo creado y su justificación, instrucciones y
+formulario preparados para la sonda futura):
+`codex-reports/P2_T44_R1J_REAL_SALON_PUSH_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1I PRODUCER TESTS RECONCILED (2026-09-16)
+
+Reconciliación exclusiva de tests (sin código de producto) de los 4
+archivos stale detectados en R1E. P2-T44 sigue sin cerrarse.
+
+```text
+P2_T44_R1I_STATUS=PRODUCER_TEST_SUITE_RECONCILED
+STALE_PRODUCER_TESTS_STILL_PENDING=NO
+PRODUCT_BUG_FOUND=NO (los 4 productores/repository ya implementaban el contrato de dos fases de R1D correctamente — sólo sus fixtures/mocks predataban esa arquitectura)
+
+ENUM_CONTRACT_UPDATED=SI (push-subscription-repository.test.ts: {cliente,negocio,repartidor,empleado} -> {cliente,cuenta_operativa,empleado,negocio,repartidor}, igualdad exhaustiva preservada, no debilitada)
+
+MOZO_ACCOUNT_LEVEL_TEST=PASS / MOZO_LEGACY_FALLBACK_TEST=PASS / MOZO_NO_DOUBLE_FANOUT_TEST=PASS (+ dedupe multi-device dentro de la misma cuenta)
+PYR_ACCOUNT_LEVEL_TEST=PASS / PYR_LEGACY_FALLBACK_TEST=PASS / PYR_NO_DOUBLE_FANOUT_TEST=PASS (+ resiliencia a fallo de cada fase, dedupe multi-device, reservedPushEndpoints)
+SALON_ACCOUNT_LEVEL_TEST=PASS / SALON_LEGACY_FALLBACK_TEST=PASS / SALON_NO_DOUBLE_FANOUT_TEST=PASS (+ misma cuenta vinculada a 2 relaciones de empleado -> sin fan-out duplicado)
+
+STALE_QUERY_COUNT_ASSERTIONS_REPLACED=SI (las viejas "exactamente una query batch" de un solo fase reemplazadas por el contrato real de dos fases: account-level siempre se intenta, empleado sólo para cuentas que genuinamente lo necesitan)
+PRODUCER_DEDUPE_CONTRACT_TESTED=SI
+LEGACY_EMPLOYEE_FALLBACK_PRESERVED=SI
+
+FOUR_STALE_TEST_FILES_COMBINED=80 pass/0 fail (coincide exacto con la suma aislada — sin contaminación cruzada entre estos 4 archivos)
+BROAD_PUSH_REGRESSION=325 pass/0 fail (proxy+status+subscribe+unsubscribe+debug-guard+subscription-http/key+repository+cancellation-push+3 productores+push.test.ts+operativo/logout) — R1G Edge auth intacto, sin tocar
+FULL_SUITE_RESULT=3382 pass/200 fail/8 errors (298 archivos) — reducción exacta de 12 respecto del baseline de 212 (H2) — NEW_FAILURES=0 confirmado (ninguno de los 4 archivos reconciliados aparece en la lista de fallos), PREEXISTING_FAILURES=200 = KNOWN_SHARED_STATE_NOISE (mismo patrón de contaminación de estado compartido en la suite completa, ya documentado repetidamente en H2/R1E, no investigado más a fondo, fuera de alcance)
+HALLAZGO_LATERAL_NO_CORREGIDO=src/hooks/use-push-notifications-static-contract.test.ts (1 fail, confirmado también en aislamiento, contrato estático desactualizado por el refactor de options?.actorFamily anterior a R1D — FUERA del scope autorizado de R1I, no tocado, queda como deuda separada para una tarea futura)
+
+LINT=0 findings / DIFF_CHECK=limpio / TYPECHECK=31 (baseline) / BUILD=exit 0
+PRODUCT_CODE_CHANGED=NO / RUNTIME_CODE_CHANGED=NO (sólo 4 archivos *.test.ts + reporte + contexto)
+
+R1H_PHYSICAL_SUBSCRIPTION_PRESERVED=SI (fila cmu4ayhgp0001nj0b73casku3 verificada intacta, sin borrar ni duplicar)
+
+R1I_TEST_RECONCILIATION_COMMIT=c2848d7c040e38f5695e31a2ae8c428bb272c4e2
+TESTING_DEPLOY_REQUIRED=NO (test-only; el autodeploy de Railway se disparó igual por observar la rama incondicionalmente, documentado sin considerarlo necesario para el comportamiento — ningún archivo del bundle de producción cambió)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+T23_TOUCHED=NO / T24_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+
+P2-T44 account-level Push switch: PHYSICALLY_CERTIFIED_TESTING (de R1H, sin cambios)
+P2-T44 NO cerrada — pendiente: certificar Push REAL de Salón (recomendado como primer productor, fixture ya existe), Mozo, PyR; certificar disable/logout si siguen en la matriz
+
+NEXT_ACTION=P2_T44_R1J_REAL_PUSH_PHYSICAL_CERTIFICATION_PREPARATION (recomendada, no ejecutada ni preparada todavía — sólo sugerida)
+```
+
+Reporte completo (causa exacta de staleness, diseño de mocks
+where.ownerType-aware para las dos fases, los 4 escenarios A-D por cada
+productor, resultados aislado/conjunto/regresión amplia/suite completa,
+clasificación explícita de los 200 fallos preexistentes, hallazgo lateral
+fuera de scope documentado sin corregir):
+`codex-reports/P2_T44_R1I_PRODUCER_TEST_SUITE_RECONCILIATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1H SWITCH PHYSICALLY CERTIFIED (2026-09-16)
+
+Análisis del reintento físico post-fix R1G. Operador: `SWITCH_INICIAL=OFF`,
+`SWITCH_FINAL=ON`, `PIDIO_PERMISO=NO` (no es fallo — permiso ya "granted"
+de sesiones previas de otros actores en el mismo origen),
+`ERROR_VISIBLE=NO`. Confirmado con evidencia técnica directa de logs Y de
+base de datos, no sólo el switch visual.
+
+```text
+P2_T44_R1H_STATUS=SWITCH_PHYSICALLY_CERTIFIED_TESTING
+R1H_SWITCH_PHYSICAL_PASS=SI
+
+P2-T44 account-level Push switch: PHYSICALLY_CERTIFIED_TESTING
+
+SECUENCIA_CERTIFICADA=2026-09-16T16:14:39Z (GET /api/operativo/me) → login → me → me → POST /api/push/status 200 → GET /api/push/vapid-key 200 → POST /api/push/subscribe?actorFamily=cuenta_operativa → 200 (ya NO 401) a las 16:15:49.966Z
+OBSERVACION_SEPARADA_NO_MEZCLADA=un POST /api/push/subscribe → 401 aislado a las 16:11:42Z (34s después del deploy) — probablemente una pestaña/sesión vieja pre-fix sin re-login; no forma parte de la secuencia certificada, no cuenta ni a favor ni en contra
+
+EDGE_ACCOUNT_FAMILY_ACCEPTED_IN_REAL_REQUEST=SI (un 200 en esa ruta+actorFamily es imposible sin que el proxy.ts corregido por R1G haya reconocido cuenta_operativa y dejado pasar el request)
+ROUTE_HANDLER_REACHED=SI / OPERATIONAL_ACCOUNT_RESOLVED=SI / RESOLVED_ACCOUNT_ID=cmu1xe5p10000rip8gbsxes0l
+
+PRE_OPERATOR_RETRY_ACCOUNT_PUSH_ROWS=0 / POST_RETRY_ACCOUNT_PUSH_ROWS=1
+FILA_CREADA=ownerType=cuenta_operativa, ownerId=cmu1xe5p10000rip8gbsxes0l, channel=default, createdAt=2026-09-16T16:15:49.993Z (coincide al milisegundo con el POST 200 de los logs — correlación exacta)
+DUPLICATE_ACCOUNT_SUBSCRIPTIONS_FOUND=NO (count=1)
+NEW_EMPLOYEE_OWNER_SUBSCRIPTION_CREATED=NO (0 filas ownerType=empleado para las 3 relaciones Mozo/PyR/Salón de esta cuenta — arquitectura R1D íntegra, sin caer al fallback legacy)
+
+Los 10 criterios de PASS de la tarea se cumplieron simultáneamente (ver reporte para el detalle ítem por ítem).
+
+STALE_PRODUCER_TESTS_STILL_PENDING=SI (push-subscription-repository.test.ts + 3 archivos de productores Mozo/PyR/Salón — blocker de R1E, sin tocar en R1H tampoco)
+P2_T44_NO_CERRADA=SI — pendiente: reconciliar tests stale de productores (P2-T44-R1I, recomendada, NO ejecutada), certificar Push REAL de Mozo, certificar Push REAL de PyR, certificar Push REAL de Salón, y disable/logout si siguen en la matriz de certificación
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+T23_TOUCHED=NO / T24_TOUCHED=NO
+CODE_CHANGED=NO (sólo análisis de logs y DB en esta tarea)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=P2_T44_R1I_PRODUCER_TEST_SUITE_RECONCILIATION (recomendada, no ejecutada — corregir exclusivamente los 4 tests stale para reflejar el flujo real de dos fases cuenta_operativa→empleado-fallback, sin cambiar producto salvo bug real revelado)
+```
+
+Reporte completo (ventana exacta del reintento, secuencia de logs
+completa, correlación exacta log↔DB al milisegundo, evaluación explícita
+de los 10 criterios de PASS, verificación de ausencia de owner empleado
+accidental y de duplicación): `codex-reports/P2_T44_R1H_ACCOUNT_PUSH_SWITCH_PHYSICAL_CERTIFICATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1G EDGE AUTH FIX DEPLOYED (2026-09-16)
+
+Fix implementado del root cause confirmado en R1F: `src/proxy.ts` no
+reconocía `cuenta_operativa`. Fix mínimo desplegado a TESTING, cobertura de
+middleware agregada (antes inexistente), retest del switch preparado —
+NO ejecutado todavía.
+
+```text
+P2_T44_R1G_STATUS=READY_FOR_OPERATOR_T44_R1G_SWITCH_RETRY
+ROOT_CAUSE_FIXED=SI
+
+PROXY_ACCOUNT_FAMILY_ADDED=SI / PROXY_OPERATIONAL_COOKIE_MAPPING_ADDED=SI (cuenta_operativa -> deligo_operativo_session) / PROXY_IS_SESSION_FAMILY_UPDATED=SI
+PUSH_STATUS_MIDDLEWARE_BEHAVIOR_CHANGED=NO (nunca estuvo en AUTH_REQUIRED_PREFIXES, sin cambios)
+PUSH_ROUTE_HANDLER_CODE_CHANGED=NO / PUSH_CLIENT_CODE_CHANGED=NO / VAPID_CHANGED=NO / SERVICE_WORKER_CHANGED=NO (los 4 ya estaban correctos por R1F, fix acotado a un solo archivo de producto)
+
+PROXY_CUENTA_OPERATIVA_TEST=PASS (9 casos nuevos A-I en src/proxy.test.ts, que antes no ejercitaba el middleware en absoluto — root cause de por qué R1F pasó desapercibido)
+EXISTING_FAMILIES_REGRESSION_TEST=PASS (cliente/negocio/repartidor sin regresión, repartidor ganó cobertura propia que antes no tenía en este archivo)
+FOCAL_TESTS=src/proxy.test.ts 44 pass/0 fail; push/status+subscribe+unsubscribe+debug-guard+subscription-http/key+cancellation-push+push.test.ts 229 pass/0 fail; operativo/logout 16 pass/0 fail
+LINT=0 findings / DIFF_CHECK=limpio / TYPECHECK=31 (baseline) / BUILD=exit 0
+STALE_PRODUCER_TESTS_TOUCHED=NO (blocker de R1E — push-subscription-repository.test.ts + 3 archivos de productores — se mantiene separado, no relacionado con este fix, no corregido en R1G)
+
+R1G_FIX_COMMIT_SHA=e10eb5a7740849c64c14ccc97cddf5ee2d5620c5 ("fix: allow operational account push through edge auth")
+CURRENT_REMOTE_TESTING_SHA=e10eb5a7740849c64c14ccc97cddf5ee2d5620c5
+DELIGO_TESTING_DEPLOYMENT_ID=9f438b64-75b1-4d22-b21d-1991a2a6e415 (SUCCESS, commit match, boot limpio)
+SMOKE_TEST_NO_DESTRUCTIVO=POST /api/push/subscribe?actorFamily=cuenta_operativa sin cookie contra el deployment vivo -> sigue 401 (confirma que el fix está desplegado sin abrir un bypass; no se fabricó ninguna PushSubscription real, no se escribió DB)
+
+T44_FIXTURE_PRESENT=SI (revalidado post-deploy) / T44_MOZO_RELATION_PRESENT=SI / T44_PYR_RELATION_PRESENT=SI / T44_SALON_FIXTURE_COVERAGE=SI
+PRE_OPERATOR_RETRY_ACCOUNT_PUSH_ROWS=0
+T44_ACCOUNT_SETTINGS_URL=https://deligo-copy-production.up.railway.app/operaciones/cuenta / T44_LOGIN_URL=https://deligo-copy-production.up.railway.app/operaciones/ingresar (password runtime-only renovada, no persistida)
+
+PERMISSION_NOTE=el diálogo nativo de Notification.permission NO es requisito de PASS en el reintento — Push se comparte por origen entre todos los actores, es plausible que ya esté "granted" desde pruebas previas de Cliente/Negocio/Repartidor en el mismo navegador; el criterio real es que la subscription se guarde correctamente server-side
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+T23_TOUCHED=NO / T24_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_T44_R1G_SWITCH_RETRY
+```
+
+Reporte completo (diff exacto del fix, diseño y contenido de los 9 tests
+nuevos del middleware, resultados de test/lint/diff-check/build,
+commit/deploy verificado, smoke test no destructivo, fixture
+revalidado): `codex-reports/P2_T44_R1G_EDGE_AUTH_FIX_AND_SWITCH_RETEST_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1F ROOT-CAUSE AUDIT (2026-09-16)
+
+Auditoría de root-cause (sólo diagnóstico, sin fix) de por qué el primer
+intento físico de activar el switch Push account-level falló ANTES de que
+el navegador pidiera permiso. Causa raíz CONFIRMADA con evidencia directa
+de logs de Railway TESTING — no es una hipótesis.
+
+```text
+P2_T44_R1E_PHYSICAL_SWITCH_RESULT=FAIL_ACTIVATION_BEFORE_NOTIFICATION_PERMISSION
+P2_T44_R1E_STATUS=BLOCKED_OPERATOR_SWITCH_ACTIVATION_FAILURE
+P2_T44_R1F_STATUS=ROOT_CAUSE_IDENTIFIED_FIX_NOT_IMPLEMENTED
+
+EVIDENCIA_DE_LOGS=POST /api/push/status?actorFamily=cuenta_operativa → 200 (exitoso, check de montaje) seguido, 5 minutos después, de GET /api/push/vapid-key → 200 + POST /api/push/subscribe?actorFamily=cuenta_operativa → 401, dos veces (dos intentos del operador). El fallo NO fue client-side ni de permiso — el POST llegó a la red real y fue rechazado.
+FAIL_OCCURRED_CLIENT_SIDE_BEFORE_SERVER_SUBSCRIBE=NO
+FAIL_STAGE=SERVER_SUBSCRIBE_REQUEST (rechazado por el middleware Edge, ANTES del route handler real)
+
+ROOT_CAUSE_CATEGORY=AUTH
+ROOT_CAUSE=src/proxy.ts mantiene su PROPIA copia local desincronizada de las familias de sesión (type SessionFamily="cliente"|"negocio"|"repartidor", FAMILY_SESSION_COOKIE_NAMES, isSessionFamily()) — deliberadamente separada de src/lib/auth.ts (comentario propio del archivo: runtime Edge, no puede importar Prisma) y NUNCA actualizada cuando R1D agregó "cuenta_operativa" como cuarta familia. resolveActorSession() nunca reconoce ese selector, resuelve token=null, y como /api/push/subscribe + /api/push/unsubscribe están en AUTH_REQUIRED_PREFIXES, la rama "Any-auth routes" de checkRouteProtection() devuelve 401 directamente en el Edge, antes de que el request llegue al route handler real (que SÍ autentica correctamente vía deligo_operativo_session/getOperationalAccountFromRequest). /api/push/status escapa al bug por NO estar en AUTH_REQUIRED_PREFIXES — asimetría confirmada exactamente en los logs (status=200, subscribe=401 con la misma sesión).
+UNSUBSCRIBE_TIENE_EL_MISMO_BUG=SI (también está en AUTH_REQUIRED_PREFIXES — si el switch se hubiera activado por otro medio, desactivarlo fallaría igual)
+CLIENT_HOOK_FULLY_SUPPORTS_CUENTA_OPERATIVA=SI / MISSING_CLIENT_ACTOR_MAPPING_FOUND=NO (el gap NO está en usePushNotifications ni en ningún módulo cliente — está exclusivamente en el middleware Edge del servidor)
+VAPID/SERVICE_WORKER/BROWSER_CAPABILITY=DESCARTADOS como causa (los logs confirman que el flujo llegó hasta después del fetch VAPID exitoso)
+WHY_AUTOMATED_TESTS_MISSED_FAILURE=src/proxy.ts corre en runtime Edge y NUNCA se ejecuta cuando bun:test llama directamente la función POST exportada de un route.ts — ningún test de este repo instancia el middleware contra una request real; es una capa estructuralmente invisible para la suite actual
+STALE_PRODUCER_TESTS_RELATED_TO_SWITCH_FAILURE=NO (el blocker de tests de R1E, sobre resolveOperationalPushTargets/mocks de Mozo-PyR-Salón, es completamente independiente de este bug de middleware)
+
+PROPOSED_FIX_FILES=src/proxy.ts (único archivo de producto a tocar)
+PROPOSED_FIX_DESCRIPTION=agregar "cuenta_operativa" al type SessionFamily local + FAMILY_SESSION_COOKIE_NAMES (→ "deligo_operativo_session") + isSessionFamily() de proxy.ts; alternativa más acotada: rama explícita en checkRouteProtection para /api/push/subscribe|unsubscribe que revise la presencia de deligo_operativo_session sin generalizar el union — decisión para la tarea de implementación
+PRODUCT_CODE_CHANGE_REQUIRED=SI (sólo proxy.ts) / ENV_CONFIG_CHANGE_REQUIRED=NO / TEST_CHANGE_REQUIRED=SI (agregar cobertura que ejercite el middleware con ?actorFamily=cuenta_operativa — hoy no existe ninguna) / REDEPLOY_REQUIRED=SI
+
+PRE_OPERATOR_ACCOUNT_PUSH_ROWS=0 / POST_FAIL_ACCOUNT_PUSH_ROWS=0 (confirmado por consulta directa — el 401 ocurre antes de cualquier escritura, nada que limpiar)
+
+NO_FIX_APLICADO=SI (sólo diagnóstico en esta tarea, cero cambios de código/test/env, sin commit/push/deploy, sin resetear permisos, sin borrar subscriptions, sin nueva prueba física)
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED (sin cambios)
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios — T23 sigue abierto)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+T23_TOUCHED=NO / T24_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_R1F_FIX_AUTHORIZATION (implementar el fix de proxy.ts en una tarea separada, autorizada explícitamente, antes de cualquier nuevo intento físico del switch)
+```
+
+Reporte completo (pipeline reconstruido stage-por-stage, evidencia exacta
+de logs con timestamps, trazado completo del código de `src/proxy.ts` que
+prueba la causa raíz línea por línea, descarte explícito de VAPID/SW/
+browser-capability/client-actor-mapping, explicación de por qué los tests
+automatizados no lo detectaron, diseño de fix sin implementar):
+`codex-reports/P2_T44_R1F_ACCOUNT_PUSH_SWITCH_FAILURE_AUDIT.md`.
+
+## HISTORICAL SNAPSHOT — P2-T44-R1E RESUME (2026-09-15)
+
+El operador pausó P2-T23-H4 y pidió retomar P2-T44 desde su último estado
+autoritativo (implementado en una sesión ANTERIOR a esta conversación,
+commits `f1604f2`/`0e3c69f`, no descubierto hasta ahora porque T44 no
+había vuelto a tocarse en esta conversación). T44 NO modifica ningún
+estado de T23/T24.
+
+```text
+P2_T44_R1E_STATUS=READY_FOR_OPERATOR_ACCOUNT_PUSH_SWITCH_TEST
+
+P2_T23_H4_STATUS=PAUSED_AFTER_SPEED_WITNESS_ALREADY_COMMITTED_AND_DEPLOYED_NO_PROBE_EXECUTED
+CORRECCION_DE_PREMISA=la tarea asumía "pausar H4 sin implementar ni deployar el witness de speed", pero ese commit (3d2bf94) ya había sido autorizado explícitamente por el operador y commiteado+pusheado+deployado a TESTING en el turno INMEDIATAMENTE ANTERIOR de esta misma conversación — no se revirtió (sería una acción destructiva nueva no pedida), sólo se corrige el hecho
+H4_LOCAL_UNCOMMITTED_CHANGE_FOUND=NO / H4_LOCAL_CHANGE_RESTORED=NOT_APPLICABLE / WORKTREE_CLEAN_BEFORE_T44=SI
+H2A_PHYSICAL_VALIDATION=PASS / H2B_PHYSICAL_PASS=SI (preservados, sin cambios)
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios — T23 sigue abierto)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios)
+
+CURRENT_HEAD=3d2bf941f5936fe8754ca320c1f888c2e199bbe9 = REMOTE_TESTING_SHA = CURRENT_TESTING_DEPLOYMENT_COMMIT
+CURRENT_TESTING_DEPLOYMENT_ID=3112bdf0-887d-4f09-bbcd-5292b9a36b55 (SUCCESS — el mismo deployment de H4, acumulativo, ya contiene R1D íntegro)
+R1D_COMMIT_SHA=c3bf576e0a63da29e408672c9cc96384fc4ac4fc ("feat: unify personal push at account level")
+R1D_COMMIT_IS_ANCESTOR_OF_REMOTE_TESTING=SI / R1D_COMMIT_IS_ANCESTOR_OF_DEPLOYED_TESTING=SI / R1D_CODE_PRESENT_IN_CURRENT_TESTING=SI
+CERO_DRIFT_CONFIRMADO=ningún archivo de push/operativo/cuenta/schema cambió entre R1D y HEAD pese a ~10 commits de T23 en el medio (git log verificado)
+R1D_MIGRATION_APPLIED_TESTING=SI (20260914100000_account_level_personal_push, verificado por consulta directa a _prisma_migrations en TESTING, rolled_back_at=null) / R1D_MIGRATION_APPLIED_PRODUCTION=NO
+
+T44_FIXTURE_PRESENT=SI (verificado por consulta directa a la base real, no asumido) / T44_ACCOUNT_ID=cmu1xe5p10000rip8gbsxes0l (activo)
+T44_MOZO_RELATION_PRESENT=SI (negocio A) / T44_PYR_RELATION_PRESENT=SI (negocio B) / T44_SALON_FIXTURE_COVERAGE=SI (negocio C, salonActivo=true — ya existía de la sesión anterior, NO se creó nada nuevo en esta tarea)
+Las tres relaciones Empleado apuntan a la MISMA cuentaOperativaId, en tres negocios distintos — la configuración exacta que la certificación necesita.
+PRE_OPERATOR_ACCOUNT_PUSH_ROWS=0 (estado limpio, confirmado de nuevo)
+
+ARQUITECTURA_PRESERVADA=ownerType=cuenta_operativa hardcodeado server-side (nunca del body) en subscribe/unsubscribe/status cuando actorFamily=cuenta_operativa; ownerId derivado de getOperationalAccountFromRequest; un único switch en /operaciones/cuenta (usePushNotifications actorFamily=cuenta_operativa fijo, sin selector de negocio); campana=NotificationBell (centro de notificaciones, no toggle); logout usa session.cuentaOperativaId + endpoint exacto
+ACCOUNT_PUSH_SWITCH_PRESENT=SI / BUSINESS_SELECTION_REQUIRED_BEFORE_SWITCH=NO / PER_BUSINESS_PUSH_TOGGLE_PRESENT=NO / PER_AREA_PUSH_TOGGLE_PRESENT=NO / BELL_IS_NOTIFICATION_CENTER_ONLY=SI
+MOZO_ACCOUNT_PUSH_PATH=SI (mesa-order-ready-notification.ts) / PYR_ACCOUNT_PUSH_PATH=SI (operations-cancellation-notification.ts, único productor de PyR documentado) / SALON_ACCOUNT_PUSH_PATH=SI (salon-new-order-notification.ts) — los tres vía resolveOperationalPushTargets compartido
+ACCOUNT_ENDPOINT_DEDUPE_VERIFIED=SI (constraint UNIQUE(ownerType,ownerId,channel,endpoint) + upsert) / LEGACY_FALLBACK_ONLY_IF_NO_ACCOUNT_LEVEL_ROW=SI
+
+BLOCKER_FOUND=SI, TEST_ONLY, preexistente de R1D (no producto, no fix aplicado — STOP explícito per instrucción de la tarea): 4 archivos de test quedaron desactualizados cuando R1D introdujo la indirección de dos fases cuenta_operativa→empleado-fallback — push-subscription-repository.test.ts's CHANNEL_ENUM_SCHEMA_CONTRACT todavía espera el enum SIN cuenta_operativa (1 fail/58); mesa-order-ready-notification.test.ts, operations-cancellation-notification.test.ts, salon-new-order-notification.test.ts tienen mocks de pushSubscription.findMany que no modelan el nuevo flujo de dos fases (11 fails combinados) — fallan incluso en aislamiento, confirmado archivo por archivo, diagnóstico completo en el reporte. NO bloquea la primera acción física (el switch, camino de código 100% distinto y verde).
+FOCAL_TESTS_SWITCH_CORE=185 pass/0 fail (push/status+subscribe+unsubscribe+debug-guard route.test.ts, push-subscription-http/key, operations-cancellation-push, push.test.ts) — esto es lo único que certifica la primera acción física de esta tarea
+RUIDO_PREEXISTENTE_NO_REGRESIVO=mozo/pyr/salon panel push-subscription route.test.ts pasan 12/12,5/5,12/12 cada uno en aislamiento, sólo fallan combinados en una misma invocación de bun test (mismo patrón ya documentado en el cierre de H2, no investigado más a fondo por estar fuera de alcance)
+LINT=0 findings / DIFF_CHECK=limpio / BUILD=exit 0 / TYPECHECK=31 (baseline)
+
+T44_TEST_ACCOUNT=test_t44_r1d_4135ea7a@example.test (password runtime-only renovada, no persistida) / T44_ACCOUNT_SETTINGS_URL=https://deligo-copy-production.up.railway.app/operaciones/cuenta / T44_LOGIN_URL=https://deligo-copy-production.up.railway.app/operaciones/ingresar
+
+PRIMERA_ACCION_FISICA=SOLO el switch ON/OFF de /operaciones/cuenta, sin elegir negocio primero — NO se envía Push de prueba todavía (no hace falta para esta primera acción)
+T23_PRODUCT_CODE_TOUCHED=NO / T24_TOUCHED=NO / T44_TOUCHED=SI (sólo verificación/reconciliación, cero código modificado)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_T44_R1E_ACCOUNT_PUSH_SWITCH_TEST
+```
+
+Reporte completo (corrección de premisa H4, preflight de Git, reconciliación
+de ancestry, verificación de migración/fixture por consulta directa a la
+base real, auditoría completa de switch/subscribe/disable/logout/
+producers/fallback por lectura de código, diagnóstico detallado del
+blocker de 4 tests, ready gate):
+`codex-reports/P2_T44_R1E_ACCOUNT_LEVEL_PUSH_PHYSICAL_CERT_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H4 PREPARATION (2026-09-15)
+
+Preparación de una sonda física dedicada de 1 min quieto + 3 min caminando
++ 1 min quieto, exclusivamente con el dispositivo Repartidor Testing
+(`CLIENT_DEVICE_PRESENT=NO`), para calibrar offline el filtro de
+movimiento (`effectiveTrajectoryPointThresholdMeters`,
+`max(5, 0.5×(accPrev+accNext))`) sin tocar todavía nada de lo ya validado
+(batch age, playback, registerResync, realtime, T24 matching, RAW
+authority).
+
+```text
+P2_T23_H4_STATUS=READY_FOR_OPERATOR_FILTER_CALIBRATION_PROBE
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION (sin cambios)
+H2A_PHYSICAL_VALIDATION=PASS / H2B_PHYSICAL_PASS=SI (heredado, sin cambios)
+CURRENT_FILTER_FORMULA=max(5, 0.5×(accuracy_previous+accuracy_next)) — CURRENT_MIN_DISTANCE_METERS=5, CURRENT_ACCURACY_WEIGHT=0.5 (confirmado leyendo tracking-trajectory.ts real)
+BLOQUEADOR_REAL_ENCONTRADO=buildSampleFromPosition nunca lee position.coords.speed — se descarta antes de llegar al filtro o a cualquier witness; a diferencia de lat/lng/accuracy/capturedAt (reconstruibles offline desde el wire), speed es un valor medido por el dispositivo que se pierde para siempre si no se captura en el momento de la sonda
+FIX_AUTORIZADO_POR_OPERADOR=SI (misma dinámica que el bloqueador de H3B — pregunta explícita hecha y respondida "Sí, deployar antes de la sonda")
+CODE_CHANGED=SI — witness-only: nuevo campo speedMps en gps_callback_received (T24PhysicalWitnessEvent + allowlist del servidor), leído de position.coords.speed en los 2 call-sites que ya tienen el GeolocationPosition crudo en alcance (handleWatchSuccess + one-shot getCurrentPosition), enhebrado como parámetro simple por observeSample/considerSampleForDelivery; TrackingLocationSample/buildSampleFromPosition/acceptTrackingTrajectoryPoint SIN TOCAR, sin cambio de comportamiento
+H4_COMMIT_SHA=3d2bf94 ("test: capture GeolocationCoordinates.speed for H4 filter calibration probe")
+NO_SE_NECESITO_OTRO_CAMBIO=el valor real de effectiveTrajectoryPointThresholdMeters por decisión es 100% reconstruible offline desde previousAccuracyMeters/currentAccuracyMeters (ya capturados desde H1) — no se agregó un campo redundante para esto
+FOCAL_TESTS=use-repartidor-tracking.test.ts 92 pass/0 fail / LINT=0 findings / DIFF_CHECK=limpio / TYPECHECK=31 (baseline) / BUILD=exit 0
+CURRENT_REMOTE_TESTING_SHA=3d2bf941f5936fe8754ca320c1f888c2e199bbe9
+DELIGO_TESTING_DEPLOYMENT_ID=3112bdf0-887d-4f09-bbcd-5292b9a36b55 (SUCCESS, commit match, boot limpio)
+FIXTURE_PRESENT=SI / ORDER_STATE=en_camino / DRIVER_ASSIGNED=SI / TRACKING_ENABLED=SI
+H4_BASELINE_REVISION=118 (coincide con H3B_BASELINE_REVISION=118, sin escrituras desde entonces)
+REPARTIDOR_TEST_IDENTITY_VERIFIED=SI (round-trip real, password runtime-only renovada, no persistida) / REPARTIDOR_URL=https://deligo-copy-production.up.railway.app/repartidor
+GPS_CALLBACK_WITNESS_READY=SI / MOVEMENT_DECISION_WITNESS_READY=SI / BUFFER_BATCH_WITNESS_READY=SI / POST_CORRELATION_READY=SI / SPEED_FIELD_WITNESS_READY=SI (tras el fix de esta tarea)
+PHASE_BOUNDARY_METHOD=FIXED_DURATION_FROM_FIRST_GPS_CALLBACK (ancla t=0 = primer gps_callback_received de la sesión limpia, sin nuevo código productivo sólo para marcar fases; misma metodología anti-remount de H3A/H3B: ordenar por receivedAt real, verificar callbackSequence monótono)
+CLIENT_DEVICE_REQUIRED=NO
+T24_WAITS=SI (sin cambios) / P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO
+T44_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_H4_FILTER_CALIBRATION_PROBE
+```
+
+Reporte completo (bloqueador de preparación y su fix witness-only, deploy
+verificado, fixture/cuenta/witness confirmados, protocolo exacto para el
+operador, boundary de fases, lista de métricas a extraer, diseño de
+réplica offline y criterio de seguridad para candidatos de filtro):
+`codex-reports/P2_T23_H4_FILTER_CALIBRATION_PROBE_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H3B ANALYSIS: H2B CERTIFIED (2026-09-15)
+
+Análisis de la sonda física client-only (sin dispositivo Repartidor,
+`H3B_SCOPE=CLIENT_STATE_RESYNC_ONLY`). Operador: `RECUPERO_SOLO=SI`,
+`APARECIO_RECARGAR=NO`, `TOQUE_RECARGAR=NO`,
+`TIEMPO_APROX_RECUPERACION=NO_MEDIDO_POR_OPERADOR`. 62 eventos witness
+extraídos de la ventana `20:23:03Z-20:25:11Z` (deployment `5017f88`,
+posterior a la preparación H3B).
+
+```text
+H2B_PHYSICAL_PASS=SI
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION
+CADENA_TECNICA_CONFIRMADA=network/lifecycle transition (reconnect_attempt 20:23:47.886Z, sin "offline" limpio observado — un handoff WiFi→celular no siempre lo emite) → connection_established (20:23:50.646Z, ~2.76s de reconexión) → client_resync_triggered ×2 (20:23:51.456Z/.462Z, 0.81s después) → initial_http_request (+3ms, imposible de confundir con el poll de 20s) → initial_http_response 200 (+346ms) → client_revision_observed + client_stale_recovery + client_http_snapshot (recuperación de estado confirmada), TODO sin manual reload
+CLIENT_RESYNC_TRIGGER_COUNT=4 total (2 del connect inicial a las 20:23:06Z, ruido de arranque esperado; 2 ligados específicamente a la transición de red bajo prueba a las 20:23:51Z)
+RESYNC_TRIGGERED_FETCH_CONFIRMED=SI (latencia resync→request de 3ms — la señal witness-only agregada en H3B prep cumplió exactamente su propósito de desambiguar causalidad)
+HTTP_LATEST_STATUS=200 / HTTP_LATEST_LOCATION_REVISION=118 (sin cambio — correcto, no hubo GPS del Repartidor en esta sonda)
+CLIENT_RECOVERED_AUTOMATICALLY=SI / CLIENT_RECOVERY_PATH=RESYNC_HTTP / MANUAL_RELOAD_USED=NO / RETRY_UI_SHOWN=NO
+TECHNICAL_RECOVERY_LATENCY_MS=3921 (desde la primera señal técnica de la transición hasta la confirmación de recuperación del Cliente) / OPERATOR_RECOVERY_LATENCY=NOT_MEASURED (no inventado)
+NETWORK_OFFLINE_EVENT=NOT_OBSERVABLE / REALTIME_DISCONNECT_OBSERVED=NO / REALTIME_REAUTH_OBSERVED=NO (este handoff usó reconnect_attempt→connecting→connection_established, no reauthenticating — distinto de los ciclos de reauth periódica vistos en H3A; consistente con que un cambio de red real rompe el transporte en vez de sólo refrescar un token)
+ROOM_REJOIN_OBSERVED=NOT_APPLICABLE (el witness de este componente no tiene un marcador dedicado para esa capa, distinta de state resync — no se confunden)
+REALTIME_ROOM_REJOIN_LOGIC_CHANGED=NO / POLLING_CADENCE_CHANGED=NO / NORMAL_POLL_DURING_RECOVERY_WINDOW=NO
+H3A_PRIMARY_OBJECTIVE_RESULT=ACHIEVED / OPERATOR_VISUAL_RESULT=MIXTO_PARTIAL_IMPROVEMENT (sin cambios, heredado de H3A — T23 NO se cierra: falta decidir si calibrar el filtro de movimiento para buscar SUAVE)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO (sin cambios, pese a que H3A ya cumplió técnicamente sus gate conditions — no se continúa T24 en esta tarea)
+T44_TOUCHED=NO
+CODE_CHANGED=NO (sólo extracción y análisis de logs en esta tarea de análisis)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=OPERATOR_DECISION (autorizar P2-T23-H4 — preparación de sonda dedicada de calibración de estacionario 1min quieto+3min caminata+1min quieto — para evaluar los Candidatos 2/3 del filtro de movimiento y potencialmente llevar MOVIMIENTO de MIXTO a SUAVE; T24 R6 sigue disponible como decisión separada, dado que sus gate conditions ya se cumplieron técnicamente en H3A)
+```
+
+Reporte completo (extracción/dedupe de 62 eventos, distinción exacta entre
+los 2 resync triggers de arranque y los 2 ligados a la transición de red,
+cadena de latencias completa, evaluación explícita de cada criterio PASS,
+distinción room-rejoin vs state-resync):
+`codex-reports/P2_T23_H3B_REALTIME_RECOVERY_PHYSICAL_PROBE_ANALYSIS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H3B PREPARATION (2026-09-15)
+
+Preparación de una sonda MUY corta y aislada para certificar SOLO H2B
+(`client.registerResync → fetchTracking → recuperación automática`) ante
+una transición real WiFi→datos móviles en el Cliente. NO prueba suavidad
+RAW, NO toca filtro de movimiento/batch age, NO continúa T24 R6.
+
+```text
+P2_T23_H3B_STATUS=READY_FOR_OPERATOR_WIFI_TO_CELLULAR_PROBE
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_AWAITING_H2B_PHYSICAL_CERTIFICATION (sin cambios)
+H3A_PRIMARY_OBJECTIVE_RESULT=ACHIEVED / OPERATOR_VISUAL_RESULT=MIXTO_PARTIAL_IMPROVEMENT (sin cambios, heredado de H3A)
+BLOQUEADOR_REAL_ENCONTRADO=fetchTracking() emite el mismo witness (initial_http_request/initial_http_response) sin importar si lo dispara el poll de rutina (8s/20s) o el resync de H2B — imposible distinguir causalidad sin una señal dedicada, especialmente con una ventana de sonda (<=60s) más corta que el heartbeat de poll de 20s
+FIX_AUTORIZADO_POR_OPERADOR=SI (pregunta explícita hecha y respondida "Sí, deployar antes de la sonda")
+CODE_CHANGED=SI — witness-only: un único recordT24PhysicalWitness({event:"client_resync_triggered",channel:"REALTIME"}) dentro del callback de registerResync en delivery-tracking-map.tsx, sin campos nuevos de tipo, sin cambios de comportamiento; 2 aserciones de delivery-tracking-map-resync-contract.test.ts corregidas (ventanas de bytes fijas obsoletas → búsqueda del marcador real de cierre del efecto, aserciones sin debilitar)
+H3B_COMMIT_SHA=5017f88 ("test: add witness-only resync-trigger signal for H3B certification")
+FOCAL_TESTS=36 pass/0 fail (resync/stale/consumer contracts) + 228 pass/0 fail (use-repartidor-tracking+tracking-trajectory+tracking-playback+realtime-manager+chat-history-resync) / LINT=0 findings / DIFF_CHECK=limpio / TYPECHECK=31 (baseline) / BUILD=exit 0
+CURRENT_REMOTE_TESTING_SHA=5017f884f5b54690e6d3769517aa28b2b2c77554
+DELIGO_TESTING_DEPLOYMENT_ID=26d72b85-5096-4a0a-a7ed-91fcb8336e09 (SUCCESS, commit match, boot limpio)
+H2B_PRESENT_IN_DEPLOYMENT=SI / H3B_WITNESS_SIGNAL_PRESENT_IN_DEPLOYMENT=SI
+REALTIME_ROOM_REJOIN_LOGIC_CHANGED=NO / POLLING_CADENCE_CHANGED=NO / MOVEMENT_FILTER/BATCH_AGE/HIGH_ACCURACY/PLAYBACK/MATCHING_CHANGED=NO
+FIXTURE_PRESENT=SI / ORDER_STATE=en_camino / DRIVER_ASSIGNED=SI / TRACKING_ENABLED=SI
+H3B_BASELINE_REVISION=118 (coincide con H3A_WITNESS_END_REVISION=118, sin escrituras desde entonces)
+REPARTIDOR_TEST_IDENTITY_VERIFIED=SI / CLIENT_TEST_IDENTITY_VERIFIED=SI (round-trip real, passwords runtime-only renovadas, no persistidas)
+REPARTIDOR_URL=https://deligo-copy-production.up.railway.app/repartidor
+CLIENT_TRACKING_URL=https://deligo-copy-production.up.railway.app/cliente?pedidoId=cmu1p548z0006riv8ntyibf0w
+CLIENT_LIFECYCLE_WITNESS_READY=SI / CLIENT_REALTIME_WITNESS_READY=SI / CLIENT_HTTP_WITNESS_READY=SI / SERVER_TRACKING_WITNESS_READY=SI
+ESCENARIO_UNICO_PREPARADO=WiFi→datos móviles en el Cliente, sin background, sin bloqueo de pantalla — reproduce el síntoma de R5.14B/H1 que exigió Recargar
+T24_WAITS=SI (sin cambios) / P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO
+T44_TOUCHED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_H3B_WIFI_TO_CELLULAR_PROBE
+```
+
+Reporte completo (bloqueador de preparación y su fix witness-only, deploy
+verificado, fixture/cuentas/witness confirmados, protocolo exacto para el
+operador, criterios PASS/FAIL, lista de métricas post-probe):
+`codex-reports/P2_T23_H3B_REALTIME_RECOVERY_PHYSICAL_PROBE_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H3A ANALYSIS (2026-09-15)
+
+Análisis de la sonda física corta (operador: `MOVIMIENTO=MIXTO`,
+`FREEZE=NO`). Logs extraídos vía `railway logs` (3 tramos superpuestos por
+el cap de 500 líneas), 340 eventos witness únicos, ventana
+`H3A_WITNESS_START_REVISION=104` → `H3A_WITNESS_END_REVISION=118` (14
+escrituras). Dos remounts de arranque (ráfagas de 6 callbacks reiniciando
+`callbackSequence`, gap de 248s entre ellas) identificados y excluidos de
+las métricas de cadencia — el segmento limpio (321.2s continuos,
+callbackSequence 7→84) es la base de este análisis, igual metodología que
+R5.14B (ordenar por `receivedAt` real, nunca por `callbackSequence`).
+
+```text
+P2_T23_H3A_STATUS=ANALYZED_PRIMARY_OBJECTIVE_ACHIEVED_PARTIAL_SMOOTHNESS
+P2_T23_STATUS=REOPENED_H2A_PHYSICALLY_VALIDATED_AWAITING_H2B_PHYSICAL_CERTIFICATION
+H3A_PRIMARY_OBJECTIVE_RESULT=ACHIEVED — BATCH_POINT_COUNT_MEDIAN pasó de 1 (R5.14B, pre-H2) a 2 (H3A, post-H2); BATCHES_WITH_2_PLUS_POINTS_PERCENT pasó de 0% a 90.9% (10/11 batches); FLUSH_REASON se invirtió de 9×MAX_AGE/1×MAX_DISTANCE a 2×MAX_AGE/9×MAX_DISTANCE — exactamente la firma predicha en H2 §3 (el batch age deja de ser cuello de botella; el nuevo techo natural es la distancia acumulada de 30m)
+GPS_CALLBACK_INTERVAL_MEDIAN_MS=4280 (segmento limpio, n=78), consistente con R5.14B (4411ms) — cadencia del sensor reproducible, sin cambios (MOVEMENT_FILTER_CHANGED=NO confirmado en campo)
+MOVEMENT_ACCEPTANCE_RATE=23.1% (segmento limpio), comparable a R5.14B (24.7%) — sin cambios, como se esperaba
+WITNESS_WAIT_REASON_LABEL_FIXED_CONFIRMED_PHYSICALLY=SI (10 defers, todos correctamente atribuidos a BATCH_AGE_WAIT, cero NETWORK_MIN_SEND_INTERVAL espurios)
+HEARTBEAT_ANCHOR_PHYSICAL_OBSERVATION=NOT_EXERCISED (GPS_CALLBACK_INTERVAL_MAX_MS=9636 en el segmento limpio, muy por debajo del umbral de 60000ms — caminata demasiado corta/continua para disparar heartbeat naturalmente; comportamiento ya cubierto por el test automático H01)
+VISUAL_FRESHNESS_ACCEPTABLE=UNPROVEN (latencia captura→render con mediana ~8.7s pero muestra correlacionable pequeña, n=11 de 14 POSTs — no se fuerza conclusión)
+OPERATOR_VISUAL_RESULT=MIXTO_PARTIAL_IMPROVEMENT (mejora respecto de SALTOS de R5.14B, pero no llega a SUAVE — techo estructural conocido del filtro de movimiento sin tocar en esta tarea, requiere Candidatos 2/3 de H2 §6 con probe de estacionario dedicado, todavía no ejecutado)
+FREEZE=NO (mejora incidental respecto del freeze de R5.14B; no investigado causalmente, fuera de alcance)
+DB_MATCHED_DATA_PERSISTED=NO (confirmado en las 14 revisiones publicadas, sin excepción — RAW authority intacta)
+PROVIDER_ATTEMPTS=2 (observación lateral NO accionada: batches de 3-4 puntos ahora cruzan el umbral interno que dispara un intento de matching T24, algo que R5.14B con batches de 1 punto nunca alcanzaba; ambos intentos rechazados por low_confidence, mismo patrón que PHYSICAL2)
+T24_R6_GATE_CONDITIONS_FROM_H1_TECHNICALLY_MET=SI (BATCH_POINT_COUNT_MEDIAN>1 y PROVIDER_ATTEMPTS>0, ambas condiciones fijadas en H1 ahora cumplidas físicamente) — esto NO es autorización para reabrir T24 R6, sólo un hallazgo registrado para una futura decisión explícita del operador
+H2B_INCIDENTAL_REAUTH_CYCLES_OBSERVED=2 (ciclos reauthenticating→connected de ~2.3s cada uno durante la caminata, recuperación limpia, técnicamente ejercitan client.registerResync vía el reauth periódico del RealtimeManager) — registrado como observación incidental, NO usado como certificación formal de H2B (esa sigue pendiente de una sonda H3B dedicada con transición de red deliberada)
+P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO
+T44_TOUCHED=NO
+CODE_CHANGED=NO (sólo extracción y análisis de logs)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=OPERATOR_DECISION (autorizar H3B — sonda dedicada de recuperación de red para certificar H2B — y/o autorizar la sonda dedicada de calibración de estacionario 1min quieto+3min caminata+1min quieto para desbloquear los Candidatos 2/3 del filtro de movimiento y potencialmente llevar MOVIMIENTO de MIXTO a SUAVE)
+```
+
+Reporte completo (extracción y deduplicación de 340 eventos witness,
+identificación de los dos remounts de arranque, tabla comparativa completa
+contra R5.14B, todas las métricas de §9/§10 de la preparación, observación
+lateral de T24 provider attempts, observación incidental de reauth/H2B):
+`codex-reports/P2_T23_H3A_RAW_DENSITY_PHYSICAL_PROBE_ANALYSIS.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H3A PREPARATION (2026-09-15)
+
+Preparación (sin código, sin caminata) de una sonda física corta para
+validar SOLO la calibración RAW de H2A (densidad/suavidad de batch) en el
+deployment TESTING ya desplegado. H2B (network recovery) queda
+explícitamente diferido a una H3B dedicada — durante H3A el operador
+mantiene la misma conectividad todo el tiempo, sin WiFi→datos, sin
+background, sin bloqueo de pantalla.
+
+```text
+P2_T23_H3A_STATUS=READY_FOR_OPERATOR_WALK (superado — ver análisis arriba)
+P2_T23_STATUS=REOPENED_TESTING_HARDENING_IMPLEMENTED_AWAITING_OPERATOR_PROBE (histórico, superado)
+CURRENT_REMOTE_TESTING_SHA=1e241ffdfe9ff6f81bb00dd909ad649b3a47879c (sin drift respecto de H2)
+DELIGO_TESTING_DEPLOYMENT_ID=37a8f80d-62bf-4564-b994-a155a9e06a8e (SUCCESS, commit match)
+H2A_PRESENT_IN_DEPLOYMENT=SI / H2B_PRESENT_IN_DEPLOYMENT=SI (verificado leyendo el árbol git del commit desplegado, no sólo el working tree)
+MAX_MOVING_BATCH_AGE_MS=15000 / MAX_BATCH_DURATION_MS=16000 / MAX_STALE_TRAJECTORY_BUFFER_AGE_MS=16000 / MIN_SEND_INTERVAL_MS=5000 (todas confirmadas en el commit desplegado)
+MOVEMENT_FILTER_CHANGED=NO / HIGH_ACCURACY_CHANGED=NO
+FIXTURE_PRESENT=SI / ORDER_STATE=en_camino / DRIVER_ASSIGNED=SI / TRACKING_ENABLED=SI (consulta directa a la base real de TESTING, no asumida)
+H3A_BASELINE_REVISION=104 (coincide con PROBE_LAST_REVISION=104 de R5.14B — sin escrituras de ubicación desde entonces)
+REPARTIDOR_TEST_IDENTITY_VERIFIED=SI / CLIENT_TEST_IDENTITY_VERIFIED=SI (round-trip real con hashPassword/comparePassword de src/lib/auth.ts, passwords runtime-only renovadas, no persistidas)
+REPARTIDOR_URL=https://deligo-copy-production.up.railway.app/repartidor
+CLIENT_TRACKING_URL=https://deligo-copy-production.up.railway.app/cliente?pedidoId=cmu1p548z0006riv8ntyibf0w
+DEFER_REASON_WITNESS_READY=SI (NETWORK_MIN_SEND_INTERVAL/BATCH_AGE_WAIT/ADAPTIVE_BATCH_WAIT/OTHER, confirmado en allowlist del servidor)
+TODOS_LOS_DEMAS_WITNESS_CHANNELS_READY=SI (GPS callback, movement decision, throttle, buffer/batch, POST correlation, client realtime, client playback)
+H3A_TESTS_ONLY=RAW_DENSITY_SMOOTHNESS (H2B network recovery explícitamente diferido a H3B dedicada)
+FOCAL_TESTS=108 pass/0 fail (use-repartidor-tracking + tracking-trajectory + delivery-tracking-map-resync-contract) / DIFF_CHECK=limpio
+T24_WAITS=SI (sin cambios) / P2_T24_READY_FOR_R6=NO / P2_T24_RELEASE_ELIGIBLE=NO
+T44_TOUCHED=NO
+CODE_CHANGED=NO (sólo preparación: verificación de deploy/constantes/fixture/cuentas/witness + reset de 2 passwords runtime-only en DB de TESTING)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_OPERATOR_H3A_SHORT_WALK
+```
+
+Reporte completo (verificación exacta del commit desplegado, consulta
+directa a la base de datos real, lista completa de métricas a capturar
+post-caminata, boundary de revisión, instrucciones al operador):
+`codex-reports/P2_T23_H3A_RAW_DENSITY_PHYSICAL_PROBE_PREPARATION.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H2 (2026-09-15)
+
+Implementación autorizada (calibración empírica RAW + hardening de resync
+realtime), desplegada a TESTING. NO physical probe, NO high-accuracy probe,
+NO T24 R6, NO Production — todos explícitamente fuera de alcance de esta
+tarea, en espera de autorización del operador.
+
+```text
+P2_T23_H2_STATUS=IMPLEMENTED_TESTING_DEPLOYED
+P2_T23_STATUS=REOPENED_TESTING_HARDENING_IMPLEMENTED_AWAITING_OPERATOR_PROBE
+R5_14B_RAW_CALLBACK_REPLAY_AVAILABLE=SI (55 muestras reales recuperadas vía railway logs sobre el deployment histórico del mismo día; 280 eventos witness únicos recuperados de un total estimado ~287+, huecos honestamente registrados en callbackSequence 13-23/39/43/80+)
+BASELINE_REPLAY_MATCHES_PHYSICAL_BEHAVIOR=SI (0 discrepancias entre el replay offline contra MAX_MOVING_BATCH_AGE_MS=3000 original y el comportamiento físico realmente registrado — autoriza confiar en el harness antes de evaluar candidatos)
+BATCH_AGE_ONLY_SUFFICIENT=PARCIAL (mejora real de 0%→66.7% de batches con 2+ puntos de wire, pero con techo estructural en ~2 puntos/batch bajo el filtro de movimiento actual — BATCH_ACCUMULATED_DISTANCE_FLUSH_THRESHOLD_METERS=30 dispara flush por distancia casi inmediatamente después de 2 puntos, sin importar cuánto se suba la edad)
+STATIONARY_CALIBRATION_DATA_SUFFICIENT=NO (sólo una corrida de 4 muestras casi-idénticas dentro de un segmento de caminata continua, no un período de quietud dedicado — insuficiente para validar un nuevo filtro de movimiento sin riesgo de falsos positivos en reposo real)
+SELECTED_FILTER_DESIGN=CANDIDATE_1_BATCH_AGE_ONLY (Candidatos 2 time+distance [23.6% aceptación simulada] y 3 speed-aware [56.4%] evaluados pero NO implementados — bloqueados por STATIONARY_CALIBRATION_DATA_SUFFICIENT=NO, registrados como NEEDS_DEDICATED_CALIBRATION_PROBE con diseño de sonda preparado 1min quieto+3min caminata+1min quieto, no ejecutado)
+SELECTED_POLICY_REASON=único candidato validable sin una sonda física dedicada de estacionario; preserva RAW authority, bajo riesgo, funciona con la cadencia PWA irregular real (mediana 4411ms de callback GPS, 4.0s-17.3s de rango entre puntos ACEPTADOS)
+SELECTED_MAX_MOVING_BATCH_AGE_MS=15000 (antes 3000)
+SELECTED_MAX_BATCH_DURATION_MS=16000 (antes 5000; debe ser >= MAX_MOVING_BATCH_AGE_MS para que el corte de prefijo de buildTrackingTrajectoryBatch nunca trunque un batch recién vencido)
+MAX_STALE_TRAJECTORY_BUFFER_AGE_MS=16000 (constante NUEVA, separada de MAX_LOCAL_TRAJECTORY_AGE_MS que queda en 5000 y ahora sólo gobierna frescura de muestra individual — evita que el reset de seguridad del buffer dispare antes que el flush calibrado)
+MOVEMENT_FILTER_CHANGED=NO / HIGH_ACCURACY_CHANGED=NO / MIN_SEND_INTERVAL_CHANGED=NO
+HEARTBEAT_ANCHOR_FIXED=SI (gap de H1 §7: tras un heartbeat con buffer vacío, buffer.anchor se realinea a la posición confirmada por el heartbeat en vez de quedar stale contra la posición pre-heartbeat; test de comportamiento nuevo H01 en use-repartidor-tracking.test.ts)
+WITNESS_WAIT_REASON_LABEL_FIXED=SI (deferReason: NETWORK_MIN_SEND_INTERVAL vs BATCH_AGE_WAIT, witness-only; además se corrigió flushReason que estaba hardcodeado y habría etiquetado mal cada flush post-calibración)
+SINGLE_FLIGHT_REGRESSION_SUITE=PASS (test preexistente fallando corregido con justificación contractual demostrada: dos fireWatchSuccess con timestamps idénticos disparaban correctamente el guard non_monotonic_timestamp de la nueva capa de trajectory buffer; se agregó advanceTime(1), la aserción original no se tocó)
+H2B_REGISTER_RESYNC_IMPLEMENTED=SI (delivery-tracking-map.tsx, mismo patrón que chat-view/chat-sheet/chat-fab; callback vía ref a fetchTracking, efecto separado del de acquireOrderRoom, deps [open, pedidoId, client])
+REALTIME_ROOM_REJOIN_LOGIC_CHANGED=NO / POLLING_CADENCE_CHANGED=NO
+TESTS=use-repartidor-tracking.test.ts 92 pass/0 fail; tracking-trajectory+tracking-playback+realtime-manager+delivery-tracking-map-stale-contract+delivery-tracking-map-resync-contract 81 pass/0 fail; t24-r5-13-instrumentation 5 pass/0 fail; suite completa del repo 3354 pass/212 fail (los 212 fallos son TODOS de push-subscription/operativo/salon, fuera del fileset de esta tarea, confirmados como ruido preexistente de la corrida completa — el archivo específico pasa 12/12 en aislamiento — NO una regresión de esta tarea)
+LINT=0 findings (focal, 8 archivos modificados/creados) / DIFF_CHECK=limpio / BUILD=exit 0 / TYPECHECK=31 errores, igual al baseline preexistente documentado, 0 nuevos
+H2A_COMMIT_SHA=0843bfc (fix: calibrate raw tracking trajectory producer)
+H2B_COMMIT_SHA=1e241ff (fix: resync delivery tracking state after recovery)
+REMOTE_TESTING_SHA=1e241ffdfe9ff6f81bb00dd909ad649b3a47879c
+DELIGO_COPY_DEPLOYMENT_ID=37a8f80d-62bf-4564-b994-a155a9e06a8e (SUCCESS, commit match)
+CHAT_EN_VIVO_DEPLOYMENT_ID=977fc1e5-9846-4584-ae16-82e58ba36049 (SUCCESS, commit match)
+LOGS_CLEAN_BOOT=SI (ambos servicios, sin errores fatales, migraciones al día)
+P2_T24_READY_FOR_R6=NO
+P2_T24_RELEASE_ELIGIBLE=NO
+T44_TOUCHED=NO
+PRODUCTION_TOUCHED=NO (origin/main verificado sin cambios antes/después: ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763)
+NEXT_ACTION=WAIT_FOR_OPERATOR_AUTHORIZED_PHYSICAL_PROBE (confirmar en campo: 2+ puntos/batch reales, comportamiento de heartbeat-anchor, y que el resync H2B efectivamente refresca el mapa del cliente tras una reconexión real)
+```
+
+Reporte completo (metodología de replay offline, 4 evidencias de errores
+encontrados y corregidos durante el desarrollo del harness, tabla de 3
+candidatos evaluados, detalle línea-por-línea de cada fix, resultados de
+calidad completos, commits, deploy):
+`codex-reports/P2_T23_H2_CALIBRATED_RAW_AND_REALTIME_HARDENING.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H1.5 (2026-09-15)
+
+Benchmark externo (research-only, sin código) contrastando la arquitectura
+actual de tracking contra prácticas públicas de Uber, DoorDash, Grab, Mapbox,
+Google Roads, OSRM y Socket.IO — hecho antes de autorizar H2A/H2B para evitar
+fijar parámetros a ciegas.
+
+```text
+P2_T23_H1_5_STATUS=RESEARCH_COMPLETE_ARCHITECTURE_DECIDED_AWAITING_AUTHORIZATION
+HALLAZGO_CENTRAL=la cadencia RAW del sensor de DeliGO (mediana 4411ms) YA es competitiva con la recomendación pública de Mapbox para map matching (~5000ms) — el sensor NO es el problema. El problema real es matemático: con sólo 19/81 callbacks decididos aceptados por el filtro de movimiento (~23.5%), el espaciado PROMEDIO entre puntos aceptados es ≈26.6s (506s de ventana / 19 aceptados) — subir sólo MAX_MOVING_BATCH_AGE_MS (Opción G de H1) exigiría ventanas de ~27-53s para lograr 2-3 puntos/batch, inaceptable para frescura visual. CORRECCIÓN DE H1: la edad de batch sigue siendo necesaria pero NO suficiente sola — debe combinarse con un ajuste conservador del filtro de movimiento (time-distance/speed-aware, validado con probe, nunca "aflojado a ciegas")
+BENCHMARK_INDUSTRIA=Uber (sensor fusion + particle filter + GNSS crudo nativo, inaccesible desde Web — Rethinking GPS blog 2018), DoorDash (batch vía Kafka "every few seconds", device-identity filtering isFromMainDevice), Grab (Pharos: proyección a red vial EN TIEMPO DE CONSULTA, nunca persistida como verdad — valida el diseño RAW-authority de DeliGO), Mapbox (2-100 puntos, ~5s sample rate, confidence 0-1), Google Roads (100 puntos, ≤300m spacing), OSRM Match (timestamps opcionales, radiuses, gaps split/ignore, confidence)
+PWA_VS_NATIVE=confirmado que la Web Geolocation API (W3C spec) NO garantiza cadencia de callback, NO garantiza fuente GPS, y enableHighAccuracy es sólo un HINT ("MAY avoid using... GPS" incluso activado) — DeliGO ya adapta correctamente en vez de asumir control. Background tracking sigue siendo un techo estructural real de PWA (sin cambios respecto de P2-T02-B2/B3, ya resuelto con best-effort honesto, no se reabre)
+REALTIME_RECOVERY_REFORZADO=la propia documentación oficial de Socket.IO (Connection State Recovery) confirma que un reconnect exitoso NO es suficiente por sí solo — "you will still need to handle the case where the states of the client and the server must be synchronized" — validando externamente el gap ya encontrado en H1 (delivery-tracking-map.tsx nunca llama client.registerResync, a diferencia de chat)
+CLIENT_PLAYBACK=CURRENT_T23_PLAYBACK_ARCHITECTURE=ALIGNED, PLAYBACK_REWRITE_REQUIRED=NO — el controlador de reproducción (interpolación 250-1200ms, catch-up acotado, snap tras gap, sin extrapolación futura) ya sigue el patrón recomendado externamente; el problema nunca fue el playback
+RAW_AUTHORITY_DESIGN_VALID=SI (confirmado contra las 3 compañías estudiadas — ninguna persiste la coordenada snapeada como ground truth)
+RECOMMENDED_OPTION=OPTION_A (arquitectura actual con parámetros corregidos — sin refactor mayor, sin wrapper nativo; nada en la evidencia externa sugiere que el problema de suavidad requiera salir de la PWA)
+REVISED_H2A_SCOPE=batch age (ajustado junto con MAX_BATCH_DURATION_MS) + filtro time-distance/speed-aware conservador + alineación de heartbeat anchor + corrección de etiquetas de witness — requiere probe de validación antes de fijar números finales
+REVISED_H2B_SCOPE=sin cambios respecto de H1 — client.registerResync en delivery-tracking-map.tsx, reforzado por la doc oficial de Socket.IO
+T24_WAITS=SI (sin cambios — sigue esperando a que H2A revisado produzca trazas con ≥2-3 puntos reales)
+T44_TOUCHED=NO
+CODE_CHANGED=NO / DEPLOY_PERFORMED=NO / PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_POST_BENCHMARK_IMPLEMENTATION_AUTHORIZATION
+```
+
+Reporte completo (tabla comparativa de 3 providers de map matching, tabla PWA
+vs Native de 8 capacidades, matemática exacta del benchmark Mapbox, tabla de
+7 alternativas de filtrado, arquitectura de referencia end-to-end, 13 fuentes
+citadas con URL): `codex-reports/P2_T23_H1_5_EXTERNAL_TRACKING_BENCHMARK.md`.
+
+## HISTORICAL SNAPSHOT — P2-T23-H1 (2026-09-15)
+
+Auditoría de diseño (sin código) sobre la evidencia física válida de R5.14B
+(caminata corta con las cuentas Testing correctas, 84 callbacks GPS, 15
+escrituras server-side, revisión 89→104). Confirma y explica por código el
+ownership ya establecido: los saltos visuales son responsabilidad de P2-T23
+(buffer/batch del productor RAW), nunca de P2-T24 (map matching, nunca
+invocado en esta ventana — `PROVIDER_ATTEMPTS=0`).
+
+```text
+P2_T23_H1_STATUS=AUDIT_COMPLETE_DESIGN_READY_FOR_AUTHORIZATION
+STEPWISE_BOTTLENECK_STAGE=BUFFER_BATCH (confirmado por código, no sólo por evidencia agregada)
+STEPWISE_ROOT_CAUSE_MECHANISM=MAX_MOVING_BATCH_AGE_MS=3000ms es MENOR que la mediana real de cadencia GPS (4411ms) — el timer de edad del batch vence antes de que llegue el siguiente callback, forzando flushes de 1 punto de forma determinista (no probabilística), explicando 9/10 flushes MAX_AGE
+MOVEMENT_FILTER_CORRECTION=la fórmula max(15m, accNew+accPrev) que originalmente motivó esta auditoría YA NO gatea nada — fue reemplazada por tracking-trajectory.ts's effectiveTrajectoryPointThresholdMeters (max(5m, 0.5×(accPrev+accNext)), ≈16.9m a la accuracy mediana observada) desde que existe el buffer de trayectoria (P2-T23 R3A); la fórmula vieja sólo sobrevive como metadato de diagnóstico sin efecto real — MOVEMENT_FILTER_IS_MAJOR_DENSITY_LOSS=SI de todas formas (75.3% de rechazo, porque el desplazamiento peatonal típico entre callbacks ~5-6m es menor que el umbral ~16.9m derivado de la accuracy real del GPS con enableHighAccuracy=false)
+DIRECT_SEND_BYPASS_PATHS=4 call-sites (bootstrap inicial, ensureInitialSendForDelivery, ensureForegroundRecoverySendForDelivery, fireHeartbeat) envían directo sin pasar por el buffer — los 3 primeros son intencionales/correctos; fireHeartbeat tiene un gap latente real (nunca actualiza buffer.anchor tras el primer envío) no exercitado en esta sonda (HEARTBEAT_ELIGIBLE_CALLBACKS=0) pero documentado para H2A
+FREEZE_ROOT_CAUSE_MECHANISM=realtime-manager.ts SÍ resuscribe automáticamente todas las salas activas tras cualquier reconexión limpia (rejoinAllRooms en handleConnected, tanto vía ensureConnected como vía reauthenticate) — el gap real es que delivery-tracking-map.tsx NUNCA llama client.registerResync (a diferencia de chat-view/chat-sheet/chat-fab, que sí lo hacen) — por eso una reconexión exitosa nunca dispara un fetch HTTP explícito de "estado más reciente", dejando el catch-up sólo al próximo tick pasivo del polling (8s/20s)
+WIFI_TO_CELLULAR_CAUSAL=UNPROVEN (sin cambios, se mantiene explícitamente sin probar)
+RECOMMENDED_H2A=subir MAX_MOVING_BATCH_AGE_MS (reconciliado con MAX_BATCH_DURATION_MS=5000) + corregir etiquetado de witness (throttle de red vs edad de batch, hoy conflacionados bajo "DEFER_MIN_INTERVAL") + alinear buffer.anchor en heartbeat — SIN tocar movement threshold ni enableHighAccuracy todavía
+RECOMMENDED_H2B=adoptar client.registerResync en delivery-tracking-map.tsx, mismo patrón ya probado en chat — cubre reconnect+reauth+focus+online en un solo mecanismo ya existente, sin lógica nueva de resuscripción
+P2_T23_REOPEN_RECOMMENDED=SI (propuesto, NO aplicado todavía: P2_T23_STATUS=REOPENED_TESTING_HARDENING_CANDIDATE)
+T23_HARDENING_REQUIRED_BEFORE_T24_R6=SI
+T24_WAITS=SI (P2_T24_READY_FOR_R6 sigue NO hasta que una sonda posterior a H2A confirme BATCH_POINT_COUNT_MEDIAN>1 y PROVIDER_ATTEMPTS>0)
+T44_TOUCHED=NO (P2-T44 es Operaciones Personal Push UX + PyR, sin relación alguna con este dominio)
+CODE_CHANGED=NO / COMMIT_CREATED=NO / PUSH_PERFORMED=NO / DEPLOY_PERFORMED=NO / PRODUCTION_TOUCHED=NO
+NEXT_ACTION=WAIT_FOR_H2_IMPLEMENTATION_AUTHORIZATION
+```
+
+Reporte completo (mecanismo exacto por línea de código, tabla comparativa de
+7 candidatos con pros/contras, diseño de H2A/H2B con files/tests/probe):
+`codex-reports/P2_T23_H1_RAW_SMOOTHNESS_REALTIME_RECOVERY_AUDIT.md`.
+
+## HISTORICAL SNAPSHOT — P2-T24-R5.14B (2026-09-15)
 
 Esta sección registra el probe físico corto con las cuentas Testing correctas.
 El operador informó saltos y un freeze recuperable mediante Recargar durante
@@ -240,7 +5846,7 @@ PRODUCTION_TOUCHED=NO
 P2_T24_NEXT_ACTION=P2_T23_HARDENING_CANDIDATE_AUDIT_BEFORE_T24_R6
 ```
 
-## CURRENT AUTHORITATIVE STATE — P2-T44-R1E (2026-09-14)
+## HISTORICAL SNAPSHOT — P2-T44-R1E (2026-09-14)
 
 Esta sección supersede el estado operativo R1D de abajo para la preparación
 de certificación física. No se persiste ninguna contraseña ni subscription.
@@ -274,7 +5880,7 @@ PRODUCTION_MAIN_SHA=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
 PRODUCTION_TOUCHED=NO
 ```
 
-## CURRENT AUTHORITATIVE STATE — P2-T44-R1D (2026-09-14)
+## HISTORICAL SNAPSHOT — P2-T44-R1D (2026-09-14)
 
 Esta sección supersede los estados T44 R1/R1C de abajo, que se conservan como historial.
 
@@ -308,7 +5914,7 @@ P2_T44_R1D_NEXT_ACTION=OPERATOR_ENABLE_ACCOUNT_PUSH_AND_CERTIFY_CROSS_BUSINESS_D
 NEXT_TASK_CHAIN_AFTER_T44=P2-T45
 ```
 
-## CURRENT AUTHORITATIVE STATE — P2-T44-R1C (2026-09-14)
+## HISTORICAL SNAPSHOT — P2-T44-R1C (2026-09-14)
 
 Esta sección superior es la autoridad de continuidad más reciente y
 supersede los estados operativos antiguos que permanecen debajo como
