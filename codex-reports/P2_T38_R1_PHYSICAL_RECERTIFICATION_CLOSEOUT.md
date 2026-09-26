@@ -106,9 +106,13 @@ PRODUCT_CODE_CHANGED=NO
 TEST_CODE_CHANGED=NO
 DB_TOUCHED=NO
 PRODUCTION_TOUCHED=NO
-DOCUMENTATION_COMMIT=RECORDED_IN_GIT_HISTORY (separado del commit funcional R1)
-PUSH_STATUS=POST_PUSH_VERIFICATION_REQUIRED
-DOCUMENTATION_DEPLOY_GATE=POST_PUSH_READ_ONLY_OBSERVATION_REQUIRED
+DOCUMENTATION_COMMIT=ec96c73061892f5148619e18b2dd8b3ada890e66
+PUSH_STATUS=SUCCESS (origin/testing-codex; commit ancestro del remoto)
+DOCUMENTATION_DEPLOY_GATE=PASS
+DOCUMENTATION_DEPLOYMENTS=DeliGO_Copy:c9adbb95-62ff-4d61-b251-7a03859f4760_SUCCESS; chat_en_vivo:a5c25e9e-1cd6-48e7-8b22-ba42322d3bd8_SUCCESS; Review_Moderation_Expiry:5055ea87-6bee-47d4-b3b4-994815c2cd7a_SUCCESS_BUILD_ONLY; Mesa_Occupancy_Cron:ee25f8c2-7e10-4adb-8524-c338256412cf_SKIPPED_NO_WATCHED_FILES
+AUTHORITATIVE_DOCS_LOCAL_REMOTE_MATCH=SI (7/7 documentos, Git blob/filter hash)
+POST_CLOSEOUT_LOG_GATE=PASS (build/runtime; cero hallazgos bloqueantes)
+P2_T38_ADMINISTRATIVE_CLOSEOUT=PASS
 ```
 
 Los deployments documentales incidentales se observarán en Railway en modo
@@ -128,11 +132,18 @@ P2_T38_PHYSICAL_CERTIFICATION=PASS
 P2_T38_FINAL_GATE=PASS
 P2_T38_STATUS=CLOSED_TESTING_CERTIFIED
 T38_SOURCE_FINDING_STATUS=RESOLVED_BY_P2_T38_CLOSED_TESTING_CERTIFIED
+T38_CLOSEOUT_DOCUMENTATION_COMMIT=ec96c73061892f5148619e18b2dd8b3ada890e66
+DOCUMENTATION_PUSH_STATUS=SUCCESS
+DOCUMENTATION_DEPLOY_GATE=PASS
+AUTHORITATIVE_DOCS_LOCAL_REMOTE_MATCH=SI
+POST_CLOSEOUT_LOG_GATE=PASS
 DOCUMENTATION_ONLY=SI
 PRODUCT_CODE_CHANGED=NO
 TEST_CODE_CHANGED=NO
 DB_TOUCHED=NO
 PRODUCTION_TOUCHED=NO
+ORIGIN_MAIN=42ca5005d2ecd412de87e454b52820f38aaec5c0
+P2_T38_ADMINISTRATIVE_CLOSEOUT=PASS
 REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED (P2-T34/P2-T52-Fase-4; T23 espera decisión/sonda; T33/T37 siguen secuenciadas)
 NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
@@ -144,3 +155,33 @@ Android; P2-T52 Fase 4 requiere autorización explícita; P2-T23 espera una
 decisión/sonda del operador; P2-T33 y P2-T37 siguen al final de su secuencia.
 No se inicia ninguna de ellas en este cierre. No se promueve a `main` ni se
 modifica Production.
+
+## 7. Verificación documental final post-push (2026-09-26)
+
+Se verificó mediante `git fetch origin --prune` que el commit de closeout
+`ec96c73061892f5148619e18b2dd8b3ada890e66` es `origin/testing-codex` y ancestro
+del branch remoto. `origin/main` permaneció en
+`42ca5005d2ecd412de87e454b52820f38aaec5c0`. Los siete documentos modificados
+coinciden entre la copia canónica física y los blobs de `origin/testing-codex`.
+
+El autodeploy incidental de ese push llegó a estado terminal sin intervención:
+DeliGO Copy `c9adbb95-62ff-4d61-b251-7a03859f4760=SUCCESS`, chat en vivo
+`a5c25e9e-1cd6-48e7-8b22-ba42322d3bd8=SUCCESS`, Review Moderation Expiry
+`5055ea87-6bee-47d4-b3b4-994815c2cd7a=SUCCESS` (build-only), y Mesa Occupancy
+Cron `ee25f8c2-7e10-4adb-8524-c338256412cf=SKIPPED` por no tener archivos
+observados. Logs consultados: DeliGO build 118 y runtime 28; chat build 1 y
+runtime 1; Review build 43. No se encontraron exception, fatal, unhandled,
+crash, build failure, runtime failure ni fallo PWA/bundle. Warnings conocidos
+de npm/Prisma y mensajes normales de lifecycle fueron clasificados como
+no bloqueantes.
+
+```text
+T38_CLOSEOUT_DOCUMENTATION_COMMIT=ec96c73061892f5148619e18b2dd8b3ada890e66
+DOCUMENTATION_PUSH_STATUS=SUCCESS
+DOCUMENTATION_DEPLOY_GATE=PASS
+AUTHORITATIVE_DOCS_LOCAL_REMOTE_MATCH=SI
+POST_CLOSEOUT_LOG_GATE=PASS
+P2_T38_ADMINISTRATIVE_CLOSEOUT=PASS
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
+```
