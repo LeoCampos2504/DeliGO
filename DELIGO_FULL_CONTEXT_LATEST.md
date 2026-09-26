@@ -1,15 +1,21 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T38-R1 ANDROID PHYSICAL FAILURE (2026-09-26)
+## CURRENT AUTHORITATIVE STATE — P2-T38 CLOSED_TESTING_CERTIFIED (2026-09-26)
 
 ```text
-CURRENT_TASK=P2-T38-R1 — ANDROID PREMATURE INSTALL CONFIRMATION
-CURRENT_TASK_STATUS=FIXED_TESTED_DEPLOYED_TESTING_AWAITING_RECERTIFICATION
-P2_T38_STATUS=FIXED_TESTED_DEPLOYED_TESTING_AWAITING_RECERTIFICATION
+CURRENT_TASK=P2-T38-R1-PHYSICAL-RECERTIFICATION-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T38_STATUS=CLOSED_TESTING_CERTIFIED
 PRIOR_ANDROID_ACCEPT_PHYSICAL=FAIL
 PRIOR_FAILURE=PREMATURE_APP_INSTALLED_MESSAGE
 P2_T38_R1_TECHNICAL_GATE=PASS
 P2_T38_R1_IMPLEMENTATION_COMMIT=147f24a39dc6f2df04ca8b5f9d54492864de9460
+ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION=PASS
+ANDROID_CANCEL_PHYSICAL_RECERTIFICATION=PASS
+IOS_PHYSICAL_CERTIFICATION=PASS (Safari; modelo/versiones no informados)
+T38_POST_PHYSICAL_LOG_GATE=PASS
+P2_T38_PHYSICAL_CERTIFICATION=PASS
+P2_T38_FINAL_GATE=PASS
 P2_T38_IMPLEMENTATION_GATE=PASS
 P2_T38_IMPLEMENTATION_COMMIT=5dc91a21d5525d5e2e9ed0c83243c7cbcc620067
 P2_T38_R0_TESTING_DEPLOY=SUCCESS
@@ -35,7 +41,7 @@ SECRET_LEAK=NO
 NEW_PII_LOGGING=NO
 PRODUCTION_TOUCHED=NO
 PRIOR_ANDROID_APPINSTALLED_EQUIVALENT_TO_LAUNCHER_READY=NO (evidencia física del operador)
-P2_T38_PHYSICAL_CERTIFICATION_REQUIRED=SI
+P2_T38_PHYSICAL_CERTIFICATION_REQUIRED=NO
 P2_T38_R0_ANDROID_ACCEPT_PHYSICAL=FAIL (conservar como evidencia histórica)
 APPINSTALLED_AS_LAUNCHER_READY=NO
 PREMATURE_SUCCESS_REMOVED=SI
@@ -46,18 +52,19 @@ IOS_TUTORIAL_REGRESSION=PASS_AUTOMATED_ONLY; NO_PHYSICAL_CERTIFICATION
 TESTING_DEPLOY=SUCCESS; commit exacto `147f24a`
 HTTP_SMOKE=PASS (15/15 GET)
 REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION
+NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED (P2-T34/P2-T52-Fase-4; P2-T23 requiere decisión/sonda; P2-T33/T37 permanecen secuenciadas)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
 ```
 
 La primera certificación física Android/Chrome de R0 falló: tras aceptar la
 instalación apareció “App instalada” antes de que el icono/app fuese visible y
 utilizable desde el launcher. Unos segundos después sí terminó de materializarse.
-Este reporte del operador prevalece sobre la suposición anterior acerca de
-`appinstalled`. Root cause confirmado en R0: el hook convertía el evento en
-`isInstalled=true` y el componente shared montaba un toast “¡App instalada!”;
-R1 separa evento del navegador de standalone confirmado y reemplaza toast/
-spinner por aviso estático descartable. No se certificó iOS ni se debe cerrar
-T38 hasta una nueva prueba física Android ACCEPT.
+Ese FAIL histórico se conserva. El operador recertificó R1: Android ACCEPT y
+CANCEL PASS, además de iPhone/Safari PASS (tutorial guiado, instalación nativa,
+apertura standalone y guía ausente en standalone). R1 separa el evento del
+navegador de standalone confirmado. La evidencia se registra tal como fue
+reportada; no se informaron modelo de teléfono ni versiones de iOS/Safari.
+T38 queda CLOSED_TESTING_CERTIFIED, sin promoción a Production.
 
 ## HISTORICAL SNAPSHOT — P2-T38 INITIAL IMPLEMENTATION (2026-09-26)
 

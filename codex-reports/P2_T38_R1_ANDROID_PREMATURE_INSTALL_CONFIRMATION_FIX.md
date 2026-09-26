@@ -170,3 +170,28 @@ NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION
 El operador debe probar primero sólo Android — ACCEPT en el dispositivo real.
 No iniciar la prueba de cancelación, la certificación iOS ni cerrar T38 antes
 de recibir y registrar esa nueva evidencia.
+
+## Adenda — cierre de recertificación física R1 (2026-09-26)
+
+El bloque anterior conserva fielmente el estado y la siguiente acción al
+momento de publicar el fix R1; quedó supersedido por el cierre físico posterior
+sin borrar ese historial. El operador reportó Android real ACCEPT=PASS,
+Android real CANCEL=PASS e iPhone/Safari=PASS. No se informaron modelos ni
+versiones de sistema/navegador. El gate de logs disponible no mostró errores
+PWA/runtime bloqueantes; los mensajes de npm/Prisma y arranque fueron
+clasificados no bloqueantes. Resultado vigente:
+
+```text
+P2_T38_R1_IMPLEMENTATION_COMMIT=147f24a39dc6f2df04ca8b5f9d54492864de9460
+PRIOR_ANDROID_ACCEPT_PHYSICAL=FAIL (R0; PREMATURE_APP_INSTALLED_MESSAGE; preservado)
+ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION=PASS
+ANDROID_CANCEL_PHYSICAL_RECERTIFICATION=PASS
+IOS_PHYSICAL_CERTIFICATION=PASS
+T38_POST_PHYSICAL_LOG_GATE=PASS
+P2_T38_PHYSICAL_CERTIFICATION=PASS
+P2_T38_FINAL_GATE=PASS
+P2_T38_STATUS=CLOSED_TESTING_CERTIFIED
+PRODUCTION_TOUCHED=NO
+REPORT=codex-reports/P2_T38_R1_PHYSICAL_RECERTIFICATION_CLOSEOUT.md
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
+```

@@ -1,14 +1,20 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T38-R1 Android recertification (2026-09-26)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T38-R1 physical certification closeout (2026-09-26)
 
 ```text
-P2_T38_STATUS=FIXED_TESTED_DEPLOYED_TESTING_AWAITING_RECERTIFICATION
+P2_T38_STATUS=CLOSED_TESTING_CERTIFIED
 PRIOR_ANDROID_ACCEPT_PHYSICAL=FAIL
 PRIOR_FAILURE=PREMATURE_APP_INSTALLED_MESSAGE
 P2_T38_R1_TECHNICAL_GATE=PASS
 P2_T38_R1_IMPLEMENTATION_COMMIT=147f24a39dc6f2df04ca8b5f9d54492864de9460
 P2_T38_R0_IMPLEMENTATION_COMMIT=5dc91a21d5525d5e2e9ed0c83243c7cbcc620067
+ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION=PASS
+ANDROID_CANCEL_PHYSICAL_RECERTIFICATION=PASS
+IOS_PHYSICAL_CERTIFICATION=PASS (Safari; device/iOS versions not reported)
+T38_POST_PHYSICAL_LOG_GATE=PASS
+P2_T38_PHYSICAL_CERTIFICATION=PASS
+P2_T38_FINAL_GATE=PASS
 APPINSTALLED_AS_LAUNCHER_READY=NO
 PREMATURE_SUCCESS_REMOVED=SI
 POST_ACCEPT_UX_TRUTHFUL=SI
@@ -25,19 +31,21 @@ SERVICE_WORKER_CHANGED=NO
 TESTING_DEPLOY=SUCCESS
 LOG_GATE=PASS
 HTTP_SMOKE=PASS (15/15)
-P2_T38_PHYSICAL_CERTIFICATION_REQUIRED=SI
+P2_T38_PHYSICAL_CERTIFICATION_REQUIRED=NO
 P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T40_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T42_STATUS=CLOSED_PRODUCTION
 PRODUCTION_TOUCHED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ANDROID_ACCEPT_PHYSICAL_RECERTIFICATION
+NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED (P2-T34/P2-T52-Fase-4; P2-T23 requiere decisión/sonda; P2-T33/T37 siguen secuenciadas)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
 ```
 
 La certificación física Android/Chrome de T38-R0 falló porque el mensaje
 “App instalada” apareció antes de que la app estuviera visible/utilizable desde
-el launcher. R1 corrigió la falsa confirmación y se desplegó en TESTING, pero
-este FAIL físico previo sigue registrado y T38 no se considera cerrada. Se
-conserva debajo el historial y la versión local previa de este Roadmap.
+el launcher. El FAIL se preserva. R1 corrigió la falsa confirmación y el
+operador certificó físicamente Android ACCEPT, Android CANCEL e iPhone/Safari
+como PASS; T38 cierra en Testing, no en Production. Se conserva debajo el
+historial y la versión local previa de este Roadmap.
 
 ## CURRENT AUTHORITATIVE BACKLOG — P2-T23-R3B (2026-09-13)
 
@@ -725,9 +733,9 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T38 — PWA Installation UX — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
-         (estado de ese snapshot histórico reemplazado por el FAIL físico
-         Android/Chrome de R1; fix limitado a T38 en curso)
+P2-T38 — PWA Installation UX — CLOSED_TESTING_CERTIFIED (R1 Android ACCEPT /
+         CANCEL y iPhone/Safari certificados por el operador; FAIL R0
+         preservado en historial)
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          CLOSED_TESTING_CERTIFIED (2026-09-21) — A0 (audit) + A1
          (stale-owner/opt-out authority correction) + R1 (implementación)
@@ -833,10 +841,10 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=NONE_PENDING_P2_T38_PHYSICAL_CERTIFICATION
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=No iniciar otra implementación antes de la certificación física de P2-T38
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_DECISION_AFTER_P2_T38_PHYSICAL_CERTIFICATION
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T38 ya está implementada, probada y desplegada en TESTING; queda la certificación física del operador. Reanudar la selección del backlog después de registrar ese resultado.
+NEXT_RECOMMENDED_SOFTWARE_TASK=OPERATOR_DECISION_REQUIRED
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Seleccionar la próxima prioridad del backlog después del cierre físico de P2-T38
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_DECISION
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=La autoridad vigente no designa una única tarea siguiente automática: P2-T34 está lista pero su certificación física requiere Android; P2-T52-Fase-4 requiere autorización explícita; P2-T23 espera decisión/sonda del operador; P2-T33/P2-T37 continúan al final de la secuencia.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
