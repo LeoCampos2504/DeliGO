@@ -1,5 +1,64 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## HANDOFF COMPACTO VIGENTE — 2026-09-25
+
+### Estado global
+
+- Production RC1 está certificado y estable en
+  `42ca5005d2ecd412de87e454b52820f38aaec5c0`.
+- Production no fue tocada por la auditoría documental y no existe
+  autorización implícita para nuevos cambios Production.
+- El snapshot RC1 curado incluye el contenido funcional certificado de T39 y
+  T40; esto no debe confundirse con ancestría directa de sus commits en
+  `origin/main`.
+
+### Testing
+
+- `origin/testing-codex=3eef96f203277a2fb6a71f1de76cec48e15f938d`.
+- Secret Hygiene TESTING, pasos 1–6: `CLOSED`.
+- PostgreSQL password rotation: `FINAL_GATE=PASS`.
+- Physical DB smoke: `PASS`.
+- Post-smoke log gate: `PASS`.
+
+### Worktree histórico
+
+`C:\Leo Campos\Trabajo\deligo-main-limpio` no debe usarse como base de nueva
+implementación en su estado actual: está 8 commits detrás, tiene 4 tracked
+modifications documentales, 26.732 entradas untracked y ningún commit local
+ahead. Debe preservarse hasta una reconciliación explícita.
+
+### Backlog actual
+
+Abiertos o condicionados relevantes: T23, T24, T33, T34, T37, T38, T44 y
+T54. T23 espera decisión/sonda H4; T24 depende de T23; T33/T37 son revisiones
+posteriores; T34 requiere Android físico; T44 está pausada tras timebox; T54
+espera T02/T23/T24. No listar T02 ni T39–T53/T55 como pendientes: sus estados
+vigentes están cerrados o certificados, con la excepción explícita de T44.
+
+### Próxima acción
+
+```text
+NEXT_RECOMMENDED_TASK=P2-T38
+NEXT_RECOMMENDED_TASK_TITLE=PWA Installation UX
+PRECONDITION=PREPARE_CLEAN_TESTING_WORKTREE
+DO_NOT_START_AUTOMATICALLY=SI
+```
+
+### Lectura obligatoria para un chat nuevo
+
+1. `CODEX_REPORT.md`
+2. `DELIGO_FULL_CONTEXT_LATEST.md`
+3. `codex-reports/ROADMAP.md`
+4. `codex-reports/P2_CURRENT_STATE_AND_BACKLOG_PRIORITY_RECONCILIATION.md`
+5. `codex-reports/P2_TESTING_POSTGRES_PASSWORD_ROTATION_EXECUTION.md`
+
+## HISTORICAL SNAPSHOTS BELOW
+
+Todo el contenido posterior a este bloque es histórico y puede contener
+estados anteriores. Para el estado vigente deben prevalecer este handoff,
+`CODEX_REPORT.md` y la sección `CURRENT AUTHORITATIVE BACKLOG HANDOFF` de
+`codex-reports/ROADMAP.md`.
+
 ## CURRENT AUTHORITATIVE STATE — P2-T24-R5.14B (2026-09-15)
 
 Esta sección registra el probe físico corto con las cuentas Testing correctas.
