@@ -1,47 +1,24 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG HANDOFF — 2026-09-25
-
-Esta sección es la autoridad vigente para continuidad entre chats/agentes.
-Los snapshots que siguen se preservan como historia y no deben reemplazar
-estos estados cuando exista contradicción posterior.
+## CURRENT AUTHORITATIVE BACKLOG — P2-T38 implementation (2026-09-26)
 
 ```text
-P2_T02_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T23_STATUS=REOPENED_AWAITING_OPERATOR_H4_FILTER_CALIBRATION_DECISION
-P2_T24_STATUS=IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE
-P2_T33_STATUS=BLOCKED_UNTIL_FUNCTIONAL_PREREQUISITES
-P2_T34_STATUS=READY_TO_START_BLOCKED_BY_ANDROID_PHYSICAL_AVAILABILITY
-P2_T37_STATUS=BLOCKED_BY_PRIOR_BACKLOG
-P2_T38_STATUS=READY_FUTURE
-P2_T39_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
-P2_T40_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
+P2_T38_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+P2_T38_IMPLEMENTATION_COMMIT=5dc91a21d5525d5e2e9ed0c83243c7cbcc620067
+P2_T38_TESTING_DEPLOY=SUCCESS
+P2_T38_TESTING_HTTP_SMOKE=15_OF_15_PASS
+P2_T38_PHYSICAL_CERTIFICATION_REQUIRED=SI
+P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T40_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T42_STATUS=CLOSED_PRODUCTION
-P2_T43_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX_G3_NOT_CERTIFIED
-P2_T45_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T46_STATUS=CLOSED_PRODUCTION
-P2_T47_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T48_STATUS=CLOSED_PRODUCTION
-P2_T49_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T50_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T51_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T52_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T53_STATUS=CLOSED_OPERATOR_PASS
-P2_T54_STATUS=FUTURE_AFTER_T02_T23_T24
-P2_T55_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
-MAX_REAL_TASK_ID=P2-T55
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T38
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=PWA Installation UX
-P2_T38_IN_PROGRESS=NO
-WORKTREE_PREPARATION_REQUIRED_BEFORE_IMPLEMENTATION=SI
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T38_PHYSICAL_CERTIFICATION
+NO_FURTHER_T38_IMPLEMENTATION_AUTHORIZED=SI
 ```
 
-T23/T24 requieren decisión o evidencia del operador. T33/T37 permanecen
-posteriores a las funcionales pendientes. T34 requiere Android físico. T44 no
-se recomienda automáticamente y sólo puede reabrirse con evidencia técnica
-nueva. Cualquier fase nueva de T52 requiere autorización separada. No existe
-P2-T56 en las fuentes auditadas.
+Este bloque actualiza sólo estados confirmados por el handoff de T38 y los
+handoffs autoritativos de T39/T40/T42. Se conserva debajo el historial y la
+versión local previa de este Roadmap.
 
 ## CURRENT AUTHORITATIVE BACKLOG — P2-T23-R3B (2026-09-13)
 
@@ -729,7 +706,10 @@ P2_T46_STATUS=CLOSED_PRODUCTION (checkpoint histórico de T46-R4,
 ### B. ACTIVE / ACTIONABLE
 
 ```text
-P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
+P2-T38 — PWA Installation UX — IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+         (commit `5dc91a21d5525d5e2e9ed0c83243c7cbcc620067`; no iniciar
+         más implementación hasta completar la certificación física del
+         operador; ver P2_T38_PWA_INSTALLATION_UX_IMPLEMENTATION.md)
 P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          CLOSED_TESTING_CERTIFIED (2026-09-21) — A0 (audit) + A1
          (stale-owner/opt-out authority correction) + R1 (implementación)
@@ -761,72 +741,13 @@ P2-T40 — Push Session Lifecycle + Login Re-Enrollment —
          P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md y
          P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md.
 P2-T39 — Admin/SuperAdmin Functional Review — CLOSED_TESTING_CERTIFIED
-          (2026-09-21, ver
-          C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
-          P2_T39_FINAL_PHYSICAL_CERTIFICATION.md — re-certificación física
-          post-fix del operador: estado inicial de Push apagado sin
-          auto-enrollment PASS, primer opt-in manual PASS, entrega física
-          real de `negocio_pendiente` con `/admin` en background PASS
-          [desktop browser]. Por decisión explícita de producto, la
-          certificación en celular y que el tap navegue a un lugar exacto
-          quedan fuera del criterio de cierre de esta tarea — nunca un SKIP
-          por imposibilidad técnica. Los otros 5 triggers no se dispararon
-          físicamente; su garantía queda en la cobertura automatizada ya
-          certificada de R3/R3A/R3B. `RELEASE_ELIGIBLE_T39=
-          YES_FUTURE_CURATED_PROMOTION_ONLY`, sin promoción ejecutada.
-          `main`/Production intactos en
-          `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`).
-          Historia previa a este cierre, preservada sin alterar — R3B
-          encontró un 401 en POST /api/push/subscribe?actorFamily=superadmin
-          con sesión SuperAdmin válida
-          [GET /api/superadmin/dashboard misma sesión = 200]. Causa raíz:
-          src/proxy.ts, el middleware Edge, nunca reconocía "superadmin"
-          como family para el gate de AUTH_REQUIRED_PREFIXES — rechazaba
-          ANTES de llegar a requireSuperadminSession (idéntico al que usa
-          dashboard, nunca el bug del route handler). Mismo patrón exacto
-          que P2-T44-R1G (cuenta_operativa), ya documentado en el propio
-          archivo. Fix aislado (nunca tocó SessionFamily/
-          ROLE_PROTECTED_ROUTES): chequeo de formato hex-64 gateado por
-          ?actorFamily=superadmin. Reproducido y corregido en 2 niveles
-          (proxy.test.ts con token fabricado + integration test de sesión
-          real de punta a punta contra Testing). 314/314 regresión, tsc
-          baseline sin cambio, eslint limpio, build PASS. Commit 1661d87,
-          deploy Testing a6f6c66c SUCCESS. R3A había cerrado los
-          gates que R3 dejó pendientes: DB integration tests contra
-          Testing real [14/15 PASS, 1 timeout ambiental documentado, no un
-          defecto de código], auth contract de actorFamily=superadmin
-          [gap real encontrado y cerrado con 3 archivos de test nuevos],
-          first-opt-in, manual-off, dispatcher wiring, y `next build`
-          PASS. 249/249 regresión T40 preservada. Test-only, commit
-          a1e5fdd, push a testing-codex, autodeploy SUCCESS. T39 sigue sin
-          cerrarse — el operador debe ejecutar la certificación física).
-          R0/R1 auditaron el
-          productor de negocio_pendiente (ya presente, sin cambio de
-          código); R2 diseñó, sin implementar, la entrega Web Push para
-          SuperAdmin, bloqueada entonces por T44 compartiendo la misma
-          infraestructura de Push. Con T44 `PAUSED_UNRESOLVED_AFTER_TIMEBOX`
-          y T40 `CLOSED_TESTING_CERTIFIED`, R3 reconcilió el diseño de R2
-          contra el código actual (delta audit completo, ningún supuesto de
-          R2 invalidado) e implementó: owner moderno `superadmin` en
-          `PushSubscriptionOwnerType` (migración aditiva
-          `20260921120000_add_superadmin_push_owner`), rama
-          `actorFamily=superadmin` en las 3 rutas compartidas de push
-          (mismo patrón que `cuenta_operativa`, con `requireSuperadminSession`
-          dedicado), dispatcher post-commit best-effort
-          (`src/lib/superadmin-push-dispatch.ts`) cableado en los 6
-          callsites reales de `notifySuperadmins`/
-          `notifyReviewModerationSuperadmins`, rama genérica
-          `actorFamily=superadmin` en `public/sw.js` (target fijo `/admin`,
-          sin dispatch por tipo, sin tocar la rama pausada de T44) y un
-          nuevo switch ON/OFF en `ConfiguracionTab` de `/admin` reutilizando
-          `usePushNotifications`. El campo legacy
-          `SuperAdmin.pushSubscription` queda inerte, sin tocar (P2-T17).
-          Commit `a808453`, push a `testing-codex`, deploy Testing
-          verificado (`SUCCESS`, commit exacto, boot limpio, `/admin`
-          responde 200). Matriz de certificación física preparada,
-          encabezada por `negocio_pendiente`; el operador debe ejecutarla
-          antes de cerrar T39 — Claude no ejecutó ni simuló certificación
-          física en esta ronda.
+          (nota histórica del estado anterior al cierre; el worktree separado
+          C:/Leo Campos/Trabajo/deligo-t39-admin,
+          work/p2-t39-admin-notifications — commits "docs: record T39
+          admin request notification audit" y "docs: design superadmin
+          notification delivery architecture" — historial no mergeado a
+          work/p2-t43-r2. El cierre confirmado de T39 es posterior y no
+          requiere reabrir ni modificar ese worktree desde esta tarea.)
 ```
 
 P2-T43 y P2-T53 se retiraron de esta sección en esta reconciliación — ambas
@@ -894,10 +815,10 @@ ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T38_OR_P2-T33
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad, sin gate físico pendiente (PRIORITY_UNASSIGNED)
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T39 cerró CLOSED_TESTING_CERTIFIED (2026-09-21) tras R3 (implementación) + R3A (pre-physical gate) + R3B (root cause + fix de un 401 físico real en src/proxy.ts) + certificación física final (negocio_pendiente PASS, ver P2_T39_FINAL_PHYSICAL_CERTIFICATION.md). T40 también cerrado. No queda ningún P1/P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T38, T33) sin gate físico ni de implementación bloqueante.
+NEXT_RECOMMENDED_SOFTWARE_TASK=NONE_PENDING_P2_T38_PHYSICAL_CERTIFICATION
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=No iniciar otra implementación antes de la certificación física de P2-T38
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_DECISION_AFTER_P2_T38_PHYSICAL_CERTIFICATION
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T38 ya está implementada, probada y desplegada en TESTING; queda la certificación física del operador. Reanudar la selección del backlog después de registrar ese resultado.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,

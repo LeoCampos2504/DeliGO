@@ -1,6 +1,54 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — DOCUMENTATION DRIFT RECONCILIATION (2026-09-26)
+## CURRENT AUTHORITATIVE STATE — P2-T38 IMPLEMENTATION (2026-09-26)
+
+```text
+CURRENT_TASK=P2-T38 — PWA INSTALLATION UX — IMPLEMENTATION IN TESTING
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_DEPLOYED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
+P2_T38_IMPLEMENTATION_GATE=PASS
+P2_T38_IMPLEMENTATION_COMMIT=5dc91a21d5525d5e2e9ed0c83243c7cbcc620067
+P2_T38_TESTING_DEPLOY=SUCCESS
+P2_T38_TESTING_COMMIT_MATCH=SI
+P2_T38_LOG_GATE=PASS (sin errores bloqueantes; avisos de toolchain no relacionados)
+P2_T38_HTTP_SMOKE=PASS (15/15)
+P2_T38_TYPECHECK=REPO_BASELINE_ERRORS_OUTSIDE_T38; sin diagnósticos en fileset T38
+T38_FILES_ONLY=SI
+T38_ANDROID_BACKGROUND_STATE_IMPLEMENTED=SI
+T38_ANDROID_FALSE_SUCCESS_PREVENTED=SI
+T38_ANDROID_RETRY_STATE_COHERENT=SI
+T38_IOS_GUIDED_TUTORIAL_IMPLEMENTED=SI
+T38_IPADOS_DETECTION_ALIGNED=SI
+T38_MOZO_EXCLUSION_PRESERVED=SI
+T38_LEGACY_ES_EXCLUSION_PRESERVED=SI
+T36_BRANDING_REGRESSION=PASS
+T40_PUSH_LIFECYCLE_UNTOUCHED=SI
+T34_SESSION_ISOLATION_UNTOUCHED=SI
+PRISMA_SCHEMA_CHANGED=NO
+NEW_MIGRATIONS=0
+MANIFEST_FILES_CHANGED=0
+SERVICE_WORKER_CHANGED=NO
+SECRET_LEAK=NO
+NEW_PII_LOGGING=NO
+PRODUCTION_TOUCHED=NO
+PHYSICAL_CERTIFICATION_REQUIRED=SI
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T38_PHYSICAL_CERTIFICATION
+```
+
+La instalación Android ahora distingue aceptación del prompt, instalación en
+segundo plano y confirmación del navegador; no guarda éxito en localStorage ni
+presenta porcentajes. En iOS/iPadOS se muestra una guía paso a paso, con copy
+distinto para Safari y otros navegadores, y se reutiliza la detección compartida
+de capacidades PWA. Las exclusiones y las identidades existentes se mantienen.
+
+El commit funcional `5dc91a2` está publicado en `origin/testing-codex`. DeliGO
+Copy, chat en vivo y Review Moderation Expiry terminaron `SUCCESS`; el cron de
+ocupación quedó `SKIPPED` por no tener archivos observados. El smoke HTTP no
+mutante fue 15/15. No se certificó instalación física ni se desplegó a
+Production. El typecheck global sigue mostrando errores ajenos en archivos no
+modificados; el filtro de T38 no encontró diagnósticos en su fileset.
+
+## HISTORICAL SNAPSHOT — DOCUMENTATION DRIFT RECONCILIATION (2026-09-26)
 
 ```text
 CURRENT_TASK=P2 — DOCUMENTATION DRIFT RECONCILIATION BEFORE P2-T38 IMPLEMENTATION
