@@ -61,19 +61,22 @@ los reportes fuente, no como estado vigente. No se imprimieron secretos.
 
 ## Commit y push
 
-Estos campos se completan únicamente después de validar el diff y confirmar
-que `origin/testing-codex` no avanzó desde el preflight:
+La validación confirmó que `origin/testing-codex` no avanzó desde el preflight.
+El commit documental principal fue pusheado; el autodeploy fue incidental y
+no se intervino manualmente.
 
 ```text
-COMMIT_SHA=PENDING
-PUSH_STATUS=PENDING
-INCIDENTAL_DEPLOY=PENDING
+COMMIT_SHA=c2abaa5cce354fe9425e1dccb8863fb45f625aec
+PUSH_STATUS=SUCCESS_ORIGIN_TESTING_CODEX
+INCIDENTAL_DEPLOY=YES_AUTOMATIC_TESTING_ONLY
+INCIDENTAL_DEPLOY_DELI_GO_COPY=BUILDING_COMMIT_C2ABAA5
+INCIDENTAL_DEPLOY_CHAT_EN_VIVO=SUCCESS_COMMIT_C2ABAA5
 ```
 
 ## Marcadores
 
 ```text
-AUTHORITATIVE_HANDOFF_SYNC=PENDING_VALIDATION
+AUTHORITATIVE_HANDOFF_SYNC=PASS
 CODEX_REPORT_CURRENT=SI
 ROADMAP_CURRENT=SI
 DELIGO_FULL_CONTEXT_CURRENT=SI
