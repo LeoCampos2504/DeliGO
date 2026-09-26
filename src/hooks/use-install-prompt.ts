@@ -82,8 +82,16 @@ if (typeof window !== "undefined") {
     window.addEventListener("appinstalled", () => {
       deferredPromptValue = null
       promptListeners.forEach((l) => l())
-      isInstalledValue = true
+      // This browser event confirms the browser's install flow, not that the
+      // launcher icon/WebAPK is already visible and ready for the user.
       updateInstallationState("app-installed")
+    })
+
+    const standaloneQuery = window.matchMedia("(display-mode: standalone)")
+    standaloneQuery.addEventListener("change", () => {
+      if (!getPwaCapabilities().isStandalone || isInstalledValue) return
+      isInstalledValue = true
+      updateInstallationState("standalone-detected")
       installedListeners.forEach((l) => l())
     })
   }
@@ -226,8 +234,8 @@ export function useInstallPrompt() {
       const { outcome } = await prompt.userChoice
 
       // A BeforeInstallPromptEvent is one-shot. Acceptance only starts the
-      // OS install work; appinstalled (or standalone on a later launch) is
-      // still the only confirmation signal.
+      // OS install work. On Android, appinstalled is only an install-flow
+      // event; observing this app in standalone mode confirms usable launch.
       // Do not erase a fresh opportunity emitted while this one-shot prompt
       // was resolving. A later browser event belongs to a new attempt.
       if (deferredPromptValue === prompt) {

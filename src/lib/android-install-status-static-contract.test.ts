@@ -3,10 +3,10 @@
 // ============================================
 // ANDROID-PWA-INSTALL-STATUS — contrato estático focal
 // ============================================
-// Protege que "App instalada" sólo aparezca vía el evento autoritativo
-// `appinstalled` — nunca por aceptar el diálogo nativo (`userChoice`) — y
-// que ese éxito sea idempotente (máximo una vez por ciclo). No hay entorno
-// DOM configurado en este repo (sin happy-dom/jsdom), así que — igual que
+// Protege que aceptar el diálogo ni recibir `appinstalled` se anuncien como
+// launcher-ready. Sólo la observación real de standalone confirma uso como
+// app instalada. No hay entorno DOM configurado en este repo (sin
+// happy-dom/jsdom), así que — igual que
 // el resto de los contratos IOS-24 sobre código dependiente de APIs de
 // navegador — esto es lectura de texto sobre el código fuente real, no un
 // parser de JS/TSX completo ni una simulación de beforeinstallprompt real.
@@ -55,7 +55,7 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(promptInstallBody).toMatch(/prompt\.prompt\(\)/)
   })
 
-  test("CASE 3/4 — userChoice (accepted o dismissed) NUNCA escribe isInstalledValue: sólo appinstalled puede confirmarlo", () => {
+  test("CASE 3/4 — userChoice no escribe isInstalledValue ni confirma launcher-ready", () => {
     const hookSource = readFileSync(HOOK, "utf-8")
     const promptInstallBody = extractFunctionBody(hookSource, "const promptInstall = useCallback(async () => {")
     expect(promptInstallBody).toContain("await prompt.userChoice")
@@ -70,8 +70,9 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(promptInstallBody).toContain('updateInstallationState("prompt-started")')
 
     const componentSource = readFileSync(INSTALL_PROMPT, "utf-8")
-    expect(componentSource).toContain('installationState === "installing-background"')
-    expect(componentSource).toContain("Terminando la instalación…")
+    expect(componentSource).toContain('state === "installing-background"')
+    expect(componentSource).toContain('state === "browser-install-event-received"')
+    expect(componentSource).toContain("Chrome está terminando de agregar ${config.name}")
     expect(componentSource).not.toMatch(/\b(?:25|50|75|90|100)%/)
   })
 
@@ -85,52 +86,49 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(clearIdx).toBeLessThan(outcomeCheckIdx)
   })
 
-  test("CASE 5 — appinstalled es la única fuente autoritativa de isInstalledValue=true", () => {
+  test("CASE 5 — appinstalled registra el evento, pero no marca launcher-ready", () => {
     const hookSource = readFileSync(HOOK, "utf-8")
     const appinstalledBlock = hookSource.slice(
       hookSource.indexOf('window.addEventListener("appinstalled"'),
       hookSource.indexOf('window.addEventListener("appinstalled"') + 400
     )
-    expect(appinstalledBlock).toContain("isInstalledValue = true")
-    expect(appinstalledBlock).toContain("installedListeners.forEach")
+    expect(appinstalledBlock).toContain('updateInstallationState("app-installed")')
+    expect(appinstalledBlock).not.toContain("isInstalledValue = true")
+    expect(appinstalledBlock).not.toContain("installedListeners.forEach")
 
-    // isInstalledValue=true sólo debe aparecer en este listener (fuente única)
-    const allAssignments = hookSource.match(/isInstalledValue\s*=\s*true/g) ?? []
-    expect(allAssignments.length).toBe(1)
+    expect(hookSource).toMatch(/standaloneQuery\.addEventListener\("change"[\s\S]*?isInstalledValue = true[\s\S]*?updateInstallationState\("standalone-detected"\)/)
   })
 
-  test("CASE 5b — el toast de éxito en InstallPrompt está guardado contra duplicados (ref chequeado antes de mostrar)", () => {
+  test("CASE 5b — appinstalled no monta un toast de éxito ni duplica la confirmación", () => {
     const source = readFileSync(INSTALL_PROMPT, "utf-8")
-    expect(source).toContain("successShownRef")
-    const handlerMatch = source.match(/const handler = \(\) => \{([\s\S]*?)\n    \}/)
-    expect(handlerMatch).not.toBeNull()
-    const handlerBody = handlerMatch?.[1] ?? ""
-    const guardIdx = handlerBody.indexOf("if (successShownRef.current) return")
-    const setShownIdx = handlerBody.indexOf("successShownRef.current = true")
-    const setShowSuccessIdx = handlerBody.indexOf("setShowSuccess(true)")
-    expect(guardIdx).toBeGreaterThan(-1)
-    expect(setShownIdx).toBeGreaterThan(-1)
-    expect(setShowSuccessIdx).toBeGreaterThan(-1)
-    expect(guardIdx).toBeLessThan(setShownIdx)
-    expect(setShownIdx).toBeLessThan(setShowSuccessIdx)
+    expect(source).not.toContain('"¡App instalada!"')
+    expect(source).not.toContain("setShowSuccess")
+    expect(source).not.toContain('window.addEventListener("appinstalled"')
   })
 
-  test("CASE 6 — appinstalled disparado dos veces: el guard hace que la segunda invocación retorne antes de tocar el estado", () => {
+  test("CASE 6 — pending UX es estática, descartable y no bloquea navegación", () => {
     const source = readFileSync(INSTALL_PROMPT, "utf-8")
-    const handlerMatch = source.match(/const handler = \(\) => \{([\s\S]*?)\n    \}/)
-    const handlerBody = handlerMatch?.[1] ?? ""
-    // El guard debe ser la primera línea ejecutable del handler.
-    const firstStatement = handlerBody.trim().split("\n")[0].trim()
-    expect(firstStatement).toBe("if (successShownRef.current) return")
+    expect(source).toContain('"Instalación iniciada"')
+    expect(source).toContain("Podés seguir usando esta pestaña.")
+    expect(source).toContain('aria-label="Cerrar aviso de instalación"')
+    const pendingComponent = source.split("function AndroidInstallPending")[1]?.split("function AndroidInstallBanner")[0] ?? ""
+    expect(pendingComponent).not.toContain("animate=")
+    expect(pendingComponent).not.toContain("repeat: Infinity")
+    expect(source).not.toMatch(/\b(?:25|50|75|90|100)%/)
+    const pendingGuard = source.indexOf("isAndroidInstallPending(installationState)")
+    const nativeInstallCta = source.indexOf('platform === "android" && isInstallable && !bannerDismissed')
+    expect(pendingGuard).toBeGreaterThan(-1)
+    expect(nativeInstallCta).toBeGreaterThan(pendingGuard)
   })
 
-  test("CASE 7 — appinstalled no depende de deferredPromptValue: se dispara igual si la instalación no vino de nuestro botón", () => {
+  test("CASE 7 — appinstalled no depende de deferredPromptValue y sólo pasa a aviso informativo", () => {
     const hookSource = readFileSync(HOOK, "utf-8")
     const appinstalledBlock = hookSource.slice(
       hookSource.indexOf('window.addEventListener("appinstalled"'),
       hookSource.indexOf('window.addEventListener("appinstalled"') + 400
     )
     expect(appinstalledBlock).not.toMatch(/if\s*\(\s*deferredPromptValue\s*\)/)
+    expect(appinstalledBlock).not.toContain("isInstalledValue = true")
   })
 
   test("CASE 8 — flujo iOS usa el tutorial guiado y aclara variaciones por versión", () => {
@@ -168,19 +166,19 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(source).toMatch(/platform === "android" && isInstallable && bannerDismissed/)
   })
 
-  test("único sitio de éxito: sólo install-prompt.tsx renderiza el texto de instalación confirmada", () => {
+  test("no existe un claim de éxito en el flujo shared de instalación", () => {
     const source = readFileSync(INSTALL_PROMPT, "utf-8")
-    expect(source).toContain("¡App instalada!")
+    expect(source).not.toContain("¡App instalada!")
   })
 
-  test("listener cleanup: el efecto de appinstalled en InstallPrompt limpia su listener", () => {
+  test("InstallPrompt no crea un segundo listener de appinstalled", () => {
     const source = readFileSync(INSTALL_PROMPT, "utf-8")
-    expect(source).toMatch(/return \(\) => window\.removeEventListener\("appinstalled", handler\)/)
+    expect(source).not.toContain('window.addEventListener("appinstalled"')
   })
 
-  test("SSR-safe: el efecto de appinstalled no accede a window fuera de un guard client-only", () => {
-    const source = readFileSync(INSTALL_PROMPT, "utf-8")
-    expect(source).toContain('if (typeof window === "undefined") return')
+  test("SSR-safe: los listeners del ciclo de instalación están bajo guard client-only", () => {
+    const source = readFileSync(HOOK, "utf-8")
+    expect(source).toMatch(/if \(typeof window !== "undefined"\) \{[\s\S]*?window\.addEventListener\("appinstalled"/)
   })
 
   test("root layout sigue montando InstallPrompt sin cambios estructurales adicionales", () => {

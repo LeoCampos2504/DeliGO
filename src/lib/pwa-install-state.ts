@@ -3,6 +3,7 @@ export type PwaInstallState =
   | "available"
   | "prompting"
   | "installing-background"
+  | "browser-install-event-received"
   | "installed-confirmed"
 
 export type PwaInstallEvent =
@@ -23,6 +24,7 @@ export function transitionPwaInstallState(
 
   switch (event) {
     case "app-installed":
+      return "browser-install-event-received"
     case "standalone-detected":
       return "installed-confirmed"
     case "prompt-available":

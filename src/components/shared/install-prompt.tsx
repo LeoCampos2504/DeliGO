@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Download, X, Share, Smartphone, ChevronRight, ChevronDown, ShieldCheck, Wifi, Globe, Chrome, MoreVertical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useInstallPrompt, detectAndroidBrowser } from "@/hooks/use-install-prompt"
 import { getRoleFromPath, getRoleConfig } from "@/lib/role-config"
+import type { PwaInstallState } from "@/lib/pwa-install-state"
 
 /**
  * InstallPrompt — Smart PWA install component
@@ -53,55 +54,27 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
   const { isInstallable, isInstalled, installationState, promptInstall, shouldShowManualPrompt, platform, secureContext, androidBrowser, isIosSafari } = useInstallPrompt()
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [installing, setInstalling] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const successShownRef = useRef(false)
 
   const role = getRoleFromPath(pathname)
   const config = getRoleConfig(role)
 
-  // Listen for appinstalled — the authoritative, OS-confirmed install event —
-  // to show the success state exactly once, even if the event fires more
-  // than once for this mount.
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const handler = () => {
-      if (successShownRef.current) return
-      successShownRef.current = true
-      setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 3000)
-    }
-    window.addEventListener("appinstalled", handler)
-    return () => window.removeEventListener("appinstalled", handler)
-  }, [])
-
-  // Don't show if already installed
+  // A standalone launch is strong evidence that the installed PWA is usable.
+  // Do not show a retrospective toast: appinstalled alone does not prove that
+  // Android has finished exposing the app in the launcher.
   if (isInstalled) {
-    return (
-      <AnimatePresence>
-        {showSuccess && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md"
-          >
-            <div className="bg-green-500 text-white rounded-2xl p-4 shadow-2xl flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-xl">✅</div>
-              <div>
-                <p className="font-bold text-sm">¡App instalada!</p>
-                <p className="text-white/80 text-xs">Encontrá {config.name} en tu pantalla de inicio</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    )
+    return null
   }
 
-  // Acceptance is not installation confirmation. Keep a visible, indefinite
-  // state until the browser emits appinstalled; never imply numeric progress.
-  if (platform === "android" && installationState === "installing-background") {
-    return <AndroidInstallPending config={config} />
+  // Acceptance and appinstalled both remain non-blocking informational states.
+  // There is no spinner or success claim, and the user can dismiss the notice.
+  if (platform === "android" && isAndroidInstallPending(installationState)) {
+    return bannerDismissed ? null : (
+      <AndroidInstallPending
+        config={config}
+        state={installationState}
+        onDismiss={() => setBannerDismissed(true)}
+      />
+    )
   }
 
   // Android with native prompt available — show direct install UI
@@ -164,28 +137,47 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
   }
 }
 
-function AndroidInstallPending({ config }: { config: ReturnType<typeof getRoleConfig> }) {
+function isAndroidInstallPending(state: PwaInstallState) {
+  return state === "installing-background" || state === "browser-install-event-received"
+}
+
+function AndroidInstallPending({
+  config,
+  state,
+  onDismiss,
+}: {
+  config: ReturnType<typeof getRoleConfig>
+  state: Extract<PwaInstallState, "installing-background" | "browser-install-event-received">
+  onDismiss: () => void
+}) {
+  const browserEventReceived = state === "browser-install-event-received"
+
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md"
+      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md rounded-2xl"
     >
-      <div className={`bg-gradient-to-r ${config.gradientFrom} ${config.gradientTo} rounded-2xl p-4 shadow-2xl ${config.shadowColor} flex items-center gap-3 text-white`}>
-        <motion.div
-          aria-hidden="true"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-          className="flex-shrink-0"
-        >
-          <Download className="w-6 h-6" />
-        </motion.div>
-        <div>
-          <p className="font-bold text-sm">Terminando la instalación…</p>
+      <div className={`bg-gradient-to-r ${config.gradientFrom} ${config.gradientTo} rounded-2xl p-4 shadow-2xl ${config.shadowColor} flex items-start gap-3 text-white`}>
+        <Download aria-hidden="true" className="mt-0.5 h-5 w-5 flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-sm">
+            {browserEventReceived ? `Chrome está terminando de agregar ${config.name}` : "Instalación iniciada"}
+          </p>
           <p className="text-white/80 text-xs mt-0.5">
-            Puede tardar unos segundos. Te avisamos cuando esté lista.
+            {browserEventReceived
+              ? "Puede tardar un poco en aparecer entre tus apps. Esta página no puede verificar cuándo está disponible en el launcher."
+              : `Chrome puede tardar un momento en agregar ${config.name} a tus apps. Podés seguir usando esta pestaña.`}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Cerrar aviso de instalación"
+          className="-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/15 transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+        </button>
       </div>
     </div>
   )
