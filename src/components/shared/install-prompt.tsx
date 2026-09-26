@@ -50,7 +50,7 @@ export function isLegacyOperationsTombstoneRoute(pathname: string) {
 }
 
 function InstallPromptInner({ pathname }: { pathname: string }) {
-  const { isInstallable, isInstalled, promptInstall, shouldShowManualPrompt, platform, secureContext, androidBrowser } = useInstallPrompt()
+  const { isInstallable, isInstalled, installationState, promptInstall, shouldShowManualPrompt, platform, secureContext, androidBrowser, isIosSafari } = useInstallPrompt()
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -98,8 +98,14 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
     )
   }
 
+  // Acceptance is not installation confirmation. Keep a visible, indefinite
+  // state until the browser emits appinstalled; never imply numeric progress.
+  if (platform === "android" && installationState === "installing-background") {
+    return <AndroidInstallPending config={config} />
+  }
+
   // Android with native prompt available — show direct install UI
-  if (isInstallable && !bannerDismissed) {
+  if (platform === "android" && isInstallable && !bannerDismissed) {
     return (
       <AndroidInstallBanner
         config={config}
@@ -111,7 +117,7 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
   }
 
   // Android FAB after banner dismissed (so user can still install)
-  if (isInstallable && bannerDismissed) {
+  if (platform === "android" && isInstallable && bannerDismissed) {
     return (
       <InstallFAB
         config={config}
@@ -127,6 +133,7 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
     return (
       <IOSInstallBanner
         config={config}
+        isSafari={isIosSafari}
         onDismiss={() => setBannerDismissed(true)}
       />
     )
@@ -149,9 +156,39 @@ function InstallPromptInner({ pathname }: { pathname: string }) {
 
   async function handleNativeInstall() {
     setInstalling(true)
-    await promptInstall()
-    setInstalling(false)
+    try {
+      await promptInstall()
+    } finally {
+      setInstalling(false)
+    }
   }
+}
+
+function AndroidInstallPending({ config }: { config: ReturnType<typeof getRoleConfig> }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md"
+    >
+      <div className={`bg-gradient-to-r ${config.gradientFrom} ${config.gradientTo} rounded-2xl p-4 shadow-2xl ${config.shadowColor} flex items-center gap-3 text-white`}>
+        <motion.div
+          aria-hidden="true"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+          className="flex-shrink-0"
+        >
+          <Download className="w-6 h-6" />
+        </motion.div>
+        <div>
+          <p className="font-bold text-sm">Terminando la instalación…</p>
+          <p className="text-white/80 text-xs mt-0.5">
+            Puede tardar unos segundos. Te avisamos cuando esté lista.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ============================================
@@ -461,9 +498,11 @@ function AndroidManualGuide({
 // ============================================
 function IOSInstallBanner({
   config,
+  isSafari,
   onDismiss,
 }: {
   config: ReturnType<typeof getRoleConfig>
+  isSafari: boolean
   onDismiss: () => void
 }) {
   const [visible, setVisible] = useState(false)
@@ -493,26 +532,57 @@ function IOSInstallBanner({
             <X className="w-4 h-4 text-white" />
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0 w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+          <div className="flex items-center gap-3 pr-7">
+            <div className="flex-shrink-0 w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center">
               <img src={config.icon192} alt={config.name} className="w-8 h-8 rounded-lg" />
             </div>
-
-            <div className="flex-1 min-w-0">
-              <h3 className="text-white font-bold text-sm">Instalar {config.name}</h3>
-              <p className="text-white/80 text-xs mt-0.5 leading-relaxed">
-                Tocá <Share className="w-3 h-3 inline" /> y seleccioná &quot;Agregar a inicio&quot;
-              </p>
+            <div>
+              <h3 className="text-white font-bold text-sm">Instalá {config.name}</h3>
+              <p className="text-white/80 text-xs mt-0.5">Seguí estos pasos desde el navegador:</p>
             </div>
-
-            <Button
-              onClick={onDismiss}
-              size="sm"
-              className="bg-white text-foreground hover:bg-white/90 font-semibold gap-1.5 flex-shrink-0"
-            >
-              Entendido
-            </Button>
           </div>
+
+          <ol className="mt-4 space-y-2.5">
+            {(isSafari
+              ? [
+                  { icon: <MoreVertical className="w-4 h-4" />, title: "Abrí las opciones de Safari", detail: "Tocá el botón de opciones o menú del navegador." },
+                  { icon: <Share className="w-4 h-4" />, title: "Elegí Compartir", detail: "Se abre la hoja para compartir de iOS." },
+                  { icon: <ChevronDown className="w-4 h-4" />, title: "Si hace falta, tocá Ver más", detail: "La ubicación puede cambiar según la versión." },
+                  { icon: <Smartphone className="w-4 h-4" />, title: "Seleccioná Agregar a pantalla de inicio" },
+                  { icon: <Download className="w-4 h-4" />, title: "Confirmá tocando Agregar" },
+                ]
+              : [
+                  { icon: <Share className="w-4 h-4" />, title: "Abrí el menú para compartir del navegador", detail: "La ubicación depende del navegador que estés usando." },
+                  { icon: <Smartphone className="w-4 h-4" />, title: "Buscá Agregar a pantalla de inicio", detail: "La opción puede estar en otro menú o no estar disponible." },
+                  { icon: <Download className="w-4 h-4" />, title: "Confirmá la acción en iOS" },
+                ]
+            ).map((step, index) => (
+              <li key={step.title} className="flex items-start gap-2.5 text-white">
+                <span className="w-7 h-7 flex-shrink-0 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">
+                  {index + 1}
+                </span>
+                <span className="w-7 h-7 flex-shrink-0 rounded-lg bg-white/15 flex items-center justify-center" aria-hidden="true">
+                  {step.icon}
+                </span>
+                <span className="min-w-0 pt-0.5">
+                  <span className="block text-xs font-semibold">{step.title}</span>
+                  {step.detail && <span className="block text-[11px] text-white/75 mt-0.5">{step.detail}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-white/75">
+            Los nombres o la ubicación de estas opciones pueden variar según tu versión de iOS.
+          </p>
+
+          <Button
+            onClick={onDismiss}
+            size="sm"
+            className="w-full mt-3 bg-white text-foreground hover:bg-white/90 font-semibold"
+          >
+            Entendido
+          </Button>
         </div>
       </motion.div>
     </AnimatePresence>

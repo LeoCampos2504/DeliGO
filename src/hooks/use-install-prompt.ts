@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useSyncExternalStore, useRef } from "react"
+import { getPwaCapabilities } from "@/lib/pwa-capabilities"
+import { transitionPwaInstallState, type PwaInstallEvent, type PwaInstallState } from "@/lib/pwa-install-state"
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -12,10 +14,7 @@ let isInstalledValue = false
 const installedListeners = new Set<() => void>()
 
 if (typeof window !== "undefined") {
-  isInstalledValue =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    ("standalone" in navigator &&
-      (navigator as unknown as { standalone: boolean }).standalone === true)
+  isInstalledValue = getPwaCapabilities().isStandalone
 }
 
 function getInstalledSnapshot(): boolean {
@@ -27,6 +26,30 @@ const getInstalledServerSnapshot = () => false
 function subscribeInstalled(cb: () => void): () => void {
   installedListeners.add(cb)
   return () => installedListeners.delete(cb)
+}
+
+// ---- Installation lifecycle store ----
+let installationStateValue: PwaInstallState = isInstalledValue
+  ? "installed-confirmed"
+  : "idle"
+const installationStateListeners = new Set<() => void>()
+
+function getInstallationStateSnapshot(): PwaInstallState {
+  return installationStateValue
+}
+
+const getInstallationStateServerSnapshot = (): PwaInstallState => "idle"
+
+function subscribeInstallationState(cb: () => void): () => void {
+  installationStateListeners.add(cb)
+  return () => installationStateListeners.delete(cb)
+}
+
+function updateInstallationState(event: PwaInstallEvent) {
+  const nextState = transitionPwaInstallState(installationStateValue, event)
+  if (nextState === installationStateValue) return
+  installationStateValue = nextState
+  installationStateListeners.forEach((listener) => listener())
 }
 
 // ---- deferredPrompt store ----
@@ -52,6 +75,7 @@ if (typeof window !== "undefined") {
     window.addEventListener("beforeinstallprompt", (e: Event) => {
       e.preventDefault()
       deferredPromptValue = e as BeforeInstallPromptEvent
+      updateInstallationState("prompt-available")
       promptListeners.forEach((l) => l())
     })
 
@@ -59,6 +83,7 @@ if (typeof window !== "undefined") {
       deferredPromptValue = null
       promptListeners.forEach((l) => l())
       isInstalledValue = true
+      updateInstallationState("app-installed")
       installedListeners.forEach((l) => l())
     })
   }
@@ -66,29 +91,18 @@ if (typeof window !== "undefined") {
 
 // ---- Platform detection helpers ----
 export function detectPlatform(): "android" | "ios" | "desktop" | "other" {
-  if (typeof window === "undefined") return "other"
-  const ua = navigator.userAgent
-  if (/android/i.test(ua)) return "android"
-  if (/iphone|ipad|ipod/i.test(ua)) return "ios"
-  if (/win|mac|linux/i.test(ua) && !/mobile/i.test(ua)) return "desktop"
-  return "other"
+  const platform = getPwaCapabilities().platform
+  return platform === "android" || platform === "ios" || platform === "desktop"
+    ? platform
+    : "other"
 }
 
 function isIosSafari(): boolean {
-  if (typeof window === "undefined") return false
-  const ua = navigator.userAgent
-  const isIos = /iphone|ipad|ipod/i.test(ua)
-  const isSafari = /safari/i.test(ua) && !/crios|fxios/i.test(ua)
-  return isIos && isSafari
+  return getPwaCapabilities().isIosSafari
 }
 
 function isStandaloneMode(): boolean {
-  if (typeof window === "undefined") return false
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    ("standalone" in navigator &&
-      (navigator as unknown as { standalone: boolean }).standalone === true)
-  )
+  return getPwaCapabilities().isStandalone
 }
 
 /**
@@ -122,6 +136,12 @@ export function useInstallPrompt() {
     getInstalledServerSnapshot
   )
 
+  const installationState = useSyncExternalStore(
+    subscribeInstallationState,
+    getInstallationStateSnapshot,
+    getInstallationStateServerSnapshot
+  )
+
   const deferredPrompt = useSyncExternalStore(
     subscribeDeferred,
     getDeferredSnapshot,
@@ -148,8 +168,10 @@ export function useInstallPrompt() {
 
     const platform = detectPlatform()
 
-    // iOS Safari: show manual instructions after a delay
-    if (platform === "ios" && isIosSafari()) {
+    // iOS/iPadOS browsers use browser-provided sharing/install controls; never
+    // invoke beforeinstallprompt here. The component varies instructions for
+    // Safari vs. other iOS browsers instead of claiming their menus are equal.
+    if (platform === "ios") {
       const timer = setTimeout(() => {
         if (!deferredPromptValue && !isInstalledValue) {
           setManualPromptNeeded(true)
@@ -189,28 +211,41 @@ export function useInstallPrompt() {
         if (recheckRef.current) clearInterval(recheckRef.current)
       }
     }
-  }, [isInstalled, manualPromptNeeded])
+  }, [isInstalled, isInstallable, manualPromptNeeded])
 
   // shouldShowManualPrompt = manualPromptNeeded AND native prompt not available
   const shouldShowManualPrompt = manualPromptNeeded && !isInstallable
 
   const promptInstall = useCallback(async () => {
-    if (!deferredPromptValue) return false
+    if (!deferredPromptValue || installationStateValue === "prompting") return false
 
     const prompt = deferredPromptValue
-    prompt.prompt()
-    const { outcome } = await prompt.userChoice
+    updateInstallationState("prompt-started")
+    try {
+      await prompt.prompt()
+      const { outcome } = await prompt.userChoice
 
-    // The deferred prompt can never be reused either way, but "accepted"
-    // only means the user confirmed the OS dialog — Android can still take
-    // a while to actually finish installing. isInstalledValue must stay
-    // false until the authoritative `appinstalled` event fires (module-level
-    // listener below); setting it here caused "App instalada" to appear
-    // before the install had actually completed.
-    deferredPromptValue = null
-    promptListeners.forEach((l) => l())
-
-    return outcome === "accepted"
+      // A BeforeInstallPromptEvent is one-shot. Acceptance only starts the
+      // OS install work; appinstalled (or standalone on a later launch) is
+      // still the only confirmation signal.
+      // Do not erase a fresh opportunity emitted while this one-shot prompt
+      // was resolving. A later browser event belongs to a new attempt.
+      if (deferredPromptValue === prompt) {
+        deferredPromptValue = null
+        updateInstallationState(outcome === "accepted" ? "prompt-accepted" : "prompt-dismissed")
+        promptListeners.forEach((l) => l())
+      }
+      return outcome === "accepted"
+    } catch {
+      // Never reuse a consumed/failed browser event. The manual fallback can
+      // become available after isInstallable changes back to false.
+      if (deferredPromptValue === prompt) {
+        deferredPromptValue = null
+        updateInstallationState("prompt-failed")
+        promptListeners.forEach((l) => l())
+      }
+      return false
+    }
   }, [])
 
   const platform = detectPlatform()
@@ -220,10 +255,12 @@ export function useInstallPrompt() {
   return {
     isInstallable,
     isInstalled,
+    installationState,
     promptInstall,
     shouldShowManualPrompt,
     platform,
     secureContext,
     androidBrowser,
+    isIosSafari: isIosSafari(),
   }
 }

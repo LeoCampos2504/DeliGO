@@ -63,6 +63,18 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(promptInstallBody).not.toMatch(/installedListeners\.forEach/)
   })
 
+  test("CASE 3c — accepted pasa a espera indeterminada, dismissed no; el evento consumido se limpia", () => {
+    const hookSource = readFileSync(HOOK, "utf-8")
+    const promptInstallBody = extractFunctionBody(hookSource, "const promptInstall = useCallback(async () => {")
+    expect(promptInstallBody).toContain('outcome === "accepted" ? "prompt-accepted" : "prompt-dismissed"')
+    expect(promptInstallBody).toContain('updateInstallationState("prompt-started")')
+
+    const componentSource = readFileSync(INSTALL_PROMPT, "utf-8")
+    expect(componentSource).toContain('installationState === "installing-background"')
+    expect(componentSource).toContain("Terminando la instalación…")
+    expect(componentSource).not.toMatch(/\b(?:25|50|75|90|100)%/)
+  })
+
   test("CASE 3/4b — deferredPromptValue se limpia para ambos outcomes (antes de evaluar accepted/dismissed)", () => {
     const hookSource = readFileSync(HOOK, "utf-8")
     const promptInstallBody = extractFunctionBody(hookSource, "const promptInstall = useCallback(async () => {")
@@ -121,10 +133,39 @@ describe("ANDROID-PWA-INSTALL-STATUS — contrato estático del flujo de instala
     expect(appinstalledBlock).not.toMatch(/if\s*\(\s*deferredPromptValue\s*\)/)
   })
 
-  test("CASE 8 — flujo manual de iOS no fue tocado (misma condición, mismo componente)", () => {
+  test("CASE 8 — flujo iOS usa el tutorial guiado y aclara variaciones por versión", () => {
     const source = readFileSync(INSTALL_PROMPT, "utf-8")
     expect(source).toMatch(/shouldShowManualPrompt && platform === "ios"/)
     expect(source).toContain("<IOSInstallBanner")
+    expect(source).toContain("Agregar a pantalla de inicio")
+    expect(source).toContain("Los nombres o la ubicación de estas opciones pueden variar según tu versión de iOS.")
+    expect(source).toContain("isSafari={isIosSafari}")
+  })
+
+  test("CASE 9 — detección iPhone/iPadOS Safari se alinea a PWA capabilities y no confunde Mac sin touch", () => {
+    const hookSource = readFileSync(HOOK, "utf-8")
+    const capabilitiesSource = readFileSync(join(process.cwd(), "src", "lib", "pwa-capabilities.ts"), "utf-8")
+    expect(hookSource).toContain('import { getPwaCapabilities } from "@/lib/pwa-capabilities"')
+    expect(hookSource).toContain("getPwaCapabilities().isIosSafari")
+    expect(hookSource).toContain("getPwaCapabilities().isStandalone")
+    expect(hookSource).toContain("[isInstalled, isInstallable, manualPromptNeeded]")
+    expect(capabilitiesSource).toContain("/iphone|ipad|ipod/i.test(userAgent) || isIpadOS")
+    expect(capabilitiesSource).toMatch(/platformName === "MacIntel" &&\s+navigator\.maxTouchPoints > 1/)
+    expect(capabilitiesSource).toContain('!/crios|fxios|edgios|opr|opera|chrome|chromium/i.test(userAgent)')
+  })
+
+  test("CASE 9b — la guía se oculta cuando la autoridad detecta standalone", () => {
+    const source = readFileSync(INSTALL_PROMPT, "utf-8")
+    const installedGuard = source.indexOf("if (isInstalled) {")
+    const iosTutorial = source.indexOf('shouldShowManualPrompt && platform === "ios"')
+    expect(installedGuard).toBeGreaterThan(-1)
+    expect(iosTutorial).toBeGreaterThan(installedGuard)
+  })
+
+  test("CASE 10 — beforeinstallprompt sólo muestra CTA nativo en Android", () => {
+    const source = readFileSync(INSTALL_PROMPT, "utf-8")
+    expect(source).toMatch(/platform === "android" && isInstallable && !bannerDismissed/)
+    expect(source).toMatch(/platform === "android" && isInstallable && bannerDismissed/)
   })
 
   test("único sitio de éxito: sólo install-prompt.tsx renderiza el texto de instalación confirmada", () => {
