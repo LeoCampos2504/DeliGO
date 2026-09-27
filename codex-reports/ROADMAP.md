@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T54-A0 product scope consolidation (2026-09-27)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T54-A1 technical audit and design (2026-09-27)
 
 ```text
 P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
@@ -21,7 +21,9 @@ P2_T24_INDEPENDENT_RELEASE_GATE=NO
 P2_T24_TECHNICAL_HISTORY_PRESERVED=SI
 P2_T24_COMPLETED_TECHNICALLY=NO
 T24_FEATURE_ABSORPTION_INTO_T54=ONLY_IF_REQUIRED_FOR_DRIVER_NAVIGATION
-P2_T54_STATUS=READY_FOR_AUDIT_AND_DESIGN
+P2_T54_STATUS=READY_FOR_IMPLEMENTATION_AUTHORIZATION
+P2_T54_A1_STATUS=DESIGN_COMPLETE
+P2_T54_R1_READY_FOR_AUTHORIZATION=YES
 P2_T54_PRIMARY_SURFACE=REPARTIDOR
 P2_T54_PRIMARY_SCOPE=DRIVER_IN_APP_NAVIGATION_UX
 P2_T54_BLOCKED_BY_T23=NO
@@ -33,6 +35,7 @@ P2_T54_GOOGLE_MAPS_FALLBACK=PRESERVE
 CURRENT_CLIENT_TRACKING_ACCEPTED_AS_SUFFICIENT=SI
 CLIENT_TRACKING_REWORK_REQUIRED_FOR_P2_T54=NO_BY_DEFAULT
 NEXT_PRIORITY_TASK=P2-T54
+NEXT_PRIORITY_TASK_STATUS=R1_IMPLEMENTATION_REQUIRES_OPERATOR_AUTHORIZATION
 NEXT_PRIORITY_CANDIDATES=P2-T52 Fase 4 permanece alternativa sin prioridad ni autorización; P2-T33/P2-T37 continúan secuenciadas después del trabajo funcional pendiente
 P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY
@@ -40,10 +43,17 @@ CANONICAL_PROJECT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio
 TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T54_A1_AUTHORIZATION
+T54_SERVER_CHANGE_REQUIRED=NO
+T54_SCHEMA_CHANGE_REQUIRED=NO
+T54_MIGRATION_REQUIRED=NO
+CLIENT_TRACKING_FILES_REQUIRED_FOR_T54=0
+EXPECTED_IMPLEMENTATION_SPLIT=P2-T54-R1_SINGLE_BOUNDED_ROUND
+BRANCH_CREATED=NO
+CODE_CHANGED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T54_R1_IMPLEMENTATION_AUTHORIZATION
 ```
 
-P2-T34 permanece cerrado con los Casos A/B físicos post-fix solicitados por R3; este bloque actualiza únicamente la prioridad y el alcance de producto. La decisión sobre T23/T24 es de alcance, no una afirmación de resolución técnica: se preservan código, pruebas, reportes y evidencia históricos sin cambiar sus resultados. T54 es la única tarea activa de esta cadena y queda en auditoría/diseño; no se autoriza implementación en A0. La superficie Cliente se acepta como suficiente y no se reabre su tracking. T52 Fase 4 continúa alternativa sin prioridad/autorización; T33/T37 siguen secuenciadas y T44 permanece pausada.
+P2-T34 permanece cerrado con los Casos A/B físicos post-fix solicitados por R3. La decisión sobre T23/T24 es de alcance, no resolución técnica; su historia y evidencia se preservan. A1 cierra el diseño de T54: orientación north-up, rumbo condicional derivado de las muestras Repartidor existentes, cámara follow con dead-zone, modo manual y botón recenter accesible. Aún no se autorizó implementación. Cliente tracking continúa aceptado sin cambios. T52 Fase 4 sigue alternativa sin prioridad/autorización; T33/T37 siguen secuenciadas y T44 permanece pausada.
 
 ## HISTORICAL SNAPSHOT — backlog handoff previo al cierre T34 (2026-09-25)
 
@@ -867,9 +877,9 @@ P2-T39 — Admin/SuperAdmin Functional Review — CLOSED_TESTING_CERTIFIED
           notification delivery architecture" — historial no mergeado a
           work/p2-t43-r2. El cierre confirmado de T39 es posterior y no
           requiere reabrir ni modificar ese worktree desde esta tarea.)
-P2-T54 — Driver In-App Navigation UX — READY_FOR_AUDIT_AND_DESIGN
-         (única tarea activa de la cadena T23/T24/T54; A0 scope consolidado,
-         implementación requiere autorización A1; ver handoff actual arriba)
+P2-T54 — Driver In-App Navigation UX — READY_FOR_IMPLEMENTATION_AUTHORIZATION
+         (única tarea activa de la cadena T23/T24/T54; A1 diseño completo,
+         R1 requiere autorización del operador; ver handoff actual arriba)
 ```
 
 P2-T43 y P2-T53 se retiraron de esta sección en esta reconciliación — ambas
