@@ -18,6 +18,7 @@ import {
   Shirt,
   DoorOpen,
   DoorClosed,
+  ShoppingCart,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -37,12 +38,14 @@ import { ConfigTab } from "./config-tab"
 import { ReviewsTab } from "./reviews-tab"
 import { SalesTab } from "./sales-tab"
 import { SalonTab } from "./salon-tab"
+import { CajaTab } from "./caja-tab"
+import { InventarioTab } from "./inventario-tab"
 
 // ============================================
 // Types
 // ============================================
 export type PanelMode = "simple" | "expert"
-export type PanelTab = "dashboard" | "ventas" | "productos" | "pedidos" | "resenas" | "salon" | "config"
+export type PanelTab = "dashboard" | "ventas" | "productos" | "caja" | "inventario" | "pedidos" | "resenas" | "salon" | "config"
 
 /** Shared query key so child components can invalidate tab counts */
 export const TAB_COUNTS_KEY = "negocio-tab-counts"
@@ -60,19 +63,36 @@ interface BusinessPanelProps {
   }
 }
 
-// Tab items are now dynamic based on rubro - see getTabItems() below
-function getTabItems(rubro: string): { id: PanelTab; label: string; icon: typeof LayoutDashboard }[] {
+// Tab items are now dynamic based on rubro - see getTabItems() below.
+// Exported so P2-T56-R1's tab-gating logic (which tabs a generic business
+// sees) can be asserted directly in tests without mounting this component.
+export function getTabItems(rubro: string): { id: PanelTab; label: string; icon: typeof LayoutDashboard }[] {
   const isRopa = rubro === "ropa"
   const isNegocio = rubro === "negocio"
   const items: { id: PanelTab; label: string; icon: typeof LayoutDashboard }[] = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "ventas", label: "Ventas", icon: BarChart3 },
-    { id: "productos", label: isRopa ? "Prendas" : "Productos", icon: isRopa ? Shirt : Package },
-    { id: "pedidos", label: "Pedidos", icon: ClipboardList },
-    { id: "resenas", label: "Reseñas", icon: Star },
   ]
-  // Only show Salon tab for restaurants
-  if (!isRopa && !isNegocio) {
+  // P2-T56-R1: a generic business gets Caja + Inventario instead of the
+  // plain Productos tab — Inventario is a strict superset of product
+  // management for this vertical (adds stock), so showing both would just
+  // be two overlapping catalog-management surfaces for the same Producto
+  // model. Restaurante/Ropa are completely unchanged.
+  if (isNegocio) {
+    items.push({ id: "caja", label: "Caja", icon: ShoppingCart })
+    items.push({ id: "inventario", label: "Inventario", icon: Package })
+  } else {
+    items.push({ id: "productos", label: isRopa ? "Prendas" : "Productos", icon: isRopa ? Shirt : Package })
+  }
+  items.push({ id: "pedidos", label: "Pedidos", icon: ClipboardList })
+  items.push({ id: "resenas", label: "Reseñas", icon: Star })
+  // Salón: gated by Negocio.salonActivo (opt-in, checked inside SalonTab
+  // itself) for any rubro except Ropa, which has no walk-in
+  // table/seating concept. P2-T56-R1: enabled here for "negocio" too —
+  // Mesa/SesionOcupacionMesa and salonActivo are already rubro-agnostic;
+  // only the "Mozo" wording inside SalonTab stays restaurant-flavored for
+  // this round (documented in the P2-T56-R1 report as a known R2 item).
+  if (!isRopa) {
     items.push({ id: "salon", label: "Salón", icon: UtensilsCrossed })
   }
   items.push({ id: "config", label: "Config", icon: Settings })
@@ -132,6 +152,8 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       dashboard: "dashboard",
       ventas: "ventas",
       productos: "productos",
+      caja: "caja",
+      inventario: "inventario",
       salon: "salon",
     }
     const target = tabMap[tab]
@@ -246,6 +268,8 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
           dashboard: "dashboard",
           ventas: "ventas",
           productos: "productos",
+          caja: "caja",
+          inventario: "inventario",
           pedidos: "pedidos",
           resenas: "resenas",
           salon: "salon",
@@ -486,6 +510,12 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
                 onModeChange={handleModeChange}
                 onRegisterNavigationGuard={(guard) => { catalogNavigationGuardRef.current = guard }}
               />
+            )}
+            {activeTab === "caja" && (
+              <CajaTab negocio={negocio} />
+            )}
+            {activeTab === "inventario" && (
+              <InventarioTab negocio={negocio} />
             )}
             {activeTab === "pedidos" && (
               <OrdersTab negocio={negocio} />

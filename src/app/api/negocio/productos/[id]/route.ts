@@ -9,6 +9,7 @@ import {
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
+import { isValidUnidadMedida } from "@/lib/inventario"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -82,6 +83,15 @@ export async function PUT(
       agregadoIds,
       ingredienteIds,
       opcionesCompartidasIds,
+      sku,
+      codigoBarras,
+      costo,
+      marca,
+      unidadMedida,
+      controlStock,
+      stockCantidad,
+      stockMinimo,
+      eliminado,
     } = body
 
     // Validation
@@ -185,6 +195,21 @@ export async function PUT(
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
+    // P2-T56-R1 Inventario fields: same additive validation as POST.
+    if (unidadMedida !== undefined && !isValidUnidadMedida(unidadMedida)) {
+      return NextResponse.json({ error: "Unidad de medida inválida" }, { status: 400 })
+    }
+    if (costo !== undefined && costo !== null && (typeof costo !== "number" || !Number.isFinite(costo) || costo < 0)) {
+      return NextResponse.json({ error: "El costo no puede ser negativo" }, { status: 400 })
+    }
+    if (stockMinimo !== undefined && (typeof stockMinimo !== "number" || !Number.isFinite(stockMinimo) || stockMinimo < 0)) {
+      return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
+    }
+    // stockCantidad is intentionally NOT accepted here — adjusting it must go
+    // through POST /api/negocio/inventario/movimientos so every change stays
+    // traced (section 11). This route can toggle controlStock/stockMinimo/
+    // metadata, but never writes stockCantidad directly.
+
     // OWN-PRODUCT-OPTION-PRICES-R1 §50: reject a malformed/negative option
     // price outright rather than silently coercing it.
     let validSecciones: ReturnType<typeof validateProductSectionsForSave> | null = null
@@ -208,6 +233,18 @@ export async function PUT(
     if (opcionesCompartidasIds !== undefined) {
       updateData.opcionesCompartidasIds = JSON.stringify(validOpcionesCompartidasIds.configs)
     }
+    if (sku !== undefined) updateData.sku = sku || null
+    if (codigoBarras !== undefined) updateData.codigoBarras = codigoBarras || null
+    if (costo !== undefined) updateData.costo = costo === null ? null : costo
+    if (marca !== undefined) updateData.marca = marca || null
+    if (unidadMedida !== undefined) updateData.unidadMedida = unidadMedida
+    if (controlStock !== undefined) updateData.controlStock = controlStock === true
+    if (stockMinimo !== undefined) updateData.stockMinimo = stockMinimo
+    // Activo/Inactivo (section 27): reuses the existing soft-delete flag —
+    // an inactivated product keeps its full sale/order history intact and
+    // simply stops appearing in the active catalog/Caja, same as it already
+    // does for every other vertical's `eliminado` semantics.
+    if (eliminado !== undefined) updateData.eliminado = eliminado === true
     // Update product
     const producto = await db.producto.update({
       where: { id },

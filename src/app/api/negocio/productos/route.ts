@@ -10,6 +10,7 @@ import {
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
+import { isValidUnidadMedida } from "@/lib/inventario"
 import { Prisma } from "@prisma/client"
 
 // Helper to parse JSON fields safely
@@ -116,6 +117,14 @@ export async function POST(req: NextRequest) {
       agregadoIds,
       ingredienteIds,
       opcionesCompartidasIds,
+      sku,
+      codigoBarras,
+      costo,
+      marca,
+      unidadMedida,
+      controlStock,
+      stockCantidad,
+      stockMinimo,
     } = body
 
     // Validation
@@ -198,6 +207,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validSecciones.error }, { status: 400 })
     }
 
+    // P2-T56-R1 Inventario fields: all optional and additive. Restaurante/
+    // Ropa never send these; controlStock defaults to false (identical to
+    // today's behavior) unless explicitly opted into.
+    if (unidadMedida !== undefined && !isValidUnidadMedida(unidadMedida)) {
+      return NextResponse.json({ error: "Unidad de medida inválida" }, { status: 400 })
+    }
+    if (costo !== undefined && costo !== null && (typeof costo !== "number" || !Number.isFinite(costo) || costo < 0)) {
+      return NextResponse.json({ error: "El costo no puede ser negativo" }, { status: 400 })
+    }
+    if (stockCantidad !== undefined && (typeof stockCantidad !== "number" || !Number.isFinite(stockCantidad) || stockCantidad < 0)) {
+      return NextResponse.json({ error: "El stock inicial no puede ser negativo" }, { status: 400 })
+    }
+    if (stockMinimo !== undefined && (typeof stockMinimo !== "number" || !Number.isFinite(stockMinimo) || stockMinimo < 0)) {
+      return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
+    }
+
     const ownsCatalogRefs = await validateNegocioResourceOwnership(negocioId, {
       agregados: validAgregadoIds.ids,
       ingredientes: validIngredienteIds.ids,
@@ -236,6 +261,14 @@ export async function POST(req: NextRequest) {
           opcionesCompartidasIds: opcionesCompartidasIds !== undefined
             ? JSON.stringify(validOpcionesCompartidasIds.configs)
             : "[]",
+          sku: sku || null,
+          codigoBarras: codigoBarras || null,
+          costo: costo === undefined || costo === null ? null : costo,
+          marca: marca || null,
+          unidadMedida: unidadMedida || "unidad",
+          controlStock: controlStock === true,
+          stockCantidad: stockCantidad !== undefined ? stockCantidad : 0,
+          stockMinimo: stockMinimo !== undefined ? stockMinimo : 0,
           orden: (maxOrder._max.orden ?? -1) + 1,
           negocioId,
         },

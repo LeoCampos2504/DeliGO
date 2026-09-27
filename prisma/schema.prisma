@@ -178,6 +178,10 @@ model Negocio {
   terminalesOperativas       TerminalOperativa[]
   vinculacionesTerminalOperativa VinculacionTerminalOperativa[]
 
+  // Relations (Caja / Inventario — P2-T56-R1)
+  movimientosInventario MovimientoInventario[]
+  ventas                Venta[]
+
   // Plan
   planTipo            String  @default("prueba")
   planVencimiento     String?
@@ -287,18 +291,109 @@ model Producto {
   material String @default("")
   genero   String @default("")
 
+  // Inventario (P2-T56-R1): additive, generic-vertical stock tracking.
+  // Every existing Producto (Restaurante/Ropa) keeps controlStock=false and
+  // is completely unaffected — these fields are only read/written by the
+  // new Inventario/Caja surfaces. stockCantidad/stockMinimo are Float (not
+  // Int) so a future kg/litro sale doesn't require a second migration.
+  sku           String?
+  codigoBarras  String?
+  costo         Float?
+  marca         String?
+  unidadMedida  String  @default("unidad") // unidad, kg, g, litro, ml, metro, caja, paquete, otro
+  controlStock  Boolean @default(false)
+  stockCantidad Float   @default(0)
+  stockMinimo   Float   @default(0)
+
   orden     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  negocio      Negocio               @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  agregados    ProductoAgregado[]
-  ingredientes ProductoIngrediente[]
-  seccionItems SeccionProducto[]
-  itemsPedido  PedidoItem[]
-  promociones  Promocion[]
+  negocio               Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  agregados             ProductoAgregado[]
+  ingredientes          ProductoIngrediente[]
+  seccionItems          SeccionProducto[]
+  itemsPedido           PedidoItem[]
+  promociones           Promocion[]
+  movimientosInventario MovimientoInventario[]
+  ventaItems            VentaItem[]
 
   @@map("productos")
+}
+
+// ============================================
+// INVENTARIO — MOVIMIENTOS DE STOCK (P2-T56-R1)
+// ============================================
+// Traza cada cambio de Producto.stockCantidad para un producto con
+// controlStock=true. Nunca se escribe stockCantidad "a mano": todo cambio
+// (alta manual, ajuste, venta desde Caja) pasa por un movimiento acá,
+// dentro de la misma transacción que actualiza el producto — ver
+// src/app/api/negocio/inventario/movimientos/route.ts y
+// src/app/api/negocio/caja/ventas/route.ts.
+model MovimientoInventario {
+  id           String   @id @default(cuid())
+  negocioId    String
+  productoId   String
+  tipo         String // ENTRADA | SALIDA | AJUSTE | VENTA
+  cantidad     Float // siempre positivo; el signo real lo determina `tipo`
+  stockAntes   Float
+  stockDespues Float
+  motivo       String?
+  ventaId      String? // presente únicamente cuando tipo = VENTA
+  createdAt    DateTime @default(now())
+
+  negocio  Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  venta    Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+
+  @@index([negocioId, productoId, createdAt])
+  @@index([ventaId])
+  @@map("movimientos_inventario")
+}
+
+// ============================================
+// CAJA — VENTAS PRESENCIALES (P2-T56-R1)
+// ============================================
+// Venta iniciada por el propio negocio desde Caja (POS presencial) —
+// deliberadamente NO es un Pedido: Pedido carga semántica de
+// delivery/chat/tracking/notificaciones/idempotencia pensada para el
+// checkout de Cliente, que una venta de mostrador instantánea no tiene y no
+// debe disparar (ver P2-T56-R1 report, sección de decisión de arquitectura).
+// Total y líneas se recalculan siempre server-side; nunca se confía en un
+// total enviado por el cliente HTTP (mismo principio que
+// src/app/api/pedidos/route.ts).
+model Venta {
+  id            String   @id @default(cuid())
+  negocioId     String
+  total         Float
+  metodoPago    String // EFECTIVO | TRANSFERENCIA | OTRO
+  cantidadItems Int
+  createdAt     DateTime @default(now())
+
+  negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  items       VentaItem[]
+  movimientos MovimientoInventario[]
+
+  @@index([negocioId, createdAt])
+  @@map("ventas_caja")
+}
+
+// Snapshot inmutable por línea — una venta histórica nunca cambia porque
+// mañana cambie el nombre/precio/categoría del Producto (mismo principio
+// que PedidoItem para Pedido).
+model VentaItem {
+  id         String @id @default(cuid())
+  ventaId    String
+  productoId String?
+  nombre     String // snapshot
+  precio     Float // snapshot: precio unitario aplicado
+  cantidad   Float
+  subtotal   Float
+
+  venta    Venta     @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  producto Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+
+  @@map("venta_items")
 }
 
 model ProductoAgregado {
