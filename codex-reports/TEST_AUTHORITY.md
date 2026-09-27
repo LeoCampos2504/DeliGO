@@ -1,86 +1,90 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
-## P2-T39 — FINAL physical certification closeout (2026-09-21)
+## Historical test authority — P2-T39 SuperAdmin Push (2026-09-21)
 
-```text
-P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
-T39_TESTING_CERTIFIED=SI
-RELEASE_ELIGIBLE_T39=YES_FUTURE_CURATED_PROMOTION_ONLY
-REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_FINAL_PHYSICAL_CERTIFICATION.md
-SUPERADMIN_INITIAL_OFF_PHYSICAL=PASS
-SUPERADMIN_FIRST_OPTIN_POST_R3B_PHYSICAL=PASS
-SUPERADMIN_PUSH_NEGOCIO_PENDIENTE_PHYSICAL=PASS (representativo; los otros 5 triggers quedan cubiertos sólo por tests automatizados, no disparados físicamente)
-MOBILE_PHYSICAL_CERT_REQUIRED=NO (decisión de alcance de producto)
-PUSH_CLICK_NAVIGATION_REQUIRED_FOR_T39=NO (decisión de alcance de producto)
-PRODUCT_CODE_CHANGED_THIS_CLOSEOUT=NO
-PRODUCTION_TOUCHED=NO
-```
+Las entradas R3/R3A/R3B son snapshots de cada gate y no deben confundirse con
+el resultado terminal. La certificación final R3B cerró T39; cuando un gate
+intermedio aparece pendiente, su fecha y etapa son parte de la historia.
 
-## P2-T39-R3B — SuperAdmin push physical auth failure: root cause + fix (2026-09-21)
-
-```text
-P2_T39_STATUS=R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
-REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md
-ROOT_CAUSE=src/proxy.ts (middleware Edge) nunca reconocía "superadmin" como SessionFamily para el gate AUTH_REQUIRED_PREFIXES de /api/push/subscribe|unsubscribe — rechazaba 401 ANTES de requireSuperadminSession (idéntico al usado por /api/superadmin/dashboard, que sí funcionaba). Mismo patrón que P2-T44-R1G (cuenta_operativa).
-FIX=chequeo aislado de formato (SUPERADMIN_TOKEN_REGEX, hex-64) gateado por ?actorFamily=superadmin dentro de checkRouteProtection §4 — nunca tocó SessionFamily/FAMILY_SESSION_COOKIE_NAMES/ROLE_PROTECTED_ROUTES
-NEW_TEST_FILES=proxy.test.ts [+11 tests, describe "P2-T39-R3B"],
-  superadmin-push-auth-real-session.integration.test.ts [2 tests, sesión SuperAdmin real de punta a punta contra DELIGO_TEST_DATABASE_URL]
-REPRODUCTION=confirmado 2 veces: (1) proxy.ts revertido temporalmente vía git stash -> 3/10 tests nuevos fallan exactamente como predice la causa raíz; restaurado -> 10/10 PASS; (2) integration test de sesión real: dashboard=200/subscribe=401 pre-fix (inferido de (1), confirmado post-fix dashboard=200/subscribe=200)
-T40_REGRESSION=314 pass / 0 fail (16 archivos)
-TSC_NEW_ERRORS=0 (baseline 31 sin cambio)
-ESLINT=PASS
-BUILD=PASS
-REAL_AUTH_INTEGRATION=2 pass / 0 fail contra Testing real, cero fixtures huérfanos
-TESTING_DEPLOY=a6f6c66c-5478-4906-962d-68b22cee4631_SUCCESS_EXACT_COMMIT (1661d87)
-PRODUCTION_TOUCHED=NO
-```
-
-## P2-T39-R3A — Pre-physical certification gate (2026-09-21)
-
-```text
-P2_T39_PREPHYSICAL_GATE=PASS_WITH_ONE_DOCUMENTED_ENVIRONMENTAL_CAVEAT
-P2_T39_STATUS=R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION
-REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md (ubicación canónica, no en este worktree)
-NEW_TEST_FILES=superadmin-actor-family-contract.test.ts [10 tests, auth contract A-I + manual-off/relogin],
-  superadmin-push-settings-static-contract.test.ts [5 tests, first-opt-in],
-  superadmin-push-dispatch-wiring-static-contract.test.ts [8 tests, 6-producer wiring post-commit]
-PRODUCT_CODE_CHANGED=NO
-T40_REGRESSION=249 pass / 0 fail
-BUILD=PASS (next build, con VAPID keys reales — un placeholder inválido falla la fase de page-data-collection, comportamiento correcto de web-push)
-TSC_NEW_ERRORS=0 (baseline 31 sin cambio)
-ESLINT=PASS
-DB_INTEGRATION_PASS=14
-DB_INTEGRATION_FAIL=1 (negocio_deuda alert crossing — timeout ambiental reproducido 2/2 veces contra latencia real de Postgres remoto, no un defecto: dispatchSuperadminPush es fire-and-forget y nunca bloquea la respuesta; los otros 3 productores con el mismo patrón sí completaron)
-TESTING_AUTODEPLOY=821752dd-b686-4990-8d84-335bbb61ca65_SUCCESS_EXACT_COMMIT (test-only, autodeploy del repo, no una decisión de esta ronda)
-```
-
-## P2-T39-R3 — SuperAdmin Web Push delivery, implementation gate (2026-09-21)
+### P2-T39-R3 — implementation gate
 
 ```text
 P2_T39_R3_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
 P2_T39_STATUS=R3_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_CERTIFICATION
-FOCAL_TESTS_PURE=254 pass / 0 fail (push.test.ts, superadmin-push-dispatch.test.ts [NEW, 7 tests],
-  push-subscription-repository.test.ts [updated MD57 owner-enum contract],
-  sw-push-role-icon-routing.test.ts, sw-notificationclick-target-routing.test.ts,
-  sw-superadmin-push-routing.test.ts [NEW, 10 tests], sw-push-dedupe.test.ts,
-  sw-icon-cache-bypass-static-contract.test.ts, push-owner-handoff.test.ts,
-  push-manual-optout.test.ts, push-session-reconciliation-static-contract.test.ts)
-FOCAL_TESTS_DB_INTEGRATION=NOT_RUN_NO_DATABASE_URL_IN_ISOLATED_WORKTREE
-  (superadmin-notifications.integration.test.ts updated for the new
-  {count, recipientIds} return shape but not executed this round — same
-  documented environment gap as R0/R1/R2; operator/CI must run it before
-  physical certification with DELIGO_TEST_DATABASE_URL configured)
-ESLINT=PASS (scoped to every file touched this round)
-TYPECHECK=REPO_BASELINE_MATCH_31_PREEXISTING_ERRORS_ZERO_NEW
-  (2 self-inflicted union-type errors from this round's own edits were
-  found and fixed before this count — ConfirmOutcome.debtAlert,
-  PostOutcome.notificationTitle/notificationBody/superadminRecipientIds)
-BUILD=NOT_RUN_NO_NEXT_BUILD_THIS_ROUND (dev/prod runtime verified instead
-  via the real Testing deployment boot log, Ready in 67ms, zero errors)
+FOCAL_TESTS_PURE=254 pass / 0 fail (includes new dispatch and service-worker routing coverage)
+FOCAL_TESTS_DB_INTEGRATION=NOT_RUN_NO_DATABASE_URL_IN_ISOLATED_WORKTREE (the {count, recipientIds} integration contract was updated but not run at R3 stage)
+ESLINT=PASS (all files touched in R3)
+TYPECHECK=REPO_BASELINE_MATCH_31_PREEXISTING_ERRORS_ZERO_NEW (two R3 union-type errors were found and fixed before final count)
+BUILD=NOT_RUN_NO_NEXT_BUILD_THIS_ROUND (Testing runtime boot was Ready in 67ms with no runtime errors)
 TESTING_DEPLOYMENT_STATUS=SUCCESS_EXACT_COMMIT_RUNNING
 PRODUCTION_TOUCHED=NO
 PUBLIC_RELEASE_AUTHORIZED=NO
 ```
+
+R3A closed the remaining technical gate, found one environment-dependent
+`negocio_deuda` integration timeout (14 pass / 1 fail against remote Postgres),
+and added the missing `actorFamily=superadmin` contract coverage. It did not
+represent a product failure; dispatch is fire-and-forget and does not block
+the business response.
+
+### P2-T39-R3A — pre-physical certification gate
+
+```text
+P2_T39_PREPHYSICAL_GATE=PASS_WITH_ONE_DOCUMENTED_ENVIRONMENTAL_CAVEAT
+P2_T39_STATUS=R3_TESTING_READY_FOR_PHYSICAL_CERTIFICATION
+NEW_TEST_FILES=superadmin-actor-family-contract.test.ts (10); superadmin-push-settings-static-contract.test.ts (5); superadmin-push-dispatch-wiring-static-contract.test.ts (8)
+PRODUCT_CODE_CHANGED=NO
+T40_REGRESSION=249 pass / 0 fail
+BUILD=PASS
+TSC_NEW_ERRORS=0 (baseline 31 unchanged)
+ESLINT=PASS
+DB_INTEGRATION_PASS=14
+DB_INTEGRATION_FAIL=1 (negocio_deuda remote-Postgres latency timeout, reproduced 2/2; fire-and-forget dispatch does not block the response, and other producers with the same pattern completed)
+TESTING_AUTODEPLOY=821752dd-b686-4990-8d84-335bbb61ca65_SUCCESS_EXACT_COMMIT
+```
+
+### P2-T39-R3B — physical auth failure, root cause and fix
+
+```text
+P2_T39_STATUS=R3B_FIX_DEPLOYED_TESTING_AWAITING_PHYSICAL_RECERTIFICATION
+ROOT_CAUSE=Edge proxy did not recognize superadmin for AUTH_REQUIRED_PREFIXES on /api/push/subscribe|unsubscribe and rejected before requireSuperadminSession
+FIX=Isolated SUPERADMIN_TOKEN_REGEX (hex-64) check gated by actorFamily=superadmin; SessionFamily, family-cookie names and ROLE_PROTECTED_ROUTES were not changed
+NEW_TEST_FILES=proxy.test.ts (+11, P2-T39-R3B suite); superadmin-push-auth-real-session.integration.test.ts (2, real SuperAdmin session against DELIGO_TEST_DATABASE_URL)
+REPRODUCTION=Temporarily reverting proxy reproduced the predicted failures; restoring the fix passed the new tests and real-session integration
+T40_REGRESSION=314 pass / 0 fail (16 files)
+TSC_NEW_ERRORS=0 (baseline 31 unchanged)
+ESLINT=PASS
+BUILD=PASS
+REAL_AUTH_INTEGRATION=2 pass / 0 fail against Testing
+TESTING_DEPLOY=a6f6c66c-5478-4906-962d-68b22cee4631_SUCCESS_EXACT_COMMIT (1661d87)
+PRODUCTION_TOUCHED=NO
+```
+
+### P2-T39 — terminal physical certification closeout
+
+```text
+P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
+REPORT=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T39_FINAL_PHYSICAL_CERTIFICATION.md
+T39_TESTING_CERTIFIED=SI
+RELEASE_ELIGIBLE_T39=YES_FUTURE_CURATED_PROMOTION_ONLY
+SUPERADMIN_INITIAL_OFF_PHYSICAL=PASS
+SUPERADMIN_FIRST_OPTIN_POST_R3B_PHYSICAL=PASS
+SUPERADMIN_PUSH_NEGOCIO_PENDIENTE_PHYSICAL=PASS (representative trigger; the other five were not physically fired)
+MOBILE_PHYSICAL_CERT_REQUIRED=NO (product-scope decision)
+PUSH_CLICK_NAVIGATION_REQUIRED_FOR_T39=NO (product-scope decision)
+PRODUCT_CODE_CHANGED_THIS_CLOSEOUT=NO
+PRODUCTION_TOUCHED=NO
+```
+
+The physical delivery was performed from a desktop browser. Mobile physical
+certification and exact-entity tap navigation were outside the accepted scope;
+automated coverage remains the evidence for the other five trigger instances.
+The automated evidence included R3 service-worker routing/deduplication and
+R3A/R3B actor-family/auth coverage; it does not assert physical firing of those
+five other trigger instances.
+See `P2_T39_FINAL_PHYSICAL_CERTIFICATION.md`,
+`P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md`, and
+`P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md` in the canonical report directory.
 
 ## P2-T23-R3B — implementation gate (2026-09-13)
 

@@ -17,7 +17,51 @@ NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
 
 T34 se certificó con los Casos A/B físicos post-fix solicitados por R3. C–H continúan sin ejecutar y no eran requisito autoritativo del cierre. T52 principal ya está cerrada; sólo su Fase 4 permanece como alternativa sin prioridad asignada. T23 requiere la decisión/sonda registrada arriba. No se inicia ninguna prioridad.
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T38-R1 physical certification closeout (2026-09-26)
+## HISTORICAL SNAPSHOT — backlog handoff previo al cierre T34 (2026-09-25)
+
+La siguiente captura provino de `codex/p2-doc-reconcile-before-t38`. Se conserva
+como estado histórico de 2026-09-25, no como autoridad actual. En particular,
+`P2_T34_STATUS=READY_TO_START_BLOCKED_BY_ANDROID_PHYSICAL_AVAILABILITY` fue
+superado el 2026-09-26 por `P2_T34_STATUS=CLOSED_TESTING_CERTIFIED` y no debe
+usarse para planificar trabajo. La sección autoritativa vigente está al inicio
+de este archivo.
+
+```text
+P2_T02_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T23_STATUS=REOPENED_AWAITING_OPERATOR_H4_FILTER_CALIBRATION_DECISION
+P2_T24_STATUS=IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE
+P2_T33_STATUS=BLOCKED_UNTIL_FUNCTIONAL_PREREQUISITES
+P2_T34_STATUS=READY_TO_START_BLOCKED_BY_ANDROID_PHYSICAL_AVAILABILITY
+P2_T37_STATUS=BLOCKED_BY_PRIOR_BACKLOG
+P2_T38_STATUS=READY_FUTURE
+P2_T39_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
+P2_T40_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
+P2_T42_STATUS=CLOSED_PRODUCTION
+P2_T43_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX_G3_NOT_CERTIFIED
+P2_T45_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T46_STATUS=CLOSED_PRODUCTION
+P2_T47_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T48_STATUS=CLOSED_PRODUCTION
+P2_T49_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T50_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T51_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T52_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T53_STATUS=CLOSED_OPERATOR_PASS
+P2_T54_STATUS=FUTURE_AFTER_T02_T23_T24
+P2_T55_STATUS=CLOSED_TESTING_CERTIFIED_RC1_INCLUDED
+MAX_REAL_TASK_ID=P2-T55
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T38
+P2_T38_IN_PROGRESS=NO
+WORKTREE_PREPARATION_REQUIRED_BEFORE_IMPLEMENTATION=SI
+```
+
+La captura también registraba que T23/T24 esperaban decisión/evidencia,
+T33/T37 estaban secuenciadas, T34 requería Android físico, T44 no debía
+reabrirse automáticamente y no existía P2-T56 en las fuentes de esa fecha.
+Esas notas son parte del snapshot, no del backlog vigente.
+
+## HISTORICAL SNAPSHOT — P2-T38-R1 physical certification closeout (2026-09-26; superseded by P2-T34-R4)
 
 ```text
 P2_T38_STATUS=CLOSED_TESTING_CERTIFIED
@@ -53,9 +97,13 @@ P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T40_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T42_STATUS=CLOSED_PRODUCTION
 PRODUCTION_TOUCHED=NO
-NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED (P2-T34/P2-T52-Fase-4; P2-T23 requiere decisión/sonda; P2-T33/T37 siguen secuenciadas)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
+NEXT_PRIORITY_TASK_AT_SNAPSHOT=OPERATOR_DECISION_REQUIRED (P2-T34/P2-T52-Fase-4; P2-T23 requiere decisión/sonda; P2-T33/T37 siguen secuenciadas)
+NEXT_ACTION_AT_SNAPSHOT=RETURN_TO_OPERATOR_FOR_NEXT_PRIORITY_DECISION
 ```
+
+Este snapshot es histórico: en esa fecha T34 seguía entre los candidatos. El
+cierre R4 posterior cerró T34 y la prioridad vigente está en la sección
+autoritativa al inicio del archivo.
 
 La certificación física Android/Chrome de T38-R0 falló porque el mensaje
 “App instalada” apareció antes de que la app estuviera visible/utilizable desde
@@ -1066,7 +1114,11 @@ P2_T36_STATUS=CLOSED_PRODUCTION_CHECKPOINTED (PWA/Branding Hygiene — certifica
 P2_T41_STATUS=CLOSED_PRODUCTION_CHECKPOINTED (Terminal Read-Only Action Authorization — fix server-side (deny 403 en cancelar pedido y cerrar cuenta comercial para Terminal Operativa) + UI, certificación física/browser del operador PASS en los 5 pasos del checklist sobre TESTING; promovido a main/Production 2026-09-10, commit bb17c7dd1eb9b8f4cb94d03de834019baf182987 (source testing-codex@fb404a2), tag p2-t41-stable-2026-09-10 — ver P2_T41_PROMOTION_TO_MAIN_AND_PRODUCTION.md)
 ```
 
-## Backlog activo — orden auditado (dependencias duras verificadas, no por comodidad)
+## HISTORICAL SNAPSHOT — backlog activo auditado antes de P2-T34-R4 (2026-09-10)
+
+Este bloque conserva el orden y los estados conocidos antes del cierre de T34.
+No es backlog activo vigente: P2-T34 ya está `CLOSED_TESTING_CERTIFIED` y el
+finding `F-P2-T31-R23B-01` está `RESOLVED` (ver autoridad actual al inicio).
 
 ```text
 1. P2-T02 — GPS Android (Repartidor) — WAITING_FOR_ADDITIONAL_PHYSICAL_EVIDENCE (B3 iOS short background certificado best-effort throttled; B4 iOS certificado incluyendo retorno desde Google Maps y close/reopen sobre R3 `fb3e584`, Android B3/B4 pendientes por disponibilidad; movimiento exterior/T23/T24/final delivery aún pendientes — ver reportes B3/B4/R3/R3-R1)
@@ -1164,7 +1216,6 @@ Detalle completo de esta reconciliación:
 `codex-reports/P2_CURRENT_AUTHORITATIVE_BACKLOG_RECONCILIATION.md`.
 
 ---
-
 
 ## P2-T43-R3 — operator physical certification closeout — 2026-09-12
 

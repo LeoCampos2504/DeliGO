@@ -1,6 +1,27 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T38 CLOSED_TESTING_CERTIFIED (2026-09-26)
+## CURRENT AUTHORITATIVE STATE — P2-T34-R4 CLOSED_TESTING_CERTIFIED (2026-09-26)
+
+```text
+CURRENT_TASK=P2-T34-R4-PHYSICAL-RECERTIFICATION-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T34_FINAL_GATE=PASS
+FUNCTIONAL_FIX_COMMIT=38ac6d398fb1bdead11913a347c81162eb260666
+F_P2_T31_R23B_01_STATUS=RESOLVED
+ANDROID_CASE_A_CLIENTE_GOOGLE_OAUTH=PASS
+ANDROID_CASE_B_REPARTIDOR_GOOGLE_OAUTH=PASS
+ANDROID_CLIENTE_RELOAD_ROLE_ISOLATION=PASS
+ANDROID_REPARTIDOR_SESSION_PRESERVED=PASS
+P2_T34_R4_PHYSICAL_RECERTIFICATION_GATE=PASS
+P2_T34_POST_PHYSICAL_LOG_GATE=PASS
+PRODUCTION_TOUCHED=NO
+NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED (P2-T52 Fase 4 sin prioridad asignada/autorización; P2-T23 espera decisión/sonda; T33/T37 siguen secuenciadas)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+```
+
+## HISTORICAL SNAPSHOT — P2-T38 CLOSED_TESTING_CERTIFIED (2026-09-26; precedes T34-R4 closeout)
 
 ```text
 CURRENT_TASK=P2-T38-R1-PHYSICAL-RECERTIFICATION-CLOSEOUT
@@ -12695,3 +12716,24 @@ T23 R1.
 ## P2-T34-R4 — milestone de aislamiento de sesión (2026-09-26)
 
 T34 cierra `CLOSED_TESTING_CERTIFIED`: root cause fue el callback Google OAuth con cookie legacy compartida; R3 cambió callback/consentimiento a cookies por familia (`38ac6d398fb1bdead11913a347c81162eb260666`). El operador certificó Android Chrome, mismo perfil: Cliente Google PASS, Repartidor Google PASS en segunda pestaña, Cliente siguió autenticado como Cliente tras reload y Repartidor permaneció autenticado; no apareció WrongRoleNotice. El finding `F-P2-T31-R23B-01` queda RESOLVED. Logs posteriores TESTING PASS; Production intacta. C–H no requeridos ni ejecutados. Siguiente acción: pedir al operador decisión de prioridad; Roadmap lista T52 Fase 4 (sin prioridad asignada; requiere autorización) y T23 (espera decisión/sonda), con T33/T37 secuenciadas. Ver `codex-reports/P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.
+
+## HISTORICAL SNAPSHOT — compact handoff from T39 worktree (2026-09-25)
+
+This captured state is retained for chronology only. It predates both the T38
+physical closeout and the T34-R4 closeout above; do not use its backlog or
+worktree counts as current authority.
+
+```text
+PRODUCTION_RC1=42ca5005d2ecd412de87e454b52820f38aaec5c0 (certified; no implied authorization for further Production changes)
+ORIGIN_TESTING_CODEX_AT_SNAPSHOT=3eef96f203277a2fb6a71f1de76cec48e15f938d
+TESTING_SECRET_HYGIENE_STEPS_1_6=CLOSED
+POSTGRES_PASSWORD_ROTATION_FINAL_GATE=PASS
+PHYSICAL_DB_SMOKE=PASS
+POST_PHYSICAL_LOG_GATE=PASS
+CANONICAL_WORKTREE_AT_SNAPSHOT=8_COMMITS_BEHIND; 4_TRACKED_DOCUMENTATION_MODIFICATIONS; 26732_UNTRACKED_ENTRIES; 0_LOCAL_COMMITS_AHEAD
+BACKLOG_AS_RECORDED_THEN=T23,T24,T33,T34,T37,T38,T44,T54_OPEN_OR_CONDITIONED
+T34_AT_SNAPSHOT=READY_FOR_ANDROID_PHYSICAL_CERTIFICATION (superseded 2026-09-26 by R4 physical PASS and CLOSED_TESTING_CERTIFIED)
+NEXT_TASK_AT_SNAPSHOT=P2-T38 (subsequently CLOSED_TESTING_CERTIFIED)
+PRECONDITION_AT_SNAPSHOT=PREPARE_CLEAN_TESTING_WORKTREE
+DO_NOT_START_AUTOMATICALLY=SI
+```

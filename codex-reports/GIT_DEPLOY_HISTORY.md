@@ -1,6 +1,28 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
-## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21)
+## P2 — PRODUCTION RC1 PROMOTION (2026-09-25)
+
+```text
+AUTHORIZATION=explicit operator authorization to promote exactly 42ca5005d2ecd412de87e454b52820f38aaec5c0
+PROMOTION_METHOD=git push origin 42ca5005d2ecd412de87e454b52820f38aaec5c0:refs/heads/main (pure fast-forward, no --force, no merge commit)
+PUSH_RESULT=ff4cc2f..42ca500 -> main (2026-09-25T15:39:42Z)
+ORIGIN_MAIN_BEFORE=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763
+ORIGIN_MAIN_AFTER=42ca5005d2ecd412de87e454b52820f38aaec5c0
+PRODUCTION_DEPLOYMENT_ID_DELIGO=6bf1ee84-702e-41e1-80a8-d075e3ce9362 (auto, started 15:39:44Z, SUCCESS by 15:44:50Z, commit 42ca5005 exact match)
+PRODUCTION_DEPLOYMENT_ID_CHAT=05c53c6d-cc50-49cc-8904-a8cf99470296 (SUCCESS, 42ca5005)
+PRODUCTION_DEPLOYMENT_ID_MESA_CRON=9b538ade-c528-496b-a820-ffae485e2802 (SUCCESS, 42ca5005)
+PRODUCTION_DEPLOYMENT_ID_REVIEW_EXPIRY=d637f34d-da0f-4364-9fdc-91b968eb2f08 (SUCCESS, 42ca5005)
+PREVIOUS_DELIGO_DEPLOYMENT=4c79d31e-97b8-4370-b5a1-7e66c8e742a7 (ff4cc2f8, now REMOVED)
+PRODUCTION_MIGRATIONS=preDeployCommand applied exactly 3: 20260912090000_allow_deleted_employee_code_reuse, 20260914100000_account_level_personal_push, 20260921120000_add_superadmin_push_owner — "All migrations have been successfully applied"; post-check prisma migrate status = "Database schema is up to date!"
+PRE_PROMOTION_BACKUP=deligo-production-pre-rc1-20260925.dump SHA-256 1f9c566ace469ca175e94205a69a6454c5b26774e5716ece65f4b9fc5d954ac4
+HTTP_HEALTH=PASS / LOG_GATE=PASS
+ROLLBACK_PATH=redeploy ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 keeping additive schema (requires new operator authorization)
+REPORT=codex-reports/P2_PRODUCTION_RC1_PROMOTION.md
+PHYSICAL_PRODUCTION_SMOKE=PASS (operator, 2026-09-25; see P2_PRODUCTION_RC1_FINAL_RELEASE_CLOSEOUT.md)
+PRODUCTION_RELEASE_CERTIFIED=SI
+```
+
+## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21; historical Testing deployment)
 
 ```text
 R3_COMMIT=a808453fd8ca8120412c4c257ed211098f8ea819
@@ -9,10 +31,10 @@ R3_PUSH_RESULT=SUCCESS origin/testing-codex (fast-forward from e1fee008d326b800c
 TESTING_DEPLOYMENT_ID=081f9509-2321-4af2-87d2-b65850d9cfb4
 TESTING_DEPLOYMENT_STATUS=SUCCESS
 TESTING_DEPLOYMENT_COMMIT_MATCH=SI
-TESTING_MIGRATIONS=1_APPLIED (20260921120000_add_superadmin_push_owner — additive ALTER TYPE ... ADD VALUE, no backfill)
-TESTING_BOOT_HEALTH=PASS (Ready in 67ms, cero errores/excepciones en logs)
+TESTING_MIGRATIONS=1_APPLIED (20260921120000_add_superadmin_push_owner; additive enum value, no backfill)
+TESTING_BOOT_HEALTH=PASS
 TESTING_SMOKE=/admin -> 200
-ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (sin cambio)
+ORIGIN_MAIN_AT_THAT_TIME=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (sin cambio por T39-R3)
 PRODUCTION_TOUCHED=NO
 PUBLIC_RELEASE_AUTHORIZED=NO
 ```

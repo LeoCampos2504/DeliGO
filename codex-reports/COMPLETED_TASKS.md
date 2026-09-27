@@ -2270,19 +2270,30 @@ Reporte: `codex-reports/P2_T40_FINAL_PHYSICAL_CERTIFICATION_CLOSEOUT.md`.
 ## P2-T39-FINAL-PHYSICAL-CERTIFICATION — 2026-09-21
 
 REASON: R0/R1 (auditoría del productor `negocio_pendiente`, sin cambio de
-código) → R2 (diseño de Web Push para SuperAdmin) → R3 (owner moderno
-`superadmin`, dispatcher post-commit best-effort en productores reales,
+código) → R2 (diseño de Web Push para SuperAdmin, bloqueado entonces por
+T44 compartiendo infraestructura) → R3 (owner moderno `superadmin`,
+dispatcher post-commit best-effort cableado en los 6 productores reales,
 rutas compartidas y switch de Configuración) → R3A (cierre de gates técnicos
-y cobertura de tests) → R3B (fix mínimo del middleware Edge para aceptar
-`actorFamily=superadmin`) → recertificación física post-fix.
+y cobertura de tests; se encontró y cerró un gap real de cobertura para
+`actorFamily=superadmin`) → R3B (fix mínimo del middleware Edge para aceptar
+`actorFamily=superadmin` tras un 401 físico genuino) → recertificación física
+post-fix.
 
-RESULT: COMPLETE — el operador confirmó estado inicial Push apagado sin
-auto-enrollment, primer opt-in manual PASS y entrega física real del caso
-`negocio_pendiente` con `/admin` en segundo plano. La entrega Push fue PASS
-desde desktop browser. Por decisión de producto, certificación móvil y
-navegación al tocar la notificación quedaron fuera de criterio; los otros
-triggers preservan cobertura automatizada sin afirmar pruebas físicas no
-ejecutadas.
+RESULT: COMPLETE — estado inicial `Notificaciones Push=APAGADAS` sin
+auto-enrollment (`SUPERADMIN_INITIAL_OFF_PHYSICAL=PASS`); primer opt-in
+manual PASS (`SUPERADMIN_FIRST_OPTIN_POST_R3B_PHYSICAL=PASS`,
+`R3B_AUTH_FIX_PHYSICAL_RECERTIFICATION=PASS`); entrega física real del caso
+representativo `negocio_pendiente` con `/admin` en segundo plano PASS
+(`SUPERADMIN_PUSH_REAL_DELIVERY=PASS`,
+`SUPERADMIN_PUSH_BACKGROUND_DELIVERY=PASS`,
+`PHYSICAL_DEVICE_CLASS=DESKTOP_BROWSER`). Por decisión explícita de producto,
+la certificación en celular y que el tap navegue a una entidad específica
+quedaron fuera del criterio de cierre (`MOBILE_PHYSICAL_CERT_REQUIRED=NO`,
+`PUSH_CLICK_NAVIGATION_CLASSIFICATION=OUT_OF_CERTIFICATION_CRITERIA_BY_PRODUCT_DECISION`;
+no fue un SKIP por imposibilidad técnica). Los otros 5 triggers
+(`destacado_solicitud`, `denuncia_nueva`, `negocio_deuda`,
+`review_moderation` ×2) no se dispararon físicamente; su garantía queda en la
+cobertura automatizada ya certificada de R3/R3A/R3B.
 
 ```text
 P2_T39_STATUS=CLOSED_TESTING_CERTIFIED
