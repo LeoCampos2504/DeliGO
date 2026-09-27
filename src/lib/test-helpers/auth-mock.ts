@@ -60,6 +60,10 @@ export interface AuthMockState {
    * sets this keeps getting `null` (its previous implicit behavior).
    */
   sesionByToken: Map<string, { token: string; userId: string; userType: string; expiresAt: Date } | null>
+  /** Optional per-token actors for family coexistence tests through /api/auth/me. */
+  usersByToken: Map<string, { id: string; type: string } | null>
+  /** Session tokens passed to deleteSession() in focused logout tests. */
+  deletedSessionTokens: string[]
 }
 
 /** The exact literal every push/* test's request cookie carries as the "authenticated" token — matches the pre-H4 per-file constant verbatim. */
@@ -76,6 +80,8 @@ function createAuthMockState(): AuthMockState {
     deletedOperationalSessionTokens: [],
     currentOperationalAccount: null,
     sesionByToken: new Map(),
+    usersByToken: new Map(),
+    deletedSessionTokens: [],
   }
 }
 
@@ -113,6 +119,8 @@ export function resetAuthMockState(state: AuthMockState = authMockState): void {
   state.deletedOperationalSessionTokens = []
   state.currentOperationalAccount = null
   state.sesionByToken = new Map()
+  state.usersByToken = new Map()
+  state.deletedSessionTokens = []
   authMockHooks.onDeleteOperationalSession = undefined
 }
 
@@ -121,7 +129,15 @@ function buildAuthMockModule() {
     SESSION_COOKIE_NAME: "deligo_session",
     OPERATIONAL_SESSION_COOKIE_NAME: "deligo_operativo_session",
     validateSession: async (_token: string) => authMockState.sessionResult,
-    getUserFromToken: async (token: string) => (token === AUTH_MOCK_VALID_TOKEN ? authMockState.currentUser : null),
+    getUserFromToken: async (token: string) =>
+      authMockState.usersByToken.has(token)
+        ? authMockState.usersByToken.get(token) ?? null
+        : token === AUTH_MOCK_VALID_TOKEN
+          ? authMockState.currentUser
+          : null,
+    deleteSession: async (token: string) => {
+      authMockState.deletedSessionTokens.push(token)
+    },
     validateOperationalSession: async (token: string) => authMockState.operationalSessionByToken.get(token) ?? null,
     deleteOperationalSession: async (token: string) => {
       authMockState.deletedOperationalSessionTokens.push(token)

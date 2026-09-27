@@ -49,6 +49,16 @@ describe("applyLoginCookies — STALE_PREVIOUS_OWNER_RULE handoff", () => {
     expect(claims?.prevOwnerId).toBeNull()
   })
 
+  test("password Repartidor keeps writing only the Repartidor family cookie", async () => {
+    const req = reqWithCookie("repartidor", null)
+    const res = NextResponse.json({ ok: true })
+    await applyLoginCookies(req, res, "repartidor-token", "repartidor", "repartidor-B")
+
+    expect(res.cookies.get("deligo_session_repartidor")?.value).toBe("repartidor-token")
+    expect(res.cookies.get("deligo_session")).toBeUndefined()
+    expect(res.cookies.get("deligo_session_cliente")).toBeUndefined()
+  })
+
   test("previous cookie present, DIFFERENT owner (same-family replacement): handoff carries the exact previous owner", async () => {
     authMockState.sesionByToken.set("old-token", { token: "old-token", userId: "cliente-A", userType: "cliente", expiresAt: new Date(Date.now() + 3600_000) })
     const req = reqWithCookie("cliente", "old-token")

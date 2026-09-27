@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, findSesionByToken, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { createSession, findSesionByToken, getFamilySessionCookieName, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { setFamilySessionCookie } from "@/lib/auth-session-cookie"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import {
   type GoogleOAuthAccountType,
@@ -269,22 +270,21 @@ export async function GET(req: NextRequest) {
     const response = NextResponse.redirect(redirectUrl.toString())
 
     // P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE): igual que el login por
-    // contraseña (src/app/api/auth/login/route.ts) — antes de sobrescribir
-    // esta cookie compartida (Google usa la legacy SESSION_COOKIE_NAME para
-    // cliente/repartidor, nunca la cookie por family de contraseña), lee
-    // server-side el owner que ocupaba ese MISMO slot inmediatamente antes.
-    // El role anterior puede no coincidir con `role` (p.ej. Cliente ->
-    // Repartidor, ambos comparten esta cookie vía Google) — eso es
-    // exactamente el caso que esta regla debe limpiar, nunca ignorar.
+    // contraseña (src/app/api/auth/login/route.ts): lee el owner del slot de
+    // esta familia. Durante la migración acepta la cookie legacy sólo cuando
+    // no existe la familiar; nunca entrega el owner de otra familia al
+    // handoff, porque ahora Cliente y Repartidor pueden coexistir.
     let prevOwnerType: PushSubscriptionOwnerType | null = null
     let prevOwnerId: string | null = null
     try {
-      const previousToken = req.cookies.get(SESSION_COOKIE_NAME)?.value
+      const previousToken =
+        req.cookies.get(getFamilySessionCookieName(role))?.value ??
+        req.cookies.get(SESSION_COOKIE_NAME)?.value
       if (previousToken) {
         const previousSession = await findSesionByToken(previousToken)
         if (
           previousSession &&
-          (previousSession.userType === "cliente" || previousSession.userType === "repartidor") &&
+          previousSession.userType === role &&
           previousSession.userId !== userId
         ) {
           prevOwnerType = previousSession.userType
@@ -306,14 +306,9 @@ export async function GET(req: NextRequest) {
       `[PushOwnerHandoff] mint family=${role} newOwner=${safeFingerprint(userId)} prevOwnerFound=${Boolean(prevOwnerId)} prevOwner=${prevOwnerId ? safeFingerprint(prevOwnerId) : "n/a"} signed=${Boolean(handoff)}`
     )
 
-    // Set session cookie
-    response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: SESSION_DURATION_HOURS * 60 * 60,
-    })
+    // Cliente/Repartidor Google OAuth now shares the family-cookie contract
+    // with password login; do not create a new legacy global session cookie.
+    setFamilySessionCookie(response, sessionToken, role)
 
     // Clear the OAuth state and role cookies
     response.cookies.set("google_oauth_state", "", {

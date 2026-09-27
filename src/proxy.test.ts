@@ -160,6 +160,19 @@ describe("CASE 7/8 — endpoint compartido + selector explícito", () => {
     expect(forwardedCookie(res)).toContain(`${LEGACY_COOKIE}=${negocioToken}`)
     expect(forwardedCookie(res)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
   })
+
+  test("/api/auth/me mantiene Cliente y Repartidor separados cuando coexisten sus cookies OAuth", () => {
+    const clienteToken = uuid()
+    const repartidorToken = uuid()
+    const cookies = { [CLIENTE_COOKIE]: clienteToken, [REPARTIDOR_COOKIE]: repartidorToken }
+    const clienteResponse = proxy(req("/api/auth/me?actorFamily=cliente", cookies))
+    const repartidorResponse = proxy(req("/api/auth/me?actorFamily=repartidor", cookies))
+
+    expect(forwardedCookie(clienteResponse)).toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+    expect(forwardedCookie(clienteResponse)).not.toContain(`${LEGACY_COOKIE}=${repartidorToken}`)
+    expect(forwardedCookie(repartidorResponse)).toContain(`${LEGACY_COOKIE}=${repartidorToken}`)
+    expect(forwardedCookie(repartidorResponse)).not.toContain(`${LEGACY_COOKIE}=${clienteToken}`)
+  })
 })
 
 describe("CASE 9 — selector desconocido: fail closed", () => {

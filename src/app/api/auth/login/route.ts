@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { evaluatePasswordHash, createSession, createSessionWithClient, findSesionByToken, getFamilySessionCookieName, SESSION_DURATION_HOURS, type SessionFamily } from "@/lib/auth"
+import { evaluatePasswordHash, createSession, createSessionWithClient, findSesionByToken, getFamilySessionCookieName, type SessionFamily } from "@/lib/auth"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import {
   checkLoginAccountThrottle,
@@ -15,6 +15,7 @@ import { maybeUpgradePasswordHash } from "@/lib/password-hash-upgrade"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { signPushOwnerHandoff, setPushOwnerHandoffCookie, safeFingerprint } from "@/lib/push-owner-handoff"
 import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-repository"
+import { setFamilySessionCookie } from "@/lib/auth-session-cookie"
 
 // P2-T18-BLOCKER-AUTH2-R2 (Phase 1): escribe SÓLO la cookie de la familia
 // autenticada — nunca toca la cookie de ninguna otra familia (login Cliente
@@ -24,16 +25,6 @@ import type { PushSubscriptionOwnerType } from "@/lib/push-subscription-reposito
 // SESSION_COOKIE_NAME a los route handlers existentes, sin que ninguno de
 // ellos (ni este archivo, más allá de este helper) necesite conocer el
 // nombre de cookie por familia.
-function setCookie(response: NextResponse, token: string, family: SessionFamily): void {
-  response.cookies.set(getFamilySessionCookieName(family), token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_DURATION_HOURS * 60 * 60,
-  })
-}
-
 // P2-T40-R1 (STALE_PREVIOUS_OWNER_RULE): antes de sobrescribir la cookie de
 // esta family, lee — sólo server-side, nunca de un input del cliente — el
 // owner que ocupaba ese MISMO slot inmediatamente antes (si lo hay,
@@ -59,7 +50,7 @@ export async function applyLoginCookies(
   family: SessionFamily,
   newOwnerId: string
 ): Promise<void> {
-  setCookie(response, token, family)
+  setFamilySessionCookie(response, token, family)
 
   let prevOwnerType: PushSubscriptionOwnerType | null = null
   let prevOwnerId: string | null = null

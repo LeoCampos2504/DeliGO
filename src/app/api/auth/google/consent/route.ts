@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { createSession, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from "@/lib/auth"
+import { createSession } from "@/lib/auth"
+import { setFamilySessionCookie } from "@/lib/auth-session-cookie"
 import { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from "@/lib/legal-versions"
 import {
   GOOGLE_OAUTH_PENDING_COOKIE_NAME,
@@ -81,13 +82,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       redirect: claims.accountType === "repartidor" ? "/repartidor" : "/cliente/",
     })
-    response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: SESSION_DURATION_HOURS * 60 * 60,
-    })
+    setFamilySessionCookie(response, sessionToken, claims.accountType)
     clearGoogleOAuthPendingCookie(response)
     return response
   } catch (error) {

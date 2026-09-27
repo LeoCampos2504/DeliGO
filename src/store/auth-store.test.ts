@@ -102,6 +102,22 @@ describe("persistencia namespaced por familia (localStorage real vía happy-dom)
     expect(clienteEntry?.user?.id).toBe("cliente-1")
   })
 
+  test("Cliente y Repartidor concurrentes conservan sus namespaces y Cliente sigue siendo el actor de /cliente", async () => {
+    setPathname("/cliente/pedidos")
+    useAuthStore.getState().loginCliente({ id: "cliente-1", nombre: "Ana", email: "ana@example.test" })
+
+    setPathname("/repartidor")
+    useAuthStore.getState().loginRepartidor({ id: "repartidor-1", nombre: "Luis", email: "luis@example.test", activo: true })
+
+    expect(readKey("deligo-auth:cliente")?.user).toMatchObject({ id: "cliente-1", type: "cliente" })
+    expect(readKey("deligo-auth:repartidor")?.user).toMatchObject({ id: "repartidor-1", type: "repartidor" })
+
+    setPathname("/cliente")
+    await useAuthStore.persist.rehydrate()
+    expect(useAuthStore.getState().user?.type).toBe("cliente")
+    expect(useAuthStore.getState().user?.id).toBe("cliente-1")
+  })
+
   test("logout en pestaña Cliente sólo limpia deligo-auth:cliente — deligo-auth:negocio permanece intacto", () => {
     setPathname("/cliente/pedidos")
     useAuthStore.getState().loginCliente({ id: "cliente-1", nombre: "Ana", email: "ana@example.test" })
