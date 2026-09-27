@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T34-R4 closeout (2026-09-26)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T54-A0 product scope consolidation (2026-09-27)
 
 ```text
 P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
@@ -10,12 +10,40 @@ P2_T34_FUNCTIONAL_FIX_COMMIT=38ac6d398fb1bdead11913a347c81162eb260666
 P2_T34_SOURCE_FINDING=F-P2-T31-R23B-01 (RESOLVED)
 P2_T34_POST_PHYSICAL_LOG_GATE=PASS
 PRODUCTION_TOUCHED=NO
-NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED
-NEXT_PRIORITY_CANDIDATES=P2-T52 Fase 4 (PRIORITY_UNASSIGNED; requiere autorización); P2-T23 (awaiting filter-calibration decision/probe); P2-T33/P2-T37 permanecen secuenciadas
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
+P2_T23_STATUS=SUPERSEDED_BY_PRODUCT_DECISION_INTO_P2_T54
+P2_T23_H4_FILTER_CALIBRATION_REQUIRED=NO
+P2_T23_SMOOTH_MARKER_REQUIREMENT=REMOVED_BY_PRODUCT_DECISION
+P2_T23_TECHNICAL_HISTORY_PRESERVED=SI
+P2_T23_COMPLETED_TECHNICALLY=NO
+P2_T24_STATUS=SUPERSEDED_AS_INDEPENDENT_TASK_BY_P2_T54
+P2_T24_BLOCKS_P2_T54=NO
+P2_T24_INDEPENDENT_RELEASE_GATE=NO
+P2_T24_TECHNICAL_HISTORY_PRESERVED=SI
+P2_T24_COMPLETED_TECHNICALLY=NO
+T24_FEATURE_ABSORPTION_INTO_T54=ONLY_IF_REQUIRED_FOR_DRIVER_NAVIGATION
+P2_T54_STATUS=READY_FOR_AUDIT_AND_DESIGN
+P2_T54_PRIMARY_SURFACE=REPARTIDOR
+P2_T54_PRIMARY_SCOPE=DRIVER_IN_APP_NAVIGATION_UX
+P2_T54_BLOCKED_BY_T23=NO
+P2_T54_BLOCKED_BY_T24=NO
+P2_T54_CLIENT_SMOOTH_INTERPOLATION_SCOPE=OUT
+P2_T54_T23_FILTER_CALIBRATION_SCOPE=OUT
+P2_T54_T24_FULL_MAP_MATCHING_SCOPE=OUT_BY_DEFAULT
+P2_T54_GOOGLE_MAPS_FALLBACK=PRESERVE
+CURRENT_CLIENT_TRACKING_ACCEPTED_AS_SUFFICIENT=SI
+CLIENT_TRACKING_REWORK_REQUIRED_FOR_P2_T54=NO_BY_DEFAULT
+NEXT_PRIORITY_TASK=P2-T54
+NEXT_PRIORITY_CANDIDATES=P2-T52 Fase 4 permanece alternativa sin prioridad ni autorización; P2-T33/P2-T37 continúan secuenciadas después del trabajo funcional pendiente
+P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX
+DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY
+CANONICAL_PROJECT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio
+TASK_WORKTREES_ALLOWED=NO
+CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P2_T54_A1_AUTHORIZATION
 ```
 
-T34 se certificó con los Casos A/B físicos post-fix solicitados por R3. C–H continúan sin ejecutar y no eran requisito autoritativo del cierre. T52 principal ya está cerrada; sólo su Fase 4 permanece como alternativa sin prioridad asignada. T23 requiere la decisión/sonda registrada arriba. No se inicia ninguna prioridad.
+P2-T34 permanece cerrado con los Casos A/B físicos post-fix solicitados por R3; este bloque actualiza únicamente la prioridad y el alcance de producto. La decisión sobre T23/T24 es de alcance, no una afirmación de resolución técnica: se preservan código, pruebas, reportes y evidencia históricos sin cambiar sus resultados. T54 es la única tarea activa de esta cadena y queda en auditoría/diseño; no se autoriza implementación en A0. La superficie Cliente se acepta como suficiente y no se reabre su tracking. T52 Fase 4 continúa alternativa sin prioridad/autorización; T33/T37 siguen secuenciadas y T44 permanece pausada.
 
 ## HISTORICAL SNAPSHOT — backlog handoff previo al cierre T34 (2026-09-25)
 
@@ -839,6 +867,9 @@ P2-T39 — Admin/SuperAdmin Functional Review — CLOSED_TESTING_CERTIFIED
           notification delivery architecture" — historial no mergeado a
           work/p2-t43-r2. El cierre confirmado de T39 es posterior y no
           requiere reabrir ni modificar ese worktree desde esta tarea.)
+P2-T54 — Driver In-App Navigation UX — READY_FOR_AUDIT_AND_DESIGN
+         (única tarea activa de la cadena T23/T24/T54; A0 scope consolidado,
+         implementación requiere autorización A1; ver handoff actual arriba)
 ```
 
 P2-T43 y P2-T53 se retiraron de esta sección en esta reconciliación — ambas
@@ -847,19 +878,6 @@ ya están `CLOSED` (ver sección A), no son trabajo pendiente.
 ### C. BLOCKED_EXTERNAL_OR_OPERATOR
 
 ```text
-P2-T23 — movimiento exterior —
-  REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION
-  (ver P2_T23_H4_FILTER_CALIBRATION_PROBE_PREPARATION.md, la ronda más
-  reciente — H1-H4 reabrieron T23 después de su cierre R3C previo por un
-  hallazgo de suavidad/calibración; ya NO depende de P2-T02, que cerró en
-  R6; NEXT_ACTION=WAIT_FOR_OPERATOR_H4_FILTER_CALIBRATION_PROBE, no
-  ejecutada)
-P2-T24 — final delivery GPS —
-  IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE (ver
-  P2_T24_PHYSICAL_REAL_GPS_CERTIFICATION.md; depende de que se resuelva
-  la decisión de calibración de T23 antes de continuar)
-P2-T54 — Driver Turn-by-Turn Follow Camera UX — FUTURE_AFTER_T02_T23_T24
-          (T02 ya cerró; sigue esperando a T23/T24)
 P2-T33 — Final Security Review — bloqueada hasta T38/T40/T39 y funcionales
 P2-T37 — P2 Final Audit / Launch Readiness — bloqueada por el backlog previo
 P2-T44 — Operaciones Personal Push UX + PyR Coverage — PAUSED_UNRESOLVED_AFTER_TIMEBOX
@@ -903,11 +921,12 @@ OPEN_PRIORITY_UNSPECIFIED_TASKS=4
 ACTIONABLE_NOW_TASKS=6
 BLOCKED_TASKS=7
 DEFERRED_TASKS=1
+BACKLOG_AGGREGATE_COUNTS=LEGACY_UNRECONCILED; DO_NOT_USE_FOR_PRIORITIZATION
 
-NEXT_RECOMMENDED_SOFTWARE_TASK=OPERATOR_DECISION_REQUIRED
-NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Seleccionar la próxima prioridad del backlog después del cierre físico de P2-T38
-NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_DECISION
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T34 está CLOSED_TESTING_CERTIFIED y excluida del backlog activo; P2-T52 Fase 4 permanece como alternativa sin prioridad asignada y requiere autorización explícita; P2-T23 espera decisión/sonda del operador; P2-T33/P2-T37 permanecen secuenciadas al final.
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T54
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Auditar y diseñar navegación in-app del Repartidor (P2-T54-A0)
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_SELECTED; IMPLEMENTATION_REQUIRES_P2_T54_A1_AUTHORIZATION
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=Decisión de producto consolida T23 y T24 dentro del único workstream T54: sin H4 como gate, sin smooth marker Cliente y sin dependencia T24; T54 está lista para auditoría/diseño, no para implementación todavía.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
@@ -932,8 +951,7 @@ P2-T52 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   casos verificables). Sólo queda pendiente, sin fecha ni bloqueo,
   la Fase 4 de Mozo (push target + Service Worker) — ver
   ALTERNATIVE_NEXT_TASK_1 arriba.
-P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
-  requiere una decisión/sonda del operador antes de cualquier código nuevo.
+P2-T23 y P2-T24 ya no son tareas independientes pendientes: `SUPERSEDED_BY_PRODUCT_DECISION_INTO_P2_T54` y `SUPERSEDED_AS_INDEPENDENT_TASK_BY_P2_T54`; esto no declara cierre técnico y conserva sus reportes/evidencia históricos. Los contadores agregados previos se preservan como datos heredados y no se usan para priorizar hasta un recálculo autoritativo.
 P2-T42 EXCLUIDA DE ALTERNATIVAS (corregido 2026-09-19): CLOSED_PRODUCTION desde
   P2_T42_R1_FORMAL_CLOSEOUT_AND_CURATED_PRODUCTION_PROMOTION.md — el
   cierre formal YA SE HIZO, listarla como "pendiente de cierre formal" en
