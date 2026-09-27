@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-import { ArrowLeft, Bike, Loader2, MapPin, Navigation, Route, X } from "lucide-react"
+import { ArrowLeft, Bike, Loader2, LocateFixed, MapPin, Navigation, Route, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useScreenWakeLock } from "@/hooks/use-screen-wake-lock"
@@ -22,6 +22,17 @@ import {
   type DeliveryRoute,
 } from "@/lib/delivery-navigation"
 import type { TrackingLocationSample } from "@/lib/tracking-movement"
+import {
+  FOLLOW_DEFAULT_ZOOM,
+  isRecenterButtonVisible,
+  nextFollowModeOnMapInteraction,
+  recenterFollowCamera,
+  resolveDriverCourse,
+  shouldRecenterFollowCamera,
+  type BearingGateSample,
+  type DriverCourseState,
+  type FollowCameraMode,
+} from "@/lib/delivery-navigation-ux"
 
 interface DeliveryNavigationProps {
   pedidoId: string
@@ -40,6 +51,38 @@ function createNavigationMarker(color: string, label: string) {
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   })
+}
+
+// P2-T54-R1: the driver marker adds a nested direction wedge whose zero
+// degrees points north (unrotated = up); only this inner child is rotated,
+// never the Leaflet-positioned divIcon root (A1 §5, MARKER_ROTATION_FEASIBLE).
+// Hidden (opacity 0) whenever the derived course is NEUTRAL.
+function createCurrentPositionMarkerIcon() {
+  return L.divIcon({
+    className: "delivery-navigation-marker delivery-navigation-current-marker",
+    html: `<span aria-label="Tu ubicación" style="position:relative;display:flex;width:32px;height:32px;border-radius:50%;align-items:center;justify-content:center;background:#2563eb;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.3);font-size:15px">
+      <span class="delivery-navigation-direction-wedge" data-course="neutral" style="position:absolute;top:-8px;left:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #1d4ed8;transform:translateX(-50%) rotate(0deg);transform-origin:50% 24px;opacity:0;transition:opacity 150ms linear"></span>
+      🛵
+    </span>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  })
+}
+
+function updateDirectionIndicator(marker: L.Marker | null, course: DriverCourseState) {
+  const element = marker?.getElement()
+  const wedge = element?.querySelector<HTMLElement>(".delivery-navigation-direction-wedge")
+  if (!wedge) return
+  if (course.status === "NEUTRAL") {
+    wedge.style.opacity = "0"
+    wedge.dataset.course = "neutral"
+    delete wedge.dataset.bearing
+    return
+  }
+  wedge.style.opacity = "1"
+  wedge.style.transform = `translateX(-50%) rotate(${course.bearingDegrees}deg)`
+  wedge.dataset.course = course.status === "HELD" ? "held" : "valid"
+  wedge.dataset.bearing = String(Math.round(course.bearingDegrees))
 }
 
 export function DeliveryNavigation({
@@ -65,10 +108,19 @@ export function DeliveryNavigation({
   const routeRequestGenerationRef = useRef(0)
   const foregroundRecoveryPendingRef = useRef(false)
   const foregroundRecoveryScheduledRef = useRef(false)
+  // P2-T54-R1 follow camera: refs only, per A1 §4 ("simple FOLLOWING | MANUAL
+  // state in refs, plus React state only for the visible recenter
+  // affordance") — avoids per-GPS-sample React state churn.
+  const followModeRef = useRef<FollowCameraMode>("FOLLOWING")
+  const cameraOperationRef = useRef(false)
+  const previousBearingSampleRef = useRef<BearingGateSample | null>(null)
+  const courseRef = useRef<DriverCourseState>({ status: "NEUTRAL" })
+  const currentCoordinateRef = useRef<{ lat: number; lng: number } | null>(null)
   const [route, setRoute] = useState<DeliveryRoute | null>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routeLoading, setRouteLoading] = useState(false)
   const [foregroundRecoveryNonce, setForegroundRecoveryNonce] = useState(0)
+  const [followMode, setFollowMode] = useState<FollowCameraMode>("FOLLOWING")
 
   const destinationCoordinate = getDestinationCoordinate(destination)
   const currentCoordinate = trackingSampleToCoordinate(currentPosition)
@@ -98,6 +150,32 @@ export function DeliveryNavigation({
     routeRequestControllerRef.current?.abort()
     routeRequestControllerRef.current = null
     updateRouteLoading(false)
+  }
+
+  // Marks a camera change as programmatic so the dragstart/zoomstart
+  // listeners below don't misclassify follow/recenter/initial-fit moves as
+  // user interaction (A1 §5/§16). Leaflet's non-animated setView/fitBounds
+  // fire their move events synchronously, so a synchronous guard is enough.
+  function withCameraOperation(run: () => void) {
+    cameraOperationRef.current = true
+    try {
+      run()
+    } finally {
+      cameraOperationRef.current = false
+    }
+  }
+
+  // Re-centers a non-animated camera so the driver marker lands at the
+  // lower-middle safe-zone anchor instead of dead-center (A1 §4/§13).
+  function panToFollowSafeZone(map: L.Map, latLng: [number, number], zoom: number) {
+    const size = map.getSize()
+    const targetPoint = L.point(size.x / 2, size.y * 0.65)
+    const currentCenterPoint = map.latLngToContainerPoint(map.getCenter())
+    const markerPoint = map.latLngToContainerPoint(latLng)
+    const offset = targetPoint.subtract(markerPoint)
+    const newCenterPoint = currentCenterPoint.subtract(offset)
+    const newCenter = map.containerPointToLatLng(newCenterPoint)
+    withCameraOperation(() => map.setView(newCenter, zoom, { animate: false }))
   }
 
   function startRouteRequest(origin: { lat: number; lng: number }, destinationPoint: { lat: number; lng: number }, force: boolean) {
@@ -159,6 +237,9 @@ export function DeliveryNavigation({
         foregroundRecoveryScheduledRef.current = false
         if (disposed || !open || document.visibilityState !== "visible") return
         foregroundRecoveryPendingRef.current = false
+        // Foreground return recalculates map size but never infers movement
+        // from a stale sample or moves the camera on its own (A1 §21).
+        mapRef.current?.invalidateSize({ pan: false, debounceMoveend: true })
         if (shouldRecoverRouteOnForeground(routeRef.current, routeErrorRef.current, routeLoadingRef.current)) {
           setForegroundRecoveryNonce((value) => value + 1)
         }
@@ -196,7 +277,12 @@ export function DeliveryNavigation({
   useEffect(() => {
     if (!open || !destinationCoordinate || !mapContainerRef.current || mapRef.current) return
 
-    const map = L.map(mapContainerRef.current, { center: [destinationCoordinate.lat, destinationCoordinate.lng], zoom: 15, zoomControl: false })
+    // First open + fresh GPS: FOLLOWING, center on driver, zoom 16, north-up.
+    // First open without a fresh fix: keep the existing destination-first
+    // view and wait for a fresh `currentPosition` prop (A1 §4/§12).
+    const initialCenter = currentCoordinate ?? destinationCoordinate
+    const initialZoom = currentCoordinate ? FOLLOW_DEFAULT_ZOOM : 15
+    const map = L.map(mapContainerRef.current, { center: [initialCenter.lat, initialCenter.lng], zoom: initialZoom, zoomControl: false })
     L.control.zoom({ position: "topright" }).addTo(map)
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -209,18 +295,46 @@ export function DeliveryNavigation({
 
     if (currentCoordinate) {
       currentMarkerRef.current = L.marker([currentCoordinate.lat, currentCoordinate.lng], {
-        icon: createNavigationMarker("#2563eb", "Tu ubicación"),
+        icon: createCurrentPositionMarkerIcon(),
       }).addTo(map)
+      currentCoordinateRef.current = currentCoordinate
     }
+
+    followModeRef.current = "FOLLOWING"
+    setFollowMode("FOLLOWING")
+
+    // dragstart/zoomstart are real user gestures; movestart also fires for
+    // our own programmatic setView/fitBounds calls, so every such call is
+    // wrapped in `withCameraOperation` and guarded here (A1 §5/§16).
+    function handleUserMapInteraction() {
+      const next = nextFollowModeOnMapInteraction(followModeRef.current, cameraOperationRef.current)
+      followModeRef.current = next
+      setFollowMode(next)
+    }
+    map.on("dragstart", handleUserMapInteraction)
+    map.on("zoomstart", handleUserMapInteraction)
+
+    // Recalculate map size on real layout changes only — never move the
+    // camera just because of an invalidateSize (A1 §21).
+    function handleViewportResize() {
+      map.invalidateSize({ pan: false, debounceMoveend: true })
+    }
+    window.addEventListener("resize", handleViewportResize)
+    window.addEventListener("orientationchange", handleViewportResize)
 
     mapRef.current = map
     window.setTimeout(() => map.invalidateSize(), 100)
     return () => {
+      window.removeEventListener("resize", handleViewportResize)
+      window.removeEventListener("orientationchange", handleViewportResize)
       map.remove()
       mapRef.current = null
       destinationMarkerRef.current = null
       currentMarkerRef.current = null
       routeLineRef.current = null
+      currentCoordinateRef.current = null
+      previousBearingSampleRef.current = null
+      courseRef.current = { status: "NEUTRAL" }
     }
   }, [open, destinationCoordinate?.lat, destinationCoordinate?.lng])
 
@@ -230,15 +344,60 @@ export function DeliveryNavigation({
   }
 
   useEffect(() => {
-    if (!mapRef.current || !currentCoordinate) return
+    const map = mapRef.current
+    if (!map || !currentCoordinate || !currentPosition) return
+
+    currentCoordinateRef.current = currentCoordinate
+    const latLng: [number, number] = [currentCoordinate.lat, currentCoordinate.lng]
     if (!currentMarkerRef.current) {
-      currentMarkerRef.current = L.marker([currentCoordinate.lat, currentCoordinate.lng], {
-        icon: createNavigationMarker("#2563eb", "Tu ubicación"),
-      }).addTo(mapRef.current)
+      currentMarkerRef.current = L.marker(latLng, { icon: createCurrentPositionMarkerIcon() }).addTo(map)
     } else {
-      currentMarkerRef.current.setLatLng([currentCoordinate.lat, currentCoordinate.lng])
+      currentMarkerRef.current.setLatLng(latLng)
     }
-  }, [currentCoordinate?.lat, currentCoordinate?.lng])
+
+    // Derived bearing: only ever from the existing GPS sample stream already
+    // flowing through `currentPosition` — no new watcher (A1 §3/§9).
+    const nowSample: BearingGateSample = {
+      lat: currentPosition.lat,
+      lng: currentPosition.lng,
+      accuracy: currentPosition.accuracy,
+      capturedAt: currentPosition.capturedAt,
+    }
+    const previousSample = previousBearingSampleRef.current
+    const now = Date.now()
+    const previousQualified = courseRef.current.status !== "NEUTRAL"
+      ? { bearingDegrees: courseRef.current.bearingDegrees, qualifiedAt: courseRef.current.qualifiedAt }
+      : null
+    const nextCourse = resolveDriverCourse(
+      previousQualified,
+      previousSample ? { previous: previousSample, current: nowSample } : null,
+      now,
+    )
+    courseRef.current = nextCourse
+    previousBearingSampleRef.current = nowSample
+    updateDirectionIndicator(currentMarkerRef.current, nextCourse)
+
+    // Follow camera: a fresh sample only moves the camera while FOLLOWING,
+    // and only once the marker leaves the lower-middle dead-zone — never on
+    // every GPS tick (A1 §4/§13).
+    if (followModeRef.current === "FOLLOWING") {
+      const size = map.getSize()
+      const markerPoint = map.latLngToContainerPoint(latLng)
+      if (shouldRecenterFollowCamera({ x: markerPoint.x, y: markerPoint.y }, { width: size.x, height: size.y })) {
+        panToFollowSafeZone(map, latLng, map.getZoom())
+      }
+    }
+  }, [currentPosition?.lat, currentPosition?.lng, currentPosition?.accuracy, currentPosition?.capturedAt])
+
+  function handleRecenter() {
+    const map = mapRef.current
+    const latest = currentCoordinateRef.current
+    if (!map || !latest) return
+    const target = recenterFollowCamera()
+    followModeRef.current = target.mode
+    setFollowMode(target.mode)
+    panToFollowSafeZone(map, [latest.lat, latest.lng], target.zoom)
+  }
 
   useEffect(() => {
     if (!mapRef.current || !route) return
@@ -250,7 +409,12 @@ export function DeliveryNavigation({
       lineCap: "round",
       lineJoin: "round",
     }).addTo(mapRef.current)
-    mapRef.current.fitBounds(routeLineRef.current.getBounds(), { padding: [48, 48], maxZoom: 17 })
+    // Route redraw != camera movement once a driver fix exists (A1 §18): an
+    // OSRM refresh must never steal FOLLOWING/MANUAL camera state. The
+    // initial fitBounds is only allowed before any fresh driver position.
+    if (!currentCoordinateRef.current) {
+      withCameraOperation(() => mapRef.current!.fitBounds(routeLineRef.current!.getBounds(), { padding: [48, 48], maxZoom: 17 }))
+    }
   }, [route])
 
   if (!open) return null
@@ -290,6 +454,18 @@ export function DeliveryNavigation({
           <div className="absolute left-1/2 top-4 z-[400] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-background/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur-sm">
             <Loader2 className="h-4 w-4 animate-spin text-primary" /> Esperando tu ubicación GPS…
           </div>
+        )}
+
+        {isRecenterButtonVisible(followMode, currentCoordinate !== null) && (
+          <Button
+            type="button"
+            onClick={handleRecenter}
+            aria-label="Volver a seguir mi ubicación"
+            aria-pressed={followMode === "FOLLOWING"}
+            className="absolute bottom-4 right-4 z-[400] h-12 w-12 rounded-full p-0 shadow-lg"
+          >
+            <LocateFixed className="h-5 w-5" />
+          </Button>
         )}
       </main>
 
