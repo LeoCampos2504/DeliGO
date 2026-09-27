@@ -5793,3 +5793,20 @@ P2_T23_STATUS=WAITING_FOR_OPERATOR_PHYSICAL_CERTIFICATION
 NEW_T23_FINDINGS=0
 PRODUCTION_TOUCHED=NO
 ```
+
+## P2-T34-R4 — resolución de F-P2-T31-R23B-01 (2026-09-26)
+
+La historia original R23B/R23C se conserva. El finding Android Cliente/Repartidor queda resuelto por el fix R3 y su recertificación física post-fix, no por las certificaciones previas Cliente/Negocio.
+
+```text
+FINDING_ID=F-P2-T31-R23B-01
+STATUS=RESOLVED
+RESOLVED_BY=P2-T34
+ROOT_CAUSE=Google OAuth Cliente/Repartidor seguía usando la cookie legacy compartida deligo_session
+FIX_COMMIT=38ac6d398fb1bdead11913a347c81162eb260666
+PHYSICAL_VERIFICATION=Android Chrome mismo perfil; coexistencia Google Cliente/Repartidor PASS; reload Cliente PASS; Repartidor siguió autenticado
+P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
+PRODUCTION_TOUCHED=NO
+```
+
+Detalle del cierre: `P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.

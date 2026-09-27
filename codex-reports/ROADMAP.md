@@ -1,5 +1,22 @@
 # ROADMAP — DeliGO
 
+## CURRENT AUTHORITATIVE BACKLOG — P2-T34-R4 closeout (2026-09-26)
+
+```text
+P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T34_FINAL_GATE=PASS
+P2_T34_R4_PHYSICAL_RECERTIFICATION_GATE=PASS
+P2_T34_FUNCTIONAL_FIX_COMMIT=38ac6d398fb1bdead11913a347c81162eb260666
+P2_T34_SOURCE_FINDING=F-P2-T31-R23B-01 (RESOLVED)
+P2_T34_POST_PHYSICAL_LOG_GATE=PASS
+PRODUCTION_TOUCHED=NO
+NEXT_PRIORITY_TASK=OPERATOR_DECISION_REQUIRED
+NEXT_PRIORITY_CANDIDATES=P2-T52 Fase 4 (PRIORITY_UNASSIGNED; requiere autorización); P2-T23 (awaiting filter-calibration decision/probe); P2-T33/P2-T37 permanecen secuenciadas
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
+```
+
+T34 se certificó con los Casos A/B físicos post-fix solicitados por R3. C–H continúan sin ejecutar y no eran requisito autoritativo del cierre. T52 principal ya está cerrada; sólo su Fase 4 permanece como alternativa sin prioridad asignada. T23 requiere la decisión/sonda registrada arriba. No se inicia ninguna prioridad.
+
 ## CURRENT AUTHORITATIVE BACKLOG — P2-T38-R1 physical certification closeout (2026-09-26)
 
 ```text
@@ -1147,6 +1164,7 @@ Detalle completo de esta reconciliación:
 `codex-reports/P2_CURRENT_AUTHORITATIVE_BACKLOG_RECONCILIATION.md`.
 
 ---
+
 
 ## P2-T43-R3 — operator physical certification closeout — 2026-09-12
 

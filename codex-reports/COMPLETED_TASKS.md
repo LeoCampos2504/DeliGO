@@ -2306,3 +2306,27 @@ Este cierre documenta certificación física completa en Testing y no autoriza
 promoción automática. `main`/Production permanecen en
 `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`. Reporte:
 `codex-reports/P2_T39_FINAL_PHYSICAL_CERTIFICATION.md`.
+
+## P2-T34-R4 — Android Cliente/Repartidor session isolation
+
+VERDICT: CLOSED_TESTING_CERTIFIED (certificación física post-fix A/B PASS,
+2026-09-26; cierre documental, sin código).
+
+RESULT: Case A Cliente Google OAuth PASS en `/cliente/`. Case B Repartidor
+Google OAuth PASS en segunda pestaña del mismo Chrome/perfil; al recargar
+Cliente, permaneció como Cliente, sin aviso de rol equivocado, y Repartidor
+siguió autenticado. El FAIL histórico queda preservado. Causa: OAuth escribía
+la cookie legacy compartida; fix funcional R3 `38ac6d398fb1bdead11913a347c81162eb260666`.
+`F-P2-T31-R23B-01=RESOLVED`. Deployment TESTING exacto SUCCESS; post-physical
+log gate PASS. C–H no son requisito de cierre y no se ejecutaron. Production
+intacta; certificación no equivale a promoción.
+
+```text
+P2_T34_STATUS=CLOSED_TESTING_CERTIFIED
+FUNCTIONAL_FIX_COMMIT=38ac6d398fb1bdead11913a347c81162eb260666
+DOCUMENTATION_COMMIT=ONE_DOCS_COMMIT (SHA recorded in Git history)
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
+```
+
+Reporte: `codex-reports/P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.

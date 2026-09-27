@@ -11393,3 +11393,9 @@ checkpoint anotado fue creado y verificado remotamente.
 `P2_T46_STATUS=CLOSED_PRODUCTION`; `P2_T46_RELEASE_STATUS=CLOSED_PRODUCTION_CHECKPOINTED`;
 `PUBLIC_RELEASE_AUTHORIZED=NO`; `NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T32`.
 Ver `codex-reports/P2_T46_R4_CURATED_PRODUCTION_PROMOTION.md`.
+
+## P2-T34-R4 — Android Cliente/Repartidor session isolation — 2026-09-26
+
+P2-T34 queda `CLOSED_TESTING_CERTIFIED`. Causa: Google OAuth seguía usando la cookie legacy compartida. R3 migró callback + consentimiento a cookies por familia; fix funcional `38ac6d398fb1bdead11913a347c81162eb260666`. Recertificación física Android Chrome mismo perfil: Case A PASS, Case B PASS, reload Cliente PASS y Repartidor sobrevivió PASS; sin aviso de rol incorrecto. Finding `F-P2-T31-R23B-01` RESOLVED. Production untouched. Gate de logs TESTING PASS. La certificación funcional se atribuye al SHA R3 + evidencia física, no al commit documental.
+
+`CURRENT_TASK=P2-T34-R4`; `NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION`; candidatos según ROADMAP: P2-T52 Fase 4 (prioridad no asignada, autorización requerida), P2-T23 (decisión/sonda requerida); P2-T33/T37 siguen secuenciadas. Ver `codex-reports/P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.

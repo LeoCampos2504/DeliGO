@@ -12691,3 +12691,7 @@ closeout físico ni una autorización de Production. T02 conserva
 `CLOSED_TESTING_CERTIFIED`/`RELEASE_ELIGIBLE=SI`; T54 conserva
 `FUTURE_AFTER_T02_T23_T24`; la siguiente acción es la certificación física de
 T23 R1.
+
+## P2-T34-R4 — milestone de aislamiento de sesión (2026-09-26)
+
+T34 cierra `CLOSED_TESTING_CERTIFIED`: root cause fue el callback Google OAuth con cookie legacy compartida; R3 cambió callback/consentimiento a cookies por familia (`38ac6d398fb1bdead11913a347c81162eb260666`). El operador certificó Android Chrome, mismo perfil: Cliente Google PASS, Repartidor Google PASS en segunda pestaña, Cliente siguió autenticado como Cliente tras reload y Repartidor permaneció autenticado; no apareció WrongRoleNotice. El finding `F-P2-T31-R23B-01` queda RESOLVED. Logs posteriores TESTING PASS; Production intacta. C–H no requeridos ni ejecutados. Siguiente acción: pedir al operador decisión de prioridad; Roadmap lista T52 Fase 4 (sin prioridad asignada; requiere autorización) y T23 (espera decisión/sonda), con T33/T37 secuenciadas. Ver `codex-reports/P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.
