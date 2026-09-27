@@ -860,8 +860,6 @@ P2-T24 — final delivery GPS —
   la decisión de calibración de T23 antes de continuar)
 P2-T54 — Driver Turn-by-Turn Follow Camera UX — FUTURE_AFTER_T02_T23_T24
           (T02 ya cerró; sigue esperando a T23/T24)
-P2-T34 — Android Cliente/Repartidor Session Isolation — READY_TO_START,
-          bloqueada para certificación/avance físico por falta de Android
 P2-T33 — Final Security Review — bloqueada hasta T38/T40/T39 y funcionales
 P2-T37 — P2 Final Audit / Launch Readiness — bloqueada por el backlog previo
 P2-T44 — Operaciones Personal Push UX + PyR Coverage — PAUSED_UNRESOLVED_AFTER_TIMEBOX
@@ -909,7 +907,7 @@ DEFERRED_TASKS=1
 NEXT_RECOMMENDED_SOFTWARE_TASK=OPERATOR_DECISION_REQUIRED
 NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Seleccionar la próxima prioridad del backlog después del cierre físico de P2-T38
 NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=OPERATOR_DECISION
-NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=La autoridad vigente no designa una única tarea siguiente automática: P2-T34 está lista pero su certificación física requiere Android; P2-T52-Fase-4 requiere autorización explícita; P2-T23 espera decisión/sonda del operador; P2-T33/P2-T37 continúan al final de la secuencia.
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T34 está CLOSED_TESTING_CERTIFIED y excluida del backlog activo; P2-T52 Fase 4 permanece como alternativa sin prioridad asignada y requiere autorización explícita; P2-T23 espera decisión/sonda del operador; P2-T33/P2-T37 permanecen secuenciadas al final.
 ALTERNATIVE_NEXT_TASK_1=P2-T52 Fase 4 (PRIORITY_UNASSIGNED, migración de push target de Mozo a Operaciones + Service Worker — requiere autorización explícita del operador, ver P2_T52_A1_SINGLE_PWA_COMPATIBILITY_MIGRATION_DECISION.md §13/§23)
 P2-T47 EXCLUIDA DE ALTERNATIVAS (2026-09-20): CLOSED_TESTING_CERTIFIED,
   RELEASE_ELIGIBLE=YES — ver P2_T47_FINAL_TESTING_CERTIFICATION_CLOSEOUT.md,
