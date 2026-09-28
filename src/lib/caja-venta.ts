@@ -71,6 +71,31 @@ export interface ResolvedSaleLine {
   subtotal: number
 }
 
+// ============================================
+// P2-T56-R2A — sale-summary quantity semantics (section 7)
+// ============================================
+// A Venta's `cantidadItems` field counts DISTINCT LINES, not units sold — 3
+// units of one product is 1 line. The "how many were sold" figure shown to
+// the merchant must always be SUM(item.cantidad) over the sale's real
+// VentaItem snapshots, never item count and never the persisted
+// `cantidadItems` field (kept as-is in the schema; simply not used for this
+// display — see the R2A report for why no schema/migration change is
+// needed).
+
+export function totalUnidadesVenta(items: ReadonlyArray<Pick<CartLine, "cantidad">>): number {
+  return items.reduce((sum, item) => sum + item.cantidad, 0)
+}
+
+/** Renders a unit count without truncating a fractional quantity (section 10). */
+export function formatUnidadesVenta(totalUnidades: number): string {
+  const isWhole = Number.isInteger(totalUnidades)
+  const formatted = isWhole
+    ? String(totalUnidades)
+    : totalUnidades.toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 3 })
+  const label = totalUnidades === 1 ? "unidad" : "unidades"
+  return `${formatted} ${label}`
+}
+
 export type ComputeSaleResult =
   | { ok: true; items: ResolvedSaleLine[]; total: number; cantidadItems: number }
   | { ok: false; error: string }

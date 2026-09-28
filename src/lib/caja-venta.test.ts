@@ -5,9 +5,11 @@ import {
   cartLineSubtotal,
   cartTotal,
   computeSaleFromAuthoritativeProducts,
+  formatUnidadesVenta,
   isValidMetodoPagoVenta,
   removeCartLine,
   setCartLineQuantity,
+  totalUnidadesVenta,
   type CartLine,
 } from "./caja-venta"
 
@@ -101,5 +103,32 @@ describe("computeSaleFromAuthoritativeProducts (server-side total authority)", (
   test("rejects a product missing from the authoritative map (deleted/inactive/foreign tenant)", () => {
     const result = computeSaleFromAuthoritativeProducts([{ productoId: "unknown", cantidad: 1 }], products)
     expect(result.ok).toBe(false)
+  })
+})
+
+// P2-T56-R2A — section 7/10: sale summary must report SUM(cantidad), never
+// line count, and must never truncate a fractional quantity.
+describe("totalUnidadesVenta / formatUnidadesVenta (section 7/10)", () => {
+  test("3 units of a single product is 3 units, not '1 producto'", () => {
+    expect(totalUnidadesVenta([{ cantidad: 3 }])).toBe(3)
+    expect(formatUnidadesVenta(3)).toBe("3 unidades")
+  })
+
+  test("multiple distinct lines sum their quantities, not their line count", () => {
+    // 3 Coca-Cola + 2 Cuadernos = 2 distinct lines, 5 total units
+    expect(totalUnidadesVenta([{ cantidad: 3 }, { cantidad: 2 }])).toBe(5)
+  })
+
+  test("a single unit is singular: '1 unidad'", () => {
+    expect(formatUnidadesVenta(1)).toBe("1 unidad")
+  })
+
+  test("fractional quantities are not truncated", () => {
+    expect(totalUnidadesVenta([{ cantidad: 1.5 }])).toBe(1.5)
+    expect(formatUnidadesVenta(1.5)).toBe("1,5 unidades")
+  })
+
+  test("an empty sale has zero units", () => {
+    expect(totalUnidadesVenta([])).toBe(0)
   })
 })

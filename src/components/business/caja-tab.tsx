@@ -35,9 +35,11 @@ import {
   addCartLine,
   cartItemCount,
   cartTotal,
+  formatUnidadesVenta,
   isValidMetodoPagoVenta,
   removeCartLine,
   setCartLineQuantity,
+  totalUnidadesVenta,
   type CartLine,
   type MetodoPagoVenta,
 } from "@/lib/caja-venta"
@@ -54,11 +56,24 @@ interface CajaProducto {
   stockMinimo: number
 }
 
+// P2-T56-R2A: snapshot line, exactly as persisted on VentaItem — never
+// recomputed from the live Producto (section 11). Both GET and POST
+// /api/negocio/caja/ventas already include these; no backend change needed.
+interface VentaItemSnapshot {
+  id: string
+  productoId: string | null
+  nombre: string
+  precio: number
+  cantidad: number
+  subtotal: number
+}
+
 interface VentaResumen {
   id: string
   total: number
   metodoPago: string
   cantidadItems: number
+  items: VentaItemSnapshot[]
   createdAt: string
 }
 
@@ -233,10 +248,13 @@ function VenderView({ negocioId }: { negocioId: string }) {
 
   return (
     <div>
-      {/* Desktop: two-pane */}
-      <div className="hidden lg:grid lg:grid-cols-[1fr_360px] lg:gap-4 lg:items-start">
+      {/* Desktop: two-pane. Cart column is a fixed, compact width (not a
+          flexible fraction) so it reads as a cart card, not a stretched
+          panel, regardless of how wide the product grid's own column gets
+          on a large monitor (R2A finding A). */}
+      <div className="hidden lg:grid lg:grid-cols-[1fr_440px] lg:gap-4 lg:items-start">
         <div className="space-y-3">{productGrid}</div>
-        <div className="sticky top-4 rounded-2xl border border-border bg-card p-3">{cartPanel}</div>
+        <div className="sticky top-4 rounded-2xl border border-border bg-card p-4">{cartPanel}</div>
       </div>
 
       {/* Mobile/tablet: product grid + sticky bottom cart bar */}
@@ -256,9 +274,16 @@ function VenderView({ negocioId }: { negocioId: string }) {
       </div>
 
       <Sheet open={mobileCartOpen} onOpenChange={setMobileCartOpen}>
+        {/* R2A finding A (mobile): the bottom-sheet frame itself is
+            intentionally edge-to-edge (standard bottom-sheet pattern), but
+            its body previously had no horizontal padding at all — only the
+            header did — so cart lines/total/Cobrar touched the screen
+            edges and lost the "carrito" card feel. A contained, padded,
+            width-capped inner wrapper fixes that without touching the
+            shared Sheet component (which other surfaces also use). */}
         <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto pb-[calc(env(safe-area-inset-bottom,0px)+1rem)]">
           <SheetHeader><SheetTitle>Carrito</SheetTitle></SheetHeader>
-          <div className="mt-2">{cartPanel}</div>
+          <div className="mx-auto w-full max-w-md px-4 pb-2">{cartPanel}</div>
         </SheetContent>
       </Sheet>
 
@@ -343,7 +368,14 @@ function CheckoutDialog({
   const [metodo, setMetodo] = useState<MetodoPagoVenta>("EFECTIVO")
   return (
     <Dialog open onOpenChange={(open) => !open && !loading && onClose()}>
-      <DialogContent className="max-w-xs rounded-2xl">
+      {/* R2A finding A (desktop): the shared DialogContent already ships an
+          `sm:max-w-lg` (512px) default. An unscoped override like
+          `max-w-xs` alone only wins below the `sm` breakpoint — tailwind-
+          merge keeps both classes since they occupy different responsive
+          slots, so any viewport >= 640px (most real desktop/laptop windows,
+          not just very wide monitors) silently fell back to 512px. Matching
+          the SAME `sm:` slot is what actually overrides it. */}
+      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
         <DialogHeader><DialogTitle>Cobrar {formatPrice(total)}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-2">
@@ -380,15 +412,16 @@ function MetodoButton({ label, icon, active, onClick }: { label: string; icon: R
 }
 
 function SuccessDialog({ venta, onNuevaVenta }: { venta: VentaResumen; onNuevaVenta: () => void }) {
+  const unidades = totalUnidadesVenta(venta.items)
   return (
     <Dialog open onOpenChange={(open) => !open && onNuevaVenta()}>
-      <DialogContent className="max-w-xs rounded-2xl text-center">
+      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl text-center">
         <div className="flex flex-col items-center gap-2 py-2">
           <CheckCircle2 className="h-12 w-12 text-emerald-500" />
           <h3 className="font-bold text-lg">Venta registrada</h3>
           <p className="text-2xl font-bold">{formatPrice(venta.total)}</p>
           <p className="text-xs text-muted-foreground">
-            {venta.metodoPago} · {venta.cantidadItems} producto{venta.cantidadItems === 1 ? "" : "s"} · {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+            {venta.metodoPago} · {formatUnidadesVenta(unidades)} · {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
           </p>
           <p className="text-[10px] text-muted-foreground">#{venta.id.slice(0, 8)}</p>
         </div>
@@ -402,6 +435,7 @@ function SuccessDialog({ venta, onNuevaVenta }: { venta: VentaResumen; onNuevaVe
 // RESUMEN — today's totals + recent sales (section 21)
 // ============================================
 function ResumenView({ negocioId }: { negocioId: string }) {
+  const [detailSale, setDetailSale] = useState<VentaResumen | null>(null)
   const { data, isLoading } = useQuery<{ ventasHoy: VentaResumen[]; resumenHoy: Record<string, number> }>({
     queryKey: ["negocio-caja-ventas-hoy", negocioId],
     queryFn: async () => {
@@ -434,19 +468,72 @@ function ResumenView({ negocioId }: { negocioId: string }) {
           <p className="py-8 text-center text-sm text-muted-foreground">Todavía no registraste ventas hoy</p>
         ) : (
           <div className="space-y-1.5">
-            {ventas.map((v) => (
-              <div key={v.id} className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2">
-                <div>
-                  <p className="text-sm font-semibold">{formatPrice(v.total)}</p>
-                  <p className="text-[11px] text-muted-foreground">{v.cantidadItems} producto{v.cantidadItems === 1 ? "" : "s"} · {v.metodoPago}</p>
-                </div>
-                <span className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
-              </div>
-            ))}
+            {/* P2-T56-R2A section 12: compact by default (total, real unit
+                count — never line count, method, time); tap for the full
+                per-line breakdown instead of pre-expanding every sale. */}
+            {ventas.map((v) => {
+              const unidades = totalUnidadesVenta(v.items)
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => setDetailSale(v)}
+                  className="flex w-full items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-left hover:bg-muted/40"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{formatPrice(v.total)}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{formatUnidadesVenta(unidades)} · {v.metodoPago}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
+
+      {detailSale && (
+        <VentaDetailDialog venta={detailSale} onClose={() => setDetailSale(null)} />
+      )}
     </div>
+  )
+}
+
+// P2-T56-R2A section 8: per-line breakdown from VentaItem's own snapshot
+// fields — never recomputed from the live Producto (section 11), so a
+// price/name change tomorrow never rewrites yesterday's sale.
+function VentaDetailDialog({ venta, onClose }: { venta: VentaResumen; onClose: () => void }) {
+  const unidades = totalUnidadesVenta(venta.items)
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Detalle de venta</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="max-h-[50vh] space-y-2.5 overflow-y-auto">
+            {venta.items.map((item) => (
+              <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{item.nombre}</p>
+                  <p className="text-xs text-muted-foreground">{item.cantidad} × {formatPrice(item.precio)}</p>
+                </div>
+                <span className="shrink-0 font-semibold">{formatPrice(item.subtotal)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border pt-2 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold">Total</span>
+              <span className="text-lg font-bold">{formatPrice(venta.total)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{formatUnidadesVenta(unidades)}</p>
+            <p className="text-xs text-muted-foreground">Método: {venta.metodoPago}</p>
+            <p className="text-xs text-muted-foreground">Hora: {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
+          </div>
+          <Button variant="secondary" className="w-full rounded-xl" onClick={onClose}>Cerrar</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
