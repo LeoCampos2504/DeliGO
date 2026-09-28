@@ -292,3 +292,22 @@ FILES_CHANGED=
 ```text
 PHYSICAL_REVIEW_REQUIRED=SI
 ```
+
+## 14. Closeout (P2-T56-R2C preflight, per its §42)
+
+```text
+INVENTORY_FILTER_MANUAL_REVIEW=PASS
+CAJA_FILTER_MANUAL_REVIEW=PASS
+CART_FILTER_INDEPENDENCE_MANUAL_REVIEW=PASS
+P2_T56_R2B_STATUS=CLOSED_TESTING_CERTIFIED
+```
+
+Confirmed by the operator's own manual review on TESTING, covering both the
+original category-management surface (R2B, deployed at commit
+`d797c01309f03b9123f5c234e7f5d454dde07ea0`) and the operational-filter fix
+(R2B-F1, deployed at commit `d38045eb3514eb7c13ecaff070164a3110fb073e`):
+Inventario's and Caja's category pills correctly filter their product
+lists, "Sin categoría" and "Todas" both work, and adding items to the Caja
+cart is unaffected by changing the active category filter. This closeout
+entry is recorded here — not as a separate report — per the P2-T56-R2C
+task's explicit instruction to avoid a documentation-only commit/deploy.

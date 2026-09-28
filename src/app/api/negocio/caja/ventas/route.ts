@@ -83,22 +83,47 @@ export async function POST(req: NextRequest) {
 
     const requestedLines: ServerSaleLineInput[] = []
     for (const raw of items as unknown[]) {
-      const line = raw as { productoId?: unknown; cantidad?: unknown }
+      // P2-T56-R2C: varianteId is optional and, like price/name, NEVER
+      // trusted beyond "which variant was picked" — its precio always comes
+      // from the DB row fetched below (section 22).
+      const line = raw as { productoId?: unknown; varianteId?: unknown; cantidad?: unknown }
       if (typeof line.productoId !== "string" || !line.productoId || typeof line.cantidad !== "number") {
         return NextResponse.json({ error: "Cada línea requiere productoId y cantidad" }, { status: 400 })
       }
-      requestedLines.push({ productoId: line.productoId, cantidad: line.cantidad })
+      if (line.varianteId !== undefined && line.varianteId !== null && typeof line.varianteId !== "string") {
+        return NextResponse.json({ error: "varianteId inválido" }, { status: 400 })
+      }
+      requestedLines.push({
+        productoId: line.productoId,
+        varianteId: (line.varianteId as string | null | undefined) ?? undefined,
+        cantidad: line.cantidad,
+      })
     }
 
     const result = await db.$transaction(async (tx) => {
-      // Tenant-scoped, authoritative product read — a productoId that
-      // doesn't belong to this negocio (or is inactive) simply won't be in
-      // this map, and computeSaleFromAuthoritativeProducts rejects any
-      // requested line that isn't in it.
+      // Tenant-scoped, authoritative product+variant read — a productoId
+      // that doesn't belong to this negocio (or is inactive) simply won't
+      // be in this map, and computeSaleFromAuthoritativeProducts rejects
+      // any requested line that isn't in it. Every active AND inactive
+      // variant is fetched (never trust "activo" from the client either) so
+      // an inactive variant is resolvable-but-rejectable below, not just
+      // silently missing.
       const productos = await tx.producto.findMany({
         where: { id: { in: requestedLines.map((l) => l.productoId) }, negocioId, eliminado: false },
+        include: { variantes: true },
       })
-      const productsById = new Map(productos.map((p) => [p.id, { nombre: p.nombre, precio: p.precio }]))
+      const productsById = new Map(
+        productos.map((p) => [
+          p.id,
+          {
+            nombre: p.nombre,
+            precio: p.precio,
+            variantes: new Map(
+              p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: v.precio }])
+            ),
+          },
+        ])
+      )
 
       const computed = computeSaleFromAuthoritativeProducts(requestedLines, productsById)
       if (!computed.ok) {
@@ -107,11 +132,19 @@ export async function POST(req: NextRequest) {
 
       // Sellability + stock gate (sections 25/26): reject the whole sale if
       // any controlled line doesn't have enough stock, rather than
-      // partially selling and leaving an inconsistent cart.
+      // partially selling and leaving an inconsistent cart. Variant lines
+      // check the VARIANT's own stock, never the parent Producto's
+      // (section 8/9 — dormant once a product has variants).
       const productsByIdFull = new Map(productos.map((p) => [p.id, p]))
+      const variantesById = new Map(productos.flatMap((p) => p.variantes.map((v) => [v.id, v] as const)))
       for (const line of computed.items) {
         const producto = productsByIdFull.get(line.productoId)!
-        if (producto.controlStock && producto.stockCantidad < line.cantidad) {
+        if (line.varianteId) {
+          const variante = variantesById.get(line.varianteId)!
+          if (variante.controlStock && variante.stockCantidad < line.cantidad) {
+            return { ok: false as const, status: 409, error: `"${producto.nombre} — ${variante.nombre}" no tiene stock suficiente` }
+          }
+        } else if (producto.controlStock && producto.stockCantidad < line.cantidad) {
           return { ok: false as const, status: 409, error: `"${producto.nombre}" no tiene stock suficiente` }
         }
       }
@@ -125,7 +158,9 @@ export async function POST(req: NextRequest) {
           items: {
             create: computed.items.map((item) => ({
               productoId: item.productoId,
+              productoVarianteId: item.varianteId ?? null,
               nombre: item.nombre,
+              varianteNombre: item.varianteNombre ?? null,
               precio: item.precio,
               cantidad: item.cantidad,
               subtotal: item.subtotal,
@@ -136,8 +171,29 @@ export async function POST(req: NextRequest) {
       })
 
       // Stock decrement + traceable movement, only for controlStock=true
-      // products — never a double-discount when a product isn't controlled.
+      // products/variants — never a double-discount when nothing is
+      // controlled. A variant line decrements ONLY that variant's own
+      // stock, never the parent Producto's (section 24).
       for (const line of computed.items) {
+        if (line.varianteId) {
+          const variante = variantesById.get(line.varianteId)!
+          if (!variante.controlStock) continue
+          const nextStock = variante.stockCantidad - line.cantidad
+          await tx.productoVariante.update({ where: { id: variante.id }, data: { stockCantidad: nextStock } })
+          await tx.movimientoInventario.create({
+            data: {
+              negocioId,
+              productoId: line.productoId,
+              productoVarianteId: variante.id,
+              tipo: "VENTA",
+              cantidad: line.cantidad,
+              stockAntes: variante.stockCantidad,
+              stockDespues: nextStock,
+              ventaId: venta.id,
+            },
+          })
+          continue
+        }
         const producto = productsByIdFull.get(line.productoId)!
         if (!producto.controlStock) continue
         const nextStock = producto.stockCantidad - line.cantidad

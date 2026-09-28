@@ -16,11 +16,26 @@ export function isValidMetodoPagoVenta(value: unknown): value is MetodoPagoVenta
   return typeof value === "string" && (METODOS_PAGO_VENTA as readonly string[]).includes(value)
 }
 
+// P2-T56-R2C: a cart LINE's identity is producto + variante (section 21) —
+// two different variants of the same product must never merge into one
+// line just because they share a productoId. `varianteId` is optional/
+// nullable throughout so every existing non-variant call site (still the
+// overwhelming majority of products) is completely unaffected: omitting it
+// behaves exactly as before.
 export interface CartLine {
   productoId: string
+  varianteId?: string | null
   nombre: string
+  varianteNombre?: string | null
   precio: number
   cantidad: number
+}
+
+function sameCartLineIdentity(
+  a: Pick<CartLine, "productoId" | "varianteId">,
+  b: Pick<CartLine, "productoId" | "varianteId">
+): boolean {
+  return a.productoId === b.productoId && (a.varianteId ?? null) === (b.varianteId ?? null)
 }
 
 export function cartLineSubtotal(line: Pick<CartLine, "precio" | "cantidad">): number {
@@ -35,23 +50,28 @@ export function cartItemCount(lines: ReadonlyArray<Pick<CartLine, "cantidad">>):
   return lines.reduce((sum, line) => sum + line.cantidad, 0)
 }
 
-/** Adds a product to the cart, merging into an existing line by productoId. */
+/** Adds a product (or a specific variant of it) to the cart, merging into an existing line only when producto AND variante match. */
 export function addCartLine(lines: readonly CartLine[], product: CartLine): CartLine[] {
-  const existingIndex = lines.findIndex((l) => l.productoId === product.productoId)
+  const existingIndex = lines.findIndex((l) => sameCartLineIdentity(l, product))
   if (existingIndex === -1) return [...lines, product]
   return lines.map((line, index) =>
     index === existingIndex ? { ...line, cantidad: line.cantidad + product.cantidad } : line
   )
 }
 
-/** Sets an exact quantity for a line; a quantity <= 0 removes it. */
-export function setCartLineQuantity(lines: readonly CartLine[], productoId: string, cantidad: number): CartLine[] {
-  if (cantidad <= 0) return removeCartLine(lines, productoId)
-  return lines.map((line) => (line.productoId === productoId ? { ...line, cantidad } : line))
+/** Sets an exact quantity for a line (identified by producto + variante); a quantity <= 0 removes it. */
+export function setCartLineQuantity(
+  lines: readonly CartLine[],
+  productoId: string,
+  cantidad: number,
+  varianteId?: string | null
+): CartLine[] {
+  if (cantidad <= 0) return removeCartLine(lines, productoId, varianteId)
+  return lines.map((line) => (sameCartLineIdentity(line, { productoId, varianteId }) ? { ...line, cantidad } : line))
 }
 
-export function removeCartLine(lines: readonly CartLine[], productoId: string): CartLine[] {
-  return lines.filter((line) => line.productoId !== productoId)
+export function removeCartLine(lines: readonly CartLine[], productoId: string, varianteId?: string | null): CartLine[] {
+  return lines.filter((line) => !sameCartLineIdentity(line, { productoId, varianteId }))
 }
 
 function roundMoney(value: number): number {
@@ -60,15 +80,31 @@ function roundMoney(value: number): number {
 
 export interface ServerSaleLineInput {
   productoId: string
+  varianteId?: string | null
   cantidad: number
 }
 
 export interface ResolvedSaleLine {
   productoId: string
+  varianteId?: string | null
   nombre: string
+  varianteNombre?: string | null
   precio: number
   cantidad: number
   subtotal: number
+}
+
+// P2-T56-R2C: the authoritative product map's value gained an optional
+// `variantes` sub-map (varianteId -> its own nombre/precio). A caller that
+// never deals with variants can keep constructing the old
+// `{nombre, precio}` shape unchanged — `variantes` being absent is
+// structurally valid, and computeSaleFromAuthoritativeProducts falls back
+// to the product's own precio exactly as it always has whenever a
+// requested line doesn't carry a varianteId.
+export interface AuthoritativeProduct {
+  nombre: string
+  precio: number
+  variantes?: ReadonlyMap<string, { nombre: string; precio: number }>
 }
 
 // ============================================
@@ -111,7 +147,7 @@ export type ComputeSaleResult =
  */
 export function computeSaleFromAuthoritativeProducts(
   requested: ReadonlyArray<ServerSaleLineInput>,
-  productsById: ReadonlyMap<string, { nombre: string; precio: number }>,
+  productsById: ReadonlyMap<string, AuthoritativeProduct>,
 ): ComputeSaleResult {
   if (requested.length === 0) {
     return { ok: false, error: "La venta no tiene productos" }
@@ -126,8 +162,28 @@ export function computeSaleFromAuthoritativeProducts(
     if (!product) {
       return { ok: false, error: "Uno de los productos ya no está disponible" }
     }
-    const subtotal = roundMoney(product.precio * line.cantidad)
-    items.push({ productoId: line.productoId, nombre: product.nombre, precio: product.precio, cantidad: line.cantidad, subtotal })
+
+    let precio = product.precio
+    let varianteNombre: string | undefined
+    if (line.varianteId) {
+      const variante = product.variantes?.get(line.varianteId)
+      if (!variante) {
+        return { ok: false, error: "Una de las variantes ya no está disponible" }
+      }
+      precio = variante.precio
+      varianteNombre = variante.nombre
+    }
+
+    const subtotal = roundMoney(precio * line.cantidad)
+    items.push({
+      productoId: line.productoId,
+      varianteId: line.varianteId ?? null,
+      nombre: product.nombre,
+      varianteNombre: varianteNombre ?? null,
+      precio,
+      cantidad: line.cantidad,
+      subtotal,
+    })
   }
 
   return {

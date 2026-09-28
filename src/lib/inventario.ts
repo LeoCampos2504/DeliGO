@@ -87,6 +87,61 @@ export function validateProductoMinimo(input: ProductoMinimoInput): ValidationRe
   return { ok: true }
 }
 
+export interface VarianteMinimoInput {
+  nombre?: unknown
+  precio?: unknown
+}
+
+/** Same minimum-required-fields contract as validateProductoMinimo, for a ProductoVariante (P2-T56-R2C section 7). */
+export function validateVarianteMinimo(input: VarianteMinimoInput): ValidationResult {
+  if (typeof input.nombre !== "string" || !input.nombre.trim()) {
+    return { ok: false, error: "El nombre de la variante es obligatorio" }
+  }
+  if (typeof input.precio !== "number" || !Number.isFinite(input.precio) || input.precio <= 0) {
+    return { ok: false, error: "El precio de la variante debe ser mayor a 0" }
+  }
+  return { ok: true }
+}
+
+export interface VarianteResumenInput {
+  precio: number
+  controlStock: boolean
+  stockCantidad: number
+  stockMinimo: number
+  activo: boolean
+}
+
+export interface VariantesResumen {
+  cantidadActivas: number
+  precioDesde: number | null
+  /** Sum of stockCantidad across active, stock-controlled variants; null when none control stock (nothing meaningful to sum — section 16: never an "authority", just a visual summary). */
+  stockTotal: number | null
+  /** Active, stock-controlled variants currently at/under their own minimum (STOCK_BAJO) or at zero (SIN_STOCK) — section 17. */
+  variantesConStockBajo: number
+  /** True only when every active, stock-controlled variant is at SIN_STOCK — section 16: a single depleted variant must never mark the whole product as agotado. */
+  todasSinStock: boolean
+}
+
+/**
+ * Pure summary for Inventario's collapsed product-with-variants listing row
+ * (sections 15/16/17) — never used as a stock-decrement authority, only for
+ * display. Ignores inactive variants entirely (an inactivated variant is
+ * neither sellable nor counted toward any of these figures).
+ */
+export function summarizeVariantes(variantes: ReadonlyArray<VarianteResumenInput>): VariantesResumen {
+  const activas = variantes.filter((v) => v.activo)
+  const controladas = activas.filter((v) => v.controlStock)
+  const estados = controladas.map((v) => computeStockStatus(v.controlStock, v.stockCantidad, v.stockMinimo))
+
+  return {
+    cantidadActivas: activas.length,
+    precioDesde: activas.length > 0 ? Math.min(...activas.map((v) => v.precio)) : null,
+    stockTotal: controladas.length > 0 ? controladas.reduce((sum, v) => sum + v.stockCantidad, 0) : null,
+    variantesConStockBajo: estados.filter((s) => s === "STOCK_BAJO" || s === "SIN_STOCK").length,
+    todasSinStock: controladas.length > 0 && estados.every((s) => s === "SIN_STOCK"),
+  }
+}
+
 export const MOVIMIENTO_TIPOS = ["ENTRADA", "SALIDA", "AJUSTE", "VENTA"] as const
 export type MovimientoTipo = (typeof MOVIMIENTO_TIPOS)[number]
 

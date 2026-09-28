@@ -317,8 +317,48 @@ model Producto {
   promociones           Promocion[]
   movimientosInventario MovimientoInventario[]
   ventaItems            VentaItem[]
+  variantes             ProductoVariante[]
 
   @@map("productos")
+}
+
+// ============================================
+// PRODUCTO — VARIANTES (P2-T56-R2C)
+// ============================================
+// Additive only: a Producto with zero rows here behaves EXACTLY as before
+// (Restaurante/Ropa/every existing generic-business product) — its own
+// precio/costo/stockCantidad/controlStock/sku/codigoBarras remain the sole
+// authority. The moment a Producto has >=1 ProductoVariante row (active or
+// inactive), those Producto-level operational fields become dormant for
+// sale/stock purposes (never zeroed, never deleted — see the R2C report's
+// BASE_TO_VARIANTS_STOCK_BEHAVIOR) and every variant carries its own
+// authoritative precio/costo/stock, independent of every sibling variant and
+// of the parent Producto. Never DELETE — see VARIANT_DELETE_BEHAVIOR in the
+// R2C report: `activo` is the only removal mechanism, so a variant already
+// referenced by a historical VentaItem/MovimientoInventario is never
+// orphaned or destroyed.
+model ProductoVariante {
+  id            String  @id @default(cuid())
+  productoId    String
+  nombre        String
+  precio        Float
+  costo         Float?
+  sku           String?
+  codigoBarras  String?
+  controlStock  Boolean @default(false)
+  stockCantidad Float   @default(0)
+  stockMinimo   Float   @default(0)
+  activo        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  producto              Producto               @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  ventaItems            VentaItem[]
+  movimientosInventario MovimientoInventario[]
+
+  @@index([productoId])
+  @@map("producto_variantes")
 }
 
 // ============================================
@@ -331,22 +371,25 @@ model Producto {
 // src/app/api/negocio/inventario/movimientos/route.ts y
 // src/app/api/negocio/caja/ventas/route.ts.
 model MovimientoInventario {
-  id           String   @id @default(cuid())
-  negocioId    String
-  productoId   String
-  tipo         String // ENTRADA | SALIDA | AJUSTE | VENTA
-  cantidad     Float // siempre positivo; el signo real lo determina `tipo`
-  stockAntes   Float
-  stockDespues Float
-  motivo       String?
-  ventaId      String? // presente únicamente cuando tipo = VENTA
-  createdAt    DateTime @default(now())
+  id                 String   @id @default(cuid())
+  negocioId          String
+  productoId         String
+  productoVarianteId String? // P2-T56-R2C: set only when the product has variants — stockAntes/stockDespues then describe the VARIANT's stock, never the parent Producto's
+  tipo               String // ENTRADA | SALIDA | AJUSTE | VENTA
+  cantidad           Float // siempre positivo; el signo real lo determina `tipo`
+  stockAntes         Float
+  stockDespues       Float
+  motivo             String?
+  ventaId            String? // presente únicamente cuando tipo = VENTA
+  createdAt          DateTime @default(now())
 
-  negocio  Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  producto Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
-  venta    Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
+  venta            Venta?            @relation(fields: [ventaId], references: [id], onDelete: SetNull)
 
   @@index([negocioId, productoId, createdAt])
+  @@index([productoVarianteId])
   @@index([ventaId])
   @@map("movimientos_inventario")
 }
@@ -382,16 +425,19 @@ model Venta {
 // mañana cambie el nombre/precio/categoría del Producto (mismo principio
 // que PedidoItem para Pedido).
 model VentaItem {
-  id         String @id @default(cuid())
-  ventaId    String
-  productoId String?
-  nombre     String // snapshot
-  precio     Float // snapshot: precio unitario aplicado
-  cantidad   Float
-  subtotal   Float
+  id                 String  @id @default(cuid())
+  ventaId            String
+  productoId         String?
+  productoVarianteId String? // P2-T56-R2C
+  nombre             String // snapshot: nombre del Producto base
+  varianteNombre     String? // P2-T56-R2C: snapshot del nombre de la variante — nunca reconstruido por live-lookup (section 38)
+  precio             Float // snapshot: precio unitario aplicado (de la variante si corresponde)
+  cantidad           Float
+  subtotal           Float
 
-  venta    Venta     @relation(fields: [ventaId], references: [id], onDelete: Cascade)
-  producto Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  venta            Venta             @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  producto         Producto?         @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
 
   @@map("venta_items")
 }

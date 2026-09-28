@@ -324,6 +324,7 @@ export async function PUT(
       include: {
         agregados: { include: { agregado: true } },
         ingredientes: { include: { ingrediente: true } },
+        variantes: { orderBy: { createdAt: "asc" } },
       },
     })
 

@@ -16,9 +16,11 @@ import {
   ChevronDown,
   History,
   Package,
+  Pencil,
   Plus,
   Search,
   Tags,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -29,9 +31,34 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
-import { computeStockStatus, UNIDADES_MEDIDA, validateProductoMinimo, type StockStatus } from "@/lib/inventario"
+import {
+  computeStockStatus,
+  summarizeVariantes,
+  UNIDADES_MEDIDA,
+  validateProductoMinimo,
+  validateVarianteMinimo,
+  type StockStatus,
+} from "@/lib/inventario"
 import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
 import { AdministrarCategoriasDialog } from "./administrar-categorias-dialog"
+
+// P2-T56-R2C: a product WITH >=1 variant keeps this shape too (nombre/
+// categoria/imagenUrl etc. are still read from Producto), but its own
+// precio/costo/controlStock/stockCantidad/stockMinimo become dormant for
+// sale/stock purposes — see BASE_PRODUCT_WITHOUT_VARIANTS_BEHAVIOR /
+// BASE_TO_VARIANTS_STOCK_BEHAVIOR in the R2C report.
+interface InventarioVariante {
+  id: string
+  nombre: string
+  precio: number
+  costo: number | null
+  sku: string | null
+  codigoBarras: string | null
+  controlStock: boolean
+  stockCantidad: number
+  stockMinimo: number
+  activo: boolean
+}
 
 interface InventarioProducto {
   id: string
@@ -49,16 +76,49 @@ interface InventarioProducto {
   controlStock: boolean
   stockCantidad: number
   stockMinimo: number
+  variantes: InventarioVariante[]
 }
 
 interface MovimientoInventario {
   id: string
+  productoVarianteId: string | null
   tipo: string
   cantidad: number
   stockAntes: number
   stockDespues: number
   motivo: string | null
   createdAt: string
+}
+
+// P2-T56-R2C: local draft shape for an unsaved variant row in
+// ProductoFormDialog's inline creation editor (section 12) — never sent
+// as-is, always parsed/validated into the API's plain numeric shape first.
+interface VarianteDraftRow {
+  key: string
+  nombre: string
+  precio: string
+  costo: string
+  sku: string
+  codigoBarras: string
+  controlStock: boolean
+  stockCantidad: string
+  stockMinimo: string
+  showMore: boolean
+}
+
+function emptyVarianteDraftRow(): VarianteDraftRow {
+  return {
+    key: Math.random().toString(36).slice(2),
+    nombre: "",
+    precio: "",
+    costo: "",
+    sku: "",
+    codigoBarras: "",
+    controlStock: false,
+    stockCantidad: "0",
+    stockMinimo: "0",
+    showMore: false,
+  }
 }
 
 const STOCK_STATUS_META: Record<StockStatus, { label: string; className: string }> = {
@@ -243,6 +303,37 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
               </thead>
               <tbody>
                 {filtered.map((p) => {
+                  // P2-T56-R2C §15: a product WITH variants collapses into
+                  // ONE row here — never one row per variant. Its own
+                  // precio/stock columns are replaced by a summary; opening
+                  // the row is the only way to see/manage each variant.
+                  if (p.variantes.length > 0) {
+                    const resumen = summarizeVariantes(p.variantes)
+                    return (
+                      <tr key={p.id} className="border-t border-border/60 hover:bg-muted/30 cursor-pointer" onClick={() => setDetailProduct(p)}>
+                        <td className="px-3 py-2 font-medium">
+                          {p.nombre}
+                          <span className="ml-1.5 text-xs font-normal text-muted-foreground">{resumen.cantidadActivas} variante{resumen.cantidadActivas === 1 ? "" : "s"}</span>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{p.categoria}</td>
+                        <td className="px-3 py-2 text-right">{resumen.precioDesde != null ? `Desde ${formatPrice(resumen.precioDesde)}` : "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{resumen.stockTotal != null ? `Total ${resumen.stockTotal}` : "—"}</td>
+                        <td className="px-3 py-2">
+                          {resumen.cantidadActivas === 0 ? (
+                            <Badge className="border-0 text-[10px] font-semibold bg-muted text-muted-foreground">Sin variantes activas</Badge>
+                          ) : resumen.todasSinStock ? (
+                            <Badge className="border-0 text-[10px] font-semibold bg-red-500/15 text-red-700 dark:text-red-400">Sin stock</Badge>
+                          ) : resumen.variantesConStockBajo > 0 ? (
+                            <Badge className="border-0 text-[10px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                              {resumen.variantesConStockBajo} variante{resumen.variantesConStockBajo === 1 ? "" : "s"} con stock bajo
+                            </Badge>
+                          ) : (
+                            <Badge className="border-0 text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">En stock</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  }
                   const status = computeStockStatus(p.controlStock, p.stockCantidad, p.stockMinimo)
                   return (
                     <tr
@@ -342,6 +433,45 @@ function EmptyState({
 }
 
 function ProductoCardMobile({ producto, onClick }: { producto: InventarioProducto; onClick: () => void }) {
+  if (producto.variantes.length > 0) {
+    const resumen = summarizeVariantes(producto.variantes)
+    return (
+      <button
+        onClick={onClick}
+        className="w-full flex items-center gap-3 rounded-2xl border border-border bg-card px-3 py-2.5 text-left"
+      >
+        <div className="h-12 w-12 shrink-0 rounded-xl bg-muted overflow-hidden flex items-center justify-center">
+          {producto.imagenUrl ? (
+            <img src={producto.imagenUrl} alt={producto.nombre} className="h-full w-full object-cover" />
+          ) : (
+            <Package className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold truncate">{producto.nombre}</p>
+          <p className="text-xs text-muted-foreground">
+            {resumen.cantidadActivas} variante{resumen.cantidadActivas === 1 ? "" : "s"}
+            {resumen.precioDesde != null ? ` · Desde ${formatPrice(resumen.precioDesde)}` : ""}
+          </p>
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          {resumen.stockTotal != null && (
+            <span className="text-[11px] tabular-nums text-muted-foreground">Total {resumen.stockTotal}</span>
+          )}
+          {resumen.cantidadActivas === 0 ? (
+            <Badge className="border-0 text-[9px] font-semibold bg-muted text-muted-foreground">Sin variantes activas</Badge>
+          ) : resumen.todasSinStock ? (
+            <Badge className="border-0 text-[9px] font-semibold bg-red-500/15 text-red-700 dark:text-red-400">Sin stock</Badge>
+          ) : resumen.variantesConStockBajo > 0 ? (
+            <Badge className="border-0 text-[9px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400">{resumen.variantesConStockBajo} con stock bajo</Badge>
+          ) : (
+            <Badge className="border-0 text-[9px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">En stock</Badge>
+          )}
+        </div>
+      </button>
+    )
+  }
+
   const status = computeStockStatus(producto.controlStock, producto.stockCantidad, producto.stockMinimo)
   return (
     <button
@@ -386,6 +516,7 @@ function ProductoFormDialog({
   onSaved: () => void
 }) {
   const isEdit = producto !== null
+  const productoHasVariantes = isEdit && producto.variantes.length > 0
   const [nombre, setNombre] = useState(producto?.nombre ?? "")
   const [precio, setPrecio] = useState(producto ? String(producto.precio) : "")
   const [showAdvanced, setShowAdvanced] = useState(isEdit)
@@ -400,9 +531,37 @@ function ProductoFormDialog({
   const [stockMinimo, setStockMinimo] = useState(producto ? String(producto.stockMinimo) : "0")
   const [imagenUrl, setImagenUrl] = useState(producto?.imagenUrl ?? "")
 
+  // P2-T56-R2C §11/12: inline variant creation exists ONLY for a brand new
+  // product — managing variants on an EXISTING product happens exclusively
+  // through ProductoDetailDialog's own "+ Agregar variante" (section 13),
+  // to avoid two competing places that both claim to create variants.
+  const [hasVariantes, setHasVariantes] = useState(false)
+  const [variantRows, setVariantRows] = useState<VarianteDraftRow[]>([])
+
+  function addVariantRow() {
+    setVariantRows((rows) => [...rows, emptyVarianteDraftRow()])
+  }
+  function updateVariantRow(key: string, patch: Partial<VarianteDraftRow>) {
+    setVariantRows((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  }
+  function removeVariantRow(key: string) {
+    setVariantRows((rows) => rows.filter((r) => r.key !== key))
+  }
+  function toggleHasVariantes(checked: boolean) {
+    setHasVariantes(checked)
+    if (checked && variantRows.length === 0) addVariantRow()
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
-      const parsedPrecio = Number(precio)
+      // A product opted into variants can leave the base precio blank —
+      // it's a dormant DB column once variants exist (section 6), so we
+      // fall back to the first variant's own precio rather than force a
+      // second, redundant entry of the same number (section 10 spirit).
+      let parsedPrecio = Number(precio)
+      if (hasVariantes && (!precio.trim() || !(parsedPrecio > 0)) && variantRows.length > 0) {
+        parsedPrecio = Number(variantRows[0].precio)
+      }
       const validation = validateProductoMinimo({ nombre, precio: parsedPrecio })
       if (!validation.ok) throw new Error(validation.error)
 
@@ -420,6 +579,30 @@ function ProductoFormDialog({
         stockMinimo: stockMinimo.trim() ? Number(stockMinimo) : 0,
       }
       if (!isEdit) body.stockCantidad = stockInicial.trim() ? Number(stockInicial) : 0
+
+      if (!isEdit && hasVariantes) {
+        if (variantRows.length === 0) throw new Error("Agregá al menos una variante")
+        const variantes: Array<{
+          nombre: string; precio: number; costo: number | null; sku: string | null
+          codigoBarras: string | null; controlStock: boolean; stockCantidad: number; stockMinimo: number
+        }> = []
+        for (const row of variantRows) {
+          const rowPrecio = Number(row.precio)
+          const rowValidation = validateVarianteMinimo({ nombre: row.nombre, precio: rowPrecio })
+          if (!rowValidation.ok) throw new Error(rowValidation.error)
+          variantes.push({
+            nombre: row.nombre.trim(),
+            precio: rowPrecio,
+            costo: row.costo.trim() ? Number(row.costo) : null,
+            sku: row.sku.trim() || null,
+            codigoBarras: row.codigoBarras.trim() || null,
+            controlStock: row.controlStock,
+            stockCantidad: row.stockCantidad.trim() ? Number(row.stockCantidad) : 0,
+            stockMinimo: row.stockMinimo.trim() ? Number(row.stockMinimo) : 0,
+          })
+        }
+        body.variantes = variantes
+      }
 
       const url = isEdit ? `/api/negocio/productos/${producto!.id}` : "/api/negocio/productos"
       const res = await fetch(url, {
@@ -453,6 +636,40 @@ function ProductoFormDialog({
             <Label htmlFor="inv-precio">Precio de venta *</Label>
             <Input id="inv-precio" type="number" min={0} step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0.00" />
           </div>
+
+          {isEdit ? (
+            productoHasVariantes && (
+              <p className="rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Este producto usa variantes. El precio y el stock de acá no se usan para la venta — gestionalos desde "Variantes" en el detalle del producto.
+              </p>
+            )
+          ) : (
+            <div className="flex items-center justify-between rounded-xl bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Este producto tiene variantes</p>
+                <p className="text-[11px] text-muted-foreground">Ej: Coca Cola en 500 ml, 1,5 L, 2,25 L — cada una con su propio precio y stock</p>
+              </div>
+              <Switch checked={hasVariantes} onCheckedChange={toggleHasVariantes} />
+            </div>
+          )}
+
+          {!isEdit && hasVariantes && (
+            <div className="space-y-2">
+              <Label>Variantes</Label>
+              {variantRows.map((row) => (
+                <VarianteDraftRowEditor
+                  key={row.key}
+                  row={row}
+                  onChange={(patch) => updateVariantRow(row.key, patch)}
+                  onRemove={() => removeVariantRow(row.key)}
+                />
+              ))}
+              <Button type="button" variant="outline" className="w-full gap-1.5 rounded-xl" onClick={addVariantRow}>
+                <Plus className="h-4 w-4" />
+                Agregar variante
+              </Button>
+            </div>
+          )}
 
           <button
             type="button"
@@ -504,36 +721,40 @@ function ProductoFormDialog({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium">Controlar stock</p>
-                  <p className="text-[11px] text-muted-foreground">Activá esto para llevar cantidad y alertas de stock bajo</p>
-                </div>
-                <Switch checked={controlStock} onCheckedChange={setControlStock} />
-              </div>
+              {!productoHasVariantes && !hasVariantes && (
+                <>
+                  <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium">Controlar stock</p>
+                      <p className="text-[11px] text-muted-foreground">Activá esto para llevar cantidad y alertas de stock bajo</p>
+                    </div>
+                    <Switch checked={controlStock} onCheckedChange={setControlStock} />
+                  </div>
 
-              {controlStock && (
-                <div className="grid grid-cols-2 gap-2">
-                  {!isEdit && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="inv-stock-inicial">Stock inicial</Label>
-                      <Input id="inv-stock-inicial" type="number" min={0} step="0.01" value={stockInicial} onChange={(e) => setStockInicial(e.target.value)} />
+                  {controlStock && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {!isEdit && (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="inv-stock-inicial">Stock inicial</Label>
+                          <Input id="inv-stock-inicial" type="number" min={0} step="0.01" value={stockInicial} onChange={(e) => setStockInicial(e.target.value)} />
+                        </div>
+                      )}
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-stock-minimo">Stock mínimo</Label>
+                        <Input id="inv-stock-minimo" type="number" min={0} step="0.01" value={stockMinimo} onChange={(e) => setStockMinimo(e.target.value)} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="inv-unidad">Unidad</Label>
+                        <Select value={unidadMedida} onValueChange={setUnidadMedida}>
+                          <SelectTrigger id="inv-unidad"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {UNIDADES_MEDIDA.map((u) => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   )}
-                  <div className="space-y-1.5">
-                    <Label htmlFor="inv-stock-minimo">Stock mínimo</Label>
-                    <Input id="inv-stock-minimo" type="number" min={0} step="0.01" value={stockMinimo} onChange={(e) => setStockMinimo(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="inv-unidad">Unidad</Label>
-                    <Select value={unidadMedida} onValueChange={setUnidadMedida}>
-                      <SelectTrigger id="inv-unidad"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {UNIDADES_MEDIDA.map((u) => <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -547,6 +768,61 @@ function ProductoFormDialog({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function VarianteDraftRowEditor({
+  row,
+  onChange,
+  onRemove,
+}: {
+  row: VarianteDraftRow
+  onChange: (patch: Partial<VarianteDraftRow>) => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-border p-2.5">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 space-y-2">
+          <Input value={row.nombre} onChange={(e) => onChange({ nombre: e.target.value })} placeholder="Nombre (ej: 500 ml)" className="rounded-lg" />
+          <div className="grid grid-cols-2 gap-2">
+            <Input type="number" min={0} step="0.01" value={row.precio} onChange={(e) => onChange({ precio: e.target.value })} placeholder="Precio" className="rounded-lg" />
+            <Input type="number" min={0} step="0.01" value={row.costo} onChange={(e) => onChange({ costo: e.target.value })} placeholder="Costo (opcional)" className="rounded-lg" />
+          </div>
+        </div>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 shrink-0 rounded-lg p-0" onClick={onRemove}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onChange({ showMore: !row.showMore })}
+        className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground"
+      >
+        Más opciones
+        <ChevronDown className={cn("h-3 w-3 transition-transform", row.showMore && "rotate-180")} />
+      </button>
+
+      {row.showMore && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Input value={row.sku} onChange={(e) => onChange({ sku: e.target.value })} placeholder="SKU" className="rounded-lg" />
+            <Input value={row.codigoBarras} onChange={(e) => onChange({ codigoBarras: e.target.value })} placeholder="Código de barras" className="rounded-lg" />
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-1.5">
+            <p className="text-xs font-medium">Controlar stock</p>
+            <Switch checked={row.controlStock} onCheckedChange={(v) => onChange({ controlStock: v })} />
+          </div>
+          {row.controlStock && (
+            <div className="grid grid-cols-2 gap-2">
+              <Input type="number" min={0} step="0.01" value={row.stockCantidad} onChange={(e) => onChange({ stockCantidad: e.target.value })} placeholder="Stock inicial" className="rounded-lg" />
+              <Input type="number" min={0} step="0.01" value={row.stockMinimo} onChange={(e) => onChange({ stockMinimo: e.target.value })} placeholder="Stock mínimo" className="rounded-lg" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -565,7 +841,11 @@ function ProductoDetailDialog({
   onChanged: () => void
 }) {
   const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustVariante, setAdjustVariante] = useState<InventarioVariante | null>(null)
+  const [varianteForm, setVarianteForm] = useState<{ mode: "create" } | { mode: "edit"; variante: InventarioVariante } | null>(null)
   const status = computeStockStatus(producto.controlStock, producto.stockCantidad, producto.stockMinimo)
+  const hasVariantes = producto.variantes.length > 0
+  const varianteNombreById = useMemo(() => new Map(producto.variantes.map((v) => [v.id, v.nombre])), [producto.variantes])
 
   const { data: movimientos } = useQuery<MovimientoInventario[]>({
     queryKey: ["negocio-inventario-movimientos", producto.id],
@@ -589,9 +869,22 @@ function ProductoDetailDialog({
     onError: (error: Error) => toast.error(error.message),
   })
 
+  const toggleVarianteActivoMutation = useMutation({
+    mutationFn: async (variante: InventarioVariante) => {
+      const res = await fetch(`/api/negocio/productos/${producto.id}/variantes/${variante.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activo: !variante.activo }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Error")
+    },
+    onSuccess: () => { toast.success("Variante actualizada"); onChanged() },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md rounded-2xl">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {producto.imagenUrl && <img src={producto.imagenUrl} alt="" className="h-8 w-8 rounded-lg object-cover" />}
@@ -600,22 +893,75 @@ function ProductoDetailDialog({
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <div className="grid grid-cols-2 gap-2">
-            <InfoRow label="Precio" value={formatPrice(producto.precio)} />
-            {producto.costo != null && <InfoRow label="Costo" value={formatPrice(producto.costo)} />}
+            {!hasVariantes && <InfoRow label="Precio" value={formatPrice(producto.precio)} />}
+            {!hasVariantes && producto.costo != null && <InfoRow label="Costo" value={formatPrice(producto.costo)} />}
             <InfoRow label="Categoría" value={producto.categoria} />
-            {producto.sku && <InfoRow label="SKU" value={producto.sku} />}
+            {!hasVariantes && producto.sku && <InfoRow label="SKU" value={producto.sku} />}
           </div>
 
-          <div className="flex items-center justify-between rounded-xl bg-muted/40 px-3 py-2">
-            <div>
-              <p className="text-xs text-muted-foreground">Stock</p>
-              <p className="font-semibold">
-                {producto.controlStock ? `${producto.stockCantidad} ${producto.unidadMedida} (mín. ${producto.stockMinimo})` : "Sin control de stock"}
-              </p>
+          {!hasVariantes && (
+            <div className="flex items-center justify-between rounded-xl bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-xs text-muted-foreground">Stock</p>
+                <p className="font-semibold">
+                  {producto.controlStock ? `${producto.stockCantidad} ${producto.unidadMedida} (mín. ${producto.stockMinimo})` : "Sin control de stock"}
+                </p>
+              </div>
+              <Badge className={cn("border-0 text-[10px] font-semibold", STOCK_STATUS_META[status].className)}>
+                {STOCK_STATUS_META[status].label}
+              </Badge>
             </div>
-            <Badge className={cn("border-0 text-[10px] font-semibold", STOCK_STATUS_META[status].className)}>
-              {STOCK_STATUS_META[status].label}
-            </Badge>
+          )}
+
+          {/* P2-T56-R2C §13: variants are managed here, in the product's own
+              detail — never a second product row in the main listing. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-muted-foreground">Variantes {hasVariantes ? `(${producto.variantes.length})` : ""}</p>
+              <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 rounded-lg text-xs" onClick={() => setVarianteForm({ mode: "create" })}>
+                <Plus className="h-3.5 w-3.5" /> Agregar variante
+              </Button>
+            </div>
+            {producto.variantes.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Este producto no tiene variantes.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {producto.variantes.map((v) => {
+                  const vStatus = computeStockStatus(v.controlStock, v.stockCantidad, v.stockMinimo)
+                  return (
+                    <div key={v.id} className={cn("flex items-center gap-2 rounded-xl border border-border px-3 py-2", !v.activo && "opacity-50")}>
+                      <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setVarianteForm({ mode: "edit", variante: v })}>
+                        <p className="text-sm font-medium truncate">{v.nombre}{!v.activo && " (inactiva)"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatPrice(v.precio)}
+                          {v.controlStock ? ` · ${v.stockCantidad} ${v.stockCantidad === 1 ? "unidad" : "unidades"}` : ""}
+                        </p>
+                      </button>
+                      {v.controlStock && (
+                        <Badge className={cn("border-0 text-[9px] font-semibold shrink-0", STOCK_STATUS_META[vStatus].className)}>
+                          {STOCK_STATUS_META[vStatus].label}
+                        </Badge>
+                      )}
+                      {v.controlStock && v.activo && (
+                        <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 rounded-lg text-xs" onClick={() => setAdjustVariante(v)}>
+                          Ajustar
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 shrink-0 rounded-lg p-0 text-destructive hover:text-destructive"
+                        onClick={() => toggleVarianteActivoMutation.mutate(v)}
+                        disabled={toggleVarianteActivoMutation.isPending}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {movimientos && movimientos.length > 0 && (
@@ -626,7 +972,7 @@ function ProductoDetailDialog({
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {movimientos.map((m) => (
                   <div key={m.id} className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{m.tipo} · {m.cantidad}</span>
+                    <span>{m.tipo} · {m.cantidad}{m.productoVarianteId ? ` · ${varianteNombreById.get(m.productoVarianteId) ?? "variante"}` : ""}</span>
                     <span>{m.stockAntes} → {m.stockDespues}</span>
                   </div>
                 ))}
@@ -636,7 +982,7 @@ function ProductoDetailDialog({
 
           <div className="flex gap-2 pt-1">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={onEdit}>Editar</Button>
-            {producto.controlStock && (
+            {!hasVariantes && producto.controlStock && (
               <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setAdjustOpen(true)}>Ajustar stock</Button>
             )}
           </div>
@@ -654,6 +1000,22 @@ function ProductoDetailDialog({
       {adjustOpen && (
         <AjusteStockDialog producto={producto} onClose={() => setAdjustOpen(false)} onAdjusted={() => { setAdjustOpen(false); onChanged() }} />
       )}
+      {adjustVariante && (
+        <AjusteStockDialog
+          producto={producto}
+          variante={adjustVariante}
+          onClose={() => setAdjustVariante(null)}
+          onAdjusted={() => { setAdjustVariante(null); onChanged() }}
+        />
+      )}
+      {varianteForm && (
+        <VarianteFormDialog
+          productoId={producto.id}
+          variante={varianteForm.mode === "edit" ? varianteForm.variante : null}
+          onClose={() => setVarianteForm(null)}
+          onSaved={() => { setVarianteForm(null); onChanged() }}
+        />
+      )}
     </Dialog>
   )
 }
@@ -669,10 +1031,14 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function AjusteStockDialog({
   producto,
+  variante,
   onClose,
   onAdjusted,
 }: {
   producto: InventarioProducto
+  // P2-T56-R2C §25: when present, the adjustment targets THIS variant's own
+  // stock — never a fictitious product-level "total".
+  variante?: InventarioVariante
   onClose: () => void
   onAdjusted: () => void
 }) {
@@ -685,7 +1051,13 @@ function AjusteStockDialog({
       const res = await fetch("/api/negocio/inventario/movimientos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productoId: producto.id, tipo, cantidad: Number(cantidad), motivo: motivo.trim() || undefined }),
+        body: JSON.stringify({
+          productoId: producto.id,
+          productoVarianteId: variante?.id,
+          tipo,
+          cantidad: Number(cantidad),
+          motivo: motivo.trim() || undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Error al ajustar el stock")
@@ -698,7 +1070,7 @@ function AjusteStockDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-xs rounded-2xl">
-        <DialogHeader><DialogTitle>Ajustar stock</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{variante ? `Ajustar stock — ${variante.nombre}` : "Ajustar stock"}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-1.5">
             {(["ENTRADA", "SALIDA", "AJUSTE"] as const).map((t) => (
@@ -725,6 +1097,130 @@ function AjusteStockDialog({
           <Button className="w-full rounded-xl" onClick={() => mutation.mutate()} disabled={mutation.isPending || !cantidad}>
             {mutation.isPending ? "Guardando…" : "Confirmar"}
           </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ============================================
+// Variant create/edit (P2-T56-R2C section 13) — stockCantidad is only
+// accepted on CREATE (mirrors ProductoFormDialog); editing an existing
+// variant's stock always goes through AjusteStockDialog so every change
+// stays traced (section 25).
+// ============================================
+function VarianteFormDialog({
+  productoId,
+  variante,
+  onClose,
+  onSaved,
+}: {
+  productoId: string
+  variante: InventarioVariante | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const isEdit = variante !== null
+  const [nombre, setNombre] = useState(variante?.nombre ?? "")
+  const [precio, setPrecio] = useState(variante ? String(variante.precio) : "")
+  const [costo, setCosto] = useState(variante?.costo != null ? String(variante.costo) : "")
+  const [sku, setSku] = useState(variante?.sku ?? "")
+  const [codigoBarras, setCodigoBarras] = useState(variante?.codigoBarras ?? "")
+  const [controlStock, setControlStock] = useState(variante?.controlStock ?? false)
+  const [stockInicial, setStockInicial] = useState(variante ? String(variante.stockCantidad) : "0")
+  const [stockMinimo, setStockMinimo] = useState(variante ? String(variante.stockMinimo) : "0")
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const parsedPrecio = Number(precio)
+      const validation = validateVarianteMinimo({ nombre, precio: parsedPrecio })
+      if (!validation.ok) throw new Error(validation.error)
+
+      const body: Record<string, unknown> = {
+        nombre: nombre.trim(),
+        precio: parsedPrecio,
+        costo: costo.trim() ? Number(costo) : null,
+        sku: sku.trim() || null,
+        codigoBarras: codigoBarras.trim() || null,
+        controlStock,
+        stockMinimo: stockMinimo.trim() ? Number(stockMinimo) : 0,
+      }
+      if (!isEdit) body.stockCantidad = stockInicial.trim() ? Number(stockInicial) : 0
+
+      const url = isEdit
+        ? `/api/negocio/productos/${productoId}/variantes/${variante!.id}`
+        : `/api/negocio/productos/${productoId}/variantes`
+      const res = await fetch(url, {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Error al guardar la variante")
+      return data
+    },
+    onSuccess: () => {
+      toast.success(isEdit ? "Variante actualizada" : "Variante creada")
+      onSaved()
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xs sm:max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Editar variante" : "Nueva variante"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="var-nombre">Nombre *</Label>
+            <Input id="var-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: 500 ml" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="var-precio">Precio *</Label>
+              <Input id="var-precio" type="number" min={0} step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="var-costo">Costo</Label>
+              <Input id="var-costo" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="var-sku">SKU</Label>
+              <Input id="var-sku" value={sku} onChange={(e) => setSku(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="var-barras">Código de barras</Label>
+              <Input id="var-barras" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
+            <p className="text-sm font-medium">Controlar stock</p>
+            <Switch checked={controlStock} onCheckedChange={setControlStock} />
+          </div>
+          {controlStock && (
+            <div className="grid grid-cols-2 gap-2">
+              {!isEdit && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="var-stock-inicial">Stock inicial</Label>
+                  <Input id="var-stock-inicial" type="number" min={0} step="0.01" value={stockInicial} onChange={(e) => setStockInicial(e.target.value)} />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="var-stock-minimo">Stock mínimo</Label>
+                <Input id="var-stock-minimo" type="number" min={0} step="0.01" value={stockMinimo} onChange={(e) => setStockMinimo(e.target.value)} />
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button variant="secondary" className="flex-1 rounded-xl" onClick={onClose}>Cancelar</Button>
+            <Button className="flex-1 rounded-xl" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear variante"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

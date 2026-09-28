@@ -22,6 +22,10 @@ export async function GET(req: NextRequest) {
     if (!productoId) {
       return NextResponse.json({ error: "productoId es obligatorio" }, { status: 400 })
     }
+    // P2-T56-R2C: optional filter to a single variant's own activity feed
+    // (section 25's "Ajustar stock" per-variant UX). Omitted, this keeps its
+    // original behavior — every movement for the product, variant or not.
+    const productoVarianteId = req.nextUrl.searchParams.get("productoVarianteId")
 
     // Ownership check: never return movements for a product this negocio
     // does not own, regardless of what productoId is requested.
@@ -31,7 +35,7 @@ export async function GET(req: NextRequest) {
     }
 
     const movimientos = await db.movimientoInventario.findMany({
-      where: { negocioId, productoId },
+      where: { negocioId, productoId, ...(productoVarianteId ? { productoVarianteId } : {}) },
       orderBy: { createdAt: "desc" },
       take: 25,
     })
@@ -58,10 +62,13 @@ export async function POST(req: NextRequest) {
     const negocioId = user.id
 
     const body = await req.json()
-    const { productoId, tipo, cantidad, motivo } = body
+    const { productoId, productoVarianteId, tipo, cantidad, motivo } = body
 
     if (typeof productoId !== "string" || !productoId) {
       return NextResponse.json({ error: "productoId es obligatorio" }, { status: 400 })
+    }
+    if (productoVarianteId !== undefined && productoVarianteId !== null && typeof productoVarianteId !== "string") {
+      return NextResponse.json({ error: "productoVarianteId inválido" }, { status: 400 })
     }
     if (tipo === "VENTA" || !isValidMovimientoTipo(tipo)) {
       return NextResponse.json({ error: "Tipo de movimiento inválido" }, { status: 400 })
@@ -74,12 +81,49 @@ export async function POST(req: NextRequest) {
       // Row lock + ownership check together: SELECT ... FOR UPDATE via
       // Prisma's `$queryRaw` isn't needed here — Serializable isolation
       // below already prevents two concurrent movements on the same
-      // product from double-applying (one will fail with P2034 and the
-      // caller retries), same pattern as POST /api/negocio/productos.
+      // product/variant from double-applying (one will fail with P2034 and
+      // the caller retries), same pattern as POST /api/negocio/productos.
       const producto = await tx.producto.findUnique({ where: { id: productoId } })
       if (!producto || producto.negocioId !== negocioId) {
         return { ok: false as const, status: 404, error: "Producto no encontrado" }
       }
+
+      // P2-T56-R2C: a product WITH variants keeps its own stock fields
+      // dormant — ajustar stock must target ONE variant explicitly, never a
+      // ficticious "total" (section 25).
+      if (productoVarianteId) {
+        const variante = await tx.productoVariante.findUnique({ where: { id: productoVarianteId } })
+        if (!variante || variante.productoId !== productoId) {
+          return { ok: false as const, status: 404, error: "Variante no encontrada" }
+        }
+        if (!variante.controlStock) {
+          return { ok: false as const, status: 400, error: "Esta variante no tiene control de stock activado" }
+        }
+
+        const next = resolveNextStock(variante.stockCantidad, tipo, cantidad)
+        if (!next.ok) {
+          return { ok: false as const, status: 400, error: next.error }
+        }
+
+        const updatedVariante = await tx.productoVariante.update({
+          where: { id: productoVarianteId },
+          data: { stockCantidad: next.nextStock },
+        })
+        const movimiento = await tx.movimientoInventario.create({
+          data: {
+            negocioId,
+            productoId,
+            productoVarianteId,
+            tipo,
+            cantidad,
+            stockAntes: variante.stockCantidad,
+            stockDespues: next.nextStock,
+            motivo: typeof motivo === "string" && motivo.trim() ? motivo.trim() : null,
+          },
+        })
+        return { ok: true as const, producto: null, variante: updatedVariante, movimiento }
+      }
+
       if (!producto.controlStock) {
         return { ok: false as const, status: 400, error: "Este producto no tiene control de stock activado" }
       }
@@ -104,7 +148,7 @@ export async function POST(req: NextRequest) {
           motivo: typeof motivo === "string" && motivo.trim() ? motivo.trim() : null,
         },
       })
-      return { ok: true as const, producto: updated, movimiento }
+      return { ok: true as const, producto: updated, variante: null, movimiento }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     if (!result.ok) {
@@ -117,10 +161,15 @@ export async function POST(req: NextRequest) {
       accion: "producto.stock_ajustado",
       recurso: "producto",
       recursoId: productoId,
-      detalle: { tipo, cantidad, stockDespues: result.producto.stockCantidad },
+      detalle: {
+        tipo,
+        cantidad,
+        productoVarianteId: productoVarianteId ?? null,
+        stockDespues: result.variante ? result.variante.stockCantidad : result.producto!.stockCantidad,
+      },
     })
 
-    return NextResponse.json({ producto: result.producto, movimiento: result.movimiento }, { status: 201 })
+    return NextResponse.json({ producto: result.producto, variante: result.variante, movimiento: result.movimiento }, { status: 201 })
   } catch (error) {
     const isSerializationConflict =
       (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||

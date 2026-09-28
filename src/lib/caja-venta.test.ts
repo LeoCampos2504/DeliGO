@@ -59,6 +59,39 @@ describe("setCartLineQuantity / removeCartLine", () => {
   })
 })
 
+// P2-T56-R2C: cart-line identity is producto + variante, never producto alone (section 21)
+describe("variant-aware cart line identity", () => {
+  const coca500 = { productoId: "p1", varianteId: "v500", nombre: "Coca Cola", varianteNombre: "500 ml", precio: 2000, cantidad: 1 }
+  const coca15L = { productoId: "p1", varianteId: "v15l", nombre: "Coca Cola", varianteNombre: "1,5 L", precio: 3200, cantidad: 1 }
+
+  test("two different variants of the SAME product are two distinct lines, never merged", () => {
+    const result = addCartLine([coca500], coca15L)
+    expect(result).toHaveLength(2)
+  })
+
+  test("adding the SAME variant again merges quantity, not a duplicate line", () => {
+    const result = addCartLine([coca500], { ...coca500, cantidad: 2 })
+    expect(result).toEqual([{ ...coca500, cantidad: 3 }])
+  })
+
+  test("a variant line and a non-variant line for the same productoId never merge", () => {
+    const plain = { productoId: "p1", nombre: "Coca Cola", precio: 1800, cantidad: 1 }
+    const result = addCartLine([coca500], plain)
+    expect(result).toHaveLength(2)
+  })
+
+  test("setCartLineQuantity targets only the matching variant", () => {
+    const result = setCartLineQuantity([coca500, coca15L], "p1", 5, "v500")
+    expect(result.find((l) => l.varianteId === "v500")?.cantidad).toBe(5)
+    expect(result.find((l) => l.varianteId === "v15l")?.cantidad).toBe(1)
+  })
+
+  test("removeCartLine drops only the matching variant, leaves the sibling variant intact", () => {
+    const result = removeCartLine([coca500, coca15L], "p1", "v500")
+    expect(result).toEqual([coca15L])
+  })
+})
+
 describe("isValidMetodoPagoVenta", () => {
   test("accepts the three MVP methods and rejects anything else", () => {
     expect(isValidMetodoPagoVenta("EFECTIVO")).toBe(true)
@@ -83,8 +116,8 @@ describe("computeSaleFromAuthoritativeProducts (server-side total authority)", (
     expect(result).toEqual({
       ok: true,
       items: [
-        { productoId: "p1", nombre: "Coca Cola 2.25L", precio: 3500, cantidad: 2, subtotal: 7000 },
-        { productoId: "p2", nombre: "Cuaderno A4", precio: 1200, cantidad: 1, subtotal: 1200 },
+        { productoId: "p1", varianteId: null, nombre: "Coca Cola 2.25L", varianteNombre: null, precio: 3500, cantidad: 2, subtotal: 7000 },
+        { productoId: "p2", varianteId: null, nombre: "Cuaderno A4", varianteNombre: null, precio: 1200, cantidad: 1, subtotal: 1200 },
       ],
       total: 8200,
       cantidadItems: 2,
@@ -103,6 +136,57 @@ describe("computeSaleFromAuthoritativeProducts (server-side total authority)", (
   test("rejects a product missing from the authoritative map (deleted/inactive/foreign tenant)", () => {
     const result = computeSaleFromAuthoritativeProducts([{ productoId: "unknown", cantidad: 1 }], products)
     expect(result.ok).toBe(false)
+  })
+})
+
+// P2-T56-R2C: variant-aware price authority — the variant's own precio,
+// never the client's, and never the parent product's precio (section 22)
+describe("computeSaleFromAuthoritativeProducts — variant price authority", () => {
+  const productsWithVariantes = new Map([
+    [
+      "p1",
+      {
+        nombre: "Coca Cola",
+        precio: 1800, // base product price — must NEVER be used once a varianteId is requested
+        variantes: new Map([
+          ["v500", { nombre: "500 ml", precio: 2000 }],
+          ["v15l", { nombre: "1,5 L", precio: 3200 }],
+        ]),
+      },
+    ],
+  ])
+
+  test("resolves price and snapshot name from the VARIANT, ignoring Producto.precio", () => {
+    const result = computeSaleFromAuthoritativeProducts([{ productoId: "p1", varianteId: "v500", cantidad: 3 }], productsWithVariantes)
+    expect(result).toEqual({
+      ok: true,
+      items: [{ productoId: "p1", varianteId: "v500", nombre: "Coca Cola", varianteNombre: "500 ml", precio: 2000, cantidad: 3, subtotal: 6000 }],
+      total: 6000,
+      cantidadItems: 1,
+    })
+  })
+
+  test("two different variants of the same product produce two distinct resolved lines", () => {
+    const result = computeSaleFromAuthoritativeProducts(
+      [{ productoId: "p1", varianteId: "v500", cantidad: 1 }, { productoId: "p1", varianteId: "v15l", cantidad: 1 }],
+      productsWithVariantes,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("unreachable")
+    expect(result.items).toHaveLength(2)
+    expect(result.total).toBe(5200)
+  })
+
+  test("rejects a varianteId that doesn't belong to (or no longer exists on) the product", () => {
+    const result = computeSaleFromAuthoritativeProducts([{ productoId: "p1", varianteId: "unknown-variant", cantidad: 1 }], productsWithVariantes)
+    expect(result.ok).toBe(false)
+  })
+
+  test("a product WITH variantes can still be sold without a varianteId, using its own precio (backward compatibility)", () => {
+    const result = computeSaleFromAuthoritativeProducts([{ productoId: "p1", cantidad: 1 }], productsWithVariantes)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("unreachable")
+    expect(result.items[0]).toEqual({ productoId: "p1", varianteId: null, nombre: "Coca Cola", varianteNombre: null, precio: 1800, cantidad: 1, subtotal: 1800 })
   })
 })
 

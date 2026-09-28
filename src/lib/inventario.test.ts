@@ -5,7 +5,10 @@ import {
   isValidMovimientoTipo,
   isValidUnidadMedida,
   resolveNextStock,
+  summarizeVariantes,
   validateProductoMinimo,
+  validateVarianteMinimo,
+  type VarianteResumenInput,
 } from "./inventario"
 
 describe("computeStockStatus", () => {
@@ -106,5 +109,85 @@ describe("resolveNextStock", () => {
 
   test("rejects a negative cantidad even for AJUSTE", () => {
     expect(resolveNextStock(10, "AJUSTE", -1).ok).toBe(false)
+  })
+})
+
+// P2-T56-R2C: product variants (section 7)
+describe("validateVarianteMinimo", () => {
+  test("requires only nombre + precio, same minimum contract as a product", () => {
+    expect(validateVarianteMinimo({ nombre: "500 ml", precio: 2000 })).toEqual({ ok: true })
+  })
+
+  test("rejects empty/missing nombre", () => {
+    expect(validateVarianteMinimo({ nombre: "  ", precio: 100 }).ok).toBe(false)
+    expect(validateVarianteMinimo({ precio: 100 }).ok).toBe(false)
+  })
+
+  test("rejects non-positive or missing precio", () => {
+    expect(validateVarianteMinimo({ nombre: "X", precio: 0 }).ok).toBe(false)
+    expect(validateVarianteMinimo({ nombre: "X" }).ok).toBe(false)
+  })
+})
+
+describe("summarizeVariantes (Inventario collapsed-listing summary, sections 15/16/17)", () => {
+  const variante = (overrides: Partial<VarianteResumenInput>): VarianteResumenInput => ({
+    precio: 2000,
+    controlStock: true,
+    stockCantidad: 10,
+    stockMinimo: 2,
+    activo: true,
+    ...overrides,
+  })
+
+  test("counts only active variants, ignores inactive ones entirely", () => {
+    const result = summarizeVariantes([variante({}), variante({ activo: false })])
+    expect(result.cantidadActivas).toBe(1)
+  })
+
+  test("precioDesde is the minimum price across active variants", () => {
+    const result = summarizeVariantes([variante({ precio: 3200 }), variante({ precio: 2000 }), variante({ precio: 4500 })])
+    expect(result.precioDesde).toBe(2000)
+  })
+
+  test("stockTotal sums only stock-controlled active variants", () => {
+    const result = summarizeVariantes([
+      variante({ stockCantidad: 4 }),
+      variante({ stockCantidad: 8 }),
+      variante({ controlStock: false, stockCantidad: 999 }), // never summed — uncontrolled
+    ])
+    expect(result.stockTotal).toBe(12)
+  })
+
+  test("stockTotal is null when no active variant controls stock", () => {
+    expect(summarizeVariantes([variante({ controlStock: false })]).stockTotal).toBeNull()
+  })
+
+  test("a single depleted variant among others is NOT 'todas sin stock' — other variants stay sellable (section 16)", () => {
+    const result = summarizeVariantes([variante({ stockCantidad: 0 }), variante({ stockCantidad: 5 })])
+    expect(result.todasSinStock).toBe(false)
+    expect(result.variantesConStockBajo).toBe(1) // the depleted one counts as low/out
+  })
+
+  test("todasSinStock is true only when every stock-controlled active variant is depleted", () => {
+    expect(summarizeVariantes([variante({ stockCantidad: 0 }), variante({ stockCantidad: 0 })]).todasSinStock).toBe(true)
+  })
+
+  test("variantesConStockBajo counts STOCK_BAJO and SIN_STOCK, not EN_STOCK", () => {
+    const result = summarizeVariantes([
+      variante({ stockCantidad: 1, stockMinimo: 2 }), // STOCK_BAJO
+      variante({ stockCantidad: 0, stockMinimo: 2 }), // SIN_STOCK
+      variante({ stockCantidad: 10, stockMinimo: 2 }), // EN_STOCK
+    ])
+    expect(result.variantesConStockBajo).toBe(2)
+  })
+
+  test("an empty variant list summarizes to zero/null, never throws", () => {
+    expect(summarizeVariantes([])).toEqual({
+      cantidadActivas: 0,
+      precioDesde: null,
+      stockTotal: null,
+      variantesConStockBajo: 0,
+      todasSinStock: false,
+    })
   })
 })

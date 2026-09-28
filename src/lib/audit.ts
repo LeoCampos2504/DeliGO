@@ -15,6 +15,9 @@ export type AuditAction =
   // Inventario / Caja (P2-T56-R1)
   | "producto.stock_ajustado"
   | "venta.creada"
+  // Variantes (P2-T56-R2C)
+  | "producto.variante_creada"
+  | "producto.variante_actualizada"
   // Pedidos
   | "pedido.creado"
   | "pedido.estado_cambiado"

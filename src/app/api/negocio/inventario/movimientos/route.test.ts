@@ -66,6 +66,19 @@ async function createProducto(negocioId: string, overrides: Partial<{ controlSto
   })
 }
 
+async function createVariante(productoId: string, overrides: Partial<{ controlStock: boolean; stockCantidad: number; stockMinimo: number }> = {}) {
+  return db.productoVariante.create({
+    data: {
+      productoId,
+      nombre: `Variante ${randomUUID()}`,
+      precio: 2000,
+      controlStock: overrides.controlStock ?? true,
+      stockCantidad: overrides.stockCantidad ?? 10,
+      stockMinimo: overrides.stockMinimo ?? 2,
+    },
+  })
+}
+
 async function businessCookie(businessId: string) {
   const token = await createSession(businessId, "negocio")
   createdSessions.push(token)
@@ -191,5 +204,114 @@ describe("P2-T56-R1 — POST /api/negocio/inventario/movimientos", () => {
 
     const response = await GET(request(`/api/negocio/inventario/movimientos?productoId=${productoB.id}`, "GET", cookieA))
     expect(response.status).toBe(404)
+  })
+})
+
+// P2-T56-R2C: variant-aware stock movements (section 25) — ajustar stock on
+// a product WITH variants must target ONE variant, never a fictitious
+// product-level "total".
+describe("P2-T56-R2C — POST /api/negocio/inventario/movimientos (variant-aware)", () => {
+  test("ENTRADA on a variant increases ITS stock and leaves the parent Producto's own stock untouched", async () => {
+    const business = await createBusiness("test-r2c-mov-var-entrada")
+    const cookie = await businessCookie(business.id)
+    const producto = await createProducto(business.id, { stockCantidad: 999 }) // deliberately distinct from the variant's own stock
+    const variante = await createVariante(producto.id, { stockCantidad: 10 })
+
+    const response = await POST(request("/api/negocio/inventario/movimientos", "POST", cookie, {
+      productoId: producto.id,
+      productoVarianteId: variante.id,
+      tipo: "ENTRADA",
+      cantidad: 5,
+    }))
+    expect(response.status).toBe(201)
+    const data = await response.json()
+    expect(data.variante.stockCantidad).toBe(15)
+    expect(data.producto).toBeNull()
+
+    const unchangedProducto = await db.producto.findUnique({ where: { id: producto.id } })
+    expect(unchangedProducto?.stockCantidad).toBe(999)
+  })
+
+  test("SALIDA on a variant cannot push its stock below zero", async () => {
+    const business = await createBusiness("test-r2c-mov-var-salida")
+    const cookie = await businessCookie(business.id)
+    const producto = await createProducto(business.id)
+    const variante = await createVariante(producto.id, { stockCantidad: 3 })
+
+    const response = await POST(request("/api/negocio/inventario/movimientos", "POST", cookie, {
+      productoId: producto.id,
+      productoVarianteId: variante.id,
+      tipo: "SALIDA",
+      cantidad: 10,
+    }))
+    expect(response.status).toBe(400)
+    const unchanged = await db.productoVariante.findUnique({ where: { id: variante.id } })
+    expect(unchanged?.stockCantidad).toBe(3)
+  })
+
+  test("a movement can identify the affected variant via productoVarianteId on the row", async () => {
+    const business = await createBusiness("test-r2c-mov-var-trace")
+    const cookie = await businessCookie(business.id)
+    const producto = await createProducto(business.id)
+    const variante = await createVariante(producto.id, { stockCantidad: 10 })
+
+    await POST(request("/api/negocio/inventario/movimientos", "POST", cookie, {
+      productoId: producto.id,
+      productoVarianteId: variante.id,
+      tipo: "AJUSTE",
+      cantidad: 7,
+    }))
+
+    const movimiento = await db.movimientoInventario.findFirst({ where: { productoId: producto.id } })
+    expect(movimiento?.productoVarianteId).toBe(variante.id)
+  })
+
+  test("rejects a movement on a variant without controlStock", async () => {
+    const business = await createBusiness("test-r2c-mov-var-nocontrol")
+    const cookie = await businessCookie(business.id)
+    const producto = await createProducto(business.id)
+    const variante = await createVariante(producto.id, { controlStock: false })
+
+    const response = await POST(request("/api/negocio/inventario/movimientos", "POST", cookie, {
+      productoId: producto.id,
+      productoVarianteId: variante.id,
+      tipo: "ENTRADA",
+      cantidad: 1,
+    }))
+    expect(response.status).toBe(400)
+  })
+
+  test("rejects a productoVarianteId that belongs to a DIFFERENT product", async () => {
+    const business = await createBusiness("test-r2c-mov-var-mismatch")
+    const cookie = await businessCookie(business.id)
+    const productoA = await createProducto(business.id)
+    const productoB = await createProducto(business.id)
+    const varianteOfB = await createVariante(productoB.id)
+
+    const response = await POST(request("/api/negocio/inventario/movimientos", "POST", cookie, {
+      productoId: productoA.id,
+      productoVarianteId: varianteOfB.id,
+      tipo: "ENTRADA",
+      cantidad: 1,
+    }))
+    expect(response.status).toBe(404)
+  })
+
+  test("TENANT ISOLATION: negocio A cannot adjust a variant belonging to negocio B's product", async () => {
+    const businessA = await createBusiness("test-r2c-mov-var-tenant-a")
+    const businessB = await createBusiness("test-r2c-mov-var-tenant-b")
+    const cookieA = await businessCookie(businessA.id)
+    const productoB = await createProducto(businessB.id)
+    const varianteB = await createVariante(productoB.id, { stockCantidad: 10 })
+
+    const response = await POST(request("/api/negocio/inventario/movimientos", "POST", cookieA, {
+      productoId: productoB.id,
+      productoVarianteId: varianteB.id,
+      tipo: "ENTRADA",
+      cantidad: 5,
+    }))
+    expect(response.status).toBe(404)
+    const unchanged = await db.productoVariante.findUnique({ where: { id: varianteB.id } })
+    expect(unchanged?.stockCantidad).toBe(10)
   })
 })

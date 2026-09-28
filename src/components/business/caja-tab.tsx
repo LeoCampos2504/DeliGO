@@ -45,6 +45,18 @@ import {
   type MetodoPagoVenta,
 } from "@/lib/caja-venta"
 
+// P2-T56-R2C: a product with >=1 variant sells THROUGH its variants only —
+// see VenderView's addProduct/handleProductTap for the exact selection
+// rules (sections 19/20).
+interface CajaVariante {
+  id: string
+  nombre: string
+  precio: number
+  activo: boolean
+  controlStock: boolean
+  stockCantidad: number
+}
+
 interface CajaProducto {
   id: string
   nombre: string
@@ -55,6 +67,7 @@ interface CajaProducto {
   controlStock: boolean
   stockCantidad: number
   stockMinimo: number
+  variantes: CajaVariante[]
 }
 
 // P2-T56-R2A: snapshot line, exactly as persisted on VentaItem — never
@@ -63,6 +76,7 @@ interface CajaProducto {
 interface VentaItemSnapshot {
   id: string
   productoId: string | null
+  varianteNombre: string | null
   nombre: string
   precio: number
   cantidad: number
@@ -174,6 +188,8 @@ function VenderView({ negocioId }: { negocioId: string }) {
     })
   }, [activos, search, effectiveCategoria])
 
+  const [varianteSelector, setVarianteSelector] = useState<CajaProducto | null>(null)
+
   function addProduct(p: CajaProducto) {
     if (!isProductSellable({ activo: !p.eliminado, controlStock: p.controlStock, stockCantidad: p.stockCantidad })) {
       toast.error("Sin stock")
@@ -182,8 +198,54 @@ function VenderView({ negocioId }: { negocioId: string }) {
     setCart((prev) => addCartLine(prev, { productoId: p.id, nombre: p.nombre, precio: p.precio, cantidad: 1 }))
   }
 
-  function updateQuantity(productoId: string, cantidad: number) {
-    setCart((prev) => setCartLineQuantity(prev, productoId, cantidad))
+  function addVariante(p: CajaProducto, variante: CajaVariante) {
+    if (!isProductSellable({ activo: variante.activo, controlStock: variante.controlStock, stockCantidad: variante.stockCantidad })) {
+      toast.error("Sin stock")
+      return
+    }
+    setCart((prev) =>
+      addCartLine(prev, {
+        productoId: p.id,
+        varianteId: variante.id,
+        nombre: p.nombre,
+        varianteNombre: variante.nombre,
+        precio: variante.precio,
+        cantidad: 1,
+      })
+    )
+    setVarianteSelector(null)
+  }
+
+  // P2-T56-R2C §19/20: a product with no variants keeps the exact one-tap
+  // add it always had. A product WITH variants opens a selector UNLESS
+  // there is exactly one sellable active variant — then that ambiguity
+  // simply doesn't exist, so it adds directly, same one-tap feel.
+  function handleProductTap(p: CajaProducto) {
+    if (p.variantes.length === 0) {
+      addProduct(p)
+      return
+    }
+    const activas = p.variantes.filter((v) => v.activo)
+    if (activas.length === 0) return
+    if (activas.length === 1) {
+      addVariante(p, activas[0])
+      return
+    }
+    setVarianteSelector(p)
+  }
+
+  function isCajaProductTappable(p: CajaProducto): boolean {
+    if (p.variantes.length === 0) {
+      return isProductSellable({ activo: !p.eliminado, controlStock: p.controlStock, stockCantidad: p.stockCantidad })
+    }
+    const activas = p.variantes.filter((v) => v.activo)
+    if (activas.length === 0) return false
+    if (activas.length > 1) return true // worth opening the selector even if some are sin stock
+    return isProductSellable({ activo: true, controlStock: activas[0].controlStock, stockCantidad: activas[0].stockCantidad })
+  }
+
+  function updateQuantity(productoId: string, cantidad: number, varianteId?: string | null) {
+    setCart((prev) => setCartLineQuantity(prev, productoId, cantidad, varianteId))
   }
 
   const total = cartTotal(cart)
@@ -194,7 +256,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
       const res = await fetch("/api/negocio/caja/ventas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metodoPago, items: cart.map((l) => ({ productoId: l.productoId, cantidad: l.cantidad })) }),
+        body: JSON.stringify({ metodoPago, items: cart.map((l) => ({ productoId: l.productoId, varianteId: l.varianteId ?? undefined, cantidad: l.cantidad })) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Error al registrar la venta")
@@ -254,25 +316,40 @@ function VenderView({ negocioId }: { negocioId: string }) {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {filtered.map((p) => {
-            const sellable = isProductSellable({ activo: !p.eliminado, controlStock: p.controlStock, stockCantidad: p.stockCantidad })
-            const status = computeStockStatus(p.controlStock, p.stockCantidad, p.stockMinimo)
+            const hasVariantes = p.variantes.length > 0
+            const activasVariantes = p.variantes.filter((v) => v.activo)
+            const tappable = isCajaProductTappable(p)
+            const status = hasVariantes ? null : computeStockStatus(p.controlStock, p.stockCantidad, p.stockMinimo)
+            const precioDesde = hasVariantes && activasVariantes.length > 0 ? Math.min(...activasVariantes.map((v) => v.precio)) : null
             return (
               <button
                 key={p.id}
-                onClick={() => addProduct(p)}
-                disabled={!sellable}
+                onClick={() => handleProductTap(p)}
+                disabled={!tappable}
                 className={cn(
                   "flex flex-col rounded-2xl border border-border bg-card p-2 text-left transition-shadow hover:shadow-md",
-                  !sellable && "opacity-50 cursor-not-allowed"
+                  !tappable && "opacity-50 cursor-not-allowed"
                 )}
               >
                 <div className="aspect-square w-full rounded-xl bg-muted overflow-hidden flex items-center justify-center mb-1.5">
                   {p.imagenUrl ? <img src={p.imagenUrl} alt={p.nombre} className="h-full w-full object-cover" /> : <Package className="h-6 w-6 text-muted-foreground" />}
                 </div>
                 <p className="text-xs font-semibold line-clamp-2">{p.nombre}</p>
-                <p className="text-sm font-bold mt-0.5">{formatPrice(p.precio)}</p>
-                {status === "SIN_STOCK" && <span className="text-[10px] font-semibold text-red-600 mt-0.5">Sin stock</span>}
-                {status === "STOCK_BAJO" && <span className="text-[10px] font-semibold text-amber-600 mt-0.5">Stock bajo</span>}
+                {hasVariantes ? (
+                  <>
+                    <p className="text-sm font-bold mt-0.5">{precioDesde != null ? `Desde ${formatPrice(precioDesde)}` : "—"}</p>
+                    <span className="text-[10px] text-muted-foreground mt-0.5">
+                      {activasVariantes.length} variante{activasVariantes.length === 1 ? "" : "s"}
+                    </span>
+                    {!tappable && <span className="text-[10px] font-semibold text-red-600 mt-0.5">{activasVariantes.length === 0 ? "Sin variantes disponibles" : "Sin stock"}</span>}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold mt-0.5">{formatPrice(p.precio)}</p>
+                    {status === "SIN_STOCK" && <span className="text-[10px] font-semibold text-red-600 mt-0.5">Sin stock</span>}
+                    {status === "STOCK_BAJO" && <span className="text-[10px] font-semibold text-amber-600 mt-0.5">Stock bajo</span>}
+                  </>
+                )}
               </button>
             )
           })}
@@ -285,7 +362,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
     <CartPanel
       cart={cart}
       onUpdateQuantity={updateQuantity}
-      onRemove={(id) => setCart((prev) => removeCartLine(prev, id))}
+      onRemove={(productoId, varianteId) => setCart((prev) => removeCartLine(prev, productoId, varianteId))}
       onCobrar={() => setCheckoutOpen(true)}
     />
   )
@@ -346,7 +423,60 @@ function VenderView({ negocioId }: { negocioId: string }) {
           onNuevaVenta={() => setSuccessSale(null)}
         />
       )}
+
+      {varianteSelector && (
+        <VarianteSelectorDialog
+          producto={varianteSelector}
+          onClose={() => setVarianteSelector(null)}
+          onSelect={(variante) => addVariante(varianteSelector, variante)}
+        />
+      )}
     </div>
+  )
+}
+
+function VarianteSelectorDialog({
+  producto,
+  onClose,
+  onSelect,
+}: {
+  producto: CajaProducto
+  onClose: () => void
+  onSelect: (variante: CajaVariante) => void
+}) {
+  const activas = producto.variantes.filter((v) => v.activo)
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
+        <DialogHeader><DialogTitle>Elegí una variante — {producto.nombre}</DialogTitle></DialogHeader>
+        {activas.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">No hay variantes disponibles</p>
+        ) : (
+          <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+            {activas.map((v) => {
+              const sellable = isProductSellable({ activo: true, controlStock: v.controlStock, stockCantidad: v.stockCantidad })
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => sellable && onSelect(v)}
+                  disabled={!sellable}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border border-border px-3 py-2.5 text-left",
+                    !sellable && "opacity-50 cursor-not-allowed"
+                  )}
+                >
+                  <span className="text-sm font-medium">{v.nombre}</span>
+                  <span className="flex items-center gap-2">
+                    {!sellable && <span className="text-[10px] font-semibold text-red-600">Sin stock</span>}
+                    <span className="text-sm font-bold">{formatPrice(v.precio)}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -357,8 +487,8 @@ function CartPanel({
   onCobrar,
 }: {
   cart: CartLine[]
-  onUpdateQuantity: (productoId: string, cantidad: number) => void
-  onRemove: (productoId: string) => void
+  onUpdateQuantity: (productoId: string, cantidad: number, varianteId?: string | null) => void
+  onRemove: (productoId: string, varianteId?: string | null) => void
   onCobrar: () => void
 }) {
   const total = cartTotal(cart)
@@ -369,20 +499,20 @@ function CartPanel({
     <div className="flex flex-col gap-3">
       <div className="space-y-2 max-h-[50vh] overflow-y-auto">
         {cart.map((line) => (
-          <div key={line.productoId} className="flex items-center gap-2">
+          <div key={`${line.productoId}-${line.varianteId ?? ""}`} className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">{line.nombre}</p>
+              <p className="text-sm font-medium truncate">{line.nombre}{line.varianteNombre ? ` — ${line.varianteNombre}` : ""}</p>
               <p className="text-xs text-muted-foreground">{formatPrice(line.precio)} c/u</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => onUpdateQuantity(line.productoId, line.cantidad - 1)}>
+              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => onUpdateQuantity(line.productoId, line.cantidad - 1, line.varianteId)}>
                 <Minus className="h-3 w-3" />
               </Button>
               <span className="w-6 text-center text-sm font-semibold tabular-nums">{line.cantidad}</span>
-              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => onUpdateQuantity(line.productoId, line.cantidad + 1)}>
+              <Button variant="outline" size="icon" className="h-7 w-7 rounded-full" onClick={() => onUpdateQuantity(line.productoId, line.cantidad + 1, line.varianteId)}>
                 <Plus className="h-3 w-3" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-muted-foreground" onClick={() => onRemove(line.productoId)}>
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-muted-foreground" onClick={() => onRemove(line.productoId, line.varianteId)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -558,7 +688,7 @@ function VentaDetailDialog({ venta, onClose }: { venta: VentaResumen; onClose: (
             {venta.items.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
                 <div className="min-w-0">
-                  <p className="font-medium truncate">{item.nombre}</p>
+                  <p className="font-medium truncate">{item.nombre}{item.varianteNombre ? ` — ${item.varianteNombre}` : ""}</p>
                   <p className="text-xs text-muted-foreground">{item.cantidad} × {formatPrice(item.precio)}</p>
                 </div>
                 <span className="shrink-0 font-semibold">{formatPrice(item.subtotal)}</span>

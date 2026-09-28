@@ -10,7 +10,7 @@ import {
   validateNegocioResourceOwnership,
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
-import { isValidUnidadMedida } from "@/lib/inventario"
+import { isValidUnidadMedida, validateVarianteMinimo } from "@/lib/inventario"
 import { Prisma } from "@prisma/client"
 
 // Helper to parse JSON fields safely
@@ -57,6 +57,12 @@ export async function GET(req: NextRequest) {
       include: {
         agregados: { include: { agregado: true } },
         ingredientes: { include: { ingrediente: true } },
+        // P2-T56-R2C: every variant (active AND inactive) — Inventario needs
+        // both to manage them; Caja/Inventario's own client-side derivations
+        // filter to activo (and sellable) as needed. Empty array for every
+        // product that has none (the overwhelming majority) — no behavior
+        // change for any consumer that doesn't read this field.
+        variantes: { orderBy: { createdAt: "asc" } },
       },
       orderBy: { orden: "asc" },
     })
@@ -125,6 +131,7 @@ export async function POST(req: NextRequest) {
       controlStock,
       stockCantidad,
       stockMinimo,
+      variantes,
     } = body
 
     // Validation
@@ -223,6 +230,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
     }
 
+    // P2-T56-R2C §11/12: optional inline variant creation. Every entry gets
+    // the same minimum-required validation as a standalone variant
+    // (nombre + precio); everything else defaults exactly like a bare
+    // Producto would (costo null, controlStock false, stock/stockMinimo 0).
+    const validVariantes: Array<{
+      nombre: string; precio: number; costo: number | null; sku: string | null
+      codigoBarras: string | null; controlStock: boolean; stockCantidad: number; stockMinimo: number
+    }> = []
+    if (variantes !== undefined) {
+      if (!Array.isArray(variantes)) {
+        return NextResponse.json({ error: "variantes debe ser un array" }, { status: 400 })
+      }
+      for (const raw of variantes as unknown[]) {
+        const v = raw as Record<string, unknown>
+        const validation = validateVarianteMinimo({ nombre: v.nombre, precio: v.precio })
+        if (!validation.ok) {
+          return NextResponse.json({ error: validation.error }, { status: 400 })
+        }
+        if (v.costo !== undefined && v.costo !== null && (typeof v.costo !== "number" || !Number.isFinite(v.costo) || v.costo < 0)) {
+          return NextResponse.json({ error: "El costo de la variante no puede ser negativo" }, { status: 400 })
+        }
+        if (v.stockCantidad !== undefined && (typeof v.stockCantidad !== "number" || !Number.isFinite(v.stockCantidad) || v.stockCantidad < 0)) {
+          return NextResponse.json({ error: "El stock de la variante no puede ser negativo" }, { status: 400 })
+        }
+        if (v.stockMinimo !== undefined && (typeof v.stockMinimo !== "number" || !Number.isFinite(v.stockMinimo) || v.stockMinimo < 0)) {
+          return NextResponse.json({ error: "El stock mínimo de la variante no puede ser negativo" }, { status: 400 })
+        }
+        validVariantes.push({
+          nombre: (v.nombre as string).trim(),
+          precio: v.precio as number,
+          costo: v.costo === undefined || v.costo === null ? null : (v.costo as number),
+          sku: typeof v.sku === "string" && v.sku.trim() ? v.sku.trim() : null,
+          codigoBarras: typeof v.codigoBarras === "string" && v.codigoBarras.trim() ? v.codigoBarras.trim() : null,
+          controlStock: v.controlStock === true,
+          stockCantidad: typeof v.stockCantidad === "number" ? v.stockCantidad : 0,
+          stockMinimo: typeof v.stockMinimo === "number" ? v.stockMinimo : 0,
+        })
+      }
+    }
+
     const ownsCatalogRefs = await validateNegocioResourceOwnership(negocioId, {
       agregados: validAgregadoIds.ids,
       ingredientes: validIngredienteIds.ids,
@@ -284,6 +331,11 @@ export async function POST(req: NextRequest) {
           data: validIngredienteIds.ids.map((ingredienteId) => ({ productoId: created.id, ingredienteId })),
         })
       }
+      if (validVariantes.length > 0) {
+        await tx.productoVariante.createMany({
+          data: validVariantes.map((v) => ({ ...v, productoId: created.id })),
+        })
+      }
       if (descuentoActivo && precioPromo !== null) {
         const negocio = await tx.negocio.findUnique({
           where: { id: negocioId },
@@ -314,6 +366,7 @@ export async function POST(req: NextRequest) {
       include: {
         agregados: { include: { agregado: true } },
         ingredientes: { include: { ingrediente: true } },
+        variantes: { orderBy: { createdAt: "asc" } },
       },
     })
 
