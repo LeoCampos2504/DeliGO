@@ -87,6 +87,25 @@ export async function PUT(req: NextRequest) {
       )
     }
 
+    // P2-T56-R2B: minimal, additive hardening — reject blank/oversized
+    // entries. Every existing UI (products-tab.tsx, and the new negocio
+    // category manager) already trims and rejects empty input client-side
+    // before calling this endpoint, so this only rejects input no
+    // legitimate flow could have produced; it does not change any working
+    // Restaurante/Ropa behavior.
+    if (categorias.some((c: string) => c.trim().length === 0)) {
+      return NextResponse.json(
+        { error: "El nombre de categoría no puede estar vacío" },
+        { status: 400 }
+      )
+    }
+    if (categorias.some((c: string) => c.length > 60)) {
+      return NextResponse.json(
+        { error: "El nombre de categoría es demasiado largo (máximo 60 caracteres)" },
+        { status: 400 }
+      )
+    }
+
     // Get current categories to find deleted ones
     const negocio = await db.negocio.findUnique({
       where: { id: negocioId },
@@ -168,6 +187,12 @@ export async function PATCH(req: NextRequest) {
     if (!trimmedNew) {
       return NextResponse.json(
         { error: "El nuevo nombre no puede estar vacío" },
+        { status: 400 }
+      )
+    }
+    if (trimmedNew.length > 60) {
+      return NextResponse.json(
+        { error: "El nombre de categoría es demasiado largo (máximo 60 caracteres)" },
         { status: 400 }
       )
     }

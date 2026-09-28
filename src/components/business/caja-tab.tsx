@@ -31,6 +31,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, isProductSellable } from "@/lib/inventario"
+import { mergeManagedCategories } from "@/lib/category-normalization"
 import {
   addCartLine,
   cartItemCount,
@@ -129,8 +130,23 @@ function VenderView({ negocioId }: { negocioId: string }) {
     },
   })
 
+  // P2-T56-R2B: SAME managed-category authority Inventario reads — never a
+  // second, independent derivation (see the R2B report §14).
+  const { data: categoriasManaged = [] } = useQuery<string[]>({
+    queryKey: ["negocio-categorias", negocioId],
+    queryFn: async () => {
+      const res = await fetch("/api/negocio/categorias")
+      if (!res.ok) return []
+      const json = await res.json()
+      return json.categorias ?? []
+    },
+  })
+
   const activos = useMemo(() => (productos ?? []).filter((p) => !p.eliminado), [productos])
-  const categorias = useMemo(() => Array.from(new Set(activos.map((p) => p.categoria || "Sin Categoria"))).sort(), [activos])
+  const categorias = useMemo(
+    () => mergeManagedCategories(categoriasManaged, activos.map((p) => p.categoria)),
+    [categoriasManaged, activos]
+  )
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return activos.filter((p) => {

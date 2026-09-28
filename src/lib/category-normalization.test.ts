@@ -4,7 +4,7 @@
 // (src/app/n/[slug]/page.tsx) y por el catálogo de Negocio
 // (agregados-section.tsx / ingredientes-section.tsx).
 import { describe, expect, test } from "bun:test"
-import { findEquivalentCategory, groupByNormalizedCategory, normalizeCategoryKey } from "./category-normalization"
+import { findEquivalentCategory, groupByNormalizedCategory, mergeManagedCategories, normalizeCategoryKey } from "./category-normalization"
 
 describe("normalizeCategoryKey", () => {
   test("case-insensible", () => {
@@ -96,5 +96,35 @@ describe("findEquivalentCategory — dedup del catálogo de Negocio (§22)", () 
 
   test("lista vacía nunca encuentra equivalente", () => {
     expect(findEquivalentCategory([], "Aderezos")).toBeUndefined()
+  })
+})
+
+describe("mergeManagedCategories — reconciliación Inventario/Caja con Negocio.categorias (P2-T56-R2B)", () => {
+  test("categorías administradas se devuelven en su orden persistido", () => {
+    expect(mergeManagedCategories(["Bebidas", "Limpieza"], [])).toEqual(["Bebidas", "Limpieza"])
+  })
+
+  test("una categoría de producto huérfana (no administrada) se agrega al final", () => {
+    expect(mergeManagedCategories(["Bebidas"], ["Bebidas", "Electrónica"])).toEqual(["Bebidas", "Electrónica"])
+  })
+
+  test("una variante de casing/espacios de una categoría YA administrada no se duplica", () => {
+    expect(mergeManagedCategories(["Bebidas"], [" bebidas ", "BEBIDAS"])).toEqual(["Bebidas"])
+  })
+
+  test("dos productos huérfanos equivalentes entre sí sólo aportan una entrada (primera grafía vista)", () => {
+    expect(mergeManagedCategories([], ["electronica", "Electronica"])).toEqual(["electronica"])
+  })
+
+  test("'Sin Categoria' en productos nunca se lista como una categoría propia", () => {
+    expect(mergeManagedCategories(["Bebidas"], ["Sin Categoria"])).toEqual(["Bebidas"])
+  })
+
+  test("una categoría administrada recién creada, sin productos todavía, sigue apareciendo", () => {
+    expect(mergeManagedCategories(["Bebidas", "Limpieza"], ["Bebidas"])).toEqual(["Bebidas", "Limpieza"])
+  })
+
+  test("listas vacías producen una lista vacía", () => {
+    expect(mergeManagedCategories([], [])).toEqual([])
   })
 })

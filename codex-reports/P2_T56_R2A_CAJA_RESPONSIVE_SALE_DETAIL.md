@@ -220,3 +220,19 @@ is verified as a correct, deterministic Tailwind/tailwind-merge class
 resolution (see Finding A's root-cause analysis) and via the new static
 contract test, not via a pixel-level visual diff; the operator's own manual
 pass on TESTING remains the real confirmation.
+
+## 7. Closeout (P2-T56-R2B preflight, per its §26)
+
+```text
+CHECKOUT_VISUAL_REVIEW=PASS
+SALE_DETAIL_VISUAL_REVIEW=PASS
+P2_T56_R2A_STATUS=CLOSED_TESTING_CERTIFIED
+```
+
+Confirmed by the operator's own manual review on TESTING after the R2A
+fast-forward deploy (commit `9fbd8996db5e4177653aa56d5192b584ade09390`,
+`TESTING_DEPLOYMENT_STATUS=SUCCESS`): the responsive checkout/cart fix and
+the sale-detail/quantity-semantics fix both read correctly on the deployed
+instance. This closeout entry is recorded here — not as a separate report —
+per the P2-T56-R2B task's explicit instruction to avoid a
+documentation-only commit/deploy.

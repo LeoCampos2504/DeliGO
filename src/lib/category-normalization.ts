@@ -20,6 +20,40 @@ export function findEquivalentCategory(categories: string[], candidate: string):
   return categories.find((category) => normalizeCategoryKey(category) === key)
 }
 
+// P2-T56-R2B: merges the negocio's managed category list (Negocio.categorias,
+// persisted order = the order the merchant chose) with whatever category
+// strings actually appear on its products, so a legacy/orphaned
+// Producto.categoria value (created before R2B, or left behind by a direct
+// data change) never disappears from the filter/selector — same
+// reconciliation products-tab.tsx already does for Restaurante/Ropa
+// (CATALOG-CATEGORY-PILL-REORDER-R1), but case/space-insensitive so it
+// doesn't double-list "Bebidas" and "bebidas" as two separate options.
+export function mergeManagedCategories(
+  managed: readonly string[],
+  productCategorias: readonly string[]
+): string[] {
+  const result: string[] = []
+  const seenKeys = new Set<string>()
+
+  for (const category of managed) {
+    if (!category) continue
+    const key = normalizeCategoryKey(category)
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
+    result.push(category)
+  }
+
+  for (const category of productCategorias) {
+    if (!category || category === "Sin Categoria") continue
+    const key = normalizeCategoryKey(category)
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
+    result.push(category)
+  }
+
+  return result
+}
+
 export interface NormalizedCategoryGroup<T> {
   /** Primer label no vacío (trimmed) visto para este grupo — nunca se reescribe. */
   label: string

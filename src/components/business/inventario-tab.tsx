@@ -18,6 +18,7 @@ import {
   Package,
   Plus,
   Search,
+  Tags,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +30,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, UNIDADES_MEDIDA, validateProductoMinimo, type StockStatus } from "@/lib/inventario"
+import { mergeManagedCategories } from "@/lib/category-normalization"
+import { AdministrarCategoriasDialog } from "./administrar-categorias-dialog"
 
 interface InventarioProducto {
   id: string
@@ -71,6 +74,7 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InventarioProducto | null>(null)
   const [detailProduct, setDetailProduct] = useState<InventarioProducto | null>(null)
+  const [categoriasDialogOpen, setCategoriasDialogOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const { data: productos, isLoading } = useQuery<InventarioProducto[]>({
@@ -82,12 +86,25 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
     },
   })
 
+  // P2-T56-R2B: managed category authority (Negocio.categorias), the SAME
+  // source Caja's VenderView reads — see the R2B report §14 for why this
+  // must never be a second, independent list.
+  const { data: categoriasManaged = [] } = useQuery<string[]>({
+    queryKey: ["negocio-categorias", negocio.id],
+    queryFn: async () => {
+      const res = await fetch("/api/negocio/categorias")
+      if (!res.ok) return []
+      const json = await res.json()
+      return json.categorias ?? []
+    },
+  })
+
   const activos = useMemo(() => (productos ?? []).filter((p) => !p.eliminado), [productos])
 
-  const categorias = useMemo(() => {
-    const set = new Set(activos.map((p) => p.categoria || "Sin Categoria"))
-    return Array.from(set).sort()
-  }, [activos])
+  const categorias = useMemo(
+    () => mergeManagedCategories(categoriasManaged, activos.map((p) => p.categoria)),
+    [categoriasManaged, activos]
+  )
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -128,14 +145,24 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
         </Button>
       </div>
 
-      {categorias.length > 1 && (
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-1">
-          <CategoryPill active={categoria === "todas"} label="Todas" onClick={() => setCategoria("todas")} />
-          {categorias.map((c) => (
-            <CategoryPill key={c} active={categoria === c} label={c} onClick={() => setCategoria(c)} />
-          ))}
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        {categorias.length > 1 && (
+          <div className="flex flex-1 min-w-0 gap-1.5 overflow-x-auto scrollbar-none pb-1">
+            <CategoryPill active={categoria === "todas"} label="Todas" onClick={() => setCategoria("todas")} />
+            {categorias.map((c) => (
+              <CategoryPill key={c} active={categoria === c} label={c} onClick={() => setCategoria(c)} />
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setCategoriasDialogOpen(true)}
+          className="shrink-0 flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground py-1.5"
+        >
+          <Tags className="h-3.5 w-3.5" />
+          Administrar categorías
+        </button>
+      </div>
 
       {activos.length === 0 ? (
         <EmptyState
@@ -215,6 +242,14 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
           onClose={() => setDetailProduct(null)}
           onEdit={() => { setEditing(detailProduct); setDetailProduct(null); setFormOpen(true) }}
           onChanged={invalidate}
+        />
+      )}
+
+      {categoriasDialogOpen && (
+        <AdministrarCategoriasDialog
+          negocioId={negocio.id}
+          productos={activos}
+          onClose={() => setCategoriasDialogOpen(false)}
         />
       )}
     </div>
@@ -311,7 +346,7 @@ function ProductoFormDialog({
   const [nombre, setNombre] = useState(producto?.nombre ?? "")
   const [precio, setPrecio] = useState(producto ? String(producto.precio) : "")
   const [showAdvanced, setShowAdvanced] = useState(isEdit)
-  const [categoria, setCategoria] = useState(producto?.categoria ?? categorias[0] ?? "Sin Categoria")
+  const [categoria, setCategoria] = useState(producto?.categoria ?? "Sin Categoria")
   const [sku, setSku] = useState(producto?.sku ?? "")
   const [codigoBarras, setCodigoBarras] = useState(producto?.codigoBarras ?? "")
   const [costo, setCosto] = useState(producto?.costo != null ? String(producto.costo) : "")
@@ -389,10 +424,17 @@ function ProductoFormDialog({
             <div className="space-y-3 rounded-xl bg-muted/40 p-3">
               <div className="space-y-1.5">
                 <Label htmlFor="inv-categoria">Categoría</Label>
-                <Input id="inv-categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="Ej: Bebidas" list="inv-categorias-list" />
-                <datalist id="inv-categorias-list">
-                  {categorias.map((c) => <option key={c} value={c} />)}
-                </datalist>
+                <Select value={categoria} onValueChange={setCategoria}>
+                  <SelectTrigger id="inv-categoria" className="rounded-xl w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Sin Categoria">Sin categoría</SelectItem>
+                    {categorias.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="inv-imagen">Imagen (URL)</Label>
