@@ -4,7 +4,14 @@
 // (src/app/n/[slug]/page.tsx) y por el catálogo de Negocio
 // (agregados-section.tsx / ingredientes-section.tsx).
 import { describe, expect, test } from "bun:test"
-import { findEquivalentCategory, groupByNormalizedCategory, mergeManagedCategories, normalizeCategoryKey } from "./category-normalization"
+import {
+  findEquivalentCategory,
+  groupByNormalizedCategory,
+  matchesCategoryFilter,
+  mergeManagedCategories,
+  normalizeCategoryKey,
+  SIN_CATEGORIA,
+} from "./category-normalization"
 
 describe("normalizeCategoryKey", () => {
   test("case-insensible", () => {
@@ -126,5 +133,27 @@ describe("mergeManagedCategories — reconciliación Inventario/Caja con Negocio
 
   test("listas vacías producen una lista vacía", () => {
     expect(mergeManagedCategories([], [])).toEqual([])
+  })
+})
+
+describe("matchesCategoryFilter — comparación de filtro operativo (P2-T56-R2B-F1)", () => {
+  test("coincidencia exacta", () => {
+    expect(matchesCategoryFilter("Bebidas", "Bebidas")).toBe(true)
+  })
+
+  test("case-insensible", () => {
+    expect(matchesCategoryFilter("bebidas", "Bebidas")).toBe(true)
+  })
+
+  test("espacio-insensible", () => {
+    expect(matchesCategoryFilter(" Bebidas ", "Bebidas")).toBe(true)
+  })
+
+  test("categorías realmente distintas no coinciden", () => {
+    expect(matchesCategoryFilter("Limpieza", "Bebidas")).toBe(false)
+  })
+
+  test("SIN_CATEGORIA coincide con la grafía canónica del producto por defecto", () => {
+    expect(matchesCategoryFilter("Sin Categoria", SIN_CATEGORIA)).toBe(true)
   })
 })

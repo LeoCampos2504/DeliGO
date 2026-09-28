@@ -20,6 +20,19 @@ export function findEquivalentCategory(categories: string[], candidate: string):
   return categories.find((category) => normalizeCategoryKey(category) === key)
 }
 
+/** Valor canónico para un producto sin categoría asignada (Producto.categoria @default). */
+export const SIN_CATEGORIA = "Sin Categoria"
+
+// P2-T56-R2B-F1: un filtro de categoría (Inventario/Caja) debe comparar
+// case/espacio-insensible, igual que el resto de esta autoridad — de lo
+// contrario un producto legacy con una grafía distinta a la categoría
+// administrada (p. ej. "bebidas" vs "Bebidas") desaparece silenciosamente
+// del filtro aunque ya se haya reconciliado visualmente en el mismo pill
+// vía mergeManagedCategories.
+export function matchesCategoryFilter(productCategoria: string, filterCategoria: string): boolean {
+  return normalizeCategoryKey(productCategoria) === normalizeCategoryKey(filterCategoria)
+}
+
 // P2-T56-R2B: merges the negocio's managed category list (Negocio.categorias,
 // persisted order = the order the merchant chose) with whatever category
 // strings actually appear on its products, so a legacy/orphaned

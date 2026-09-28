@@ -31,7 +31,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, isProductSellable } from "@/lib/inventario"
-import { mergeManagedCategories } from "@/lib/category-normalization"
+import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
 import {
   addCartLine,
   cartItemCount,
@@ -147,14 +147,32 @@ function VenderView({ negocioId }: { negocioId: string }) {
     () => mergeManagedCategories(categoriasManaged, activos.map((p) => p.categoria)),
     [categoriasManaged, activos]
   )
+
+  // P2-T56-R2B-F1: same "Sin Categoria" pill + stale-filter reconciliation
+  // as InventarioTab — see that file's comments for why (sections 7/11).
+  const hasSinCategoria = useMemo(
+    () => activos.some((p) => matchesCategoryFilter(p.categoria, SIN_CATEGORIA)),
+    [activos]
+  )
+
+  // P2-T56-R2B-F1: derived during render, not a setState-in-effect — see
+  // the identical comment in InventarioTab for why.
+  const effectiveCategoria = useMemo(() => {
+    if (categoria === "todas") return "todas"
+    const stillValid =
+      categorias.some((c) => matchesCategoryFilter(c, categoria)) ||
+      (hasSinCategoria && matchesCategoryFilter(categoria, SIN_CATEGORIA))
+    return stillValid ? categoria : "todas"
+  }, [categoria, categorias, hasSinCategoria])
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return activos.filter((p) => {
-      if (categoria !== "todas" && p.categoria !== categoria) return false
+      if (effectiveCategoria !== "todas" && !matchesCategoryFilter(p.categoria, effectiveCategoria)) return false
       if (!term) return true
       return p.nombre.toLowerCase().includes(term)
     })
-  }, [activos, search, categoria])
+  }, [activos, search, effectiveCategoria])
 
   function addProduct(p: CajaProducto) {
     if (!isProductSellable({ activo: !p.eliminado, controlStock: p.controlStock, stockCantidad: p.stockCantidad })) {
@@ -213,16 +231,26 @@ function VenderView({ negocioId }: { negocioId: string }) {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar producto…" className="pl-9 rounded-xl" />
       </div>
-      {categorias.length > 1 && (
+      {categorias.length + (hasSinCategoria ? 1 : 0) > 1 && (
         <div className="flex gap-1.5 overflow-x-auto scrollbar-none py-1">
-          <button onClick={() => setCategoria("todas")} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold", categoria === "todas" ? "bg-primary text-primary-foreground" : "bg-muted/60 text-muted-foreground")}>Todas</button>
+          <button onClick={() => setCategoria("todas")} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold", effectiveCategoria === "todas" ? "bg-primary text-primary-foreground" : "bg-muted/60 text-muted-foreground")}>Todas</button>
           {categorias.map((c) => (
-            <button key={c} onClick={() => setCategoria(c)} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold", categoria === c ? "bg-primary text-primary-foreground" : "bg-muted/60 text-muted-foreground")}>{c}</button>
+            <button key={c} onClick={() => setCategoria(c)} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold", matchesCategoryFilter(effectiveCategoria, c) ? "bg-primary text-primary-foreground" : "bg-muted/60 text-muted-foreground")}>{c}</button>
           ))}
+          {hasSinCategoria && (
+            <button
+              onClick={() => setCategoria(SIN_CATEGORIA)}
+              className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold", effectiveCategoria !== "todas" && matchesCategoryFilter(effectiveCategoria, SIN_CATEGORIA) ? "bg-primary text-primary-foreground" : "bg-muted/60 text-muted-foreground")}
+            >
+              Sin categoría
+            </button>
+          )}
         </div>
       )}
       {filtered.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No encontramos productos</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          {effectiveCategoria !== "todas" && !search.trim() ? "No hay productos en esta categoría" : "No encontramos productos"}
+        </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {filtered.map((p) => {

@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, UNIDADES_MEDIDA, validateProductoMinimo, type StockStatus } from "@/lib/inventario"
-import { mergeManagedCategories } from "@/lib/category-normalization"
+import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
 import { AdministrarCategoriasDialog } from "./administrar-categorias-dialog"
 
 interface InventarioProducto {
@@ -106,10 +106,34 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
     [categoriasManaged, activos]
   )
 
+  // P2-T56-R2B-F1: "Sin Categoria" is deliberately excluded from
+  // mergeManagedCategories (it's a fallback, not a managed category), so it
+  // needs its own conditional pill — only shown when at least one product
+  // is actually uncategorized (section 7).
+  const hasSinCategoria = useMemo(
+    () => activos.some((p) => matchesCategoryFilter(p.categoria, SIN_CATEGORIA)),
+    [activos]
+  )
+
+  // P2-T56-R2B-F1: if the selected filter's category was renamed or deleted
+  // out from under it (e.g. via AdministrarCategoriasDialog), derive the
+  // fallback to "todas" during render instead of a setState-in-effect
+  // (React's own recommended pattern — https://react.dev/learn/you-might-not-need-an-effect —
+  // avoids an extra cascading render). `categoria` itself is left
+  // untouched; only the EFFECTIVE value used for filtering/highlighting
+  // falls back (section 11).
+  const effectiveCategoria = useMemo(() => {
+    if (categoria === "todas") return "todas"
+    const stillValid =
+      categorias.some((c) => matchesCategoryFilter(c, categoria)) ||
+      (hasSinCategoria && matchesCategoryFilter(categoria, SIN_CATEGORIA))
+    return stillValid ? categoria : "todas"
+  }, [categoria, categorias, hasSinCategoria])
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     return activos.filter((p) => {
-      if (categoria !== "todas" && p.categoria !== categoria) return false
+      if (effectiveCategoria !== "todas" && !matchesCategoryFilter(p.categoria, effectiveCategoria)) return false
       if (!term) return true
       return (
         p.nombre.toLowerCase().includes(term) ||
@@ -117,7 +141,7 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
         (p.codigoBarras ?? "").toLowerCase().includes(term)
       )
     })
-  }, [activos, search, categoria])
+  }, [activos, search, effectiveCategoria])
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["negocio-inventario-productos", negocio.id] })
@@ -146,12 +170,19 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
       </div>
 
       <div className="flex items-center gap-2">
-        {categorias.length > 1 && (
+        {categorias.length + (hasSinCategoria ? 1 : 0) > 1 && (
           <div className="flex flex-1 min-w-0 gap-1.5 overflow-x-auto scrollbar-none pb-1">
-            <CategoryPill active={categoria === "todas"} label="Todas" onClick={() => setCategoria("todas")} />
+            <CategoryPill active={effectiveCategoria === "todas"} label="Todas" onClick={() => setCategoria("todas")} />
             {categorias.map((c) => (
-              <CategoryPill key={c} active={categoria === c} label={c} onClick={() => setCategoria(c)} />
+              <CategoryPill key={c} active={matchesCategoryFilter(effectiveCategoria, c)} label={c} onClick={() => setCategoria(c)} />
             ))}
+            {hasSinCategoria && (
+              <CategoryPill
+                active={effectiveCategoria !== "todas" && matchesCategoryFilter(effectiveCategoria, SIN_CATEGORIA)}
+                label="Sin categoría"
+                onClick={() => setCategoria(SIN_CATEGORIA)}
+              />
+            )}
           </div>
         )}
         <button
@@ -173,11 +204,23 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
           onCta={() => { setEditing(null); setFormOpen(true) }}
         />
       ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={<Search className="h-10 w-10 text-muted-foreground" />}
-          title="No encontramos productos"
-          description="Probá con otra búsqueda o categoría."
-        />
+        // P2-T56-R2B-F1 §14: a managed category with zero products is a
+        // valid, real state (it can exist before any product is assigned
+        // to it) — distinguish that from "no search match" instead of
+        // showing the same generic message for both.
+        effectiveCategoria !== "todas" && !search.trim() ? (
+          <EmptyState
+            icon={<Search className="h-10 w-10 text-muted-foreground" />}
+            title="No hay productos en esta categoría"
+            description="Cargá un producto en esta categoría o elegí otra."
+          />
+        ) : (
+          <EmptyState
+            icon={<Search className="h-10 w-10 text-muted-foreground" />}
+            title="No encontramos productos"
+            description="Probá con otra búsqueda o categoría."
+          />
+        )
       ) : (
         <>
           {/* Mobile: compact cards */}
