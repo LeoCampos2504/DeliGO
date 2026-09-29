@@ -396,3 +396,120 @@ porque toca stock/ventas/schema.
 ```text
 PHYSICAL_REVIEW_REQUIRED=SI
 ```
+
+## 19. R2C-F1 — hallazgos UX de la revisión manual del operador
+
+Tres problemas concretos detectados al revisar R2C en TESTING, resueltos
+sin tocar backend/schema (confirmado por auditoría antes de escribir
+código — ver sección 18 del prompt R2C-F1).
+
+```text
+SCHEMA_CHANGE_REQUIRED=NO
+MIGRATION_REQUIRED=NO
+BACKEND_CHANGE_REQUIRED=NO
+```
+
+### Finding A — Producto base ambiguo al activar variantes
+
+```text
+BASE_PRODUCT_COMMERCIAL_FIELDS_WITH_VARIANTS=
+  Antes de esta ronda, "Nuevo producto" mostraba el precio del Producto
+  base SIEMPRE visible (incluso con "Este producto tiene variantes"
+  activado), y "Detalles avanzados" mostraba SKU/código de
+  barras/costo/control de stock también siempre visibles — sólo el switch
+  "Controlar stock" y sus campos de stock ya estaban ocultos desde R2C.
+  Auditado el formulario completo antes de tocar nada (sección 2 del
+  prompt), campo por campo.
+
+BASE_FIELDS_HIDDEN_WHEN_VARIANTS=
+  precio, costo, SKU, código de barras, controlStock, stockCantidad
+  (stock inicial), stockMinimo, unidadMedida — los 8 campos operativos del
+  Producto base, ocultos con el mismo gate `!productoHasVariantes &&
+  !hasVariantes` (edición y creación respectivamente).
+  Permanecen SIEMPRE visibles (no son campos comerciales, son metadatos
+  generales del producto): nombre, categoría, imagen, marca.
+```
+
+```text
+BASE_PRICE_UI_WHEN_VARIANTS=HIDDEN_OR_DERIVED
+```
+
+El campo Precio de venta del Producto base desaparece del formulario en
+cuanto "Este producto tiene variantes" está activo (creación) o el
+producto ya tiene variantes (edición) — reemplazado por una nota explicando
+que precio/costo/stock se gestionan por variante. Internamente, R2C ya
+tenía el fallback "usa el precio de la primera variante si el precio base
+queda vacío" — se mantiene sin cambios (sigue siendo necesario para la
+columna `Producto.precio`, que es `NOT NULL` en el schema), pero el usuario
+ya no ve ni completa ese campo dos veces.
+
+### Finding B — stock de variante sin labels
+
+```text
+VARIANT_STOCK_LABELS_FIX=YES
+```
+
+El editor inline de variantes (creación de producto nuevo) mostraba los
+dos inputs de stock SOLAMENTE con `placeholder` ("Stock inicial"/"Stock
+mínimo") — un placeholder desaparece en cuanto el campo tiene un valor, y
+ambos ya arrancaban en "0", así que en la práctica el operador veía dos
+inputs con "0" sin ninguna etiqueta visible. Se agregó un `<Label>` real
+sobre cada input (mismo patrón ya usado correctamente en `VarianteFormDialog`,
+que nunca tuvo este bug). Además, al EDITAR una variante existente con
+stock controlado, ahora se muestra "Stock actual: N" de sólo lectura —
+cambiarlo sigue requiriendo el flujo separado "Ajustar stock" (nunca se
+habilitó edición directa que rompiera la trazabilidad de
+MovimientoInventario, tal como exige la sección 8 del prompt).
+
+### Finding C — variantes demasiado altas
+
+```text
+VARIANT_COLLAPSE_IMPLEMENTED=YES
+VARIANT_COLLAPSE_INITIAL_BEHAVIOR=
+  Cada fila de variante (editor inline de creación) tiene su propio
+  `expanded: boolean` independiente — nunca un único toggle global. Una
+  fila nueva (desde el switch "tiene variantes" o "+ Agregar variante")
+  arranca expandida. Colapsada muestra un resumen compacto de una línea
+  (nombre, precio, y "Stock N" o "Sin control de stock" + costo si
+  corresponde) — nunca vacío. Colapsar/expandir sólo toca el flag
+  `expanded`, nunca reescribe ni pierde el resto de los campos de esa fila.
+  Si al guardar alguna variante falla validación (nombre vacío o precio
+  inválido), esa fila se fuerza a expandirse automáticamente — nunca queda
+  colapsada escondiendo el error.
+  El detalle de un producto EXISTENTE (ProductoDetailDialog) ya mostraba
+  sus variantes como una única línea compacta desde R2C — no se tocó ese
+  componente (no hacía falta, sección 17 del prompt lo permite
+  explícitamente).
+```
+
+### Tests y gates
+
+```text
+FOCAL_TESTS=17 pass / 0 fail (nuevo archivo
+  product-variant-editor-ux-static-contract.test.ts)
+REGRESSION_TESTS=181 pass / 0 fail (pure helpers + los 10 archivos de
+  contrato estático existentes — category R2B, Caja responsive R2A, cart
+  identity/price authority R2C, todos sin cambios de comportamiento)
+
+NEW_TYPESCRIPT_ERRORS=0
+ESLINT_GATE=PASS
+BUILD_GATE=PASS
+DIFF_CHECK=PASS
+```
+
+### Archivo cambiado
+
+```text
+FILES_CHANGED=
+  M src/components/business/inventario-tab.tsx (únicamente — ningún
+    archivo de backend/schema/Caja tocado esta ronda)
+  A src/components/business/product-variant-editor-ux-static-contract.test.ts
+  M codex-reports/P2_T56_R2C_PRODUCT_VARIANTS.md (esta sección)
+```
+
+R2C sigue sin cerrarse — esta ronda es un refinamiento UX dentro de la
+misma tarea, pendiente de nueva revisión manual del operador.
+
+```text
+PHYSICAL_REVIEW_REQUIRED=SI
+```

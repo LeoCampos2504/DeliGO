@@ -104,6 +104,12 @@ interface VarianteDraftRow {
   stockCantidad: string
   stockMinimo: string
   showMore: boolean
+  // P2-T56-R2C-F1 §10-14: a NEW row (from the toggle or "+ Agregar
+  // variante") starts expanded so the merchant can fill it in immediately;
+  // it can be collapsed afterward to keep the form scannable with several
+  // variants. A row that fails validation on save is forced back open
+  // (never left collapsed hiding an error).
+  expanded: boolean
 }
 
 function emptyVarianteDraftRow(): VarianteDraftRow {
@@ -118,6 +124,7 @@ function emptyVarianteDraftRow(): VarianteDraftRow {
     stockCantidad: "0",
     stockMinimo: "0",
     showMore: false,
+    expanded: true,
   }
 }
 
@@ -586,10 +593,19 @@ function ProductoFormDialog({
           nombre: string; precio: number; costo: number | null; sku: string | null
           codigoBarras: string | null; controlStock: boolean; stockCantidad: number; stockMinimo: number
         }> = []
+        // P2-T56-R2C-F1 §15: an invalid variant is never silently rejected
+        // while collapsed — every invalid row is expanded so the error is
+        // visible right where it needs fixing, before the toast even shows.
+        const invalidKeys: string[] = []
+        let firstError: string | null = null
         for (const row of variantRows) {
           const rowPrecio = Number(row.precio)
           const rowValidation = validateVarianteMinimo({ nombre: row.nombre, precio: rowPrecio })
-          if (!rowValidation.ok) throw new Error(rowValidation.error)
+          if (!rowValidation.ok) {
+            invalidKeys.push(row.key)
+            if (!firstError) firstError = rowValidation.error
+            continue
+          }
           variantes.push({
             nombre: row.nombre.trim(),
             precio: rowPrecio,
@@ -600,6 +616,10 @@ function ProductoFormDialog({
             stockCantidad: row.stockCantidad.trim() ? Number(row.stockCantidad) : 0,
             stockMinimo: row.stockMinimo.trim() ? Number(row.stockMinimo) : 0,
           })
+        }
+        if (invalidKeys.length > 0) {
+          setVariantRows((rows) => rows.map((r) => (invalidKeys.includes(r.key) ? { ...r, expanded: true } : r)))
+          throw new Error(firstError ?? "Revisá las variantes")
         }
         body.variantes = variantes
       }
@@ -632,15 +652,21 @@ function ProductoFormDialog({
             <Label htmlFor="inv-nombre">Nombre *</Label>
             <Input id="inv-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Coca Cola 2.25L" />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-precio">Precio de venta *</Label>
-            <Input id="inv-precio" type="number" min={0} step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0.00" />
-          </div>
+          {/* P2-T56-R2C-F1 §1-5: once the product has (or will have)
+              variants, its own precio/costo/SKU/stock are dormant — showing
+              them here reads as a second, competing price. They stay
+              visible ONLY for a product with zero variants (section 6). */}
+          {!productoHasVariantes && !hasVariantes && (
+            <div className="space-y-1.5">
+              <Label htmlFor="inv-precio">Precio de venta *</Label>
+              <Input id="inv-precio" type="number" min={0} step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0.00" />
+            </div>
+          )}
 
           {isEdit ? (
             productoHasVariantes && (
               <p className="rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                Este producto usa variantes. El precio y el stock de acá no se usan para la venta — gestionalos desde "Variantes" en el detalle del producto.
+                Este producto usa variantes. El precio, costo y stock se gestionan por variante — abrí "Variantes" en el detalle del producto.
               </p>
             )
           ) : (
@@ -700,21 +726,29 @@ function ProductoFormDialog({
                 <Label htmlFor="inv-imagen">Imagen (URL)</Label>
                 <Input id="inv-imagen" value={imagenUrl} onChange={(e) => setImagenUrl(e.target.value)} placeholder="https://…" />
               </div>
+              {/* SKU/código/costo de acá son del Producto BASE — con
+                  variantes activas, cada una tiene los suyos propios, así
+                  que mostrar estos también sería un segundo lugar que
+                  compite por la misma información (sección 2/4). */}
+              {!productoHasVariantes && !hasVariantes && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inv-sku">SKU / código interno</Label>
+                    <Input id="inv-sku" value={sku} onChange={(e) => setSku(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inv-barras">Código de barras</Label>
+                    <Input id="inv-barras" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} />
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="inv-sku">SKU / código interno</Label>
-                  <Input id="inv-sku" value={sku} onChange={(e) => setSku(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="inv-barras">Código de barras</Label>
-                  <Input id="inv-barras" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="inv-costo">Costo</Label>
-                  <Input id="inv-costo" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
-                </div>
+                {!productoHasVariantes && !hasVariantes && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inv-costo">Costo</Label>
+                    <Input id="inv-costo" type="number" min={0} step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="inv-marca">Marca</Label>
                   <Input id="inv-marca" value={marca} onChange={(e) => setMarca(e.target.value)} />
@@ -771,6 +805,11 @@ function ProductoFormDialog({
   )
 }
 
+// P2-T56-R2C-F1 §10-14: collapsible so N variants don't force excessive
+// scroll — collapsed shows a compact one-line summary (nombre, precio,
+// stock/costo hint); expanded shows the full editable form. A row with a
+// validation error is forced open by the parent (never left collapsed
+// hiding the problem — section 15).
 function VarianteDraftRowEditor({
   row,
   onChange,
@@ -780,19 +819,52 @@ function VarianteDraftRowEditor({
   onChange: (patch: Partial<VarianteDraftRow>) => void
   onRemove: () => void
 }) {
+  if (!row.expanded) {
+    const precioNum = Number(row.precio)
+    const summaryBits: string[] = []
+    if (row.controlStock) summaryBits.push(`Stock ${row.stockCantidad || 0}`)
+    else summaryBits.push("Sin control de stock")
+    if (row.costo.trim()) summaryBits.push(`Costo ${formatPrice(Number(row.costo))}`)
+    return (
+      <button
+        type="button"
+        onClick={() => onChange({ expanded: true })}
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-border p-2.5 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{row.nombre.trim() || "Variante sin nombre"}</p>
+          <p className="text-xs text-muted-foreground truncate">{summaryBits.join(" · ")}</p>
+        </div>
+        <span className="shrink-0 text-sm font-bold">{row.precio.trim() && Number.isFinite(precioNum) ? formatPrice(precioNum) : "—"}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </button>
+    )
+  }
+
   return (
     <div className="space-y-2 rounded-xl border border-border p-2.5">
       <div className="flex items-start gap-2">
         <div className="flex-1 space-y-2">
           <Input value={row.nombre} onChange={(e) => onChange({ nombre: e.target.value })} placeholder="Nombre (ej: 500 ml)" className="rounded-lg" />
           <div className="grid grid-cols-2 gap-2">
-            <Input type="number" min={0} step="0.01" value={row.precio} onChange={(e) => onChange({ precio: e.target.value })} placeholder="Precio" className="rounded-lg" />
-            <Input type="number" min={0} step="0.01" value={row.costo} onChange={(e) => onChange({ costo: e.target.value })} placeholder="Costo (opcional)" className="rounded-lg" />
+            <div className="space-y-1">
+              <Label className="text-[11px] font-normal text-muted-foreground">Precio</Label>
+              <Input type="number" min={0} step="0.01" value={row.precio} onChange={(e) => onChange({ precio: e.target.value })} placeholder="0.00" className="rounded-lg" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px] font-normal text-muted-foreground">Costo (opcional)</Label>
+              <Input type="number" min={0} step="0.01" value={row.costo} onChange={(e) => onChange({ costo: e.target.value })} placeholder="0.00" className="rounded-lg" />
+            </div>
           </div>
         </div>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 shrink-0 rounded-lg p-0" onClick={onRemove}>
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex flex-col gap-1 shrink-0">
+          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 rounded-lg p-0" onClick={() => onChange({ expanded: false })}>
+            <ChevronDown className="h-3.5 w-3.5 rotate-180" />
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 rounded-lg p-0" onClick={onRemove}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       <button
@@ -816,8 +888,14 @@ function VarianteDraftRowEditor({
           </div>
           {row.controlStock && (
             <div className="grid grid-cols-2 gap-2">
-              <Input type="number" min={0} step="0.01" value={row.stockCantidad} onChange={(e) => onChange({ stockCantidad: e.target.value })} placeholder="Stock inicial" className="rounded-lg" />
-              <Input type="number" min={0} step="0.01" value={row.stockMinimo} onChange={(e) => onChange({ stockMinimo: e.target.value })} placeholder="Stock mínimo" className="rounded-lg" />
+              <div className="space-y-1">
+                <Label className="text-[11px] font-normal text-muted-foreground">Stock inicial</Label>
+                <Input type="number" min={0} step="0.01" value={row.stockCantidad} onChange={(e) => onChange({ stockCantidad: e.target.value })} className="rounded-lg" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] font-normal text-muted-foreground">Stock mínimo</Label>
+                <Input type="number" min={0} step="0.01" value={row.stockMinimo} onChange={(e) => onChange({ stockMinimo: e.target.value })} className="rounded-lg" />
+              </div>
             </div>
           )}
         </div>
@@ -1201,6 +1279,17 @@ function VarianteFormDialog({
             <p className="text-sm font-medium">Controlar stock</p>
             <Switch checked={controlStock} onCheckedChange={setControlStock} />
           </div>
+          {/* P2-T56-R2C-F1 §8: editing never lets you overwrite stock
+              directly here — it must stay traceable via "Ajustar stock"
+              (a separate MovimientoInventario). This is a read-only
+              reference so the merchant isn't left guessing the current
+              count while editing everything else. */}
+          {isEdit && controlStock && (
+            <div className="rounded-lg bg-muted/40 px-3 py-2">
+              <p className="text-xs text-muted-foreground">Stock actual</p>
+              <p className="text-sm font-semibold">{variante!.stockCantidad} — usá "Ajustar stock" para cambiarlo</p>
+            </div>
+          )}
           {controlStock && (
             <div className="grid grid-cols-2 gap-2">
               {!isEdit && (
