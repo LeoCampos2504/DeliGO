@@ -1,18 +1,20 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout (2026-09-30)
 
 ```text
-CURRENT_TASK=P2-T56-R2C-PRODUCT-VARIANTS-CLOSEOUT
+CURRENT_TASK=P2-T56-R3B-VARIANT-SEARCH-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
-RESULT=P2_T56_R2C_CLOSEOUT_COMPLETE
-DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R2C-F2 se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
+RESULT=P2_T56_R3B_CLOSEOUT_COMPLETE
+DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
-TESTING_CODEX_HEAD=5002d8b6e8906679210536e4496f164d2442e612
+TESTING_CODEX_HEAD=e759e83a22d0c9c14c06bd775665cf4e0d6dec71 (R3B closeout docs) + this FULL_CONTEXT sync commit, docs only
+P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T56_R3A_STATUS=OPEN_BACKLOG_NOT_STARTED (order stock lifecycle — ver limitación de stock abajo)
 PRODUCTION_TOUCHED=NO
 NEXT_PRIORITY_TASK=NONE_AUTHORIZED
 NEXT_ACTION=AWAIT_OPERATOR_NEXT_TASK_SELECTION
-REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3B_VARIANT_SEARCH.md (R2C detail: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
 
 ### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
@@ -87,7 +89,8 @@ vez. Estado final, en orden:
 `PENDING_MIGRATIONS=0` en TESTING confirmado post-deploy). **Production no
 fue tocada en ningún momento de esta secuencia.**
 
-**Limitación de stock conocida (follow-up, no implementado):**
+**Limitación de stock conocida (follow-up, no implementado — `P2-T56-R3A`,
+`OPEN_BACKLOG_NOT_STARTED`):**
 `ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` —
 Cliente valida que la variante tenga stock al enviar el pedido, pero crear
 un `Pedido` NO reserva ni descuenta stock (este es el comportamiento
@@ -97,9 +100,16 @@ producto/arquitectura sobre reserva, descuento, liberación por
 cancelación, y el resto del lifecycle de aceptación/rechazo. Registrado
 como backlog explícito, no implementado ahora.
 
-**Otro follow-up menor:** `VARIANT_SEARCH_IMPLEMENTED=NO` — Inventario/Caja
-hoy no buscan por nombre de variante, SKU ni barcode de variante. No
-bloquea el cierre de R2C; backlog opcional.
+**Búsqueda por variante — resuelta en R3B (2026-09-30):**
+`VARIANT_SEARCH_IMPLEMENTED=YES`, `P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED`.
+Inventario y Caja encuentran el Producto padre por
+`VARIANT_SEARCH_FIELDS=NOMBRE_VARIANTE+SKU_VARIANTE+BARCODE_VARIANTE` (además
+de los campos del Producto base), nunca mostrando variantes como cards
+propias. `INVENTORY_INACTIVE_VARIANT_SEARCH=YES`,
+`CAJA_INACTIVE_VARIANT_SEARCH=NO`, `BARCODE_EXACT_MATCH_AUTO_ADD=NO`. Helper
+puro compartido, sin cambio de backend ni schema. Commit `e684283`, deploy
+TESTING `bb78081a-dcb1-40c7-80d3-8609605e294b` SUCCESS, revisión manual del
+operador PASS. Detalle: `codex-reports/P2_T56_R3B_VARIANT_SEARCH.md`.
 
 **Tareas pendientes reales, sin relación con T56** (no tocadas ni
 resueltas por este cierre):
@@ -108,8 +118,8 @@ resueltas por este cierre):
   `b2ec74fbf86204cb4b97f191c55cbb35116ba245`), bloqueada en su propia
   autorización de integración a `testing-codex` — ver la entrada histórica
   más abajo. `origin/testing-codex` avanzó desde entonces (por las rondas
-  T56) hasta `5002d8b...`; verificar ancestralidad antes de cualquier
-  fast-forward de T54 en el futuro.
+  T56, incluida R3B — ver `TESTING_CODEX_HEAD` arriba); verificar
+  ancestralidad antes de cualquier fast-forward de T54 en el futuro.
 - `P2-T44`: `PAUSED_UNRESOLVED_AFTER_TIMEBOX`.
 - `P2-T52 Fase 4`: `DEFERRED_OPTIONAL_NOT_PLANNED_FOR_CURRENT_LAUNCH`.
 - `P2-T33` / `P2-T37`: secuenciadas, bloqueadas hasta que se resuelva el
