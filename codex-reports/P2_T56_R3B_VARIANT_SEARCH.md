@@ -285,10 +285,10 @@ R3B_SEARCH=
     matchesInventorySearch/findMatchingVariante; "Coincide" hint)
   M src/components/business/caja-tab.tsx (delegates to matchesCajaSearch;
     CajaProducto/CajaVariante gain sku/codigoBarras/marca)
-R3B_TEST=
   A src/lib/product-variant-search.ts (the shared pure helper itself —
-    production code, not a test, but grouped here since it has no other
-    natural category and ships alongside its own test)
+    production code that both components above import; classified here,
+    not under R3B_TEST, corrected from an earlier draft of this report)
+R3B_TEST=
   A src/lib/product-variant-search.test.ts
   A src/components/business/product-variant-search-static-contract.test.ts
 R3B_DOCUMENTATION=
