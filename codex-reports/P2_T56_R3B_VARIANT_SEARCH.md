@@ -298,5 +298,70 @@ UNRELATED=0
 ```
 
 ```text
-PHYSICAL_REVIEW_REQUIRED=SI
+PHYSICAL_REVIEW_REQUIRED=SI (as of implementation — superseded by §14 below)
 ```
+
+## 14. FINAL_OPERATOR_CERTIFICATION
+
+R3B was integrated to `testing-codex` by pure fast-forward (`5c468a7..e684283`,
+two commits: `bf46518` feature + `e684283` report reclassification), deployed
+by the normal Git-triggered Railway autodeploy, and verified post-deploy (clean
+boot, zero error-keyword log hits, HTTP smoke PASS, focal suite re-run on the
+exact deployed commit). The operator then reviewed it manually on TESTING.
+
+```text
+INVENTORY_VARIANT_NAME_SEARCH_MANUAL_REVIEW=PASS
+  Searching a variant name (e.g. "500 ml") surfaces the parent Producto and
+  shows the "Coincide: 500 ml" hint.
+CAJA_VARIANT_SKU_SEARCH_MANUAL_REVIEW=PASS
+  Searching a variant SKU surfaces the parent Producto, does NOT auto-add,
+  and tapping it opens the normal variant selector.
+CAJA_VARIANT_BARCODE_SEARCH_MANUAL_REVIEW=PASS
+  Searching a variant barcode surfaces the parent Producto, does NOT
+  auto-add, and tapping it opens the normal variant selector.
+
+P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
+PHYSICAL_REVIEW_REQUIRED=NO
+
+TESTING_DEPLOYMENT_ID=bb78081a-dcb1-40c7-80d3-8609605e294b
+TESTING_DEPLOYMENT_COMMIT=e684283e3df0cebaba686519e1819be62b4f3b82
+TESTING_DEPLOYMENT_STATUS=SUCCESS
+PRODUCTION_TOUCHED=NO
+```
+
+Final functional state:
+
+```text
+VARIANT_SEARCH_STRATEGY=SHARED_PURE_HELPER_NO_BACKEND_CHANGE
+VARIANT_SEARCH_FIELDS=NOMBRE_VARIANTE+SKU_VARIANTE+BARCODE_VARIANTE
+INVENTORY_INACTIVE_VARIANT_SEARCH=YES
+CAJA_INACTIVE_VARIANT_SEARCH=NO
+CATEGORY_AND_VARIANT_SEARCH_COMBINED=YES
+BARCODE_HANDLING=STRING_SUBSTRING_NEVER_PARSED_AS_NUMBER
+BARCODE_EXACT_MATCH_AUTO_ADD=NO
+CART_INDEPENDENT_FROM_SEARCH=YES
+COLLAPSED_PRODUCT_DISPLAY_PRESERVED=YES
+INVENTORY_MATCH_HINT_IMPLEMENTED=YES
+SCHEMA_CHANGE_REQUIRED=NO
+MIGRATION_REQUIRED=NO
+PUBLIC_CLIENT_SEARCH_CHANGED=NO
+RESTAURANTE_BEHAVIOR_CHANGED=NO
+ROPA_BEHAVIOR_CHANGED=NO
+```
+
+Tests and gates:
+
+```text
+FOCAL_TESTS=35_PASS_0_FAIL
+REGRESSION_TESTS=170_PASS_0_FAIL
+POST_DEPLOY_R3B_FOCAL_GATE=35_PASS_0_FAIL
+NEW_TYPESCRIPT_ERRORS=0
+ESLINT_GATE=PASS
+BUILD_GATE=PASS
+DIFF_CHECK=PASS
+PENDING_MIGRATIONS=0
+```
+
+The variant-search follow-up recorded at the R2C closeout is now resolved.
+The separate order-stock lifecycle follow-up (referred to by the operator as
+P2-T56-R3A) is unaffected and remains open backlog — not started here.

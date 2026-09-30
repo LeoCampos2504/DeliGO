@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R2C product variants closeout (2026-09-29)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3B variant search closeout (2026-09-30)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -9,29 +9,34 @@ P2_T56_R2B_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
-TESTING_CODEX_HEAD=5c468a74e14f207969d3d06aa83127aa927ad9e6 (advanced by the P2-T56-R2C closeout documentation commit, docs only, no code change)
+P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
+TESTING_CODEX_HEAD=e684283e3df0cebaba686519e1819be62b4f3b82 (R3B, deploy bb78081a-dcb1-40c7-80d3-8609605e294b SUCCESS) + the R3B closeout's own docs-only commit on top
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   Pedidos; Salón; Caja; Inventario; categorías gestionadas; variantes de
-  producto (ProductoVariante); Cliente/Mesa variant-aware — todo
+  producto (ProductoVariante); Cliente/Mesa variant-aware; búsqueda por
+  nombre/SKU/barcode de variante en Inventario y Caja — todo
   CLOSED_TESTING_CERTIFIED, ninguna ronda nueva de T56 iniciada
   automáticamente.
 
 KNOWN_FOLLOW_UP_ORDER_STOCK_LIFECYCLE=
+  (referido por el operador como P2-T56-R3A — task separado, NO iniciado)
   ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR —
   Pedido valida stock de variante al crear pero no reserva ni descuenta;
   solo Caja descuenta. Requiere decisión futura de producto/arquitectura
   (reserva, descuento, liberación por cancelación, lifecycle de
   aceptación/rechazo). No implementado, backlog explícito.
-KNOWN_FOLLOW_UP_VARIANT_SEARCH=
-  P2_T56_R3B_STATUS=IMPLEMENTED_TESTED_PUSHED_AWAITING_TESTING_INTEGRATION_AUTHORIZATION
-  — Inventario y Caja ahora encuentran el Producto padre por
-  nombre/SKU/barcode de VARIANTE además de nombre/marca/SKU/barcode del
-  Producto base, sin mostrar variantes como cards independientes.
-  Implementado en la branch work/p2-t56-r3-variant-search (no integrado a
-  testing-codex todavía). Ver codex-reports/P2_T56_R3B_VARIANT_SEARCH.md
-  para el detalle completo. No bloqueaba T56; era backlog opcional.
+RESOLVED_FOLLOW_UP_VARIANT_SEARCH=
+  P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED — Inventario y Caja encuentran
+  el Producto padre por nombre/SKU/barcode de VARIANTE además de
+  nombre/marca/SKU/barcode del Producto base, sin mostrar variantes como
+  cards independientes. Integrado a testing-codex (e684283), deploy
+  SUCCESS, revisión manual del operador PASS (búsqueda por nombre de
+  variante en Inventario con "Coincide: …"; SKU y barcode de variante en
+  Caja sin auto-agregar, abriendo el selector normal). Ver
+  codex-reports/P2_T56_R3B_VARIANT_SEARCH.md §14. Ya no es follow-up
+  pendiente.
 
 P2_T54_STATUS=R1_IMPLEMENTED_TESTED_PUSHED_BLOCKED_ON_TESTING_CODEX_INTEGRATION_AUTHORIZATION
   (reconciliado desde CODEX_REPORT.md, más reciente que el snapshot A1 de
@@ -61,10 +66,14 @@ migración aditiva), R2C-F1 (refinamiento UX de creación/edición de
 variantes) y R2C-F2 (variantes en Cliente normal y Mesa, migración
 aditiva de `PedidoItem`). El operador certificó manualmente en TESTING
 cada tramo, incluyendo la confirmación explícita de que Cliente normal y
-Mesa "funcionan perfecto". Production no fue tocada. Quedan dos
-follow-ups de backlog explícito (lifecycle de stock de Pedidos, búsqueda
-por variante) — ninguno bloquea el cierre ni se implementa ahora. No se
-inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
+Mesa "funcionan perfecto". R3B (búsqueda por nombre/SKU/barcode de
+variante en Inventario y Caja, sin cambio de backend ni schema) cerró
+también `CLOSED_TESTING_CERTIFIED` el 2026-09-30, resolviendo uno de los
+dos follow-ups registrados en el cierre de R2C. Production no fue tocada.
+Queda un único follow-up de backlog explícito: el lifecycle de stock de
+Pedidos (referido por el operador como P2-T56-R3A — task separado, no
+iniciado, no bloquea nada). No se inicia ninguna ronda nueva de T56
+automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue
 pausada, T52 Fase 4 sigue diferida, T33/T37 siguen secuenciadas — sin
