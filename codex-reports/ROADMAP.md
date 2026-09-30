@@ -1,6 +1,71 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T54-A1 technical audit and design (2026-09-27)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R2C product variants closeout (2026-09-29)
+
+```text
+P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
+P2_T56_R2A_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T56_R2B_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
+P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
+TESTING_CODEX_HEAD=5002d8b6e8906679210536e4496f164d2442e612
+PRODUCTION_TOUCHED=NO
+
+T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
+  Pedidos; Salón; Caja; Inventario; categorías gestionadas; variantes de
+  producto (ProductoVariante); Cliente/Mesa variant-aware — todo
+  CLOSED_TESTING_CERTIFIED, ninguna ronda nueva de T56 iniciada
+  automáticamente.
+
+KNOWN_FOLLOW_UP_ORDER_STOCK_LIFECYCLE=
+  ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR —
+  Pedido valida stock de variante al crear pero no reserva ni descuenta;
+  solo Caja descuenta. Requiere decisión futura de producto/arquitectura
+  (reserva, descuento, liberación por cancelación, lifecycle de
+  aceptación/rechazo). No implementado, backlog explícito.
+KNOWN_FOLLOW_UP_VARIANT_SEARCH=
+  VARIANT_SEARCH_IMPLEMENTED=NO — Inventario/Caja no buscan por
+  nombre/SKU/barcode de variante hoy. No bloquea T56; backlog opcional.
+
+P2_T54_STATUS=R1_IMPLEMENTED_TESTED_PUSHED_BLOCKED_ON_TESTING_CODEX_INTEGRATION_AUTHORIZATION
+  (reconciliado desde CODEX_REPORT.md, más reciente que el snapshot A1 de
+  este archivo — branch work/p2-t54-driver-navigation, commit
+  b2ec74fbf86204cb4b97f191c55cbb35116ba245; ver la entrada histórica A1
+  más abajo para el diseño; no tocado por el cierre de T56;
+  origin/testing-codex avanzó desde a54e9d9... hasta 5002d8b... por las
+  rondas T56 — verificar ancestralidad antes de cualquier fast-forward
+  futuro de T54)
+P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX
+NEXT_PRIORITY_CANDIDATES=P2-T52 Fase 4 permanece alternativa sin prioridad ni autorización; P2-T33/P2-T37 continúan secuenciadas después del trabajo funcional pendiente; P2-T54-R1 permanece bloqueada en su propia autorización de integración a testing-codex
+
+DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY
+CANONICAL_PROJECT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio
+TASK_WORKTREES_ALLOWED=NO
+CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
+
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED
+NEXT_ACTION=AWAIT_OPERATOR_NEXT_TASK_SELECTION
+```
+
+T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
+su secuencia — R1, R2A (Caja responsive), R2B (categorías gestionadas +
+R2B-F1), R2C (`ProductoVariante` real, Inventario/Caja variant-aware,
+migración aditiva), R2C-F1 (refinamiento UX de creación/edición de
+variantes) y R2C-F2 (variantes en Cliente normal y Mesa, migración
+aditiva de `PedidoItem`). El operador certificó manualmente en TESTING
+cada tramo, incluyendo la confirmación explícita de que Cliente normal y
+Mesa "funcionan perfecto". Production no fue tocada. Quedan dos
+follow-ups de backlog explícito (lifecycle de stock de Pedidos, búsqueda
+por variante) — ninguno bloquea el cierre ni se implementa ahora. No se
+inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
+P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
+integración a testing-codex — sin relación con este cierre. T44 sigue
+pausada, T52 Fase 4 sigue diferida, T33/T37 siguen secuenciadas — sin
+cambios respecto del snapshot A1 anterior.
+
+## PRECEDING SNAPSHOT — P2-T54-A1 technical audit and design (2026-09-27; superseded as the "current" pointer by the P2-T56-R2C closeout above — T54-R1 itself, built on top of this A1 design, remains independently open and unresolved, see above)
 
 ```text
 P2_T34_STATUS=CLOSED_TESTING_CERTIFIED

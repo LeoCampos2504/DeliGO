@@ -885,10 +885,50 @@ R2C_F2_DOCUMENTATION=
 UNRELATED=0
 ```
 
-R2C sigue sin cerrarse — R2C-F2 agregó variantes al lado Cliente, todavía
-pendiente de autorización de integración a testing-codex y de revisión
-manual del operador en TESTING.
+## 21. FINAL_OPERATOR_CERTIFICATION
+
+R2C-F2 fue integrada a `testing-codex` por fast-forward (commit
+`5002d8b6e8906679210536e4496f164d2442e612`), desplegada
+(`TESTING_DEPLOYMENT_ID=5a84c8c6-bc47-472b-b975-6eea79625ea3`,
+`TESTING_DEPLOYMENT_STATUS=SUCCESS`), y verificada técnicamente (migración
+aplicada, logs limpios, smoke HTTP en vivo mostrando `tieneVariantes`/
+`variantes` en la respuesta pública real, 17/17 tests de DB re-corridos
+post-deploy). El operador realizó la revisión manual completa en TESTING y
+confirmó explícitamente que Cliente normal y Cliente Mesa "funcionan
+perfecto", cubriendo también Inventario, Caja y el refinamiento UX de
+R2C-F1.
 
 ```text
-PHYSICAL_REVIEW_REQUIRED=SI
+INVENTORY_VARIANTS_MANUAL_REVIEW=PASS
+CAJA_VARIANTS_MANUAL_REVIEW=PASS
+R2C_F1_UX_MANUAL_REVIEW=PASS
+NORMAL_CLIENT_VARIANT_MANUAL_REVIEW=PASS
+MESA_CLIENT_VARIANT_MANUAL_REVIEW=PASS
+
+P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
+
+PHYSICAL_REVIEW_REQUIRED=NO
 ```
+
+```text
+KNOWN_FOLLOW_UPS:
+- Order stock reservation/decrement lifecycle: hoy
+  ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR —
+  Cliente valida que la variante tenga stock al enviar el pedido, pero
+  crear un Pedido NO reserva ni descuenta stock (preserva el
+  comportamiento actual de Pedidos, no introducido por esta ronda). Sólo
+  Caja descuenta stock al vender. Requiere una futura decisión de
+  producto/arquitectura sobre reserva, descuento, liberación por
+  cancelación, y el resto del lifecycle de aceptación/rechazo — no
+  implementado ahora, registrado como backlog explícito.
+- Variant search: VARIANT_SEARCH_IMPLEMENTED=NO — Inventario/Caja hoy no
+  buscan por nombre de variante, SKU de variante ni barcode de variante.
+  No bloquea R2C; backlog/follow-up opcional.
+```
+
+R2C (base + R2A + R2B + R2B-F1 + R2C + R2C-F1 + R2C-F2) queda formalmente
+**cerrada y certificada en TESTING**. No se avanza a Production en este
+cierre — esa es una decisión separada del operador. No se inicia ninguna
+ronda nueva de T56 automáticamente; los dos follow-ups arriba quedan
+registrados en `codex-reports/ROADMAP.md` y `CODEX_REPORT.md` para una
+futura decisión explícita del operador.

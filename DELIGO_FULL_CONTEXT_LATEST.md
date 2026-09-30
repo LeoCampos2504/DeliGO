@@ -1,6 +1,127 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T54-A1 TECHNICAL AUDIT + DESIGN (2026-09-27)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29)
+
+```text
+CURRENT_TASK=P2-T56-R2C-PRODUCT-VARIANTS-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=P2_T56_R2C_CLOSEOUT_COMPLETE
+DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R2C-F2 se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
+TASK_WORKTREES_ALLOWED=NO
+TESTING_CODEX_HEAD=5002d8b6e8906679210536e4496f164d2442e612
+PRODUCTION_TOUCHED=NO
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED
+NEXT_ACTION=AWAIT_OPERATOR_NEXT_TASK_SELECTION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md
+```
+
+### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
+
+Los ~2 días de trabajo de esta secuencia quedan reconciliados acá de una
+vez. Estado final, en orden:
+
+- **R1** (`17047324661dbbb3873fef21084ade7f0c7a4f3d` es en realidad R2C base —
+  ver abajo; R1 no tiene un commit propio distinto documentado con marker
+  explícito, pero construyó el MVP base de negocio genérico: Pedidos,
+  Salón, Caja, Inventario, todos gateados por `negocio.rubro === "generico"`
+  sin afectar Restaurante/Ropa). Tratado como `CLOSED_TESTING_CERTIFIED`
+  equivalente — subsumido y continuamente ejercitado sin regresión por
+  cada ronda posterior.
+- **R2A** — Caja responsive checkout/cart + fix de semántica cantidad en
+  detalle de venta. Commit `9fbd8996db5e4177653aa56d5192b584ade09390`.
+  `CLOSED_TESTING_CERTIFIED` (revisión manual del operador en TESTING).
+- **R2B** — Categorías gestionadas (CRUD, filtros en Inventario/Caja,
+  independencia del carrito). Commit `d797c01309f03b9123f5c234e7f5d454dde07ea0`.
+  Fix operativo de los filtros (R2B-F1), commit
+  `d38045eb3514eb7c13ecaff070164a3110fb073e`. `CLOSED_TESTING_CERTIFIED`.
+- **R2C** — Variantes de producto reales (`ProductoVariante`: nombre,
+  precio, costo?, sku?, codigoBarras?, controlStock, stockCantidad,
+  stockMinimo, activo). Producto sigue siendo la entidad base — sin
+  variantes, comportamiento idéntico al anterior; con variantes, el
+  precio/costo/stock operativo pasa a la variante (nunca N Productos
+  ocultos por presentación). Inventario muestra un producto colapsado con
+  N variantes + "Desde $X"; Caja usa un selector de variante cuando
+  corresponde, con precio/stock siempre re-derivados server-side y
+  `VentaItem`/`MovimientoInventario` con snapshot/referencia por variante.
+  Concurrencia de stock protegida con `Serializable` (ya existente,
+  reutilizada). Migración aditiva
+  `20260928230000_add_producto_variantes_p2_t56_r2c`. Commit
+  `17047324661dbbb3873fef21084ade7f0c7a4f3d`, deploy
+  `d44f4494-adf8-463f-81fb-8553e42cf20c`. `CLOSED_TESTING_CERTIFIED`.
+- **R2C-F1** — Refinamiento UX de creación/edición de variantes (sin tocar
+  backend/schema): campos comerciales del Producto base (precio, costo,
+  SKU, código de barras, controlStock, stock) se ocultan una vez que el
+  producto tiene variantes; labels reales para "Stock inicial"/"Stock
+  mínimo" (antes solo placeholders invisibles); variantes colapsables con
+  resumen de una línea; una fila con error de validación se re-expande
+  automáticamente. Commit `6e92eb23bb3fb64379eeea79708d0329e82692a7`,
+  deploy `ce5be3c5-2e50-49b2-b4ec-3fa5272c7f48`. `CLOSED_TESTING_CERTIFIED`.
+- **R2C-F2** — Variantes disponibles para Cliente normal y Cliente Mesa.
+  Hallazgo arquitectónico clave: Cliente normal y Mesa comparten
+  literalmente el mismo árbol de componentes (`src/app/n/[slug]/page.tsx`
+  sirve ambos; Mesa es solo `?mesa=N`) — un único cambio cubrió ambos
+  flujos. El selector de variante ("Elegí una opción") reutiliza el mismo
+  lenguaje visual que las secciones propias del producto ("Opciones del
+  producto") sin fusionar su lógica ni su modelo de datos. Catálogo
+  muestra "Desde $X" cuando hay >1 variante activa, o el precio directo si
+  hay exactamente 1; una variante sin stock queda visible pero disabled.
+  `CartItem` gana `varianteId`/`varianteNombre` (dos variantes del mismo
+  producto = líneas de carrito distintas); el precio nunca se confía del
+  cliente — el servidor re-deriva desde `ProductoVariante`, valida
+  pertenencia/activo/stock y rechaza cualquier variante de otro producto o
+  de otro negocio (tenant isolation verificado con tests de DB real).
+  `PedidoItem` gana `productoVarianteId`/`varianteNombre` (snapshot
+  inmutable, mismo patrón que `VentaItem`). Historial de pedido, cuenta de
+  mesa en vivo y "Repetir pedido" (hallazgo lateral corregido: sin esto,
+  repetir un pedido con variante habría agregado el producto base sin
+  variante) todos muestran/re-validan la variante correctamente. API
+  pública (`GET /api/negocios/[slug]`) expone `tieneVariantes`/`variantes`
+  (solo activas; nunca costo/sku/codigoBarras). Migración aditiva
+  `20260929120000_add_pedido_item_variante_p2_t56_r2c_f2`. Commit
+  `5002d8b6e8906679210536e4496f164d2442e612`, deploy
+  `5a84c8c6-bc47-472b-b975-6eea79625ea3`. `CLOSED_TESTING_CERTIFIED` — el
+  operador confirmó explícitamente que Cliente normal y Mesa "funcionan
+  perfecto".
+
+**Ambas migraciones de esta secuencia son aditivas** (`DESTRUCTIVE_STATEMENTS=0`,
+`PENDING_MIGRATIONS=0` en TESTING confirmado post-deploy). **Production no
+fue tocada en ningún momento de esta secuencia.**
+
+**Limitación de stock conocida (follow-up, no implementado):**
+`ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` —
+Cliente valida que la variante tenga stock al enviar el pedido, pero crear
+un `Pedido` NO reserva ni descuenta stock (este es el comportamiento
+preexistente de Pedidos, no algo introducido por R2C-F2 — solo Caja
+descuenta stock al vender). Requiere una futura decisión de
+producto/arquitectura sobre reserva, descuento, liberación por
+cancelación, y el resto del lifecycle de aceptación/rechazo. Registrado
+como backlog explícito, no implementado ahora.
+
+**Otro follow-up menor:** `VARIANT_SEARCH_IMPLEMENTED=NO` — Inventario/Caja
+hoy no buscan por nombre de variante, SKU ni barcode de variante. No
+bloquea el cierre de R2C; backlog opcional.
+
+**Tareas pendientes reales, sin relación con T56** (no tocadas ni
+resueltas por este cierre):
+- `P2-T54-R1` (navegación in-app del Repartidor): implementada, testeada y
+  pusheada (branch `work/p2-t54-driver-navigation`, commit
+  `b2ec74fbf86204cb4b97f191c55cbb35116ba245`), bloqueada en su propia
+  autorización de integración a `testing-codex` — ver la entrada histórica
+  más abajo. `origin/testing-codex` avanzó desde entonces (por las rondas
+  T56) hasta `5002d8b...`; verificar ancestralidad antes de cualquier
+  fast-forward de T54 en el futuro.
+- `P2-T44`: `PAUSED_UNRESOLVED_AFTER_TIMEBOX`.
+- `P2-T52 Fase 4`: `DEFERRED_OPTIONAL_NOT_PLANNED_FOR_CURRENT_LAUNCH`.
+- `P2-T33` / `P2-T37`: secuenciadas, bloqueadas hasta que se resuelva el
+  backlog funcional pendiente (mismo estado que ya reflejaba el snapshot
+  anterior).
+
+No se autorizó ni se inició ninguna tarea nueva de software en este
+cierre.
+
+---
+
+## PRECEDING SNAPSHOT — P2-T54-A1 TECHNICAL AUDIT + DESIGN (2026-09-27; superseded as the "current" pointer by the P2-T56-R2C closeout above — T54-R1 itself, built on top of this A1 design, remains independently open and unresolved, see above)
 
 ```text
 CURRENT_TASK=P2-T54-A1-DRIVER-IN-APP-NAVIGATION-TECHNICAL-AUDIT-DESIGN

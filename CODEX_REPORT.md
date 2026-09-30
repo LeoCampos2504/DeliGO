@@ -6,7 +6,51 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T54-R1 DRIVER FOLLOW NAVIGATION IMPLEMENTATION (2026-09-27) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) ===
+
+CURRENT_TASK=P2-T56-R2C-PRODUCT-VARIANTS-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=P2_T56_R2C_CLOSEOUT_COMPLETE
+P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT (base Pedidos/Salón/Caja/Inventario/categorías genérico MVP — sin marker explícito propio, subsumido y continuamente ejercitado/certificado por R2A en adelante sin regresión reportada)
+P2_T56_R2A_STATUS=CLOSED_TESTING_CERTIFIED (Caja responsive checkout + sale-detail, commit 9fbd8996db5e4177653aa56d5192b584ade09390)
+P2_T56_R2B_STATUS=CLOSED_TESTING_CERTIFIED (categorías gestionadas, commit d797c01309f03b9123f5c234e7f5d454dde07ea0; fix operativo R2B-F1, commit d38045eb3514eb7c13ecaff070164a3110fb073e)
+P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED (ProductoVariante + Inventario/Caja variant-aware, commit 17047324661dbbb3873fef21084ade7f0c7a4f3d; deploy d44f4494-adf8-463f-81fb-8553e42cf20c)
+P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED (refinamiento UX creación/edición de variantes, commit 6e92eb23bb3fb64379eeea79708d0329e82692a7; deploy ce5be3c5-2e50-49b2-b4ec-3fa5272c7f48)
+P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED (variantes en Cliente normal + Mesa, commit 5002d8b6e8906679210536e4496f164d2442e612; deploy 5a84c8c6-bc47-472b-b975-6eea79625ea3)
+TESTING_CODEX_HEAD=5002d8b6e8906679210536e4496f164d2442e612
+OPERATOR_MANUAL_REVIEW=PASS (Inventario, Caja, R2C-F1 UX, Cliente normal, Cliente Mesa — el operador confirmó explícitamente que Cliente normal y Mesa "funcionan perfecto")
+VARIANT_MODEL_STRATEGY=NEW_PRODUCT_VARIANT_MODEL_REQUIRED (ProductoVariante: nombre, precio, costo?, sku?, codigoBarras?, controlStock, stockCantidad, stockMinimo, activo — Producto sigue siendo la entidad base; sin variantes, comportamiento anterior sin cambios; con variantes, precio/costo/stock operativo vienen de la variante, nunca N Productos ocultos)
+VARIANT_AND_PRODUCT_OPTIONS_LOGIC_MERGED=NO
+VARIANT_AND_PRODUCT_OPTIONS_VISUAL_LANGUAGE_SHARED=YES
+MIGRATIONS_APPLIED_TESTING=20260928230000_add_producto_variantes_p2_t56_r2c; 20260929120000_add_pedido_item_variante_p2_t56_r2c_f2 (ambas aditivas, DESTRUCTIVE_STATEMENTS=0, PENDING_MIGRATIONS=0 en TESTING)
+PRODUCTION_TOUCHED=NO
+KNOWN_FOLLOW_UP_1=ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR — CUSTOMER_ORDERS_VALIDATE_VARIANT_STOCK_BUT_DO_NOT_RESERVE_OR_DECREMENT_IT; requiere decisión futura de producto/arquitectura sobre reserva/descuento/liberación por cancelación/lifecycle; no implementado, backlog explícito
+KNOWN_FOLLOW_UP_2=VARIANT_SEARCH_IMPLEMENTED=NO — Inventario/Caja no buscan hoy por nombre/SKU/barcode de variante; no bloquea R2C, backlog opcional
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=
+  P2_T54_STATUS=R1_IMPLEMENTED_TESTED_PUSHED_BLOCKED_ON_TESTING_CODEX_INTEGRATION_AUTHORIZATION (branch work/p2-t54-driver-navigation, commit b2ec74fbf86204cb4b97f191c55cbb35116ba245 — ver entrada histórica debajo; no tocado ni resuelto por este cierre de T56);
+  P2_T44_STATUS=PAUSED_UNRESOLVED_AFTER_TIMEBOX;
+  P2_T52_FASE_4_STATUS=DEFERRED_OPTIONAL_NOT_PLANNED_FOR_CURRENT_LAUNCH;
+  P2_T33_STATUS=SEQUENCED_BLOCKED_UNTIL_FUNCTIONAL_BACKLOG_CLEARS;
+  P2_T37_STATUS=SEQUENCED_BLOCKED_UNTIL_FUNCTIONAL_BACKLOG_CLEARS
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=AWAIT_OPERATOR_NEXT_TASK_SELECTION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md
+
+El operador certificó R2C completa en TESTING (base + R2A + R2B + R2B-F1 +
+R2C + R2C-F1 + R2C-F2), confirmando explícitamente que Cliente normal y
+Mesa "funcionan perfecto" además de Inventario/Caja/UX de variantes.
+Production no fue tocada. Dos follow-ups quedan registrados como backlog
+(stock lifecycle de Pedidos, búsqueda por variante) — ninguno bloquea el
+cierre. No se autorizó ni se inició ninguna tarea nueva; el hilo
+independiente P2-T54-R1 (navegación in-app del Repartidor) sigue abierto y
+bloqueado en su propia autorización de integración a testing-codex, sin
+relación con este cierre.
+
+=== HISTORICAL HANDOFF — P2-T54-R1 DRIVER FOLLOW NAVIGATION IMPLEMENTATION (2026-09-27; still pending its own separate testing-codex integration authorization — not resolved by the P2-T56-R2C closeout above, which is an unrelated workstream) ===
 
 CURRENT_TASK=P2-T54-R1-DRIVER-IN-APP-FOLLOW-NAVIGATION-IMPLEMENTATION
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_PUSHED; TESTING_DEPLOY_BLOCKED_ON_TESTING_CODEX_INTEGRATION_AUTHORIZATION
