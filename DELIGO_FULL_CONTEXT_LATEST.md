@@ -3,18 +3,18 @@
 ## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout (2026-09-30)
 
 ```text
-CURRENT_TASK=P2-T56-R3B-VARIANT-SEARCH-CLOSEOUT
-CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
-RESULT=P2_T56_R3B_CLOSEOUT_COMPLETE
+CURRENT_TASK=P2-T56-R3A-ORDER-STOCK-LIFECYCLE-DESIGN
+CURRENT_TASK_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION
+RESULT=READY_FOR_T56_R3A_OPERATOR_ARCHITECTURE_DECISION
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
-TESTING_CODEX_HEAD=e759e83a22d0c9c14c06bd775665cf4e0d6dec71 (R3B closeout docs) + this FULL_CONTEXT sync commit, docs only
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design is only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=OPEN_BACKLOG_NOT_STARTED (order stock lifecycle — ver limitación de stock abajo)
+P2_T56_R3A_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION (order stock lifecycle — ver limitación de stock abajo; nada implementado)
 PRODUCTION_TOUCHED=NO
 NEXT_PRIORITY_TASK=NONE_AUTHORIZED
-NEXT_ACTION=AWAIT_OPERATOR_NEXT_TASK_SELECTION
-REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3B_VARIANT_SEARCH.md (R2C detail: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
+NEXT_ACTION=AWAIT_OPERATOR_ARCHITECTURE_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md (R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
 
 ### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
@@ -89,16 +89,17 @@ vez. Estado final, en orden:
 `PENDING_MIGRATIONS=0` en TESTING confirmado post-deploy). **Production no
 fue tocada en ningún momento de esta secuencia.**
 
-**Limitación de stock conocida (follow-up, no implementado — `P2-T56-R3A`,
-`OPEN_BACKLOG_NOT_STARTED`):**
-`ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` —
-Cliente valida que la variante tenga stock al enviar el pedido, pero crear
-un `Pedido` NO reserva ni descuenta stock (este es el comportamiento
-preexistente de Pedidos, no algo introducido por R2C-F2 — solo Caja
-descuenta stock al vender). Requiere una futura decisión de
-producto/arquitectura sobre reserva, descuento, liberación por
-cancelación, y el resto del lifecycle de aceptación/rechazo. Registrado
-como backlog explícito, no implementado ahora.
+**Limitación de stock conocida (`P2-T56-R3A`, diseño A0 terminado,
+`DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION`, nada implementado):**
+`ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` — crear un
+`Pedido` NO reserva ni descuenta stock; sólo Caja descuenta al vender. La auditoría
+A0 verificó que la validación actual es más débil de lo que decía este párrafo:
+sólo rechaza variantes con `stock <= 0` (no compara con la cantidad pedida, y corre
+fuera de la transacción), no valida stock de productos base, y los pedidos manuales
+de Mozo no soportan variantes. Recomendación del diseño: reservar al crear el
+Pedido, consumir en `preparando`, liberar sólo al cancelar antes de `preparando`.
+Detalle y 6 decisiones de producto abiertas:
+`codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md`.
 
 **Búsqueda por variante — resuelta en R3B (2026-09-30):**
 `VARIANT_SEARCH_IMPLEMENTED=YES`, `P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED`.

@@ -6,7 +6,44 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3B VARIANT SEARCH CLOSEOUT (2026-09-30) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A ORDER STOCK LIFECYCLE DESIGN (2026-09-30) ===
+
+CURRENT_TASK=P2-T56-R3A-ORDER-STOCK-LIFECYCLE-DESIGN
+CURRENT_TASK_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION
+RESULT=READY_FOR_T56_R3A_OPERATOR_ARCHITECTURE_DECISION
+P2_T56_R3A_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION
+R3A_BRANCH=work/p2-t56-r3-stock-lifecycle (docs only, based on testing-codex 1e14355c617cad33ab33c3fdda508c6a93830f4e; NOT integrated)
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (unchanged by this task)
+CURRENT_ORDER_STOCK_BEHAVIOR=PARTIAL_VARIANT_ONLY_VALIDATION_NO_RESERVATION_NO_DECREMENT (POST /api/pedidos: variant stock<=0 only, not quantity-aware, outside any transaction; base products: no stock validation; Mozo manual orders: no variant support at all, base price)
+RECOMMENDED_ORDER_STOCK_STRATEGY=RESERVE_ON_ORDER_CREATION_CONSUME_ON_PREPARANDO
+RESERVATION_POINT=POST /api/pedidos creation transaction (route.ts:1715, raised to Serializable) + Mozo manual-order Serializable transaction (after Mozo variant parity)
+CONSUMPTION_POINT=transition into preparando (the only state every path crosses, all 3 modes, new and legacy edges), same Serializable tx as the estado CAS
+RELEASE_POINTS=cancellation from recibido/confirmado/aceptado by any actor, same tx as the cancellation CAS
+LATE_CANCELLATION_STOCK_POLICY=NO_AUTOMATIC_RESTOCK_AFTER_CONSUMPTION (manual "Ajustar stock" instead)
+SCHEMA_CHANGE_REQUIRED=YES (proposed ReservaStock table + MovimientoInventario.pedidoId; additive)
+MIGRATION_REQUIRED=YES (at implementation time; none in A0)
+HISTORICAL_ORDERS_BACKFILL_REQUIRED=NO
+UNRESOLVED_PRODUCT_DECISIONS=6 (auto-cancel restock; stale-order expiration; consumption when physical < reserved; SALIDA/AJUSTE policy; Mozo parity as part of R3A or separate; public API exposure)
+LATERAL_FINDINGS=(1) Mozo manual-order route prices variant products at the dormant base price with no variant — pre-existing, not fixed; (2) latent Caja defect: duplicate lines for the same variant under-decrement stock (crafted requests only; UI merges lines) — not fixed; both recorded in the design report
+SOURCE_CODE_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=AWAIT_OPERATOR_ARCHITECTURE_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md
+
+A0 audit + design for the order stock lifecycle is complete; nothing was
+implemented. The code turned out weaker than the backlog described
+(variant-only, not quantity-aware, outside any transaction; Mozo has no variant
+support). Recommended: reserve at order creation, consume at `preparando`, release
+only on pre-`preparando` cancellation. Awaiting the operator's architecture
+decision and the 6 open product decisions before any implementation.
+
+=== HISTORICAL HANDOFF — P2-T56-R3B VARIANT SEARCH CLOSEOUT (2026-09-30; superseded as the current pointer by the P2-T56-R3A design above — R3B itself remains CLOSED_TESTING_CERTIFIED) ===
 
 CURRENT_TASK=P2-T56-R3B-VARIANT-SEARCH-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
