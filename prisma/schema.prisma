@@ -356,6 +356,7 @@ model ProductoVariante {
   producto              Producto               @relation(fields: [productoId], references: [id], onDelete: Cascade)
   ventaItems            VentaItem[]
   movimientosInventario MovimientoInventario[]
+  pedidoItems           PedidoItem[]
 
   @@index([productoId])
   @@map("producto_variantes")
@@ -613,7 +614,9 @@ model PedidoItem {
   id                   String  @id @default(cuid())
   pedidoId             String
   productoId           String?
+  productoVarianteId   String? // P2-T56-R2C-F2
   nombre               String
+  varianteNombre       String? // P2-T56-R2C-F2: snapshot del nombre de la variante — nunca reconstruido por live-lookup, mismo patrón que VentaItem.varianteNombre
   precio               Float
   cantidad             Int     @default(1)
   agregados            String  @default("[]") // JSON: [{id, nombre, precio}]
@@ -624,9 +627,11 @@ model PedidoItem {
   talle                String  @default("")
   color                String  @default("")
 
-  pedido   Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  producto Producto? @relation(fields: [productoId], references: [id])
+  pedido           Pedido            @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  producto         Producto?         @relation(fields: [productoId], references: [id])
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
 
+  @@index([productoVarianteId])
   @@map("pedido_items")
 }
 

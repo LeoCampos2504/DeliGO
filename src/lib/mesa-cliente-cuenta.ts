@@ -165,6 +165,7 @@ async function cargarCuentaDeOcupacion(
           ingredientesQuitados: true,
           talle: true,
           color: true,
+          varianteNombre: true,
         },
       },
     },

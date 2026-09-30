@@ -20,7 +20,7 @@ export function MesaAccountDetail({ cuenta }: { cuenta: Pick<CuentaMesaResult, "
               {item.agregados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">+ {item.agregados.map((a) => a.nombre).join(", ")}</p>}
               {item.secciones.length > 0 && <p className="pl-3 text-xs text-muted-foreground">{item.secciones.join(" · ")}</p>}
               {item.ingredientesQuitados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">Sin: {item.ingredientesQuitados.join(", ")}</p>}
-              {(item.talle || item.color) && <p className="pl-3 text-xs text-muted-foreground">{[item.talle, item.color].filter(Boolean).join(" · ")}</p>}
+              {(item.varianteNombre || item.talle || item.color) && <p className="pl-3 text-xs text-muted-foreground">{[item.varianteNombre, item.talle, item.color].filter(Boolean).join(" · ")}</p>}
             </div>
           ))}
           {pedido.notas && <p className="mt-1 text-xs text-muted-foreground">Nota: {pedido.notas}</p>}

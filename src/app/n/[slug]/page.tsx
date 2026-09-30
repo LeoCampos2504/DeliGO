@@ -43,6 +43,13 @@ import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn, formatPrice } from "@/lib/utils"
 import { formatOptionalPriceDelta, type OwnSectionOption } from "@/lib/product-own-sections"
+import {
+  isVarianteDisponible,
+  isProductoConVariantesDisponible,
+  precioDesdeVariantes,
+  resolveSingleActiveVariant,
+  type ClientProductoVariante,
+} from "@/lib/client-product-variants"
 import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSecciones, generateCartItemKey } from "@/store/cart-store"
 import { CartPanel } from "@/components/cart/cart-panel"
 import { ProductImageGallery } from "@/components/client/product-image-gallery"
@@ -92,6 +99,13 @@ interface ProductoAPI {
   precioPromo: number | null
   descuentoLabel: string | null
   opcionesCompartidasIds: Array<{ id: string; obligatorio: boolean; maximo: number }>
+  // P2-T56-R2C-F2: negocio genérico — producto con variantes reales
+  // (precio/stock propios). `tieneVariantes` es true si el producto fue
+  // configurado con variantes alguna vez, incluso si `variantes` (solo
+  // activas) queda vacío — nunca debe caerse de vuelta al precio/stock del
+  // Producto base en ese caso (sección 5).
+  tieneVariantes: boolean
+  variantes: ClientProductoVariante[]
 }
 
 interface SeccionAPI {
@@ -1305,6 +1319,15 @@ function ProductCard({
     .filter((i) => i.productoId === product.id)
     .reduce((sum, i) => sum + i.cantidad, 0)
 
+  // P2-T56-R2C-F2: negocio genérico product-with-variants — availability and
+  // price come exclusively from the active variants once tieneVariantes is
+  // true, never from the (dormant) base Producto.precio/stock (section 5).
+  const variantesActivas = product.tieneVariantes ? product.variantes : []
+  const algunaVarianteDisponible = !product.tieneVariantes || isProductoConVariantesDisponible(variantesActivas)
+  const productoDisponible = product.stock && algunaVarianteDisponible
+  const precioDesde = precioDesdeVariantes(variantesActivas)
+  const singleActiveVariant = resolveSingleActiveVariant(variantesActivas)
+
   // For ropa: only agregados/talles/colores/shared options require detail, NOT ingredientes/secciones
   const hasOptionsForQuickAdd = isRopa
     ? (product.agregados && product.agregados.length > 0) ||
@@ -1316,21 +1339,27 @@ function ProductCard({
       (product.ingredientes && product.ingredientes.length > 0) ||
       (product.talles && product.talles.length > 0) ||
       (product.colores && product.colores.length > 0) ||
-      (product.opcionesCompartidasIds && product.opcionesCompartidasIds.length > 0)
+      (product.opcionesCompartidasIds && product.opcionesCompartidasIds.length > 0) ||
+      variantesActivas.length > 1
 
   const quickAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!product.stock) return
+    if (!productoDisponible) return
 
     if (hasOptionsForQuickAdd) {
       onClick()
       return
     }
 
+    // A single active variant can be added directly from the card (section
+    // 7) — always identified by name in the item/toast, never silently
+    // defaulting to the base product's own price.
     const itemData = {
       productoId: product.id,
+      varianteId: singleActiveVariant?.id ?? null,
+      varianteNombre: singleActiveVariant?.nombre ?? null,
       nombre: product.nombre,
-      precio: product.precioPromo ?? product.precio,
+      precio: singleActiveVariant?.precio ?? product.precioPromo ?? product.precio,
       cantidad: 1,
       agregados: [],
       secciones: {},
@@ -1348,9 +1377,12 @@ function ProductCard({
     } else {
       addItem(item)
     }
-    toast.success(`${product.nombre} agregado al carrito`, {
-      duration: 2000,
-    })
+    toast.success(
+      singleActiveVariant
+        ? `${product.nombre} — ${singleActiveVariant.nombre} agregado al carrito`
+        : `${product.nombre} agregado al carrito`,
+      { duration: 2000 }
+    )
   }
 
   // ==================== ROPA-STYLE CARD ====================
@@ -1502,12 +1534,19 @@ function ProductCard({
   }
 
   // ==================== DEFAULT (FOOD) CARD ====================
+  // P2-T56-R2C-F2: once a product has variants, its own precioPromo/
+  // descuentoLabel (derived from the base Producto's dormant discount
+  // fields) are never shown — variant pricing is independent, per R2C's
+  // own architecture.
+  const effectivePrecioPromo = product.tieneVariantes ? null : product.precioPromo
+  const effectiveDescuentoLabel = product.tieneVariantes ? null : product.descuentoLabel
+
   return (
     <div
       onClick={onClick}
       className={cn(
         "group cursor-pointer rounded-2xl bg-card border border-border/50 overflow-hidden hover:shadow-md transition-all duration-200",
-        !product.stock && "opacity-60"
+        !productoDisponible && "opacity-60"
       )}
     >
       {/* Image */}
@@ -1532,7 +1571,7 @@ function ProductCard({
         )}
 
         {/* Stock badge */}
-        {!product.stock && (
+        {!productoDisponible && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
             <Badge className="bg-black/70 text-white border-0 text-xs font-bold">
               Sin stock
@@ -1541,16 +1580,16 @@ function ProductCard({
         )}
 
         {/* Discount badge */}
-        {product.descuentoLabel && product.stock && (
+        {effectiveDescuentoLabel && productoDisponible && (
           <Badge
             className="absolute top-2 left-2 bg-red-500 text-white border-0 text-[10px] font-bold px-1.5 py-0.5 shadow-md"
           >
-            {product.descuentoLabel}
+            {effectiveDescuentoLabel}
           </Badge>
         )}
 
         {/* Quick add / Open detail button */}
-        {product.stock && !compact && !isPreview && (
+        {productoDisponible && !compact && !isPreview && (
           <button
             onClick={quickAdd}
             className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-white dark:bg-card shadow-md flex items-center justify-center hover:scale-110 transition-transform"
@@ -1588,13 +1627,27 @@ function ProductCard({
         )}
 
         <div className="flex items-baseline gap-1.5 mt-1.5">
-          {product.precioPromo ? (
+          {product.tieneVariantes ? (
+            variantesActivas.length === 1 ? (
+              <span className={cn("font-extrabold", compact ? "text-xs" : "text-sm")}>
+                {formatPrice(variantesActivas[0].precio)}
+              </span>
+            ) : precioDesde != null ? (
+              <span className={cn("font-extrabold", compact ? "text-xs" : "text-sm")}>
+                Desde {formatPrice(precioDesde)}
+              </span>
+            ) : (
+              <span className={cn("font-extrabold text-muted-foreground", compact ? "text-xs" : "text-sm")}>
+                Sin stock
+              </span>
+            )
+          ) : effectivePrecioPromo ? (
             <>
               <span
                 className={cn("font-extrabold", compact ? "text-xs" : "text-sm")}
                 style={{ color: negocio.colorPrincipal }}
               >
-                {formatPrice(product.precioPromo)}
+                {formatPrice(effectivePrecioPromo)}
               </span>
               <span className="text-[10px] text-muted-foreground line-through">
                 {formatPrice(product.precio)}
@@ -1606,6 +1659,13 @@ function ProductCard({
             </span>
           )}
         </div>
+
+        {/* Variant count — section 4 */}
+        {product.tieneVariantes && variantesActivas.length > 1 && !compact && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {variantesActivas.length} variantes
+          </p>
+        )}
 
         {/* Has options indicator */}
         {((Array.isArray(product.agregados) ? product.agregados.length : 0) > 0 || (Array.isArray(product.ingredientes) ? product.ingredientes.length : 0) > 0 || (Array.isArray(product.secciones) ? product.secciones.length : 0) > 0) && !compact && (
@@ -1673,6 +1733,22 @@ function ProductDetailSheet({
   const [selectedColor, setSelectedColor] = useState("")
   const [notas, setNotas] = useState("")
   const [selectedOpcionesCompartidas, setSelectedOpcionesCompartidas] = useState<Map<string, CartItemAgregado>>(new Map())
+
+  // P2-T56-R2C-F2: negocio genérico product-with-variants. `variantes` from
+  // the public API is already filtered to active-only. A single active
+  // variant is auto-selected (section 7) but still shown/named explicitly —
+  // never a silent default.
+  const variantesActivas = product.tieneVariantes ? product.variantes : []
+  const [selectedVarianteId, setSelectedVarianteId] = useState<string | null>(() => {
+    const unica = resolveSingleActiveVariant(variantesActivas)
+    return unica && isVarianteDisponible(unica) ? unica.id : null
+  })
+  const selectedVariante = useMemo(
+    () => variantesActivas.find((v) => v.id === selectedVarianteId) ?? null,
+    [variantesActivas, selectedVarianteId]
+  )
+  const algunaVarianteDisponible = isProductoConVariantesDisponible(variantesActivas)
+  const precioDesde = precioDesdeVariantes(variantesActivas)
 
   // Resolve shared options from product's opcionesCompartidasIds against negocio's opcionesCompartidas
   // Uses per-product obligatorio/maximo (not the shared option's defaults)
@@ -1751,7 +1827,11 @@ function ProductDetailSheet({
 
   // Calculate item total
   const itemTotal = useMemo(() => {
-    const basePrice = product.precioPromo ?? product.precio
+    // P2-T56-R2C-F2: once the product has variants, the selected variant's
+    // own price is the sole authority — never the base Producto price/promo.
+    const basePrice = product.tieneVariantes
+      ? (selectedVariante?.precio ?? 0)
+      : (product.precioPromo ?? product.precio)
     const agregadosTotal = Array.from(selectedAgregados.values()).reduce(
       (sum, a) => sum + a.precio,
       0
@@ -1761,7 +1841,7 @@ function ProductDetailSheet({
       0
     )
     return (basePrice + agregadosTotal + opcionesCompartidasTotal + seccionesPricing.total) * quantity
-  }, [product.precio, product.precioPromo, selectedAgregados, selectedOpcionesCompartidas, seccionesPricing, quantity])
+  }, [product.tieneVariantes, product.precio, product.precioPromo, selectedVariante, selectedAgregados, selectedOpcionesCompartidas, seccionesPricing, quantity])
 
   // Toggle agregado
   const toggleAgregado = (a: { id: string; nombre: string; precio: number }) => {
@@ -1847,6 +1927,9 @@ function ProductDetailSheet({
   // isPreview is true, regardless of how it's called.
   const handleAdd = () => {
     if (isPreview) return
+    // P2-T56-R2C-F2: a product with variants always requires a selection —
+    // the server re-validates this too, this is only the UI-side gate.
+    if (product.tieneVariantes && (!selectedVariante || !isVarianteDisponible(selectedVariante))) return
     // Validate required sections — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
@@ -1878,8 +1961,10 @@ function ProductDetailSheet({
 
     const itemData = {
       productoId: product.id,
+      varianteId: selectedVariante?.id ?? null,
+      varianteNombre: selectedVariante?.nombre ?? null,
       nombre: product.nombre,
-      precio: product.precioPromo ?? product.precio,
+      precio: product.tieneVariantes ? (selectedVariante?.precio ?? 0) : (product.precioPromo ?? product.precio),
       cantidad: quantity,
       agregados: allAgregados,
       secciones: selectedSecciones,
@@ -1895,13 +1980,18 @@ function ProductDetailSheet({
       key: generateCartItemKey(itemData),
     }
     onAddToCart(item)
-    toast.success(`${quantity}x ${product.nombre} agregado al carrito`, {
-      duration: 2000,
-    })
+    toast.success(
+      selectedVariante
+        ? `${quantity}x ${product.nombre} — ${selectedVariante.nombre} agregado al carrito`
+        : `${quantity}x ${product.nombre} agregado al carrito`,
+      { duration: 2000 }
+    )
   }
 
-  // Check if can add (required sections + shared options satisfied)
+  // Check if can add (variant selected when required + required sections + shared options satisfied)
   const canAdd = (() => {
+    if (product.tieneVariantes && (!selectedVariante || !isVarianteDisponible(selectedVariante))) return false
+
     const sectionsOk = (product.secciones || [])
       .filter((s) => s.obligatorio)
       .every((s) => {
@@ -1958,7 +2048,15 @@ function ProductDetailSheet({
               <p className="text-xs text-muted-foreground mt-0.5 capitalize">{product.categoria}</p>
             </div>
             <div className="text-right shrink-0">
-              {product.precioPromo ? (
+              {product.tieneVariantes ? (
+                selectedVariante ? (
+                  <span className="font-extrabold text-xl">{formatPrice(selectedVariante.precio)}</span>
+                ) : precioDesde != null ? (
+                  <span className="font-extrabold text-xl">Desde {formatPrice(precioDesde)}</span>
+                ) : (
+                  <span className="font-extrabold text-xl text-muted-foreground">Sin stock</span>
+                )
+              ) : product.precioPromo ? (
                 <div>
                   <span
                     className="font-extrabold text-xl"
@@ -2000,6 +2098,77 @@ function ProductDetailSheet({
           )}
 
           <Separator className="my-5" />
+
+          {/* ===== VARIANTES (P2-T56-R2C-F2) =====
+              Same visual language as the custom-sections single-select
+              radio rows below (section 8) — deliberately NOT the same
+              component/data model: variants are never stored as a
+              "sección"/opción, and never merged with real Opciones del
+              producto (section 13). */}
+          {product.tieneVariantes && (
+            <div className="mb-5">
+              <h4 className="font-bold text-sm mb-2">Elegí una opción</h4>
+              <div className="space-y-1.5">
+                {variantesActivas.map((variante) => {
+                  const disponible = isVarianteDisponible(variante)
+                  const isSelected = selectedVarianteId === variante.id
+                  return (
+                    <button
+                      key={variante.id}
+                      type="button"
+                      disabled={!disponible}
+                      onClick={() => setSelectedVarianteId(variante.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left text-sm transition-all",
+                        !disponible
+                          ? "border-border bg-card opacity-50 cursor-not-allowed"
+                          : isSelected
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-card hover:border-primary/20"
+                      )}
+                      style={
+                        disponible && isSelected
+                          ? { borderColor: negocio.colorPrincipal, backgroundColor: `${negocio.colorPrincipal}08` }
+                          : undefined
+                      }
+                    >
+                      <div
+                        className={cn(
+                          "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
+                          isSelected && disponible ? "border-primary" : "border-muted-foreground/30"
+                        )}
+                        style={
+                          isSelected && disponible
+                            ? { borderColor: negocio.colorPrincipal }
+                            : undefined
+                        }
+                      >
+                        {isSelected && disponible && (
+                          <div
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: negocio.colorPrincipal }}
+                          />
+                        )}
+                      </div>
+                      <span className="font-medium flex-1">{variante.nombre}</span>
+                      {!disponible ? (
+                        <span className="text-xs font-semibold text-muted-foreground">Sin stock</span>
+                      ) : (
+                        <span className="text-xs font-semibold text-muted-foreground">
+                          {formatPrice(variante.precio)}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+                {variantesActivas.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Este producto no tiene opciones disponibles en este momento.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ===== TALLES ===== */}
           {Array.isArray(product.talles) && product.talles.length > 0 && (
@@ -2512,7 +2681,7 @@ function ProductDetailSheet({
           >
             {isPreview ? (
               "Vista previa — no se pueden realizar pedidos"
-            ) : product.stock ? (
+            ) : product.stock && (!product.tieneVariantes || algunaVarianteDisponible) ? (
               `${isRopa ? "Agregar al carrito" : "Agregar"} · ${formatPrice(itemTotal)}`
             ) : (
               "Sin stock"

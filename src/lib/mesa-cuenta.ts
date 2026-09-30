@@ -55,6 +55,10 @@ export interface CuentaPedidoItemInput {
   ingredientesQuitados: unknown
   talle: string
   color: string
+  // P2-T56-R2C-F2: optional so every existing caller (mesa-historial,
+  // operaciones/ocupaciones/cuenta, thermal-print, existing test fixtures)
+  // that builds this input without a variant keeps compiling unchanged.
+  varianteNombre?: string | null
 }
 
 export interface CuentaPedidoInput {
@@ -76,6 +80,9 @@ export interface CuentaItemLine {
   ingredientesQuitados: string[]
   talle: string
   color: string
+  // P2-T56-R2C-F2: snapshot inmutable del nombre de la variante, igual que
+  // talle/color — "" cuando el item no tiene variante.
+  varianteNombre: string
   // Solo informativo/de exhibición por línea — el total por pedido y el
   // total general SIEMPRE usan `Pedido.total` persistido, nunca esta suma.
   subtotalLineaAprox: number
@@ -149,6 +156,7 @@ function buildItemLine(item: CuentaPedidoItemInput): CuentaItemLine {
     ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
     talle: typeof item.talle === "string" ? item.talle : "",
     color: typeof item.color === "string" ? item.color : "",
+    varianteNombre: typeof item.varianteNombre === "string" ? item.varianteNombre : "",
     subtotalLineaAprox: (precioUnitario + agregadosTotal) * cantidad,
   }
 }

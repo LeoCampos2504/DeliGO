@@ -33,6 +33,16 @@ export interface DeliveryAddress {
 export interface CartItem {
   key: string // unique identifier for this specific cart entry
   productoId: string
+  // P2-T56-R2C-F2: identifies the specific ProductoVariante chosen, when the
+  // product has variants. null/undefined for every product without
+  // variants — existing cart items keep working unchanged. Two different
+  // variants of the same product are always distinct cart lines (see
+  // generateCartItemKey).
+  varianteId?: string | null
+  // Snapshot-for-display only, mirrors PedidoItem.varianteNombre — the
+  // server always re-derives price/name authoritatively from the DB, this
+  // is never trusted as a price source.
+  varianteNombre?: string | null
   nombre: string
   precio: number
   cantidad: number
@@ -70,6 +80,7 @@ export function generateCartItemKey(item: Omit<CartItem, "key">): string {
 
   const parts = [
     item.productoId,
+    item.varianteId ?? "",
     item.agregados.map((a) => a.id).sort().join(","),
     seccionesStr,
     item.ingredientesQuitados.sort().join(","),

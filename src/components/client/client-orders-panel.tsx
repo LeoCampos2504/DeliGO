@@ -83,6 +83,8 @@ interface PedidoItem {
   ingredientesQuitados: unknown
   talle: string
   color: string
+  // P2-T56-R2C-F2: snapshot inmutable — null para todo item sin variante.
+  varianteNombre: string | null
 }
 
 interface Pedido {
@@ -117,6 +119,9 @@ interface Pedido {
 interface RepeatOrderItem {
   id: string
   productoId: string | null
+  // P2-T56-R2C-F2: variante actual re-validada (no la snapshot histórica).
+  varianteId: string | null
+  varianteNombre: string | null
   nombre: string
   precio: number
   precioActual: number | null
@@ -585,6 +590,8 @@ function RepeatOrderDialog({
 
         cart.addItem({
           productoId: item.productoId || item.id,
+          varianteId: item.varianteId,
+          varianteNombre: item.varianteNombre,
           nombre: item.nombre,
           precio,
           cantidad: item.cantidad,
@@ -762,6 +769,12 @@ function RepeatOrderDialog({
                     {!item.disponible && item.motivoIndisponibilidad && (
                       <p className="text-[10px] text-destructive/70 mt-0.5">
                         {item.motivoIndisponibilidad}
+                      </p>
+                    )}
+                    {/* Variante (P2-T56-R2C-F2) */}
+                    {item.disponible && item.varianteNombre && (
+                      <p className="text-[11px] text-primary/70">
+                        {item.varianteNombre}
                       </p>
                     )}
                     {/* Agregados */}
@@ -1526,9 +1539,9 @@ function ItemsList({ items }: { items: PedidoItem[] }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{item.nombre}</p>
-              {(item.talle || item.color) && (
+              {(item.varianteNombre || item.talle || item.color) && (
                 <p className="text-[11px] text-muted-foreground">
-                  {[item.talle, item.color].filter(Boolean).join(" · ")}
+                  {[item.varianteNombre, item.talle, item.color].filter(Boolean).join(" · ")}
                 </p>
               )}
               {secciones.length > 0 && (

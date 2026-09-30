@@ -128,6 +128,10 @@ interface IncomingAgregado {
 
 interface IncomingPedidoItem {
   productoId: string
+  // P2-T56-R2C-F2: negocio genérico product-with-variants. null for every
+  // existing product without variants — same optional/nullable contract as
+  // Caja's ventas route (src/app/api/negocio/caja/ventas/route.ts).
+  varianteId: string | null
   cantidad: number
   agregados: IncomingAgregado[]
   secciones: Record<string, SectionSelection>
@@ -157,6 +161,9 @@ interface PedidoPayload {
 
 interface ValidatedPedidoItem {
   productoId: string
+  // P2-T56-R2C-F2: snapshot pair, same pattern as VentaItem.
+  productoVarianteId: string | null
+  varianteNombre: string | null
   nombre: string
   precio: number
   cantidad: number
@@ -332,6 +339,18 @@ function validateSecciones(value: unknown): ValidationResult<Record<string, Sect
   return ok(result)
 }
 
+// P2-T56-R2C-F2: same optional-string-or-null contract already used by
+// Caja's ventas route for varianteId — `undefined`/`null`/`""` all mean "no
+// variant selected", never coerced into an empty-string id.
+function readOptionalId(value: unknown, field: string): ValidationResult<string | null> {
+  if (value === undefined || value === null) return ok(null)
+  if (typeof value !== "string") return fail(`${field} invalido`)
+  const trimmed = value.trim()
+  if (!trimmed) return ok(null)
+  if (trimmed.length > MAX_TEXT_LENGTH) return fail(`${field} invalido`)
+  return ok(trimmed)
+}
+
 function validateStringList(value: unknown, field: string): ValidationResult<string[]> {
   if (value === undefined || value === null) return ok([])
   if (!Array.isArray(value)) return fail(`${field} debe ser una lista`)
@@ -372,6 +391,9 @@ function validatePedidoPayload(payload: unknown): ValidationResult<PedidoPayload
     const productoId = readRequiredText(rawItem.productoId, "productoId")
     if (!productoId.ok) return productoId
 
+    const varianteId = readOptionalId(rawItem.varianteId, "varianteId")
+    if (!varianteId.ok) return varianteId
+
     if (
       typeof rawItem.cantidad !== "number" ||
       !Number.isInteger(rawItem.cantidad) ||
@@ -392,6 +414,7 @@ function validatePedidoPayload(payload: unknown): ValidationResult<PedidoPayload
 
     items.push({
       productoId: productoId.value,
+      varianteId: varianteId.value,
       cantidad: rawItem.cantidad,
       agregados: agregados.value,
       secciones: secciones.value,
@@ -846,6 +869,10 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
             },
           },
         },
+        // P2-T56-R2C-F2: todas (activas e inactivas) — una variante
+        // inactiva debe poder rechazarse explícitamente más abajo, en vez
+        // de simplemente no encontrarse.
+        variantes: true,
       },
     })
 
@@ -946,6 +973,28 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         return NextResponse.json({ error: "Color invalido" }, { status: 400 })
       }
 
+      // P2-T56-R2C-F2: negocio genérico product-with-variants — server is
+      // the sole price/stock authority, same principle Caja's ventas route
+      // already applies. A product with >=1 variant (active or not) always
+      // requires a valid, active, in-stock variant that belongs to THIS
+      // producto; a product without variants must never receive one.
+      let resolvedVariante: (typeof producto.variantes)[number] | null = null
+      if (producto.variantes.length > 0) {
+        if (!item.varianteId) {
+          return NextResponse.json({ error: "Debe seleccionar una variante" }, { status: 400 })
+        }
+        const variante = producto.variantes.find((v) => v.id === item.varianteId)
+        if (!variante || !variante.activo) {
+          return NextResponse.json({ error: "Variante invalida" }, { status: 400 })
+        }
+        if (variante.controlStock && variante.stockCantidad <= 0) {
+          return NextResponse.json({ error: "Variante sin stock" }, { status: 400 })
+        }
+        resolvedVariante = variante
+      } else if (item.varianteId) {
+        return NextResponse.json({ error: "Este producto no tiene variantes" }, { status: 400 })
+      }
+
       const allowedAgregados = new Map(
         producto.agregados.map((pa) => [pa.agregado.id, pa.agregado])
       )
@@ -953,7 +1002,9 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       const allowedSharedConfigs = new Map(sharedConfigs.map((config) => [config.id, config]))
       const selectedSharedCounts = new Map<string, number>()
 
-      const unitPrice = calculateEffectiveProductPrice(producto)
+      // Variant pricing is independent and never discounted via the base
+      // Producto's descuentoActivo/valorDescuento (R2C architecture).
+      const unitPrice = resolvedVariante ? resolvedVariante.precio : calculateEffectiveProductPrice(producto)
 
       let agregadosTotal = 0
       const validatedAgregados: Array<{ id: string; nombre: string; precio: number; tipo: string }> = []
@@ -1019,6 +1070,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       serverTotalProductos += (unitPrice + agregadosTotal + validSections.value.seccionesTotal) * item.cantidad
       validatedItems.push({
         productoId: producto.id,
+        productoVarianteId: resolvedVariante?.id ?? null,
+        varianteNombre: resolvedVariante?.nombre ?? null,
         nombre: producto.nombre,
         precio: unitPrice,
         cantidad: item.cantidad,
@@ -1639,6 +1692,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       items: {
         create: validatedItems.map((item) => ({
           productoId: item.productoId,
+          productoVarianteId: item.productoVarianteId,
+          varianteNombre: item.varianteNombre,
           nombre: item.nombre,
           precio: item.precio,
           cantidad: item.cantidad,

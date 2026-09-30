@@ -372,6 +372,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
           negocioId: negocio.id,
           items: items.map((item) => ({
             productoId: item.productoId,
+            varianteId: item.varianteId ?? null,
             nombre: item.nombre,
             precio: item.precio,
             cantidad: item.cantidad,
@@ -878,6 +879,7 @@ function CartItemCard({
 
   // Collect all detail chips
   const details: string[] = []
+  if (item.varianteNombre) details.push(item.varianteNombre)
   if (item.talle) details.push(`Talle: ${item.talle}`)
   if (item.color) details.push(`Color: ${item.color}`)
   item.agregados.forEach((a) => details.push(`+ ${a.nombre}`))

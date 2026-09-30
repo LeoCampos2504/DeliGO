@@ -70,6 +70,12 @@ export async function PUT(
         descuentoActivo: true,
         tipoDescuento: true,
         valorDescuento: true,
+        // P2-T56-R2C-F2: negocio genérico product-with-variants — repeating
+        // an order must re-validate the SPECIFIC historical variant, never
+        // silently fall back to the (dormant) base product fields.
+        variantes: {
+          select: { id: true, nombre: true, precio: true, activo: true, controlStock: true, stockCantidad: true },
+        },
       },
     })
 
@@ -82,6 +88,11 @@ export async function PUT(
       let disponible = true
       let motivoIndisponibilidad: string | null = null
       let precioActual: number | null = null
+      // P2-T56-R2C-F2: la variante ACTUAL (re-validada), nunca la snapshot
+      // histórica del pedido original — si fue renombrada, se muestra el
+      // nombre vigente.
+      let varianteId: string | null = null
+      let varianteNombre: string | null = null
 
       if (!item.productoId) {
         // Item has no product reference (manually added or product deleted)
@@ -93,6 +104,26 @@ export async function PUT(
       } else if (!productoActual.stock) {
         disponible = false
         motivoIndisponibilidad = "Sin stock"
+      } else if (productoActual.variantes.length > 0) {
+        // Producto con variantes: el precio/stock del Producto base están
+        // dormidos — la variante histórica es la única fuente válida.
+        const variante = item.productoVarianteId
+          ? productoActual.variantes.find((v) => v.id === item.productoVarianteId)
+          : null
+        if (!variante) {
+          disponible = false
+          motivoIndisponibilidad = "Este producto ahora requiere elegir una opción — volvé a agregarlo desde el catálogo"
+        } else if (!variante.activo) {
+          disponible = false
+          motivoIndisponibilidad = "Esta opción ya no está disponible"
+        } else if (variante.controlStock && variante.stockCantidad <= 0) {
+          disponible = false
+          motivoIndisponibilidad = "Sin stock"
+        } else {
+          precioActual = variante.precio
+          varianteId = variante.id
+          varianteNombre = variante.nombre
+        }
       } else {
         // Calculate the effective price (with discount if active)
         let precioEfectivo = productoActual.precio
@@ -137,6 +168,8 @@ export async function PUT(
       return {
         id: item.id,
         productoId: item.productoId,
+        varianteId,
+        varianteNombre,
         nombre: item.nombre,
         precio: item.precio,
         precioActual,

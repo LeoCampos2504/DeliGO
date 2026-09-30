@@ -49,6 +49,22 @@ const productPublicSelect = {
       },
     },
   },
+  // P2-T56-R2C-F2: se traen TODAS (activas e inactivas) — nunca filtradas
+  // por `where` acá — porque `tieneVariantes` (ver buildPublicProduct) debe
+  // reflejar si el producto fue configurado alguna vez con variantes,
+  // incluso si hoy no queda ninguna activa (nunca debe caer de vuelta al
+  // precio/stock "dormido" del Producto base en ese caso). Solo las
+  // variantes activas se exponen después en el array `variantes`.
+  variantes: {
+    select: {
+      id: true,
+      nombre: true,
+      precio: true,
+      activo: true,
+      controlStock: true,
+      stockCantidad: true,
+    },
+  },
 } as const
 
 type ProductRecord = {
@@ -86,6 +102,14 @@ type ProductRecord = {
       categoria: string
       imagenUrl: string | null
     }
+  }>
+  variantes: Array<{
+    id: string
+    nombre: string
+    precio: number
+    activo: boolean
+    controlStock: boolean
+    stockCantidad: number
   }>
 }
 
@@ -235,6 +259,20 @@ function buildPublicProduct(product: ProductRecord) {
     })),
     precioPromo,
     descuentoLabel,
+    // P2-T56-R2C-F2: `tieneVariantes` refleja si el producto fue configurado
+    // con variantes alguna vez (activas o no) — solo las activas viajan en
+    // `variantes`. No se exponen costo/sku/codigoBarras/auditoria de cada
+    // variante, ni las inactivas (ver comentario en productPublicSelect).
+    tieneVariantes: product.variantes.length > 0,
+    variantes: product.variantes
+      .filter((v) => v.activo)
+      .map((v) => ({
+        id: v.id,
+        nombre: v.nombre,
+        precio: v.precio,
+        controlStock: v.controlStock,
+        stockCantidad: v.stockCantidad,
+      })),
   }
 }
 
