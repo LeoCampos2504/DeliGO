@@ -9,7 +9,7 @@ P2_T56_R2B_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
-TESTING_CODEX_HEAD=5002d8b6e8906679210536e4496f164d2442e612
+TESTING_CODEX_HEAD=5c468a74e14f207969d3d06aa83127aa927ad9e6 (advanced by the P2-T56-R2C closeout documentation commit, docs only, no code change)
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -25,8 +25,13 @@ KNOWN_FOLLOW_UP_ORDER_STOCK_LIFECYCLE=
   (reserva, descuento, liberación por cancelación, lifecycle de
   aceptación/rechazo). No implementado, backlog explícito.
 KNOWN_FOLLOW_UP_VARIANT_SEARCH=
-  VARIANT_SEARCH_IMPLEMENTED=NO — Inventario/Caja no buscan por
-  nombre/SKU/barcode de variante hoy. No bloquea T56; backlog opcional.
+  P2_T56_R3B_STATUS=IMPLEMENTED_TESTED_PUSHED_AWAITING_TESTING_INTEGRATION_AUTHORIZATION
+  — Inventario y Caja ahora encuentran el Producto padre por
+  nombre/SKU/barcode de VARIANTE además de nombre/marca/SKU/barcode del
+  Producto base, sin mostrar variantes como cards independientes.
+  Implementado en la branch work/p2-t56-r3-variant-search (no integrado a
+  testing-codex todavía). Ver codex-reports/P2_T56_R3B_VARIANT_SEARCH.md
+  para el detalle completo. No bloqueaba T56; era backlog opcional.
 
 P2_T54_STATUS=R1_IMPLEMENTED_TESTED_PUSHED_BLOCKED_ON_TESTING_CODEX_INTEGRATION_AUTHORIZATION
   (reconciliado desde CODEX_REPORT.md, más reciente que el snapshot A1 de

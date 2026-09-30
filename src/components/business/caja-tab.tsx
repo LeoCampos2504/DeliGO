@@ -32,6 +32,7 @@ import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, isProductSellable } from "@/lib/inventario"
 import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
+import { matchesCajaSearch } from "@/lib/product-variant-search"
 import {
   addCartLine,
   cartItemCount,
@@ -55,6 +56,10 @@ interface CajaVariante {
   activo: boolean
   controlStock: boolean
   stockCantidad: number
+  // P2-T56-R3B: already present in the GET /api/negocio/productos response
+  // (full Prisma include) — just not previously declared/read here.
+  sku: string | null
+  codigoBarras: string | null
 }
 
 interface CajaProducto {
@@ -68,6 +73,10 @@ interface CajaProducto {
   stockCantidad: number
   stockMinimo: number
   variantes: CajaVariante[]
+  // P2-T56-R3B: same note as CajaVariante above.
+  marca: string | null
+  sku: string | null
+  codigoBarras: string | null
 }
 
 // P2-T56-R2A: snapshot line, exactly as persisted on VentaItem — never
@@ -179,12 +188,15 @@ function VenderView({ negocioId }: { negocioId: string }) {
     return stillValid ? categoria : "todas"
   }, [categoria, categorias, hasSinCategoria])
 
+  // P2-T56-R3B: a search term matching an ACTIVE variant's nombre/sku/
+  // codigoBarras surfaces the parent Producto (never as a separate card) —
+  // an inactive variant alone never does, since it isn't sellable (section
+  // 9). Tapping the product still opens the normal variant selector; a
+  // search match never auto-adds or auto-selects a variant (section 5).
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
     return activos.filter((p) => {
       if (effectiveCategoria !== "todas" && !matchesCategoryFilter(p.categoria, effectiveCategoria)) return false
-      if (!term) return true
-      return p.nombre.toLowerCase().includes(term)
+      return matchesCajaSearch(p, search)
     })
   }, [activos, search, effectiveCategoria])
 

@@ -40,6 +40,7 @@ import {
   type StockStatus,
 } from "@/lib/inventario"
 import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
+import { matchesInventorySearch, findMatchingVariante } from "@/lib/product-variant-search"
 import { AdministrarCategoriasDialog } from "./administrar-categorias-dialog"
 
 // P2-T56-R2C: a product WITH >=1 variant keeps this shape too (nombre/
@@ -197,16 +198,15 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
     return stillValid ? categoria : "todas"
   }, [categoria, categorias, hasSinCategoria])
 
+  // P2-T56-R3B: a product with variants must surface here when the search
+  // term matches ANY of its variants' nombre/sku/codigoBarras (section 2) —
+  // Inventario allows matching via an inactive variant too, since the
+  // admin still needs to find/manage it (section 9). Category filtering is
+  // untouched and still applied first (section 11).
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
     return activos.filter((p) => {
       if (effectiveCategoria !== "todas" && !matchesCategoryFilter(p.categoria, effectiveCategoria)) return false
-      if (!term) return true
-      return (
-        p.nombre.toLowerCase().includes(term) ||
-        (p.sku ?? "").toLowerCase().includes(term) ||
-        (p.codigoBarras ?? "").toLowerCase().includes(term)
-      )
+      return matchesInventorySearch(p, search)
     })
   }, [activos, search, effectiveCategoria])
 
@@ -293,7 +293,12 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
           {/* Mobile: compact cards */}
           <div className="space-y-2 sm:hidden">
             {filtered.map((p) => (
-              <ProductoCardMobile key={p.id} producto={p} onClick={() => setDetailProduct(p)} />
+              <ProductoCardMobile
+                key={p.id}
+                producto={p}
+                onClick={() => setDetailProduct(p)}
+                matchedVariante={findMatchingVariante(p, search, { allowInactive: true })}
+              />
             ))}
           </div>
           {/* Desktop: dense table */}
@@ -316,11 +321,18 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
                   // the row is the only way to see/manage each variant.
                   if (p.variantes.length > 0) {
                     const resumen = summarizeVariantes(p.variantes)
+                    // P2-T56-R3B section 4: discrete hint when the search
+                    // matched via a variant rather than the base product —
+                    // never auto-expands/edits, purely informational.
+                    const matchedVariante = findMatchingVariante(p, search, { allowInactive: true })
                     return (
                       <tr key={p.id} className="border-t border-border/60 hover:bg-muted/30 cursor-pointer" onClick={() => setDetailProduct(p)}>
                         <td className="px-3 py-2 font-medium">
                           {p.nombre}
                           <span className="ml-1.5 text-xs font-normal text-muted-foreground">{resumen.cantidadActivas} variante{resumen.cantidadActivas === 1 ? "" : "s"}</span>
+                          {matchedVariante && (
+                            <span className="block text-[11px] font-normal text-primary/70">Coincide: {matchedVariante.nombre}</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">{p.categoria}</td>
                         <td className="px-3 py-2 text-right">{resumen.precioDesde != null ? `Desde ${formatPrice(resumen.precioDesde)}` : "—"}</td>
@@ -439,7 +451,15 @@ function EmptyState({
   )
 }
 
-function ProductoCardMobile({ producto, onClick }: { producto: InventarioProducto; onClick: () => void }) {
+function ProductoCardMobile({
+  producto,
+  onClick,
+  matchedVariante = null,
+}: {
+  producto: InventarioProducto
+  onClick: () => void
+  matchedVariante?: { nombre: string } | null
+}) {
   if (producto.variantes.length > 0) {
     const resumen = summarizeVariantes(producto.variantes)
     return (
@@ -460,6 +480,10 @@ function ProductoCardMobile({ producto, onClick }: { producto: InventarioProduct
             {resumen.cantidadActivas} variante{resumen.cantidadActivas === 1 ? "" : "s"}
             {resumen.precioDesde != null ? ` · Desde ${formatPrice(resumen.precioDesde)}` : ""}
           </p>
+          {/* P2-T56-R3B section 4 */}
+          {matchedVariante && (
+            <p className="text-[11px] text-primary/70 truncate">Coincide: {matchedVariante.nombre}</p>
+          )}
         </div>
         <div className="shrink-0 flex flex-col items-end gap-1">
           {resumen.stockTotal != null && (
