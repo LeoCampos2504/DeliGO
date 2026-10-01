@@ -1344,12 +1344,19 @@ IMPLEMENTATION_PHASES=
   (A0.1-0 #3).
 ```
 
-### A0.1-21 Stale / contradiction scan
+### A0.1-21 Stale / contradiction scan al cierre de A0.1 (2026-09-30, histórico desde P0)
 
 Patrones buscados en CODEX_REPORT, FULL_CONTEXT, ROADMAP y este reporte:
 `UNRESOLVED_PRODUCT_DECISIONS=6`, "decisiones de producto abiertas",
 `RESERVATION_POINT`, `AVAILABLE`, `ROLLBACK`, `FEATURE_FLAG`, `R3A_STATUS`,
 `OPEN_BACKLOG`, `DESIGN_COMPLETE`, `NEXT_ACTION`.
+
+> **Nota (2026-10-01, R3A-P0):** este scan y su resultado corresponden al **cierre de
+> A0.1** y se conservan sin cambios (eran correctos en ese momento). No representan el
+> estado current posterior a P0: P0 fue implementado en el commit
+> `489d55b342f5ffdc7be6b7bb3ae61750ca755260`, y el estado current (con su propio scan)
+> está en `CODEX_REPORT.md`, `DELIGO_FULL_CONTEXT_LATEST.md`, `codex-reports/ROADMAP.md`
+> y `codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md`.
 
 ```text
 CURRENT=estado R3A en las cabeceras vigentes de CODEX_REPORT, FULL_CONTEXT y ROADMAP
