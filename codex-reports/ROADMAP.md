@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle design (2026-09-30)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,8 +10,8 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION
-TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code e684283 + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design lives only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code e684283 + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design (A0 + A0.1) lives only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -22,8 +22,13 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION —
-  auditoría + diseño A0 terminados, sin implementación. Comportamiento actual
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION —
+  auditoría + diseño A0 y hardening A0.1 terminados, sin implementación.
+  Estrategia RESERVE_ON_ORDER_CREATION_CONSUME_ON_PREPARANDO aceptada como
+  dirección por el operador; las 6 decisiones de producto quedaron resueltas
+  (UNRESOLVED_PRODUCT_DECISIONS_COUNT=0); scope GENERIC_BUSINESS_ONLY
+  (Restaurante/Ropa sin cambios); fases P0 (paridad de variantes en Mozo, sin
+  schema) → I1…I5 detrás de un modo ON/DRAINING/OFF en DB. Comportamiento actual
   verificado en código (más débil de lo que decía este backlog): la creación de
   Pedido sólo valida variantes con stock <= 0 (no por cantidad, fuera de
   transacción), no valida stock de productos base, y el route de pedidos manuales
@@ -31,10 +36,10 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   (atómico con la creación, Serializable), consumir en la transición a
   `preparando`, liberar sólo al cancelar antes de `preparando`, sin restock
   automático en cancelaciones tardías; Caja y Movimientos validan contra
-  disponible = físico − reservado. Requiere una tabla nueva y una migración
-  aditiva, y 6 decisiones de producto abiertas. Detalle:
-  codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md. Nada se implementa
-  sin la decisión del operador.
+  disponible = max(0, físico − reservado). Requiere una tabla nueva y una
+  migración aditiva (en I1). Detalle (A0.1 es la autoridad vigente):
+  codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md § A0.1. Nada se
+  implementa (ni P0 ni I1) sin la autorización explícita del operador.
 RESOLVED_FOLLOW_UP_VARIANT_SEARCH=
   P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED — Inventario y Caja encuentran
   el Producto padre por nombre/SKU/barcode de VARIANTE además de
@@ -63,8 +68,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A implementation not authorized)
-NEXT_ACTION=AWAIT_OPERATOR_ARCHITECTURE_DECISION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A implementation — P0/I1 — not authorized)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_IMPLEMENTATION_AUTHORIZATION
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -79,9 +84,9 @@ variante en Inventario y Caja, sin cambio de backend ni schema) cerró
 también `CLOSED_TESTING_CERTIFIED` el 2026-09-30, resolviendo uno de los
 dos follow-ups registrados en el cierre de R2C. Production no fue tocada.
 El único follow-up restante, el lifecycle de stock de Pedidos
-(P2-T56-R3A), tiene la auditoría y el diseño A0 terminados
-(`DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION`, 2026-09-30) —
-sin implementación; espera la decisión de arquitectura del operador. No se
+(P2-T56-R3A), tiene la auditoría/diseño A0 y el hardening A0.1 terminados
+(`ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION`, 2026-09-30) —
+sin implementación; espera la autorización de implementación del operador. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue

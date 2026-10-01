@@ -6,7 +6,48 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A ORDER STOCK LIFECYCLE DESIGN (2026-09-30) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A A0.1 ARCHITECTURE HARDENING + PRODUCT DECISIONS (2026-09-30) ===
+
+CURRENT_TASK=P2-T56-R3A-A0.1-ARCHITECTURE-HARDENING
+CURRENT_TASK_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
+RESULT=READY_FOR_T56_R3A_IMPLEMENTATION_AUTHORIZATION
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
+A0_1_HARDENING_COMPLETE=YES
+R3A_BRANCH=work/p2-t56-r3-stock-lifecycle (docs only: A0 commit 238ccade48dd686fb3d607a6100c98eea63aa59a + A0.1 commit "docs: harden T56 order stock architecture"; based on testing-codex 1e14355c617cad33ab33c3fdda508c6a93830f4e; NOT integrated)
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (unchanged by this task)
+ACCEPTED_ORDER_STOCK_DIRECTION=RESERVE_ON_ORDER_CREATION_CONSUME_ON_PREPARANDO (accepted as direction; implementation NOT authorized)
+PRODUCT_DECISIONS=AUTO_CANCEL_POST_PREPARANDO_RESTOCK=NO; ORDER_RESERVATION_EXPIRATION_INITIAL_POLICY=NO_AUTOMATIC_EXPIRATION_IN_FIRST_IMPLEMENTATION (follow-up STALE_OPEN_ORDER_EXPIRATION_POLICY); physical<reserved → available=max(0,…), deficit reported, →preparando 409 STOCK_RESERVATION_DEFICIT; ENTRADA allowed / SALIDA rejected below reserved / AJUSTE always allowed + deficit warning; MOZO_VARIANT_PARITY_SCOPE=R3A_P0_REQUIRED_PREREQUISITE; PUBLIC_STOCK_AVAILABILITY_STRATEGY=EXPOSE_DERIVED_AVAILABLE_QUANTITY_NOT_PHYSICAL_STOCK
+UNRESOLVED_PRODUCT_DECISIONS_COUNT=0
+R3A_RUBRO_SCOPE=GENERIC_BUSINESS_ONLY (explicit server-side gate; RESTAURANTE/ROPA_ORDER_STOCK_BEHAVIOR_CHANGED=NO)
+ORDER_CREATION_RESERVATION_SEQUENCE=pre-generated PedidoItem ids (OPTION_A) → Pedido + items + ReservaStock in one Serializable tx with bounded retry (RESERVATION_ATOMIC_WITH_ORDER_CREATION=YES)
+ORDER_STOCK_FEATURE_FLAG_STRATEGY=DB mode ON/DRAINING/OFF (ConfigPlataforma); OFF only with 0 ACTIVE reservations in the same Serializable tx; Caja/Movimientos always respect ACTIVE reservations
+SHARED_AUTHORITIES=→preparando side effects (6 writers) and cancellation effects (6 sites: debt reversal + reservation release) each in one shared transactional helper
+IMPLEMENTATION_PHASES=R3A-P0 Mozo variant parity (no schema, own commit) → I1 additive schema + pure authority → I2 transactional wiring (mode OFF) → I3 Caja/Movimientos → I4 visibility + public API stockDisponible + mode transitions → I5 mode ON in TESTING + certification
+SCHEMA_CHANGE_REQUIRED=YES (I1: ReservaStock + MovimientoInventario.pedidoId + ConfigPlataforma.stockReservaModo; additive)
+MIGRATION_REQUIRED=YES (I1; none in A0/A0.1)
+HISTORICAL_ORDERS_BACKFILL_REQUIRED=NO
+A0_CORRECTIONS=→preparando writers are 6 (A0 missed PUT /api/negocio/pedidos, Salón tab mesa orders); cancellation sites are 6; A0 §15/§17/§19/§22/§24/§31–§34 marked SUPERSEDED/HISTÓRICO
+LATERAL_FINDINGS=(1) inventory APIs are not rubro-gated server-side (UI gate only) — follow-up, not fixed; (2) DELETE /api/negocio/productos/[id] hard-deletes and cascades its MovimientoInventario history — existing behavior, not changed; (3) prior A0 lateral findings (Mozo variant pricing, Caja duplicate lines) now scheduled in P0/I3
+SOURCE_CODE_CHANGED=NO
+PRODUCTION_TOUCHED=NO
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0/I1 not started)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_IMPLEMENTATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md (section "A0.1 Architecture Hardening" is the current authority)
+
+A0.1 hardened the order-stock design without implementing anything. The 6 product
+decisions are adopted. The reserve-before-create inconsistency is resolved with
+pre-generated PedidoItem ids inside one Serializable transaction. A concrete SSI
+conflict matrix, per-FK delete semantics, a drain-safe ON/DRAINING/OFF mode,
+shared →preparando and cancellation authorities, the Mozo P0 scope, the public API
+contract and invariants I1–I15 are now fixed. Waiting for the operator to authorize
+implementation (P0 first).
+
+=== HISTORICAL HANDOFF — P2-T56-R3A ORDER STOCK LIFECYCLE DESIGN A0 (2026-09-30; superseded as the current pointer by A0.1 above — its open decisions are resolved and its §15/§17/§22/§24/§31–§34 are superseded by A0.1) ===
 
 CURRENT_TASK=P2-T56-R3A-ORDER-STOCK-LIFECYCLE-DESIGN
 CURRENT_TASK_STATUS=DESIGN_COMPLETE_AWAITING_OPERATOR_ARCHITECTURE_DECISION
@@ -43,7 +84,7 @@ support). Recommended: reserve at order creation, consume at `preparando`, relea
 only on pre-`preparando` cancellation. Awaiting the operator's architecture
 decision and the 6 open product decisions before any implementation.
 
-=== HISTORICAL HANDOFF — P2-T56-R3B VARIANT SEARCH CLOSEOUT (2026-09-30; superseded as the current pointer by the P2-T56-R3A design above — R3B itself remains CLOSED_TESTING_CERTIFIED) ===
+=== HISTORICAL HANDOFF — P2-T56-R3B VARIANT SEARCH CLOSEOUT (2026-09-30; superseded as the current pointer by the P2-T56-R3A design/hardening above — R3B itself remains CLOSED_TESTING_CERTIFIED) ===
 
 CURRENT_TASK=P2-T56-R3B-VARIANT-SEARCH-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
