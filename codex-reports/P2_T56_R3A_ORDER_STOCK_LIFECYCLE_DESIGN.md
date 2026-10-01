@@ -1373,7 +1373,15 @@ STALE_CURRENT_REFERENCES=0
   índices y retry acotado; agotado → 409 claro.
 - El defecto latente de Caja (A0 §6) sigue presente hasta I3.
 
-### A0.1-23 Markers finales A0.1 (vigentes)
+### A0.1-23 Markers al cierre de A0.1 (2026-09-30, históricos desde P0)
+
+> **Nota (2026-10-01, R3A-P0):** el bloque de abajo es el estado **al cierre de A0.1**
+> y se conserva sin cambios como evidencia histórica. Desde R3A-P0 ya **no** es el
+> estado current: P0 (paridad de variantes en Mozo) fue implementado en el commit
+> `489d55b342f5ffdc7be6b7bb3ae61750ca755260`. El estado current se lee en
+> `CODEX_REPORT.md`, `DELIGO_FULL_CONTEXT_LATEST.md`, `codex-reports/ROADMAP.md` y
+> `codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md`. Los markers arquitectónicos de
+> A0.1 (A0.1-1 … A0.1-22) siguen siendo la autoridad de diseño para I1–I5.
 
 ```text
 A0_1_HARDENING_COMPLETE=YES
