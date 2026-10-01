@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity implemented (2026-10-01)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,8 +10,9 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
-TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code e684283 + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design (A0 + A0.1) lives only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_IMPLEMENTED_AWAITING_TESTING_INTEGRATION (R3A no está cerrada; I1–I5 no iniciadas)
+P2_T56_R3A_P0_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code e684283 + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design (A0 + A0.1) and the R3A-P0 code live only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -22,8 +23,14 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION —
-  auditoría + diseño A0 y hardening A0.1 terminados, sin implementación.
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_IMPLEMENTED_AWAITING_TESTING_INTEGRATION —
+  auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
+  en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
+  productoVarianteId/varianteNombre, sin schema, sin tocar stock) implementada y
+  testeada en la branch, pendiente de autorización de integración a TESTING
+  (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
+  (ReservaStock, I1–I5) sigue SIN implementar: RESERVATION_IMPLEMENTED=NO,
+  ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO, AVAILABLE_STOCK_IMPLEMENTED=NO.
   Estrategia RESERVE_ON_ORDER_CREATION_CONSUME_ON_PREPARANDO aceptada como
   dirección por el operador; las 6 decisiones de producto quedaron resueltas
   (UNRESOLVED_PRODUCT_DECISIONS_COUNT=0); scope GENERIC_BUSINESS_ONLY
@@ -32,7 +39,8 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   verificado en código (más débil de lo que decía este backlog): la creación de
   Pedido sólo valida variantes con stock <= 0 (no por cantidad, fuera de
   transacción), no valida stock de productos base, y el route de pedidos manuales
-  de Mozo no soporta variantes. Recomendación: reservar al crear el Pedido
+  de Mozo no soporta variantes en TESTING (corregido por R3A-P0 en la branch, aún
+  no integrado). Recomendación: reservar al crear el Pedido
   (atómico con la creación, Serializable), consumir en la transición a
   `preparando`, liberar sólo al cancelar antes de `preparando`, sin restock
   automático en cancelaciones tardías; Caja y Movimientos validan contra
@@ -68,8 +76,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A implementation — P0/I1 — not authorized)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_IMPLEMENTATION_AUTHORIZATION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-P0 integration to testing-codex not authorized; I1 not authorized)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P0_TESTING_INTEGRATION_AUTHORIZATION
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -85,8 +93,9 @@ también `CLOSED_TESTING_CERTIFIED` el 2026-09-30, resolviendo uno de los
 dos follow-ups registrados en el cierre de R2C. Production no fue tocada.
 El único follow-up restante, el lifecycle de stock de Pedidos
 (P2-T56-R3A), tiene la auditoría/diseño A0 y el hardening A0.1 terminados
-(`ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION`, 2026-09-30) —
-sin implementación; espera la autorización de implementación del operador. No se
+(2026-09-30) y su subfase P0 (paridad de variantes en Mozo) implementada en la
+branch (2026-10-01, `IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION`); el
+lifecycle de stock (I1–I5) sigue sin implementar. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue

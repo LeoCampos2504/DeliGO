@@ -1,20 +1,22 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout and P2-T56-R3A A0.1 hardening (2026-09-30)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) and R3A-P0 (2026-10-01)
 
 ```text
-CURRENT_TASK=P2-T56-R3A-A0.1-ARCHITECTURE-HARDENING
-CURRENT_TASK_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
-RESULT=READY_FOR_T56_R3A_IMPLEMENTATION_AUTHORIZATION
+CURRENT_TASK=P2-T56-R3A-P0-MOZO-VARIANT-PARITY
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_P0_TESTING_INTEGRATION_REVIEW
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
-TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design (A0 238ccad + A0.1 hardening) is only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (R3B code + R3B closeout docs + FULL_CONTEXT sync, docs only). The R3A design (A0 238ccad + A0.1 4f38992) and the R3A-P0 code are only on branch work/p2-t56-r3-stock-lifecycle — not integrated.
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION (order stock lifecycle — ver limitación de stock abajo; nada implementado; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_IMPLEMENTED_AWAITING_TESTING_INTEGRATION (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
+P2_T56_R3A_P0_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (paridad de variantes en pedidos manuales de Mozo; sin schema; sin tocar stock)
+RESERVATION_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO / AVAILABLE_STOCK_IMPLEMENTED=NO / R3A_I1_STARTED=NO
 PRODUCTION_TOUCHED=NO
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-P0/I1 not started)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_IMPLEMENTATION_AUTHORIZATION
-REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md (R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0 testing-codex integration and I1 not authorized)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P0_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (diseño R3A: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md; R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
 
 ### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
@@ -90,13 +92,15 @@ vez. Estado final, en orden:
 fue tocada en ningún momento de esta secuencia.**
 
 **Limitación de stock conocida (`P2-T56-R3A`, diseño A0 + hardening A0.1 terminados,
-`ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION`, nada implementado):**
+P0 implementada en la branch, lifecycle de stock sin implementar):**
 `ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` — crear un
 `Pedido` NO reserva ni descuenta stock; sólo Caja descuenta al vender. La auditoría
 A0 verificó que la validación actual es más débil de lo que decía este párrafo:
 sólo rechaza variantes con `stock <= 0` (no compara con la cantidad pedida, y corre
 fuera de la transacción), no valida stock de productos base, y los pedidos manuales
-de Mozo no soportan variantes. Dirección aceptada por el operador: reservar al crear
+de Mozo no soportan variantes en TESTING (R3A-P0 lo corrige en la branch —
+selector, precio de variante server-side, snapshot — aún sin integrar; ver
+`codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md`). Dirección aceptada por el operador: reservar al crear
 el Pedido, consumir en `preparando`, liberar sólo al cancelar antes de `preparando`,
 sin restock automático en cancelaciones tardías. A0.1 resolvió las 6 decisiones de
 producto (`UNRESOLVED_PRODUCT_DECISIONS_COUNT=0`), fijó el scope a negocio genérico
@@ -104,7 +108,8 @@ producto (`UNRESOLVED_PRODUCT_DECISIONS_COUNT=0`), fijó el scope a negocio gen�
 una única transacción Serializable, `available = max(0, físico − reservado)` con
 déficit reportado, un modo ON/DRAINING/OFF en DB (OFF sólo con 0 reservas activas),
 autoridades compartidas para `→ preparando` y cancelación, y las fases P0 (paridad
-de variantes en Mozo, sin schema) → I1…I5. La implementación NO está autorizada.
+de variantes en Mozo, sin schema) → I1…I5. P0 está implementada (2026-10-01,
+`IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION`); I1…I5 NO están autorizadas ni iniciadas.
 Detalle (sección A0.1 = autoridad vigente):
 `codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md`.
 

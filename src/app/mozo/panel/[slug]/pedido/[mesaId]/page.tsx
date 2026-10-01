@@ -29,6 +29,17 @@ import { Logo } from "@/components/shared/logo"
 import { cn, formatPrice } from "@/lib/utils"
 import { formatOptionalPriceDelta, type OwnSectionOption } from "@/lib/product-own-sections"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+// P2-T56-R3A-P0: same pure availability/price-label rules Cliente uses
+// (R2C-F2) — display only; the manual-order POST route remains the sole
+// price/stock authority server-side.
+import {
+  isProductoConVariantesDisponible,
+  isVarianteDisponible,
+  precioDesdeVariantes,
+  resolveSingleActiveVariant,
+  type ClientProductoVariante,
+} from "@/lib/client-product-variants"
+import { buildOrderItemKey } from "@/lib/mozo-order-item-key"
 
 interface MesaOperativa {
   id: string
@@ -60,6 +71,10 @@ interface MenuProduct {
   precioPromo: number | null
   imagenUrl: string | null
   stock: boolean
+  // P2-T56-R3A-P0: true if the product was ever configured with variants;
+  // `variantes` carries only the active ones.
+  tieneVariantes: boolean
+  variantes: ClientProductoVariante[]
   secciones: Array<{ nombre: string; opciones: OwnSectionOption[]; obligatorio: boolean; maximo: number }>
   talles: string[]
   colores: string[]
@@ -89,6 +104,9 @@ type SectionSelection = string | Record<string, number>
 interface OrderItem {
   key: string
   productoId: string
+  // P2-T56-R3A-P0: null for products without variants.
+  varianteId: string | null
+  varianteNombre: string | null
   nombre: string
   precio: number
   cantidad: number
@@ -360,6 +378,7 @@ export default function MozoPedidoManualPage() {
           notas,
           items: cart.map((item) => ({
             productoId: item.productoId,
+            varianteId: item.varianteId,
             cantidad: item.cantidad,
             agregados: item.agregados.map((agregado) => ({ id: agregado.id })),
             secciones: item.secciones,
@@ -541,7 +560,7 @@ export default function MozoPedidoManualPage() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 font-semibold">{product.nombre}</p>
-                    <p className="mt-1 text-sm font-bold text-amber-700 dark:text-amber-300">{formatPrice(product.precioPromo ?? product.precio)}</p>
+                    <p className="mt-1 text-sm font-bold text-amber-700 dark:text-amber-300">{getMenuProductPriceLabel(product)}</p>
                     {product.descripcion && (
                       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.descripcion}</p>
                     )}
@@ -642,6 +661,23 @@ function ProductConfigurator({
   const [selectedTalle, setSelectedTalle] = useState("")
   const [selectedColor, setSelectedColor] = useState("")
 
+  // P2-T56-R3A-P0: product-with-variants selection, same rules as Cliente
+  // (R2C-F2): exactly one variant per line, a depleted one is visible but
+  // not selectable, a single available active variant is auto-selected but
+  // still shown explicitly. Never merged with the product's own options.
+  const variantesActivas = product.tieneVariantes ? product.variantes : []
+  const [selectedVarianteId, setSelectedVarianteId] = useState<string | null>(() => {
+    const unica = resolveSingleActiveVariant(variantesActivas)
+    return unica && isVarianteDisponible(unica) ? unica.id : null
+  })
+  const selectedVariante = useMemo(
+    () => variantesActivas.find((v) => v.id === selectedVarianteId) ?? null,
+    [variantesActivas, selectedVarianteId]
+  )
+  const varianteOk = !product.tieneVariantes || (selectedVariante !== null && isVarianteDisponible(selectedVariante))
+  // Never the dormant base price for a product with variants.
+  const basePrice = product.tieneVariantes ? (selectedVariante?.precio ?? 0) : (product.precioPromo ?? product.precio)
+
   const selectedAddons = useMemo(() => {
     return [...Object.values(selectedAgregados), ...Object.values(selectedShared)]
   }, [selectedAgregados, selectedShared])
@@ -678,7 +714,7 @@ function ProductConfigurator({
   }, [product.secciones, selectedSections])
 
   const unitTotal =
-    (product.precioPromo ?? product.precio) +
+    basePrice +
     selectedAddons.reduce((sum, addon) => sum + addon.precio, 0) +
     seccionesPricing.total
   const canAdd = useMemo(() => {
@@ -695,8 +731,8 @@ function ProductConfigurator({
       .every((option) =>
         Object.keys(selectedShared).some((key) => key.startsWith(`${option.id}::`))
       )
-    return sectionsOk && sharedOk
-  }, [product.opcionesCompartidas, product.secciones, selectedSections, selectedShared])
+    return sectionsOk && sharedOk && varianteOk
+  }, [product.opcionesCompartidas, product.secciones, selectedSections, selectedShared, varianteOk])
 
   const toggleAgregado = (agregado: { id: string; nombre: string; precio: number }) => {
     setSelectedAgregados((current) => {
@@ -750,9 +786,12 @@ function ProductConfigurator({
   }
 
   const addConfiguredProduct = () => {
+    if (!varianteOk) return
+    const varianteId = product.tieneVariantes ? (selectedVariante?.id ?? null) : null
     const item: OrderItem = {
       key: buildOrderItemKey({
         productoId: product.id,
+        varianteId,
         agregados: selectedAddons,
         secciones: selectedSections,
         ingredientesQuitados: Object.values(removedIngredientes),
@@ -760,8 +799,10 @@ function ProductConfigurator({
         color: selectedColor,
       }),
       productoId: product.id,
+      varianteId,
+      varianteNombre: product.tieneVariantes ? (selectedVariante?.nombre ?? null) : null,
       nombre: product.nombre,
-      precio: product.precioPromo ?? product.precio,
+      precio: basePrice,
       cantidad: quantity,
       agregados: selectedAddons,
       secciones: selectedSections,
@@ -796,6 +837,33 @@ function ProductConfigurator({
         <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-28">
           <div className="space-y-5">
             {product.descripcion && <p className="text-sm text-muted-foreground">{product.descripcion}</p>}
+
+            {/* P2-T56-R3A-P0: variant selector — its own group and state,
+                never a "sección"/opción of the product. */}
+            {product.tieneVariantes && (
+              <OptionGroup title="Elegí una opción" obligatorio>
+                {variantesActivas.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Este producto no tiene variantes disponibles.</p>
+                ) : (
+                  variantesActivas.map((variante) => {
+                    const disponible = isVarianteDisponible(variante)
+                    return (
+                      <ChoiceButton
+                        key={variante.id}
+                        active={disponible && selectedVarianteId === variante.id}
+                        disabled={!disponible}
+                        onClick={() => setSelectedVarianteId(variante.id)}
+                      >
+                        <span>{variante.nombre}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {disponible ? formatPrice(variante.precio) : "Sin stock"}
+                        </span>
+                      </ChoiceButton>
+                    )
+                  })
+                )}
+              </OptionGroup>
+            )}
 
             {product.talles.length > 0 && (
               <OptionGroup title="Talle">
@@ -964,6 +1032,11 @@ function CartLine({
         <div className="min-w-0">
           <p className="font-semibold">{item.nombre}</p>
           <div className="mt-1 flex flex-wrap gap-1">
+            {item.varianteNombre && (
+              <Badge variant="outline" className="text-[10px]">
+                {item.varianteNombre}
+              </Badge>
+            )}
             {item.agregados.map((agregado) => (
               <Badge key={agregado.id} variant="outline" className="text-[10px]">
                 + {agregado.nombre}
@@ -1059,6 +1132,7 @@ function ChoiceButton({
   onClick,
   children,
   variant = "default",
+  disabled = false,
 }: {
   active: boolean
   onClick: () => void
@@ -1066,15 +1140,20 @@ function ChoiceButton({
   /** P2-T47-R1: "remove" da a los ingredientes quitados un tratamiento
    * visual opuesto a "agregar" (rojo + tachado), nunca el mismo chip. */
   variant?: "default" | "remove"
+  /** P2-T56-R3A-P0: una variante sin stock se ve pero no se puede elegir. */
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
       className={cn(
         "inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
-        variant === "remove"
+        disabled
+          ? "cursor-not-allowed border-border bg-card opacity-50"
+          : variant === "remove"
           ? active
             ? "border-red-300 bg-red-50 text-red-600 line-through dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
             : "border-border bg-card hover:border-red-300/70 dark:hover:border-red-900"
@@ -1194,29 +1273,14 @@ function OrderSkeleton() {
   )
 }
 
-function buildOrderItemKey(item: {
-  productoId: string
-  agregados: Array<{ id: string }>
-  secciones: Record<string, SectionSelection>
-  ingredientesQuitados: string[]
-  talle: string
-  color: string
-}) {
-  const sectionKey = Object.entries(item.secciones)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, value]) => {
-      if (typeof value === "string") return `${name}:${value}`
-      return `${name}:${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([option, quantity]) => `${option}x${quantity}`).join(",")}`
-    })
-    .join("|")
-  return [
-    item.productoId,
-    item.agregados.map((agregado) => agregado.id).sort().join(","),
-    sectionKey,
-    item.ingredientesQuitados.slice().sort().join(","),
-    item.talle,
-    item.color,
-  ].join("::")
+// P2-T56-R3A-P0: card price label, same rules as the Cliente catalog card
+// (R2C-F2): a product with variants never shows the dormant base price.
+function getMenuProductPriceLabel(product: MenuProduct) {
+  if (!product.tieneVariantes) return formatPrice(product.precioPromo ?? product.precio)
+  if (!isProductoConVariantesDisponible(product.variantes)) return "Sin stock"
+  if (product.variantes.length === 1) return formatPrice(product.variantes[0].precio)
+  const desde = precioDesdeVariantes(product.variantes)
+  return desde === null ? "Sin stock" : `Desde ${formatPrice(desde)}`
 }
 
 function getOrderItemTotal(item: OrderItem) {

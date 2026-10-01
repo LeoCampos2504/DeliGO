@@ -38,6 +38,8 @@ function simpleProducto() {
     valorDescuento: 0,
     agregados: [],
     ingredientes: [],
+    // P2-T56-R3A-P0: the route now always loads `variantes` with the producto.
+    variantes: [],
   }
 }
 

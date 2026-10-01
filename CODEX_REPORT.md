@@ -6,7 +6,46 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A A0.1 ARCHITECTURE HARDENING + PRODUCT DECISIONS (2026-09-30) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0 MOZO VARIANT PARITY (2026-10-01) ===
+
+CURRENT_TASK=P2-T56-R3A-P0-MOZO-VARIANT-PARITY
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_P0_TESTING_INTEGRATION_REVIEW
+P2_T56_R3A_P0_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_IMPLEMENTED_AWAITING_TESTING_INTEGRATION (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
+R3A_BRANCH=work/p2-t56-r3-stock-lifecycle (A0 238ccade48dd686fb3d607a6100c98eea63aa59a + A0.1 4f38992921715fe2499bd8f973b154c04d67e394 + P0 commit "feat: add variant parity to mozo orders"; based on testing-codex 1e14355c617cad33ab33c3fdda508c6a93830f4e; NOT integrated)
+TESTING_CODEX_HEAD=1e14355c617cad33ab33c3fdda508c6a93830f4e (unchanged by this task)
+P0_SCOPE_DELIVERED=Mozo manual orders: GET returns tieneVariantes + active variants (id/nombre/precio/controlStock/stockCantidad only); UI variant selector ("Elegí una opción", obligatorio, depleted visible but disabled, single available variant auto-selected); cart identity productoId+varianteId+existing option dimensions; POST accepts items[].varianteId (same contract as Cliente), resolves the variant only inside producto.variantes of the session negocio, price = ProductoVariante.precio, persists PedidoItem.productoVarianteId + varianteNombre snapshot; same rejections/messages as POST /api/pedidos; variant included in the idempotency fingerprint only when present
+MOZO_VARIANT_PRICE_AUTHORITY=SERVER_DB_PRODUCTO_VARIANTE
+P0_STOCK_BEHAVIOR=VARIANT_ZERO_STOCK_GUARD_ONLY_NO_MUTATION
+R3A_P0_SCHEMA_CHANGE_REQUIRED=NO
+MOZO_VARIANT_TENANT_ISOLATION=PASS (real route vs multi-tenant in-memory db; real-DB run not executed — needs the Railway-fetched TESTING credential and this task said "NO Railway")
+TESTS=P0 focal 40/40 PASS; regression 109/109 PASS (Mozo route/page/payment-timing, Salón static contract, Cliente variant helpers + static contract); Cliente real-DB tests NOT run (same credential reason; their files are unchanged)
+TYPESCRIPT=33 total (= R3B baseline), NEW_TYPESCRIPT_ERRORS=0; ESLINT_GATE=PASS; DIFF_CHECK=PASS; BUILD_GATE=PASS (npm run build exit 0, 160/160 pages)
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+R3A_I2_STARTED=NO
+LATERAL_FINDINGS=POST /api/pedidos (Cliente) idempotency fingerprint omits varianteId — a replay of the same key with another variant returns the original order instead of 409; not fixed (out of scope)
+SOURCE_CODE_CHANGED=YES (P0 only: Mozo order route + page + new pure helper + tests)
+PRODUCTION_TOUCHED=NO
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0 testing-codex integration not authorized; I1 not authorized)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_P0_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (architecture: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md § A0.1)
+
+R3A-P0 closes the Mozo variant gap: Mozo manual orders now select a variant, charge
+the server-side variant price and snapshot the variant on PedidoItem, with the same
+rules as Cliente. No schema, no stock mutation, no reservation. Implemented and
+tested on the branch only; waiting for the operator to authorize the testing-codex
+integration. The order stock lifecycle (I1–I5) is still not implemented.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A A0.1 ARCHITECTURE HARDENING + PRODUCT DECISIONS (2026-09-30; superseded as the current pointer by R3A-P0 above — A0.1 remains the architecture authority) ===
 
 CURRENT_TASK=P2-T56-R3A-A0.1-ARCHITECTURE-HARDENING
 CURRENT_TASK_STATUS=ARCHITECTURE_HARDENED_AWAITING_IMPLEMENTATION_AUTHORIZATION
