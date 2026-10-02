@@ -4,18 +4,18 @@
 
 ```text
 CURRENT_TASK=P2-T56-R3A-P0-F1-SHOW-ORDER-VARIANT-IN-OPERATIONS-NEGOCIO-TICKET
-CURRENT_TASK_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
-RESULT=F1_IN_PROGRESS
+CURRENT_TASK_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION
+RESULT=READY_FOR_T56_R3A_P0_F1_MANUAL_RECERTIFICATION
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
-TESTING_CODEX_HEAD=R3A fast-forwarded 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + P0 TESTING deployment docs commit on top. P0 functional source 489d55b342f5ffdc7be6b7bb3ae61750ca755260; functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7 (commit match).
+TESTING_CODEX_HEAD=R3A fast-forwarded 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + P0 deploy docs 7eced47 + P0-F1 ef04b04 (deploy 6aa40368 SUCCESS) + F1 docs commit on top. P0 functional source 489d55b342f5ffdc7be6b7bb3ae61750ca755260; functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7 (commit match).
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_IN_PROGRESS (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
-P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY (paridad de variantes en pedidos manuales de Mozo; certificación manual: selector/carrito PASS, FAIL variante no visible en detalles de mesa Operaciones/Negocio y ticket — persistida OK; P0-F1 corrige lectura/render; sin schema; sin tocar stock)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
+P2_T56_R3A_P0_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION (F1 ef04b04, deploy 6aa40368 SUCCESS; MANUAL_CERTIFICATION=PENDING_OPERATOR_FROM_FAILED_DISPLAY_STEP; paridad de variantes en pedidos manuales de Mozo; certificación manual: selector/carrito PASS, FAIL variante no visible en detalles de mesa Operaciones/Negocio y ticket — persistida OK; P0-F1 corrige lectura/render; sin schema; sin tocar stock)
 RESERVATION_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO / AVAILABLE_STOCK_IMPLEMENTED=NO / R3A_I1_STARTED=NO
 PRODUCTION_TOUCHED=NO
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0-F1 deploy + manual recertification pending; I1 not authorized)
-NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET (after the authorized F1 TESTING deploy)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0-F1 manual recertification pending; I1 not authorized)
+NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
 REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (diseño R3A: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md; R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
 
@@ -92,7 +92,7 @@ vez. Estado final, en orden:
 fue tocada en ningún momento de esta secuencia.**
 
 **Limitación de stock conocida (`P2-T56-R3A`, diseño A0 + hardening A0.1 terminados,
-P0 desplegada en TESTING con corrección de display P0-F1 en curso, lifecycle de stock sin implementar):**
+P0 + corrección de display P0-F1 desplegadas en TESTING, recertificación manual pendiente, lifecycle de stock sin implementar):**
 `ORDER_STOCK_DECREMENT_TIMING=NO_DECREMENT_ON_PEDIDO_CURRENT_BEHAVIOR` — crear un
 `Pedido` NO reserva ni descuenta stock; sólo Caja descuenta al vender. La auditoría
 A0 verificó que la validación actual es más débil de lo que decía este párrafo:
@@ -100,7 +100,8 @@ sólo rechaza variantes con `stock <= 0` (no compara con la cantidad pedida, y c
 fuera de la transacción), no valida stock de productos base, y los pedidos manuales
 de Mozo no soportaban variantes (R3A-P0 lo corrige — selector, precio de variante
 server-side, snapshot — desplegado en TESTING el 2026-10-01; la certificación manual
-encontró la variante sin mostrarse en detalles de mesa/ticket, corregido por P0-F1; ver
+encontró la variante sin mostrarse en detalles de mesa/ticket, corregido por P0-F1
+(ef04b04, desplegado en TESTING, recertificación pendiente); ver
 `codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md`). Dirección aceptada por el operador: reservar al crear
 el Pedido, consumir en `preparando`, liberar sólo al cancelar antes de `preparando`,
 sin restock automático en cancelaciones tardías. A0.1 resolvió las 6 decisiones de
@@ -109,8 +110,8 @@ producto (`UNRESOLVED_PRODUCT_DECISIONS_COUNT=0`), fijó el scope a negocio gen�
 una única transacción Serializable, `available = max(0, físico − reservado)` con
 déficit reportado, un modo ON/DRAINING/OFF en DB (OFF sólo con 0 reservas activas),
 autoridades compartidas para `→ preparando` y cancelación, y las fases P0 (paridad
-de variantes en Mozo, sin schema) → I1…I5. P0 está desplegada en TESTING (2026-10-01) con P0-F1
-(display de variante) en curso; I1…I5 NO están autorizadas ni iniciadas.
+de variantes en Mozo, sin schema) → I1…I5. P0 está desplegada en TESTING (2026-10-01) y P0-F1
+(display de variante, ef04b04) también (2026-10-02); I1…I5 NO están autorizadas ni iniciadas.
 Detalle (sección A0.1 = autoridad vigente):
 `codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md`.
 

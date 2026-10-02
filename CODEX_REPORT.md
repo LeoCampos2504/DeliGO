@@ -9,9 +9,14 @@ WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 === LATEST CURRENT HANDOFF — P2-T56-R3A-P0-F1 VARIANT VISIBLE IN MESA DETAILS + TICKET (2026-10-02) ===
 
 CURRENT_TASK=P2-T56-R3A-P0-F1-SHOW-ORDER-VARIANT-IN-OPERATIONS-NEGOCIO-TICKET
-CURRENT_TASK_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
-P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_IN_PROGRESS (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
+CURRENT_TASK_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION
+RESULT=READY_FOR_T56_R3A_P0_F1_MANUAL_RECERTIFICATION
+P2_T56_R3A_P0_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION
+MANUAL_CERTIFICATION=PENDING_OPERATOR_FROM_FAILED_DISPLAY_STEP (only the variant-visibility step: Operaciones mesa detail/cuenta, Negocio Salón detail/cuenta, ticket; checklist in P0 report §19)
+R3A_P0_F1_COMMIT=ef04b040db8665287d6a0e3d38bf979a5b5ac753 (P0 functional source still 489d55b342f5ffdc7be6b7bb3ae61750ca755260)
+F1_DEPLOY=Railway TESTING / DeliGO Copy 6aa40368-a00e-4481-8d5d-9117c627f40a SUCCESS, branch testing-codex, commit ef04b040db8665287d6a0e3d38bf979a5b5ac753 (COMMIT_MATCH=YES); logs PASS; read-only HTTP smoke PASS (no 5xx)
+TESTING_CODEX_HEAD=ef04b040db8665287d6a0e3d38bf979a5b5ac753 + the F1 docs commit "docs: record T56 R3A P0-F1 testing deployment" on top (its own docs-only autodeploy is reported in the round result)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
 MANUAL_FINDING=VARIANT_NOT_RENDERED_IN_OPERACIONES_NEGOCIO_TICKET (operator manual P0 certification: selector/cart/separate lines/qty merge/simple product PASS; confirmed order showed only the Producto name in Operaciones mesa detail, Negocio mesa detail and ticket)
 VARIANT_PERSISTENCE_STATUS=CONFIRMED_PERSISTED (code + read-only TESTING DB: manual order item "Coca Cola" has productoVarianteId + varianteNombre="600ml"; CASE_A)
 ROOT_CAUSE=Operaciones read endpoints select PedidoItem fields explicitly without varianteNombre, and the Operaciones/Negocio/ticket renderers only rendered talle/color
@@ -23,7 +28,7 @@ ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
 AVAILABLE_STOCK_IMPLEMENTED=NO
 R3A_I1_STARTED=NO
 PRODUCTION_TOUCHED=NO
-NEXT_ACTION=PUSH_TESTING_CODEX_AND_VERIFY_DEPLOY (authorized in this task), then RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
+NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
 REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (§19 = F1)
 
 === HISTORICAL HANDOFF — P2-T56-R3A-P0 INTEGRATED + DEPLOYED TO TESTING (2026-10-01; superseded as the current pointer by P0-F1 above — the manual certification it awaited found the display gap fixed by F1) ===

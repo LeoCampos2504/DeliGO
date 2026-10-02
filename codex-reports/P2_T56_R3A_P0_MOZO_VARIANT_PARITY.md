@@ -456,7 +456,40 @@ DIFF_CHECK=PASS
 La terminal/panel PyR (`src/app/operaciones/pyr/page.tsx` y su detalle) tampoco muestra la variante
 de pedidos de Cliente con variante (delivery/retiro, R2C-F2). Fuera del scope de mesa de F1.
 
+Estado al commit F1 (histórico): `P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY`.
+
+### Deploy TESTING de F1 (autorizado en la tarea F1)
+
 ```text
-P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
+R3A_P0_F1_COMMIT=ef04b040db8665287d6a0e3d38bf979a5b5ac753 (fix: show order variants in operations and ticket; padre 7eced47, descendiente directo del remoto)
+TESTING_PUSH_STATUS=SUCCESS (7eced47..ef04b04 testing-codex; sin force)
+DEPLOY_ID=6aa40368-a00e-4481-8d5d-9117c627f40a (Railway TESTING / DeliGO Copy, autodeploy Git)
+DEPLOY_STATUS=SUCCESS · DEPLOY_BRANCH=testing-codex · DEPLOY_COMMIT=ef04b040db8665287d6a0e3d38bf979a5b5ac753 · DEPLOY_COMMIT_MATCH=YES
+POSTDEPLOY_LOGS=PASS (37 migrations, "No pending migrations to apply", "Ready in 60ms"; sin errores,
+  excepciones, errores de módulos ni 5xx; build remoto "Compiled successfully", 160/160 páginas)
+HTTP_SMOKE=PASS (sólo GET, ningún pedido creado): /cliente 200 · /operaciones/salon 200 ·
+  /mozo/panel/…/pedido/… 200 · /operaciones/mi-panel/…/salon 200 · /api/operaciones/salon/panel 401 ·
+  /api/operaciones/salon/historial 401 · /api/operativo/salon/pedidos/…/detalle 401 ·
+  /api/operativo/mozo/pedidos/…/detalle 401 · /api/operaciones/ocupaciones/<id inexistente>/cuenta 404
+  (404 genérico intencional "Ocupación no encontrada", anti-enumeración) — sin 5xx
+PRODUCTION_TOUCHED=NO (origin/main 42ca500…; deployment production/DeliGO 6bf1ee84… sin cambios)
+```
+
+El commit documental que registra este bloque dispara su propio autodeploy (docs-only); su ID se
+reporta en la respuesta de la ronda, separado del deploy funcional de F1.
+
+### Recertificación manual pendiente (sólo el paso que falló)
+
+Sobre un pedido manual de Mozo con un producto con variante (p. ej. el pedido de la certificación,
+"Coca Cola" · "600ml") y un producto simple:
+1. Operaciones — detalle de mesa / cuenta de mesa: muestra "Coca Cola" con "600ml".
+2. Negocio — Salón, detalle de la mesa y "Cuenta": muestra la variante.
+3. Ticket (vista previa e impreso si hay impresora): la variante aparece bajo el producto.
+4. Producto simple: se ve igual que antes (sin separadores vacíos).
+
+```text
+P2_T56_R3A_P0_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION
+MANUAL_CERTIFICATION=PENDING_OPERATOR_FROM_FAILED_DISPLAY_STEP
 RESERVATION_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO / AVAILABLE_STOCK_IMPLEMENTED=NO / R3A_I1_STARTED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
 ```
