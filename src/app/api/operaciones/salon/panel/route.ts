@@ -82,6 +82,8 @@ export async function GET(req: NextRequest) {
               ingredientesQuitados: true,
               talle: true,
               color: true,
+              // P2-T56-R3A-P0-F1: snapshot de la variante para el detalle de mesa.
+              varianteNombre: true,
             },
           },
         },
@@ -122,6 +124,7 @@ export async function GET(req: NextRequest) {
         ingredientesQuitados: getIngredientesQuitadosNombres(item.ingredientesQuitados),
         talle: item.talle,
         color: item.color,
+        varianteNombre: item.varianteNombre,
       })),
     }))
 

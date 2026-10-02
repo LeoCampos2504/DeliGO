@@ -12,6 +12,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatPrice } from "@/lib/utils"
 import type { IngredienteQuitadoGrupo } from "@/lib/pedido-item-personalizacion"
+import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import type { CancelarPedidoMesaExito } from "@/lib/mesa-pedido-cancelacion-client"
 
@@ -57,6 +58,8 @@ export interface PedidoDetalleItemDTO {
   ingredientesQuitados: string[] | PedidoDetalleIngredienteQuitadoGrupo[]
   talle?: string | null
   color?: string | null
+  /** P2-T56-R3A-P0-F1: snapshot PedidoItem.varianteNombre (null si no tiene variante). */
+  varianteNombre?: string | null
 }
 
 export interface PedidoDetalleDTO {
@@ -199,6 +202,7 @@ export function PedidoDetalleDrawer({
 // (agregados, secciones/opciones compartidas, ingredientes quitados, talle/color)
 // ============================================
 function PedidoDetalleItemRow({ item }: { item: PedidoDetalleItemDTO }) {
+  const varianteNombre = getPedidoItemVarianteNombre(item)
   const hasDetails =
     (item.agregados?.length ?? 0) > 0 ||
     Object.keys(item.secciones || {}).length > 0 ||
@@ -212,6 +216,8 @@ function PedidoDetalleItemRow({ item }: { item: PedidoDetalleItemDTO }) {
         <span className="text-muted-foreground">
           {item.cantidad > 1 && <span className="font-semibold">{item.cantidad}x </span>}
           {item.nombre}
+          {/* P2-T56-R3A-P0-F1: variante del snapshot, sólo en render. */}
+          {varianteNombre && <span className="font-medium text-foreground"> · {varianteNombre}</span>}
         </span>
         <span className="text-muted-foreground font-medium">
           {formatPrice(item.precio * item.cantidad)}

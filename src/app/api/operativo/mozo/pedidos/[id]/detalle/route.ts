@@ -157,6 +157,8 @@ export async function GET(
             ingredientesQuitados: true,
             talle: true,
             color: true,
+            // P2-T56-R3A-P0-F1: snapshot de la variante para el detalle.
+            varianteNombre: true,
           },
         },
       },
@@ -256,6 +258,7 @@ export async function GET(
               ingredientesQuitados,
               talle: item.talle || null,
               color: item.color || null,
+              varianteNombre: item.varianteNombre || null,
             }
           }),
         },

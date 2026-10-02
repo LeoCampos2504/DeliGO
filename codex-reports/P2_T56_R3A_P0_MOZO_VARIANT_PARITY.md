@@ -336,7 +336,7 @@ PRODUCTION_CHECK=origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 antes y de
    variante; el stock de la variante NO cambia (P0 no reserva ni descuenta).
 7. Producto con opciones/secciones + variante: la opción se cobra sobre el precio de la variante.
 
-### Markers current (post-integración)
+### Markers post-integración (2026-10-01, históricos desde P0-F1 — estado current en §19)
 
 ```text
 P2_T56_R3A_P0_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION
@@ -353,3 +353,110 @@ NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ONE_STEP_AT_A_TIME_MANUAL_P0_CERTIFICATION
 Nota: el commit documental que registra esta sección también se integra a `testing-codex` y
 dispara su propio autodeploy (docs-only); su ID/estado se reportan en la respuesta de la ronda,
 separados del deploy funcional de arriba.
+
+## 19. P0-F1 — variante visible en detalles de mesa (Operaciones / Negocio) y ticket (2026-10-02)
+
+### Hallazgo manual
+
+```text
+MANUAL_FINDING=VARIANT_NOT_RENDERED_IN_OPERACIONES_NEGOCIO_TICKET
+MANUAL_PASS_ALREADY=selector visible; variante elegida; carrito identifica variante; dos variantes =
+  dos líneas; misma variante suma cantidad; producto simple sin cambios
+MANUAL_FAIL=pedido confirmado: detalles de mesa en Operaciones, en Negocio y el ticket mostraban sólo el
+  nombre del Producto, sin la variante
+```
+
+### Auditoría (read-only, antes de editar)
+
+```text
+VARIANT_PERSISTENCE_STATUS=CONFIRMED_PERSISTED (CASE_A — bug de selección/render, no de persistencia)
+  Código: POST /api/operativo/mozo/panel/[slug]/pedidos persiste productoVarianteId + varianteNombre
+  (items.create, commit 489d55b).
+  TESTING DB (read-only, sólo campos técnicos): único pedido manual de mesa de los últimos 3 días
+  (2026-10-02T00:57Z, pedido …mla5nw) → ítem "Coca Cola" con productoVarianteId presente y
+  varianteNombre="600ml"; ítem simple "Yerba mate" con ambos null.
+MANUAL_ORDER_VARIANT_ID_PERSISTED=YES
+MANUAL_ORDER_VARIANT_NAME_PERSISTED=YES
+ROOT_CAUSE=los endpoints de lectura de Operaciones usan `select` explícito sin varianteNombre, y los
+  renderers de Operaciones/Negocio/ticket nunca leían el campo (sólo talle/color). La única
+  superficie que ya lo mostraba era MesaAccountDetail (historial, R2C-F2), y sólo cuando su
+  endpoint lo traía.
+OPERACIONES_RENDERER=MesaCuentaDialog (cuenta de mesa — usado por Operaciones Salón, mi-panel Salón,
+  panel Mozo y Negocio) ← GET /api/operaciones/ocupaciones/[id]/cuenta (select sin variante);
+  operaciones/salon/page.tsx PedidoCard ← GET /api/operaciones/salon/panel (select sin variante);
+  PedidoDetalleDrawer (pedido-detalle.tsx, mi-panel Salón + panel Mozo) ←
+  /api/operativo/salon/pedidos/[id]/detalle y /api/operativo/mozo/pedidos/[id]/detalle (select sin variante);
+  historial Operaciones (MesaAccountDetail) ← /api/operaciones/salon/historial (select sin variante)
+NEGOCIO_RENDERER=salon-tab.tsx detalle de mesa ← GET /api/negocio/pedidos (include: el dato SÍ llegaba,
+  el render lo ignoraba); + MesaCuentaDialog (arriba); historial Negocio → MesaAccountDetail (ya OK)
+TICKET_RENDERER=thermal-print/mesa-account-ticket.ts (modelo) + escpos.ts (impresión) +
+  mesa-account-ticket-dialog.tsx (vista previa) — ninguno conocía la variante
+SHARED_RENDERER_IF_ANY=nuevo helper puro src/lib/pedido-item-variante.ts
+  (getPedidoItemVarianteNombre: lee sólo el snapshot, null-safe) usado por todos los renderers
+```
+
+### Corrección
+
+- Endpoints (sólo lectura, +`varianteNombre` al select y al mapeo): cuenta de ocupación, panel de
+  Salón de Operaciones, historial de Salón de Operaciones, detalle de pedido de Salón personal y de Mozo.
+- Listas compactas (Operaciones Salón, PedidoDetalleDrawer, Salón de Negocio): "Producto · Variante"
+  en la línea del producto, sólo en render.
+- Cuenta de mesa, vista previa del ticket y ticket impreso: la variante en su propia línea indentada
+  bajo el producto (ticket: primera personalización).
+- `PedidoItem.nombre` nunca se modifica; la variante sale siempre del snapshot
+  `PedidoItem.varianteNombre` (nunca de la ProductoVariante viva). Sin variante: nada extra.
+- Sin cambios en precio, stock, creación de Pedido, schema ni migraciones.
+- PyR (pedidos delivery/retiro) queda fuera de este fix — hallazgo lateral abajo.
+
+### Archivos
+
+| Archivo | Clase |
+|---|---|
+| src/lib/pedido-item-variante.ts (nuevo) | P0_F1_SHARED_HELPER |
+| src/components/operativo/mesa-cuenta-dialog.tsx | P0_F1_OPERACIONES_UI |
+| src/app/operaciones/salon/page.tsx | P0_F1_OPERACIONES_UI |
+| src/components/operativo/pedido-detalle.tsx | P0_F1_OPERACIONES_UI |
+| src/app/api/operaciones/ocupaciones/[id]/cuenta/route.ts | P0_F1_OPERACIONES_UI (datos) |
+| src/app/api/operaciones/salon/panel/route.ts | P0_F1_OPERACIONES_UI (datos) |
+| src/app/api/operaciones/salon/historial/route.ts | P0_F1_OPERACIONES_UI (datos) |
+| src/app/api/operativo/salon/pedidos/[id]/detalle/route.ts | P0_F1_OPERACIONES_UI (datos) |
+| src/app/api/operativo/mozo/pedidos/[id]/detalle/route.ts | P0_F1_OPERACIONES_UI (datos) |
+| src/components/business/salon-tab.tsx | P0_F1_NEGOCIO_UI |
+| src/lib/thermal-print/types.ts, mesa-account-ticket.ts, escpos.ts | P0_F1_TICKET |
+| src/components/shared/mesa-account-ticket-dialog.tsx | P0_F1_TICKET |
+| src/lib/pedido-item-variante.test.ts, src/lib/thermal-print/mesa-account-ticket-variante.test.ts, src/lib/p2-t56-r3a-p0-f1-variant-display-static-contract.test.ts (nuevos) | P0_F1_TEST |
+| este reporte, ROADMAP, CODEX_REPORT, FULL_CONTEXT | P0_F1_DOCUMENTATION |
+
+### Tests y gates (ejecutados en esta ronda)
+
+```text
+F1_TESTS=PASS 31/31 — pedido-item-variante 6 (F1-D/E/F directos) · mesa-account-ticket-variante 6 (F1-C:
+  cuenta → modelo térmico → ESC/POS real; F1-D/E/F) · static contract 19 (F1-A Operaciones, F1-B
+  Negocio, F1-C ticket, endpoints, F1-E/F)
+P0_FOCAL_REGRESSION=PASS 40/40 (6 + 26 + 8)
+MOZO_REGRESSION=PASS 76/76 (route 8 · payment-timing 13 · page 29 · negocio-salon-static-contract 26)
+OPERACIONES_REGRESSION=PASS — pyr/page 13 · mesa-pedido-cancelacion-ui-contract 10 · p2-t53 7 ·
+  p2-t46-r2-history 4 · mesa-cliente-cuenta-static-contract 22 · rate-limit-mesa-cuenta 7 ·
+  p2-t41-terminal-cierre-cuenta 7/7 y mesa-cliente-cuenta 45/45 (real-DB TESTING; con el timeout por
+  defecto de 5 s fallaron por latencia contra la DB remota — re-ejecutados con --timeout 60000:
+  0 fail; P2-T41 ejercita GET/POST del endpoint de cuenta modificado)
+NEGOCIO_REGRESSION=PASS — salon-historial-filter 12 · salon-stats-filter 23 ·
+  salon-tab-employee-identity-feedback 3 · order-transition-cas-mesa 3
+TICKET_REGRESSION=PASS — escpos 49 · mesa-account-ticket 12 · webusb-transport 91 · printing-feature 16
+CLIENT_VARIANTS_REGRESSION=PASS — client-product-variants 14 · static contract 19
+TYPESCRIPT_TOTAL_ERRORS=33 (conjunto idéntico al baseline P0) · NEW_TYPESCRIPT_ERRORS=0
+ESLINT_GATE=PASS_NO_NEW_ERRORS — 16 de 17 archivos limpios; operaciones/salon/page.tsx tiene 1 error
+  preexistente (react-hooks/set-state-in-effect, componente de reasignación de mozo; presente en HEAD
+  línea 917 → 920 por 3 líneas agregadas arriba; no tocado, fuera de scope)
+DIFF_CHECK=PASS
+```
+
+### Hallazgo lateral (no corregido)
+
+La terminal/panel PyR (`src/app/operaciones/pyr/page.tsx` y su detalle) tampoco muestra la variante
+de pedidos de Cliente con variante (delivery/retiro, R2C-F2). Fuera del scope de mesa de F1.
+
+```text
+P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
+RESERVATION_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO / AVAILABLE_STOCK_IMPLEMENTED=NO / R3A_I1_STARTED=NO
+```

@@ -28,6 +28,7 @@ import { cn, formatPrice } from "@/lib/utils"
 import { fetchMesaOccupancyStatus } from "@/lib/mesa-occupancy-client"
 import { ACCOUNT_PRINTING_ENABLED } from "@/lib/printing-feature"
 import type { CuentaMesaResult } from "@/lib/mesa-cuenta"
+import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 
 // ============================================
 // DeliGO — Cuenta de mesa y ticket imprimible (P2)
@@ -341,6 +342,12 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canC
                               </span>
                               <span className="shrink-0">{formatPrice(item.subtotalLineaAprox)}</span>
                             </div>
+                            {/* P2-T56-R3A-P0-F1: variante (snapshot PedidoItem.varianteNombre) bajo el producto. */}
+                            {getPedidoItemVarianteNombre(item) && (
+                              <p className="pl-3 text-xs font-medium text-muted-foreground">
+                                {getPedidoItemVarianteNombre(item)}
+                              </p>
+                            )}
                             {item.agregados.length > 0 && (
                               <p className="pl-3 text-xs text-muted-foreground">
                                 + {item.agregados.map((agregado) => agregado.nombre).join(", ")}

@@ -44,6 +44,7 @@ import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { toast } from "sonner"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 
 // ============================================
 // Tipos (espejo del panel seguro de Salón)
@@ -74,6 +75,8 @@ interface PedidoItem {
   ingredientesQuitados: unknown
   talle?: string | null
   color?: string | null
+  /** P2-T56-R3A-P0-F1: snapshot PedidoItem.varianteNombre (null si no tiene variante). */
+  varianteNombre?: string | null
 }
 
 interface PedidoPanel {
@@ -1028,6 +1031,7 @@ function PedidoCard({
       <div className="space-y-2">
         {order.items.map((item) => {
           const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
+          const varianteNombre = getPedidoItemVarianteNombre(item)
           const hasDetails =
             (item.agregados?.length ?? 0) > 0 ||
             Object.keys(item.secciones || {}).length > 0 ||
@@ -1040,6 +1044,8 @@ function PedidoCard({
                 <span className="text-muted-foreground">
                   {item.cantidad > 1 && <span className="font-semibold">{item.cantidad}x </span>}
                   {item.nombre}
+                  {/* P2-T56-R3A-P0-F1: variante del snapshot, sólo en render. */}
+                  {varianteNombre && <span className="font-medium text-foreground"> · {varianteNombre}</span>}
                 </span>
                 <span className="text-muted-foreground font-medium">{formatPrice(item.precio * item.cantidad)}</span>
               </div>

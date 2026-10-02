@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,8 +10,8 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION (R3A no está cerrada; I1–I5 no iniciadas)
-P2_T56_R3A_P0_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION (MANUAL_CERTIFICATION=PENDING_OPERATOR)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_IN_PROGRESS (R3A no está cerrada; I1–I5 no iniciadas)
+P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY (certificación manual P0: selector/carrito PASS; FAIL variante no visible en detalles de mesa Operaciones/Negocio y ticket → corregido por P0-F1)
 TESTING_CODEX_HEAD=R3A integrated by fast-forward 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + the P0 TESTING deployment docs commit on top. P0 functional source = 489d55b342f5ffdc7be6b7bb3ae61750ca755260. Functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7.
 PRODUCTION_TOUCHED=NO
 
@@ -23,12 +23,15 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_IN_PROGRESS —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
   testing-codex y desplegada en TESTING (deploy a057f10f SUCCESS, real-DB de
-  Cliente PASS, logs/smoke PASS), pendiente de certificación manual del operador
+  Cliente PASS, logs/smoke PASS). La certificación manual encontró que la
+  variante no se mostraba en los detalles de mesa de Operaciones/Negocio ni en el
+  ticket (persistida OK — bug de lectura/render); P0-F1 lo corrige
+  (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
   (ReservaStock, I1–I5) sigue SIN implementar: RESERVATION_IMPLEMENTED=NO,
   ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO, AVAILABLE_STOCK_IMPLEMENTED=NO.
@@ -77,8 +80,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-P0 manual certification pending; I1 not authorized)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ONE_STEP_AT_A_TIME_MANUAL_P0_CERTIFICATION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0-F1 TESTING deploy in progress, then manual recertification; I1 not authorized)
+NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET (after the authorized F1 TESTING deploy)
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -95,7 +98,7 @@ dos follow-ups registrados en el cierre de R2C. Production no fue tocada.
 El único follow-up restante, el lifecycle de stock de Pedidos
 (P2-T56-R3A), tiene la auditoría/diseño A0 y el hardening A0.1 terminados
 (2026-09-30) y su subfase P0 (paridad de variantes en Mozo) desplegada en
-TESTING (2026-10-01, `DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION`); el
+TESTING (2026-10-01) con la corrección de display P0-F1 en curso (2026-10-02); el
 lifecycle de stock (I1–I5) sigue sin implementar. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de

@@ -72,6 +72,8 @@ export function MesaAccountTicketDialog({
                     <div key={`${pedido.numero}-${itemIndex}`} className="flex items-start justify-between gap-3">
                       <div>
                         <p>{item.cantidad}× {item.nombre}</p>
+                        {/* P2-T56-R3A-P0-F1: variante en su propia línea, igual que el ticket impreso. */}
+                        {item.variante && <p className="pl-3 text-xs font-medium text-muted-foreground">{item.variante}</p>}
                         {item.agregados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">+ {item.agregados.join(", ")}</p>}
                         {item.secciones.length > 0 && <p className="pl-3 text-xs text-muted-foreground">{item.secciones.join(" · ")}</p>}
                         {item.ingredientesQuitados.length > 0 && <p className="pl-3 text-xs text-muted-foreground">Sin: {item.ingredientesQuitados.join(", ")}</p>}

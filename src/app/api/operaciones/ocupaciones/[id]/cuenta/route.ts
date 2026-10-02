@@ -77,6 +77,8 @@ async function loadCuenta(ocupacionId: string, negocioId: string, payment: { met
           ingredientesQuitados: true,
           talle: true,
           color: true,
+          // P2-T56-R3A-P0-F1: snapshot de la variante para la cuenta y el ticket.
+          varianteNombre: true,
         },
       },
     },

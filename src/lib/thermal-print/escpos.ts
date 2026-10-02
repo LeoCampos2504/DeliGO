@@ -135,6 +135,11 @@ function writePedido(bytes: number[], pedido: ThermalTicketPedido, columnas: num
     }
 
     const personalizaciones: string[] = []
+    // P2-T56-R3A-P0-F1: la variante va primero, en su propia línea indentada
+    // bajo el producto (nunca concatenada al nombre); sin variante, no se
+    // imprime nada.
+    const variante = (item.variante ?? "").trim()
+    if (variante) personalizaciones.push(variante)
     if (item.agregados.length > 0) personalizaciones.push(`+ ${item.agregados.join(", ")}`)
     for (const seccion of item.secciones) personalizaciones.push(seccion)
     if (item.ingredientesQuitados.length > 0) {

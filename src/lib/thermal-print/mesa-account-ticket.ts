@@ -14,6 +14,7 @@
 // Prisma/DB/React).
 
 import type { CuentaItemLine, CuentaMesaResult, CuentaPedidoLine } from "@/lib/mesa-cuenta"
+import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 import type { ThermalTicket, ThermalTicketItem, ThermalTicketPedido } from "./types"
 
 /**
@@ -42,6 +43,8 @@ function toThermalItem(item: CuentaItemLine): ThermalTicketItem {
     ingredientesQuitados: [...item.ingredientesQuitados],
     talle: item.talle || "",
     color: item.color || "",
+    // P2-T56-R3A-P0-F1: snapshot de la variante (nunca dentro de `nombre`).
+    variante: getPedidoItemVarianteNombre(item) ?? "",
   }
 }
 

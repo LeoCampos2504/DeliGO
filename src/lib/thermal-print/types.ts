@@ -46,6 +46,8 @@ export interface ThermalTicketItem {
   ingredientesQuitados: string[]
   talle: string
   color: string
+  /** P2-T56-R3A-P0-F1: snapshot PedidoItem.varianteNombre ("" si no tiene). Opcional para no romper construcciones existentes. */
+  variante?: string
 }
 
 /**

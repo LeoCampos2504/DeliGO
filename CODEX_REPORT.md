@@ -6,7 +6,27 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0 INTEGRATED + DEPLOYED TO TESTING (2026-10-01) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0-F1 VARIANT VISIBLE IN MESA DETAILS + TICKET (2026-10-02) ===
+
+CURRENT_TASK=P2-T56-R3A-P0-F1-SHOW-ORDER-VARIANT-IN-OPERATIONS-NEGOCIO-TICKET
+CURRENT_TASK_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
+P2_T56_R3A_P0_STATUS=F1_IMPLEMENTED_TESTED_AWAITING_TESTING_DEPLOY
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_IN_PROGRESS (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
+MANUAL_FINDING=VARIANT_NOT_RENDERED_IN_OPERACIONES_NEGOCIO_TICKET (operator manual P0 certification: selector/cart/separate lines/qty merge/simple product PASS; confirmed order showed only the Producto name in Operaciones mesa detail, Negocio mesa detail and ticket)
+VARIANT_PERSISTENCE_STATUS=CONFIRMED_PERSISTED (code + read-only TESTING DB: manual order item "Coca Cola" has productoVarianteId + varianteNombre="600ml"; CASE_A)
+ROOT_CAUSE=Operaciones read endpoints select PedidoItem fields explicitly without varianteNombre, and the Operaciones/Negocio/ticket renderers only rendered talle/color
+F1_FIX=+varianteNombre in 5 read endpoints (ocupaciones/[id]/cuenta, operaciones/salon/panel, operaciones/salon/historial, operativo/salon/pedidos/[id]/detalle, operativo/mozo/pedidos/[id]/detalle); render via new pure helper src/lib/pedido-item-variante.ts in MesaCuentaDialog, operaciones/salon PedidoCard, PedidoDetalleDrawer, salon-tab, ticket preview, thermal ticket model + ESC/POS; PedidoItem.nombre never modified; snapshot only; no pricing/stock/schema/order-creation change
+TESTS=F1 31/31; P0 focal 40/40; Mozo 76/76; Operaciones/Negocio/ticket/client-variant regressions PASS (two real-DB suites needed --timeout 60000 for remote-DB latency: 7/7 and 45/45); TypeScript 33 = baseline, 0 new; ESLint 0 new (1 pre-existing error in operaciones/salon/page.tsx untouched); build PASS; diff-check PASS
+LATERAL_FINDINGS=PyR terminal/panel does not render Cliente order variants (delivery/retiro) — not fixed (outside mesa scope)
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=PUSH_TESTING_CODEX_AND_VERIFY_DEPLOY (authorized in this task), then RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (§19 = F1)
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-P0 INTEGRATED + DEPLOYED TO TESTING (2026-10-01; superseded as the current pointer by P0-F1 above — the manual certification it awaited found the display gap fixed by F1) ===
 
 CURRENT_TASK=P2-T56-R3A-P0-INTEGRATE-DEPLOY-TESTING-CERTIFICATION
 CURRENT_TASK_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION

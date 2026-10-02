@@ -75,6 +75,7 @@ import { MesaOccupancyControl } from "@/components/operativo/mesa-occupancy-cont
 import { MesaCuentaDialog } from "@/components/operativo/mesa-cuenta-dialog"
 import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 import type { CuentaMesaHistorialResult } from "@/lib/mesa-historial"
 import { MesaAccountDetail } from "@/components/shared/mesa-account-detail"
 import { MesaAccountTicketDialog } from "@/components/shared/mesa-account-ticket-dialog"
@@ -157,6 +158,8 @@ interface PedidoMesa {
     ingredientesQuitados: unknown
     talle?: string
     color?: string
+    /** P2-T56-R3A-P0-F1: snapshot PedidoItem.varianteNombre (null si no tiene variante). */
+    varianteNombre?: string | null
   }>
 }
 
@@ -2171,6 +2174,7 @@ function MesaDetailDrawer({
                   <div className="space-y-2">
                     {order.items.map((item) => {
                       const ingredientesQuitados = getIngredientesQuitadosNombres(item.ingredientesQuitados)
+                      const varianteNombre = getPedidoItemVarianteNombre(item)
                       const hasDetails = (item.agregados?.length > 0) || (Object.keys(item.secciones || {}).length > 0) || (ingredientesQuitados.length > 0) || item.talle || item.color
                       return (
                         <div key={item.id}>
@@ -2178,6 +2182,8 @@ function MesaDetailDrawer({
                             <span className="text-muted-foreground">
                               {item.cantidad > 1 && <span className="font-semibold">{item.cantidad}x </span>}
                               {item.nombre}
+                              {/* P2-T56-R3A-P0-F1: variante del snapshot, sólo en render. */}
+                              {varianteNombre && <span className="font-medium text-foreground"> · {varianteNombre}</span>}
                             </span>
                             <span className="text-muted-foreground font-medium">
                               {formatPrice(item.precio * item.cantidad)}
