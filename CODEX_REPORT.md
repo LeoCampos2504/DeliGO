@@ -6,7 +6,44 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0 MOZO VARIANT PARITY (2026-10-01) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0 INTEGRATED + DEPLOYED TO TESTING (2026-10-01) ===
+
+CURRENT_TASK=P2-T56-R3A-P0-INTEGRATE-DEPLOY-TESTING-CERTIFICATION
+CURRENT_TASK_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION
+RESULT=READY_FOR_T56_R3A_P0_MANUAL_TESTING_CERTIFICATION
+P2_T56_R3A_P0_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION
+MANUAL_CERTIFICATION=PENDING_OPERATOR (checklist: codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §18)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
+INTEGRATION=fast-forward only 1e14355c617cad33ab33c3fdda508c6a93830f4e..e7731c7f6cc2a61bda8feb6a746bd909f90245ae on testing-codex (5 commits: 238ccad A0, 4f38992 A0.1, 489d55b P0, a72ad4c + e7731c7 doc fixes; UNRELATED_COMMITS=0; no merge commit)
+P0_FUNCTIONAL_COMMIT=489d55b342f5ffdc7be6b7bb3ae61750ca755260
+TESTING_CODEX_HEAD=e7731c7f6cc2a61bda8feb6a746bd909f90245ae + the docs commit "docs: record T56 R3A P0 testing deployment" on top (that docs commit's own autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway TESTING / DeliGO Copy, Git autodeploy from testing-codex — a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS, branch testing-codex, commit e7731c7f6cc2a61bda8feb6a746bd909f90245ae (COMMIT_MATCH=YES)
+P0_SCHEMA_CHANGE=NO; P0_MIGRATION_CHANGE=NO; TESTING_MIGRATION_STATUS=UP_TO_DATE (prisma migrate status read-only + "No pending migrations to apply" at boot)
+REAL_DB_TESTS (TESTING Postgres)=Cliente variants 9/9 PASS; GET /api/negocios/[slug] 3/3 PASS; repetir pedido 5/5 PASS; Mozo real-DB suite NOT_AVAILABLE (equivalent: route.variantes.test.ts, real route vs multi-tenant in-memory db, 26/26)
+POST_INTEGRATION_TESTS=P0 focal 40/40 PASS; regression 109/109 PASS
+POSTDEPLOY_LOGS=PASS (boot ready, no errors/exceptions/Prisma/module/5xx; remote build compiled, 160/160 pages)
+HTTP_SMOKE=PASS (GET only: / → 307 /cliente 200; Mozo order pages 200; Mozo pedidos API without session 401; unknown negocio 404; no 5xx; no order created)
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+R3A_I2_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 and production/DeliGO deployment 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — verify ancestry again, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (manual P0 certification pending; I1 not authorized)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ONE_STEP_AT_A_TIME_MANUAL_P0_CERTIFICATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (§18 = integration/deploy/certification)
+
+R3A-P0 is live in TESTING: fast-forwarded into testing-codex, autodeployed and
+verified on the exact commit, with the Cliente real-DB regressions, post-integration
+tests, logs and a read-only HTTP smoke all passing. Production untouched. The
+operator's manual certification is the only remaining P0 gate; I1 is not started.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-P0 MOZO VARIANT PARITY IMPLEMENTATION (2026-10-01; superseded as the current pointer by the TESTING integration above) ===
 
 CURRENT_TASK=P2-T56-R3A-P0-MOZO-VARIANT-PARITY
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

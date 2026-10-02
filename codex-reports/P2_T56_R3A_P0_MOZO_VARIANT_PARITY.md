@@ -174,6 +174,7 @@ NOT_RUN=tests real-DB de Cliente (pedidos/route.variantes.test.ts, negocios/[slu
   repetir/route.test.ts): requieren la credencial TESTING que sólo se obtiene vía Railway CLI, y
   esta tarea dice "NO Railway". Sus archivos bajo prueba no cambiaron (diff vacío). Por la misma
   razón no se corrió una variante real-DB del test de Mozo.
+  (Los 3 tests real-DB de Cliente se ejecutaron después de la integración — ver §18.)
 ```
 
 ## 12. Gates
@@ -232,7 +233,7 @@ Revertir el commit de P0 (`git revert`) restaura el comportamiento previo: sin s
 nuevos que limpiar; los PedidoItem ya creados con variante conservan su snapshot (columnas
 existentes desde R2C-F2).
 
-## 17. Markers finales
+## 17. Markers al cierre de la implementación (2026-10-01, históricos desde la integración a TESTING — estado current en §18)
 
 ```text
 MOZO_VARIANT_REQUEST_FIELD=varianteId
@@ -262,3 +263,93 @@ R3A_P0_COMMIT=commit "feat: add variant parity to mozo orders" en work/p2-t56-r3
   (el hash queda registrado en Git y en la respuesta de la ronda; un commit no puede contener
   su propio hash)
 ```
+
+## 18. Integración a TESTING + deploy + certificación automática (2026-10-01)
+
+Autorizado explícitamente por el operador (fast-forward only, push `testing-codex`,
+verificación del autodeploy TESTING). Production / `main` no autorizados ni tocados.
+
+```text
+REMOTE_TESTING_CODEX_BEFORE=1e14355c617cad33ab33c3fdda508c6a93830f4e
+R3A_REMOTE_HEAD=e7731c7f6cc2a61bda8feb6a746bd909f90245ae
+COMMITS_TO_INTEGRATE=5 (238ccad R3A_A0 docs · 4f38992 R3A_A01 docs · 489d55b R3A_P0 código+tests+docs ·
+  a72ad4c R3A_P0_DOC_FIX · e7731c7 R3A_P0_DOC_FIX_2) — archivos auditados, UNRELATED_COMMITS=0
+FAST_FORWARD_PRECONDITION=YES (merge-base --is-ancestor)
+INTEGRATION=git switch testing-codex → git pull --ff-only origin testing-codex (local estaba 179
+  commits atrás; ff a 1e14355) → git merge --ff-only e7731c7 (sin merge commit, sin squash,
+  sin cherry-pick; los 5 commits preservados)
+TESTING_PUSH_STATUS=SUCCESS (1e14355..e7731c7 testing-codex)
+REMOTE_TESTING_CODEX_AFTER_INTEGRATION=e7731c7f6cc2a61bda8feb6a746bd909f90245ae
+P0_FUNCTIONAL_COMMIT=489d55b342f5ffdc7be6b7bb3ae61750ca755260
+
+TESTING_SERVICE=Railway proyecto amiable-rejoicing · environment TESTING · servicio "DeliGO Copy"
+  (dominio deligo-copy-production.up.railway.app — el nombre del dominio es histórico; el
+  servicio pertenece al environment TESTING)
+TESTING_DEPLOY_TRIGGER=autodeploy Git desde testing-codex (no se ejecutó railway up ni deploy manual)
+FUNCTIONAL_DEPLOY_ID=a057f10f-2a27-4872-9d68-809e1402bd63
+FUNCTIONAL_DEPLOY_STATUS=SUCCESS (BUILDING → DEPLOYING → SUCCESS, polling finito)
+FUNCTIONAL_DEPLOY_BRANCH=testing-codex
+FUNCTIONAL_DEPLOY_COMMIT=e7731c7f6cc2a61bda8feb6a746bd909f90245ae
+FUNCTIONAL_DEPLOY_COMMIT_MATCH=YES
+
+P0_SCHEMA_CHANGE=NO
+P0_MIGRATION_CHANGE=NO (0 archivos bajo prisma/ en 1e14355..e7731c7)
+TESTING_MIGRATION_STATUS=UP_TO_DATE — `prisma migrate status` read-only contra TESTING: "Database
+  schema is up to date!"; arranque del deploy: "37 migrations found" + "No pending migrations to apply"
+
+MOZO_VARIANT_REAL_DB_TESTS=NOT_AVAILABLE — no existe una suite real-DB del route de Mozo (no se creó en
+  P0). Cobertura equivalente: route.variantes.test.ts (26) ejecuta el route REAL contra un db en
+  memoria multi-tenant que replica el filtro por negocioId y la relación Producto→variantes.
+CLIENT_VARIANT_REAL_DB_REGRESSION=PASS 9/9 (src/app/api/pedidos/route.variantes.test.ts, TESTING Postgres)
+PUBLIC_BUSINESS_API_REAL_DB_REGRESSION=PASS 3/3 (src/app/api/negocios/[slug]/route.test.ts, TESTING Postgres)
+REPEAT_ORDER_REAL_DB_REGRESSION=PASS 5/5 (src/app/api/cliente/pedidos/[id]/repetir/route.test.ts, TESTING Postgres)
+  Credencial TESTING obtenida read-only con `railway variables --service Postgres --environment
+  TESTING --kv` (CLI linkeado a TESTING, verificado), usada sólo en memoria; nunca impresa ni persistida.
+
+P0_FOCAL_TESTS_POST_INTEGRATION=PASS 40/40 (sobre testing-codex e7731c7)
+P0_REGRESSION_TESTS_POST_INTEGRATION=PASS 109/109 (mismas 6 suites de §11)
+
+POSTDEPLOY_LOGS=PASS — deploy log: prisma migrate deploy sin pendientes, "Next.js 16.1.3 … ✓ Ready in
+  136ms"; sin errores, excepciones, errores de Prisma/módulos ni 5xx. Build log remoto: "Compiled
+  successfully", 160/160 páginas, sin errores.
+HTTP_SMOKE=PASS (sólo GET, ningún pedido creado):
+  /                                                   → 307 → /cliente (200)
+  /mozo/panel/smoke-slug/pedido/smoke-mesa            → 200 (página renderiza)
+  /operaciones/mi-panel/smoke-slug/pedido/smoke-mesa  → 200 (re-export renderiza)
+  /api/operativo/mozo/panel/smoke-slug/pedidos (GET)  → 401 {"estado":"sin_sesion"} (sin 5xx)
+  /api/negocios/<slug inexistente>                    → 404 {"error":"Negocio no encontrado"} (sin 5xx)
+PRODUCTION_CHECK=origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 antes y después; deployment
+  production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 sin cambios → PRODUCTION_TOUCHED=NO
+```
+
+### Certificación manual pendiente (operador, en TESTING, paso a paso)
+
+1. Negocio genérico con un producto con ≥2 variantes activas (una controlada sin stock) y un
+   producto simple. Mozo con mesa asignada → abrir "Pedido manual".
+2. Card del producto con variantes: muestra "Desde $X" (o el precio único), nunca el precio base.
+3. Configurador: grupo "Elegí una opción" (Obligatorio); la variante sin stock se ve deshabilitada
+   con "Sin stock"; "Agregar al pedido" deshabilitado hasta elegir una variante.
+4. Agregar variante A y luego variante B del mismo producto → dos líneas en el carrito, cada una
+   con su badge de variante y su precio; volver a agregar A → suma cantidad en la línea A.
+5. Producto simple: se agrega y cobra igual que antes.
+6. Confirmar → el pedido aparece en Salón/Negocio con el nombre de la variante y el precio de la
+   variante; el stock de la variante NO cambia (P0 no reserva ni descuenta).
+7. Producto con opciones/secciones + variante: la opción se cobra sobre el precio de la variante.
+
+### Markers current (post-integración)
+
+```text
+P2_T56_R3A_P0_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION
+MANUAL_CERTIFICATION=PENDING_OPERATOR
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+R3A_I2_STARTED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_ONE_STEP_AT_A_TIME_MANUAL_P0_CERTIFICATION
+```
+
+Nota: el commit documental que registra esta sección también se integra a `testing-codex` y
+dispara su propio autodeploy (docs-only); su ID/estado se reportan en la respuesta de la ronda,
+separados del deploy funcional de arriba.
