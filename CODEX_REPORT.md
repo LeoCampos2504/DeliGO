@@ -6,7 +6,43 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I1 STOCK FOUNDATION (SCHEMA + PURE AUTHORITY) ON DEDICATED BRANCH (2026-10-05) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I1 CLOSED_TESTING_VERIFIED (INTEGRATED + MIGRATED IN TESTING) (2026-10-05) ===
+
+CURRENT_TASK=P2-T56-R3A-I1-TESTING-INTEGRATION-MIGRATION-VERIFICATION
+CURRENT_TASK_STATUS=CLOSED_TESTING_VERIFIED
+RESULT=CLOSED_T56_R3A_I1_TESTING_VERIFIED
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (no manual certification needed — I1 changes no screen or flow)
+P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_NOT_STARTED (R3A NOT closed)
+I1_INTEGRATION=fast-forward 8b404f3..e0a0c0e on testing-codex (a28cf42 I1 + e0a0c0e I1-F1; UNRELATED_COMMITS=0)
+TESTING_CODEX_HEAD=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 + the I1 closeout docs commit "docs: close T56 R3A I1 testing verification" on top (its docs-only autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway TESTING / DeliGO Copy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS, branch testing-codex, commit e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (COMMIT_MATCH=YES)
+MIGRATION=20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 applied on TESTING by the deploy's prisma migrate deploy (SUCCESS); prisma migrate status UP_TO_DATE; _prisma_migrations row finished, 38 total / 0 unfinished
+DB_VERIFIED_READ_ONLY=reservas_stock exists with A0.1 columns/FKs/indexes and 0 rows; config_plataforma.stockReservaModo NOT NULL DEFAULT 'OFF', all rows OFF (1 row); movimientos_inventario.pedidoId nullable + FK SET NULL + index
+STOCK_RESERVATION_MODE_CURRENT=OFF; STOCK_RESERVATION_MODE_CHANGED=NO
+TESTS=pre-push RUN_NOW (pure 28, contract 19, P0 40, F1 31, inventario 30, caja 27, prisma, TS 0 new, ESLint, build); post-deploy RUN_NOW (same + real-DB TESTING: Cliente variants 9/9, public API 3/3, repetir 5/5, P2-T41 cuenta 7/7)
+POSTDEPLOY_LOGS=PASS; HTTP_SMOKE=PASS_NO_5XX
+PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0
+RESERVATION_RUNTIME_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_RUNTIME_IMPLEMENTED=NO
+AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO
+R3A_I2_STARTED=NO
+POST_MIGRATION_ROLLBACK_STRATEGY=CODE_REVERT_KEEP_ADDITIVE_SCHEMA_MODE_OFF
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 and production/DeliGO deployment 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I2 requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I1_STOCK_FOUNDATION.md (§13 = TESTING integration/migration/verification)
+
+R3A-I1 is live in TESTING: fast-forwarded, autodeployed on the exact commit, the additive
+migration applied by the deploy, and the schema verified read-only (empty reservas_stock, mode
+OFF). No runtime uses it yet. I2 is not started. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I1 STOCK FOUNDATION (SCHEMA + PURE AUTHORITY) ON DEDICATED BRANCH (2026-10-05; superseded as the current pointer by the I1 TESTING verification above) ===
 
 CURRENT_TASK=P2-T56-R3A-I1-ADDITIVE-SCHEMA-PURE-STOCK-AUTHORITY
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

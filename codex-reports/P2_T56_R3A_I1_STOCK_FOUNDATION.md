@@ -103,7 +103,7 @@ FOREIGN_KEYS_ADDED=6 — reservas_stock: negocioId ON DELETE CASCADE · pedidoId
   las migraciones previas)
 DESTRUCTIVE_STATEMENTS=0 (sin DROP/TRUNCATE/DELETE/UPDATE/RENAME/ALTER COLUMN — test I1-T)
 DATA_BACKFILL_REQUIRED=NO (las filas existentes de config_plataforma toman 'OFF' por el DEFAULT de la columna)
-MIGRATION_EXECUTION_TEST=DEFERRED_TO_I1_TESTING_INTEGRATION (no se aplicó a ninguna DB: TESTING y
+MIGRATION_EXECUTION_TEST=DEFERRED_TO_I1_TESTING_INTEGRATION (estado al commit I1 — superado por §13: aplicada en TESTING el 2026-10-05; entonces no se aplicó a ninguna DB: TESTING y
   Railway prohibidos en esta ronda; no existe DB local/efímera establecida en el repo)
 ```
 
@@ -169,11 +169,11 @@ PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0
 RESERVATION_RUNTIME_IMPLEMENTED=NO
 ORDER_STOCK_LIFECYCLE_RUNTIME_IMPLEMENTED=NO
 AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO
-STOCK_RESERVATION_MODE_CURRENT_EXPECTED_AFTER_MIGRATION=OFF
+STOCK_RESERVATION_MODE_CURRENT_EXPECTED_AFTER_MIGRATION=OFF (verificado OFF en TESTING tras la migración — §13)
 TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
 ```
 
-TESTING **no** tiene este schema: la migración no fue aplicada en ninguna base.
+Al cierre de la implementación (commit I1) TESTING **no** tenía este schema. Superado por §13: la migración se aplicó en TESTING el 2026-10-05 (nunca en Production).
 
 ## 8. Archivos
 
@@ -202,7 +202,7 @@ Tras una futura aplicación de la migración: no se promete rollback destructivo
   rollback.
 ```
 
-## 11. Markers (estado current: ver §12)
+## 11. Markers (estado current: ver §13)
 
 ```text
 P0_STATUS=CLOSED_TESTING_CERTIFIED
@@ -211,7 +211,7 @@ R3A_I2_STARTED=NO
 NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_TESTING_INTEGRATION_AUTHORIZATION
 ```
 
-## 12. I1-F1 — hardening pre-integración del parseo de modo (2026-10-05)
+## 12. I1-F1 — hardening pre-integración del parseo de modo (2026-10-05; markers históricos — estado current en §13)
 
 Hallazgo de revisión del operador: el commit I1 (`a28cf42`) hacía que
 `parseStockReservationMode` degradara cualquier valor persistido desconocido a OFF. OFF sólo es
@@ -245,4 +245,66 @@ P0_STATUS=CLOSED_TESTING_CERTIFIED
 R3A_I1_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
 R3A_I2_STARTED=NO
 NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_TESTING_INTEGRATION_AUTHORIZATION
+```
+
+## 13. Integración a TESTING + migración + verificación (2026-10-05)
+
+Autorizado explícitamente por el operador: fast-forward a `testing-codex`, autodeploy TESTING y
+aplicación de la migración I1 sólo en la DB TESTING. NO autorizado: Production, main, I2, modo
+ON/DRAINING, reservas reales, cambios funcionales.
+
+```text
+REMOTE_TESTING_CODEX_BEFORE=8b404f3a29775f4a6cb437dcf6c5beb9569145e5 (= base de I1, sin drift)
+REMOTE_I1_HEAD_FRESH=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (git ls-remote)
+TESTING_IS_ANCESTOR_FRESH=YES · COMMITS_TO_INTEGRATE=2 (a28cf42 I1 · e0a0c0e I1-F1) · UNRELATED_COMMITS=0
+INTEGRATION_METHOD=FAST_FORWARD (git merge --ff-only; sin merge commit) · TESTING_LOCAL_AFTER_INTEGRATION=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965
+PRE_PUSH_TESTS=RUN_NOW — pure 28/28 · contract 19/19 (schema 8 · migración 7 · runtime-guard 4) · P0 40 ·
+  F1 31 · inventario 30 · caja-venta 27 · prisma validate/generate PASS · TypeScript 33 = baseline, 0 nuevos ·
+  ESLint PASS · git diff --check 8b404f3..HEAD PASS · npm run build PASS (160/160)
+TESTING_PUSH_STATUS=SUCCESS (8b404f3..e0a0c0e; remoto re-verificado en 8b404f3 justo antes del push)
+REMOTE_TESTING_CODEX_AFTER_PUSH=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965
+RAILWAY_PROJECT=amiable-rejoicing · RAILWAY_ENVIRONMENT=TESTING · RAILWAY_SERVICE=DeliGO Copy
+FUNCTIONAL_DEPLOY_ID=c8888200-902c-4c12-9a23-faf63595c66e · STATUS=SUCCESS · BRANCH=testing-codex · COMMIT=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 · COMMIT_MATCH=YES
+  (el poll en background se cortó por límite de tiempo en DEPLOYING; se re-consultó directamente hasta
+  el estado final SUCCESS — DEPLOYING nunca se contó como éxito)
+MIGRATION_APPLICATION_METHOD=DEPLOY_START_PRISMA_MIGRATE_DEPLOY (flujo normal del servicio; no se ejecutó a mano)
+MIGRATION_NAME=20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1
+MIGRATION_APPLY_STATUS=SUCCESS — log del deploy: "38 migrations found", "Applying migration
+  `20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1`", "All migrations have been successfully applied", luego "Ready in 222ms"
+TESTING_MIGRATION_STATUS=UP_TO_DATE (prisma migrate status read-only: "Database schema is up to date!")
+I1_MIGRATION_APPLIED=YES (_prisma_migrations: finished, no rolled back, applied_steps_count=1, sin logs de
+  error; 38 migraciones, 0 sin terminar)
+
+DB VERIFICATION (sólo SELECT, dentro de SET TRANSACTION READ ONLY — transaction_read_only=on):
+RESERVA_STOCK_SCHEMA_VERIFIED=YES — tabla reservas_stock con las 12 columnas y nulabilidad de A0.1-17;
+  FKs: negocioId CASCADE · pedidoId NO ACTION · pedidoItemId NO ACTION · productoId SET NULL ·
+  productoVarianteId SET NULL; índices: pkey, UNIQUE pedidoItemId, (negocioId, estado, productoId,
+  productoVarianteId), (negocioId, productoVarianteId, estado), (pedidoId)
+RESERVAS_STOCK_ROW_COUNT=0 (también re-verificado después de los tests real-DB)
+CONFIG_STOCK_RESERVA_MODO_SCHEMA_VERIFIED=YES (text NOT NULL DEFAULT 'OFF')
+CONFIG_STOCK_RESERVA_MODE_VALUES=[{"modo":"OFF","n":1}] · NON_OFF_CONFIG_ROWS=0
+STOCK_RESERVATION_MODE_CURRENT=OFF · STOCK_RESERVATION_MODE_CHANGED=NO (sólo lectura)
+MOVIMIENTO_PEDIDO_ID_SCHEMA_VERIFIED=YES · MOVIMIENTO_PEDIDO_ID_COLUMN=EXISTS_NULLABLE (FK SET NULL + índice)
+
+POSTDEPLOY_LOGS=PASS (deploy: migración aplicada, Next.js Ready, sin errores/excepciones/Prisma/módulos/5xx;
+  build remoto Compiled successfully, 160/160, 0 errores)
+POSTDEPLOY_TESTS=RUN_NOW — pure 28 · contract 19 · P0 40 · F1 31 · real-DB TESTING (auto-limpiantes, ya usados
+  antes): Cliente variantes 9/9 · API pública negocio 3/3 · repetir 5/5 · P2-T41 cuenta 7/7 (--timeout 60000)
+HTTP_SMOKE=PASS_NO_5XX (sólo GET): /cliente 200 · /operaciones/salon 200 · /mozo/panel/…/pedido/… 200 ·
+  /operaciones/mi-panel/…/salon 200 · /api/operaciones/salon/panel 401 · /api/operativo/mozo/panel/…/pedidos 401 ·
+  /api/negocio/inventario/movimientos 401 · /api/negocios/<inexistente> 404
+OTROS_SERVICIOS_TESTING (autodeploy por el cambio de schema): Mesa Occupancy Cron, Review Moderation Expiry y
+  chat en vivo → SUCCESS en e0a0c0e
+PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0
+RESERVATION_RUNTIME_IMPLEMENTED=NO · ORDER_STOCK_LIFECYCLE_RUNTIME_IMPLEMENTED=NO · AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO
+ORIGIN_MAIN_AFTER=42ca5005d2ecd412de87e454b52820f38aaec5c0 · PRODUCTION_DEPLOYMENT_AFTER=6bf1ee84-702e-41e1-80a8-d075e3ce9362
+  (sin cambios) · PRODUCTION_TOUCHED=NO
+POST_MIGRATION_ROLLBACK_STRATEGY=CODE_REVERT_KEEP_ADDITIVE_SCHEMA_MODE_OFF — un git revert del código es
+  posible, pero la tabla vacía y las columnas aditivas permanecen en TESTING (sin down migration, sin borrado
+  automático); con modo OFF el comportamiento es el previo
+P0_STATUS=CLOSED_TESTING_CERTIFIED
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (I1 no requiere certificación manual del operador: no cambia ninguna pantalla ni flujo;
+  por eso VERIFIED y no CERTIFIED)
+R3A_I2_STARTED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_AUTHORIZATION
 ```

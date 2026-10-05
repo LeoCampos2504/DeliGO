@@ -1,23 +1,23 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification and R3A-I1 on branch (2026-10-05)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification and R3A-I1 TESTING verification (2026-10-05)
 
 ```text
-CURRENT_TASK=P2-T56-R3A-I1-ADDITIVE-SCHEMA-PURE-STOCK-AUTHORITY
-CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
-RESULT=READY_FOR_T56_R3A_I1_TESTING_INTEGRATION_REVIEW
+CURRENT_TASK=P2-T56-R3A-I1-TESTING-INTEGRATION-MIGRATION-VERIFICATION
+CURRENT_TASK_STATUS=CLOSED_TESTING_VERIFIED
+RESULT=CLOSED_T56_R3A_I1_TESTING_VERIFIED
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
-TESTING_CODEX_HEAD=R3A fast-forwarded 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + P0 deploy docs 7eced47 + P0-F1 ef04b04 (deploy 6aa40368 SUCCESS) + F1 docs 62597ad + P0 certification docs commit on top. P0 functional source 489d55b342f5ffdc7be6b7bb3ae61750ca755260; functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7 (commit match).
+TESTING_CODEX_HEAD=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (R3A A0/A0.1/P0/P0-F1 + P0 docs + I1 a28cf42 + I1-F1 e0a0c0e; functional deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS) + I1 closeout docs commit on top.
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CLOSED_TESTING_CERTIFIED_I1_IMPLEMENTED_ON_BRANCH (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
-P2_T56_R3A_I1_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (branch work/p2-t56-r3-stock-lifecycle-i1 desde testing-codex 8b404f3, no integrada; migración aditiva NO aplicada — TESTING no tiene el schema nuevo; sin callers productivos)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_NOT_STARTED (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
+P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (integrada por fast-forward; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING por el deploy; schema verificado read-only: reservas_stock vacía, stockReservaModo=OFF en todas las filas, movimientos_inventario.pedidoId nullable; sin callers productivos)
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (paridad de variantes en pedidos manuales de Mozo: P0 489d55b + P0-F1 ef04b04 display en Operaciones/Negocio/ticket; MANUAL_CERTIFICATION=PASS 2026-10-05; sin schema; sin tocar stock; PyR sin variante = OUT_OF_SCOPE)
-RESERVATION_RUNTIME_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_RUNTIME_IMPLEMENTED=NO / AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO / STOCK_RESERVATION_MODE_CURRENT_EXPECTED_AFTER_MIGRATION=OFF / R3A_I2_STARTED=NO
+RESERVATION_RUNTIME_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_RUNTIME_IMPLEMENTED=NO / AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO / STOCK_RESERVATION_MODE_CURRENT=OFF (verificado en TESTING) / R3A_I2_STARTED=NO
 PRODUCTION_TOUCHED=NO
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I1 integration + TESTING migration require explicit authorization; I2 not authorized)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_TESTING_INTEGRATION_AUTHORIZATION
-REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (diseño R3A: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md; R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I2 requires explicit operator authorization)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I1_STOCK_FOUNDATION.md (P0: codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md; diseño R3A: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md; R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
 
 ### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
@@ -112,8 +112,8 @@ una única transacción Serializable, `available = max(0, físico − reservado)
 déficit reportado, un modo ON/DRAINING/OFF en DB (OFF sólo con 0 reservas activas),
 autoridades compartidas para `→ preparando` y cancelación, y las fases P0 (paridad
 de variantes en Mozo, sin schema) → I1…I5. P0 (+ P0-F1) está CLOSED_TESTING_CERTIFIED
-(2026-10-05); I1 (schema aditivo + autoridad pura) está implementada en la branch
-work/p2-t56-r3-stock-lifecycle-i1 sin integrar ni migrar; I2…I5 NO están autorizadas ni iniciadas.
+(2026-10-05); I1 (schema aditivo + autoridad pura) está integrada y migrada en TESTING
+(CLOSED_TESTING_VERIFIED, 2026-10-05; tabla vacía, modo OFF); I2…I5 NO están autorizadas ni iniciadas.
 Detalle (sección A0.1 = autoridad vigente):
 `codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md`.
 
