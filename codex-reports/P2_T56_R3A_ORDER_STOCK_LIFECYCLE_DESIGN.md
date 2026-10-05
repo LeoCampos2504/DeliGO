@@ -1159,6 +1159,13 @@ PEDIDO_MOVEMENT_SCHEMA_STRATEGY=
   La reserva NO crea movimiento (no cambia stock físico).
 ```
 
+> **Refinamiento R3A-I1 (2026-10-05):** "se agrega a MOVIMIENTO_TIPOS" no se aplicó
+> literalmente: esa lista es la validación del endpoint de movimientos MANUALES
+> (`isValidMovimientoTipo`), y agregarlo permitiría registrar PEDIDO a mano. PEDIDO quedó como
+> constante de sistema en la misma autoridad (`MOVIMIENTO_TIPO_PEDIDO`,
+> `MOVIMIENTO_TIPOS_PERSISTIBLES` en `src/lib/inventario.ts`). Ver
+> `codex-reports/P2_T56_R3A_I1_STOCK_FOUNDATION.md` §2.
+
 ### A0.1-14 R3A-P0 — paridad de variantes en Mozo (scope congelado)
 
 Evidencia: UI única `src/app/mozo/panel/[slug]/pedido/[mesaId]/page.tsx` (1226 líneas,

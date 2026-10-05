@@ -181,6 +181,7 @@ model Negocio {
   // Relations (Caja / Inventario — P2-T56-R1)
   movimientosInventario MovimientoInventario[]
   ventas                Venta[]
+  reservasStock         ReservaStock[] // P2-T56-R3A-I1
 
   // Plan
   planTipo            String  @default("prueba")
@@ -318,6 +319,7 @@ model Producto {
   movimientosInventario MovimientoInventario[]
   ventaItems            VentaItem[]
   variantes             ProductoVariante[]
+  reservasStock         ReservaStock[] // P2-T56-R3A-I1
 
   @@map("productos")
 }
@@ -357,6 +359,7 @@ model ProductoVariante {
   ventaItems            VentaItem[]
   movimientosInventario MovimientoInventario[]
   pedidoItems           PedidoItem[]
+  reservasStock         ReservaStock[] // P2-T56-R3A-I1
 
   @@index([productoId])
   @@map("producto_variantes")
@@ -376,23 +379,64 @@ model MovimientoInventario {
   negocioId          String
   productoId         String
   productoVarianteId String? // P2-T56-R2C: set only when the product has variants — stockAntes/stockDespues then describe the VARIANT's stock, never the parent Producto's
-  tipo               String // ENTRADA | SALIDA | AJUSTE | VENTA
+  tipo               String // ENTRADA | SALIDA | AJUSTE | VENTA | PEDIDO (PEDIDO: P2-T56-R3A, consumo de reserva — sólo servidor)
   cantidad           Float // siempre positivo; el signo real lo determina `tipo`
   stockAntes         Float
   stockDespues       Float
   motivo             String?
   ventaId            String? // presente únicamente cuando tipo = VENTA
+  pedidoId           String? // P2-T56-R3A-I1: presente únicamente cuando tipo = PEDIDO (ningún runtime lo escribe todavía)
   createdAt          DateTime @default(now())
 
   negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
   productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
   venta            Venta?            @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  pedido           Pedido?           @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
 
   @@index([negocioId, productoId, createdAt])
   @@index([productoVarianteId])
   @@index([ventaId])
+  @@index([pedidoId])
   @@map("movimientos_inventario")
+}
+
+// ============================================
+// RESERVAS DE STOCK DE PEDIDOS (P2-T56-R3A-I1)
+// ============================================
+// Modelo final de A0.1-17 (codex-reports/P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md).
+// Una reserva NUNCA cambia stock físico. I1 sólo crea la tabla: ningún runtime
+// la escribe ni la lee hasta R3A-I2 (y ConfigPlataforma.stockReservaModo = OFF).
+// FKs (A0.1-8): negocio CASCADE (sólo muere con su tenant); pedido/pedidoItem
+// NO ACTION (protege la traza; chequeado al fin de sentencia, así la cascada
+// de Negocio sigue funcionando); producto/variante SET NULL (la fila histórica
+// sobrevive; el borrado de Producto con reservas ACTIVA lo bloquea un guard 409
+// de aplicación en I2).
+model ReservaStock {
+  id                 String    @id @default(cuid())
+  negocioId          String
+  pedidoId           String
+  pedidoItemId       String
+  productoId         String? // nullable: SET NULL al borrar Producto
+  productoVarianteId String? // sólo si la autoridad de stock es una variante
+  cantidad           Float // misma unidad que stockCantidad (kg/litro admitidos)
+  estado             String // ACTIVA | CONSUMIDA | LIBERADA
+  motivoLiberacion   String? // CANCELADO_CLIENTE | CANCELADO_VENDEDOR | CANCELADO_MESA | CANCELADO_SISTEMA | ROLLBACK | PRODUCTO_ELIMINADO
+  createdAt          DateTime  @default(now())
+  consumidaEn        DateTime?
+  liberadaEn         DateTime?
+
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  pedido           Pedido            @relation(fields: [pedidoId], references: [id], onDelete: NoAction)
+  pedidoItem       PedidoItem        @relation(fields: [pedidoItemId], references: [id], onDelete: NoAction)
+  producto         Producto?         @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
+
+  @@unique([pedidoItemId])
+  @@index([negocioId, estado, productoId, productoVarianteId])
+  @@index([negocioId, productoVarianteId, estado])
+  @@index([pedidoId])
+  @@map("reservas_stock")
 }
 
 // ============================================
@@ -604,6 +648,9 @@ model Pedido {
   resena        Resena?
   eventos       PedidoEvento[]
   ocupacionMesa SesionOcupacionMesa? @relation(fields: [ocupacionMesaId], references: [id], onDelete: SetNull)
+  // P2-T56-R3A-I1
+  reservasStock         ReservaStock[]
+  movimientosInventario MovimientoInventario[]
 
   @@unique([negocioId, idempotencyKey])
   @@index([ocupacionMesaId])
@@ -630,6 +677,7 @@ model PedidoItem {
   pedido           Pedido            @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   producto         Producto?         @relation(fields: [productoId], references: [id])
   productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
+  reservaStock     ReservaStock? // P2-T56-R3A-I1: 1:1 (@@unique pedidoItemId)
 
   @@index([productoVarianteId])
   @@map("pedido_items")
@@ -1324,6 +1372,9 @@ model ConfigPlataforma {
   valor                String   @default("")
   promocionadosActivos Boolean  @default(false)
   tarifaServicio       Int      @default(250)
+  // P2-T56-R3A-I1: ON | DRAINING | OFF (A0.1-9). Default OFF = comportamiento
+  // actual sin reservas. Ningún runtime lo lee ni lo cambia en I1.
+  stockReservaModo     String   @default("OFF")
   updatedAt            DateTime @updatedAt
 
   @@map("config_plataforma")

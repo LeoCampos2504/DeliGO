@@ -150,6 +150,19 @@ export function isValidMovimientoTipo(value: unknown): value is MovimientoTipo {
 }
 
 /**
+ * P2-T56-R3A-I1: tipo de movimiento del consumo de una reserva al pasar el
+ * Pedido a `preparando` (A0.1-13). Deliberadamente FUERA de MOVIMIENTO_TIPOS:
+ * esa lista valida los movimientos MANUALES de
+ * POST /api/negocio/inventario/movimientos, y PEDIDO —igual que VENTA— sólo lo
+ * escribe el servidor. Sin callers en I1; R3A-I2 lo usa.
+ */
+export const MOVIMIENTO_TIPO_PEDIDO = "PEDIDO" as const
+
+/** Todos los valores que MovimientoInventario.tipo puede persistir (manuales + sistema). */
+export const MOVIMIENTO_TIPOS_PERSISTIBLES = [...MOVIMIENTO_TIPOS, MOVIMIENTO_TIPO_PEDIDO] as const
+export type MovimientoTipoPersistible = (typeof MOVIMIENTO_TIPOS_PERSISTIBLES)[number]
+
+/**
  * Resolves the next stockCantidad for a movement (section 11/25/26).
  * ENTRADA adds `cantidad`; SALIDA/VENTA subtract it (never below 0). AJUSTE
  * is a physical recount: `cantidad` is the new absolute stock, not a delta
