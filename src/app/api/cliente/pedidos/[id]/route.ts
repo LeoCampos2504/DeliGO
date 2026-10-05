@@ -3,7 +3,8 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { createNotification, orderCancelledByClienteNotification, clientConfirmedNotification, reviewRequestNotification } from "@/lib/push"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
-import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { aplicarEfectosCancelacion } from "@/lib/stock-lifecycle"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins, crossedDebtAlertThreshold } from "@/lib/superadmin-notifications"
 import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
@@ -120,9 +121,12 @@ export async function PUT(
           // — nunca usa el snapshot de `current` leído antes de cancelar. Si no hay
           // cupo para revertir, lanza DeudaReversionError y hace rollback de todo
           // (incluido el CAS de arriba).
-          await revertirTarifaSiCorresponde(tx, {
-            id,
+          // P2-T56-R3A-I2: autoridad compartida = reversión de deuda + liberación
+          // de reservas ACTIVA del pedido, en esta misma transacción.
+          await aplicarEfectosCancelacion(tx, {
+            pedidoId: id,
             negocioId: current.negocioId,
+            motivo: "CANCELADO_CLIENTE",
           })
 
           return { kind: "cancelled" as const, canceladoFecha: now }

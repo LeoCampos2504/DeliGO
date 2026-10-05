@@ -168,10 +168,14 @@ export type MovimientoTipoPersistible = (typeof MOVIMIENTO_TIPOS_PERSISTIBLES)[n
  * is a physical recount: `cantidad` is the new absolute stock, not a delta
  * (matching how "ajuste de inventario" is used in practice — you correct
  * the recorded stock to match what you counted, not add/subtract blindly).
+ * P2-T56-R3A-I2: also accepts the system-only PEDIDO type (reservation
+ * consumption at `preparando`), which subtracts like SALIDA/VENTA. The manual
+ * movements endpoint keeps validating with isValidMovimientoTipo, which still
+ * rejects PEDIDO.
  */
 export function resolveNextStock(
   currentStock: number,
-  tipo: MovimientoTipo,
+  tipo: MovimientoTipoPersistible,
   cantidad: number,
 ): { ok: true; nextStock: number } | { ok: false; error: string } {
   if (!Number.isFinite(cantidad) || cantidad < 0) {
@@ -183,7 +187,7 @@ export function resolveNextStock(
   if (cantidad <= 0) {
     return { ok: false, error: "La cantidad del movimiento debe ser mayor a 0" }
   }
-  const delta = tipo === "ENTRADA" ? cantidad : -cantidad // SALIDA | VENTA
+  const delta = tipo === "ENTRADA" ? cantidad : -cantidad // SALIDA | VENTA | PEDIDO
   const nextStock = currentStock + delta
   if (nextStock < 0) {
     return { ok: false, error: "El movimiento dejaría el stock en negativo" }

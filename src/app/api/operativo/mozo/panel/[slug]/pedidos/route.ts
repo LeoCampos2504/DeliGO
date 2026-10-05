@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { noStore, resolveOperativoMozoForSlug } from "@/lib/operativo-mozo"
@@ -18,6 +18,14 @@ import {
 } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { normalizeOwnSectionOptions, validateAndPriceProductSections } from "@/lib/product-own-sections"
+import { isGenericBusinessStockScope } from "@/lib/stock-authority"
+import {
+  mapStockLifecycleError,
+  planificarReservaStockPedido,
+  reservarStockPedido,
+  runStockSerializable,
+  type StockOrderLine,
+} from "@/lib/stock-lifecycle"
 
 const MAX_ITEMS_PER_ORDER = 50
 const MAX_QUANTITY_PER_ITEM = 99
@@ -25,7 +33,6 @@ const MAX_AGREGADOS_PER_ITEM = 40
 const MAX_SECCIONES_PER_ITEM = 30
 const MAX_OPTION_QUANTITY = 99
 const MAX_TEXT_LENGTH = 500
-const SERIALIZATION_RETRY_LIMIT = 3
 const IDEMPOTENCY_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -45,6 +52,12 @@ interface IncomingPedidoItem {
 }
 
 interface ValidatedPedidoItem {
+  // P2-T56-R3A-I2 (A0.1-3/A0.1-4): PedidoItem.id pre-generado server-side, para
+  // mapear cada ReservaStock a SU línea sin depender del orden de include.items.
+  id: string
+  // controlStock de la autoridad de stock de la línea (variante si existe, si no
+  // Producto) al validar.
+  stockControlled: boolean
   productoId: string
   // P2-T56-R3A-P0: PedidoItem snapshot, same fields Cliente persists (R2C-F2).
   productoVarianteId: string | null
@@ -668,20 +681,6 @@ async function sendManualOrderNotifications(params: {
   }
 }
 
-async function withSerializableRetry<T>(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; attempt <= SERIALIZATION_RETRY_LIMIT; attempt++) {
-    try {
-      return await operation()
-    } catch (error) {
-      if (!isSerializationConflict(error) || attempt === SERIALIZATION_RETRY_LIMIT) {
-        throw error
-      }
-    }
-  }
-
-  throw new Error("SERIALIZATION_RETRY_EXHAUSTED")
-}
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -935,9 +934,11 @@ export async function POST(
     })
 
     const ip = getClientIp(req)
-    const pedidoResult = await withSerializableRetry(() =>
-      db.$transaction<ManualOrderResult>(
-        async (tx) => {
+    // P2-T56-R3A-I2: mismo contrato Serializable + retry acotado (3) que antes, ahora
+    // desde la autoridad compartida runStockSerializable (stock-lifecycle.ts).
+    const pedidoResult = await runStockSerializable(
+      db,
+        async (tx): Promise<ManualOrderResult> => {
           const cuenta = await tx.cuentaOperativa.findFirst({
             where: {
               id: auth.cuenta.id,
@@ -1034,6 +1035,7 @@ export async function POST(
               timezone: true,
               horarioMode: true,
               abiertoManual: true,
+              rubro: true,
             },
           })
 
@@ -1232,6 +1234,8 @@ export async function POST(
 
             serverTotalProductos += (unitPrice + agregadosTotal + validSections.value.seccionesTotal) * item.cantidad
             validatedItems.push({
+              id: randomUUID(),
+              stockControlled: resolvedVariante ? resolvedVariante.controlStock : producto.controlStock,
               productoId: producto.id,
               productoVarianteId: resolvedVariante?.id ?? null,
               varianteNombre: resolvedVariante?.nombre ?? null,
@@ -1267,6 +1271,22 @@ export async function POST(
           }
           const ocupacionMesaId = ocupacionGuard.ocupacionId
 
+          // P2-T56-R3A-I2 (A0.1-2/A0.1-3): sólo negocio genérico con líneas de stock
+          // controlado lee el modo (fail-closed) — OFF → sin reserva (comportamiento
+          // previo); DRAINING → 409; ON → valida disponible por clave agregada.
+          // Otros rubros / sin líneas controladas: flujo intacto.
+          const stockLines: StockOrderLine[] = validatedItems.map((item) => ({
+            pedidoItemId: item.id,
+            productoId: item.productoId,
+            productoVarianteId: item.productoVarianteId,
+            cantidad: item.cantidad,
+            controlStock: item.stockControlled,
+          }))
+          const stockPlan =
+            isGenericBusinessStockScope(negocio.rubro) && stockLines.some((line) => line.controlStock)
+              ? await planificarReservaStockPedido(tx, { negocioId: negocio.id, lines: stockLines })
+              : null
+
           const pedido = await tx.pedido.create({
             data: {
               negocioId: negocio.id,
@@ -1301,6 +1321,7 @@ export async function POST(
               estado: "recibido",
               items: {
                 create: validatedItems.map((item) => ({
+                  id: item.id,
                   productoId: item.productoId,
                   productoVarianteId: item.productoVarianteId,
                   varianteNombre: item.varianteNombre,
@@ -1325,6 +1346,17 @@ export async function POST(
             },
           })
 
+          // P2-T56-R3A-I2: una ReservaStock ACTIVA por línea controlada (mapeo por el
+          // PedidoItem.id pre-generado), en esta MISMA transacción Serializable.
+          if (stockPlan) {
+            await reservarStockPedido(tx, {
+              negocioId: negocio.id,
+              pedidoId: pedido.id,
+              lines: stockLines,
+              plan: stockPlan,
+            })
+          }
+
           await tx.auditLog.create({
             data: {
               userId: auth.cuenta.id,
@@ -1345,9 +1377,7 @@ export async function POST(
           })
 
           return { status: "created", pedido }
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-      )
+        }
     ).catch(async (error) => {
       if (isUniqueConstraintConflict(error)) {
         return findExistingIdempotentPedido({
@@ -1376,6 +1406,12 @@ export async function POST(
       )
     )
   } catch (error) {
+    // P2-T56-R3A-I2: stock insuficiente / DRAINING / modo inválido — el pedido
+    // nunca se creó (rollback completo de la transacción).
+    const stockError = mapStockLifecycleError(error)
+    if (stockError && !isSerializationConflict(error)) {
+      return noStore(NextResponse.json(stockError.body, { status: stockError.status }))
+    }
     if (error instanceof Error) {
       if (error.message === "IDEMPOTENCY_CONFLICT") {
         return noStore(

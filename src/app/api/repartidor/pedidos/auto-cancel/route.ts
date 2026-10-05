@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera"
+import { aplicarEfectosCancelacion } from "@/lib/stock-lifecycle"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -153,11 +153,15 @@ export async function POST(req: NextRequest) {
           })
           if (cas.count !== 1) return false
 
-          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
-          // dentro de la misma transacción (Seguridad-2C.1).
-          await revertirTarifaSiCorresponde(tx, {
-            id: candidato.id,
+          // P2-T56-R3A-I2: autoridad compartida = reversión de deuda (relee
+          // tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS, dentro de la
+          // misma transacción — Seguridad-2C.1) + liberación de reservas ACTIVA. El
+          // auto-cancel ocurre después de `preparando` (reservas ya CONSUMIDA), así
+          // que normalmente no libera nada y nunca devuelve stock (sin restock).
+          await aplicarEfectosCancelacion(tx, {
+            pedidoId: candidato.id,
             negocioId: candidato.negocioId,
+            motivo: "CANCELADO_SISTEMA",
           })
 
           await tx.pedidoEvento.create({

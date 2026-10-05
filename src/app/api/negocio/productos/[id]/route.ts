@@ -10,6 +10,7 @@ import {
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 import { isValidUnidadMedida } from "@/lib/inventario"
+import { contarReservasActivasProducto } from "@/lib/stock-lifecycle"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -372,6 +373,21 @@ export async function DELETE(
       return NextResponse.json(
         { error: "Producto no encontrado" },
         { status: 404 }
+      )
+    }
+
+    // P2-T56-R3A-I2 (A0.1-8): una reserva ACTIVA nunca puede desaparecer en
+    // silencio — mientras haya pedidos abiertos que reservaron este producto, el
+    // borrado se rechaza. Las reservas históricas (CONSUMIDA/LIBERADA) no
+    // bloquean: el FK SET NULL las conserva con productoId=null.
+    const reservasActivas = await contarReservasActivasProducto(db, { negocioId, productoId: id })
+    if (reservasActivas > 0) {
+      return NextResponse.json(
+        {
+          error: "Este producto tiene pedidos abiertos que lo reservaron. Esperá a que se preparen o cancelen antes de eliminarlo.",
+          code: "PRODUCT_HAS_ACTIVE_RESERVATIONS",
+        },
+        { status: 409 }
       )
     }
 

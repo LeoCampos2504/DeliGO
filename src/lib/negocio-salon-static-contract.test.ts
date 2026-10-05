@@ -71,7 +71,13 @@ describe("Tarea 20 — la creación de pedido de mesa exige salonHabilitado", ()
 describe("Tarea 20-CORRECCIÓN-1 — POST /api/pedidos revalida Salón una segunda vez, DENTRO de la misma transacción que crea el pedido (Caso C)", () => {
   test("la revalidación final vive dentro del mismo db.$transaction que tx.pedido.create — nunca en una transacción separada", () => {
     const src = read("src/app/api/pedidos/route.ts")
-    const idxTransactionStart = src.indexOf(".$transaction(async (tx) => {")
+    // P2-T56-R3A-I2: el cuerpo de la transacción se extrajo a `createPedidoInTx`
+    // (el MISMO callback corre con db.$transaction en modo OFF / sin stock
+    // controlado, o con runStockSerializable cuando puede reservar). El invariante
+    // no cambia: revalidación y tx.pedido.create viven en ese único cuerpo.
+    const idxTransactionStart = src.indexOf("const createPedidoInTx = async (tx: Prisma.TransactionClient) => {")
+    expect(src).toContain("runStockSerializable(db, createPedidoInTx)")
+    expect(src).toContain("db.$transaction(createPedidoInTx)")
     const idxRevalidacion = src.indexOf("beforeFinalSalonRevalidation", idxTransactionStart)
     const idxNegocioFresco = src.indexOf("negocioFresco = await tx.negocio.findUnique(", idxTransactionStart)
     const idxThrow = src.indexOf("throw new SalonDeshabilitadoError()", idxTransactionStart)

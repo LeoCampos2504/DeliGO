@@ -4,7 +4,13 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
-import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import {
+  aplicarEfectosCancelacion,
+  mapStockLifecycleError,
+  runStockSerializable,
+  transicionarAPreparandoConStock,
+} from "@/lib/stock-lifecycle"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { ACTIVE_FORWARD_TRANSITIONS, canTransitionToCancelled, isValidForwardTransition } from "@/lib/order-transitions"
@@ -362,12 +368,13 @@ export async function PUT(req: NextRequest) {
           })
           if (cas.count !== 1) return { kind: "conflict" as const }
 
-          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
-          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
-          // leído antes de la transacción.
-          await revertirTarifaSiCorresponde(tx, {
-            id: pedidoId,
+          // P2-T56-R3A-I2: autoridad compartida de cancelación = reversión de deuda
+          // (relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS, dentro
+          // de la misma transacción — Seguridad-2C.1) + liberación de reservas ACTIVA.
+          await aplicarEfectosCancelacion(tx, {
+            pedidoId,
             negocioId,
+            motivo: "CANCELADO_VENDEDOR",
           })
 
           return { kind: "cancelled" as const }
@@ -406,11 +413,33 @@ export async function PUT(req: NextRequest) {
       // en negocio/pedidos/[id]/estado/route.ts). Esta ruta ya exige
       // metodoEntrega:"mesa" en el WHERE de lectura de arriba; se repite acá
       // por robustez propia del CAS, sin depender de esa lectura previa.
-      const cas = await db.pedido.updateMany({
-        where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: currentEstado },
-        data: updateData,
-      })
-      if (cas.count !== 1) {
+      let won: boolean
+      if (estado === "preparando") {
+        // P2-T56-R3A-I2: → preparando pasa SIEMPRE por la autoridad compartida
+        // (CAS + consumo de reservas en una transacción Serializable).
+        try {
+          const outcome = await runStockSerializable(db, (tx) =>
+            transicionarAPreparandoConStock(tx, {
+              pedidoId,
+              negocioId,
+              casWhere: { metodoEntrega: "mesa", estado: currentEstado },
+              data: { estado: "preparando" },
+            })
+          )
+          won = outcome.won
+        } catch (error) {
+          const stockError = mapStockLifecycleError(error)
+          if (stockError) return NextResponse.json(stockError.body, { status: stockError.status })
+          throw error
+        }
+      } else {
+        const cas = await db.pedido.updateMany({
+          where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: currentEstado },
+          data: updateData,
+        })
+        won = cas.count === 1
+      }
+      if (!won) {
         return NextResponse.json(
           { error: "El pedido cambió en otro dispositivo. Actualizá el panel." },
           { status: 409 }

@@ -6,6 +6,7 @@ import { createNotification, orderUpdateNotification } from "@/lib/push"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { CANONICAL_ACCEPTED_STATE } from "@/lib/order-transitions"
+import { mapStockLifecycleError, runStockSerializable, transicionarAPreparandoConStock } from "@/lib/stock-lifecycle"
 
 // ============================================
 // DeliGO Operaciones — PyR personal: iniciar preparación (Operaciones-1P.1)
@@ -82,17 +83,28 @@ export async function POST(
 
     // 4) CAS atómico: solo si sigue en "aceptado". La decisión final es SIEMPRE el
     //    resultado de updateMany (nunca una lectura previa + update libre).
-    const result = await db.pedido.updateMany({
-      where: {
-        id,
-        negocioId,
-        metodoEntrega: { not: "mesa" },
-        estado: CANONICAL_ACCEPTED_STATE,
-      },
-      data: { estado: "preparando" },
-    })
+    //    P2-T56-R3A-I2: el CAS y el consumo de reservas viven en la autoridad
+    //    compartida, en una transacción Serializable con retry acotado.
+    let won: boolean
+    try {
+      const outcome = await runStockSerializable(db, (tx) =>
+        transicionarAPreparandoConStock(tx, {
+          pedidoId: id,
+          negocioId,
+          casWhere: { metodoEntrega: { not: "mesa" }, estado: CANONICAL_ACCEPTED_STATE },
+          data: { estado: "preparando" },
+        })
+      )
+      won = outcome.won
+    } catch (error) {
+      const stockError = mapStockLifecycleError(error)
+      if (stockError) {
+        return noStore(NextResponse.json({ ok: false, ...stockError.body }, { status: stockError.status }))
+      }
+      throw error
+    }
 
-    if (result.count !== 1) {
+    if (!won) {
       // Ya no está en "aceptado" (carrera perdida) o cambió entre la lectura y el CAS.
       return noStore(conflict())
     }

@@ -5,6 +5,7 @@ import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import type { OperacionesScope } from "@/lib/operaciones-terminal-permissions"
 import { ACTIVE_FORWARD_TRANSITIONS } from "@/lib/order-transitions"
+import { mapStockLifecycleError, runStockSerializable, transicionarAPreparandoConStock } from "@/lib/stock-lifecycle"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 // Mensaje genérico de conflicto: no revela negocio, IDs, estados de otros pedidos ni concurrencia.
@@ -99,11 +100,35 @@ export async function PATCH(
       updateData.entregadoFecha = new Date()
     }
 
-    const result = await db.pedido.updateMany({
-      where: { id, negocioId, metodoEntrega: "mesa", estado: requiredCurrent },
-      data: updateData,
-    })
-    if (result.count !== 1) return conflict()
+    let won: boolean
+    if (estado === "preparando") {
+      // P2-T56-R3A-I2: → preparando pasa SIEMPRE por la autoridad compartida
+      // (CAS + consumo de reservas en una transacción Serializable).
+      try {
+        const outcome = await runStockSerializable(db, (tx) =>
+          transicionarAPreparandoConStock(tx, {
+            pedidoId: id,
+            negocioId,
+            casWhere: { metodoEntrega: "mesa", estado: requiredCurrent },
+            data: { estado: "preparando" },
+          })
+        )
+        won = outcome.won
+      } catch (error) {
+        const stockError = mapStockLifecycleError(error)
+        if (stockError) {
+          return noStore(NextResponse.json({ ok: false, ...stockError.body }, { status: stockError.status }))
+        }
+        throw error
+      }
+    } else {
+      const result = await db.pedido.updateMany({
+        where: { id, negocioId, metodoEntrega: "mesa", estado: requiredCurrent },
+        data: updateData,
+      })
+      won = result.count === 1
+    }
+    if (!won) return conflict()
 
     // 6) Notificación al mozo SOLO en preparando → listo_para_retirar, reutilizando el helper
     //    existente. Best-effort: si falla, no se revierte el cambio ya confirmado.

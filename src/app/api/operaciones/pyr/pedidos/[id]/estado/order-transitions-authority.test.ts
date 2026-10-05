@@ -38,13 +38,22 @@ mock.module("@/lib/db", () => {
   }
   const pedidoEvento = { create: async () => ({}) }
   const auditLog = { create: async () => ({}) }
+  // P2-T56-R3A-I2: → preparando y la cancelación pasan por la autoridad de stock
+  // compartida, que lee/libera reservas del pedido dentro de la transacción.
+  // Pedidos de este test no tienen reservas (equivalente a modo OFF / histórico).
+  const reservaStock = {
+    findMany: async () => [],
+    updateMany: async () => ({ count: 0 }),
+  }
   const db = {
     pedido,
     pedidoEvento,
     auditLog,
+    reservaStock,
     cliente: { findUnique: async () => ({ pushSubscription: null }) },
     repartidorNegocio: { findMany: async () => [] },
-    $transaction: async (fn: (tx: { pedido: typeof pedido }) => Promise<unknown>) => fn({ pedido }),
+    $transaction: async (fn: (tx: { pedido: typeof pedido; reservaStock: typeof reservaStock }) => Promise<unknown>) =>
+      fn({ pedido, reservaStock }),
   }
   return { db }
 })

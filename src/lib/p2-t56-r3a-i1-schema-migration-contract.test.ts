@@ -181,13 +181,19 @@ describe("I1 — tipo de movimiento PEDIDO sin abrir el endpoint manual", () => 
   })
 })
 
-describe("I1 — sin cambio de runtime: ningún caller productivo usa la autoridad nueva ni ReservaStock", () => {
+// Guard de runtime de R3A. En I1 exigía CERO callers productivos. P2-T56-R3A-I2
+// lo evoluciona a una allowlist EXACTA: la autoridad pura sólo la usan la
+// autoridad transaccional y los 2 creadores de Pedido; ReservaStock,
+// stockReservaModo y MOVIMIENTO_TIPO_PEDIDO sólo se tocan desde la autoridad
+// transaccional (los routes llaman helpers, nunca Prisma directo). Un caller
+// nuevo fuera de la allowlist sigue haciendo fallar este test.
+describe("R3A — guard de runtime (allowlist exacta desde I2)", () => {
   function walk(dir: string, out: string[] = []): string[] {
     for (const name of readdirSync(join(ROOT, dir))) {
       const rel = `${dir}/${name}`
       const st = statSync(join(ROOT, rel))
       if (st.isDirectory()) walk(rel, out)
-      else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name)) out.push(rel)
+      else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name) && !/-test-fake\.ts$/.test(name)) out.push(rel)
     }
     return out
   }
@@ -195,17 +201,22 @@ describe("I1 — sin cambio de runtime: ningún caller productivo usa la autorid
   // timeout por test); los dos tests sólo filtran en memoria.
   const productive = walk("src").map((path) => ({ path, src: read(path) }))
 
-  test("PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0", () => {
+  test("PRODUCTIVE_STOCK_AUTHORITY_CALLERS = allowlist I2 (autoridad transaccional + 2 creadores)", () => {
     const callers = productive
       .filter(({ path, src }) => path !== "src/lib/stock-authority.ts" && /["']@\/lib\/stock-authority["']|["']\.\/stock-authority["']/.test(src))
       .map(({ path }) => path)
-    expect(callers).toEqual([])
+      .sort()
+    expect(callers).toEqual([
+      "src/app/api/operativo/mozo/panel/[slug]/pedidos/route.ts",
+      "src/app/api/pedidos/route.ts",
+      "src/lib/stock-lifecycle.ts",
+    ])
   })
 
-  test("ningún archivo productivo lee/escribe reservaStock ni stockReservaModo ni MOVIMIENTO_TIPO_PEDIDO", () => {
+  test("reservaStock / stockReservaModo / MOVIMIENTO_TIPO_PEDIDO sólo desde la autoridad transaccional", () => {
     const hits = productive
       .filter(({ path, src }) => {
-        if (path === "src/lib/stock-authority.ts" || path === "src/lib/inventario.ts") return false
+        if (["src/lib/stock-authority.ts", "src/lib/inventario.ts", "src/lib/stock-lifecycle.ts"].includes(path)) return false
         return /\.reservaStock\b|reservasStock|stockReservaModo|MOVIMIENTO_TIPO_PEDIDO/.test(src)
       })
       .map(({ path }) => path)

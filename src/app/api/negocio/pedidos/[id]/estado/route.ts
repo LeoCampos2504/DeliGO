@@ -6,7 +6,13 @@ import { acquireLock, releaseLock } from "@/lib/concurrency"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
-import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import {
+  aplicarEfectosCancelacion,
+  mapStockLifecycleError,
+  runStockSerializable,
+  transicionarAPreparandoConStock,
+} from "@/lib/stock-lifecycle"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS, CANONICAL_WAITING_DRIVER_STATE, canTransitionToCancelled, isValidForwardTransition, type MetodoEntrega } from "@/lib/order-transitions"
@@ -215,12 +221,13 @@ async function handlePedidoEstadoChange(
           })
           if (cas.count !== 1) return { kind: "conflict" as const }
 
-          // El helper relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS,
-          // dentro de la misma transacción (Seguridad-2C.1) — nunca usa el `pedido`
-          // leído antes de la transacción.
-          await revertirTarifaSiCorresponde(tx, {
-            id: pedidoId,
+          // P2-T56-R3A-I2: autoridad compartida de cancelación = reversión de deuda
+          // (relee tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS, dentro
+          // de la misma transacción — Seguridad-2C.1) + liberación de reservas ACTIVA.
+          await aplicarEfectosCancelacion(tx, {
+            pedidoId,
             negocioId,
+            motivo: "CANCELADO_VENDEDOR",
           })
 
           return { kind: "cancelled" as const }
@@ -264,8 +271,30 @@ async function handlePedidoEstadoChange(
       if (estado === "entregado" && pedido.metodoEntrega !== "mesa") {
         casWhere.clienteConfirmaRecibido = true
       }
-      const cas = await db.pedido.updateMany({ where: casWhere, data: updateData })
-      if (cas.count !== 1) {
+      let won: boolean
+      if (estado === "preparando") {
+        // P2-T56-R3A-I2: → preparando pasa SIEMPRE por la autoridad compartida
+        // (CAS + consumo de reservas en una transacción Serializable).
+        try {
+          const outcome = await runStockSerializable(db, (tx) =>
+            transicionarAPreparandoConStock(tx, {
+              pedidoId,
+              negocioId,
+              casWhere: { estado: currentEstado },
+              data: { estado: "preparando" },
+            })
+          )
+          won = outcome.won
+        } catch (error) {
+          const stockError = mapStockLifecycleError(error)
+          if (stockError) return noStoreJson(stockError.body, { status: stockError.status })
+          throw error
+        }
+      } else {
+        const cas = await db.pedido.updateMany({ where: casWhere, data: updateData })
+        won = cas.count === 1
+      }
+      if (!won) {
         return noStoreJson(
           { error: "El pedido cambió en otro dispositivo. Actualizá el panel." },
           { status: 409 }

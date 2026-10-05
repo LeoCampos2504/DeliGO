@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
@@ -42,6 +42,15 @@ import {
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { normalizeOwnSectionOptions, validateAndPriceProductSections } from "@/lib/product-own-sections"
+import { isGenericBusinessStockScope } from "@/lib/stock-authority"
+import {
+  mapStockLifecycleError,
+  planificarReservaStockPedido,
+  readStockReservationMode,
+  reservarStockPedido,
+  runStockSerializable,
+  type StockOrderLine,
+} from "@/lib/stock-lifecycle"
 
 // ============================================
 // P0-C.2 — Geocerca obligatoria de mesa: mensajes/códigos de bloqueo
@@ -160,6 +169,12 @@ interface PedidoPayload {
 }
 
 interface ValidatedPedidoItem {
+  // P2-T56-R3A-I2 (A0.1-3/A0.1-4): PedidoItem.id pre-generado server-side, para
+  // mapear cada ReservaStock a SU línea sin depender del orden de include.items.
+  id: string
+  // controlStock de la autoridad de stock de la línea (variante si existe, si no
+  // Producto) al validar — decide si la línea participa del lifecycle de stock.
+  stockControlled: boolean
   productoId: string
   // P2-T56-R2C-F2: snapshot pair, same pattern as VentaItem.
   productoVarianteId: string | null
@@ -1069,6 +1084,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
 
       serverTotalProductos += (unitPrice + agregadosTotal + validSections.value.seccionesTotal) * item.cantidad
       validatedItems.push({
+        id: randomUUID(),
+        stockControlled: resolvedVariante ? resolvedVariante.controlStock : producto.controlStock,
         productoId: producto.id,
         productoVarianteId: resolvedVariante?.id ?? null,
         varianteNombre: resolvedVariante?.nombre ?? null,
@@ -1691,6 +1708,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       idempotencyFingerprint,
       items: {
         create: validatedItems.map((item) => ({
+          id: item.id,
           productoId: item.productoId,
           productoVarianteId: item.productoVarianteId,
           varianteNombre: item.varianteNombre,
@@ -1711,8 +1729,27 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       },
     }
 
-    const result = await db
-      .$transaction(async (tx) => {
+    // P2-T56-R3A-I2 — lifecycle de stock (A0.1-2/A0.1-3). Sólo negocio genérico
+    // con al menos una línea de stock controlado entra al camino de stock; para
+    // cualquier otro rubro o pedido sin líneas controladas la creación queda
+    // exactamente como antes. Con modo OFF (lectura previa) también: misma
+    // transacción y aislamiento de siempre, sin reservas. Con ON/DRAINING la misma
+    // transacción corre Serializable (runStockSerializable) y relee el modo
+    // adentro: DRAINING → 409, ON → valida disponible y reserva. Un valor de modo
+    // inválido es fail-closed (nunca se trata como OFF).
+    const stockLines: StockOrderLine[] = validatedItems.map((item) => ({
+      pedidoItemId: item.id,
+      productoId: item.productoId,
+      productoVarianteId: item.productoVarianteId,
+      cantidad: item.cantidad,
+      controlStock: item.stockControlled,
+    }))
+    const needsStockAuthority =
+      isGenericBusinessStockScope(negocio.rubro) && stockLines.some((line) => line.controlStock)
+    const useStockTransaction =
+      needsStockAuthority && (await readStockReservationMode(db)) !== "OFF"
+
+    const createPedidoInTx = async (tx: Prisma.TransactionClient) => {
         // Idempotencia persistente: si ya vino una key, resolver PRIMERO si ya
         // existe un pedido con esa (negocioId, idempotencyKey) — antes de
         // cualquier efecto secundario (tx.cliente.update). Un replay idempotente
@@ -1844,6 +1881,13 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           }
         }
 
+        // P2-T56-R3A-I2: modo + disponibilidad (A0.1-3 pasos 6–7), DESPUÉS del
+        // chequeo de idempotencia (un replay válido nunca se rechaza por stock) y
+        // ANTES de cualquier side effect. Lanza 409 DRAINING / STOCK_INSUFFICIENT.
+        const stockPlan = useStockTransaction
+          ? await planificarReservaStockPedido(tx, { negocioId, lines: stockLines })
+          : null
+
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido
         // previo) — recién ahí es seguro aplicar el side effect y crear.
         const snapshotTarifaServicio = isMesaOrder && !MESA_SERVICE_FEE_ENABLED
@@ -1868,8 +1912,20 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
           include: { items: true },
         })
 
+        // P2-T56-R3A-I2: una ReservaStock ACTIVA por línea controlada, mapeada por
+        // el PedidoItem.id pre-generado, en esta MISMA transacción: si falla, no
+        // queda Pedido, PedidoItem ni reserva parcial.
+        if (stockPlan) {
+          await reservarStockPedido(tx, { negocioId, pedidoId: created.id, lines: stockLines, plan: stockPlan })
+        }
+
         return { status: "created" as const, pedido: created }
-      })
+    }
+
+    const result = await (useStockTransaction
+      ? runStockSerializable(db, createPedidoInTx)
+      : db.$transaction(createPedidoInTx)
+    )
       .catch(async (error) => {
         if (error instanceof PedidoIdempotencyConflictError) throw error
         if (error instanceof MesaOccupancyBlockedError) throw error
@@ -2057,6 +2113,12 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         },
         { status: 409 }
       )
+    }
+    // P2-T56-R3A-I2: stock insuficiente / DRAINING / modo inválido / conflicto de
+    // serialización agotado — el pedido nunca se creó (rollback completo).
+    const stockError = mapStockLifecycleError(error)
+    if (stockError) {
+      return NextResponse.json(stockError.body, { status: stockError.status })
     }
     // Tarea 20-CORRECCIÓN-1 (Caso C): la desactivación de Salón ganó la
     // carrera entre el chequeo temprano y la revalidación final dentro de la

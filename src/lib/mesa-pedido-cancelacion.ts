@@ -6,8 +6,9 @@
 // infraestructura existente:
 //   - ESTADOS_PENDIENTES_MESA (src/lib/mesa-cuenta.ts) como única lista de
 //     estados cancelables — la misma que ya usa buildCuentaMesa/P2.
-//   - revertirTarifaSiCorresponde (src/lib/pedido-cancelacion-financiera.ts)
-//     — mismo helper que usan negocio/PyR/cliente/repartidor al cancelar.
+//   - aplicarEfectosCancelacion (src/lib/stock-lifecycle.ts, P2-T56-R3A-I2) —
+//     reversión de deuda (revertirTarifaSiCorresponde) + liberación de reservas
+//     ACTIVA; misma autoridad que usan negocio/PyR/cliente/repartidor al cancelar.
 //   - PedidoEvento — se crea directamente dentro de esta transacción para que
 //     el cambio de estado y su auditoría formen una única unidad atómica. No
 //     se crea ningún modelo ni sistema de auditoría nuevo.
@@ -41,7 +42,8 @@ import {
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
-import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { aplicarEfectosCancelacion } from "@/lib/stock-lifecycle"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ---------------------------------------------------------------------------
@@ -310,12 +312,15 @@ export async function cancelarPedidoMesa(params: {
         })
         if (cas.count !== 1) return { kind: "conflict" as const }
 
-        // Mismo helper que usan los 4 endpoints de cancelación existentes —
-        // relee tarifaServicio/deudaAcumulada frescos DENTRO de esta misma
-        // transacción. Hoy es un no-op para mesa (tarifaServicio siempre 0),
-        // pero se llama igual por consistencia con la convención del
-        // proyecto.
-        await revertirTarifaSiCorresponde(tx, { id: pedidoId, negocioId: actor.negocioId })
+        // P2-T56-R3A-I2: autoridad compartida de cancelación (la misma de los
+        // otros 5 sitios) = reversión de deuda — relee tarifaServicio/
+        // deudaAcumulada frescos DENTRO de esta misma transacción; hoy un no-op
+        // para mesa (tarifaServicio siempre 0) — + liberación de reservas ACTIVA.
+        await aplicarEfectosCancelacion(tx, {
+          pedidoId,
+          negocioId: actor.negocioId,
+          motivo: "CANCELADO_MESA",
+        })
 
         const eventoData: PedidoEventoCreateData = {
           pedidoId,

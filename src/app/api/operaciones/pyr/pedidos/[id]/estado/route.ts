@@ -3,7 +3,13 @@ import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { createNotification, orderUpdateNotification, newDeliveryNotification, waitingDriverNotification } from "@/lib/push"
-import { revertirTarifaSiCorresponde, DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
+import {
+  aplicarEfectosCancelacion,
+  mapStockLifecycleError,
+  runStockSerializable,
+  transicionarAPreparandoConStock,
+} from "@/lib/stock-lifecycle"
 import { notifyOperationsOrderCancelled } from "@/lib/operations-cancellation-notification"
 import {
   NEGOCIO_T29B_ROLLOUT_FORWARD_TRANSITIONS as PYR_ROLLOUT_FORWARD_TRANSITIONS,
@@ -160,25 +166,45 @@ export async function PATCH(
 
     let won: boolean
     try {
-      won = await db.$transaction(async (tx) => {
-        const result = await tx.pedido.updateMany({ where: casWhere, data })
-        if (result.count !== 1) return false
-
-        // Reversión única de deuda al cancelar, atada al ganador del CAS, dentro de la
-        // misma transacción. El helper relee tarifaServicio/deudaAcumulada frescos
-        // DESPUÉS de este CAS (Seguridad-2C.1) — nunca usa el `pedido` leído antes de
-        // la transacción.
-        if (estado === "cancelado") {
-          await revertirTarifaSiCorresponde(tx, {
-            id,
+      if (estado === "preparando") {
+        // P2-T56-R3A-I2: → preparando pasa SIEMPRE por la autoridad compartida
+        // (CAS + consumo de reservas en una transacción Serializable).
+        const outcome = await runStockSerializable(db, (tx) =>
+          transicionarAPreparandoConStock(tx, {
+            pedidoId: id,
             negocioId,
+            casWhere: { metodoEntrega: { not: "mesa" }, estado: estadoAnterior },
+            data: { estado: "preparando" },
           })
-        }
+        )
+        won = outcome.won
+      } else {
+        won = await db.$transaction(async (tx) => {
+          const result = await tx.pedido.updateMany({ where: casWhere, data })
+          if (result.count !== 1) return false
 
-        return true
-      })
+          // Efectos de cancelación atados al ganador del CAS, dentro de la misma
+          // transacción (P2-T56-R3A-I2: autoridad compartida = reversión única de
+          // deuda + liberación de reservas ACTIVA). La reversión relee
+          // tarifaServicio/deudaAcumulada frescos DESPUÉS de este CAS
+          // (Seguridad-2C.1) — nunca usa el `pedido` leído antes de la transacción.
+          if (estado === "cancelado") {
+            await aplicarEfectosCancelacion(tx, {
+              pedidoId: id,
+              negocioId,
+              motivo: "CANCELADO_VENDEDOR",
+            })
+          }
+
+          return true
+        })
+      }
     } catch (error) {
       if (error instanceof DeudaReversionError) return conflict()
+      const stockError = mapStockLifecycleError(error)
+      if (stockError) {
+        return NextResponse.json({ ok: false, ...stockError.body }, { status: stockError.status, headers: NO_STORE_HEADERS })
+      }
       throw error
     }
 

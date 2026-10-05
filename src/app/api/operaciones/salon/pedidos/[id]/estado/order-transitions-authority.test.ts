@@ -33,7 +33,19 @@ mock.module("@/lib/db", () => {
     findFirst: async () => pedidoRecord,
     updateMany: async () => ({ count: updateManyCount }),
   }
-  const db = { pedido }
+  // P2-T56-R3A-I2: → preparando pasa por la autoridad de stock compartida, que
+  // corre en una transacción y lee las reservas del pedido (ninguna en este test,
+  // equivalente a modo OFF / pedido histórico).
+  const reservaStock = {
+    findMany: async () => [],
+    updateMany: async () => ({ count: 0 }),
+  }
+  const db = {
+    pedido,
+    reservaStock,
+    $transaction: async (fn: (tx: { pedido: typeof pedido; reservaStock: typeof reservaStock }) => Promise<unknown>) =>
+      fn({ pedido, reservaStock }),
+  }
   return { db }
 })
 

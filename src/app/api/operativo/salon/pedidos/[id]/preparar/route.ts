@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { logPedidoEstadoChange } from "@/lib/audit"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { mapStockLifecycleError, runStockSerializable, transicionarAPreparandoConStock } from "@/lib/stock-lifecycle"
 
 // ============================================
 // DeliGO Operaciones — Salón personal: iniciar preparación (Operaciones-1J)
@@ -50,17 +51,28 @@ export async function POST(
     const negocioId = auth.negocio.id
 
     // 3) Transición atómica (compare-and-swap): solo si sigue en "recibido".
-    const result = await db.pedido.updateMany({
-      where: {
-        id,
-        negocioId,
-        metodoEntrega: "mesa",
-        estado: "recibido",
-      },
-      data: { estado: "preparando" },
-    })
+    //    P2-T56-R3A-I2: CAS + consumo de reservas en la autoridad compartida,
+    //    dentro de una transacción Serializable con retry acotado.
+    let won: boolean
+    try {
+      const outcome = await runStockSerializable(db, (tx) =>
+        transicionarAPreparandoConStock(tx, {
+          pedidoId: id,
+          negocioId,
+          casWhere: { metodoEntrega: "mesa", estado: "recibido" },
+          data: { estado: "preparando" },
+        })
+      )
+      won = outcome.won
+    } catch (error) {
+      const stockError = mapStockLifecycleError(error)
+      if (stockError) {
+        return noStore(NextResponse.json({ ok: false, ...stockError.body }, { status: stockError.status }))
+      }
+      throw error
+    }
 
-    if (result.count !== 1) {
+    if (!won) {
       // Distinguir 404 (inexistente / otro negocio / no-mesa) de 409 (ya no está en
       // "recibido" / carrera perdida). La consulta se acota al negocio: no revela ajenos.
       const existe = await db.pedido.findFirst({
