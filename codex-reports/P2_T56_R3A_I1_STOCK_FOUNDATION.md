@@ -120,8 +120,9 @@ RESERVATION_DEFICIT_FORMULA=max(0, activeReserved - physical) — computeReserva
 resolveStockAvailability({controlStock, physical, activeReserved}) → {available|null, deficit}
   (controlStock=false → available null, deficit 0)
 STOCK_RESERVATION_MODES=ON_DRAINING_OFF_PURE_SEMANTICS_ONLY — STOCK_RESERVATION_MODES,
-  DEFAULT_STOCK_RESERVATION_MODE="OFF", isStockReservationMode, parseStockReservationMode
-  (desconocido → OFF), modeCreatesReservations (sólo ON), modeRejectsNewControlledOrders (sólo DRAINING),
+  DEFAULT_STOCK_RESERVATION_MODE="OFF" (sólo default explícito), isStockReservationMode,
+  parseStockReservationMode (I1-F1: FAIL-CLOSED — sólo ON/DRAINING/OFF exactos; cualquier otro valor
+  → null = inválido, nunca OFF; en el commit I1 original degradaba a OFF), modeCreatesReservations (sólo ON), modeRejectsNewControlledOrders (sólo DRAINING),
   evaluateStockModeTransition: ON→DRAINING ok · DRAINING→OFF sólo con 0 activas · ON→OFF prohibido ·
   OFF→ON ok · mismo modo y transiciones no definidas por A0.1 (DRAINING→ON, OFF→DRAINING) →
   INVALID_TRANSITION hasta que I4 decida
@@ -133,7 +134,7 @@ NO creado (I4+): updateStockReservationMode, endpoint, transacción Prisma, Audi
 ## 6. Tests y gates (ejecutados en esta ronda)
 
 ```text
-PURE_AUTHORITY_TESTS=PASS 25/25 (src/lib/stock-authority.test.ts — I1-A…I1-O + Float, no-mutación,
+PURE_AUTHORITY_TESTS=PASS 25/25 en el commit I1 (28/28 tras I1-F1, ver §12) (src/lib/stock-authority.test.ts — I1-A…I1-O + Float, no-mutación,
   invariantes, estados/motivos)
 SCHEMA_CONTRACT_TESTS=PASS 8/8 (I1-P ReservaStock campos/FKs/índices/relaciones inversas/sin enums;
   I1-Q default OFF; I1-R pedidoId SetNull+index, FKs previas intactas)
@@ -201,9 +202,45 @@ Tras una futura aplicación de la migración: no se promete rollback destructivo
   rollback.
 ```
 
-## 11. Markers
+## 11. Markers (estado current: ver §12)
 
 ```text
+P0_STATUS=CLOSED_TESTING_CERTIFIED
+R3A_I1_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+R3A_I2_STARTED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_TESTING_INTEGRATION_AUTHORIZATION
+```
+
+## 12. I1-F1 — hardening pre-integración del parseo de modo (2026-10-05)
+
+Hallazgo de revisión del operador: el commit I1 (`a28cf42`) hacía que
+`parseStockReservationMode` degradara cualquier valor persistido desconocido a OFF. OFF sólo es
+seguro con 0 reservas ACTIVA y ON→OFF directo está prohibido (A0.1-9): un valor corrupto leído
+como OFF permitiría a un caller futuro saltarse esa semántica.
+
+```text
+INVALID_STOCK_RESERVATION_MODE_POLICY=FAIL_CLOSED_NOT_OFF
+INVALID_MODE_FALLBACK_TO_OFF=NO
+CAMBIO=parseStockReservationMode(value): StockReservationMode | null — "ON"/"DRAINING"/"OFF" exactos →
+  ese modo; cualquier otro valor (null, undefined, "", minúsculas, espacios, números, objetos, basura)
+  → null = INVÁLIDO. Los callers de I2/I4 deben tratar null como error explícito, nunca como OFF ni
+  como ausencia de reservas. DEFAULT_STOCK_RESERVATION_MODE="OFF" se mantiene sólo para
+  creación/default explícito (= @default del schema); DEFAULT ≠ valor persistido inválido.
+SIN_CAMBIOS=schema, migración, runtime, endpoints, ConfigPlataforma runtime, DB (sigue sin callers)
+DISEÑO_A0.1=sin cambios (A0.1-9 no definía la lectura de un valor inválido; la política queda en este
+  reporte y en el doc-comment de la autoridad)
+PURE_AUTHORITY_TESTS=PASS 28/28 (I1-K dividido + 3 tests I1-F1: ON/DRAINING/OFF exactos; valores
+  inválidos → null y nunca OFF; null/undefined no se leen como OFF válido)
+SCHEMA_CONTRACT_TESTS=PASS 8/8 · MIGRATION_CONTRACT_TESTS=PASS 7/7 · RUNTIME_GUARD_TESTS=PASS 4/4
+  (src/lib/p2-t56-r3a-i1-schema-migration-contract.test.ts 19/19)
+REGRESSION_TESTS=PASS — P0 focal 40 (6+26+8) · F1 31 (6+6+19) · inventario 30 · caja-venta 27
+PRISMA_VALIDATE=PASS ("valid", DATABASE_URL dummy local) · PRISMA_GENERATE=PASS
+TYPESCRIPT_TOTAL_ERRORS=33 (conjunto idéntico al baseline) · NEW_TYPESCRIPT_ERRORS=0
+ESLINT_GATE=PASS (stock-authority.ts + test)
+BUILD_GATE=PASS (npm run build exit 0: Compiled successfully, 160/160 páginas, copy-assets)
+DIFF_CHECK=PASS
+RUNTIME_ROUTES_CHANGED=0 · PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0
+TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
 P0_STATUS=CLOSED_TESTING_CERTIFIED
 R3A_I1_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
 R3A_I2_STARTED=NO

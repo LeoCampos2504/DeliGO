@@ -149,7 +149,11 @@ export function isReservaMotivoLiberacion(value: unknown): value is ReservaMotiv
 export const STOCK_RESERVATION_MODES = ["ON", "DRAINING", "OFF"] as const
 export type StockReservationMode = (typeof STOCK_RESERVATION_MODES)[number]
 
-/** Valor por defecto del schema (ConfigPlataforma.stockReservaModo). */
+/**
+ * Valor por defecto del schema (ConfigPlataforma.stockReservaModo @default("OFF")):
+ * sólo para creación/default explícito. NUNCA es el resultado de leer un valor
+ * persistido inválido (ver parseStockReservationMode).
+ */
 export const DEFAULT_STOCK_RESERVATION_MODE: StockReservationMode = "OFF"
 
 export function isStockReservationMode(value: unknown): value is StockReservationMode {
@@ -157,12 +161,16 @@ export function isStockReservationMode(value: unknown): value is StockReservatio
 }
 
 /**
- * Lectura defensiva del valor persistido: cualquier valor desconocido se trata
- * como OFF (comportamiento previo, sin reservas). I4 decidirá si además debe
- * alertar.
+ * P2-T56-R3A-I1-F1 — lectura FAIL-CLOSED del valor persistido: sólo "ON",
+ * "DRAINING" u "OFF" exactos son modos válidos; cualquier otro valor (incluidos
+ * null, undefined, "", minúsculas o basura) devuelve null = INVÁLIDO. Nunca se
+ * degrada a OFF: OFF sólo es seguro con 0 reservas ACTIVA y ON→OFF directo está
+ * prohibido (A0.1-9), así que tratar un valor corrupto como OFF permitiría
+ * saltarse esa semántica. Los callers futuros (I2/I4) deben tratar null como
+ * error explícito — nunca como OFF ni como ausencia de reservas.
  */
-export function parseStockReservationMode(value: unknown): StockReservationMode {
-  return isStockReservationMode(value) ? value : DEFAULT_STOCK_RESERVATION_MODE
+export function parseStockReservationMode(value: unknown): StockReservationMode | null {
+  return isStockReservationMode(value) ? value : null
 }
 
 /** ON: los pedidos controlados nuevos de negocio genérico reservan (R3A-I2). */

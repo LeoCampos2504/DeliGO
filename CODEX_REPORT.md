@@ -14,11 +14,12 @@ RESULT=READY_FOR_T56_R3A_I1_TESTING_INTEGRATION_REVIEW
 R3A_I1_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
 P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CLOSED_TESTING_CERTIFIED_I1_IMPLEMENTED_ON_BRANCH (R3A NOT closed; I2–I5 not started)
-I1_BRANCH=work/p2-t56-r3-stock-lifecycle-i1 (base testing-codex 8b404f3a29775f4a6cb437dcf6c5beb9569145e5; commit "feat: add T56 R3A stock reservation foundation"; NOT integrated)
+I1_BRANCH=work/p2-t56-r3-stock-lifecycle-i1 (base testing-codex 8b404f3a29775f4a6cb437dcf6c5beb9569145e5; commits a28cf42 "feat: add T56 R3A stock reservation foundation" + I1-F1 "fix: harden T56 R3A stock mode parsing"; NOT integrated)
+INVALID_STOCK_RESERVATION_MODE_POLICY=FAIL_CLOSED_NOT_OFF (I1-F1: parseStockReservationMode returns null for any value other than exact ON/DRAINING/OFF — never falls back to OFF; DEFAULT_STOCK_RESERVATION_MODE="OFF" only for explicit defaults)
 TESTING_CODEX_HEAD=8b404f3a29775f4a6cb437dcf6c5beb9569145e5 (unchanged by I1)
 I1_SCOPE=model ReservaStock (A0.1-17, reservas_stock) + MovimientoInventario.pedidoId (SetNull) + ConfigPlataforma.stockReservaModo default "OFF" + inverse relations; ONE additive migration 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 (1 table, 2 columns, 5 indexes, 6 FKs; DESTRUCTIVE_STATEMENTS=0; no backfill); pure src/lib/stock-authority.ts (isGenericBusinessStockScope, agregarCantidadesPorClave, available/deficit, ON/DRAINING/OFF semantics + transition rules, reservation states/motives); MOVIMIENTO_TIPO_PEDIDO system-only constant in src/lib/inventario.ts
 A0_1_REFINEMENT=A0.1-13 said 'add PEDIDO to MOVIMIENTO_TIPOS' — that list validates MANUAL movements, so PEDIDO was added as a separate system-only constant (MOVIMIENTO_TIPOS unchanged; PEDIDO still invalid for the manual POST). Note added to the design doc
-TESTS=pure authority 25/25; schema+migration+runtime-guard contract 19/19; regression PASS (inventario 30, caja-venta 27, P0 40, F1 31, schema/migration readers 83, variant suites 39); prisma format/validate/generate PASS; TypeScript 33 = baseline, 0 new; ESLint PASS; build PASS (npm run build exit 0: prisma generate + Compiled successfully + 160/160 páginas + copy-assets); diff-check PASS
+TESTS=pure authority 28/28 (after I1-F1); schema+migration+runtime-guard contract 19/19; regression PASS (inventario 30, caja-venta 27, P0 40, F1 31, schema/migration readers 83, variant suites 39); prisma format/validate/generate PASS; TypeScript 33 = baseline, 0 new; ESLint PASS; build PASS (npm run build exit 0: prisma generate + Compiled successfully + 160/160 páginas + copy-assets); diff-check PASS
 MIGRATION_EXECUTION_TEST=DEFERRED_TO_I1_TESTING_INTEGRATION (not applied to any DB; TESTING does NOT have this schema)
 RUNTIME_ROUTES_CHANGED=0; ORDER_CREATION/TRANSITIONS/CAJA/INVENTORY runtime unchanged; PRODUCTIVE_STOCK_AUTHORITY_CALLERS=0
 RESERVATION_RUNTIME_IMPLEMENTED=NO

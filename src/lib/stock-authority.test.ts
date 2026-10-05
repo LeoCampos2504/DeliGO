@@ -136,14 +136,32 @@ describe("available / deficit (A0.1-6)", () => {
 })
 
 describe("modos ON / DRAINING / OFF (A0.1-9)", () => {
-  test("I1-K: modos válidos y default OFF; desconocido se lee como OFF", () => {
+  test("I1-K: modos válidos y default OFF sólo como default explícito", () => {
     expect([...STOCK_RESERVATION_MODES]).toEqual(["ON", "DRAINING", "OFF"])
     for (const m of STOCK_RESERVATION_MODES) expect(isStockReservationMode(m)).toBe(true)
     for (const m of ["on", "", "PAUSED", null, undefined]) expect(isStockReservationMode(m)).toBe(false)
     expect(DEFAULT_STOCK_RESERVATION_MODE).toBe("OFF")
+  })
+
+  test("I1-F1: parseStockReservationMode acepta exactamente ON / DRAINING / OFF", () => {
     expect(parseStockReservationMode("ON")).toBe("ON")
-    expect(parseStockReservationMode("garbage")).toBe("OFF")
-    expect(parseStockReservationMode(undefined)).toBe("OFF")
+    expect(parseStockReservationMode("DRAINING")).toBe("DRAINING")
+    expect(parseStockReservationMode("OFF")).toBe("OFF")
+  })
+
+  test("I1-F1: valor persistido inválido es FAIL-CLOSED (null), nunca OFF", () => {
+    for (const value of ["garbage", "off", "On", " OFF", "OFF ", "", "PAUSED", 0, 1, true, {}, []]) {
+      const parsed = parseStockReservationMode(value)
+      expect(parsed).toBeNull()
+      expect(parsed).not.toBe("OFF")
+    }
+  })
+
+  test("I1-F1: null y undefined NO se leen como OFF válido", () => {
+    expect(parseStockReservationMode(null)).toBeNull()
+    expect(parseStockReservationMode(undefined)).toBeNull()
+    expect(parseStockReservationMode(null)).not.toBe(DEFAULT_STOCK_RESERVATION_MODE)
+    expect(parseStockReservationMode(undefined)).not.toBe(DEFAULT_STOCK_RESERVATION_MODE)
   })
 
   test("semántica: sólo ON reserva; sólo DRAINING rechaza pedidos controlados nuevos; OFF ninguna", () => {
