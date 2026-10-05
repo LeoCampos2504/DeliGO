@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,28 +10,29 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION (R3A no está cerrada; I1–I5 no iniciadas)
-P2_T56_R3A_P0_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION (F1 ef04b04, deploy 6aa40368 SUCCESS; MANUAL_CERTIFICATION=PENDING_OPERATOR_FROM_FAILED_DISPLAY_STEP; certificación manual P0: selector/carrito PASS; FAIL variante no visible en detalles de mesa Operaciones/Negocio y ticket → corregido por P0-F1)
-TESTING_CODEX_HEAD=R3A integrated by fast-forward 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + P0 deploy docs 7eced47 + P0-F1 ef04b04 (deploy 6aa40368 SUCCESS) + the F1 docs commit on top. P0 functional source = 489d55b342f5ffdc7be6b7bb3ae61750ca755260. Functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7.
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CLOSED_TESTING_CERTIFIED_I1_NOT_STARTED (R3A no está cerrada; I1–I5 no autorizadas ni iniciadas)
+P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (P0 489d55b + P0-F1 ef04b04; MANUAL_CERTIFICATION=PASS 2026-10-05 — Operaciones/Negocio Salón/ticket/producto simple PASS tras F1; selector/carrito ya aprobados)
+TESTING_CODEX_HEAD=R3A integrated by fast-forward 1e14355..e7731c7 (A0 238ccad, A0.1 4f38992, P0 489d55b, doc fixes a72ad4c/e7731c7) + P0 deploy docs 7eced47 + P0-F1 ef04b04 (deploy 6aa40368 SUCCESS) + F1 docs 62597ad + the P0 certification docs commit on top. P0 functional source = 489d55b342f5ffdc7be6b7bb3ae61750ca755260. Functional deploy DeliGO Copy a057f10f-2a27-4872-9d68-809e1402bd63 SUCCESS @ e7731c7.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   Pedidos; Salón; Caja; Inventario; categorías gestionadas; variantes de
-  producto (ProductoVariante); Cliente/Mesa variant-aware; búsqueda por
+  producto (ProductoVariante); Cliente/Mesa variant-aware; pedidos manuales de
+  Mozo variant-aware (R3A-P0 + F1); búsqueda por
   nombre/SKU/barcode de variante en Inventario y Caja — todo
   CLOSED_TESTING_CERTIFIED, ninguna ronda nueva de T56 iniciada
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CLOSED_TESTING_CERTIFIED_I1_NOT_STARTED —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
   testing-codex y desplegada en TESTING (deploy a057f10f SUCCESS, real-DB de
   Cliente PASS, logs/smoke PASS). La certificación manual encontró que la
   variante no se mostraba en los detalles de mesa de Operaciones/Negocio ni en el
-  ticket (persistida OK — bug de lectura/render); P0-F1 (ef04b04) lo corrige y
-  está desplegado en TESTING, pendiente de recertificación manual de ese paso
+  ticket (persistida OK — bug de lectura/render); P0-F1 (ef04b04) lo corrigió y la
+  recertificación manual del 2026-10-05 dio PASS → R3A-P0 CLOSED_TESTING_CERTIFIED
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
   (ReservaStock, I1–I5) sigue SIN implementar: RESERVATION_IMPLEMENTED=NO,
@@ -45,7 +46,7 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   Pedido sólo valida variantes con stock <= 0 (no por cantidad, fuera de
   transacción), no valida stock de productos base, y el route de pedidos manuales
   de Mozo no soportaba variantes (corregido por R3A-P0, desplegado en TESTING el
-  2026-10-01, pendiente de certificación manual). Recomendación: reservar al crear el Pedido
+  2026-10-01; con P0-F1, CLOSED_TESTING_CERTIFIED el 2026-10-05). Recomendación: reservar al crear el Pedido
   (atómico con la creación, Serializable), consumir en la transición a
   `preparando`, liberar sólo al cancelar antes de `preparando`, sin restock
   automático en cancelaciones tardías; Caja y Movimientos validan contra
@@ -81,8 +82,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (P0-F1 manual recertification pending; I1 not authorized)
-NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I1 requires explicit operator authorization)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_AUTHORIZATION
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -99,8 +100,8 @@ dos follow-ups registrados en el cierre de R2C. Production no fue tocada.
 El único follow-up restante, el lifecycle de stock de Pedidos
 (P2-T56-R3A), tiene la auditoría/diseño A0 y el hardening A0.1 terminados
 (2026-09-30) y su subfase P0 (paridad de variantes en Mozo) desplegada en
-TESTING (2026-10-01) y la corrección de display P0-F1 desplegada (2026-10-02,
-pendiente de recertificación manual); el
+TESTING (2026-10-01) con la corrección de display P0-F1 (2026-10-02), y P0 quedó
+`CLOSED_TESTING_CERTIFIED` tras la recertificación manual (2026-10-05); el
 lifecycle de stock (I1–I5) sigue sin implementar. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de

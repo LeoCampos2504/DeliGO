@@ -6,7 +6,38 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0-F1 VARIANT VISIBLE IN MESA DETAILS + TICKET (2026-10-02) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) ===
+
+CURRENT_TASK=P2-T56-R3A-P0-MANUAL-RECERTIFICATION-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=CLOSED_T56_R3A_P0_TESTING_CERTIFIED
+P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED
+MANUAL_CERTIFICATION=PASS
+MANUAL_RECERT_OPERACIONES=PASS · MANUAL_RECERT_NEGOCIO_SALON=PASS · MANUAL_RECERT_TICKET=PASS · MANUAL_RECERT_SIMPLE_PRODUCT=PASS (order "Coca Cola" · "600ml" + "Yerba mate"); previously approved: selector, variant selection, cart identity, separate lines per variant, same variant merges quantity, simple product unchanged
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CLOSED_TESTING_CERTIFIED_I1_NOT_STARTED (R3A NOT closed; A0.1 remains the architecture authority for I1–I5)
+P0_FUNCTIONAL_COMMITS=489d55b342f5ffdc7be6b7bb3ae61750ca755260 (P0 Mozo variant parity) + ef04b040db8665287d6a0e3d38bf979a5b5ac753 (P0-F1 variant display in Operaciones/Negocio/ticket)
+TESTING_CODEX_HEAD=62597ade0bd641a2bd489f5c9a271464d432290e (F1 docs) + the certification docs commit "docs: certify T56 R3A P0 in testing" on top (its docs-only autodeploy is reported in the round result)
+LATERAL_FINDINGS_OPEN=PyR terminal/panel does not render Cliente order variants (OUT_OF_SCOPE, not blocking); POST /api/pedidos idempotency fingerprint omits varianteId (OUT_OF_SCOPE)
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+R3A_I2_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I1 requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md (§20 = certification closeout; architecture: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md § A0.1)
+
+R3A-P0 (Mozo variant parity, plus the F1 display fix) is CLOSED_TESTING_CERTIFIED after the
+operator's manual recertification in TESTING. The order stock lifecycle (I1–I5) is still not
+authorized or started. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-P0-F1 VARIANT VISIBLE IN MESA DETAILS + TICKET (2026-10-02; superseded as the current pointer by the P0 certification closeout above — the manual recertification it awaited PASSED) ===
 
 CURRENT_TASK=P2-T56-R3A-P0-F1-SHOW-ORDER-VARIANT-IN-OPERATIONS-NEGOCIO-TICKET
 CURRENT_TASK_STATUS=F1_DEPLOYED_TESTING_AWAITING_MANUAL_RECERTIFICATION

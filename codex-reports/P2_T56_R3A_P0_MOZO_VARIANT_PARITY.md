@@ -233,7 +233,7 @@ Revertir el commit de P0 (`git revert`) restaura el comportamiento previo: sin s
 nuevos que limpiar; los PedidoItem ya creados con variante conservan su snapshot (columnas
 existentes desde R2C-F2).
 
-## 17. Markers al cierre de la implementación (2026-10-01, históricos desde la integración a TESTING — estado current en §18)
+## 17. Markers al cierre de la implementación (2026-10-01, históricos desde la integración a TESTING — estado current en §20)
 
 ```text
 MOZO_VARIANT_REQUEST_FIELD=varianteId
@@ -322,7 +322,7 @@ PRODUCTION_CHECK=origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 antes y de
   production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 sin cambios → PRODUCTION_TOUCHED=NO
 ```
 
-### Certificación manual pendiente (operador, en TESTING, paso a paso)
+### Checklist de certificación manual (operador, en TESTING, paso a paso — ejecutada; resultado en §19 y §20)
 
 1. Negocio genérico con un producto con ≥2 variantes activas (una controlada sin stock) y un
    producto simple. Mozo con mesa asignada → abrir "Pedido manual".
@@ -336,7 +336,7 @@ PRODUCTION_CHECK=origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 antes y de
    variante; el stock de la variante NO cambia (P0 no reserva ni descuenta).
 7. Producto con opciones/secciones + variante: la opción se cobra sobre el precio de la variante.
 
-### Markers post-integración (2026-10-01, históricos desde P0-F1 — estado current en §19)
+### Markers post-integración (2026-10-01, históricos desde P0-F1 — estado current en §20)
 
 ```text
 P2_T56_R3A_P0_STATUS=DEPLOYED_TESTING_AWAITING_MANUAL_CERTIFICATION
@@ -478,7 +478,7 @@ PRODUCTION_TOUCHED=NO (origin/main 42ca500…; deployment production/DeliGO 6bf1
 El commit documental que registra este bloque dispara su propio autodeploy (docs-only); su ID se
 reporta en la respuesta de la ronda, separado del deploy funcional de F1.
 
-### Recertificación manual pendiente (sólo el paso que falló)
+### Recertificación manual del paso que falló (checklist — ejecutada el 2026-10-05, resultado en §20; el bloque de abajo es el estado previo, histórico)
 
 Sobre un pedido manual de Mozo con un producto con variante (p. ej. el pedido de la certificación,
 "Coca Cola" · "600ml") y un producto simple:
@@ -493,3 +493,35 @@ MANUAL_CERTIFICATION=PENDING_OPERATOR_FROM_FAILED_DISPLAY_STEP
 RESERVATION_IMPLEMENTED=NO / ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO / AVAILABLE_STOCK_IMPLEMENTED=NO / R3A_I1_STARTED=NO
 NEXT_ACTION=RETURN_TO_OPERATOR_TO_RETEST_VARIANT_VISIBILITY_IN_OPERACIONES_NEGOCIO_TICKET
 ```
+
+## 20. Certificación manual — cierre (2026-10-05)
+
+El operador completó en TESTING la recertificación manual del paso que había fallado (sobre el
+pedido manual de Mozo "Coca Cola" · "600ml" + "Yerba mate"), con el deploy de F1 activo.
+
+```text
+MANUAL_RECERT_OPERACIONES=PASS (detalle/cuenta de mesa: "Coca Cola" muestra "600ml")
+MANUAL_RECERT_NEGOCIO_SALON=PASS (Salón — detalle/cuenta: muestra "600ml")
+MANUAL_RECERT_TICKET=PASS (vista previa: "600ml" debajo del producto)
+MANUAL_RECERT_SIMPLE_PRODUCT=PASS ("Yerba mate" normal, sin variante inexistente, separadores vacíos ni texto extraño)
+MANUAL_PREVIOUSLY_APPROVED=selector visible; selección de variante; carrito identifica variante; variantes
+  distintas = líneas separadas; misma variante suma cantidad; producto simple normal
+MANUAL_CERTIFICATION=PASS
+P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED
+P0_FUNCTIONAL_COMMITS=489d55b342f5ffdc7be6b7bb3ae61750ca755260 (P0) + ef04b040db8665287d6a0e3d38bf979a5b5ac753 (P0-F1)
+CERTIFIED_TESTING_DEPLOYS=a057f10f-2a27-4872-9d68-809e1402bd63 (P0) · 6aa40368-a00e-4481-8d5d-9117c627f40a (F1) ·
+  e7be2150-2850-4e54-9ad6-51affe2cdee4 (F1 docs, instancia activa durante la recertificación)
+LATERAL_FINDING_PYR=OUT_OF_SCOPE — la terminal/panel PyR no muestra la variante en pedidos de Cliente
+  (delivery/retiro); no bloquea el cierre de P0; queda como follow-up separado
+LATERAL_FINDING_CLIENT_FINGERPRINT=OUT_OF_SCOPE — fingerprint de idempotencia de POST /api/pedidos sin varianteId (§14)
+RESERVATION_IMPLEMENTED=NO
+ORDER_STOCK_LIFECYCLE_IMPLEMENTED=NO
+AVAILABLE_STOCK_IMPLEMENTED=NO
+R3A_I1_STARTED=NO
+R3A_I2_STARTED=NO
+PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I1_AUTHORIZATION
+```
+
+R3A como fase global NO está cerrada: P0 queda certificado; el lifecycle de stock (I1–I5) sigue
+sin autorizar ni iniciar, con A0.1 como autoridad arquitectónica.
