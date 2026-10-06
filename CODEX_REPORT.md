@@ -6,7 +6,48 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2-F1 OFF→ON MODE RACE HARDENING ON THE I2 BRANCH (2026-10-06) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFICATION BLOCKED ON INTERACTIVE-TX TIMEOUT FINDING (2026-10-06) ===
+
+CURRENT_TASK=P2-T56-R3A-I2-TESTING-INTEGRATION-DEPLOY-REAL-DB-MODE-OFF
+CURRENT_TASK_STATUS=STOPPED_AWAITING_OPERATOR_DECISION
+RESULT=BLOCKED_T56_R3A_I2_REAL_DB_OFF_PATH_INTERACTIVE_TX_TIMEOUT
+R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED (NOT awaiting manual smoke, NOT closed, NOT certified)
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_DEPLOYED_TESTING_MODE_OFF_BLOCKED (R3A NOT closed; I3–I5 not started)
+INTEGRATION=fast-forward cc628e0..8c43661 on testing-codex (0e3b2a3 I2 + 8c43661 I2-F1; UNRELATED_COMMITS=0; UNRELATED_FILES=0)
+TESTING_CODEX_HEAD=8c436616e72f52d2f000e49c05198c9655efee4a (functional) + the docs commit "docs: record T56 R3A I2 testing deployment" on top (its docs-only autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway amiable-rejoicing / TESTING / DeliGO Copy ca6bfc4e-0d96-4f68-b9bc-7739d3162a23 SUCCESS, branch testing-codex, commit 8c436616e72f52d2f000e49c05198c9655efee4a (COMMIT_MATCH=YES)
+MIGRATIONS=NEW_MIGRATIONS=0; deploy "No pending migrations to apply."; prisma migrate status UP_TO_DATE (38); UNEXPECTED_MIGRATION_APPLIED=NO
+PRE_PUSH_TESTS=RUN_NOW on integrated HEAD: 21 focal suites PASS; prisma PASS; tsc 33 = baseline (0 new); ESLint PASS; build PASS; diff-check PASS
+POSTDEPLOY_LOGS=PASS · HTTP_SMOKE=PASS_NO_5XX
+MODE_INVARIANT=OFF before deploy, before and after suites; NON_OFF_CONFIG_ROWS=0; reservas_stock 0 (ACTIVA 0); MovimientoInventario PEDIDO 0; core row counts identical before/after suites (no residue)
+REAL_DB_SUITES=16 run against TESTING from the local machine: 211 pass / 15 fail. PASS: order-rate-limit-buckets 14, cas-mesa 3, pyr-workflow-parity 11, client-cancel-accepted 4, auto-cancel 4, inventario movimientos 13, p2-t41 cuenta 7, mesa-cliente-cuenta 45. FAIL: route.variantes 7/2, route 0/1, negocio-salon 27/3, cas-concurrency 4/2, lock-ownership 1/1, t29b 0/1, new-delivery 3/1, mesa-pedido-cancelacion 68/4
+REAL_DB_OFF_PATH_TESTS=FAIL_PARTIAL
+REAL_DB_FAILURE_CLASSIFICATION=ENVIRONMENT_LATENCY_CONNECT 4 (Prisma connect >5 s; includes negocio-salon code untouched by I2) + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE 11 (transactions 5.3–6.0 s vs Prisma default 5000 ms)
+MEASURED_LATENCY=local client → TESTING public proxy: first query incl. connect 5528 ms; RTT median 359 ms (min 353, max 1502); Railway-internal RTT ~1 ms
+I2_TESTING_FINDING=I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE — runStockSerializable passes no timeout/maxWait, so the 6 preparando writers (previously a plain updateMany / no transaction), generic controlled order creation (I2-F1) and cancellations now depend on Prisma's 5000 ms interactive default; amplified here by ~360 ms RTT, but a real new dependency
+CODE_FIX_APPLIED=NO (code change not authorized this round)
+REAL_DB_ON_RESERVATION_CONCURRENCY_TESTS=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION · MODE_VS_RES_CONCURRENCY_TEST=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (rollback point; no schema to undo)
+R3A_I3_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OPERATOR_OPTIONS=(a) authorize a scoped I2-F2: explicit timeout/maxWait in runStockSerializable + regression, then re-verify real-DB; (b) accept the latency classification and re-verify from a low-latency environment; (c) roll back to r3a-i1-testing-verified
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator decision on the I2 interactive-tx timeout finding)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_INTERACTIVE_TX_TIMEOUT_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md (§13 = TESTING integration/deploy/real-DB)
+
+R3A-I2 (+ I2-F1) is integrated and running in TESTING with the mode OFF (no reservations, no
+migration). Real-DB verification stopped: besides connect-latency failures from the local client,
+the new interactive Serializable transactions hit Prisma's 5 s default. No code was changed; the
+operator decides the next step. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2-F1 OFF→ON MODE RACE HARDENING ON THE I2 BRANCH (2026-10-06; superseded as the current pointer by the I2 TESTING integration above) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-F1-SERIALIZE-STOCK-MODE-READS
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

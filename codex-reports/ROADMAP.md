@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked (2026-10-06)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,11 +10,11 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_IMPLEMENTED_ON_BRANCH (R3A no está cerrada; I3–I5 no autorizadas ni iniciadas)
-P2_T56_R3A_I2_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_DEPLOYED_TESTING_MODE_OFF_BLOCKED (R3A no está cerrada; I3–I5 no autorizadas ni iniciadas)
+P2_T56_R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED (2026-10-06: fast-forward cc628e0..8c43661, deploy ca6bfc4e SUCCESS, modo OFF, reservas_stock 0; real-DB 211 pass / 15 fail — latencia de conexión del cliente local + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE; esperando decisión del operador; antes: branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (fast-forward 8b404f3..e0a0c0e; deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING; reservas_stock vacía; modo OFF)
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (P0 489d55b + P0-F1 ef04b04; MANUAL_CERTIFICATION=PASS 2026-10-05 — Operaciones/Negocio Salón/ticket/producto simple PASS tras F1; selector/carrito ya aprobados)
-TESTING_CODEX_HEAD=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (R3A A0/A0.1/P0/P0-F1 + P0 docs + I1 a28cf42 + I1-F1 e0a0c0e) + the I1 closeout docs commit on top. P0 functional source = 489d55b + ef04b04.
+TESTING_CODEX_HEAD=8c436616e72f52d2f000e49c05198c9655efee4a (… + I1 closeout docs cc628e0 + I2 0e3b2a3 + I2-F1 8c43661) + the I2 TESTING deployment docs commit on top. P0 functional source = 489d55b + ef04b04.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -26,7 +26,7 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_IMPLEMENTED_ON_BRANCH —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_DEPLOYED_TESTING_MODE_OFF_BLOCKED —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
@@ -43,13 +43,15 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   crear, consumo en `preparando` con MovimientoInventario PEDIDO, liberación al
   cancelar, guard de borrado de producto; 2+6+6 sitios cableados detrás del modo
   OFF; sin migración) quedó IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION en la
-  branch work/p2-t56-r3-stock-lifecycle-i2 — NO integrada, TESTING no la ejecuta
+  branch work/p2-t56-r3-stock-lifecycle-i2; el 2026-10-06, con I2-F1, se integró a
+  testing-codex (8c43661) y se desplegó en TESTING con modo OFF; la verificación real-DB
+  quedó bloqueada por I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE (§13 del reporte)
   (codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
-  en runtime existe sólo en la branch I2 (no integrada); en testing-codex/TESTING
-  sigue SIN runtime: RESERVATION_RUNTIME_IN_TESTING=NO,
-  ORDER_STOCK_LIFECYCLE_RUNTIME_IN_TESTING=NO, AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO (I3+).
+  en runtime (I2 + I2-F1) corre en TESTING desde 2026-10-06 con modo OFF (sin
+  reservas): RESERVATION_RUNTIME_IN_TESTING=YES_MODE_OFF,
+  ORDER_STOCK_LIFECYCLE_RUNTIME_IN_TESTING=YES_MODE_OFF, AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO (I3+).
   Estrategia RESERVE_ON_ORDER_CREATION_CONSUME_ON_PREPARANDO aceptada como
   dirección por el operador; las 6 decisiones de producto quedaron resueltas
   (UNRESOLVED_PRODUCT_DECISIONS_COUNT=0); scope GENERIC_BUSINESS_ONLY
@@ -95,8 +97,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I2 testing-codex integration requires explicit operator authorization)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator decision on the I2 interactive-tx timeout finding)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_INTERACTIVE_TX_TIMEOUT_DECISION
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -115,8 +117,9 @@ El único follow-up restante, el lifecycle de stock de Pedidos
 (2026-09-30) y su subfase P0 (paridad de variantes en Mozo) desplegada en
 TESTING (2026-10-01) con la corrección de display P0-F1 (2026-10-02), y P0 quedó
 `CLOSED_TESTING_CERTIFIED` tras la recertificación manual (2026-10-05); el
-lifecycle de stock tiene I1 CLOSED_TESTING_VERIFIED e I2 implementada en su
-branch (no integrada); I3–I5 siguen sin implementar. No se
+lifecycle de stock tiene I1 CLOSED_TESTING_VERIFIED e I2 (+ I2-F1) desplegada en
+TESTING con modo OFF y verificación real-DB bloqueada (2026-10-06); I3–I5 siguen sin
+implementar. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue
