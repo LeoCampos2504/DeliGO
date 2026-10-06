@@ -6,7 +6,46 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 STOCK RESERVATION / CONSUMPTION / RELEASE RUNTIME ON DEDICATED BRANCH (2026-10-05) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2-F1 OFF→ON MODE RACE HARDENING ON THE I2 BRANCH (2026-10-06) ===
+
+CURRENT_TASK=P2-T56-R3A-I2-F1-SERIALIZE-STOCK-MODE-READS
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_I2_TESTING_INTEGRATION_REVIEW
+R3A_I2_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (I2 0e3b2a3 + I2-F1 "fix: serialize T56 R3A stock mode reads")
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged)
+P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_IMPLEMENTED_ON_BRANCH (R3A NOT closed; I3–I5 not started)
+I2_BRANCH=work/p2-t56-r3-stock-lifecycle-i2 (base testing-codex cc628e0c4cb374d4e99f1432db8887d89eec3b0b; commits 0e3b2a3fb42b765b3760bb0a85a6533ab098348a I2 + the I2-F1 commit on top; pushed only to origin/work/p2-t56-r3-stock-lifecycle-i2; NOT integrated)
+TESTING_CODEX_HEAD=cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged — TESTING does NOT run I2)
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+I2_F1_MODE_RACE_FOUND=OUTER_OFF_PREREAD_COULD_BYPASS_FUTURE_OFF_TO_ON_ACTIVATION
+ROOT_CAUSE=OFF_MODE_WAS_USED_OUTSIDE_TRANSACTION_TO_SELECT_NON_SERIALIZABLE_RUNNER (POST /api/pedidos read the mode on db before the tx; OFF → db.$transaction legacy, so an OFF→ON activation between that read and commit could confirm an order without reservation)
+I2_F1_FIX=POST /api/pedidos: useStockTransaction = isGenericBusinessStockScope(rubro) && some controlled line (outer read + import removed); the only mode read is readStockReservationMode(tx) inside planificarReservaStockPedido within runStockSerializable
+GENERIC_CONTROLLED_ALWAYS_SERIALIZABLE=YES · MODE_AUTHORITATIVE_READ=INSIDE_TRANSACTION · OUTER_MODE_READ_AUTHORITATIVE=NO
+OFF_CONTROLLED_ORDER_BEHAVIOR=SERIALIZABLE_NO_RESERVATION · ON=SERIALIZABLE_WITH_RESERVATION · DRAINING=SERIALIZABLE_409 · INVALID=SERIALIZABLE_FAIL_CLOSED_503
+NON_GENERIC_RUNNER_UNCHANGED=YES · NO_CONTROLLED_LINES_RUNNER_UNCHANGED=YES · Mozo unchanged (already Serializable, mode read inside its tx)
+TESTS=F1 route test 11/11 (mutation check: 7 fail against the pre-F1 route); I2 wiring contract 23/23 (GENERIC_CONTROLLED_ALWAYS_SERIALIZABLE + MODE_READ_INSIDE_STOCK_TX guards); regressions PASS (stock-lifecycle 35, Mozo 8+8+26+13, I1 contract 19, order-transitions PyR 13/Salón 6, negocio-salon 26, stock-authority 28, inventario 30, caja-venta 27, delete-guard 3, P0/F1 focal 29+8+6+19+6+6); DB-requiring POST /api/pedidos suites NOT_RUN (DB_ENV); TypeScript 33 = baseline, 0 new; ESLint PASS; build PASS (1st attempt); diff-check PASS; prisma validate/generate PASS
+FULL_SWEEP_NON_DB_FAILURE_CLASSIFICATION=OUTSIDE_I2_DIFF_CRLF_PORTABILITY_SUSPECTED_BASELINE_NOT_EXECUTED (8 files from the I2 sweep; not claimed pre-existing)
+REAL_DB_CONCURRENCY_TESTS=DEFERRED_TO_I2_TESTING_INTEGRATION
+MODE_ACTIVATED=NO; SCHEMA_CHANGE_REQUIRED=NO; NEW_MIGRATIONS=0; UNRELATED_FILES=0
+TESTING_DB_TOUCHED=NO; RAILWAY_TOUCHED=NO; PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 unchanged)
+R3A_I3_STARTED=NO
+LATERAL_FINDINGS_OPEN=Cliente idempotency fingerprint omits varianteId; PyR panel does not render variants; product hard delete cascades MovimientoInventario history; inventory APIs lack server-side rubro gate (all OUT_OF_SCOPE)
+DOC_POLICY_NOTE=DELIGO_FULL_CONTEXT_LATEST.md is a tracked canonical document per current project practice (operator confirmed in I2-F1; overrides the older closeout wording)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I2 testing-codex integration requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md (§12 = I2-F1)
+
+I2-F1 closes the OFF→ON race in POST /api/pedidos: a generic-business order with any
+stock-controlled line now always runs Serializable and decides only from the mode read inside
+that transaction. Still branch-only; nothing integrated, deployed or migrated; mode OFF.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2 STOCK RESERVATION / CONSUMPTION / RELEASE RUNTIME ON DEDICATED BRANCH (2026-10-05; superseded as the current pointer by I2-F1 above) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-STOCK-LIFECYCLE-RUNTIME-PLUS-SAFETY-TAG
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
@@ -20,7 +59,7 @@ I2_BRANCH=work/p2-t56-r3-stock-lifecycle-i2 (base testing-codex cc628e0c4cb374d4
 TESTING_CODEX_HEAD=cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged by I2 — TESTING does NOT run I2)
 I2_SCOPE=new runtime authority src/lib/stock-lifecycle.ts (runStockSerializable Serializable + P2034 retry ≤3; fail-closed mode read → 503; reserve at order creation; consume at → preparando with PEDIDO MovimientoInventario + pedidoId; release on cancellation with debt reversion in the same tx; product-delete guard 409 PRODUCT_HAS_ACTIVE_RESERVATIONS); PedidoItem ids pre-generated with randomUUID()
 ORDER_CREATION_WIRING=2/2 · PREPARANDO_WIRING=6/6 · CANCELLATION_WIRING=6/6 (static contract with bypass detectors)
-MODE_OFF_BEHAVIOR_REGRESSION=PASS (POST /api/pedidos keeps its original transaction/isolation when mode OFF, rubro restaurante/ropa or no controlled lines)
+MODE_OFF_BEHAVIOR_REGRESSION=PASS (POST /api/pedidos keeps its original transaction/isolation when mode OFF, rubro restaurante/ropa or no controlled lines) — SUPERSEDED BY I2-F1 for the 'mode OFF' case: generic+controlled OFF now runs Serializable without reservation (outer OFF pre-read was a race)
 MODE_ACTIVATED=NO (no file writes stockReservaModo; TESTING remains OFF)
 SCHEMA_CHANGE_REQUIRED=NO; NEW_MIGRATIONS=0
 TESTS=stock-lifecycle 35/35; Mozo route.stock 8/8; delete-guard 3/3; I2 wiring contract 22/22; order-transitions-authority PyR 13/13 + Salón 6/6; negocio-salon contract 26/26; I1 contract (allowlist) 19/19; regressions PASS (stock-authority 28, inventario 30, caja-venta 27, Mozo 8+26+13, Mozo page 29+8); full per-file sweep 366 files — DB_ENV suites NOT_RUN (no DB this round), 8 non-DB failures in files outside the I2 diff (CRLF/portability class); TypeScript 33 = baseline, 0 new; ESLint PASS; build PASS (2nd attempt — 1st failed on Google Fonts network fetch, unrelated); diff-check PASS

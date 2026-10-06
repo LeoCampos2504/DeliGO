@@ -1,9 +1,9 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification, R3A-I1 TESTING verification and R3A-I2 branch implementation (2026-10-05)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification, R3A-I1 TESTING verification and R3A-I2 branch implementation (2026-10-05), R3A-I2-F1 mode-race hardening (2026-10-06)
 
 ```text
-CURRENT_TASK=P2-T56-R3A-I2-STOCK-LIFECYCLE-RUNTIME-PLUS-SAFETY-TAG
+CURRENT_TASK=P2-T56-R3A-I2-F1-SERIALIZE-STOCK-MODE-READS
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
 RESULT=READY_FOR_T56_R3A_I2_TESTING_INTEGRATION_REVIEW
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
@@ -12,7 +12,7 @@ TESTING_CODEX_HEAD=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (R3A A0/A0.1/P0/P0-F
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_IMPLEMENTED_ON_BRANCH (order stock lifecycle — ver limitación de stock abajo; R3A no cerrada; UNRESOLVED_PRODUCT_DECISIONS_COUNT=0)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (integrada por fast-forward; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING por el deploy; schema verificado read-only: reservas_stock vacía, stockReservaModo=OFF en todas las filas, movimientos_inventario.pedidoId nullable; sin callers productivos)
-P2_T56_R3A_I2_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (SAFETY_TAG=r3a-i1-testing-verified → cc628e0 CREATED_AND_PUSHED; branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; REAL_DB_CONCURRENCY_TESTS=DEFERRED_TO_I2_TESTING_INTEGRATION; TESTING_DB/RAILWAY/PRODUCTION no tocados; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md)
+P2_T56_R3A_I2_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (SAFETY_TAG=r3a-i1-testing-verified → cc628e0 CREATED_AND_PUSHED; branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; REAL_DB_CONCURRENCY_TESTS=DEFERRED_TO_I2_TESTING_INTEGRATION; TESTING_DB/RAILWAY/PRODUCTION no tocados; I2-F1 2026-10-06 sobre 0e3b2a3: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx — GENERIC_CONTROLLED_ALWAYS_SERIALIZABLE=YES, OUTER_MODE_READ_AUTHORITATIVE=NO; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (paridad de variantes en pedidos manuales de Mozo: P0 489d55b + P0-F1 ef04b04 display en Operaciones/Negocio/ticket; MANUAL_CERTIFICATION=PASS 2026-10-05; sin schema; sin tocar stock; PyR sin variante = OUT_OF_SCOPE)
 RESERVATION_RUNTIME_IN_TESTING=NO (sólo en branch I2) / ORDER_STOCK_LIFECYCLE_RUNTIME_IN_TESTING=NO / AVAILABLE_STOCK_RUNTIME_IMPLEMENTED=NO / STOCK_RESERVATION_MODE_CURRENT=OFF (verificado en TESTING; MODE_ACTIVATED=NO) / R3A_I3_STARTED=NO
 PRODUCTION_TOUCHED=NO

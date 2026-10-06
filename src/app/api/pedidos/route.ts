@@ -46,7 +46,6 @@ import { isGenericBusinessStockScope } from "@/lib/stock-authority"
 import {
   mapStockLifecycleError,
   planificarReservaStockPedido,
-  readStockReservationMode,
   reservarStockPedido,
   runStockSerializable,
   type StockOrderLine,
@@ -1729,14 +1728,17 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       },
     }
 
-    // P2-T56-R3A-I2 — lifecycle de stock (A0.1-2/A0.1-3). Sólo negocio genérico
-    // con al menos una línea de stock controlado entra al camino de stock; para
-    // cualquier otro rubro o pedido sin líneas controladas la creación queda
-    // exactamente como antes. Con modo OFF (lectura previa) también: misma
-    // transacción y aislamiento de siempre, sin reservas. Con ON/DRAINING la misma
-    // transacción corre Serializable (runStockSerializable) y relee el modo
-    // adentro: DRAINING → 409, ON → valida disponible y reserva. Un valor de modo
-    // inválido es fail-closed (nunca se trata como OFF).
+    // P2-T56-R3A-I2 (+ I2-F1) — lifecycle de stock (A0.1-2/A0.1-3). Sólo negocio
+    // genérico con al menos una línea de stock controlado entra al camino de
+    // stock; para cualquier otro rubro o pedido sin líneas controladas la
+    // creación queda exactamente como antes (misma transacción y aislamiento).
+    // Negocio genérico + línea controlada corre SIEMPRE Serializable
+    // (runStockSerializable), cualquiera sea el modo: la ÚNICA lectura del
+    // modo de reservas es la de planificarReservaStockPedido DENTRO de esa tx
+    // (OFF → pedido sin reserva, DRAINING → 409, ON → valida disponible y
+    // reserva, inválido → 503 fail-closed). I2-F1: ninguna lectura previa del
+    // modo puede elegir el runner — un OFF leído afuera podía confirmar un
+    // pedido sin reserva después de que otra tx activara ON.
     const stockLines: StockOrderLine[] = validatedItems.map((item) => ({
       pedidoItemId: item.id,
       productoId: item.productoId,
@@ -1744,10 +1746,8 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
       cantidad: item.cantidad,
       controlStock: item.stockControlled,
     }))
-    const needsStockAuthority =
-      isGenericBusinessStockScope(negocio.rubro) && stockLines.some((line) => line.controlStock)
     const useStockTransaction =
-      needsStockAuthority && (await readStockReservationMode(db)) !== "OFF"
+      isGenericBusinessStockScope(negocio.rubro) && stockLines.some((line) => line.controlStock)
 
     const createPedidoInTx = async (tx: Prisma.TransactionClient) => {
         // Idempotencia persistente: si ya vino una key, resolver PRIMERO si ya

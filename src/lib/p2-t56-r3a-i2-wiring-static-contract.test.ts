@@ -84,10 +84,36 @@ describe("ORDER_CREATION_WIRING=2/2", () => {
     })
   }
 
-  test("POST /api/pedidos: el modo se lee (fail-closed) sólo para negocio genérico con líneas controladas; OFF conserva la transacción original", () => {
+  // I2-F1: una lectura de modo fuera de la tx (OFF) elegía el runner legacy y
+  // podía confirmar un pedido sin reserva después de una activación OFF→ON.
+  test("I2-F1 GENERIC_CONTROLLED_ALWAYS_SERIALIZABLE: el runner de POST /api/pedidos depende sólo de rubro + líneas controladas, nunca del modo", () => {
     const src = read(CREATORS[0])
-    expect(src).toContain("needsStockAuthority && (await readStockReservationMode(db)) !== \"OFF\"")
-    expect(src).toContain(": db.$transaction(createPedidoInTx)")
+    expect(src).toMatch(
+      /const useStockTransaction =\s*isGenericBusinessStockScope\(negocio\.rubro\) && stockLines\.some\(\(line\) => line\.controlStock\)\n/
+    )
+    expect(src).toMatch(/useStockTransaction\s*\?\s*runStockSerializable\(db, createPedidoInTx\)\s*:\s*db\.\$transaction\(createPedidoInTx\)/)
+    // F1-D: ninguna rama `modo OFF → db.$transaction` ni comparación de modo en el route.
+    expect(src).not.toMatch(/!==\s*"OFF"|===\s*"OFF"/)
+    expect(src).not.toContain("readStockReservationMode")
+    expect(src).not.toContain("stockReservaModo")
+    expect(src).not.toContain("configPlataforma")
+  })
+
+  test("I2-F1 MODE_READ_INSIDE_STOCK_TX: la única lectura productiva del modo es readStockReservationMode(tx) dentro de planificarReservaStockPedido", () => {
+    const readers = productive
+      .filter(({ src }) => /readStockReservationMode\(/.test(src.replace(/export async function readStockReservationMode\(/, "")))
+      .map(({ path }) => path)
+    expect(readers).toEqual([AUTHORITY])
+    const authority = read(AUTHORITY)
+    const calls = authority.match(/readStockReservationMode\([^)]*\)/g) ?? []
+    expect(calls).toEqual(["readStockReservationMode(reader: ConfigReader)", "readStockReservationMode(tx)"])
+    const planner = authority.slice(authority.indexOf("export async function planificarReservaStockPedido("))
+    expect(planner.indexOf("readStockReservationMode(tx)")).toBeGreaterThan(-1)
+    expect(planner.indexOf("readStockReservationMode(tx)")).toBeLessThan(planner.indexOf("\n}\n"))
+    // Ambos creadores planifican con el `tx` de su transacción Serializable.
+    for (const path of CREATORS) {
+      expect(read(path)).toMatch(/await planificarReservaStockPedido\(tx, \{/)
+    }
   })
 
   test("Mozo: el retry Serializable local fue reemplazado por la autoridad compartida", () => {
