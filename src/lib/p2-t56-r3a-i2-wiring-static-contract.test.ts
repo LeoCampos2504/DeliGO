@@ -197,6 +197,50 @@ describe("CANCELLATION_WIRING=6/6", () => {
   })
 })
 
+// I2-F2: la verificación real-DB en TESTING mostró transacciones de stock que
+// excedían el timeout interactivo default de Prisma (5000 ms). La política es
+// explícita y vive sólo en runStockSerializable.
+describe("I2-F2 — política de timeout de la transacción de stock: explícita y única", () => {
+  test("STOCK_SERIALIZABLE_TIMEOUT_EXPLICIT / MAX_WAIT_EXPLICIT: runStockSerializable pasa maxWait y timeout con constantes de la autoridad", () => {
+    const authority = read(AUTHORITY)
+    expect(authority).toMatch(/export const STOCK_SERIALIZABLE_MAX_WAIT_MS = \d[\d_]*\n/)
+    expect(authority).toMatch(/export const STOCK_SERIALIZABLE_TIMEOUT_MS = \d[\d_]*\n/)
+    const fn = authority.slice(authority.indexOf("export async function runStockSerializable<T>("))
+    const body = fn.slice(0, fn.indexOf("\n}\n"))
+    expect(body).toContain("isolationLevel: Prisma.TransactionIsolationLevel.Serializable,")
+    expect(body).toContain("maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS,")
+    expect(body).toContain("timeout: STOCK_SERIALIZABLE_TIMEOUT_MS,")
+    // Sin parámetro de opciones: ningún caller puede pisar la política.
+    expect(body).toMatch(/fn: \(tx: Tx\) => Promise<T>\n\): Promise<T>/)
+    expect(body).not.toContain("...options")
+    expect(authority).not.toContain("StockSerializableOptions")
+  })
+
+  test("los callers de runStockSerializable no pasan maxWait/timeout propios", () => {
+    const callers = productive.filter(({ path, src }) => path !== AUTHORITY && src.includes("runStockSerializable("))
+    expect(callers.length).toBe(8)
+    for (const { path, src } of callers) {
+      let from = 0
+      for (;;) {
+        const start = src.indexOf("runStockSerializable(", from)
+        if (start < 0) break
+        let depth = 0
+        let end = start + "runStockSerializable(".length - 1
+        for (; end < src.length; end++) {
+          if (src[end] === "(") depth++
+          else if (src[end] === ")") {
+            depth--
+            if (depth === 0) break
+          }
+        }
+        const call = src.slice(start, end + 1)
+        expect({ path, maxWait: /\bmaxWait\s*:/.test(call), timeout: /\btimeout\s*:/.test(call) }).toEqual({ path, maxWait: false, timeout: false })
+        from = end + 1
+      }
+    }
+  })
+})
+
 describe("guard de producto, PEDIDO system-only y modo OFF intacto", () => {
   test("DELETE producto consulta reservas ACTIVA antes del hard delete", () => {
     const src = read("src/app/api/negocio/productos/[id]/route.ts")

@@ -405,7 +405,7 @@ REAL_DB_ON_RESERVATION_CONCURRENCY_TESTS=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATIO
 MODE_VS_RES_CONCURRENCY_TEST=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
 ```
 
-### Clasificación (con evidencia)
+### Clasificación (con evidencia) — SUPERSEDED por la clasificación corregida de §14 (la división 4 + 11 era imprecisa)
 
 **Latencia medida desde esta máquina al proxy público de TESTING** (`rtt_probe`, READ ONLY): la primera consulta, conexión incluida, tardó 5528 ms, y el RTT fue de min 353 / mediana 359 / max 1502 ms. Dentro de la red de Railway el RTT es de ~1 ms.
 
@@ -418,7 +418,7 @@ MODE_VS_RES_CONCURRENCY_TEST=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
 
 ```text
 I2_TESTING_FINDING=I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE (runStockSerializable sin timeout explícito → 5000 ms default de Prisma en caminos que antes no eran interactivos)
-REAL_DB_FAILURE_CLASSIFICATION=ENVIRONMENT_LATENCY_CONNECT 4 + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE 11 (amplificada por RTT ~360 ms desde el cliente local)
+REAL_DB_FAILURE_CLASSIFICATION=ENVIRONMENT_LATENCY_CONNECT 4 + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE 11 (amplificada por RTT ~360 ms desde el cliente local) — SUPERSEDED (§14): 3 conexión + 2 latencia no-I2 + 2 runStockSerializable confirmadas + 4 sin atribuir + 4 transacción preexistente de cancelación de mesa
 CODE_FIX_APPLIED=NO (no autorizado)
 ```
 
@@ -430,10 +430,132 @@ TESTING_CODEX_FUNCTIONAL_HEAD=8c436616e72f52d2f000e49c05198c9655efee4a (TESTING 
 MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0
 ROLLBACK_AVAILABLE=r3a-i1-testing-verified → cc628e0 (sin schema que deshacer)
 R3A_I3_STARTED=NO · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 SUCCESS, sin cambios)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_INTERACTIVE_TX_TIMEOUT_DECISION
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_INTERACTIVE_TX_TIMEOUT_DECISION (histórico — el operador eligió la opción (a): I2-F2, §14)
 ```
 
 **Opciones para el operador** (no se ejecutó ninguna):
 - **(a)** Autorizar un I2-F2 acotado: un `timeout`/`maxWait` explícito en `runStockSerializable`, con regresión, y después re-verificar real-DB.
 - **(b)** Aceptar la clasificación como latencia del cliente local y re-verificar desde un entorno con latencia baja.
 - **(c)** Revertir a `r3a-i1-testing-verified`.
+
+## 14. I2-F2 — hardening del timeout de la transacción interactiva de stock (2026-10-06)
+
+Branch `work/p2-t56-r3-stock-lifecycle-i2-f2`, base `testing-codex` = `134c7857c39be00dea85fbaf03f631a11ab499f3`. Commit: `fix: harden T56 R3A stock transaction timeout`. Sin integración, sin Railway, sin TESTING DB, sin Production, modo OFF sin tocar.
+
+### Auditoría read-only
+
+```text
+RUN_STOCK_SERIALIZABLE_CALLERS=8 (POST /api/pedidos [creación genérica controlada], POST Mozo [creación], 6 escritores de preparando: negocio/pedidos PUT, negocio/pedidos/[id]/estado, operaciones/pyr/.../estado, operaciones/salon/.../estado, operativo/pyr/.../preparar, operativo/salon/.../preparar)
+ISOLATION_LEVEL_BEFORE=Serializable · MAX_WAIT_BEFORE=PRISMA_DEFAULT (2000 ms) · TIMEOUT_BEFORE=PRISMA_DEFAULT (5000 ms) — ningún caller pasaba opciones
+EXISTING_TRANSACTION_TIMEOUT_POLICIES=timeout 15_000 + Serializable en 6 sitios (review-moderation-business/-evidence/-expiry/-server/-superadmin, client-account-deletion); maxWait 10_000 + timeout 30_000 en operativo/mozos/unirse; timeout 30_000 en productos/[id]/duplicar; el resto de las transacciones Serializable usan defaults
+NETWORK_CALLS_INSIDE_TX=0 (ni fetch, ni push/notify, ni filesystem, ni sleep, ni crypto caro dentro de los 8 callbacks ni en la autoridad; las notificaciones corren después del commit)
+```
+
+### Clasificación corregida de las 15 fallas de §13
+
+**La clasificación "4 + 11" de §13 queda SUPERSEDED.** Era imprecisa: auditada contra la evidencia registrada y el código, la división real es esta:
+
+| Clase | n | Suite / test | Evidencia | Transacción I2 |
+|---|---|---|---|---|
+| `ENVIRONMENT_LATENCY_CONNECT` | 3 | `pedidos/route` (unnamed, 5024 ms), `t29b-flow` (unnamed, 5020 ms), `negocio-salon` Tarea 20 contrato 1 (5026 ms) | `PrismaClientInitializationError` | no (falla antes de ejecutar lógica) |
+| `NON_I2_LATENCY` | 2 | `negocio-salon` Tarea 20 concurrencia caso 1 (6753 ms, "Unable to start a transaction in the given time" = maxWait) y caso 2 (7528 ms, "Transaction not found") | código no tocado por I2 | no |
+| `I2_RUN_STOCK_SERIALIZABLE_TIMEOUT_CONFIRMED` | 2 | `pedidos/route.variantes`: "producto SIN variantes" (17566 ms) y "dos variantes distintas" (12623 ms) | P2028 5000 ms / 6034 ms a nivel de archivo; negocio genérico + controlStock → `runStockSerializable` (creación) | sí |
+| `TX_TIMEOUT_CONFIRMED_PATH_NOT_ATTRIBUTED` | 4 | `cas-concurrency` race 2 + cross-actor (5358 ms), `lock-ownership` A/B/C/D (5376 ms), `new-delivery` flujo canónico (5359 ms) | P2028 a nivel de archivo, sin poder atribuir la transacción | posible |
+| `PRE_EXISTING_TX_DEFAULT_TIMEOUT_WITH_I2_ADDED_STEP` | 4 | `mesa-pedido-cancelacion` C1, F1, H2, I1 (5361 ms + "Transaction not found") | `$transaction` Serializable propio de `src/lib/mesa-pedido-cancelacion.ts` (defaults; preexistente). I2 sólo agregó la liberación de reservas adentro | parcial (fuera de `runStockSerializable`) |
+
+**Por qué las 4 de las suites de estado no se pueden atribuir:**
+- Los fixtures usan el rubro default `restaurante`, así que esos pedidos se crean por el `db.$transaction(createPedidoInTx)` legacy, sin cambios de I2 y con unas 10 operaciones.
+- →preparando en modo OFF son unas 5 sentencias (BEGIN / CAS / `findMany` de reservas / COMMIT), unos 1,8 s a 360 ms de RTT.
+- Por eso el timeout de ~5,36 s pudo darse en la creación legacy o, en los tests concurrentes, en →preparando con espera de lock. La evidencia registrada (15 líneas por archivo) no permite decidir, y no se re-corrió contra la DB (no autorizado).
+
+```text
+ENVIRONMENT_LATENCY_CONNECT_FAILURES=3 (+2 NON_I2_LATENCY en código no tocado por I2)
+I2_INTERACTIVE_TX_TIMEOUT_FAILURES=2 confirmadas en runStockSerializable + 4 sin atribuir + 4 en la transacción preexistente de cancelación de mesa
+I2_F2_ROOT_CAUSE=PRISMA_INTERACTIVE_TRANSACTION_DEFAULT_TIMEOUT_5000MS (en runStockSerializable; amplificado por un RTT de ~360 ms desde el cliente local)
+```
+
+### Cambio (una sola autoridad)
+
+En `src/lib/stock-lifecycle.ts`:
+- `STOCK_SERIALIZABLE_MAX_WAIT_MS = 5_000` y `STOCK_SERIALIZABLE_TIMEOUT_MS = 15_000`, pasados por `runStockSerializable` en cada intento junto con `isolationLevel: Serializable`;
+- se eliminó el parámetro `options` (sin uso) y `StockSerializableOptions`, para que ningún caller pueda pisar la política;
+- ningún route cambió.
+
+```text
+CHOSEN_MAX_WAIT_MS=5000
+CHOSEN_TIMEOUT_MS=15000
+```
+
+**Justificación de la elección:**
+- 15 s es la convención explícita del repo para transacciones Serializable cortas (6 sitios).
+- Deja margen de 2,5× sobre la peor transacción medida (6034 ms en el peor entorno observado, 360 ms de RTT).
+- Queda por debajo de los 30 s / 60 s que se usan sólo en flujos pesados (duplicar producto, unirse como mozo, backup).
+- `maxWait` 5 s es el valor recomendado por el operador: el repo no tiene una convención de maxWait comparable (el único explícito, 10 s, es de un flujo pesado), y alcanza para adquirir la transacción bajo contención sin colgar el request.
+
+```text
+TIMEOUT_RETRY_POLICY=NO_RETRY_AS_P2034 (un timeout es P2028: se propaga en el primer intento y mapStockLifecycleError devuelve null → manejo existente del route; sólo P2034 es retryable)
+STOCK_SERIALIZABLE_MAX_ATTEMPTS=3 (sin cambios)
+STOCK_SERIALIZABLE_TIMEOUT_EXPLICIT=YES
+STOCK_SERIALIZABLE_MAX_WAIT_EXPLICIT=YES
+```
+
+### Lo que F2 NO cubre (decisión del operador)
+
+1. **Conexión (3) y latencia en código no-I2 (2):** pertenecen al acceso local → proxy público. Un timeout de transacción no las corrige.
+2. **La transacción de cancelación de mesa** (`src/lib/mesa-pedido-cancelacion.ts:346`, Serializable con defaults) sigue sin opciones explícitas. Lo mismo vale para las demás transacciones de cancelación que llaman `aplicarEfectosCancelacion` dentro de su propio `$transaction` (cliente, auto-cancel, negocio estado cancel, PyR estado cancel, negocio PUT mesa cancel). Cubrirlas exigiría opciones fuera de la autoridad única, que esta tarea excluye.
+3. **La creación legacy** (no genérica o sin líneas controladas) usa `db.$transaction` con defaults, sin cambios por I2 ni por F2.
+
+**Expectativa honesta:** una re-verificación real-DB desde esta misma máquina (~360 ms de RTT) puede volver a mostrar fallas de conexión y timeouts en las transacciones no cubiertas (2 y 3).
+
+### Tests (ejecutados)
+
+- **`stock-lifecycle.test.ts` 43/43** (35 anteriores + 8 F2):
+  - F2-A: Serializable.
+  - F2-B/C: `maxWait` 5000 + `timeout` 15000 exactos, nunca los defaults.
+  - F2-D: retry de P2034 hasta 3 intentos, con la misma política en cada uno.
+  - F2-E: P2034 y luego éxito.
+  - F2-F: un P2028 no se reintenta ni se mapea a `STOCK_SERIALIZATION_CONFLICT`.
+  - F2-G: un error de negocio no se reintenta.
+  - F2-H: un error desconocido se propaga.
+  - F2-I: `MAX_ATTEMPTS` = 3.
+- **Mutation check dirigido:** quitar `maxWait`/`timeout` de la llamada hace fallar F2-B/C y F2-D (41 pass / 2 fail). Restaurado, verificado con `cmp`.
+- **Contrato estático `p2-t56-r3a-i2-wiring` 25/25** (+2):
+  - las constantes explícitas se pasan dentro de `runStockSerializable`, sin parámetro de opciones;
+  - los 8 callers no pasan `maxWait` ni `timeout` propios.
+- **Regresión PASS:**
+  - `route.stock-mode` 11, Mozo `route.stock` 8, I1 contract 19, PyR 13, Salón 6, `negocio-salon` contract 26, delete-guard 3;
+  - `stock-authority` 28, `inventario` 30, `caja-venta` 27, Mozo 8/26/13;
+  - P0/F1 29/8/6/19/6/6.
+
+```text
+REAL_DB_REVERIFY=DEFERRED_TO_I2_F2_TESTING_INTEGRATION
+```
+
+### Gates
+
+| Gate | Resultado |
+|---|---|
+| Prisma validate | PASS (placeholder `DATABASE_URL`, sin conexión) |
+| Prisma generate | PASS |
+| Schema / migraciones | `SCHEMA_CHANGE_REQUIRED=NO` · `NEW_MIGRATIONS=0` · `PRISMA_DIFF_FILES=0` |
+| TypeScript (tsc local) | 33 = baseline, 0 nuevos |
+| ESLint (3 archivos tocados) | PASS |
+| Build | PASS (1.er intento, 160/160) |
+| `git diff --check` | PASS |
+
+### Archivos
+
+- `I2_F2_SERIALIZABLE_POLICY`: `src/lib/stock-lifecycle.ts`
+- `I2_F2_TEST`: `src/lib/stock-lifecycle.test.ts`, `src/lib/p2-t56-r3a-i2-wiring-static-contract.test.ts`
+- `I2_F2_DOCUMENTATION`: este reporte, `CODEX_REPORT.md`, `codex-reports/ROADMAP.md`, `DELIGO_FULL_CONTEXT_LATEST.md`
+- `UNRELATED_FILES=0`
+
+### Estado
+
+```text
+R3A_I2_STATUS=F2_IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (el bloqueo real-DB de §13 NO está cerrado: falta re-verificar tras integrar F2)
+TESTING sigue ejecutando 8c43661 (I2 + I2-F1) con modo OFF; F2 vive sólo en su branch
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · R3A_I3_STARTED=NO
+TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_TESTING_INTEGRATION_AUTHORIZATION
+```

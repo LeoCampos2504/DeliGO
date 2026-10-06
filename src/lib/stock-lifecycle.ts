@@ -111,29 +111,36 @@ export function isStockSerializationConflict(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
 }
 
-export interface StockSerializableOptions {
-  maxWait?: number
-  timeout?: number
-}
+// P2-T56-R3A-I2-F2: política explícita de la transacción interactiva, ÚNICA para
+// todos los callers (los routes no pasan valores propios). Sin esto regían los
+// defaults de Prisma 6 (maxWait 2000 ms / timeout 5000 ms), que la verificación
+// real-DB de I2 en TESTING excedió (6034 ms en la creación genérica controlada).
+// timeout 15 s = convención explícita del repo para transacciones Serializable
+// cortas (review-moderation-*, client-account-deletion); maxWait 5 s = espera
+// acotada para adquirir la transacción. Un timeout (P2028) NO se reintenta: sólo
+// P2034 es retryable.
+export const STOCK_SERIALIZABLE_MAX_WAIT_MS = 5_000
+export const STOCK_SERIALIZABLE_TIMEOUT_MS = 15_000
 
 /**
- * Ejecuta `fn` en una transacción Serializable y la reintenta SÓLO ante un
- * conflicto de serialización (P2034), hasta STOCK_SERIALIZABLE_MAX_ATTEMPTS
- * intentos. Cualquier otro error (de negocio o desconocido) se propaga en el
- * primer intento. Agotados los intentos, se relanza el P2034 original para que
- * el llamador lo traduzca a 409 (mapStockLifecycleError).
+ * Ejecuta `fn` en una transacción Serializable (maxWait/timeout explícitos) y la
+ * reintenta SÓLO ante un conflicto de serialización (P2034), hasta
+ * STOCK_SERIALIZABLE_MAX_ATTEMPTS intentos. Cualquier otro error (de negocio,
+ * timeout de la transacción o desconocido) se propaga en el primer intento.
+ * Agotados los intentos, se relanza el P2034 original para que el llamador lo
+ * traduzca a 409 (mapStockLifecycleError).
  */
 export async function runStockSerializable<T>(
   client: Pick<PrismaClient, "$transaction">,
-  fn: (tx: Tx) => Promise<T>,
-  options: StockSerializableOptions = {}
+  fn: (tx: Tx) => Promise<T>
 ): Promise<T> {
   let lastError: unknown
   for (let attempt = 1; attempt <= STOCK_SERIALIZABLE_MAX_ATTEMPTS; attempt++) {
     try {
       return await client.$transaction(fn, {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        ...options,
+        maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS,
+        timeout: STOCK_SERIALIZABLE_TIMEOUT_MS,
       })
     } catch (error) {
       if (!isStockSerializationConflict(error)) throw error

@@ -15,6 +15,8 @@ import {
   reservarStockPedido,
   runStockSerializable,
   STOCK_SERIALIZABLE_MAX_ATTEMPTS,
+  STOCK_SERIALIZABLE_MAX_WAIT_MS,
+  STOCK_SERIALIZABLE_TIMEOUT_MS,
   StockInsufficientError,
   StockReservationDeficitError,
   StockReservationModeInvalidError,
@@ -117,6 +119,89 @@ describe("runStockSerializable (I2-A … I2-D)", () => {
     await expect(runStockSerializable(unknownClient as never, async () => 1)).rejects.toThrow("boom")
     expect(calls).toBe(1)
     expect(mapStockLifecycleError(new Error("boom"))).toBeNull()
+  })
+})
+
+// P2-T56-R3A-I2-F2: política explícita de la transacción interactiva (antes: defaults
+// de Prisma 2000/5000 ms, excedidos en la verificación real-DB de TESTING).
+function capturingClient(behavior: (attempt: number) => unknown = () => undefined) {
+  const options: Array<Record<string, unknown> | undefined> = []
+  const client = {
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>, opts?: Record<string, unknown>) => {
+      options.push(opts)
+      const thrown = behavior(options.length)
+      if (thrown) throw thrown
+      return fn({})
+    },
+  }
+  return { client, options }
+}
+
+function p2028(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    "Transaction API error: Transaction already closed: A query cannot be executed on an expired transaction. The timeout for this transaction was 15000 ms",
+    { code: "P2028", clientVersion: "test" }
+  )
+}
+
+describe("runStockSerializable — política de timeout explícita (I2-F2)", () => {
+  test("F2-A: $transaction recibe isolationLevel Serializable", async () => {
+    const { client, options } = capturingClient()
+    await runStockSerializable(client as never, async () => "ok")
+    expect(options[0]?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable)
+  })
+
+  test("F2-B / F2-C: $transaction recibe maxWait y timeout explícitos (nunca los defaults de Prisma 2000/5000)", async () => {
+    const { client, options } = capturingClient()
+    await runStockSerializable(client as never, async () => "ok")
+    expect(options[0]).toEqual({
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS,
+      timeout: STOCK_SERIALIZABLE_TIMEOUT_MS,
+    })
+    expect(STOCK_SERIALIZABLE_MAX_WAIT_MS).toBe(5_000)
+    expect(STOCK_SERIALIZABLE_TIMEOUT_MS).toBe(15_000)
+    expect(STOCK_SERIALIZABLE_TIMEOUT_MS).toBeGreaterThan(5_000)
+    expect(STOCK_SERIALIZABLE_TIMEOUT_MS).toBeLessThan(30_000)
+  })
+
+  test("F2-D: P2034 se reintenta hasta el máximo, cada intento con la misma política", async () => {
+    const { client, options } = capturingClient(() => p2034())
+    const error = await runStockSerializable(client as never, async () => "x").catch((e) => e)
+    expect(isStockSerializationConflict(error)).toBe(true)
+    expect(options).toHaveLength(STOCK_SERIALIZABLE_MAX_ATTEMPTS)
+    for (const o of options) expect(o).toEqual(expect.objectContaining({ maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS, timeout: STOCK_SERIALIZABLE_TIMEOUT_MS }))
+  })
+
+  test("F2-E: P2034 y luego éxito", async () => {
+    const { client, options } = capturingClient((attempt) => (attempt === 1 ? p2034() : undefined))
+    expect(await runStockSerializable(client as never, async () => "ok")).toBe("ok")
+    expect(options).toHaveLength(2)
+  })
+
+  test("F2-F: un timeout de la transacción (P2028) NO se reintenta como P2034 ni se mapea a STOCK_SERIALIZATION_CONFLICT", async () => {
+    const { client, options } = capturingClient(() => p2028())
+    const error = await runStockSerializable(client as never, async () => "x").catch((e) => e)
+    expect((error as Prisma.PrismaClientKnownRequestError).code).toBe("P2028")
+    expect(options).toHaveLength(1)
+    expect(isStockSerializationConflict(error)).toBe(false)
+    expect(mapStockLifecycleError(error)).toBeNull()
+  })
+
+  test("F2-G: un error de negocio no se reintenta", async () => {
+    const { client, options } = capturingClient(() => new StockInsufficientError([]))
+    await expect(runStockSerializable(client as never, async () => 1)).rejects.toBeInstanceOf(StockInsufficientError)
+    expect(options).toHaveLength(1)
+  })
+
+  test("F2-H: un error desconocido se propaga sin retry", async () => {
+    const { client, options } = capturingClient(() => new Error("boom"))
+    await expect(runStockSerializable(client as never, async () => 1)).rejects.toThrow("boom")
+    expect(options).toHaveLength(1)
+  })
+
+  test("F2-I: STOCK_SERIALIZABLE_MAX_ATTEMPTS sigue en 3", () => {
+    expect(STOCK_SERIALIZABLE_MAX_ATTEMPTS).toBe(3)
   })
 })
 
