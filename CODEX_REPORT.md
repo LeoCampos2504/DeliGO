@@ -6,7 +6,42 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 (+F1+F2+F3) DEPLOYED TO TESTING MODE OFF — REAL-DB RE-VERIFIED — AWAITING MANUAL SMOKE (2026-10-07) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-07) ===
+
+CURRENT_TASK=P2-T56-R3A-I2-MANUAL-SMOKE-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=T56_R3A_I2_CLOSED_TESTING_CERTIFIED
+R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, mode OFF)
+R3A_I2_COMPONENTS=I2 0e3b2a3 + I2-F1 8c43661 + F2 8bc2d7d + F3 ed009f3 — all integrated in testing-codex and verified (F2/F3 INTEGRATED_VERIFIED)
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_NOT_STARTED (R3A NOT closed; I3–I5 not authorized or started)
+TESTING_CODEX_HEAD=8d472de0cb9cae803ce502c1a399739231e16dea (F2/F3 verification docs) + the closeout docs commit "docs: close T56 R3A I2 testing certification" on top (its docs-only autodeploy is reported in the round result); functional head ed009f30c107fb527a0fa4d2d841e486938b2130 (deploy 265e65c5-a6f9-4c0d-88e3-9a6a7c0f0a5a SUCCESS)
+MANUAL_SMOKE_ENVIRONMENT=TESTING · MANUAL_SMOKE_MODE=OFF · MANUAL_SMOKE_SCOPE=REPRESENTATIVE_CRITICAL_FLOWS · MANUAL_SMOKE_RESULT=PASS
+MANUAL_SMOKE_TESTS_RECORDED=14 representative checks (operator-provided): Cliente generic controlled order above stock; Negocio → preparando; stock unchanged in OFF; Negocio reject/cancel; Mozo + variant; Mozo → preparando; Mozo stock unchanged; Mozo order cancel; Cliente cancel; mesa account closed by employee with Salón role; Restaurante/Ropa order; product delete without active reservations/orders; Operaciones personal PyR → preparando; Operaciones Terminal PyR → preparando — all PASS
+CERTIFICATION_BASIS=automatic coverage + static contracts (wiring 2/2 · 6/6 · 6/6 with bypass detectors, F1/F2/F3 tests) + real-DB re-verification 233 pass / 0 fail / 0 P2028 / 0 init + representative manual smoke + no observed regressions + mode OFF throughout. NOT every creator/writer/cancellation site was exercised manually; this is not a claim that all of DeliGO was tested
+AUTOMATED_REAL_DB_RESULT=233_PASS_0_FAIL · I2_ATTRIBUTABLE_REAL_DB_FAILURES=0
+LATENCY_CAVEAT_KEPT=final run RTT 253 ms < blocked run 359 ms, so the clean run alone does not prove F2/F3 were required at that moment; the explicit 5 s / 15 s policy remains the implemented hardening (not a blocker)
+FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED (SALÓN TERMINAL — CIERRE DE CUENTA: en una Terminal Salón la cuenta activa de una mesa no muestra "Cerrar cuenta", mientras un empleado con rol Salón sí puede cerrarla; separado de T56 R3A I2; no investigado ni clasificado; auditar después del bloque actual: comportamiento esperado, permisos server-side, UI, endpoint y paridad empleado Salón vs Terminal Salón; no se asume que la Terminal deba tener ese permiso)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0 (last read 2026-10-07)
+REAL_DB_ON_RESERVATION_CONCURRENCY_TESTS=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+R3A_I3_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (next R3A step — I3 — requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_R3A_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md (§17 = manual smoke closeout; §16 = F2+F3 TESTING real-DB)
+
+R3A-I2 (reservation/consumption/release runtime with F1, F2 and F3) is CLOSED_TESTING_CERTIFIED in
+TESTING with the stock mode OFF: representative manual smoke PASS on top of automatic coverage and a
+clean real-DB re-verification. Mode never activated; I3 not started; Production untouched. The Salón
+Terminal close-account observation is tracked as a separate deferred follow-up.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2 (+F1+F2+F3) DEPLOYED TO TESTING MODE OFF — REAL-DB RE-VERIFIED — AWAITING MANUAL SMOKE (2026-10-07; superseded as the current pointer by the I2 certification closeout above — the manual smoke it awaited PASSED) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-F2-F3-TESTING-INTEGRATION-REAL-DB-REVERIFY
 CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE

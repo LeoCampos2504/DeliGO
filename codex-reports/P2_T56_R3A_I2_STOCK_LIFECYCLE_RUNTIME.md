@@ -737,10 +737,10 @@ PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; pro
 ### Estado
 
 ```text
-R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (parte automática limpia; NO CLOSED: falta el smoke manual del operador)
+R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (histórico — superseded por §17: CLOSED_TESTING_CERTIFIED)
 TESTING_CODEX_FUNCTIONAL_HEAD=ed009f30c107fb527a0fa4d2d841e486938b2130 (I2 0e3b2a3 + I2-F1 8c43661 + F2 8bc2d7d + F3 ed009f3, modo OFF)
 R3A_I3_STARTED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_MODE_OFF_MANUAL_SMOKE
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_MODE_OFF_MANUAL_SMOKE (histórico — smoke realizado, §17)
 ```
 
 ### Checklist sugerido para el smoke manual en modo OFF (TESTING)
@@ -757,3 +757,71 @@ Con OFF, el comportamiento visible debe ser **idéntico al previo a I2**: no hay
    En todos los casos la cancelación funciona y la deuda se revierte como antes.
 5. **Restaurante / Ropa:** un pedido simple para confirmar que no hay regresión.
 6. **Borrar un producto** sin pedidos activos: se borra como antes.
+
+## 17. Closeout — smoke manual del operador en modo OFF y certificación (2026-10-07)
+
+Ronda documental: sin cambios de código, sin DB, sin pruebas nuevas, modo sin tocar.
+
+### Evidencia manual (provista por el operador, registrada tal como fue informada)
+
+```text
+MANUAL_SMOKE_ENVIRONMENT=TESTING
+MANUAL_SMOKE_MODE=OFF
+MANUAL_SMOKE_SCOPE=REPRESENTATIVE_CRITICAL_FLOWS
+MANUAL_SMOKE_RESULT=PASS
+```
+
+| # | Flujo | Resultado informado |
+|---|---|---|
+| 1 | Negocio genérico / Cliente: pedido con producto con control de stock; con modo OFF podía superar el stock disponible | PASS |
+| 2 | Negocio → preparando, sin error | PASS |
+| 3 | Stock con modo OFF: tras pasar a preparando, el stock físico quedó exactamente igual | PASS |
+| 4 | Cancelación / rechazo desde Negocio | PASS |
+| 5 | Mozo + variante: pedido manual creado y variante visible | PASS |
+| 6 | Mozo → preparando, sin errores | PASS |
+| 7 | Mozo / stock OFF: sin descuento al pasar a preparando | PASS |
+| 8 | Cancelación de pedido de Mozo | PASS |
+| 9 | Cancelación desde Cliente | PASS |
+| 10 | Mesa / Salón: cuenta de mesa cerrada por un empleado con rol Salón | PASS |
+| 11 | Regresión fuera del rubro genérico: pedido simple en Restaurante/Ropa | PASS |
+| 12 | Borrado de un producto de prueba sin reservas ni pedidos activos | PASS |
+| 13 | Operaciones, empleado personal con rol PyR: pedido de negocio genérico → preparando | PASS |
+| 14 | Operaciones, Terminal PyR: pedido de negocio genérico → preparando, sin error | PASS |
+
+`MANUAL_SMOKE_TESTS_RECORDED=14 representative checks`
+
+### Alcance (sin sobre-afirmar)
+
+El smoke manual **no** recorrió cada uno de los 2 creadores, 6 escritores de `preparando` y 6 sitios de cancelación, ni "todo DeliGO". La certificación se apoya en la combinación de:
+- **(A)** cobertura automática y contratos estáticos: wiring 2/2 · 6/6 · 6/6 con detectores de bypass, más los tests de F1/F2/F3;
+- **(B)** la re-verificación real-DB de §16: 233 pass / 0 fail / 0 P2028 / 0 errores de conexión;
+- **(C)** este smoke manual representativo de los flujos críticos;
+- **(D)** que no se observaron regresiones;
+- **(E)** el modo OFF, mantenido durante toda la certificación.
+
+El smoke manual representativo pasó y, combinado con la cobertura automática y la re-verificación real-DB, no se observan regresiones materiales atribuibles a I2 en modo OFF.
+
+**Advertencia de latencia de §16, conservada sin bloquear:** el RTT de la corrida final (253 ms) fue menor que el de la corrida bloqueada (359 ms). Por eso esa corrida limpia no prueba por sí sola que F2/F3 fueran necesarias en ese momento. La política explícita (maxWait 5 s / timeout 15 s) sigue siendo el hardening implementado.
+
+### Follow-up separado (fuera de I2; no investigado ni clasificado)
+
+`FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED`: **SALÓN TERMINAL — CIERRE DE CUENTA**.
+- **Hecho observado:** en una Terminal Salón, al abrir la cuenta activa de una mesa, no aparece la acción "Cerrar cuenta". En cambio, un empleado autenticado con rol Salón sí puede cerrar esa misma clase de cuenta (smoke #10).
+- **Contexto:** DeliGO tiene tres accesos a Salón: (1) el panel del negocio, (2) un empleado con cuenta personal y rol Salón, y (3) una Terminal Salón autorizada para un dispositivo sin cuenta personal. El hallazgo corresponde sólo a (3).
+- **Para auditar después del bloque actual:** comportamiento esperado, permisos server-side, UI, endpoint usado y paridad entre empleado Salón y Terminal Salón. No se asume que la Terminal deba tener ese permiso.
+
+### Estado final
+
+```text
+AUTOMATED_REAL_DB_RESULT=233_PASS_0_FAIL
+I2_ATTRIBUTABLE_REAL_DB_FAILURES=0
+F2=INTEGRATED_VERIFIED (8bc2d7d) · F3=INTEGRATED_VERIFIED (ed009f3) · I2-F1=INTEGRATED (8c43661)
+TESTING_FUNCTIONAL_HEAD=ed009f30c107fb527a0fa4d2d841e486938b2130 (deploy 265e65c5-a6f9-4c0d-88e3-9a6a7c0f0a5a SUCCESS)
+MODE_ACTIVATED=NO
+STOCK_RESERVATION_MODE_CURRENT=OFF
+R3A_I3_STARTED=NO
+PRODUCTION_TOUCHED=NO
+R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=T56_R3A_I2_CLOSED_TESTING_CERTIFIED
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_R3A_DECISION
+```
