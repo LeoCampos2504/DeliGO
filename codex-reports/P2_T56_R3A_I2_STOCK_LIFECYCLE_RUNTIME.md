@@ -557,5 +557,110 @@ R3A_I2_STATUS=F2_IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (el bloqueo rea
 TESTING sigue ejecutando 8c43661 (I2 + I2-F1) con modo OFF; F2 vive sólo en su branch
 MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · R3A_I3_STARTED=NO
 TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_TESTING_INTEGRATION_AUTHORIZATION (histórico — superseded por I2-F3, §15)
+```
+
+## 15. I2-F3 — hardening del timeout de las transacciones de cancelación (2026-10-07)
+
+Branch `work/p2-t56-r3-stock-lifecycle-i2-f3`, base F2 = `8bc2d7de69be397a754fae4e086424520358cb71` (sobre `testing-codex` `134c785`). Commit: `fix: harden T56 R3A cancellation transaction timeout`. Sin integración, sin Railway, sin TESTING DB, sin Production, modo OFF sin tocar.
+
+### Auditoría de los 6 sitios de cancelación (read-only; actual vs. `cc628e0` pre-I2)
+
+En los 6 sitios, I2 sólo reemplazó `revertirTarifaSiCorresponde(tx)` por `aplicarEfectosCancelacion(tx)`. Eso agrega exactamente **una** operación DB: `reservaStock.updateMany` (liberar ACTIVA). En ningún sitio cambió la transacción ni su isolation.
+
+| Sitio | Transacción | Isolation | maxWait / timeout | Operaciones propias en la tx (+ helper) | Evidencia real-DB (RTT ~360 ms) | Clase |
+|---|---|---|---|---|---|---|
+| `src/lib/mesa-pedido-cancelacion.ts` | interactiva (línea 251) | **Serializable** | defaults de Prisma | 4 (`pedido.findFirst`, `mesa.findFirst` si actúa un mozo, CAS, `pedidoEvento.create`) + revertir (hasta 3) + liberar (1) ≈ 11 sentencias con BEGIN/COMMIT | **4 fallas**: P2028 a 5361 ms + "Transaction not found" (C1, F1, H2, I1) | **NEEDS_F3_POLICY** |
+| `cliente/pedidos/[id]` | interactiva | ReadCommitted (default) | defaults | 2 + helper | `client-cancel-accepted` **4/4 PASS** | NO_CHANGE_REQUIRED |
+| `repartidor/pedidos/auto-cancel` | interactiva | ReadCommitted | defaults | 2 + helper | `auto-cancel-waiting-driver` **4/4 PASS** | NO_CHANGE_REQUIRED |
+| `negocio/pedidos/[id]/estado` (cancel) | interactiva | ReadCommitted | defaults | 1 + helper | sin falla atribuible (`lock-ownership` = sin atribuir, §14) | NO_CHANGE_REQUIRED (estructural: superficie ≤ la de cliente, que pasó) |
+| `negocio/pedidos` PUT mesa (cancel) | interactiva | ReadCommitted | defaults | 1 + helper | no ejercitado en la corrida | NO_CHANGE_REQUIRED (estructural) |
+| `operaciones/pyr/pedidos/[id]/estado` (cancel) | interactiva | ReadCommitted | defaults | 1 + helper | sin falla atribuible | NO_CHANGE_REQUIRED (estructural) |
+
+```text
+CANCELLATION_SITES_AUDITED=6
+MESA_CANCELLATION_TIMEOUT_EXPOSURE_CONFIRMED=YES (interactiva + Serializable + defaults + I2 agregó la liberación adentro + 4 fallas reales; ~11 sentencias × ~360 ms + overhead Serializable ≈ los 5,36 s medidos)
+CANCELLATION_TX_NEEDS_POLICY_COUNT=1 (mesa)
+CANCELLATION_TX_NO_CHANGE_COUNT=5 (cliente y auto-cancel por evidencia PASS; negocio estado, negocio PUT mesa y PyR estado por superficie estructuralmente ≤ la de cliente, en ReadCommitted)
+CANCELLATION_TX_UNKNOWN_COUNT=0
+```
+
+**Dato lateral:** en la misma corrida, `order-transition-cas-mesa` "recibido→preparando" (Negocio PUT → `runStockSerializable`) **pasó**. Eso debilita la hipótesis de que los 4 timeouts sin atribuir de las suites de estado vengan de →preparando. Siguen sin atribuir, y F3 no cambia código por ellos.
+
+### Cambio
+
+En `src/lib/mesa-pedido-cancelacion.ts`, las opciones de la `$transaction` existente pasan de `{ isolationLevel: Serializable }` a `{ isolationLevel: Serializable, maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS, timeout: STOCK_SERIALIZABLE_TIMEOUT_MS }`.
+- Las constantes se importan de `src/lib/stock-lifecycle.ts`, que mesa ya importaba (`aplicarEfectosCancelacion`); no hay acoplamiento circular ni números mágicos duplicados.
+- No pasa a `runStockSerializable`: eso cambiaría la semántica de retry, el manejo de P2034 y el ownership de la transacción.
+- En `stock-lifecycle.ts` sólo cambió el comentario de la política, que ahora menciona esta reutilización.
+
+```text
+CHOSEN_MAX_WAIT_MS=5000 · CHOSEN_TIMEOUT_MS=15000 (la misma pareja que F2, sin valores nuevos)
+MESA_TRANSACTION_SEMANTICS_CHANGED=NO (CAS, deuda, PedidoEvento, liberación, respuesta, idempotencia, isolation y retries intactos)
+MESA_TIMEOUT_POLICY_CHANGED=YES
+NEW_RETRY_BEHAVIOR=NO (mesa sigue devolviendo P2034 como conflict tras UN intento, como antes; un P2028 da server_error)
+ISOLATION_LEVELS_CHANGED=NO
+ENVIRONMENT_CONNECT_FIX_ATTEMPTED=NO (sin cambios en connect_timeout, DATABASE_URL, datasource ni pool)
+UNATTRIBUTED_STATE_TIMEOUTS_CODE_CHANGE=NO
+```
+
+### Tests (ejecutados)
+
+- **`src/lib/mesa-pedido-cancelacion.timeout-policy.test.ts` (nuevo) 8/8:** `cancelarPedidoMesa` REAL con db en memoria, rollback por snapshot y registro de opciones.
+
+| Caso | Qué prueba |
+|---|---|
+| F3-A/B/C | una sola `$transaction` con exactamente `{ Serializable, maxWait 5000, timeout 15000 }` |
+| F3-D | deuda revertida + liberación + PedidoEvento en la misma tx |
+| F3-E | ACTIVA → LIBERADA con `CANCELADO_MESA` |
+| F3-F | CONSUMIDA intacta (sin restock) |
+| F3-G | si falla el PedidoEvento → `server_error` y rollback completo (estado, deuda, reserva, evento) |
+| F3-H | CAS perdido (ocupación inactiva) → `conflict`, sin efectos |
+| F3-I (P2034) | `conflict` tras 1 intento, con rollback |
+| F3-I (P2028) | `server_error` tras 1 intento |
+
+- **Mutation check:** quitar `maxWait`/`timeout` de mesa hace fallar F3-A/B/C (7 pass / 1 fail). Restaurado, verificado con `cmp`.
+- **`CANCELLATION_TIMEOUT_POLICY_CONTRACT`:** `p2-t56-r3a-i2-wiring-static-contract` **28/28** (+3).
+  - Mesa conserva Serializable, pasa las constantes de la autoridad y no llama `runStockSerializable(` ni usa literales numéricos.
+  - Las constantes se usan sólo en la autoridad y en mesa (allowlist).
+  - Las otras 5 cancelaciones no tienen `maxWait`/`timeout` propios.
+  - Siguen vigentes: 6/6 sitios con `aplicarEfectosCancelacion` y ningún `revertirTarifaSiCorresponde` directo.
+- **Regresión (sin DB) PASS:**
+  - `stock-lifecycle` 43, `route.stock-mode` 11, Mozo `route.stock` 8, I1 contract 19;
+  - `order-transitions` PyR 13 / Salón 6 (estado + cancel con mocks), `negocio-salon` contract 26, delete-guard 3;
+  - `stock-authority` 28, `inventario` 30, `caja-venta` 27, Mozo 8/26;
+  - P0/F1 29/8/6/19/6/6;
+  - contratos de mesa: `mesa-cliente-cuenta-static` 22, `mesa-pedido-cancelacion-client` 29, `-contract` 22, `-ui-contract` 10, `non-api-safe-error-logging` 5.
+- Las suites de cancelación que requieren DB (`mesa-pedido-cancelacion`, `client-cancel-accepted`, `auto-cancel`, estado) no corrieron en esta branch.
+
+```text
+REAL_DB_REVERIFY=DEFERRED_TO_COMBINED_F2_F3_TESTING_INTEGRATION
+```
+
+### Gates
+
+| Gate | Resultado |
+|---|---|
+| Prisma validate / generate | PASS |
+| Schema / migraciones | `SCHEMA_CHANGE_REQUIRED=NO` · `NEW_MIGRATIONS=0` |
+| TypeScript (tsc local) | 33 = baseline, 0 nuevos; re-corrido después del ajuste de comentario |
+| ESLint (archivos tocados) | PASS |
+| Build | PASS (1.er intento, 160/160); el único cambio posterior fue un comentario |
+| `git diff --check` | PASS |
+
+### Archivos
+
+- `I2_F3_CANCELLATION_TX_POLICY`: `src/lib/mesa-pedido-cancelacion.ts` y `src/lib/stock-lifecycle.ts` (sólo comentario)
+- `I2_F3_TEST`: `src/lib/mesa-pedido-cancelacion.timeout-policy.test.ts` (nuevo) y `src/lib/p2-t56-r3a-i2-wiring-static-contract.test.ts`
+- `I2_F3_DOCUMENTATION`: este reporte, `CODEX_REPORT.md`, `codex-reports/ROADMAP.md`, `DELIGO_FULL_CONTEXT_LATEST.md`
+- `UNRELATED_FILES=0`
+
+### Estado
+
+```text
+R3A_I2_STATUS=F2_F3_IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (el bloqueo real-DB de §13 NO está cerrado: falta re-verificar con F2+F3 integradas)
+TESTING sigue ejecutando 8c43661 (I2 + I2-F1) con modo OFF; F2 y F3 viven sólo en sus branches (F3 contiene a F2)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · R3A_I3_STARTED=NO
+TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_F3_TESTING_INTEGRATION_AUTHORIZATION
 ```

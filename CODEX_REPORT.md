@@ -6,7 +6,45 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2-F2 INTERACTIVE-TX TIMEOUT HARDENING ON DEDICATED BRANCH (2026-10-06) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2-F3 CANCELLATION TRANSACTION TIMEOUT HARDENING ON DEDICATED BRANCH (2026-10-07) ===
+
+CURRENT_TASK=P2-T56-R3A-I2-F3-CANCELLATION-TRANSACTION-TIMEOUT-HARDENING
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_I2_F2_F3_TESTING_INTEGRATION_REVIEW
+R3A_I2_STATUS=F2_F3_IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (real-DB blocker of the I2 TESTING round NOT closed until combined F2+F3 re-verification)
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_DEPLOYED_TESTING_MODE_OFF_F2_F3_ON_BRANCH (R3A NOT closed; I3–I5 not started)
+I2_F3_BRANCH=work/p2-t56-r3-stock-lifecycle-i2-f3 (base F2 8bc2d7de69be397a754fae4e086424520358cb71 on testing-codex 134c7857c39be00dea85fbaf03f631a11ab499f3; commit "fix: harden T56 R3A cancellation transaction timeout"; pushed only to origin/work/p2-t56-r3-stock-lifecycle-i2-f3; NOT integrated; contains F2)
+TESTING_CODEX_HEAD=134c7857c39be00dea85fbaf03f631a11ab499f3 (unchanged; TESTING runs 8c43661 I2 + I2-F1 with mode OFF)
+CANCELLATION_SITES_AUDITED=6 (all interactive with Prisma default maxWait/timeout; I2 only swapped revertirTarifaSiCorresponde for aplicarEfectosCancelacion = +1 reservaStock.updateMany)
+MESA_CANCELLATION_TIMEOUT_EXPOSURE_CONFIRMED=YES (Serializable, ~11 statements, 4 real-DB failures at 5361 ms / Transaction not found)
+CANCELLATION_TX_NEEDS_POLICY=1 (src/lib/mesa-pedido-cancelacion.ts) · CANCELLATION_TX_NO_CHANGE=5 (cliente + auto-cancel: real-DB 4/4 PASS each at the same latency; negocio estado, negocio PUT mesa, PyR estado: ReadCommitted, surface ≤ cliente's) · CANCELLATION_TX_UNKNOWN=0
+I2_F3_FIX=mesa $transaction options: isolationLevel Serializable (unchanged) + maxWait STOCK_SERIALIZABLE_MAX_WAIT_MS (5000) + timeout STOCK_SERIALIZABLE_TIMEOUT_MS (15000), constants imported from src/lib/stock-lifecycle.ts (no new values, no magic numbers, not moved to runStockSerializable)
+MESA_TRANSACTION_SEMANTICS_CHANGED=NO · MESA_TIMEOUT_POLICY_CHANGED=YES · NEW_RETRY_BEHAVIOR=NO (P2034 still conflict after 1 attempt) · ISOLATION_LEVELS_CHANGED=NO
+ENVIRONMENT_CONNECT_FIX_ATTEMPTED=NO · UNATTRIBUTED_STATE_TIMEOUTS_CODE_CHANGE=NO (side note: cas-mesa "recibido→preparando" via runStockSerializable passed in the same run)
+TESTS=mesa timeout-policy 8/8 (F3-A…I; mutation dropping maxWait/timeout → 1 fail); wiring contract 28/28 (CANCELLATION_TIMEOUT_POLICY_CONTRACT: mesa Serializable + authority constants, constants allowlisted to authority + mesa, other 5 cancellations without own timeouts); regressions PASS (stock-lifecycle 43, route.stock-mode 11, Mozo 8/8/26, I1 19, PyR 13, Salón 6, negocio-salon 26, delete-guard 3, stock-authority 28, inventario 30, caja-venta 27, P0/F1 29/8/6/19/6/6, mesa contracts 22/29/22/10/5); prisma PASS; tsc 33 = baseline (0 new); ESLint PASS; build PASS; diff-check PASS
+REAL_DB_REVERIFY=DEFERRED_TO_COMBINED_F2_F3_TESTING_INTEGRATION
+STILL_NOT_COVERED=connect latency (3) and non-I2 latency (2) from the local client; the 4 unattributed estado-suite timeouts; legacy order creation transaction
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0 (last read 2026-10-06)
+SCHEMA_CHANGE_REQUIRED=NO · NEW_MIGRATIONS=0 · UNRELATED_FILES=0
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0)
+R3A_I3_STARTED=NO
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (combined F2+F3 testing-codex integration requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_F3_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md (§15 = I2-F3; §14 = I2-F2; §13 = TESTING deploy + real-DB blocker)
+
+I2-F3 gives the one cancellation transaction that demonstrably expired — the Serializable mesa
+cancellation — the same explicit maxWait/timeout as runStockSerializable, without touching its
+isolation, logic or retries. The other 5 cancellations need no change. Branch-only; the real-DB
+blocker stays open until F2+F3 are integrated and re-verified.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2-F2 INTERACTIVE-TX TIMEOUT HARDENING ON DEDICATED BRANCH (2026-10-06; superseded as the current pointer by I2-F3 above, which builds on F2) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-F2-STOCK-TRANSACTION-TIMEOUT-HARDENING
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

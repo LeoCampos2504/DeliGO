@@ -118,7 +118,8 @@ export function isStockSerializationConflict(error: unknown): boolean {
 // timeout 15 s = convención explícita del repo para transacciones Serializable
 // cortas (review-moderation-*, client-account-deletion); maxWait 5 s = espera
 // acotada para adquirir la transacción. Un timeout (P2028) NO se reintenta: sólo
-// P2034 es retryable.
+// P2034 es retryable. I2-F3: la transacción Serializable de cancelación de mesa
+// (mesa-pedido-cancelacion.ts) reutiliza estas mismas constantes, sin retry.
 export const STOCK_SERIALIZABLE_MAX_WAIT_MS = 5_000
 export const STOCK_SERIALIZABLE_TIMEOUT_MS = 15_000
 

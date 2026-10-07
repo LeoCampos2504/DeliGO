@@ -43,7 +43,11 @@ import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA } from "@/lib/mesa-cuenta"
 import { DeudaReversionError } from "@/lib/pedido-cancelacion-financiera"
-import { aplicarEfectosCancelacion } from "@/lib/stock-lifecycle"
+import {
+  aplicarEfectosCancelacion,
+  STOCK_SERIALIZABLE_MAX_WAIT_MS,
+  STOCK_SERIALIZABLE_TIMEOUT_MS,
+} from "@/lib/stock-lifecycle"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // ---------------------------------------------------------------------------
@@ -343,7 +347,15 @@ export async function cancelarPedidoMesa(params: {
 
         return { kind: "ok" as const, estadoAnterior: pedido.estado, canceladoFecha: canceladoEn, motivo }
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      // P2-T56-R3A-I2-F3: misma política explícita de espera/duración que
+      // runStockSerializable (los defaults de Prisma, 2000/5000 ms, expiraron en la
+      // verificación real-DB). Isolation, CAS, efectos y semántica sin cambios; sin
+      // retry nuevo.
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS,
+        timeout: STOCK_SERIALIZABLE_TIMEOUT_MS,
+      }
     )
   } catch (error) {
     if (error instanceof DeudaReversionError) {

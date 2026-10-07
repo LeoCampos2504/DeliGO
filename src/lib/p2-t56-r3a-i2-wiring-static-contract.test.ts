@@ -241,6 +241,38 @@ describe("I2-F2 — política de timeout de la transacción de stock: explícita
   })
 })
 
+// I2-F3: de las 6 cancelaciones, sólo la transacción Serializable de mesa
+// expiró con los defaults en la verificación real-DB; es la única que recibe la
+// política explícita (las mismas constantes de la autoridad, sin runStockSerializable
+// ni retry nuevo).
+describe("I2-F3 — política de timeout de las transacciones de cancelación (allowlist)", () => {
+  const MESA = "src/lib/mesa-pedido-cancelacion.ts"
+  const POLICY_ALLOWLIST = [AUTHORITY, MESA]
+
+  test("CANCELLATION_TIMEOUT_POLICY_CONTRACT: mesa conserva Serializable y pasa las constantes de la autoridad", () => {
+    const src = read(MESA)
+    expect(src).toMatch(
+      /\{\n\s+isolationLevel: Prisma\.TransactionIsolationLevel\.Serializable,\n\s+maxWait: STOCK_SERIALIZABLE_MAX_WAIT_MS,\n\s+timeout: STOCK_SERIALIZABLE_TIMEOUT_MS,\n\s+\}/
+    )
+    expect(src).not.toContain("runStockSerializable(")
+    expect(src).not.toMatch(/maxWait:\s*\d|timeout:\s*\d/)
+  })
+
+  test("las constantes de la política sólo se usan en la autoridad y en mesa", () => {
+    const users = productive
+      .filter(({ src }) => /STOCK_SERIALIZABLE_(MAX_WAIT|TIMEOUT)_MS/.test(src))
+      .map(({ path }) => path)
+    expect(sorted(users)).toEqual(sorted(POLICY_ALLOWLIST))
+  })
+
+  test("las otras 5 cancelaciones no tienen timeouts propios (sin cambios en F3) y siguen sin isolation explícita", () => {
+    for (const path of CANCELLATION_SITES.filter((p) => p !== MESA)) {
+      const src = read(path)
+      expect({ path, maxWait: /\bmaxWait\s*:/.test(src), timeout: /\btimeout\s*:/.test(src) }).toEqual({ path, maxWait: false, timeout: false })
+    }
+  })
+})
+
 describe("guard de producto, PEDIDO system-only y modo OFF intacto", () => {
   test("DELETE producto consulta reservas ACTIVA antes del hard delete", () => {
     const src = read("src/app/api/negocio/productos/[id]/route.ts")
