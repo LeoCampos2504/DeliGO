@@ -6,7 +6,47 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2-F3 CANCELLATION TRANSACTION TIMEOUT HARDENING ON DEDICATED BRANCH (2026-10-07) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 (+F1+F2+F3) DEPLOYED TO TESTING MODE OFF — REAL-DB RE-VERIFIED — AWAITING MANUAL SMOKE (2026-10-07) ===
+
+CURRENT_TASK=P2-T56-R3A-I2-F2-F3-TESTING-INTEGRATION-REAL-DB-REVERIFY
+CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE
+RESULT=AWAITING_T56_R3A_I2_MODE_OFF_MANUAL_SMOKE
+R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (automatic part clean; NOT closed, NOT certified until the operator's manual smoke)
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (R3A NOT closed; I3–I5 not started)
+INTEGRATION=fast-forward 134c785..ed009f3 on testing-codex (8bc2d7d F2 + ed009f3 F3; UNRELATED_COMMITS=0; UNRELATED_FILES=0)
+TESTING_CODEX_HEAD=ed009f30c107fb527a0fa4d2d841e486938b2130 (functional: I2 0e3b2a3 + I2-F1 8c43661 + F2 8bc2d7d + F3 ed009f3) + the docs commit "docs: record T56 R3A I2 F2 F3 testing verification" on top (its docs-only autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway amiable-rejoicing / TESTING / DeliGO Copy 265e65c5-a6f9-4c0d-88e3-9a6a7c0f0a5a SUCCESS, branch testing-codex, commit ed009f30c107fb527a0fa4d2d841e486938b2130 (COMMIT_MATCH=YES)
+MIGRATIONS=NEW_MIGRATIONS=0; "No pending migrations to apply."; migrate status UP_TO_DATE (38); UNEXPECTED_MIGRATION_APPLIED=NO
+PRE_PUSH_TESTS=RUN_NOW on integrated HEAD: 25 focal suites PASS; prisma PASS; tsc 33 = baseline (0 new); ESLint PASS; build PASS; diff-check PASS
+POSTDEPLOY_LOGS=PASS · HTTP_SMOKE=PASS_NO_5XX
+REAL_DB_REVERIFY=15 suites, full redacted logs kept: 233 pass / 0 fail / 0 P2028 / 0 init errors
+F2_DIRECT_REVERIFY=PASS (route.variantes 9/9; was 7/2) · F3_DIRECT_REVERIFY=PASS (mesa-pedido-cancelacion 72/72; was 68/4)
+STATE_TIMEOUT_REVERIFY=NOT_REPRODUCED (cas-concurrency 6/6, lock-ownership 2/2, new-delivery 4/4; historical attribution of the §13 timeouts stays undetermined — no failure to instrument)
+CONNECTIVITY_REVERIFY=PASS (route 5/5, t29b 18/18, negocio-salon 30/30) · CONTROL_SUITES=PASS (87/87)
+I2_ATTRIBUTABLE_REAL_DB_FAILURES=0 · UNKNOWN_MATERIAL_REAL_DB_FAILURES=0
+LATENCY_CAVEAT=this run had lower latency (RTT median 253 ms, connect 2420 ms) than the blocked round (359 ms / 5528 ms); it proves no timeouts with F2+F3 deployed, not by itself that F2/F3 were required today (the 6.0 s tx would be ~4.2 s at this RTT); F2/F3 give 15 s headroom for the ~360 ms case
+MODE_INVARIANT=OFF throughout; NON_OFF_CONFIG_ROWS 0; reservas_stock 0 (ACTIVA 0); MovimientoInventario PEDIDO 0; core row counts identical before/after (no fixture residue)
+REAL_DB_ON_RESERVATION_CONCURRENCY_TESTS=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION · MODE_VS_RES_CONCURRENCY_TEST=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+MANUAL_SMOKE_CHECKLIST=report §16 (mode OFF must look identical to pre-I2: generic controlled orders created even above stock; Mozo order with/without variant; → preparando from Negocio/Operaciones/PyR/Salón terminal without stock change; cancel mesa/Cliente/Negocio orders with debt reverted as before; Restaurante/Ropa order; delete a product without active orders)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (rollback point)
+R3A_I3_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator manual smoke of I2 in mode OFF)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_MODE_OFF_MANUAL_SMOKE
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md (§16 = F2+F3 TESTING integration + real-DB re-verification + manual smoke checklist)
+
+R3A-I2 with F1, F2 and F3 runs in TESTING with the mode OFF. The targeted real-DB re-verification
+is clean (233/0, no timeouts, no residue, mode/reservation invariant intact), with the latency
+caveat recorded. The operator's manual smoke in mode OFF is the remaining gate. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2-F3 CANCELLATION TRANSACTION TIMEOUT HARDENING ON DEDICATED BRANCH (2026-10-07; superseded as the current pointer by the F2+F3 TESTING integration above) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-F3-CANCELLATION-TRANSACTION-TIMEOUT-HARDENING
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

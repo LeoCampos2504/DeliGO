@@ -662,5 +662,98 @@ R3A_I2_STATUS=F2_F3_IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (el bloqueo 
 TESTING sigue ejecutando 8c43661 (I2 + I2-F1) con modo OFF; F2 y F3 viven sólo en sus branches (F3 contiene a F2)
 MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · R3A_I3_STARTED=NO
 TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_F3_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I2_F2_F3_TESTING_INTEGRATION_AUTHORIZATION (histórico — F2+F3 integradas y re-verificadas, §16)
 ```
+
+## 16. Integración F2+F3 en TESTING + re-verificación real-DB (2026-10-07)
+
+Autorizado por el operador: fast-forward de F2+F3 a `testing-codex`, push sólo a `origin/testing-codex`, autodeploy TESTING / DeliGO Copy, re-verificación real-DB con modo OFF. Sin main/Production, sin ON/DRAINING, sin schema/migraciones, sin `ReservaStock` manual, sin I3.
+
+### Integración y deploy
+
+```text
+REMOTE_TESTING_CODEX_BEFORE=134c7857c39be00dea85fbaf03f631a11ab499f3 · REMOTE_F3_HEAD=ed009f30c107fb527a0fa4d2d841e486938b2130
+COMMITS_TO_INTEGRATE=2 (8bc2d7d F2, ed009f3 F3) · UNRELATED_COMMITS=0 · UNRELATED_FILES=0 (9 archivos, sin prisma/) · TESTING_IS_ANCESTOR=YES · SAFETY_TAG_STILL_CORRECT=YES
+INTEGRATION_METHOD=FAST_FORWARD · REMOTE_TESTING_CODEX_AFTER_PUSH=ed009f30c107fb527a0fa4d2d841e486938b2130
+PRE_PUSH_TESTS=RUN_NOW sobre el HEAD integrado: 25 suites PASS (stock-lifecycle 43, route.stock-mode 11, mesa timeout-policy 8, wiring 28, I1 19, PyR 13, Salón 6, negocio-salon 26, delete-guard 3, stock-authority 28, inventario 30, caja-venta 27, Mozo 8/8/26, P0/F1 29/8/6/19/6/6, contratos de mesa 22/29/22/10); prisma PASS; tsc 33 = baseline (0 nuevos); ESLint PASS; build PASS; diff-check PASS
+RAILWAY=amiable-rejoicing / TESTING / DeliGO Copy
+FUNCTIONAL_DEPLOY_ID=265e65c5-a6f9-4c0d-88e3-9a6a7c0f0a5a · STATUS=SUCCESS · BRANCH=testing-codex · COMMIT=ed009f30c107fb527a0fa4d2d841e486938b2130 · COMMIT_MATCH=YES
+NEW_MIGRATIONS=0 · MIGRATION_STATUS=UP_TO_DATE ("No pending migrations to apply."; migrate status "Database schema is up to date!", 38) · UNEXPECTED_MIGRATION_APPLIED=NO
+POSTDEPLOY_LOGS=PASS (Ready; 0 errores/P2028/P2034/módulos/5xx en runtime; build remoto Compiled successfully, 160/160)
+HTTP_SMOKE=PASS_NO_5XX (GET: 4 páginas 200; 7 APIs protegidas 401; negocio inexistente 404)
+```
+
+### Re-verificación real-DB (RUN_NOW contra TESTING, `--timeout 60000`, log completo por suite guardado y redactado)
+
+| Fase | Suite | Ronda §13 | Ahora | P2028 / init |
+|---|---|---|---|---|
+| A — directa F2 | `pedidos/route.variantes` | 7/2 | **9/0** | 0 / 0 |
+| B — directa F3 | `lib/mesa-pedido-cancelacion` | 68/4 | **72/0** | 0 / 0 |
+| C — sin atribuir | `estado/order-transition-cas-concurrency` | 4/2 | **6/0** | 0 / 0 |
+| C | `estado/order-estado-lock-ownership` | 1/1 | **2/0** | 0 / 0 |
+| C | `estado/new-delivery-notification-boundary` | 3/1 | **4/0** | 0 / 0 |
+| D — conexión / no-I2 | `pedidos/route` | 0/1 (init) | **5/0** | 0 / 0 |
+| D | `estado/order-transition-t29b-flow` | 0/1 (init) | **18/0** | 0 / 0 |
+| D | `lib/negocio-salon` | 27/3 | **30/0** | 0 / 0 |
+| E — controles | `client-cancel-accepted` 4, `auto-cancel-waiting-driver` 4, `order-transition-cas-mesa` 3, `p2-t42-pyr-order-workflow-parity` 11, `inventario/movimientos` 13, `p2-t41-terminal-cierre-cuenta` 7, `mesa-cliente-cuenta` 45 | PASS | **PASS (87/0)** | 0 / 0 |
+
+**Total:** 233 pass, 0 fail, 0 P2028, 0 `PrismaClientInitializationError`.
+
+```text
+F2_DIRECT_REVERIFY=PASS (9/9, 0 P2028)
+F3_DIRECT_REVERIFY=PASS (72/72, 0 P2028)
+STATE_TIMEOUT_REVERIFY=NOT_REPRODUCED (6/6 · 2/2 · 4/4; la atribución histórica de los 4 timeouts de §13 queda sin determinar porque no hubo falla que instrumentar)
+CONNECTIVITY_REVERIFY=PASS (5/5 · 18/18 · 30/30; sin fallas de conexión ni de latencia no-I2 en esta corrida)
+CONTROL_SUITES=PASS (87/87)
+I2_ATTRIBUTABLE_REAL_DB_FAILURES=0
+UNKNOWN_MATERIAL_REAL_DB_FAILURES=0 (no hay fallas actuales)
+REAL_DB_ON_RESERVATION_CONCURRENCY_TESTS=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+MODE_VS_RES_CONCURRENCY_TEST=DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+```
+
+**Advertencia de interpretación (honesta):** la latencia de esta corrida fue menor que en §13.
+
+| Medición | §13 | §16 |
+|---|---|---|
+| Primera consulta, conexión incluida | 5528 ms | 2420 ms |
+| RTT (mediana) | 359 ms | 253 ms (min 244 / max 276) |
+
+- **Lo que esta corrida demuestra:** con F2+F3 desplegadas no hay timeouts, conflictos ni fallas en ningún camino de I2 bajo carga real-DB.
+- **Lo que no demuestra por sí sola:** que F2/F3 fueran necesarias en esta corrida. Con este RTT, la transacción que en §13 tardó 6,0 s rondaría los 4,2 s, por debajo del viejo límite de 5 s.
+- **Lo que garantiza F2/F3:** con la latencia de §13 (~360 ms), esa transacción entra con margen en los 15 s.
+
+### Invariante de modo / reservas (lecturas READ ONLY)
+
+| Momento | Modo | Filas no-OFF | reservas_stock | ACTIVA | Movimientos PEDIDO | Conteo de filas núcleo |
+|---|---|---|---|---|---|---|
+| Antes del deploy | OFF | 0 | 0 | 0 | 0 | negocio 111 · producto 132 · variante 3 · pedido 157 · item 157 · cliente 35 · movimiento 5 · mesa 9 · empleado 19 · venta 3 |
+| Después de todas las suites | OFF | 0 | 0 | 0 | 0 | **idénticos** → sin residuos de fixtures |
+
+```text
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0 · MOVIMIENTOS_PEDIDO=0
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 sin cambios)
+```
+
+### Estado
+
+```text
+R3A_I2_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (parte automática limpia; NO CLOSED: falta el smoke manual del operador)
+TESTING_CODEX_FUNCTIONAL_HEAD=ed009f30c107fb527a0fa4d2d841e486938b2130 (I2 0e3b2a3 + I2-F1 8c43661 + F2 8bc2d7d + F3 ed009f3, modo OFF)
+R3A_I3_STARTED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I2_MODE_OFF_MANUAL_SMOKE
+```
+
+### Checklist sugerido para el smoke manual en modo OFF (TESTING)
+
+Con OFF, el comportamiento visible debe ser **idéntico al previo a I2**: no hay reservas, no hay descuento de stock al pasar a `preparando` y no hay mensajes de stock nuevos.
+
+1. **Pedido Cliente/Mesa** en un negocio genérico con un producto (o variante) con control de stock: se crea normalmente, también por encima del stock disponible, porque OFF no valida disponible.
+2. **Pedido manual de Mozo** en el mismo negocio, con y sin variante: se crea normalmente.
+3. **Pasar esos pedidos a `preparando`** desde Negocio / Operaciones / PyR / terminal Salón: transiciona sin error y el stock físico no cambia.
+4. **Cancelar:**
+   - un pedido de mesa desde Operaciones (Mozo o admin);
+   - un pedido Cliente (cancelación del cliente);
+   - un pedido desde Negocio.
+   En todos los casos la cancelación funciona y la deuda se revierte como antes.
+5. **Restaurante / Ropa:** un pedido simple para confirmar que no hay regresión.
+6. **Borrar un producto** sin pedidos activos: se borra como antes.
