@@ -6,7 +6,42 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5 MODE ON ACTIVE IN TESTING — TECHNICALLY VERIFIED WITH REAL RESERVATIONS — AWAITING MANUAL SMOKE (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5 CLOSED_TESTING_CERTIFIED (MODE ON) — R3A STOCK LIFECYCLE CLOSED IN TESTING (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I5-MANUAL-SMOKE-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=T56_R3A_I5_CLOSED_TESTING_CERTIFIED
+R3A_I5_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, mode ON)
+R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (I1 CLOSED_TESTING_VERIFIED · I2/I3/I4/I5 CLOSED_TESTING_CERTIFIED · I5-P0 REAL_DB_VERIFIED_IN_I5) — scope: TESTING, generic businesses (rubro "negocio"), stock-controlled products/variants; NOT Production, NOT Ropa/Restaurante
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_TESTING_CERTIFIED_I5_TESTING_CERTIFIED (R3A CLOSED in TESTING with documented limitations)
+MANUAL_SMOKE_ENVIRONMENT=TESTING · MANUAL_SMOKE_MODE=ON · MANUAL_SMOKE_TOTAL=6 · MANUAL_SMOKE_PASS=6 · MANUAL_SMOKE_FAIL=0 · MANUAL_SMOKE_NOT_AVAILABLE=0 · MANUAL_SMOKE_RESULT=PASS (reserve on confirm · consume on prepare · release on cancel · last unit two clients · Caja respects reservations · AJUSTE warning with active reservation)
+POST_SMOKE_DB_CHECK=PASS (fingerprint d64be28f676e; mode ON, config unchanged since the audited reactivation; reservations ACTIVA 0 · CONSUMIDA 1 · LIBERADA 3; the 4 smoke orders coherent; 0 inconsistencies, 0 negative stock, 0 duplicate PEDIDO movements, 0 deficit; 2 open generic orders = pre-I5 orders already in preparando; no pending test orders)
+POST_SMOKE_LOG_CHECK=PASS_WITH_DOCUMENTED_LOGGING_LIMITATIONS (deploy 349017fc 18:20–19:16Z: migrations up to date, Ready, 0 real 5xx/P2028/init; one controlled write-conflict retry on POST /api/pedidos at 19:09:19Z consistent with smoke #4; Node url.parse deprecation warning unrelated; proxy statuses are placeholders)
+CERTIFICATION_BASIS=manual smoke 6/6 + real-DB Phase A 14/14 (harness R4 re-run after "efectivo"→"EFECTIVO" fix, not a Caja defect) + Phase B mode cycle (4 audited transitions, DRAINING guard, stale-in-tx, MODE vs RES race) + R9 166/0 with ON + I5-P0 tests 57/0
+CONCURRENCY=last unit simple/variant PASS · stock 5×10 → 3 success + 7×409 serialization · stock 10×15 → 5 + 10 · no oversell, no negative stock, no unprotected orders · HIGH_CONTENTION_LIMITATION=OPEN_FOLLOWUP (FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE)
+COVERAGE_GAPS=HARD_ROLLBACK_REAL_DB=NOT_TESTED · MOZO_REAL_DB_ON=NOT_RUN · PYR_CANCEL_REAL_DB_ON=NOT_RUN · AUTO_CANCEL_REAL_DB_ON=NOT_RUN · HTTP_CONCURRENCY_REAL_DB=NOT_RUN · AUXILIARY_ROWS_PRESERVED=99 (R9 suites; not reservation inconsistencies)
+FOLLOWUPS_PRESERVED=denuncias P2028 · superadmin-notifications test 11 · suite auxiliary-table cleanup · Mesa occupancy after rejected order · Salón terminal close account · Caja duplicate lines real-DB · server-side rubro gate · Ropa reservations (future) · public stockCantidad deprecation (A0.1-15 step 2) · promotions eliminado filter · generic promocionados real-DB · STALE_OPEN_ORDER_EXPIRATION_POLICY · Inventario Físico/Reservado/Disponible/Déficit columns · high-contention conflict rate · CLI Prisma log noise
+STOCK_RESERVATION_MODE_CURRENT=ON (TESTING) · ACTIVE_RESERVATIONS=0 · MODE_CHANGED_THIS_ROUND=NO
+TESTING_CODEX_HEAD=d6910634d082c7fc896315c9cc33dcfc35413e0b (I5 activation docs; functional 96a93b6) + the closeout docs commit "docs: certify R3A I5 testing ON and close stock lifecycle" on top (its docs-only autodeploy is reported in the round result)
+SAFETY_TAGS=r3a-i1-testing-verified → cc628e0 (pushed) · local r3a-i4-pre-integration-testing-codex → 7a6d0af · local r3a-i5p0-pre-integration-testing-codex → 607ac04
+FUTURE_GENERIC_BUSINESS_FEATURES=approved backlog in ROADMAP (F1 weight sales · F2 store credit/current accounts · F3 private account view via link/QR · F4 returns/voids · F5 suppliers/purchases · F6 restock alerts · F7 cash closing · F8 promotions/discounts · F9 camera barcode capture (number only, product data entered manually) · F10 tickets/receipts) — none started
+TESTING_DB_TOUCHED=NO (this round) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator decides the next generic-business feature or other priority)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_GENERIC_BUSINESS_FEATURE_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I5_ON_CERTIFICATION.md (§12 = manual certification closeout; earlier sections = activation, real-DB, concurrency, mode cycle)
+
+R3A (order stock lifecycle: reservations, consumption, release, Caja/Inventario, public availability,
+audited mode controller) is CLOSED_TESTING_CERTIFIED in TESTING for generic businesses with stock
+reservations ON. Limitations stay explicit: high-contention conflict rate, untested real hard rollback,
+Mozo/PyR/automatic paths and HTTP concurrency not exercised against the real DB, open follow-ups.
+Production untouched; Ropa/Restaurante outside the reservation system.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I5 MODE ON ACTIVE IN TESTING — TECHNICALLY VERIFIED WITH REAL RESERVATIONS — AWAITING MANUAL SMOKE (2026-10-08; superseded as the current pointer by the I5 certification closeout above — the manual smoke it awaited PASSED 6/6) ===
 
 CURRENT_TASK=P2-T56-R3A-I5-ON-ACTIVATION-REAL-DB
 CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE

@@ -7,7 +7,7 @@ AUTHORIZATION=operador: activar ON sólo en TESTING, pruebas reales con fixtures
 TESTING_CODEX_HEAD=7d29aa01a46544817154be2369e85a20b3005511 (funcional I5-P0 96a93b6; sin cambios de código en esta ronda)
 TESTING_DEPLOY=22bf1264-2a7c-4eef-a8b4-8fe3740288b6 SUCCESS (sin redeploy funcional)
 DB_FINGERPRINT=d64be28f676e (mecanismo I5-P0)
-R3A_I5_STATUS=DEPLOYED_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE
+R3A_I5_STATUS=CLOSED_TESTING_CERTIFIED (§12; antes DEPLOYED_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE)
 FINAL_MODE=ON · FINAL_ACTIVE_RESERVATIONS=0 · CODE_CHANGED=NO · SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0 · PRODUCTION_TOUCHED=NO
 ```
 
@@ -171,11 +171,152 @@ Modo **ON** en TESTING. Negocio genérico de prueba del operador. Preparar en In
 
 No hace falta cambiar el modo. No cerrar I5 hasta registrar este resultado.
 
-## 11. Estado
+## 11. Estado al cierre técnico (histórico; superado por §12)
 
 ```text
-RESULT=T56_R3A_I5_TECHNICALLY_VERIFIED_TESTING_ON_AWAITING_MANUAL_SMOKE
-R3A_I5_STATUS=DEPLOYED_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE
-MANUAL_SMOKE_STATUS=PENDING_OPERATOR
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I5_MANUAL_SMOKE
+RESULT=T56_R3A_I5_TECHNICALLY_VERIFIED_TESTING_ON_AWAITING_MANUAL_SMOKE (histórico)
+R3A_I5_STATUS=DEPLOYED_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE (histórico)
+MANUAL_SMOKE_STATUS=PENDING_OPERATOR (histórico → resuelto en §12: PASS 6/6)
+```
+
+## 12. Closeout — Certificación manual TESTING MODE ON (2026-10-08)
+
+Ronda documental y de verificación READ-ONLY: sin código, sin escrituras en la base, sin cambios de modo ni de Railway.
+
+### Smoke manual del operador (registrado tal como fue informado)
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Reserva al confirmar: el pedido confirmó y la reserva redujo la disponibilidad sin descontar el físico | PASS |
+| 2 | Descuento al preparar: el pedido pasó a preparación y el físico se descontó | PASS |
+| 3 | Liberación por cancelación antes de preparar | PASS |
+| 4 | Dos clientes, última unidad: ambos no pudieron confirmar la misma unidad | PASS |
+| 5 | Caja respeta las unidades reservadas | PASS |
+| 6 | AJUSTE con reserva activa: la advertencia previa funcionó | PASS |
+
+```text
+MANUAL_SMOKE_ENVIRONMENT=TESTING
+MANUAL_SMOKE_MODE=ON
+MANUAL_SMOKE_TOTAL=6
+MANUAL_SMOKE_PASS=6
+MANUAL_SMOKE_FAIL=0
+MANUAL_SMOKE_NOT_AVAILABLE=0
+MANUAL_SMOKE_RESULT=PASS
+```
+
+### Verificación posterior al smoke (READ-ONLY, huella d64be28f676e)
+
+- **Git:** `testing-codex` = `origin/testing-codex` = `d691063`, árbol limpio. **Railway TESTING:** DeliGO Copy `349017fc` SUCCESS @ `d691063` (commit match). **Production:** `6bf1ee84` @ `42ca500`, sin cambios.
+- **Modo:** ON. `updatedAt` de config 17:51:08Z: no hubo cambios de modo después de la reactivación auditada.
+- **Auditoría del controlador:** 4 filas `APPLIED` con el actor del operador (OFF→ON, ON→DRAINING, DRAINING→OFF, OFF→ON) y ninguna recuperación ejecutada.
+- **Reservas actuales:** ACTIVA **0** · CONSUMIDA **1** (cantidad 1) · LIBERADA **3** (cantidad 5, todas `CANCELADO_VENDEDOR`).
+- **Pedidos de negocios genéricos creados con ON** (los 4 del smoke, `paola-vinal`, 19:01–19:10Z; los fixtures del harness ya se habían limpiado):
+
+| Pedido | Estado | Reserva | Movimientos PEDIDO |
+|---|---|---|---|
+| `cmuzwjnc30007sd0akgo36jxq` | cancelado (después de preparar) | CONSUMIDA 1 | 1 (sin reposición) |
+| `cmuzwsgjk000psd0ats03y4nj` | cancelado antes de preparar | LIBERADA 2 | 0 |
+| `cmuzwuc430011sd0ap260uf92` | cancelado antes de preparar | LIBERADA 2 | 0 |
+| `cmuzwvodc001gsd0alin8a1ka` | cancelado antes de preparar | LIBERADA 1 | 0 |
+
+- **Integridad:**
+  - cada línea controlada tiene exactamente una reserva;
+  - ningún pedido pendiente con reserva no ACTIVA;
+  - ningún pedido preparado o cancelado con ACTIVA;
+  - ninguna CONSUMIDA sin movimiento ni movimiento sin consumo;
+  - 0 movimientos PEDIDO duplicados (1 en total);
+  - ninguna liberación con descuento;
+  - 0 stock negativo → `problemas = []`.
+- **Stock controlado de negocios genéricos** (`paola-vinal`): papas 0/0, Chisitos 0/0, Coca 1L 2/0, Coca 500 0/0 (físico/reservado). **Déficit: 0 en todas las claves.** El déficit provocado en la prueba 6 quedó resuelto por el flujo normal (no hay reservas ACTIVA ni déficit).
+- **Pedidos abiertos de negocios genéricos:** 2, ambos en `preparando` desde antes de I5 (sin reservas; creados en OFF). Pedidos genéricos cancelados: 7.
+- No quedan pedidos de prueba por resolver.
+
+```text
+POST_SMOKE_DB_CHECK=PASS · OPEN_TEST_ORDERS=0 · INCONSISTENT_RESERVATIONS=0 · NEGATIVE_STOCK=0 · DOUBLE_CONSUMPTION=0 · UNPROTECTED_ORDERS=0 · PENDING_MANUAL_CLEANUP=NONE
+```
+
+### Logs del período del smoke
+
+Deployment `349017fc`, ventana 18:20–19:16Z, 601 líneas:
+- "38 migrations found", "No pending migrations to apply", "Ready";
+- requests R3A en la ventana: 6 `POST /api/pedidos`, 6 `PATCH .../estado`, 1 `POST /api/negocio/caja/ventas`, 5 `POST .../inventario/movimientos`;
+- **0 errores 5xx reales detectables**, 0 P2028, 0 fallas de inicialización.
+
+Dos líneas de clase error:
+- `DeprecationWarning url.parse()` de Node: ajena a R3A.
+- Un `prisma:error` «Transaction failed due to a write conflict or a deadlock» en `cliente.update` dentro de la transacción de `POST /api/pedidos` a las 19:09:19Z. Es un **conflicto de serialización controlado y reintentado**: el pedido `cmuzwuc43…` se creó a las 19:09:19.443Z y en la base hay un solo pedido de ese momento, coherente con la prueba 4 (última unidad: sólo uno confirma).
+
+**Límite de la evidencia:** el logger de `src/proxy.ts` registra un status 200 provisorio, así que los logs no prueban el status final de cada handler (un 409 de stock no se ve como 409). Los logs no corroboran por sí solos el detalle de cada prueba manual; el resultado se apoya en el informe del operador.
+
+```text
+POST_SMOKE_LOG_CHECK=PASS_WITH_DOCUMENTED_LOGGING_LIMITATIONS
+```
+
+### Base de la certificación
+
+- **Smoke manual 6/6** con modo ON.
+- **Real-DB** (§3–§6): Phase A 14/14 (con la re-ejecución sólo de R4 tras corregir `efectivo` → `EFECTIVO` en el harness, que no es una falla funcional de Caja) · Phase B: ciclo completo con 4 transiciones auditadas, guarda DRAINING, estado desactualizado en tx y carrera modo/reserva · R9 166/0 con ON.
+- **Concurrencia:** sin sobreventa, sin stock negativo y sin pedidos sin reserva.
+- **Controlador I5-P0:** tests 57/0 y verificación real.
+
+### Concurrencia — limitación de disponibilidad (abierta)
+
+```text
+LAST_UNIT_SIMPLE=PASS · LAST_UNIT_VARIANT=PASS
+STOCK_5_REQUESTS_10: SUCCESS=3 · SERIALIZATION_409=7
+STOCK_10_REQUESTS_15: SUCCESS=5 · SERIALIZATION_409=10
+OVERSELL_DETECTED=NO · NEGATIVE_STOCK_DETECTED=NO · UNPROTECTED_ORDERS_DETECTED=NO
+HIGH_CONTENTION_LIMITATION=OPEN_FOLLOWUP (FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE: mejorar el comportamiento bajo contención sin comprometer la seguridad transaccional; retries/timeouts sin cambios en este cierre)
+```
+
+R7 **no** demuestra un rendimiento óptimo: es seguro, pero rechaza muchas solicitudes bajo alta contención.
+
+### Coberturas pendientes (explícitas)
+
+```text
+HARD_ROLLBACK_REAL_DB=NOT_TESTED (sin reserva genuinamente elegible; dry-runs y tests automatizados ejecutados)
+MOZO_REAL_DB_ON=NOT_RUN · PYR_CANCEL_REAL_DB_ON=NOT_RUN · AUTO_CANCEL_REAL_DB_ON=NOT_RUN (misma autoridad, cubierta por tests automatizados)
+HTTP_CONCURRENCY_REAL_DB=NOT_RUN (concurrencia con handlers reales locales contra PostgreSQL TESTING, no tráfico HTTP contra la app desplegada)
+AUXILIARY_ROWS_PRESERVED=99 (filas auxiliares de las suites R9: 52 notificaciones, 5 sesiones, 42 auditorías de fixtures eliminados; no borradas por falta de autorización; no son inconsistencias de reservas)
+```
+
+**Follow-ups preservados:**
+- P2028 de denuncias;
+- timeout de `superadmin-notifications` test 11;
+- limpieza de tablas auxiliares de las suites;
+- ocupación de Mesa tras un pedido rechazado;
+- Terminal Salón: cierre de cuenta;
+- líneas repetidas en Caja sin real-DB específica;
+- gate de rubro en el servidor;
+- reservas para Ropa (futuro);
+- deprecación de `stockCantidad` público (A0.1-15 paso 2);
+- filtro de `eliminado` en promociones;
+- real-DB de `promocionados` genérico;
+- vencimiento de pedidos abiertos con reservas (`STALE_OPEN_ORDER_EXPIRATION_POLICY`);
+- columnas Físico/Reservado/Disponible/Déficit en Inventario;
+- contención alta;
+- ruido de logs de Prisma en la salida del comando.
+
+### Alcance de la certificación
+
+Certifica el ciclo de reservas de stock (R3A I1–I5) **en TESTING**, para **negocios genéricos** (`rubro = "negocio"`) y productos o variantes con control de stock, en los comportamientos efectivamente comprobados.
+
+**No** certifica:
+- Production (que no se tocó);
+- Ropa ni Restaurante (fuera del sistema de reservas);
+- la resolución de los follow-ups;
+- una regresión completa sin fallas (los 2 timeouts de I4 siguen abiertos);
+- un rendimiento optimizado bajo alta concurrencia.
+
+### Estado final
+
+```text
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED · R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED · R3A_I4_STATUS=CLOSED_TESTING_CERTIFIED
+R3A_I5_P0_STATUS=REAL_DB_VERIFIED_IN_I5 (entrega histórica: DEPLOYED_TESTING_MODE_OFF_AWAITING_ACTIVATION)
+R3A_I5_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, modo ON)
+R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS
+STOCK_RESERVATION_MODE=ON (TESTING) · ACTIVE_RESERVATIONS=0
+PRODUCTION_TOUCHED=NO
+RESULT=T56_R3A_I5_CLOSED_TESTING_CERTIFIED
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_GENERIC_BUSINESS_FEATURE_DECISION
 ```
