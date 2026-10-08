@@ -14,10 +14,19 @@ export interface ClientProductoVariante {
   precio: number
   controlStock: boolean
   stockCantidad: number
+  // P2-T56-R3A-I4: disponible público (físico − reservas ACTIVA) publicado
+  // por GET /api/negocios/[slug] para negocio genérico; null/ausente = sin
+  // dato (otros rubros) → se usa la regla previa.
+  stockDisponible?: number | null
 }
 
-/** A variant not controlling stock is always available; a controlled one needs stockCantidad > 0. */
+/**
+ * A variant not controlling stock is always available; a controlled one needs
+ * stockCantidad > 0. P2-T56-R3A-I4: when the server publishes
+ * `stockDisponible` (generic business), that value is the one that counts.
+ */
 export function isVarianteDisponible(variante: ClientProductoVariante): boolean {
+  if (typeof variante.stockDisponible === "number") return variante.stockDisponible > 0
   return !variante.controlStock || variante.stockCantidad > 0
 }
 

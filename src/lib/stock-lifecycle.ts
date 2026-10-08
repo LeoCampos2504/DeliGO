@@ -34,6 +34,16 @@ import {
 
 type Tx = Prisma.TransactionClient
 
+// P2-T56-R3A-I4: la disponibilidad pública (catálogo, promociones, repetir) se
+// consume desde acá, para que la autoridad pura conserve su allowlist exacta
+// de callers (contrato I1).
+export {
+  isGenericBusinessStockScope,
+  resolvePublicProductAvailability,
+  type PublicStockAvailability,
+  type PublicStockProductInput,
+} from "@/lib/stock-authority"
+
 // ---------------------------------------------------------------------------
 // Errores de dominio (cada uno se traduce a una respuesta HTTP en
 // mapStockLifecycleError; nunca se reintentan).
@@ -57,10 +67,22 @@ export class StockLifecycleError extends Error {
   }
 }
 
-/** Modo ON: lo pedido supera el disponible (físico − reservado) de alguna clave. */
+/** Lo pedido supera el disponible (físico − reservado) de alguna clave. */
 export class StockInsufficientError extends StockLifecycleError {
-  constructor(readonly keys: StockKeyRef[]) {
-    super("STOCK_INSUFFICIENT", 409, "No hay stock suficiente para uno o más productos del pedido")
+  constructor(
+    readonly keys: StockKeyRef[],
+    /**
+     * P2-T56-R3A-I4: detalle por clave (solicitado / disponible) para que el
+     * cliente identifique las líneas afectadas. Sin reservas ni datos internos.
+     */
+    lineas?: ReadonlyArray<StockKeyRef & { solicitado: number; disponible: number }>
+  ) {
+    super(
+      "STOCK_INSUFFICIENT",
+      409,
+      "No hay stock suficiente para uno o más productos del pedido",
+      lineas ? { lineas: lineas.map((l) => ({ ...l })) } : undefined
+    )
   }
 }
 
@@ -259,37 +281,68 @@ export type StockReservationPlan =
  */
 export async function planificarReservaStockPedido(
   tx: Tx,
-  params: { negocioId: string; lines: ReadonlyArray<StockOrderLine> }
+  params: {
+    negocioId: string
+    lines: ReadonlyArray<StockOrderLine>
+    /**
+     * P2-T56-R3A-I4 (decisión 1 del operador): con modo OFF, validar igual que
+     * un pedido individual no supere el DISPONIBLE (sin crear reservas). Sólo
+     * lo pasa POST /api/pedidos (Cliente/Mesa de negocio genérico); el resto de
+     * los creadores (Mozo) conserva el OFF de I2.
+     */
+    validarDisponibleEnOff?: boolean
+  }
 ): Promise<StockReservationPlan> {
   const mode = await readStockReservationMode(tx)
-  if (mode === "OFF") return { reservar: false, mode }
+  if (mode === "OFF") {
+    if (params.validarDisponibleEnOff) await validarDisponibleLineas(tx, params.negocioId, params.lines)
+    return { reservar: false, mode }
+  }
   if (mode === "DRAINING") throw new StockReservationsDrainingError()
 
-  const totals = agregarCantidadesPorClave(params.lines.filter((line) => line.controlStock))
-  const reservedKeys = new Set<string>()
+  const reservedKeys = await validarDisponibleLineas(tx, params.negocioId, params.lines)
+  return { reservar: true, mode: "ON", reservedKeys }
+}
+
+/**
+ * Valida, por clave agregada, que lo pedido no supere el disponible
+ * (físico − ACTIVA) releyendo la autoridad dentro de la tx. Lanza
+ * StockInsufficientError con el detalle por clave. Devuelve las claves
+ * controladas validadas (las que reservaría el modo ON).
+ */
+async function validarDisponibleLineas(
+  tx: Tx,
+  negocioId: string,
+  lines: ReadonlyArray<StockOrderLine>
+): Promise<Set<string>> {
+  const totals = agregarCantidadesPorClave(lines.filter((line) => line.controlStock))
+  const validKeys = new Set<string>()
   const insufficient: StockKeyRef[] = []
+  const detalle: Array<StockKeyRef & { solicitado: number; disponible: number }> = []
 
   for (const total of totals) {
     const key = { productoId: total.productoId, productoVarianteId: total.productoVarianteId }
-    const authority = await loadStockAuthority(tx, params.negocioId, key)
+    const authority = await loadStockAuthority(tx, negocioId, key)
     if (!authority) {
       insufficient.push(key)
+      detalle.push({ ...key, solicitado: total.cantidad, disponible: 0 })
       continue
     }
     // Lectura fresca: si el control se desactivó entre la validación y esta
     // transacción, la clave ya no tiene límite de inventario → no se reserva.
     if (!authority.controlStock) continue
-    const activeReserved = await sumActiveReserved(tx, params.negocioId, key)
+    const activeReserved = await sumActiveReserved(tx, negocioId, key)
     const available = computeAvailableStock(authority.stockCantidad, activeReserved)
     if (total.cantidad > available) {
       insufficient.push(key)
+      detalle.push({ ...key, solicitado: total.cantidad, disponible: available })
       continue
     }
-    reservedKeys.add(stockKey(key.productoId, key.productoVarianteId))
+    validKeys.add(stockKey(key.productoId, key.productoVarianteId))
   }
 
-  if (insufficient.length > 0) throw new StockInsufficientError(insufficient)
-  return { reservar: true, mode: "ON", reservedKeys }
+  if (insufficient.length > 0) throw new StockInsufficientError(insufficient, detalle)
+  return validKeys
 }
 
 /**
@@ -810,6 +863,34 @@ export async function registrarMovimientoManual(
     },
   })
   return { producto, variante, movimiento }
+}
+
+// ---------------------------------------------------------------------------
+// P2-T56-R3A-I4 — lectura AGRUPADA de reservas ACTIVA para la disponibilidad
+// pública (catálogo, promociones, repetir). Una sola consulta por request
+// (groupBy), sin N+1. Lectura de visualización: el servidor vuelve a validar
+// dentro de la tx al confirmar el pedido.
+// ---------------------------------------------------------------------------
+
+type ReservaGroupReader = Pick<PrismaClient, "reservaStock">
+
+/** SUM(ReservaStock ACTIVA) por stockKey(productoId, productoVarianteId) de los negocios dados. */
+export async function leerReservasActivasPorClave(
+  reader: ReservaGroupReader,
+  negocioIds: ReadonlyArray<string>
+): Promise<Map<string, number>> {
+  const reserved = new Map<string, number>()
+  if (negocioIds.length === 0) return reserved
+  const rows = await reader.reservaStock.groupBy({
+    by: ["productoId", "productoVarianteId"],
+    where: { negocioId: { in: [...negocioIds] }, estado: "ACTIVA", productoId: { not: null } },
+    _sum: { cantidad: true },
+  })
+  for (const row of rows) {
+    if (!row.productoId) continue
+    reserved.set(stockKey(row.productoId, row.productoVarianteId), row._sum?.cantidad ?? 0)
+  }
+  return reserved
 }
 
 // ---------------------------------------------------------------------------

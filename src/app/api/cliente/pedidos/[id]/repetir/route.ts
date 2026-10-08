@@ -3,6 +3,12 @@ import { db } from "@/lib/db"
 import { getAuthenticatedCliente } from "@/lib/cliente-auth"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import {
+  isGenericBusinessStockScope,
+  leerReservasActivasPorClave,
+  resolvePublicProductAvailability,
+  type PublicStockAvailability,
+} from "@/lib/stock-lifecycle"
 
 // Seguridad-6B.3: repetición de pedido — datos de precios/stock ligados a la sesión del cliente, nunca cacheables.
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
@@ -66,6 +72,9 @@ export async function PUT(
         nombre: true,
         precio: true,
         stock: true,
+        // P2-T56-R3A-I4: server-only, para la disponibilidad pública.
+        controlStock: true,
+        stockCantidad: true,
         imagenUrl: true,
         descuentoActivo: true,
         tipoDescuento: true,
@@ -81,6 +90,17 @@ export async function PUT(
 
     const productoMap = new Map(productosActuales.map((p) => [p.id, p]))
 
+    // P2-T56-R3A-I4: en negocio genérico, repetir usa la MISMA disponibilidad
+    // pública que el catálogo (físico − reservas ACTIVA). Una sola lectura
+    // agrupada. Restaurante/Ropa: sin cambios.
+    const genericScope = isGenericBusinessStockScope(negocio.rubro)
+    const reservedByKey = genericScope ? await leerReservasActivasPorClave(db, [negocio.id]) : null
+    const availabilityMap = new Map<string, PublicStockAvailability>(
+      reservedByKey
+        ? productosActuales.map((p) => [p.id, resolvePublicProductAvailability(p, reservedByKey)])
+        : []
+    )
+
     // Build availability info for each item
     const itemsConDisponibilidad = pedido.items.map((item) => {
       const productoActual = item.productoId ? productoMap.get(item.productoId) : null
@@ -93,6 +113,9 @@ export async function PUT(
       // nombre vigente.
       let varianteId: string | null = null
       let varianteNombre: string | null = null
+      // P2-T56-R3A-I4: disponible público de la clave (null = sin límite).
+      const availability = productoActual ? availabilityMap.get(productoActual.id) : undefined
+      let stockDisponible: number | null = null
 
       if (!item.productoId) {
         // Item has no product reference (manually added or product deleted)
@@ -119,11 +142,18 @@ export async function PUT(
         } else if (variante.controlStock && variante.stockCantidad <= 0) {
           disponible = false
           motivoIndisponibilidad = "Sin stock"
+        } else if (availability && !availability.variantesVisibles.some((v) => v.id === variante.id)) {
+          disponible = false
+          motivoIndisponibilidad = "Sin stock"
         } else {
           precioActual = variante.precio
           varianteId = variante.id
           varianteNombre = variante.nombre
+          stockDisponible = availability?.variantesVisibles.find((v) => v.id === variante.id)?.stockDisponible ?? null
         }
+      } else if (availability && !availability.visible) {
+        disponible = false
+        motivoIndisponibilidad = "Sin stock"
       } else {
         // Calculate the effective price (with discount if active)
         let precioEfectivo = productoActual.precio
@@ -135,6 +165,7 @@ export async function PUT(
           }
         }
         precioActual = precioEfectivo
+        stockDisponible = availability?.stockDisponible ?? null
       }
 
       // Parse agregados for frontend
@@ -186,6 +217,7 @@ export async function PUT(
         color: item.color,
         disponible,
         motivoIndisponibilidad,
+        stockDisponible,
         imagenUrl: productoActual?.imagenUrl || null,
       }
     })

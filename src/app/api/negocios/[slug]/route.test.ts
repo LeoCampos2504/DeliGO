@@ -98,13 +98,18 @@ describe("P2-T56-R2C-F2 — GET /api/negocios/[slug]: variantes", () => {
       precio: 2000,
       controlStock: true,
       stockCantidad: 5,
+      // P2-T56-R3A-I4: disponible público (físico − reservas ACTIVA).
+      stockDisponible: 5,
     })
     expect(productoOut.variantes[0]).not.toHaveProperty("costo")
     expect(productoOut.variantes[0]).not.toHaveProperty("sku")
     expect(productoOut.variantes[0]).not.toHaveProperty("codigoBarras")
   })
 
-  test("producto cuyas variantes están TODAS inactivas: tieneVariantes=true pero variantes=[] (nunca cae al precio/stock base dormido)", async () => {
+  // P2-T56-R3A-I4 (decisión 3): en negocio genérico, un producto cuyas
+  // variantes están TODAS no disponibles ya no se publica (antes: se
+  // publicaba con variantes=[]). Sigue sin caer nunca al precio/stock base.
+  test("producto cuyas variantes están TODAS inactivas: no se publica en negocio genérico (nunca cae al precio/stock base dormido)", async () => {
     const negocio = await createNegocio()
     const producto = await db.producto.create({
       data: { nombre: "Todas inactivas", precio: 555, negocioId: negocio.id },
@@ -117,7 +122,6 @@ describe("P2-T56-R2C-F2 — GET /api/negocios/[slug]: variantes", () => {
     const body = await res.json()
     const productoOut = body.productos.find((p: { id: string }) => p.id === producto.id)
 
-    expect(productoOut.tieneVariantes).toBe(true)
-    expect(productoOut.variantes).toEqual([])
+    expect(productoOut).toBeUndefined()
   })
 })

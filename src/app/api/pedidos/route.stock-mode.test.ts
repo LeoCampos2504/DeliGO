@@ -228,10 +228,15 @@ describe("P2-T56-R3A-I2-F1 — negocio genérico + línea controlada: SIEMPRE Se
     expect(isolationLevels).toEqual(["Serializable"])
   })
 
-  test("F1-B: modo OFF → crea el Pedido con cero ReservaStock y sin validar disponible", async () => {
-    const { res } = await callPost([item({ cantidad: 99 })])
-    expect(res.status).toBe(201)
-    expect(state.pedidos).toHaveLength(1)
+  // P2-T56-R3A-I4 (decisión 1 del operador): F1-B cambia a propósito. Antes
+  // (I2) el modo OFF creaba el Pedido sin validar disponible; desde I4 un
+  // pedido individual de Cliente/Mesa de negocio genérico nunca supera el
+  // disponible, también en OFF (sin crear reservas). Ver el bloque I4 abajo.
+  test("F1-B (I4): modo OFF con cantidad > disponible → 409 STOCK_INSUFFICIENT, sin Pedido, sin reservas, sin tocar stock", async () => {
+    const { res, body } = await callPost([item({ cantidad: 99 })])
+    expect(res.status).toBe(409)
+    expect(body.code).toBe("STOCK_INSUFFICIENT")
+    expect(state.pedidos).toHaveLength(0)
     expect(state.reservas).toHaveLength(0)
     expect(state.productos.find((p) => p.id === "p-base")!.stockCantidad).toBe(5)
   })
@@ -288,6 +293,61 @@ describe("P2-T56-R3A-I2-F1 — negocio genérico + línea controlada: SIEMPRE Se
     expect(replay.body.id).toBe(first.body.id)
     expect(state.pedidos).toHaveLength(1)
     expect(state.reservas).toHaveLength(1)
+  })
+})
+
+describe("P2-T56-R3A-I4 — validación de disponible en modo OFF (POST /api/pedidos, negocio genérico)", () => {
+  test("I4-OFF-A: el 409 identifica la clave con solicitado/disponible (sin datos de reservas)", async () => {
+    const { res, body } = await callPost([item({ cantidad: 7 })])
+    expect(res.status).toBe(409)
+    expect(body.code).toBe("STOCK_INSUFFICIENT")
+    expect(body.details).toEqual({
+      lineas: [{ productoId: "p-base", productoVarianteId: null, solicitado: 7, disponible: 5 }],
+    })
+  })
+
+  test("I4-OFF-B: cantidad exactamente igual al disponible → 201, cero ReservaStock y stock físico intacto (OFF nunca descuenta)", async () => {
+    const { res } = await callPost([item({ cantidad: 5 })])
+    expect(res.status).toBe(201)
+    expect(state.pedidos).toHaveLength(1)
+    expect(state.reservas).toHaveLength(0)
+    expect(state.productos.find((p) => p.id === "p-base")!.stockCantidad).toBe(5)
+    expect(isolationLevels).toEqual(["Serializable"])
+  })
+
+  test("I4-OFF-C: las líneas de la misma clave se suman (3 + 3 > 5) → 409", async () => {
+    const { res, body } = await callPost([item({ cantidad: 3 }), item({ cantidad: 3, notas: "otra" })])
+    expect(res.status).toBe(409)
+    expect(body.details.lineas).toEqual([{ productoId: "p-base", productoVarianteId: null, solicitado: 6, disponible: 5 }])
+    expect(state.pedidos).toHaveLength(0)
+  })
+
+  test("I4-OFF-D: reservas ACTIVA residuales descuentan del disponible (5 − 3 = 2)", async () => {
+    reset({
+      reservas: [{ negocioId: NEGOCIO, productoId: "p-base", productoVarianteId: null, cantidad: 3, estado: "ACTIVA" }],
+    })
+    const rejected = await callPost([item({ cantidad: 3 })])
+    expect(rejected.res.status).toBe(409)
+    expect(rejected.body.details.lineas[0]).toMatchObject({ solicitado: 3, disponible: 2 })
+    const accepted = await callPost([item({ cantidad: 2 })])
+    expect(accepted.res.status).toBe(201)
+    expect(state.reservas).toHaveLength(1) // OFF no crea reservas nuevas
+  })
+
+  test("I4-OFF-E: línea sin control de stock no se limita (junto a una controlada dentro del disponible)", async () => {
+    const { res } = await callPost([item({ productoId: "p-libre", cantidad: 40 }), item({ cantidad: 1 })])
+    expect(res.status).toBe(201)
+  })
+
+  test("I4-OFF-F: el replay idempotente sigue PRIMERO — devuelve el Pedido existente aunque hoy ya no haya disponible", async () => {
+    const key = crypto.randomUUID()
+    const first = await callPost([item({ cantidad: 5 })], key)
+    expect(first.res.status).toBe(201)
+    state.productos.find((p) => p.id === "p-base")!.stockCantidad = 0
+    const replay = await callPost([item({ cantidad: 5 })], key)
+    expect(replay.res.status).toBe(200)
+    expect(replay.body.id).toBe(first.body.id)
+    expect(state.pedidos).toHaveLength(1)
   })
 })
 

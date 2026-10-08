@@ -6,7 +6,46 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 PUBLIC AVAILABILITY + CART CONTROL IMPLEMENTED ON BRANCH (NOT INTEGRATED) (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I4-IMPLEMENTATION (disponibilidad pública y control del carrito)
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_I4_TESTING_INTEGRATION_REVIEW
+R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (branch only; NOT integrated, NOT deployed)
+R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged; its OFF contract for POST /api/pedidos is deliberately changed by I4 decision 1 — on the branch only) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_IMPLEMENTED_ON_BRANCH (R3A NOT closed; I4 awaiting TESTING integration authorization; I5 = mode ON activation + real-reservation certification, pending)
+I4_BRANCH=work/p2-t56-r3-stock-lifecycle-i4 (base testing-codex 7a6d0af6e9326634406b4daeda3da8f545403318 + cherry-pick of discovery 6e47fcb → a9ed8a47fa97474a9b9ca1c6363f2fa0befc04a6 + the I4 implementation commit "feat: enforce public stock availability in catalog and cart" on top; pushed to origin/work/p2-t56-r3-stock-lifecycle-i4 only — exact hash in the round result)
+I4_OPERATOR_DECISIONS=1 POST /api/pedidos validates available stock also in mode OFF (generic + controlled line; 409, no order/reservation/decrement; idempotent replay first; Mozo unchanged; ON/DRAINING unchanged) · 2 hide depleted + stock=false products (rubro "negocio") · 3 hide depleted/inactive variants, hide product if none left, never mix parent stock · 4 no counts shown, simple message only · 5 stale cart: warn + identify + block checkout, never mutate silently; on 409 refresh, keep items, never empty · 6 promotions endpoints hide depleted generic products, business stays visible
+I4_IMPLEMENTATION=stock-authority resolvePublicProductAvailability (pure) · stock-lifecycle leerReservasActivasPorClave (1 groupBy ACTIVA per request, no N+1) + validarDisponibleEnOff + StockInsufficientError details.lineas {productoId, productoVarianteId, solicitado, disponible} · GET /api/negocios/[slug] stockDisponible per product/variant (base stockCantidad never published; variant stockCantidad kept until A0.1-15 step 2) · promociones/promocionados/repetir same availability · client: src/lib/cart-stock-availability.ts (per-stock-key aggregation), page add guards + detail cap, CartPanel warning/blocking/"+" cap, refetch on focus/cart open/before checkout/after 409 · Restaurante/Ropa unchanged · no schema
+I4_TESTS_RUN_NOW=stock-lifecycle-i4 20/0 · route.stock-mode 17/0 (F1-B updated to the I4 OFF behavior + I4-OFF A–F) · public route 6/0 · promociones 3/0 · promocionados 3/0 · repetir 3/0 · cart lib 13/0 · CartStockWarning render 2/0 · I4 static contract 15/0 · business-preview contract 23/0 (2 literal patterns adapted, same intent) · R3A regression (lifecycle 43, i3 32, authority 28, I1 contract 19, I2 contract 34), Mozo (route.stock 8 OFF unchanged, route 8, variantes 26), Caja/Inventario, Mesa/Salón/PyR non-DB suites all 0 failures · mutation check 3/3 detected
+FULL_SWEEP=380 files · 4383 pass / 211 fail · DB_ENV 72 (= I3 baseline) · non-DB failures = the same 8 baseline files as the I3 sweep (names and counts) · only I4-attributable change was business-preview (fixed → 23/0)
+GATES=prisma validate PASS · schema unchanged · NEW_MIGRATIONS=0 · tsc 33 = baseline (same files, 0 new) · ESLint PASS (touched files) · build PASS · diff-check PASS
+REAL_DB_TESTS=NOT_RUN (TESTING DB not authorized this round; negocios/[slug]/route.test.ts expectations updated statically) · MANUAL_SMOKE=NOT_RUN (operator, after integration)
+OFF_LIMITATION=in mode OFF the validation only stops a single order above available stock; cumulative oversell across orders still needs ON (I5)
+ROADMAP_CORRECTIONS=F9 barcode scope = scanner only captures the code number (no Open Food Facts / no external catalogs / no image recognition; research + mandatory physical tests kept; not implemented) · F1 note: Float columns are not enough for weight sales (units, conversions, pricing, PedidoItem.cantidad Int, validation/UI)
+LATERAL_FINDINGS=promociones/promocionados do not filter eliminado (recorded, not fixed) · follow-up A0.1-15 step 2 (stop publishing variant stockCantidad)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF (TESTING, last read 2026-10-08; not read this round)
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+TESTING_CODEX_HEAD=7a6d0af6e9326634406b4daeda3da8f545403318 (unchanged this round; functional head 8ff7d0b; I3 closeout docs deploy 4242febb) · origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 (unchanged)
+TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · DEPLOY=NO · R3A_I5_STARTED=NO · PRODUCTION_TOUCHED=NO
+OTHER_FOLLOWUPS=FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED · FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE=OPEN · FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE=OPEN · server-side rubro gate (all unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (I4 TESTING integration requires explicit operator authorization: fast-forward testing-codex, deploy, real-DB, manual smoke Cliente + Mesa)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md
+
+R3A-I4 is implemented and tested on its own branch. In generic businesses the public catalog,
+promotions and repeat-order use stockDisponible (physical − ACTIVE reservations). Depleted or
+disabled products and variants are hidden. The cart caps quantities per stock key and warns
+about, and blocks, stale lines without mutating them. POST /api/pedidos now rejects a single
+order above available stock even in mode OFF. Not integrated, not deployed; mode OFF;
+Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I3 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08; superseded as the current pointer by the R3A-I4 branch implementation above — I3 remains CLOSED_TESTING_CERTIFIED) ===
 
 CURRENT_TASK=P2-T56-R3A-I3-MANUAL-SMOKE-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED

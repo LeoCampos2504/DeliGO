@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import {
+  isGenericBusinessStockScope,
+  leerReservasActivasPorClave,
+  resolvePublicProductAvailability,
+} from "@/lib/stock-lifecycle"
 
 // GET /api/cliente/promociones - Get all active promotions
 export async function GET(req: NextRequest) {
@@ -33,12 +38,27 @@ export async function GET(req: NextRequest) {
             colorPrincipal: true,
           },
         },
+        // P2-T56-R3A-I4: server-only, para la disponibilidad pública.
+        variantes: {
+          select: { id: true, activo: true, controlStock: true, stockCantidad: true },
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 100,
     })
 
-    const promociones = productos.map((p) => {
+    // P2-T56-R3A-I4 (decisión 6): en negocio genérico no se promociona un
+    // producto agotado. Sólo se oculta ese producto, nunca el negocio. Una sola
+    // lectura agrupada de reservas ACTIVA. Restaurante/Ropa: sin cambios.
+    const genericNegocioIds = [
+      ...new Set(productos.filter((p) => isGenericBusinessStockScope(p.negocio.rubro)).map((p) => p.negocioId)),
+    ]
+    const reservedByKey = await leerReservasActivasPorClave(db, genericNegocioIds)
+    const visibles = productos.filter(
+      (p) => !isGenericBusinessStockScope(p.negocio.rubro) || resolvePublicProductAvailability(p, reservedByKey).visible
+    )
+
+    const promociones = visibles.map((p) => {
       let precioPromo = p.precio
       let descuentoLabel = ""
 

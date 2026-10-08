@@ -33,6 +33,15 @@ import { useCartStore, type CartItem, type DeliveryAddress } from "@/store/cart-
 import { toast } from "sonner"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
 import { defaultMetodoEntregaManual, resolveMetodoEntrega } from "@/lib/mesa-checkout-transition"
+import {
+  STOCK_LIMIT_MESSAGE,
+  buildCatalogAvailability,
+  nombresDeLineasRechazadas,
+  unidadesAgregables,
+  validarCarritoDisponibilidad,
+  type CartStockIssue,
+  type CatalogStockProduct,
+} from "@/lib/cart-stock-availability"
 
 // ============================================
 // Types
@@ -59,7 +68,12 @@ interface NegocioAPI {
   lat?: number | null
   lng?: number | null
   direccion?: string | null
+  // P2-T56-R3A-I4: catálogo público vigente (stockDisponible por producto /
+  // variante) para validar el carrito en negocio genérico.
+  productos?: ReadonlyArray<CatalogStockProduct>
 }
+
+type CatalogSnapshot = Pick<NegocioAPI, "rubro" | "productos">
 
 interface CartPanelProps {
   negocio: NegocioAPI
@@ -73,6 +87,10 @@ interface CartPanelProps {
   canOrder?: boolean
   onRequireAuth?: () => boolean
   onRequireLocation?: () => boolean
+  // P2-T56-R3A-I4: vuelve a pedir la disponibilidad pública (catálogo) y
+  // devuelve la versión fresca. Se usa al abrir el carrito, antes del
+  // checkout y después de un 409 de stock.
+  onRefreshAvailability?: () => Promise<CatalogSnapshot | null | undefined>
 }
 
 type CartStep = "items" | "checkout"
@@ -85,6 +103,14 @@ class MesaGeofenceBlockedError extends Error {}
 // MESA_OCCUPANCY_INVALID) — mismo tratamiento que MesaGeofenceBlockedError:
 // nunca limpia el carrito, siempre permite reintentar.
 class MesaOccupancyBlockedError extends Error {}
+
+// P2-T56-R3A-I4: 409 STOCK_INSUFFICIENT del servidor — nunca limpia el
+// carrito; identifica los productos afectados y permite corregir.
+class CartStockConflictError extends Error {
+  constructor(readonly productos: string[]) {
+    super("No hay stock suficiente para uno o más productos del pedido")
+  }
+}
 
 // ============================================
 // Custom hook: drag-to-dismiss from handle only
@@ -151,7 +177,7 @@ function useDragToDismiss(onDismiss: () => void) {
 // ============================================
 // Main Cart Panel Component
 // ============================================
-export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceReady, canOrder = true, onRequireAuth, onRequireLocation }: CartPanelProps) {
+export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceReady, canOrder = true, onRequireAuth, onRequireLocation, onRefreshAvailability }: CartPanelProps) {
   const items = useCartStore((s) => s.items)
   const removeItem = useCartStore((s) => s.removeItem)
   const updateQuantity = useCartStore((s) => s.updateQuantity)
@@ -282,6 +308,16 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
   // Only show when there are items for this negocio
   const hasItems = items.length > 0 && activeNegocioId === negocio.id
 
+  // P2-T56-R3A-I4: carrito desactualizado (negocio genérico). Nunca se
+  // modifica en silencio: se advierte, se identifica el producto y se bloquea
+  // el checkout hasta que el cliente corrija.
+  const stockAvailability = useMemo(() => buildCatalogAvailability(negocio), [negocio])
+  const stockIssues = useMemo(
+    () => validarCarritoDisponibilidad(items, stockAvailability),
+    [items, stockAvailability]
+  )
+  const hasStockIssues = stockIssues.length > 0
+
   // Lock body scroll when sheet is open
   useEffect(() => {
     if (sheetOpen) {
@@ -295,6 +331,8 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
 
   const handleOpenChange = (open: boolean) => {
     if (open) {
+      // P2-T56-R3A-I4: revalidar disponibilidad al abrir el carrito.
+      void onRefreshAvailability?.()
       setStep("items")
       setShowSuccess(false)
       setIsVisible(true)
@@ -335,6 +373,22 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
     // toda esa espera para pedidos de mesa (regresión real introducida por
     // P0-C.1, corregida acá sin cambiar ninguna lógica de datos/idempotencia).
     setIsSubmitting(true)
+
+    // P2-T56-R3A-I4: revalidar disponibilidad justo antes de confirmar (el
+    // servidor vuelve a validar dentro de su transacción de todos modos). Si
+    // el refresco falla se usa el último catálogo conocido.
+    const freshCatalog = onRefreshAvailability ? await onRefreshAvailability().catch(() => null) : null
+    const checkoutIssues = freshCatalog
+      ? validarCarritoDisponibilidad(items, buildCatalogAvailability(freshCatalog))
+      : stockIssues
+    if (checkoutIssues.length > 0) {
+      setIsSubmitting(false)
+      setStep("items")
+      toast.error("Revisá tu carrito", {
+        description: `Sin unidades suficientes: ${checkoutIssues.map((issue) => issue.nombre).join(", ")}`,
+      })
+      return
+    }
 
     // P0-C.2: lectura fresca de ubicación justo antes de confirmar un pedido
     // de mesa — nunca se reutiliza la lectura inicial (la de abrir el QR).
@@ -424,6 +478,12 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
             "Tu acceso a esta mesa ya no es válido. Volvé a comprobar la ubicación desde el aviso superior."
           )
         }
+        // P2-T56-R3A-I4: el servidor rechazó por stock. Se identifican los
+        // productos con el detalle del 409; el carrito nunca se vacía.
+        if (res.status === 409 && data.code === "STOCK_INSUFFICIENT") {
+          const lineas = Array.isArray(data.details?.lineas) ? data.details.lineas : null
+          throw new CartStockConflictError(nombresDeLineasRechazadas(items, lineas))
+        }
         // Para el resto de los errores (429, 500, red/timeout) se conserva la
         // misma key: un reintento del mismo submit debe ser tratado como el
         // mismo intento, nunca crear un segundo pedido.
@@ -446,6 +506,16 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
         // necesita corregir su ubicación (o pedirle al Mozo) y reintentar.
         toast.error(err.message, {
           description: "También podés pedirle al Mozo que cargue tu pedido.",
+        })
+      } else if (err instanceof CartStockConflictError) {
+        // P2-T56-R3A-I4: refrescar disponibilidad, conservar los ítems válidos
+        // y volver a la lista para que el cliente corrija; nunca vaciar.
+        void onRefreshAvailability?.()
+        setStep("items")
+        toast.error("Algunos productos ya no tienen unidades suficientes", {
+          description: err.productos.length > 0
+            ? `Revisá: ${err.productos.join(", ")}`
+            : "Revisá las cantidades de tu carrito.",
         })
       } else if (err instanceof MesaOccupancyBlockedError) {
         // Mismo tratamiento no destructivo: carrito, productos, cantidades y
@@ -616,6 +686,10 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
                         onRemove={removeItem}
                         onUpdateQuantity={updateQuantity}
                         disabled={isSubmitting}
+                        stockIssues={stockIssues}
+                        canIncrease={(item) =>
+                          (unidadesAgregables(stockAvailability, items, item.productoId, item.varianteId) ?? 1) >= 1
+                        }
                       />
                     ) : (
                       <CartCheckoutStep
@@ -664,6 +738,10 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
                               if (!canOrder && onRequireLocation) {
                                 if (!onRequireLocation()) return
                               }
+                              if (hasStockIssues) {
+                                toast.error("Revisá tu carrito antes de continuar")
+                                return
+                              }
                               setStep("checkout")
                             }}
                             className="w-full h-13 py-3.5 rounded-2xl font-bold text-white text-base shadow-lg transition-all hover:brightness-105 active:scale-[0.98]"
@@ -671,7 +749,7 @@ export function CartPanel({ negocio, isOpen = true, mesaNumero, mesaGeofenceRead
                               backgroundColor: negocio.colorPrincipal,
                               boxShadow: `0 6px 24px ${negocio.colorPrincipal}35`,
                             }}
-                            disabled={items.length === 0}
+                            disabled={items.length === 0 || hasStockIssues}
                           >
                             {isMesaOrder && mesaNumero
                               ? `Pedir a la mesa ${mesaNumero} · ${formatPrice(totalProductos)}`
@@ -798,18 +876,49 @@ function SuccessAnimation({ negocioNombre }: { negocioNombre: string }) {
 // ============================================
 // Cart Items Step
 // ============================================
+/**
+ * P2-T56-R3A-I4: aviso de carrito desactualizado. Identifica cada producto
+ * afectado sin mostrar cantidades exactas de stock.
+ */
+export function CartStockWarning({ issues }: { issues: ReadonlyArray<CartStockIssue> }) {
+  if (issues.length === 0) return null
+  return (
+    <div
+      role="alert"
+      data-testid="cart-stock-warning"
+      className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+    >
+      <p className="font-bold">Tu carrito necesita cambios</p>
+      <p className="mt-0.5">Corregí estos productos para poder continuar:</p>
+      <ul className="mt-1.5 space-y-0.5">
+        {issues.map((issue) => (
+          <li key={`${issue.productoId}::${issue.varianteId ?? ""}`}>
+            <span className="font-semibold">{issue.nombre}</span>
+            {" — "}
+            {issue.tipo === "SIN_STOCK" ? "sin stock: quitalo del carrito" : "no hay suficientes unidades: reducí la cantidad"}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function CartItemsStep({
   items,
   negocio,
   onRemove,
   onUpdateQuantity,
   disabled,
+  stockIssues = [],
+  canIncrease,
 }: {
   items: CartItem[]
   negocio: NegocioAPI
   onRemove: (key: string) => void
   onUpdateQuantity: (key: string, cantidad: number) => void
   disabled?: boolean
+  stockIssues?: ReadonlyArray<CartStockIssue>
+  canIncrease?: (item: CartItem) => boolean
 }) {
   if (items.length === 0) {
     return (
@@ -829,6 +938,7 @@ function CartItemsStep({
 
   return (
     <div className="px-4 py-3 space-y-2.5">
+      <CartStockWarning issues={stockIssues} />
       {items.map((item, idx) => (
         <CartItemCard
           key={item.key}
@@ -838,6 +948,8 @@ function CartItemsStep({
           onUpdateQuantity={(qty) => onUpdateQuantity(item.key, qty)}
           index={idx}
           disabled={disabled}
+          stockIssue={stockIssues.find((issue) => issue.itemKeys.includes(item.key)) ?? null}
+          canIncrease={canIncrease ? canIncrease(item) : true}
         />
       ))}
     </div>
@@ -854,6 +966,8 @@ function CartItemCard({
   onUpdateQuantity,
   index,
   disabled,
+  stockIssue = null,
+  canIncrease = true,
 }: {
   item: CartItem
   negocio: NegocioAPI
@@ -861,6 +975,8 @@ function CartItemCard({
   onUpdateQuantity: (qty: number) => void
   index: number
   disabled?: boolean
+  stockIssue?: CartStockIssue | null
+  canIncrease?: boolean
 }) {
   const [isRemoving, setIsRemoving] = useState(false)
 
@@ -909,6 +1025,7 @@ function CartItemCard({
     <div
       className={cn(
         "rounded-2xl bg-card border border-border/60 p-3.5 shadow-sm transition-all duration-200",
+        stockIssue && "border-amber-400 dark:border-amber-700",
         isRemoving && "opacity-0 -translate-x-24 scale-90"
       )}
     >
@@ -952,6 +1069,13 @@ function CartItemCard({
             </div>
           )}
 
+          {/* P2-T56-R3A-I4: marca de disponibilidad (sin cantidades exactas) */}
+          {stockIssue && (
+            <p className="mt-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              {stockIssue.tipo === "SIN_STOCK" ? "Sin stock" : STOCK_LIMIT_MESSAGE}
+            </p>
+          )}
+
           {/* Notes */}
           {item.notas && (
             <div className="flex items-center gap-1 mt-1">
@@ -988,7 +1112,15 @@ function CartItemCard({
                 {item.cantidad}
               </span>
               <button
-                onClick={() => onUpdateQuantity(item.cantidad + 1)}
+                onClick={() => {
+                  // P2-T56-R3A-I4: no superar el disponible publicado.
+                  if (!canIncrease) {
+                    toast.error(STOCK_LIMIT_MESSAGE)
+                    return
+                  }
+                  onUpdateQuantity(item.cantidad + 1)
+                }}
+                aria-disabled={!canIncrease}
                 disabled={disabled}
                 className="w-8 h-8 rounded-xl border border-border flex items-center justify-center hover:bg-muted transition-colors active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               >

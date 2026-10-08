@@ -118,6 +118,64 @@ export function resolveStockAvailability(input: StockAvailabilityInput): StockAv
 }
 
 // ---------------------------------------------------------------------------
+// P2-T56-R3A-I4 — disponibilidad PÚBLICA (catálogo, promociones, repetir)
+// ---------------------------------------------------------------------------
+// Una sola regla de visibilidad para el negocio genérico (A0.1-15 paso 1 +
+// decisiones 2/3 del operador): stockDisponible = max(0, físico − ACTIVA)
+// por clave; null = sin control de stock (ilimitado). El llamador decide el
+// scope por rubro: fuera de "negocio" no se aplica (sin cambio de comportamiento).
+
+export interface PublicStockVariantInput {
+  id: string
+  activo: boolean
+  controlStock: boolean
+  stockCantidad: number
+}
+
+export interface PublicStockProductInput {
+  id: string
+  /** Toggle manual de disponibilidad del Producto. */
+  stock: boolean
+  controlStock: boolean
+  stockCantidad: number
+  /** TODAS las variantes (activas o no): con >=1 el Producto base queda dormido. */
+  variantes: ReadonlyArray<PublicStockVariantInput>
+}
+
+export interface PublicStockAvailability {
+  /** false = no se muestra como comprable (agotado, deshabilitado o sin variante vendible). */
+  visible: boolean
+  /** Disponible del Producto base (null si no controla stock o si usa variantes). */
+  stockDisponible: number | null
+  /** Variantes ACTIVAS con disponible > 0 o sin control (las agotadas quedan fuera). */
+  variantesVisibles: Array<{ id: string; stockDisponible: number | null }>
+}
+
+/** reservedByKey: SUM(ReservaStock ACTIVA) por stockKey(productoId, productoVarianteId). */
+export function resolvePublicProductAvailability(
+  product: PublicStockProductInput,
+  reservedByKey: ReadonlyMap<string, number>
+): PublicStockAvailability {
+  const reserved = (varianteId: string | null) => reservedByKey.get(stockKey(product.id, varianteId)) ?? 0
+  if (product.variantes.length > 0) {
+    const variantesVisibles = product.variantes
+      .filter((v) => v.activo)
+      .map((v) => ({
+        id: v.id,
+        stockDisponible: v.controlStock ? computeAvailableStock(v.stockCantidad, reserved(v.id)) : null,
+      }))
+      .filter((v) => v.stockDisponible === null || v.stockDisponible > 0)
+    return { visible: product.stock && variantesVisibles.length > 0, stockDisponible: null, variantesVisibles }
+  }
+  const stockDisponible = product.controlStock ? computeAvailableStock(product.stockCantidad, reserved(null)) : null
+  return {
+    visible: product.stock && (stockDisponible === null || stockDisponible > 0),
+    stockDisponible,
+    variantesVisibles: [],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Estados y motivos de ReservaStock (A0.1-12, A0.1-17) — strings, sin enum Prisma
 // ---------------------------------------------------------------------------
 

@@ -74,7 +74,9 @@ describe("Preview Auth Test Matrix", () => {
   })
 
   test("requireAuth() itself is not redefined or weakened anywhere in this file — it is still called unconditionally by the real order-mutation path", () => {
-    expect(PAGE).toMatch(/const handleAddToCart = \(item: CartItem\) => \{\s*\n\s*if \(!negocio\) return\s*\n\s*if \(!requireAuth\(\)\) return/)
+    // P2-T56-R3A-I4: handleAddToCart ahora devuelve si agregó (boolean); el
+    // gate de auth sigue siendo incondicional e inmediato.
+    expect(PAGE).toMatch(/const handleAddToCart = \(item: CartItem\): boolean => \{\s*\n\s*if \(!negocio\) return false\s*\n\s*if \(!requireAuth\(\)\) return false/)
   })
 
   test("CartPanel (the real order-mutation surface, POST /api/pedidos) is entirely excluded from preview — not merely auth-relaxed", () => {
@@ -108,7 +110,12 @@ describe("Preview Auth Test Matrix", () => {
 
   test("quantity controls remain interactive in preview (local ephemeral state, same category as ingredient/addition/option selection) — only the real mutation-trigger CTA is disabled", () => {
     expect(PAGE).toMatch(/onClick=\{\(\) => setQuantity\(Math\.max\(1, quantity - 1\)\)\}/)
-    expect(PAGE).toMatch(/onClick=\{\(\) => setQuantity\(quantity \+ 1\)\}/)
+    // P2-T56-R3A-I4: el "+" sólo agrega un tope por disponible (mensaje, sin
+    // deshabilitar el botón); sigue siendo estado local interactivo en preview.
+    expect(PAGE).toContain("setQuantity(quantity + 1)")
+    const plusStart = PAGE.indexOf("setQuantity(quantity + 1)")
+    const plusButton = PAGE.slice(plusStart, PAGE.indexOf("</button>", plusStart))
+    expect(plusButton).not.toMatch(/(?<![-\w])disabled=\{/) // aria-disabled sólo es semántico
   })
 
   test("preview shows an explanatory note instead of silently disabling the CTA", () => {

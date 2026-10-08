@@ -4,6 +4,12 @@ import { getPlatformServiceFee } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { getBusinessHoursState } from "@/lib/business-hours"
 import { normalizeOwnSectionOptions, type OwnSectionOption } from "@/lib/product-own-sections"
+import {
+  isGenericBusinessStockScope,
+  leerReservasActivasPorClave,
+  resolvePublicProductAvailability,
+  type PublicStockAvailability,
+} from "@/lib/stock-lifecycle"
 
 const productPublicSelect = {
   id: true,
@@ -13,6 +19,10 @@ const productPublicSelect = {
   imagenUrl: true,
   imagenesExtra: true,
   stock: true,
+  // P2-T56-R3A-I4: server-only — se usan para calcular `stockDisponible`
+  // (negocio genérico); nunca se devuelven tal cual al cliente.
+  controlStock: true,
+  stockCantidad: true,
   descuentoActivo: true,
   tipoDescuento: true,
   valorDescuento: true,
@@ -75,6 +85,8 @@ type ProductRecord = {
   imagenUrl: string | null
   imagenesExtra: unknown
   stock: boolean
+  controlStock: boolean
+  stockCantidad: number
   descuentoActivo: boolean
   tipoDescuento: string
   valorDescuento: number
@@ -210,7 +222,15 @@ function normalizeSharedOptions(raw: unknown): SharedOption[] {
     .filter((option): option is SharedOption => option !== null)
 }
 
-function buildPublicProduct(product: ProductRecord) {
+/**
+ * @param availability P2-T56-R3A-I4: disponibilidad pública del producto
+ *   (negocio genérico). `null` = rubro fuera del alcance de R3A → sin cambios
+ *   de visibilidad y `stockDisponible: null` (sin límite informado).
+ */
+function buildPublicProduct(product: ProductRecord, availability: PublicStockAvailability | null) {
+  const variantAvailability = new Map(
+    (availability?.variantesVisibles ?? []).map((v) => [v.id, v.stockDisponible])
+  )
   const precioPromo =
     product.descuentoActivo && product.valorDescuento > 0
       ? product.tipoDescuento === "porcentaje"
@@ -264,14 +284,18 @@ function buildPublicProduct(product: ProductRecord) {
     // `variantes`. No se exponen costo/sku/codigoBarras/auditoria de cada
     // variante, ni las inactivas (ver comentario en productPublicSelect).
     tieneVariantes: product.variantes.length > 0,
+    // P2-T56-R3A-I4: disponible público (físico − reservas ACTIVA), null =
+    // sin límite. En negocio genérico las variantes agotadas no viajan.
+    stockDisponible: availability ? availability.stockDisponible : null,
     variantes: product.variantes
-      .filter((v) => v.activo)
+      .filter((v) => v.activo && (!availability || variantAvailability.has(v.id)))
       .map((v) => ({
         id: v.id,
         nombre: v.nombre,
         precio: v.precio,
         controlStock: v.controlStock,
         stockCantidad: v.stockCantidad,
+        stockDisponible: availability ? (variantAvailability.get(v.id) ?? null) : null,
       })),
   }
 }
@@ -399,7 +423,20 @@ export async function GET(
     // Public display only; POST /api/pedidos remains the financial authority.
     const tarifaServicio = await getPlatformServiceFee(db)
 
-    const productos = negocio.productos.map(buildPublicProduct)
+    // P2-T56-R3A-I4: en negocio genérico se ocultan los productos agotados o
+    // deshabilitados (y las variantes agotadas). Una sola lectura agrupada de
+    // reservas ACTIVA por request. Restaurante/Ropa: sin cambios.
+    const reservedByKey = isGenericBusinessStockScope(negocio.rubro)
+      ? await leerReservasActivasPorClave(db, [negocio.id])
+      : null
+    const publish = (product: ProductRecord) => {
+      if (!reservedByKey) return buildPublicProduct(product, null)
+      const availability = resolvePublicProductAvailability(product, reservedByKey)
+      return availability.visible ? buildPublicProduct(product, availability) : null
+    }
+    const isPublished = <T,>(value: T | null): value is T => value !== null
+
+    const productos = negocio.productos.map(publish).filter(isPublished)
 
     const secciones = negocio.secciones.map((section) => ({
       id: section.id,
@@ -407,7 +444,7 @@ export async function GET(
       orientacion: section.orientacion,
       orden: section.orden,
       color: section.color,
-      productos: section.productos.map((item) => buildPublicProduct(item.producto)),
+      productos: section.productos.map((item) => publish(item.producto)).filter(isPublished),
     }))
 
     const productosEnSecciones = new Set(

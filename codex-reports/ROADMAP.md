@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch, awaiting TESTING integration (2026-10-08)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,8 +10,8 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_NOT_STARTED (R3A no está cerrada; I4 = próxima fase, pendiente de autorización; I5 = activación ON + certificación con reservas reales, pendiente)
-P2_T56_R3A_I4_STATUS=DISCOVERY_COMPLETE_NOT_IMPLEMENTED (2026-10-08: auditoría READ-ONLY de catálogo/carrito/checkout + backlog futuro de negocios genéricos y lector de códigos de barras; 6 decisiones de producto pendientes; ver sección FUTURE BACKLOG — Negocios genéricos)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_IMPLEMENTED_ON_BRANCH (R3A no está cerrada; I4 implementada en branch, pendiente de integración a TESTING; I5 = activación ON + certificación con reservas reales, pendiente)
+P2_T56_R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (2026-10-08: branch work/p2-t56-r3-stock-lifecycle-i4 sobre testing-codex 7a6d0af + cherry-pick del discovery; disponibilidad pública stockDisponible = físico − ACTIVA en GET /api/negocios/[slug], promociones, promocionados y repetir (sólo rubro "negocio", 1 groupBy por request); catálogo oculta agotados, stock=false y variantes agotadas/inactivas; carrito con tope por clave de stock, aviso de carrito desactualizado que bloquea el checkout, revalidación al abrir/antes del checkout/tras 409/al volver a la pestaña; POST /api/pedidos valida el disponible también en OFF (decisión 1 — cambia a propósito el OFF certificado en I2; Mozo sin cambios); 409 STOCK_INSUFFICIENT con detalle por clave; sin schema; NO integrada; codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md)
 P2_T56_R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-08, TESTING modo OFF: smoke manual 5 PASS / 0 FAIL / 1 NOT_AVAILABLE (líneas repetidas, no disponible desde la UI usada) + real-DB + automáticos; limitaciones: líneas repetidas y rubros no genéricos sin real-DB, AJUSTE con reservas reales → I5; reporte §12; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: fast-forward 1334e67..8ff7d0b, deploy d82631a2 SUCCESS; real-DB Caja 21/21, Movimientos 13/13, concurrencia venta/venta real PASS, regresión I2 234/0; sin residuos; modo OFF; falta smoke manual; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION: branch work/p2-t56-r3-stock-lifecycle-i3 sobre 1334e67; Caja y Movimientos respetan reservas ACTIVA vía la autoridad, independiente del modo; Caja agrega líneas repetidas y registra un movimiento por clave; SALIDA bloqueada si físico posterior < reservado; AJUSTE deficitario con confirmación PREVIA por huella recalculada en el servidor — refinamiento aprobado de A0.1-1; sin schema; NO integrada; codex-reports/P2_T56_R3A_I3_CAJA_INVENTARIO.md)
 P2_T56_R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-07: smoke manual representativo del operador PASS — 14 checks en TESTING con modo OFF — sobre cobertura automática y real-DB 233/0; modo nunca activado; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §17; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: F2+F3 integradas por fast-forward 134c785..ed009f3, deploy 265e65c5 SUCCESS; re-verificación real-DB 233 pass / 0 fail / 0 P2028 — F2 route.variantes 9/9, F3 mesa 72/72, timeouts de estado no reproducidos, controles PASS; modo OFF, reservas_stock 0, sin residuos; advertencia: menor latencia que en §13; falta smoke manual; antes I2-F3 2026-10-07: branch work/p2-t56-r3-stock-lifecycle-i2-f3 sobre F2 8bc2d7d — la transacción Serializable de cancelación de mesa recibe las mismas constantes maxWait 5 s / timeout 15 s; las otras 5 cancelaciones sin cambios; NO integrada; bloqueo real-DB abierto hasta re-verificar F2+F3; antes I2-F2 2026-10-06: maxWait 5 s / timeout 15 s explícitos en runStockSerializable, branch work/p2-t56-r3-stock-lifecycle-i2-f2 sobre 134c785, NO integrada; el bloqueo real-DB sigue abierto hasta re-verificar; clasificación corregida: 3 conexión + 2 no-I2 + 2 runStockSerializable + 4 sin atribuir + 4 cancelación de mesa; antes DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED: fast-forward cc628e0..8c43661, deploy ca6bfc4e SUCCESS, modo OFF, reservas_stock 0; real-DB 211 pass / 15 fail — latencia de conexión del cliente local + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE; esperando decisión del operador; antes: branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (fast-forward 8b404f3..e0a0c0e; deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING; reservas_stock vacía; modo OFF)
@@ -28,7 +28,7 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_NOT_STARTED —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_IMPLEMENTED_ON_BRANCH —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
@@ -53,7 +53,10 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   Inventario respetan reservas ACTIVA; AJUSTE deficitario con confirmación previa)
   integrada a testing-codex (8ff7d0b) y desplegada en TESTING con modo OFF; real-DB y
   concurrencia venta/venta PASS; con el smoke manual del operador (5 PASS, 1 no disponible)
-  quedó CLOSED_TESTING_CERTIFIED en modo OFF (2026-10-08). I4 no iniciada.
+  quedó CLOSED_TESTING_CERTIFIED en modo OFF (2026-10-08). R3A-I4 (disponibilidad pública
+  en catálogo/promociones/repetir, control del carrito y validación OFF de POST /api/pedidos)
+  implementada en la branch work/p2-t56-r3-stock-lifecycle-i4 (2026-10-08), NO integrada
+  (codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md).
   (codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
@@ -115,8 +118,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I4 requires explicit operator authorization)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I4_DECISION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (la integración de R3A-I4 a testing-codex/TESTING requiere autorización explícita del operador)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_TESTING_INTEGRATION_AUTHORIZATION
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -148,10 +151,10 @@ cambios respecto del snapshot A1 anterior.
 
 Funcionalidades **aprobadas para después del bloque R3A**. No están autorizadas para implementarse ahora: cada una necesita su propia auditoría y autorización. Alcance: negocios con `rubro = "negocio"`, salvo que la fase diga otra cosa.
 
-### R3A-I4 — discovery (READ-ONLY, sin implementación)
+### R3A-I4 — discovery (READ-ONLY) → implementación en branch (2026-10-08)
 
 ```text
-P2_T56_R3A_I4_STATUS=DISCOVERY_COMPLETE_NOT_IMPLEMENTED (2026-10-08; NO STARTED, NO IMPLEMENTED)
+P2_T56_R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (2026-10-08; branch work/p2-t56-r3-stock-lifecycle-i4, NO integrada; el discovery de abajo se conserva como historia)
 P2_T56_R3A_I5_STATUS=NOT_STARTED
 I4_SURFACES=catálogo público src/app/n/[slug]/page.tsx (re-exportado por src/app/cliente/n/[slug]/page.tsx; Mesa/QR = misma página con ?mesa=N);
   GET /api/negocios/[slug]; carrito persistido src/store/cart-store.ts (deligo-cart-v2) + src/components/cart/cart-panel.tsx (checkout → POST /api/pedidos);
@@ -168,7 +171,22 @@ OFF_MODE_REALITY=con OFF ningún pedido descuenta físico (no hay reservas que c
   ocultar en la UI o validar cada pedido contra el físico NO evita la sobreventa acumulada entre pedidos — eso sólo lo da ON (I5)
 ```
 
-**Decisiones de producto pendientes antes de implementar I4:**
+**Decisiones de producto — RESUELTAS por el operador (2026-10-08) e implementadas en la branch I4:**
+
+```text
+I4_DECISION_1_OFF_VALIDATION=SÍ — POST /api/pedidos (Cliente/Mesa, negocio genérico + línea controlada) rechaza con 409 lo pedido por
+  encima del disponible también en OFF, sin crear Pedido, reservas ni descuento; el replay idempotente sigue primero; Mozo sin cambios;
+  ON y DRAINING sin cambios. Cambia a propósito el OFF certificado en I2. En OFF sólo frena una orden individual: la sobreventa
+  acumulada entre pedidos sigue requiriendo ON (I5)
+I4_DECISION_2_DEPLETED_PRODUCT=OCULTAR (controlStock y disponible ≤ 0) y ocultar también stock=false; catálogo, búsqueda y secciones; sólo rubro "negocio"
+I4_DECISION_3_DEPLETED_VARIANT=OCULTAR variantes agotadas o inactivas; si no queda ninguna disponible se oculta el producto; nunca mezclar el stock del padre
+I4_DECISION_4_SHOW_COUNT=NO — el cliente no ve cantidades; la UI sólo bloquea el exceso con "No hay suficientes unidades disponibles"; el servidor puede enviar stockDisponible
+I4_DECISION_5_STALE_CART=AVISAR Y BLOQUEAR — sin mutación silenciosa; se identifica el producto y se bloquea el checkout hasta corregir; ante un 409 se
+  refresca la disponibilidad, se conservan los ítems válidos y nunca se vacía el carrito
+I4_DECISION_6_PROMOTIONS=OCULTAR los productos agotados en GET /api/cliente/promociones y GET /api/negocios/promocionados (sólo genéricos), sin ocultar el negocio
+```
+
+Preguntas originales del discovery (historia):
 
 1. **Validación del servidor con modo OFF.** La pregunta: ¿`POST /api/pedidos` rechaza, para negocio genérico + línea controlada, lo pedido por encima del disponible (= físico con OFF, incluido el producto base) en cualquier modo? ¿O OFF queda exactamente como lo certificó I2 y la validación sólo rige con ON?
    - Validar en OFF cambia el contrato OFF de I2.
@@ -187,6 +205,7 @@ OFF_MODE_REALITY=con OFF ningún pedido descuenta físico (no hay reservas que c
 - **Servidor:** `repetir` con disponible; `StockInsufficientError` con detalle por clave.
 - **Tests:** unitarios, routes, contratos y real-DB de la API pública (forma `toEqual` en `negocios/[slug]/route.test.ts`); smoke manual Cliente + Mesa.
 - **Rollback:** revert, sin schema.
+- **Pendiente (follow-up, fuera de I4):** paso 2 de A0.1-15 — dejar de exponer `stockCantidad` de las variantes en la API pública.
 
 ### Funcionalidades futuras (agrupadas)
 
@@ -197,6 +216,9 @@ F1  VENTA_POR_PESO — precio por kg + venta en gramos (ej.: queso $20.000/kg, 2
     a evaluar: etiquetas de balanza con peso/precio embebido.
     Relación: el schema ya guarda stockCantidad / VentaItem.cantidad / MovimientoInventario / ReservaStock como Float (pensado para
     kg/litro), pero PedidoItem.cantidad es Int y la UI/validación asumen unidades enteras.
+    ACLARACIÓN (2026-10-08): que esas columnas sean Float NO alcanza para vender por peso. Falta todo el modelo de producto:
+    unidad de medida por producto, conversiones g↔kg, precio por unidad de medida y redondeo del importe, cantidad decimal en
+    PedidoItem (hoy Int), y validación/UI de cantidades decimales en Cliente, Mesa, Caja e Inventario.
     CORRECCIÓN de un hallazgo lateral de I3: "Caja acepta cantidades fraccionarias → 500" era INCORRECTO; las columnas son Float,
     así que Caja hoy ACEPTA y PERSISTE fracciones sin una regla de producto (follow-up: definir unidad por producto y validar enteros
     salvo productos por peso).
@@ -218,7 +240,8 @@ F6  ALERTAS DE REPOSICIÓN — stock mínimo (el campo stockMinimo ya existe en 
 F7  CIERRE DE CAJA — apertura, efectivo esperado vs contado, transferencias, diferencias, cierre, historial por responsable.
 F8  PROMOCIONES Y DESCUENTOS (módulo genérico) — ofertas, combos, descuentos por cantidad, promociones con fecha, integración
     con Caja y pedidos (amplía, sin duplicar, el modelo actual de descuento por producto y Promocion).
-F9  CÓDIGOS DE BARRAS CON CÁMARA — PRIORITARIA dentro de este backlog (ver BARCODE_CAMERA_RESEARCH abajo).
+F9  CÓDIGOS DE BARRAS CON CÁMARA — PRIORITARIA dentro de este backlog (ver BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
+    captura el NÚMERO del código para cargarlo o buscarlo en codigoBarras; sin catálogos externos ni reconocimiento de imágenes.
 F10 TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
     digital. Ticket interno ≠ facturación fiscal electrónica.
 DEPENDENCIAS RECOMENDADAS=
@@ -232,6 +255,11 @@ DEPENDENCIAS RECOMENDADAS=
 ### Investigación — lector de códigos de barras con cámara (F9)
 
 ```text
+BARCODE_SCOPE=el escáner SÓLO captura el número del código (EAN/UPC/Code128) y lo usa para completar codigoBarras o para una búsqueda
+  exacta dentro del catálogo del propio negocio. Nada más: nombre, marca, imagen, precio y stock los carga siempre el comercio
+  (corrección del operador 2026-10-08)
+EXTERNAL_PRODUCT_CATALOGS=OUT_OF_SCOPE — sin Open Food Facts ni ningún otro catálogo o base externa
+IMAGE_RECOGNITION=OUT_OF_SCOPE — sin reconocimiento de productos por imagen
 BARCODE_CAMERA_FEASIBLE=YES (con fallback manual obligatorio y certificación física)
 RECOMMENDED_SCANNER_LIBRARY=API estándar BarcodeDetector cuando exista (Chrome Android, Samsung Internet) + ponyfill
   `barcode-detector` (MIT, ZXing-C++ WASM, v3.2.2, mantenido 08/2026; WASM servido desde DeliGO, no desde CDN) para iOS y el
@@ -266,11 +294,10 @@ VARIANT_BARCODE_STRATEGY=código en la variante cuando el producto tiene variant
 TENANT_ISOLATION_STRATEGY=toda búsqueda acotada por negocioId de la sesión; el mismo código comercial puede existir en negocios
   distintos sin compartir datos ni precios
 USB_BLUETOOTH_READER=compatible a futuro como "teclado" (entrada rápida + Enter) sobre el mismo campo y la misma búsqueda exacta
-EXTERNAL_CATALOG_REQUIRED=NO — Open Food Facts es opcional a futuro: ODbL (atribución + share-alike, mezclar datos obliga a
-  reabrirlos), imágenes CC BY-SA, User-Agent obligatorio, límites de ~15 req/min (producto) y ~10 req/min (búsqueda) por IP,
-  cobertura en Argentina sin verificar; precio y stock siempre son del comercio
+EXTERNAL_CATALOG_REQUIRED=NO — y no se usará: los catálogos externos quedaron fuera de alcance (ver BARCODE_SCOPE). La opción de
+  catálogo externo que figuraba en el discovery queda retirada
 PHYSICAL_DEVICE_TESTING_REQUIRED=YES (iPhone Safari, iPhone PWA instalada, Android Chrome, Android PWA instalada)
-IMPLEMENTATION_STATUS=DEFERRED
+IMPLEMENTATION_STATUS=DEFERRED (no implementado; requiere auditoría y autorización propias)
 ```
 
 ## PRECEDING SNAPSHOT — P2-T54-A1 technical audit and design (2026-09-27; superseded as the "current" pointer by the P2-T56-R2C closeout above — T54-R1 itself, built on top of this A1 design, remains independently open and unresolved, see above)

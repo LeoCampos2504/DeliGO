@@ -3,6 +3,11 @@ import { db } from "@/lib/db"
 import { getPlatformConfig } from "@/lib/platform-settings"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { getBusinessHoursState } from "@/lib/business-hours"
+import {
+  isGenericBusinessStockScope,
+  leerReservasActivasPorClave,
+  resolvePublicProductAvailability,
+} from "@/lib/stock-lifecycle"
 
 // GET - Public endpoint: returns promoted businesses with their most ordered products + general products
 export async function GET() {
@@ -31,7 +36,7 @@ export async function GET() {
     }
 
     // 3. Query all promoted, approved, non-suspended negocios (only vigentes)
-    const negocios = await db.negocio.findMany({
+    const negociosPromocionados = await db.negocio.findMany({
       where: {
         promocionado: true,
         aprobado: true,
@@ -72,11 +77,37 @@ export async function GET() {
             valorDescuento: true,
             tipoDescuento: true,
             categoria: true,
+            // P2-T56-R3A-I4: server-only, para la disponibilidad pública.
+            stock: true,
+            controlStock: true,
+            stockCantidad: true,
+            variantes: {
+              select: { id: true, activo: true, controlStock: true, stockCantidad: true },
+            },
           },
           orderBy: { orden: "asc" },
         },
       },
     })
+
+    // P2-T56-R3A-I4 (decisión 6): en negocio genérico se quitan los productos
+    // agotados de la vidriera; el negocio sigue visible aunque tenga alguno
+    // agotado. Una sola lectura agrupada de reservas ACTIVA. Restaurante/Ropa:
+    // sin cambios.
+    const reservedByKey = await leerReservasActivasPorClave(
+      db,
+      negociosPromocionados.filter((n) => isGenericBusinessStockScope(n.rubro)).map((n) => n.id)
+    )
+    const negocios = negociosPromocionados.map((negocio) =>
+      isGenericBusinessStockScope(negocio.rubro)
+        ? {
+            ...negocio,
+            productos: negocio.productos.filter(
+              (p) => resolvePublicProductAvailability(p, reservedByKey).visible
+            ),
+          }
+        : negocio
+    )
 
     // 3. For each negocio, separate top products from general products
     const negociosConProductos = await Promise.all(

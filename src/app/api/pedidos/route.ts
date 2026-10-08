@@ -1885,7 +1885,7 @@ async function handlePedidoCreation(request: NextRequest, testHooks?: PedidoRout
         // chequeo de idempotencia (un replay válido nunca se rechaza por stock) y
         // ANTES de cualquier side effect. Lanza 409 DRAINING / STOCK_INSUFFICIENT.
         const stockPlan = useStockTransaction
-          ? await planificarReservaStockPedido(tx, { negocioId, lines: stockLines })
+          ? await planificarReservaStockPedido(tx, { negocioId, lines: stockLines, validarDisponibleEnOff: true })
           : null
 
         // Solo se llega acá si no hubo key, o si la key es nueva (sin pedido

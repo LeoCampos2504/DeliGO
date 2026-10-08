@@ -51,6 +51,12 @@ import {
   type ClientProductoVariante,
 } from "@/lib/client-product-variants"
 import { useCartStore, type CartItem, type CartItemAgregado, type CartItemSecciones, generateCartItemKey } from "@/store/cart-store"
+import {
+  STOCK_LIMIT_MESSAGE,
+  buildCatalogAvailability,
+  puedeAgregarAlCarrito,
+  unidadesAgregables,
+} from "@/lib/cart-stock-availability"
 import { CartPanel } from "@/components/cart/cart-panel"
 import { ProductImageGallery } from "@/components/client/product-image-gallery"
 import { HorariosPopover, getTodayHoursLabel } from "@/components/shared/horarios-popover"
@@ -106,6 +112,10 @@ interface ProductoAPI {
   // Producto base en ese caso (sección 5).
   tieneVariantes: boolean
   variantes: ClientProductoVariante[]
+  // P2-T56-R3A-I4: disponible público del producto base (negocio genérico,
+  // null = sin límite). Nunca se muestra como número al cliente: sólo limita
+  // lo que se puede agregar.
+  stockDisponible?: number | null
 }
 
 interface SeccionAPI {
@@ -256,6 +266,9 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       return res.json()
     },
     enabled: !!slug,
+    // P2-T56-R3A-I4: la disponibilidad pública se revalida al volver a la
+    // pestaña (además de al abrir el carrito, antes del checkout y tras 409).
+    refetchOnWindowFocus: "always",
   })
 
   // Tarea 20-CORRECCIÓN-1 (Dark Kitchen): que la URL traiga `?mesa=N` nunca es
@@ -587,15 +600,23 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     }
   }, [autoOpenProductId, negocio, pathname, slug])
 
-  // Handle add to cart (with auth + location gate)
-  const handleAddToCart = (item: CartItem) => {
-    if (!negocio) return
-    if (!requireAuth()) return
-    if (!requireLocation()) return
+  // Handle add to cart (with auth + location gate). Devuelve si se agregó,
+  // para que quien llama sólo confirme (toast / cerrar detalle) en éxito.
+  const handleAddToCart = (item: CartItem): boolean => {
+    if (!negocio) return false
+    if (!requireAuth()) return false
+    if (!requireLocation()) return false
+    // P2-T56-R3A-I4: negocio genérico — nunca superar el disponible publicado,
+    // sumando todas las líneas del carrito de la misma clave de stock.
+    if (!puedeAgregarAlCarrito(buildCatalogAvailability(negocio), cartItems, item)) {
+      toast.error(STOCK_LIMIT_MESSAGE)
+      return false
+    }
     if (activeNegocioId !== negocio.id) {
       setActiveNegocio(negocio.id, negocio.slug, negocio.nombre, effectiveDeliveryPrice)
     }
     addItem(item)
+    return true
   }
 
   // Loading state
@@ -1119,6 +1140,10 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
           canOrder={canOrder}
           onRequireAuth={requireAuth}
           onRequireLocation={requireLocation}
+          onRefreshAvailability={async () => {
+            await queryClient.refetchQueries({ queryKey: ["negocio", slug] })
+            return queryClient.getQueryData<NegocioAPI>(["negocio", slug]) ?? null
+          }}
         />
       )}
 
@@ -1132,8 +1157,9 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
               product={selectedProduct}
               negocio={negocio}
               onAddToCart={(item) => {
-                handleAddToCart(item)
-                setDetailOpen(false)
+                const added = handleAddToCart(item)
+                if (added) setDetailOpen(false)
+                return added
               }}
               isRopa={isRopa}
               isPreview={isPreview}
@@ -1306,7 +1332,7 @@ function ProductCard({
   product: ProductoAPI
   negocio: NegocioAPI
   onClick: () => void
-  onAddToCart?: (item: CartItem) => void
+  onAddToCart?: (item: CartItem) => boolean
   compact?: boolean
   isPreview?: boolean
   isRopa?: boolean
@@ -1372,8 +1398,13 @@ function ProductCard({
       ...itemData,
       key: generateCartItemKey(itemData),
     }
+    // P2-T56-R3A-I4: negocio genérico — no superar el disponible publicado.
+    if (!puedeAgregarAlCarrito(buildCatalogAvailability(negocio), cartItems, item)) {
+      toast.error(STOCK_LIMIT_MESSAGE)
+      return
+    }
     if (onAddToCart) {
-      onAddToCart(item)
+      if (!onAddToCart(item)) return
     } else {
       addItem(item)
     }
@@ -1714,7 +1745,7 @@ function ProductDetailSheet({
 }: {
   product: ProductoAPI
   negocio: NegocioAPI
-  onAddToCart: (item: CartItem) => void
+  onAddToCart: (item: CartItem) => boolean
   isRopa?: boolean
   // BUSINESS-CATALOG-INAPP-TUTORIAL-R2 §32-34: selections below (ingredients,
   // additions, own sections, shared options, quantity) stay exactly the
@@ -1749,6 +1780,17 @@ function ProductDetailSheet({
   )
   const algunaVarianteDisponible = isProductoConVariantesDisponible(variantesActivas)
   const precioDesde = precioDesdeVariantes(variantesActivas)
+
+  // P2-T56-R3A-I4: negocio genérico — tope de cantidad = disponible publicado
+  // (catálogo vigente, no la foto del producto abierto) menos lo que ya está
+  // en el carrito para la misma clave. null = sin límite. Nunca se muestra el
+  // número: sólo se bloquea con un mensaje simple.
+  const cartItems = useCartStore((s) => s.items)
+  const unidadesRestantes =
+    product.tieneVariantes && !selectedVariante
+      ? null
+      : unidadesAgregables(buildCatalogAvailability(negocio), cartItems, product.id, selectedVariante?.id ?? null)
+  const superaDisponible = unidadesRestantes !== null && quantity > unidadesRestantes
 
   // Resolve shared options from product's opcionesCompartidasIds against negocio's opcionesCompartidas
   // Uses per-product obligatorio/maximo (not the shared option's defaults)
@@ -1930,6 +1972,10 @@ function ProductDetailSheet({
     // P2-T56-R2C-F2: a product with variants always requires a selection —
     // the server re-validates this too, this is only the UI-side gate.
     if (product.tieneVariantes && (!selectedVariante || !isVarianteDisponible(selectedVariante))) return
+    if (superaDisponible) {
+      toast.error(STOCK_LIMIT_MESSAGE)
+      return
+    }
     // Validate required sections — obligatorio means at least 1 selection, maximo is just an upper limit
     for (const section of product.secciones || []) {
       if (!section.obligatorio) continue
@@ -1979,7 +2025,7 @@ function ProductDetailSheet({
       ...itemData,
       key: generateCartItemKey(itemData),
     }
-    onAddToCart(item)
+    if (!onAddToCart(item)) return
     toast.success(
       selectedVariante
         ? `${quantity}x ${product.nombre} — ${selectedVariante.nombre} agregado al carrito`
@@ -1991,6 +2037,7 @@ function ProductDetailSheet({
   // Check if can add (variant selected when required + required sections + shared options satisfied)
   const canAdd = (() => {
     if (product.tieneVariantes && (!selectedVariante || !isVarianteDisponible(selectedVariante))) return false
+    if (superaDisponible) return false
 
     const sectionsOk = (product.secciones || [])
       .filter((s) => s.obligatorio)
@@ -2643,6 +2690,11 @@ function ProductDetailSheet({
             Vista previa · Los cambios de selección no generan un pedido.
           </p>
         )}
+        {!isPreview && superaDisponible && (
+          <p className="mb-2 text-center text-xs font-medium text-destructive" role="status">
+            {STOCK_LIMIT_MESSAGE}
+          </p>
+        )}
         <div className="flex items-center gap-4">
           {/* Quantity controls */}
           {/* Quantity is the same category as ingredient/addition/option
@@ -2658,8 +2710,16 @@ function ProductDetailSheet({
             </button>
             <span className="font-bold text-lg w-8 text-center">{quantity}</span>
             <button
-              onClick={() => setQuantity(quantity + 1)}
-              className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors"
+              onClick={() => {
+                // P2-T56-R3A-I4: no superar el disponible (mensaje simple, sin cantidades).
+                if (unidadesRestantes !== null && quantity + 1 > unidadesRestantes) {
+                  toast.error(STOCK_LIMIT_MESSAGE)
+                  return
+                }
+                setQuantity(quantity + 1)
+              }}
+              aria-disabled={unidadesRestantes !== null && quantity >= unidadesRestantes}
+              className="w-9 h-9 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors aria-disabled:opacity-40"
             >
               <Plus className="h-4 w-4" />
             </button>
