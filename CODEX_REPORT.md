@@ -6,7 +6,48 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 PUBLIC AVAILABILITY + CART CONTROL IMPLEMENTED ON BRANCH (NOT INTEGRATED) (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I4-TESTING-INTEGRATION-REAL-DB
+CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE
+RESULT=T56_R3A_I4_DEPLOYED_TESTING_AWAITING_MANUAL_SMOKE
+R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (NOT closed, NOT certified until the operator's manual smoke)
+R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged; its OFF contract for POST /api/pedidos is now changed in TESTING by I4 decision 1) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (R3A NOT closed; I5 = mode ON activation + real-reservation certification, pending)
+INTEGRATION=fast-forward 7a6d0af..dbf342b on testing-codex (2 commits: a9ed8a4 discovery docs + dbf342b I4; 26 files; UNRELATED=0; no prisma/) · SAFETY_REF=local annotated tag r3a-i4-pre-integration-testing-codex → 7a6d0af (not pushed)
+TESTING_CODEX_HEAD=dbf342b2ef428c3730292428e9ca749757cd181e (functional) + the docs commit "docs: record T56 R3A I4 testing integration" on top (its docs-only autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway amiable-rejoicing / TESTING / DeliGO Copy 6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS, branch testing-codex, commit dbf342b2ef428c3730292428e9ca749757cd181e (COMMIT_MATCH=YES)
+MIGRATIONS=NEW_MIGRATIONS=0; "No pending migrations to apply." (38) · BUILD "Compiled successfully" · RUNTIME "Ready", 0 error lines
+HTTP_SMOKE=PASS_NO_5XX (pages 307/200/200; public APIs 200; unknown slug 404; protected APIs 401; generic catalog serves stockDisponible and hides base stockCantidad) — TESTING domain deligo-copy-production.up.railway.app is the TESTING DeliGO Copy service despite its name
+I4_REAL_DB=ad-hoc harness 17/0 (catalog matrix + 1 groupBy/request, OFF orders 201/409 with details, no reservations/decrement, variants, repeated lines, rollback, idempotent replay after stock drop, isolation, Restaurante/Ropa unchanged, concurrency without 5xx/partial writes, OFF cumulative limit confirmed, Mesa/QR 3/3, repetir, /api/cliente/promociones) + suites negocios/[slug] 3/0 (first real run), repetir 5/0, pedidos 5/0, variantes 9/0, idempotency 14/0, discovery/promocionados 18/0, catalog consumers all 0 fail
+REGRESSION_REAL_DB=33 suite files 416 pass / 2 fail + ad-hoc 17 → REAL_DB_TOTAL_PASS=433 · REAL_DB_TOTAL_FAIL=2 · Caja 21, Inventario 13, Mesa 72/45/30, PyR 11, terminal 7 and others 0 fail
+REGRESSION_TOTAL_FAILURES=2 (client-block-security SEC-BLOCK-1 P2028 in POST /api/denuncias Serializable tx with Prisma default 5 s timeout; superadmin-notifications test 11 60 s test timeout after reaching its final step) · FAILURES_CLASSIFICATION=NON_I4_TIMEOUTS_WITH_CODE_PATH_EVIDENCE · BASELINE_REPRODUCTION=NOT_RUN · FAILURES_RESOLVED=NO (operator accepted to continue; not PASS, not proven pre-existing)
+NEW_FOLLOWUPS=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (suites leave notificacion/sesion/auditLog rows) · lateral: rejected Mesa order leaves the table occupancy open (pre-existing occupancy flow)
+TESTING_DB_CLEANUP=authorized, exact IDs only, validated read-only then re-validated inside one transaction: NOTIFICATIONS_DELETED=121 (incl. 10 test notifications of the existing superadmin pointing to deleted test entities) · SESSIONS_DELETED=13 · AUDIT_LOG_DELETED=0 (92 kept) · notificacion/sesion back to pre-batch counts · UNAUTHORIZED_ROWS_CHANGED=0 · 18 older test clients had been removed by the suites' own prefix-scoped cleanup (non-test clients 16 → 16) · CORE_FIXTURE_RESIDUE=0
+REAL_DB_NOT_RUN=ACTIVE-reservation subtraction against real rows (no reservations fabricated; covered by mocks/fake) · generic promocionados filtering (global promocionadosActivos=false, not toggled; mock only) · baseline reproduction of the 2 failures
+GATES=diff-check re-run on 7a6d0af..dbf342b PASS; Prisma/tsc 33 = baseline/ESLint/build REUSED (identical tree)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_BEFORE=OFF · STOCK_RESERVATION_MODE_AFTER=OFF · RESERVAS_STOCK_ROW_COUNT=0 · MOVIMIENTOS_PEDIDO=0
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+MANUAL_SMOKE_CHECKLIST=I4 report §11.8 (6 scenarios: depleted product hidden, variants, cart cap, stale cart warning, order rejected for stock, Mesa/QR or promotions)
+R3A_I5_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_FOLLOWUPS=FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED · FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE=OPEN · FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE=OPEN · A0.1-15 step 2 (variant stockCantidad) · promociones/promocionados do not filter eliminado
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator manual smoke of I4 in mode OFF)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_MANUAL_SMOKE
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md (§11 = TESTING integration, real-DB, cleanup, deploy, manual smoke checklist)
+
+R3A-I4 (public availability + cart control + OFF order validation for generic businesses) runs
+in TESTING with the mode OFF. Real-DB I4 verification passes (17 ad-hoc + I4 suites); 2 regression
+failures are timeouts in code paths I4 does not touch (accepted, open follow-ups); auxiliary-table
+residue was cleaned by exact ID (audit log kept). The operator's manual smoke is the remaining gate.
+Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I4 PUBLIC AVAILABILITY + CART CONTROL IMPLEMENTED ON BRANCH (NOT INTEGRATED) (2026-10-08; superseded as the current pointer by the I4 TESTING integration above) ===
 
 CURRENT_TASK=P2-T56-R3A-I4-IMPLEMENTATION (disponibilidad pública y control del carrito)
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

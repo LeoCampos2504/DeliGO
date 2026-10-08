@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch, awaiting TESTING integration (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF, awaiting manual smoke (2026-10-08)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,13 +10,13 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_IMPLEMENTED_ON_BRANCH (R3A no está cerrada; I4 implementada en branch, pendiente de integración a TESTING; I5 = activación ON + certificación con reservas reales, pendiente)
-P2_T56_R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (2026-10-08: branch work/p2-t56-r3-stock-lifecycle-i4 sobre testing-codex 7a6d0af + cherry-pick del discovery; disponibilidad pública stockDisponible = físico − ACTIVA en GET /api/negocios/[slug], promociones, promocionados y repetir (sólo rubro "negocio", 1 groupBy por request); catálogo oculta agotados, stock=false y variantes agotadas/inactivas; carrito con tope por clave de stock, aviso de carrito desactualizado que bloquea el checkout, revalidación al abrir/antes del checkout/tras 409/al volver a la pestaña; POST /api/pedidos valida el disponible también en OFF (decisión 1 — cambia a propósito el OFF certificado en I2; Mozo sin cambios); 409 STOCK_INSUFFICIENT con detalle por clave; sin schema; NO integrada; codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (R3A no está cerrada; I4 desplegada en TESTING con modo OFF, falta smoke manual; I5 = activación ON + certificación con reservas reales, pendiente)
+P2_T56_R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (2026-10-08: fast-forward 7a6d0af..dbf342b, deploy 6806139e SUCCESS commit match, 0 migraciones; real-DB I4 17/0 ad-hoc + suites I4 PASS; regresión real-DB 416/2 — 2 timeouts fuera de I4 aceptados NON_I4_TIMEOUTS_WITH_CODE_PATH_EVIDENCE, no resueltos, sin baseline; limpieza por ID exacto 121 notificaciones + 13 sesiones, auditLog conservado; modo OFF; falta smoke manual; reporte §11; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION: branch work/p2-t56-r3-stock-lifecycle-i4 sobre testing-codex 7a6d0af + cherry-pick del discovery; disponibilidad pública stockDisponible = físico − ACTIVA en GET /api/negocios/[slug], promociones, promocionados y repetir (sólo rubro "negocio", 1 groupBy por request); catálogo oculta agotados, stock=false y variantes agotadas/inactivas; carrito con tope por clave de stock, aviso de carrito desactualizado que bloquea el checkout, revalidación al abrir/antes del checkout/tras 409/al volver a la pestaña; POST /api/pedidos valida el disponible también en OFF (decisión 1 — cambia a propósito el OFF certificado en I2; Mozo sin cambios); 409 STOCK_INSUFFICIENT con detalle por clave; sin schema; NO integrada; codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md)
 P2_T56_R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-08, TESTING modo OFF: smoke manual 5 PASS / 0 FAIL / 1 NOT_AVAILABLE (líneas repetidas, no disponible desde la UI usada) + real-DB + automáticos; limitaciones: líneas repetidas y rubros no genéricos sin real-DB, AJUSTE con reservas reales → I5; reporte §12; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: fast-forward 1334e67..8ff7d0b, deploy d82631a2 SUCCESS; real-DB Caja 21/21, Movimientos 13/13, concurrencia venta/venta real PASS, regresión I2 234/0; sin residuos; modo OFF; falta smoke manual; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION: branch work/p2-t56-r3-stock-lifecycle-i3 sobre 1334e67; Caja y Movimientos respetan reservas ACTIVA vía la autoridad, independiente del modo; Caja agrega líneas repetidas y registra un movimiento por clave; SALIDA bloqueada si físico posterior < reservado; AJUSTE deficitario con confirmación PREVIA por huella recalculada en el servidor — refinamiento aprobado de A0.1-1; sin schema; NO integrada; codex-reports/P2_T56_R3A_I3_CAJA_INVENTARIO.md)
 P2_T56_R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-07: smoke manual representativo del operador PASS — 14 checks en TESTING con modo OFF — sobre cobertura automática y real-DB 233/0; modo nunca activado; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §17; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: F2+F3 integradas por fast-forward 134c785..ed009f3, deploy 265e65c5 SUCCESS; re-verificación real-DB 233 pass / 0 fail / 0 P2028 — F2 route.variantes 9/9, F3 mesa 72/72, timeouts de estado no reproducidos, controles PASS; modo OFF, reservas_stock 0, sin residuos; advertencia: menor latencia que en §13; falta smoke manual; antes I2-F3 2026-10-07: branch work/p2-t56-r3-stock-lifecycle-i2-f3 sobre F2 8bc2d7d — la transacción Serializable de cancelación de mesa recibe las mismas constantes maxWait 5 s / timeout 15 s; las otras 5 cancelaciones sin cambios; NO integrada; bloqueo real-DB abierto hasta re-verificar F2+F3; antes I2-F2 2026-10-06: maxWait 5 s / timeout 15 s explícitos en runStockSerializable, branch work/p2-t56-r3-stock-lifecycle-i2-f2 sobre 134c785, NO integrada; el bloqueo real-DB sigue abierto hasta re-verificar; clasificación corregida: 3 conexión + 2 no-I2 + 2 runStockSerializable + 4 sin atribuir + 4 cancelación de mesa; antes DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED: fast-forward cc628e0..8c43661, deploy ca6bfc4e SUCCESS, modo OFF, reservas_stock 0; real-DB 211 pass / 15 fail — latencia de conexión del cliente local + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE; esperando decisión del operador; antes: branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (fast-forward 8b404f3..e0a0c0e; deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING; reservas_stock vacía; modo OFF)
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (P0 489d55b + P0-F1 ef04b04; MANUAL_CERTIFICATION=PASS 2026-10-05 — Operaciones/Negocio Salón/ticket/producto simple PASS tras F1; selector/carrito ya aprobados)
-TESTING_CODEX_HEAD=28cef6499c0be2d7955d8f10ddb5d6a0ea1b04d8 (… + I2 closeout 1334e67 + I3 8ff7d0b + I3 integration docs 28cef64) + the I3 certification closeout docs commit on top. Functional head 8ff7d0b. P0 functional source = 489d55b + ef04b04.
+TESTING_CODEX_HEAD=dbf342b2ef428c3730292428e9ca749757cd181e (… + I3 8ff7d0b + I3 integration docs 28cef64 + I3 certification closeout docs 7a6d0af + I4 discovery docs a9ed8a4 + I4 dbf342b, deploy 6806139e SUCCESS) + the I4 integration docs commit on top. Functional head dbf342b. P0 functional source = 489d55b + ef04b04.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -28,7 +28,7 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_IMPLEMENTED_ON_BRANCH —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
@@ -55,8 +55,10 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   concurrencia venta/venta PASS; con el smoke manual del operador (5 PASS, 1 no disponible)
   quedó CLOSED_TESTING_CERTIFIED en modo OFF (2026-10-08). R3A-I4 (disponibilidad pública
   en catálogo/promociones/repetir, control del carrito y validación OFF de POST /api/pedidos)
-  implementada en la branch work/p2-t56-r3-stock-lifecycle-i4 (2026-10-08), NO integrada
-  (codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md).
+  implementada en la branch work/p2-t56-r3-stock-lifecycle-i4 e integrada por fast-forward a
+  testing-codex (dbf342b, deploy 6806139e SUCCESS, modo OFF) el 2026-10-08; real-DB I4 PASS;
+  2 timeouts de regresión fuera de I4 quedan como follow-ups; falta el smoke manual del operador
+  (codex-reports/P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md §11).
   (codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
@@ -118,8 +120,9 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (la integración de R3A-I4 a testing-codex/TESTING requiere autorización explícita del operador)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (smoke manual de I4 del operador en TESTING, modo OFF)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_MANUAL_SMOKE
+OPEN_FOLLOWUPS_FROM_I4_INTEGRATION=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · lateral: pedido de Mesa rechazado deja la ocupación abierta (flujo previo)
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -154,7 +157,7 @@ Funcionalidades **aprobadas para después del bloque R3A**. No están autorizada
 ### R3A-I4 — discovery (READ-ONLY) → implementación en branch (2026-10-08)
 
 ```text
-P2_T56_R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (2026-10-08; branch work/p2-t56-r3-stock-lifecycle-i4, NO integrada; el discovery de abajo se conserva como historia)
+P2_T56_R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (2026-10-08; integrada a testing-codex dbf342b, deploy 6806139e; el discovery de abajo se conserva como historia)
 P2_T56_R3A_I5_STATUS=NOT_STARTED
 I4_SURFACES=catálogo público src/app/n/[slug]/page.tsx (re-exportado por src/app/cliente/n/[slug]/page.tsx; Mesa/QR = misma página con ?mesa=N);
   GET /api/negocios/[slug]; carrito persistido src/store/cart-store.ts (deligo-cart-v2) + src/components/cart/cart-panel.tsx (checkout → POST /api/pedidos);

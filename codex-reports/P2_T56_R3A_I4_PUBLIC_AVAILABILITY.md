@@ -1,13 +1,14 @@
 # P2-T56-R3A-I4 — Disponibilidad pública y control del carrito
 
 ```text
-TASK=P2-T56-R3A-I4 (implementación)
+TASK=P2-T56-R3A-I4 (implementación → integración y deploy TESTING §11)
 DATE=2026-10-08
 BRANCH=work/p2-t56-r3-stock-lifecycle-i4
 BASE=testing-codex 7a6d0af6e9326634406b4daeda3da8f545403318 (cierre I3) + cherry-pick del discovery 6e47fcb → a9ed8a47fa97474a9b9ca1c6363f2fa0befc04a6
-R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (§11; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION)
 SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0
-TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · DEPLOY=NO · MODE_ACTIVATED=NO (OFF) · I5_STARTED=NO · PRODUCTION_TOUCHED=NO
+TESTING_CODEX=7a6d0af..dbf342b (fast-forward) · FUNCTIONAL_DEPLOY=6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS (commit match)
+TESTING_DB_TOUCHED=SI (sólo tests real-DB con fixtures + limpieza autorizada por ID exacto) · MODE_ACTIVATED=NO (OFF) · I5_STARTED=NO · PRODUCTION_TOUCHED=NO
 ```
 
 ## 1. Objetivo y autorización
@@ -193,10 +194,164 @@ MANUAL_SMOKE=NOT_RUN (pertenece al operador, tras la integración a TESTING)
 
 `git revert` del commit funcional de I4. No hay schema ni datos que revertir.
 
-## 10. Estado
+## 10. Estado (al cierre de la implementación; superado por §11)
 
 ```text
-R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
-RESULT=READY_FOR_T56_R3A_I4_TESTING_INTEGRATION_REVIEW
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_TESTING_INTEGRATION_AUTHORIZATION
+R3A_I4_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (histórico)
+RESULT=READY_FOR_T56_R3A_I4_TESTING_INTEGRATION_REVIEW (histórico)
+```
+
+## 11. Integración y despliegue en TESTING (modo OFF) — 2026-10-08
+
+Autorizado por el operador:
+- real-DB contra TESTING;
+- limpieza controlada de residuos por ID exacto;
+- fast-forward de `testing-codex`;
+- autodeploy TESTING;
+- documentación.
+
+No autorizado: ON/DRAINING, I5, Production.
+
+### 11.1 Preflight y destino
+
+```text
+PREFLIGHT=PASS (árbol limpio, sin stash, FF posible 7a6d0af → dbf342b, prisma/ sin cambios)
+RAILWAY_TARGET=amiable-rejoicing (49d4d9c7-…) / TESTING (f37d0c49-…) / DeliGO Copy (c6335604-…) / branch testing-codex
+TESTING_DB_IDENTITY=verificada por huella (host + credencial): la URL de la app = Postgres TESTING; distinta de Production
+DOMINIO_PÚBLICO_TESTING=deligo-copy-production.up.railway.app (el nombre contiene "production", pero es el servicio DeliGO Copy del entorno TESTING)
+```
+
+### 11.2 PostgreSQL real de TESTING
+
+**Baseline previa:**
+- `stockReservaModo=OFF` (única fila de config), `reservas_stock` = 0 en todos los estados, MovimientoInventario PEDIDO = 0;
+- `promocionadosActivos=false`;
+- 101 negocios y 19 clientes con prefijo `test-` ya existentes antes de esta ronda.
+
+**A. Harness ad-hoc I4 (17/0).** Archivo del scratchpad, no commiteado. Usa las routes reales de `dbf342b` sin mocks, el prefijo propio `test-i4rdb-` y cleanup completo; no crea reservas y no toca la config. Deltas: 0 en todas las tablas contadas.
+
+| Bloque | Cobertura | Resultado |
+|---|---|---|
+| A — catálogo | simple con stock / agotado / sin control / `stock=false` / variante con stock / variante agotada / variante inactiva / todas agotadas; `stockDisponible` exacto; contrato previo; aislamiento entre negocios; Restaurante sin cambios; **1 sola lectura `groupBy` por request** (sonda N+1) | 1/1 |
+| B — pedidos OFF | dentro del disponible → 201 sin reservas ni descuento ni MovimientoInventario; superior → 409 con `details.lineas` exacto y sin Pedido; agotado → 409 (disponible 0); `stock=false` rechazado; variante (autoridad = variante); líneas repetidas sumadas; rollback completo de pedido mixto; **replay idempotente = mismo Pedido aunque luego el stock baje a 0**; aislamiento; Restaurante/Ropa sin cambios; orden vs. cambio de stock concurrente (resultado 409, sin 5xx ni escritura parcial); límite OFF documentado (3 + 3 sobre 5 → ambos 201) | 11/11 |
+| C — Mesa/QR | suficiente → 201 asociado a la mesa; insuficiente → 409 sin Pedido; variante 4 → 409 / 3 → 201 | 3/3 |
+| D — repetir | disponible / cantidad histórica > disponible (informa `stockDisponible`) / variante agotada / producto agotado; historial intacto | 1/1 |
+| E — `/api/cliente/promociones` | agotados genéricos (base y todas las variantes) no ofrecidos; el negocio sigue visible; Restaurante sin cambios | 1/1 |
+
+Observación lateral (no I4, no corregida): un pedido de Mesa rechazado (409) deja abierta la ocupación de la mesa. Proviene del flujo de ocupación previo, que la abre fuera de la transacción del pedido; el harness la limpió.
+
+**B. Suites existentes (33 archivos, una por proceso, secuenciales): 416 pass / 2 fail.**
+
+| Grupo | Resultado |
+|---|---|
+| I4 directas | `negocios/[slug]/route.test.ts` **3/0** (actualizada en I4, primera ejecución real) · `repetir/route.test.ts` 5/0 · `pedidos/route.test.ts` 5/0 · `pedidos/route.variantes.test.ts` 9/0 · `order-rate-limit-buckets` (idempotencia) 14/0 |
+| Consumidores del catálogo público | `product-gallery-public-render` 1 · `discovery-solo-delivery-coverage` 18 (incluye `promocionados` con fixtures Restaurante) · `category-reorder` 9 · `product-duplication-section-position` 12 · `product-reorder` 7 · `section-product-reorder` 9 · `section-reorder` 6 · `review-moderation-final` 9 · `review-moderation-server` 10 — todas 0 fail |
+| Regresiones | Caja 21 · Inventario 13 · endpoint de variantes 6 · CAS de estado 6 · lock ownership 2 · flujo t29b 18 · notificación de delivery 4 · CAS de mesa 3 · cancelación aceptada 4 · auto-cancel 4 · cancelación de mesa 72 · PyR 11 · Salón 30 · cierre de cuenta en terminal 7 · cuenta de cliente en mesa 45 · dark kitchen 16 · device identity 8 — todas 0 fail |
+| **Fallas (2)** | `client-block-security` 18/1 · `superadmin-notifications` 11/1 |
+
+```text
+REAL_DB_TOTAL_PASS=433 (416 suites + 17 ad-hoc) · REAL_DB_TOTAL_FAIL=2 · P2028 en archivos de suite: 1 (el de denuncias) · errores de init: 0
+```
+
+### 11.3 Las dos fallas (clasificación aceptada por el operador)
+
+```text
+REGRESSION_TOTAL_FAILURES=2
+FAILURES_CLASSIFICATION=NON_I4_TIMEOUTS_WITH_CODE_PATH_EVIDENCE
+BASELINE_REPRODUCTION=NOT_RUN
+FAILURES_RESOLVED=NO
+```
+
+- **SEC-BLOCK-1 (`client-block-security`) — P2028.**
+  - La ruta `POST /api/denuncias` usa `db.$transaction` Serializable **sin `timeout`** (default de Prisma: 5 s).
+  - La tercera denuncia entra a la rama de bloqueo y ejecuta unas 12 consultas secuenciales contra la base remota. La transacción expiró justo en la última sentencia (`notificacion.createMany` en `superadmin-notifications.ts`), y la respuesta fue 500 en lugar de 201.
+- **Test 11 (`superadmin-notifications`) — timeout de 60 s** (`setDefaultTimeout(60_000)` del archivo).
+  - Flujo secuencial: 4 creaciones de pedido Restaurante por la route completa, 4 confirmaciones y un abono de deuda.
+  - La segunda alerta `negocio_deuda` quedó registrada a las 05:27:31.96, así que el flujo alcanzó su etapa final y sólo se agotó el tiempo; no hubo una aserción fallida.
+- **Evidencia de no atribución a I4:**
+  - Son idénticos byte a byte en `7a6d0af` y `dbf342b`: denuncias, confirmación del pedido, abono, solicitud de destacado, `superadmin-notifications`, `client-block-security` y `device-identity`.
+  - Los imports de la ruta de denuncias no incluyen ningún módulo cambiado por I4.
+  - El cuerpo de `aplicarEfectosCancelacion` (lo único que la confirmación usa de `stock-lifecycle`) tiene el mismo hash en ambos commits.
+  - Las suites usan negocios Restaurante sin control de stock, así que `useStockTransaction=false` y la línea I4 de la route de pedidos es inerte.
+  - Sin cambios de schema.
+- No se declaran PASS ni preexistentes demostradas. Follow-ups abiertos:
+  - `FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028`;
+  - `FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT`;
+  - `FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP` (las suites no limpian `notificacion`, `sesion` ni `auditLog`).
+
+### 11.4 Residuos y limpieza controlada
+
+- **Tablas principales:** residuo 0 (negocio, producto, variante, pedido, ítem, evento, venta, movimientos, mesa, ocupaciones). Reservas 0 y PEDIDO 0 antes y después.
+- **18 clientes de prueba eliminados por las suites** (35 → 17; `test-` 19 → 1; no-test 16 → 16). Las suites borran clientes sólo por su propio prefijo (`test-sec-block-1-`, `test-sec-device-1-`, …) o por los IDs que crearon; eran remanentes de corridas anteriores. Sus IDs ya no pueden listarse. El único cliente `test-` restante (section-reorder-atomicity) no se tocó.
+- **Residuos en tablas auxiliares**, todos dentro de la ventana de una sola suite (04:41:14–05:27:46 UTC; 0 ambiguos, 0 fuera de ventana):
+  - `notificacion` +121: 111 de dueños fixture inexistentes, más **10 del único superadmin existente** que apuntan a entidades de prueba inexistentes (6 `denuncia_nueva`, 2 `negocio_deuda`, 1 `negocio_pendiente`, 1 `destacado_solicitud`);
+  - `sesion` +13 (dueños inexistentes);
+  - `auditLog` +92 (dueños inexistentes).
+- **Limpieza autorizada (2026-10-08):**
+  - Validación READ-ONLY individual: el ID existe, figura en el listado, no cambió desde el diagnóstico, cae dentro de la ventana de una sola suite, y su dueño no existe (o, para el superadmin: tipo esperado, ventana de las dos suites de superadmin y entidad inexistente). Resultado: 121 + 13 elegibles, 0 problemas.
+  - Una transacción revalidó todo adentro, borró **sólo esos IDs exactos** y verificó los conteos (cualquier diferencia = rollback).
+
+```text
+NOTIFICATION_IDS_VERIFIED=121 · NOTIFICATIONS_DELETED=121 · SUPERADMIN_TEST_NOTIFICATIONS_DELETED=10
+SESSION_IDS_VERIFIED=13 · SESSIONS_DELETED=13
+AUDIT_LOG_DELETED=0 (las 92 filas siguen presentes; auditLog 4430 = 4430)
+POST_CLEANUP=notificacion 14245 y sesion 997 (= valores previos al batch); 0 de los IDs listados presentes; ninguna otra tabla cambió; modo OFF
+UNAUTHORIZED_ROWS_CHANGED=0
+EVIDENCIA (scratchpad de la sesión)=residue_ids_notificacion.tsv · residue_ids_sesion.tsv · residue_ids_auditlog.tsv · residue_listing_i4.json · suite_windows.tsv · cleanup_validation_i4.json · cleanup_result_i4.json · metrics_*.json
+```
+
+### 11.5 Integración y deploy
+
+```text
+SAFETY_REF=tag anotado local r3a-i4-pre-integration-testing-codex → 7a6d0af6e9326634406b4daeda3da8f545403318 (no publicado)
+INTEGRATION_TYPE=FAST_FORWARD · testing-codex 7a6d0af..dbf342b (2 commits: a9ed8a4 discovery docs + dbf342b I4) · push sólo origin/testing-codex · origin/main sin cambios
+FUNCTIONAL_DEPLOY=Railway TESTING / DeliGO Copy 6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS · branch testing-codex · commit dbf342b2ef428c3730292428e9ca749757cd181e (COMMIT_MATCH=YES)
+MIGRATIONS=38 encontradas · "No pending migrations to apply." · NEW_MIGRATIONS=0
+BUILD_LOG="Compiled successfully" · RUNTIME_LOG="Ready"; 0 líneas de error/excepción/fatal (antes y después del smoke HTTP)
+HTTP_SMOKE=PASS_NO_5XX (/ 307 · /cliente 200 · /login 200 · /api/negocios 200 · /api/negocios/promocionados 200 · slug inexistente 404 · APIs protegidas 401: /api/cliente/promociones, /api/negocio/caja/ventas, /api/negocio/inventario/movimientos, /api/cliente/pedidos, /api/negocio/pedidos · catálogo de un negocio genérico 200 con stockDisponible en todos los productos y sin stockCantidad base)
+STOCK_MODE_AFTER=OFF · reservas 0 · MovimientoInventario PEDIDO 0
+PRODUCTION=origin/main 42ca500 · production/DeliGO 6bf1ee84 SUCCESS @ 42ca500 (sin cambios)
+ROLLBACK=git revert de dbf342b (y a9ed8a4 si corresponde) en testing-codex → autodeploy; sin schema ni datos que revertir. Referencia: r3a-i4-pre-integration-testing-codex
+```
+
+### 11.6 Gates
+
+- **Re-ejecutado:** diff-check del rango `7a6d0af..dbf342b`.
+- **Reutilizado** (árbol idéntico al de `dbf342b`, §6.2): Prisma, tsc 33 = baseline (0 nuevos), ESLint, build y barrido.
+
+### 11.7 No realizado / limitaciones
+
+- La resta de reservas ACTIVA no se probó contra filas reales: no se fabrican reservas y TESTING tiene 0. Queda cubierta por mocks y por el fake.
+- El filtro de agotados genéricos en `promocionados` sólo está cubierto por mocks: el flag global `promocionadosActivos` está en false y no se cambió.
+- Reproducción baseline de las 2 fallas: no ejecutada.
+- OFF no impide la sobreventa acumulada entre pedidos (requiere ON, I5).
+
+### 11.8 Smoke manual del operador (pendiente)
+
+Negocio genérico de TESTING. Modo OFF: no cambiarlo.
+
+**Datos a preparar** (Inventario):
+- A: producto simple con control de stock y 2 unidades;
+- B: producto con control de stock y 0 unidades;
+- C: producto con dos variantes, una con 0 y otra con 2.
+
+| # | Escenario | Qué hacer | Esperado |
+|---|---|---|---|
+| 1 | Producto agotado | Buscar B en el catálogo público (Cliente). | B no aparece en catálogo, búsqueda ni secciones; A sí. |
+| 2 | Variantes | Abrir C. | Sólo se ofrece la variante con unidades. Con ambas en 0, C desaparece. |
+| 3 | Límite del carrito | Subir A en el detalle y en el carrito, también con dos líneas de A con distintas opciones. | No se superan 2 en total. Mensaje «No hay suficientes unidades disponibles», sin mostrar cantidades. |
+| 4 | Carrito desactualizado | Con A×2 en el carrito, bajar A a 1 desde Inventario y reabrir el carrito. | Aviso «Tu carrito necesita cambios» que nombra A; «Continuar» bloqueado; el carrito no se modifica solo. |
+| 5 | Rechazo por stock | Con A×2 en el paso de confirmación, bajar A a 1 y confirmar. | No se crea el pedido. Mensaje que identifica A (revalidación previa al envío o 409 del servidor), vuelta a la lista, carrito intacto. |
+| 6 | Mesa/QR o promociones | Pedido desde el QR de una mesa con la cantidad disponible; producto en promoción agotado. | El pedido de mesa se crea (y se rechaza si supera el disponible). El agotado no figura en promociones; el negocio sigue visible. |
+
+Con OFF, dos pedidos distintos que individualmente caben pueden sumar más que el stock: es el límite conocido de OFF y no es un fallo del smoke.
+
+## 12. Estado actual
+
+```text
+R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE
+RESULT=T56_R3A_I4_DEPLOYED_TESTING_AWAITING_MANUAL_SMOKE
+MANUAL_SMOKE_STATUS=PENDING_OPERATOR
+R3A_I5_STARTED=NO · MODE_ACTIVATED=NO · PRODUCTION_TOUCHED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_MANUAL_SMOKE
 ```
