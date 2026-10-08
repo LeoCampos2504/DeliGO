@@ -4,6 +4,8 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { validateVarianteMinimo } from "@/lib/inventario"
+import { normalizeBarcodeForStorage } from "@/lib/barcode"
+import { mapBarcodeWriteError, runBarcodeGuardedWrite } from "@/lib/barcode-uniqueness"
 
 // ============================================
 // P2-T56-R2C — POST /api/negocio/productos/[id]/variantes
@@ -51,19 +53,30 @@ export async function POST(
       return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
     }
 
-    const variante = await db.productoVariante.create({
-      data: {
-        productoId,
-        nombre: (nombre as string).trim(),
-        precio,
-        costo: costo === undefined || costo === null ? null : costo,
-        sku: typeof sku === "string" && sku.trim() ? sku.trim() : null,
-        codigoBarras: typeof codigoBarras === "string" && codigoBarras.trim() ? codigoBarras.trim() : null,
-        controlStock: controlStock === true,
-        stockCantidad: typeof stockCantidad === "number" ? stockCantidad : 0,
-        stockMinimo: typeof stockMinimo === "number" ? stockMinimo : 0,
-      },
-    })
+    const validCodigoBarras = normalizeBarcodeForStorage(codigoBarras)
+    if (!validCodigoBarras.ok) {
+      return NextResponse.json({ error: validCodigoBarras.error }, { status: 400 })
+    }
+
+    // F9 (D3): a new variant code is claimed atomically with the insert.
+    const variante = await runBarcodeGuardedWrite(
+      db,
+      { negocioId, claims: validCodigoBarras.value ? [{ code: validCodigoBarras.value }] : [] },
+      (tx) =>
+        tx.productoVariante.create({
+          data: {
+            productoId,
+            nombre: (nombre as string).trim(),
+            precio,
+            costo: costo === undefined || costo === null ? null : costo,
+            sku: typeof sku === "string" && sku.trim() ? sku.trim() : null,
+            codigoBarras: validCodigoBarras.value,
+            controlStock: controlStock === true,
+            stockCantidad: typeof stockCantidad === "number" ? stockCantidad : 0,
+            stockMinimo: typeof stockMinimo === "number" ? stockMinimo : 0,
+          },
+        })
+    )
 
     await auditLog({
       userId: negocioId,
@@ -76,6 +89,8 @@ export async function POST(
 
     return NextResponse.json(variante, { status: 201 })
   } catch (error) {
+    const barcodeError = mapBarcodeWriteError(error)
+    if (barcodeError) return NextResponse.json(barcodeError.body, { status: barcodeError.status })
     console.error("Error creating variante:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al crear la variante" }, { status: 500 })
   }

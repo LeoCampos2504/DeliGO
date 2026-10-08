@@ -240,7 +240,9 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
   response.headers.set(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(self)"
+    // F9 (D2): camera only for DeliGO's own origin (Caja/Inventario barcode
+    // scanner, Mozo table QR). Never third-party origins; microphone stays off.
+    "camera=(self), microphone=(), geolocation=(self)"
   )
   response.headers.set(
     "Content-Security-Policy",

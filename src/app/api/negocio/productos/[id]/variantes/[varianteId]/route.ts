@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { barcodeLookupKey, normalizeBarcodeForStorage } from "@/lib/barcode"
+import { mapBarcodeWriteError, runBarcodeGuardedWrite } from "@/lib/barcode-uniqueness"
 
 // ============================================
 // P2-T56-R2C — PUT /api/negocio/productos/[id]/variantes/[varianteId]
@@ -54,17 +56,37 @@ export async function PUT(
       return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
     }
 
+    let codigoBarrasValue: string | null = null
+    if (codigoBarras !== undefined) {
+      const validCodigoBarras = normalizeBarcodeForStorage(codigoBarras)
+      if (!validCodigoBarras.ok) {
+        return NextResponse.json({ error: validCodigoBarras.error }, { status: 400 })
+      }
+      codigoBarrasValue = validCodigoBarras.value
+    }
+
     const updateData: Record<string, unknown> = {}
     if (nombre !== undefined) updateData.nombre = (nombre as string).trim()
     if (precio !== undefined) updateData.precio = precio
     if (costo !== undefined) updateData.costo = costo === null ? null : costo
     if (sku !== undefined) updateData.sku = sku || null
-    if (codigoBarras !== undefined) updateData.codigoBarras = codigoBarras || null
+    if (codigoBarras !== undefined) updateData.codigoBarras = codigoBarrasValue
     if (controlStock !== undefined) updateData.controlStock = controlStock === true
     if (stockMinimo !== undefined) updateData.stockMinimo = stockMinimo
     if (activo !== undefined) updateData.activo = activo === true
 
-    const updated = await db.productoVariante.update({ where: { id: varianteId }, data: updateData })
+    // F9 (D3): only a CHANGED non-empty code is claimed (inactive variants
+    // already count, so toggling `activo` never introduces a code).
+    const changesCode =
+      codigoBarras !== undefined && codigoBarrasValue !== null &&
+      barcodeLookupKey(codigoBarrasValue) !== barcodeLookupKey(existing.codigoBarras)
+    const updated = changesCode
+      ? await runBarcodeGuardedWrite(
+          db,
+          { negocioId, claims: [{ code: codigoBarrasValue as string, exclude: { varianteId } }] },
+          (tx) => tx.productoVariante.update({ where: { id: varianteId }, data: updateData })
+        )
+      : await db.productoVariante.update({ where: { id: varianteId }, data: updateData })
 
     await auditLog({
       userId: negocioId,
@@ -77,6 +99,8 @@ export async function PUT(
 
     return NextResponse.json(updated)
   } catch (error) {
+    const barcodeError = mapBarcodeWriteError(error)
+    if (barcodeError) return NextResponse.json(barcodeError.body, { status: barcodeError.status })
     console.error("Error updating variante:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al actualizar la variante" }, { status: 500 })
   }

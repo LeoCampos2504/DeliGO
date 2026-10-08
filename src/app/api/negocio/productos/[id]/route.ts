@@ -11,6 +11,8 @@ import {
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 import { isValidUnidadMedida } from "@/lib/inventario"
 import { contarReservasActivasProducto } from "@/lib/stock-lifecycle"
+import { barcodeLookupKey, normalizeBarcodeForStorage } from "@/lib/barcode"
+import { mapBarcodeWriteError, runBarcodeGuardedWrite, type BarcodeClaim } from "@/lib/barcode-uniqueness"
 
 // Helper to parse JSON fields safely
 function safeParseJSON(value: unknown, fallback: unknown = []) {
@@ -206,6 +208,15 @@ export async function PUT(
     if (stockMinimo !== undefined && (typeof stockMinimo !== "number" || !Number.isFinite(stockMinimo) || stockMinimo < 0)) {
       return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
     }
+    // F9: same storage normalization as POST (trimmed string, never a number).
+    let codigoBarrasValue: string | null = null
+    if (codigoBarras !== undefined) {
+      const validCodigoBarras = normalizeBarcodeForStorage(codigoBarras)
+      if (!validCodigoBarras.ok) {
+        return NextResponse.json({ error: validCodigoBarras.error }, { status: 400 })
+      }
+      codigoBarrasValue = validCodigoBarras.value
+    }
     // stockCantidad is intentionally NOT accepted here — adjusting it must go
     // through POST /api/negocio/inventario/movimientos so every change stays
     // traced (section 11). This route can toggle controlStock/stockMinimo/
@@ -235,7 +246,7 @@ export async function PUT(
       updateData.opcionesCompartidasIds = JSON.stringify(validOpcionesCompartidasIds.configs)
     }
     if (sku !== undefined) updateData.sku = sku || null
-    if (codigoBarras !== undefined) updateData.codigoBarras = codigoBarras || null
+    if (codigoBarras !== undefined) updateData.codigoBarras = codigoBarrasValue
     if (costo !== undefined) updateData.costo = costo === null ? null : costo
     if (marca !== undefined) updateData.marca = marca || null
     if (unidadMedida !== undefined) updateData.unidadMedida = unidadMedida
@@ -246,11 +257,37 @@ export async function PUT(
     // simply stops appearing in the active catalog/Caja, same as it already
     // does for every other vertical's `eliminado` semantics.
     if (eliminado !== undefined) updateData.eliminado = eliminado === true
+
+    // F9 (D3): claim a code only when this write INTRODUCES one — a changed
+    // non-empty base code, or reactivating a deleted product (its codes and
+    // its variants' codes re-enter the live set). Keeping the same code, or
+    // editing anything else, never runs the guard, so historical duplicates
+    // never block unrelated edits.
+    const barcodeClaims: BarcodeClaim[] = []
+    const reactivating = existing.eliminado && eliminado === false
+    const finalCodigoBarras = codigoBarras !== undefined ? codigoBarrasValue : existing.codigoBarras
+    if (
+      finalCodigoBarras &&
+      (reactivating || (codigoBarras !== undefined && barcodeLookupKey(codigoBarrasValue) !== barcodeLookupKey(existing.codigoBarras)))
+    ) {
+      barcodeClaims.push({ code: finalCodigoBarras, exclude: { productoId: id } })
+    }
+    if (reactivating) {
+      const variantes = await db.productoVariante.findMany({ where: { productoId: id }, select: { id: true, codigoBarras: true } })
+      for (const v of variantes) {
+        if (v.codigoBarras && v.codigoBarras.trim()) barcodeClaims.push({ code: v.codigoBarras, exclude: { varianteId: v.id } })
+      }
+    }
+
     // Update product
-    const producto = await db.producto.update({
-      where: { id },
-      data: updateData,
-    })
+    const producto = barcodeClaims.length > 0
+      ? await runBarcodeGuardedWrite(db, { negocioId, claims: barcodeClaims }, (tx) =>
+          tx.producto.update({ where: { id }, data: updateData })
+        )
+      : await db.producto.update({
+          where: { id },
+          data: updateData,
+        })
 
     // Sync agregadoIds (delete old, create new)
     if (agregadoIds !== undefined) {
@@ -340,6 +377,8 @@ export async function PUT(
       precioPromo,
     })
   } catch (error) {
+    const barcodeError = mapBarcodeWriteError(error)
+    if (barcodeError) return NextResponse.json(barcodeError.body, { status: barcodeError.status })
     console.error("Error updating producto:", safeErrorForLog(error))
     return NextResponse.json(
       { error: "Error al actualizar producto" },

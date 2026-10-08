@@ -11,6 +11,9 @@ import {
 } from "@/lib/access-control"
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 import { isValidUnidadMedida, validateVarianteMinimo } from "@/lib/inventario"
+import { normalizeBarcodeForStorage } from "@/lib/barcode"
+import { isGenericBusinessStockScope, leerReservasActivasPorClave, resolvePublicProductAvailability } from "@/lib/stock-lifecycle"
+import { mapBarcodeWriteError, runBarcodeGuardedWrite, type BarcodeClaim } from "@/lib/barcode-uniqueness"
 import { Prisma } from "@prisma/client"
 
 // Helper to parse JSON fields safely
@@ -67,9 +70,39 @@ export async function GET(req: NextRequest) {
       orderBy: { orden: "asc" },
     })
 
+    // F9 (D5): read-only R3A context so Caja can warn against the real
+    // available stock (físico − reservas ACTIVA) instead of the physical one.
+    // One groupBy for the whole business (no N+1), only for a generic business
+    // that actually controls stock; Restaurante/Ropa responses are unchanged.
+    // The checkout stays the authority — this is only a preview input.
+    const controlsStock = productos.some((p) => p.controlStock || p.variantes.some((v) => v.controlStock))
+    const negocioScope = controlsStock
+      ? await db.negocio.findUnique({ where: { id: negocioId }, select: { rubro: true } })
+      : null
+    const reservedByKey = negocioScope && isGenericBusinessStockScope(negocioScope.rubro)
+      ? await leerReservasActivasPorClave(db, [negocioId])
+      : null
+    // Same R3A authority as the public catalog (resolvePublicProductAvailability),
+    // evaluated with the manual `stock` toggle forced on: Caja only needs the
+    // number, never the public visibility decision. stockDisponible is added
+    // only to controlled rows; an active controlled variant missing from
+    // variantesVisibles has 0 available.
+    const withDisponible = (p: (typeof productos)[number]) => {
+      if (!reservedByKey) return p
+      const availability = resolvePublicProductAvailability({ ...p, stock: true }, reservedByKey)
+      const variantDisponible = new Map(availability.variantesVisibles.map((v) => [v.id, v.stockDisponible]))
+      return {
+        ...p,
+        ...(p.controlStock && p.variantes.length === 0 ? { stockDisponible: availability.stockDisponible } : {}),
+        variantes: p.variantes.map((v) =>
+          v.controlStock && v.activo ? { ...v, stockDisponible: variantDisponible.get(v.id) ?? 0 } : v
+        ),
+      }
+    }
+
     // Parse JSON fields for each product
     const productosParsed = productos.map((p) => ({
-      ...p,
+      ...withDisponible(p),
       talles: safeParseJSON(p.talles, []),
       colores: safeParseJSON(p.colores, []),
       secciones: safeParseJSON(p.secciones, []),
@@ -229,6 +262,11 @@ export async function POST(req: NextRequest) {
     if (stockMinimo !== undefined && (typeof stockMinimo !== "number" || !Number.isFinite(stockMinimo) || stockMinimo < 0)) {
       return NextResponse.json({ error: "El stock mínimo no puede ser negativo" }, { status: 400 })
     }
+    // F9: one storage normalization (trimmed string, never a number).
+    const validCodigoBarras = normalizeBarcodeForStorage(codigoBarras)
+    if (!validCodigoBarras.ok) {
+      return NextResponse.json({ error: validCodigoBarras.error }, { status: 400 })
+    }
 
     // P2-T56-R2C §11/12: optional inline variant creation. Every entry gets
     // the same minimum-required validation as a standalone variant
@@ -257,12 +295,16 @@ export async function POST(req: NextRequest) {
         if (v.stockMinimo !== undefined && (typeof v.stockMinimo !== "number" || !Number.isFinite(v.stockMinimo) || v.stockMinimo < 0)) {
           return NextResponse.json({ error: "El stock mínimo de la variante no puede ser negativo" }, { status: 400 })
         }
+        const varianteCodigo = normalizeBarcodeForStorage(v.codigoBarras)
+        if (!varianteCodigo.ok) {
+          return NextResponse.json({ error: varianteCodigo.error }, { status: 400 })
+        }
         validVariantes.push({
           nombre: (v.nombre as string).trim(),
           precio: v.precio as number,
           costo: v.costo === undefined || v.costo === null ? null : (v.costo as number),
           sku: typeof v.sku === "string" && v.sku.trim() ? v.sku.trim() : null,
-          codigoBarras: typeof v.codigoBarras === "string" && v.codigoBarras.trim() ? v.codigoBarras.trim() : null,
+          codigoBarras: varianteCodigo.value,
           controlStock: v.controlStock === true,
           stockCantidad: typeof v.stockCantidad === "number" ? v.stockCantidad : 0,
           stockMinimo: typeof v.stockMinimo === "number" ? v.stockMinimo : 0,
@@ -279,10 +321,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sin acceso a este recurso" }, { status: 403 })
     }
 
+    // F9 (D3): the base code and every inline variant code are claimed
+    // atomically with the insert — see src/lib/barcode-uniqueness.ts.
+    const barcodeClaims: BarcodeClaim[] = [
+      ...(validCodigoBarras.value ? [{ code: validCodigoBarras.value }] : []),
+      ...validVariantes.flatMap((v) => (v.codigoBarras ? [{ code: v.codigoBarras }] : [])),
+    ]
+
     // Product.orden is server-owned. New products append after every active
     // product in the business; the max read and all related writes share one
     // serializable transaction so concurrent creates cannot choose position 0.
-    const producto = await db.$transaction(async (tx) => {
+    // F9: that transaction is now runBarcodeGuardedWrite's (still Serializable,
+    // plus the shared bounded P2034 retry).
+    const producto = await runBarcodeGuardedWrite(db, { negocioId, claims: barcodeClaims }, async (tx) => {
       const maxOrder = await tx.producto.aggregate({
         where: { negocioId, eliminado: false },
         _max: { orden: true },
@@ -309,7 +360,7 @@ export async function POST(req: NextRequest) {
             ? JSON.stringify(validOpcionesCompartidasIds.configs)
             : "[]",
           sku: sku || null,
-          codigoBarras: codigoBarras || null,
+          codigoBarras: validCodigoBarras.value,
           costo: costo === undefined || costo === null ? null : costo,
           marca: marca || null,
           unidadMedida: unidadMedida || "unidad",
@@ -355,7 +406,7 @@ export async function POST(req: NextRequest) {
         })
       }
       return created
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    })
 
     // Audit log
     await auditLog({ userId: negocioId, userType: "negocio", accion: "producto.creado", recurso: "producto", recursoId: producto.id, detalle: { nombre: producto.nombre, precio: producto.precio } })
@@ -381,6 +432,10 @@ export async function POST(req: NextRequest) {
       precioPromo,
     }, { status: 201 })
   } catch (error) {
+    const barcodeError = mapBarcodeWriteError(error)
+    if (barcodeError && barcodeError.body.code !== "CONFLICTO_CONCURRENTE") {
+      return NextResponse.json(barcodeError.body, { status: barcodeError.status })
+    }
     const isSerializationConflict =
       (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||
       (error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01"))
