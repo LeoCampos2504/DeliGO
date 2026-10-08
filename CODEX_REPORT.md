@@ -6,7 +6,48 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5-P0 AUDITED MODE CONTROLLER DEPLOYED TO TESTING (MODE OFF) — AWAITING ON ACTIVATION AUTHORIZATION (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5 MODE ON ACTIVE IN TESTING — TECHNICALLY VERIFIED WITH REAL RESERVATIONS — AWAITING MANUAL SMOKE (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I5-ON-ACTIVATION-REAL-DB
+CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE
+RESULT=T56_R3A_I5_TECHNICALLY_VERIFIED_TESTING_ON_AWAITING_MANUAL_SMOKE
+R3A_I5_STATUS=DEPLOYED_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE (NOT closed, NOT certified until the operator's manual smoke)
+R3A_I5_P0_STATUS=REAL_DB_VERIFIED_IN_I5 (4 real audited transitions, DRAINING guard, stale-in-tx rejection; code unchanged)
+R3A_I4/I3/I2=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1=CLOSED_TESTING_VERIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_TESTING_CERTIFIED_I5_TESTING_MODE_ON_AWAITING_MANUAL_SMOKE (R3A NOT closed)
+STOCK_RESERVATION_MODE_CURRENT=ON (TESTING) · ACTIVE_RESERVATIONS=0 · MOVIMIENTOS_PEDIDO=0 · negative stock 0 (read 2026-10-08 after cleanup)
+ACTOR=the single active TESTING SuperAdmin, whose email matches the operator's account (verified in-script, no emails printed) → superAdminId cmsjkkvd40000mz0az8y5gn9s
+MODE_TRANSITIONS_AUDITED=4 (OFF→ON i5-on-20261008-1 · ON→DRAINING i5-draining-20261008-1 · DRAINING→OFF i5-off-20261008-1 · OFF→ON i5-on-20261008-2), all via scripts/stock-reservation-mode.ts (dry-run first), result APPLIED, actor verified
+REAL_DB_PHASE_A=14/14 (R1 reserve · R2 consume incl. provoked deficit → 409 STOCK_RESERVATION_DEFICIT · R3 release client/business/Mesa, no restock after consumption, double cancel · R4 Caja reserved stock incl. Caja vs order last unit 3/3 one winner · R5 Inventario SALIDA/ENTRADA/AJUSTE with real reservation, stale confirmation re-asked · R6 catalog hides reserved-out product/variant, 1 grouped read · R7 concurrency); first run R4 failed on a harness bug (metodoPago "efectivo" vs "EFECTIVO"), fixed, only R4 re-run 2/2
+CONCURRENCY=last unit simple 3/3 and variant 3/3 exactly one 201 · stock 5×10 → 3×201 + 7×409 STOCK_SERIALIZATION_CONFLICT · stock 10×15 → 5×201 + 10×409 conflict · prepare vs cancel 3/3 consistent · double prepare/cancel 200/409 · MODE vs RES race: ON→DRAINING committed after a retried P2034, 1 order before (reserved) + 7×409 DRAINING, 0 unprotected · OVERSELL=NO · NEGATIVE_STOCK=NO · UNPROTECTED_ORDERS=NO · 5XX=0 · P2028=0 (local route-handler harness vs TESTING DB; not an HTTP test of the deployed app; no IP spoofing)
+REAL_DB_PHASE_B=mode cycle PASS: ON→OFF forbidden (dry-run) · DRAINING behaviour (controlled 409 DRAINING, uncontrolled/Restaurante 201 without reservations, Caja still reservation-aware) · DRAINING→OFF rejected with 3 ACTIVE (dry-run + execute, no change) · stale expectation inside a real tx rejected · resolution by normal flows (prepare/cancel) → ACTIVA 0 · rollback dry-runs (ALREADY_RELEASED / REJECT:RESERVA_CONSUMIDA) · DRAINING→OFF applied · OFF→ON reactivated
+HARD_ROLLBACK_REAL_DB=NOT_TESTED (no genuinely eligible reservation; no fabricated inconsistency)
+R9_REGRESSION_ON=10 suites 166/0 (pedidos 5, variantes 9, idempotency 14, Caja 21, Inventario 13, public catalog 3, repetir 5, Mesa cancel 72, CAS 6, t29b 18), 0 P2028, no ON incompatibility
+NOT_RUN=Mozo orders real-DB · PyR and automatic cancellation real-DB (same authority, automated coverage) · HTTP-level concurrency against the deployed app
+CLEANUP=Phase A/B fixtures resolved by normal flow then deleted by own prefix (test-i5a-/test-i5b-) · core tables back to baseline · 4 controller audits + route audit rows kept · 99 auxiliary rows from the R9 suites (52 notificacion, 5 sesion, 42 auditLog; owners already deleted; none of the SuperAdmin) identified and kept (scratchpad/i5_r9_residue.json) · UNEXPECTED_RESIDUE=0
+HARNESS_NOTES=Phase B first run stopped at B3 on a harness JSON-parse issue (Prisma log line before the CLI JSON); real state verified read-only (one APPLIED audit, DRAINING) and continued from B4; continuation process ended by timeout (exit 124) after DONE with no pending DB work
+CODE_CHANGED=NO · SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0 · RAILWAY_CONFIG_CHANGED=NO
+TESTING_CODEX_HEAD=7d29aa01a46544817154be2369e85a20b3005511 (I5-P0 docs; functional 96a93b6) + the docs commit "docs: record T56 R3A I5 testing activation" on top (its docs-only autodeploy is reported in the round result) · deploy 22bf1264 SUCCESS before the docs commit · TESTING logs 0 error lines 16:31–18:14Z
+NEW_FOLLOWUPS=FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE (67–70 % 409 conflicts at 10–15 concurrent orders on one key; safety PASS, availability concern) · FOLLOWUP_STOCK_OPS_CLI_PRISMA_LOG_NOISE · Inventario physical/reserved/available visibility
+FOLLOWUPS_OPEN=I4 follow-ups unchanged · STALE_OPEN_ORDER_EXPIRATION_POLICY · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (+99 rows from R9)
+MANUAL_SMOKE_CHECKLIST=I5 report §10 (6 scenarios with mode ON; Claude provides read-only reservation readouts)
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator manual smoke of I5 with mode ON)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I5_MANUAL_SMOKE
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I5_ON_CERTIFICATION.md
+
+Stock reservations run in TESTING with the mode ON. Real-DB reserve/consume/release, Caja, Inventario
+(incl. AJUSTE with real reservations), catalog, concurrency and the full audited ON→DRAINING→OFF→ON cycle
+pass with no oversell, no negative stock and no unprotected orders; high contention yields many 409
+serialization conflicts (accepted, follow-up). The operator's manual smoke is the remaining gate.
+Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I5-P0 AUDITED MODE CONTROLLER DEPLOYED TO TESTING (MODE OFF) — AWAITING ON ACTIVATION AUTHORIZATION (2026-10-08; superseded as the current pointer by the I5 ON activation above — the mode is now ON) ===
 
 CURRENT_TASK=P2-T56-R3A-I5-P0-MODE-CONTROLLER
 CURRENT_TASK_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_ACTIVATION

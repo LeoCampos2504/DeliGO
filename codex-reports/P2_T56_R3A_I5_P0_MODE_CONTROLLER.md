@@ -213,6 +213,8 @@ Revisar el dry-run y luego ejecutar con `--execute --confirm=ROLLBACK:<n>`. Los 
 
 **9) Modo final después de certificar:** decisión 5 del plan I5 (recomendado: demostrar DRAINING→OFF y luego dejar TESTING en ON).
 
+> **Referencia posterior (2026-10-08):** el controlador se ejercitó con transiciones reales en I5 (OFF→ON, ON→DRAINING, DRAINING→OFF, OFF→ON; 4 auditorías APPLIED; guarda DRAINING y estado desactualizado verificados). Ver `codex-reports/P2_T56_R3A_I5_ON_CERTIFICATION.md`. El estado de abajo es el del cierre de I5-P0.
+
 ## 8. Estado
 
 ```text
