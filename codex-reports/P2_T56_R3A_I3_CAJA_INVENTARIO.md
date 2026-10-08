@@ -166,7 +166,7 @@ SCHEMA_CHANGE_REQUIRED=NO (índice (negocioId, estado, productoId, productoVaria
 
 Revertir el commit de I3. Sin schema ni datos que deshacer: I3 no crea filas nuevas de ningún tipo nuevo, sólo cambia la validación y la forma del registro de Caja (un movimiento por clave).
 
-## 10. Markers
+## 10. Markers (implementación en branch — estado current en §11)
 
 ```text
 CAJA_RESERVATION_AWARE=YES
@@ -185,5 +185,94 @@ SERIALIZABLE_RETRY_POLICY=runStockSerializable (Serializable, maxWait 5000, time
 MODE_OFF_COMPATIBILITY=PASS
 R3A_I3_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
 R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_TESTING_INTEGRATION_AUTHORIZATION (histórico — integrada, §11)
 ```
+
+## 11. Integración en TESTING + verificación real-DB (modo OFF) (2026-10-08)
+
+Autorizado por el operador: fast-forward a `testing-codex`, push sólo a `origin/testing-codex`, autodeploy TESTING / DeliGO Copy, suites real-DB con fixtures aislados y auto-limpiantes, lecturas READ ONLY y HTTP smoke. Sin ON/DRAINING, sin reservas artificiales, sin schema, sin código nuevo, sin I4/I5, sin main/Production.
+
+### Integración y deploy
+
+```text
+REMOTE_TESTING_CODEX_BEFORE=1334e67f8066be54ef504d27a1831b31c218b77d · REMOTE_I3_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25
+COMMITS_TO_INTEGRATE=1 · UNRELATED_COMMITS=0 · UNRELATED_FILES=0 (13 = 3 runtime + 1 UI + 5 tests + 4 docs; sin prisma/) · TESTING_IS_ANCESTOR=YES · SAFETY_TAG_STILL_CORRECT=YES
+INTEGRATION_METHOD=FAST_FORWARD · REMOTE_TESTING_CODEX_AFTER_PUSH=8ff7d0bc175666f47a3ea7fba055ade185471d25
+PRE_PUSH_GATES=RUN_NOW: I3 32 · Caja route 14 · Movimientos route 19 · UI 4 · wiring 34 · I1 19 · stock-lifecycle 43 · route.stock-mode 11 · mesa timeout 8 · Mozo 8/8/26 · PyR 13 · Salón 6 · negocio-salon 26 · delete-guard 3 · stock-authority 28 · inventario 30 · caja-venta 27 · contratos UI de Caja 6/10 · P0/F1 19/6 — PASS; contratos UI de Inventario 19/2 y 11/6 = mismos 8 nombres que el baseline pre-I3 (CRLF); prisma PASS; tsc 33 = baseline (0 nuevos); ESLint PASS; build PASS; diff-check PASS
+RAILWAY=amiable-rejoicing / TESTING / DeliGO Copy
+FUNCTIONAL_DEPLOY_ID=d82631a2-c873-47f8-b1c8-fb0bcff11975 · STATUS=SUCCESS · BRANCH=testing-codex · COMMIT=8ff7d0bc175666f47a3ea7fba055ade185471d25 · COMMIT_MATCH=YES
+NEW_MIGRATIONS=0 · MIGRATION_STATUS=UP_TO_DATE ("No pending migrations to apply."; migrate status "Database schema is up to date!", 38)
+POSTDEPLOY_LOGS=PASS (Ready; 0 errores/P20xx/módulos/5xx en runtime; build remoto Compiled successfully, 160/160)
+HTTP_SMOKE=PASS_NO_5XX (GET: 4 páginas 200; 8 APIs protegidas 401, incl. /api/negocio/caja/ventas; negocio inexistente 404)
+```
+
+### Real-DB (RUN_NOW contra TESTING, `--timeout 60000`, log completo por suite)
+
+| Suite | Resultado | P2028 / init |
+|---|---|---|
+| `negocio/caja/ventas/route` | **21/21** | 0 / 0 |
+| `negocio/inventario/movimientos/route` | **13/13** | 0 / 0 |
+| Concurrencia venta/venta, re-corrida aislada: producto (`CASE concurrency`) | **1/1**: exactamente un 201, stock final 0; Postgres registró un conflicto de escritura real (P2034) | 0 / 0 |
+| Concurrencia venta/venta, re-corrida aislada: variante (`CONCURRENCY_VARIANT_STOCK_PASS`) | **1/1**: ídem sobre la variante | 0 / 0 |
+| Regresión I2 (15 suites): `pedidos/route.variantes` 9, `pedidos/route` 5, `order-rate-limit-buckets` 14, `estado/cas-concurrency` 6, `estado/lock-ownership` 2, `estado/t29b-flow` 18, `estado/new-delivery` 4, `cas-mesa` 3, `client-cancel-accepted` 4, `auto-cancel` 4, `mesa-pedido-cancelacion` 72, `p2-t42-pyr` 11, `negocio-salon` 30, `p2-t41-terminal-cierre-cuenta` 7, `mesa-cliente-cuenta` 45 | **234/0** | 0 / 0 |
+
+**Total real-DB:** 270 pass, 0 fail (más las 2 re-corridas aisladas de concurrencia).
+
+**Mapa de cobertura (sin inventar PASS):**
+
+| Exigencia | Real-DB | Otra cobertura |
+|---|---|---|
+| Caja: venta suficiente, insuficiente, descuento, variante, rollback ante insuficiencia, tenant, precio del servidor | ✅ suite de Caja | — |
+| Caja: concurrencia venta/venta (producto y variante) | ✅ real PostgreSQL, conflicto P2034 observado, un solo éxito, sin doble descuento | — |
+| Caja: líneas repetidas / una actualización por clave / un movimiento por clave / VentaItem conservados con la misma clave | ❌ **no cubierto** por las suites existentes (no hay un test DB de líneas repetidas) | route real con db mock 14/14 + autoridad con fake 32/32 |
+| Caja con Restaurante/Ropa | ❌ los fixtures DB usan `rubro: "negocio"` | Caja no ramifica por rubro (contrato estático) y fuera de "negocio" no existen reservas; route mock 14/14 |
+| Movimientos: ENTRADA, SALIDA, SALIDA insuficiente (400), AJUSTE, producto/variante, ownership, tipos manuales no permitidos | ✅ suite de Movimientos | — |
+| AJUSTE deficitario con reservas activas reales | ⏸ **diferido a I5** (con modo OFF y 0 reservas no se dispara; no se fabricaron reservas) | servidor 19/19 + autoridad 32/32 + UI 4/4 |
+| Concurrencia contra reservas activas (venta/reserva, SALIDA/reserva, MODE/RES) | ⏸ **diferido a I5** | matriz A0.1-10 + fake |
+
+```text
+CAJA_REAL_DB_TESTS=PASS (21/21)
+INVENTORY_REAL_DB_TESTS=PASS (13/13)
+SALE_SALE_CONCURRENCY_REAL_DB=PASS (producto + variante; P2034 real observado; un solo éxito; stock final 0)
+DUPLICATE_LINES_REAL_DB=NOT_COVERED_BY_EXISTING_SUITES (cubierto por route mock + fake; sin test DB propio)
+CAJA_NON_GENERIC_RUBRO_REAL_DB=NOT_COVERED_BY_EXISTING_SUITES (fixtures rubro "negocio"; Caja sin rama de rubro)
+I2_REGRESSION=PASS (234/0)
+AJUSTE_CONFIRMATION_AUTOMATED_TESTS=PASS
+AJUSTE_CONFIRMATION_REAL_ACTIVE_RESERVATIONS=DEFERRED_TO_I5
+I3_ATTRIBUTABLE_REAL_DB_FAILURES=0 · UNKNOWN_MATERIAL_REAL_DB_FAILURES=0
+SERIALIZABLE_POLICY_VERIFIED=Serializable · maxWait 5000 · timeout 15000 · P2034-only · 3 intentos · P2028 sin retry (route tests + contrato; P2034 real ejercitado en la concurrencia DB)
+```
+
+### Snapshot READ ONLY de TESTING
+
+| Momento | Modo | Filas no-OFF | reservas_stock | ACTIVA | Movimientos PEDIDO | Conteo de filas núcleo |
+|---|---|---|---|---|---|---|
+| Antes | OFF | 0 | 0 | 0 | 0 | negocio 111 · producto 132 · variante 3 · pedido 165 · item 165 · cliente 35 · movimiento 5 · mesa 9 · empleado 19 · venta 3 |
+| Después de todas las suites | OFF | 0 | 0 | 0 | 0 | **idénticos** → `TEST_RESIDUE=NONE` |
+
+`pedido` pasó de 157 a 165 desde la ronda I2 por el smoke manual del operador (fuera de esta ronda).
+
+```text
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 sin cambios)
+```
+
+### Estado
+
+```text
+R3A_I3_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (NO CLOSED; falta el smoke manual del operador)
+TESTING_CODEX_FUNCTIONAL_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25
+R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE
+```
+
+### Checklist sugerido para el smoke manual (TESTING, modo OFF, sin reservas)
+
+1. **Caja:** vender un producto con control de stock dentro del stock → se descuenta; vender por encima → "no tiene stock suficiente" (sin venta parcial).
+2. **Caja con variante:** vender una variante → se descuenta sólo esa variante.
+3. **Inventario ENTRADA / SALIDA / AJUSTE** en un producto y en una variante: con 0 reservas, AJUSTE a la baja se guarda directo, **sin** advertencia (la advertencia sólo aparece con reservas activas, que no existen con OFF).
+4. **Inventario SALIDA mayor al stock** → error "dejaría el stock en negativo", como antes.
+5. **Historial de movimientos:** cada venta o movimiento aparece una vez con stock antes/después correctos.
+6. **Regresión rápida:** un pedido de Cliente y uno de Mozo en negocio genérico siguen funcionando como en I2 (sin cambios).
+
+`AJUSTE_CONFIRMATION` y Caja con reservas activas reales: **no** se pueden certificar manualmente en OFF; corresponden a I5.

@@ -6,7 +6,46 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 CAJA + INVENTARIO RESPECT ACTIVE RESERVATIONS — ON DEDICATED BRANCH (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I3-TESTING-INTEGRATION-REAL-DB
+CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE
+RESULT=AWAITING_T56_R3A_I3_MODE_OFF_MANUAL_SMOKE
+R3A_I3_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (NOT closed, NOT certified until the operator's manual smoke)
+R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (R3A NOT closed; I4–I5 not started)
+INTEGRATION=fast-forward 1334e67..8ff7d0b on testing-codex (1 commit, 13 files, UNRELATED=0, no prisma/)
+TESTING_CODEX_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25 (functional) + the docs commit "docs: record T56 R3A I3 testing integration" on top (its docs-only autodeploy is reported in the round result)
+FUNCTIONAL_DEPLOY=Railway amiable-rejoicing / TESTING / DeliGO Copy d82631a2-c873-47f8-b1c8-fb0bcff11975 SUCCESS, branch testing-codex, commit 8ff7d0bc175666f47a3ea7fba055ade185471d25 (COMMIT_MATCH=YES)
+MIGRATIONS=NEW_MIGRATIONS=0; "No pending migrations to apply."; migrate status UP_TO_DATE (38)
+PRE_PUSH_GATES=RUN_NOW on integrated HEAD: I3 + I1/I2 + Caja/Inventario non-DB suites PASS; Inventario UI contracts = same 8 failure names as pre-I3 CRLF baseline; tsc 33 = baseline (0 new); ESLint PASS; build PASS; diff-check PASS
+POSTDEPLOY_LOGS=PASS · HTTP_SMOKE=PASS_NO_5XX
+CAJA_REAL_DB_TESTS=PASS (21/21) · INVENTORY_REAL_DB_TESTS=PASS (13/13) · SALE_SALE_CONCURRENCY_REAL_DB=PASS (product + variant; real P2034 observed; exactly one 201; final stock 0) · I2_REGRESSION=PASS (15 suites, 234/0) · 0 P2028 / 0 init errors
+REAL_DB_GAPS=DUPLICATE_LINES_REAL_DB and CAJA_NON_GENERIC_RUBRO_REAL_DB not covered by existing DB suites (covered by route mock 14/14 + authority fake 32/32 + static contract); not invented as PASS
+AJUSTE_CONFIRMATION_AUTOMATED_TESTS=PASS · AJUSTE_CONFIRMATION_REAL_ACTIVE_RESERVATIONS=DEFERRED_TO_I5 (no reservations fabricated)
+I3_ATTRIBUTABLE_REAL_DB_FAILURES=0 · UNKNOWN_MATERIAL_REAL_DB_FAILURES=0
+MODE_INVARIANT=OFF throughout; NON_OFF_CONFIG_ROWS 0; reservas_stock 0 (ACTIVA 0); MovimientoInventario PEDIDO 0; core row counts identical before/after (TEST_RESIDUE=NONE)
+MANUAL_SMOKE_CHECKLIST=I3 report §11 (Caja within/over stock, Caja variant, Inventario ENTRADA/SALIDA/AJUSTE on product and variant — no warning with 0 reservations, SALIDA over stock error, movement history, quick I2 order regression)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+LATERAL_FINDINGS_OPEN=Caja fractional quantities; no server-side rubro gate on Caja/Inventario; FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED (all unchanged, not addressed)
+R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator manual smoke of I3 in mode OFF)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I3_CAJA_INVENTARIO.md (§11 = TESTING integration + real-DB + manual smoke checklist)
+
+R3A-I3 (Caja + Inventario respecting ACTIVE reservations, deficit-AJUSTE pre-save confirmation) runs
+in TESTING with the mode OFF. Real-DB Caja, Movimientos, real sale/sale concurrency and the I2
+regression all pass with no residue; duplicate-line and non-generic-rubro Caja paths have no DB
+suite (mock-covered). The operator's manual smoke is the remaining gate. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I3 CAJA + INVENTARIO RESPECT ACTIVE RESERVATIONS — ON DEDICATED BRANCH (2026-10-08; superseded as the current pointer by the I3 TESTING integration above) ===
 
 CURRENT_TASK=P2-T56-R3A-I3-CAJA-INVENTARIO-RESERVATIONS
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION

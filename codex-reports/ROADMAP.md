@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario implemented on branch (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario deployed to TESTING mode OFF, awaiting manual smoke (2026-10-08)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -10,12 +10,12 @@ P2_T56_R2C_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
-P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_IMPLEMENTED_ON_BRANCH (R3A no está cerrada; I4–I5 no autorizadas ni iniciadas)
-P2_T56_R3A_I3_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION (branch work/p2-t56-r3-stock-lifecycle-i3 sobre 1334e67; Caja y Movimientos respetan reservas ACTIVA vía la autoridad, independiente del modo; Caja agrega líneas repetidas y registra un movimiento por clave; SALIDA bloqueada si físico posterior < reservado; AJUSTE deficitario con confirmación PREVIA por huella recalculada en el servidor — refinamiento aprobado de A0.1-1; sin schema; NO integrada; codex-reports/P2_T56_R3A_I3_CAJA_INVENTARIO.md)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (R3A no está cerrada; I4–I5 no autorizadas ni iniciadas)
+P2_T56_R3A_I3_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (2026-10-08: fast-forward 1334e67..8ff7d0b, deploy d82631a2 SUCCESS; real-DB Caja 21/21, Movimientos 13/13, concurrencia venta/venta real PASS, regresión I2 234/0; sin residuos; modo OFF; falta smoke manual; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION: branch work/p2-t56-r3-stock-lifecycle-i3 sobre 1334e67; Caja y Movimientos respetan reservas ACTIVA vía la autoridad, independiente del modo; Caja agrega líneas repetidas y registra un movimiento por clave; SALIDA bloqueada si físico posterior < reservado; AJUSTE deficitario con confirmación PREVIA por huella recalculada en el servidor — refinamiento aprobado de A0.1-1; sin schema; NO integrada; codex-reports/P2_T56_R3A_I3_CAJA_INVENTARIO.md)
 P2_T56_R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-07: smoke manual representativo del operador PASS — 14 checks en TESTING con modo OFF — sobre cobertura automática y real-DB 233/0; modo nunca activado; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §17; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: F2+F3 integradas por fast-forward 134c785..ed009f3, deploy 265e65c5 SUCCESS; re-verificación real-DB 233 pass / 0 fail / 0 P2028 — F2 route.variantes 9/9, F3 mesa 72/72, timeouts de estado no reproducidos, controles PASS; modo OFF, reservas_stock 0, sin residuos; advertencia: menor latencia que en §13; falta smoke manual; antes I2-F3 2026-10-07: branch work/p2-t56-r3-stock-lifecycle-i2-f3 sobre F2 8bc2d7d — la transacción Serializable de cancelación de mesa recibe las mismas constantes maxWait 5 s / timeout 15 s; las otras 5 cancelaciones sin cambios; NO integrada; bloqueo real-DB abierto hasta re-verificar F2+F3; antes I2-F2 2026-10-06: maxWait 5 s / timeout 15 s explícitos en runStockSerializable, branch work/p2-t56-r3-stock-lifecycle-i2-f2 sobre 134c785, NO integrada; el bloqueo real-DB sigue abierto hasta re-verificar; clasificación corregida: 3 conexión + 2 no-I2 + 2 runStockSerializable + 4 sin atribuir + 4 cancelación de mesa; antes DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED: fast-forward cc628e0..8c43661, deploy ca6bfc4e SUCCESS, modo OFF, reservas_stock 0; real-DB 211 pass / 15 fail — latencia de conexión del cliente local + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE; esperando decisión del operador; antes: branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (fast-forward 8b404f3..e0a0c0e; deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING; reservas_stock vacía; modo OFF)
 P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (P0 489d55b + P0-F1 ef04b04; MANUAL_CERTIFICATION=PASS 2026-10-05 — Operaciones/Negocio Salón/ticket/producto simple PASS tras F1; selector/carrito ya aprobados)
-TESTING_CODEX_HEAD=8d472de0cb9cae803ce502c1a399739231e16dea (… + I2 0e3b2a3 + I2-F1 8c43661 + blocker docs 134c785 + F2 8bc2d7d + F3 ed009f3 + F2/F3 verification docs 8d472de) + the I2 certification closeout docs commit on top. Functional head ed009f3. P0 functional source = 489d55b + ef04b04.
+TESTING_CODEX_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25 (… + F3 ed009f3 + I2 docs 8d472de + I2 closeout 1334e67 + I3 8ff7d0b) + the I3 TESTING integration docs commit on top. Functional head 8ff7d0b. P0 functional source = 489d55b + ef04b04.
 PRODUCTION_TOUCHED=NO
 
 T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
@@ -27,7 +27,7 @@ T56_GENERIC_BUSINESS_OPERATIONS_NOW_INCLUDES=
   automáticamente.
 
 ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
-  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_IMPLEMENTED_ON_BRANCH —
+  P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE —
   auditoría + diseño A0 y hardening A0.1 terminados. R3A-P0 (paridad de variantes
   en pedidos manuales de Mozo: selector, precio de variante server-side, snapshot
   productoVarianteId/varianteNombre, sin schema, sin tocar stock) integrada a
@@ -50,7 +50,8 @@ ORDER_STOCK_LIFECYCLE (P2-T56-R3A)=
   re-verificación real-DB quedó limpia (§16); el smoke manual representativo del
   operador dio PASS → R3A-I2 CLOSED_TESTING_CERTIFIED (modo OFF, §17). R3A-I3 (Caja e
   Inventario respetan reservas ACTIVA; AJUSTE deficitario con confirmación previa)
-  IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION en su branch (2026-10-08)
+  integrada a testing-codex (8ff7d0b) y desplegada en TESTING con modo OFF; real-DB y
+  concurrencia venta/venta PASS; esperando smoke manual (2026-10-08)
   (codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md §19)
   (codex-reports/P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md). El lifecycle de stock
@@ -107,8 +108,8 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (I3 testing-codex integration requires explicit operator authorization)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_TESTING_INTEGRATION_AUTHORIZATION
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (operator manual smoke of I3 in mode OFF)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE
 ```
 
 T56 (Generic Business Operations) queda `CLOSED_TESTING_CERTIFIED` en toda
@@ -129,7 +130,7 @@ TESTING (2026-10-01) con la corrección de display P0-F1 (2026-10-02), y P0 qued
 `CLOSED_TESTING_CERTIFIED` tras la recertificación manual (2026-10-05); el
 lifecycle de stock tiene I1 CLOSED_TESTING_VERIFIED e I2 (+ I2-F1) desplegada en
 TESTING con modo OFF y CLOSED_TESTING_CERTIFIED tras el smoke manual (2026-10-07); I3
-implementada en su branch (no integrada, 2026-10-08); I4–I5 siguen sin implementar. No se
+desplegada en TESTING con modo OFF, esperando smoke manual (2026-10-08); I4–I5 siguen sin implementar. No se
 inicia ninguna ronda nueva de T56 automáticamente. El hilo independiente
 P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue
