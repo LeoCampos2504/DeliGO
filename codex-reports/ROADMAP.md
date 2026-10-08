@@ -11,6 +11,7 @@ P2_T56_R2C_F1_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R2C_F2_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3B_STATUS=CLOSED_TESTING_CERTIFIED
 P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_NOT_STARTED (R3A no está cerrada; I4 = próxima fase, pendiente de autorización; I5 = activación ON + certificación con reservas reales, pendiente)
+P2_T56_R3A_I4_STATUS=DISCOVERY_COMPLETE_NOT_IMPLEMENTED (2026-10-08: auditoría READ-ONLY de catálogo/carrito/checkout + backlog futuro de negocios genéricos y lector de códigos de barras; 6 decisiones de producto pendientes; ver sección FUTURE BACKLOG — Negocios genéricos)
 P2_T56_R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-08, TESTING modo OFF: smoke manual 5 PASS / 0 FAIL / 1 NOT_AVAILABLE (líneas repetidas, no disponible desde la UI usada) + real-DB + automáticos; limitaciones: líneas repetidas y rubros no genéricos sin real-DB, AJUSTE con reservas reales → I5; reporte §12; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: fast-forward 1334e67..8ff7d0b, deploy d82631a2 SUCCESS; real-DB Caja 21/21, Movimientos 13/13, concurrencia venta/venta real PASS, regresión I2 234/0; sin residuos; modo OFF; falta smoke manual; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION: branch work/p2-t56-r3-stock-lifecycle-i3 sobre 1334e67; Caja y Movimientos respetan reservas ACTIVA vía la autoridad, independiente del modo; Caja agrega líneas repetidas y registra un movimiento por clave; SALIDA bloqueada si físico posterior < reservado; AJUSTE deficitario con confirmación PREVIA por huella recalculada en el servidor — refinamiento aprobado de A0.1-1; sin schema; NO integrada; codex-reports/P2_T56_R3A_I3_CAJA_INVENTARIO.md)
 P2_T56_R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-07: smoke manual representativo del operador PASS — 14 checks en TESTING con modo OFF — sobre cobertura automática y real-DB 233/0; modo nunca activado; codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §17; antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE: F2+F3 integradas por fast-forward 134c785..ed009f3, deploy 265e65c5 SUCCESS; re-verificación real-DB 233 pass / 0 fail / 0 P2028 — F2 route.variantes 9/9, F3 mesa 72/72, timeouts de estado no reproducidos, controles PASS; modo OFF, reservas_stock 0, sin residuos; advertencia: menor latencia que en §13; falta smoke manual; antes I2-F3 2026-10-07: branch work/p2-t56-r3-stock-lifecycle-i2-f3 sobre F2 8bc2d7d — la transacción Serializable de cancelación de mesa recibe las mismas constantes maxWait 5 s / timeout 15 s; las otras 5 cancelaciones sin cambios; NO integrada; bloqueo real-DB abierto hasta re-verificar F2+F3; antes I2-F2 2026-10-06: maxWait 5 s / timeout 15 s explícitos en runStockSerializable, branch work/p2-t56-r3-stock-lifecycle-i2-f2 sobre 134c785, NO integrada; el bloqueo real-DB sigue abierto hasta re-verificar; clasificación corregida: 3 conexión + 2 no-I2 + 2 runStockSerializable + 4 sin atribuir + 4 cancelación de mesa; antes DEPLOYED_TESTING_MODE_OFF_REAL_DB_VERIFICATION_BLOCKED: fast-forward cc628e0..8c43661, deploy ca6bfc4e SUCCESS, modo OFF, reservas_stock 0; real-DB 211 pass / 15 fail — latencia de conexión del cliente local + I2_INTERACTIVE_TX_DEFAULT_TIMEOUT_EXPOSURE; esperando decisión del operador; antes: branch work/p2-t56-r3-stock-lifecycle-i2 sobre cc628e0; runtime reserva/consumo/liberación en src/lib/stock-lifecycle.ts; wiring 2/2 + 6/6 + 6/6; modo OFF sin cambios; sin migración; NO integrada; tag de seguridad r3a-i1-testing-verified → cc628e0; I2-F1 2026-10-06: negocio genérico + línea controlada SIEMPRE Serializable, modo leído sólo dentro de la tx (cerró la carrera OFF→ON de la prelectura exterior); codex-reports/P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md §12)
 P2_T56_R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (fast-forward 8b404f3..e0a0c0e; deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS; migración 20261005120000_add_order_stock_reservations_base_p2_t56_r3a_i1 aplicada en TESTING; reservas_stock vacía; modo OFF)
@@ -142,6 +143,135 @@ P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue
 pausada, T52 Fase 4 sigue diferida, T33/T37 siguen secuenciadas — sin
 cambios respecto del snapshot A1 anterior.
+
+## FUTURE BACKLOG — Negocios genéricos (aprobado por el operador, 2026-10-08) · R3A-I4 discovery
+
+Funcionalidades **aprobadas para después del bloque R3A**. No están autorizadas para implementarse ahora: cada una necesita su propia auditoría y autorización. Alcance: negocios con `rubro = "negocio"`, salvo que la fase diga otra cosa.
+
+### R3A-I4 — discovery (READ-ONLY, sin implementación)
+
+```text
+P2_T56_R3A_I4_STATUS=DISCOVERY_COMPLETE_NOT_IMPLEMENTED (2026-10-08; NO STARTED, NO IMPLEMENTED)
+P2_T56_R3A_I5_STATUS=NOT_STARTED
+I4_SURFACES=catálogo público src/app/n/[slug]/page.tsx (re-exportado por src/app/cliente/n/[slug]/page.tsx; Mesa/QR = misma página con ?mesa=N);
+  GET /api/negocios/[slug]; carrito persistido src/store/cart-store.ts (deligo-cart-v2) + src/components/cart/cart-panel.tsx (checkout → POST /api/pedidos);
+  helper cliente src/lib/client-product-variants.ts; PUT /api/cliente/pedidos/[id]/repetir;
+  secciones de producto en GET /api/cliente/promociones y GET /api/negocios/promocionados (enlazan a /n/[slug]?productoId=)
+CURRENT_PUBLIC_AVAILABILITY=variantes: físico crudo (controlStock + stockCantidad) y el cliente decide stockCantidad > 0;
+  producto SIN variantes: sólo el toggle manual `stock` (controlStock/stockCantidad nunca se exponen → un producto controlado con 0 unidades sigue comprable);
+  ningún punto lee ReservaStock; el carrito no tiene tope de cantidad; un 409 de stock en el checkout se muestra genérico (sin producto ni disponible) y no refresca el carrito
+PROPOSED_PUBLIC_AVAILABILITY=A0.1-15 paso 1: stockDisponible: number | null por variante activa y por producto sin variantes (null si controlStock=false),
+  calculado en el servidor con la autoridad (1 groupBy de ReservaStock ACTIVA por negocio — sin N+1); el cliente decide con stockDisponible;
+  tope por CLAVE de stock en el carrito (las líneas con distintos agregados/secciones comparten la misma clave); 409 con detalle por clave → mensaje claro + refetch del catálogo;
+  repetir usa disponible; stockCantidad se quita en el paso 2 (follow-up)
+OFF_MODE_REALITY=con OFF ningún pedido descuenta físico (no hay reservas que consumir) → "disponible" = físico y sólo Caja/Inventario lo mueven;
+  ocultar en la UI o validar cada pedido contra el físico NO evita la sobreventa acumulada entre pedidos — eso sólo lo da ON (I5)
+```
+
+**Decisiones de producto pendientes antes de implementar I4:**
+
+1. **Validación del servidor con modo OFF.** La pregunta: ¿`POST /api/pedidos` rechaza, para negocio genérico + línea controlada, lo pedido por encima del disponible (= físico con OFF, incluido el producto base) en cualquier modo? ¿O OFF queda exactamente como lo certificó I2 y la validación sólo rige con ON?
+   - Validar en OFF cambia el contrato OFF de I2.
+   - Aun así, en OFF sólo frena una orden individual, no la suma de varias.
+2. **Producto agotado:** ¿se oculta del catálogo (pedido del operador) o se muestra "Sin stock" no comprable? ¿Y los productos con el toggle manual `stock=false`?
+3. **Variante agotada:** ¿se oculta, o se muestra deshabilitada con "Sin stock" (comportamiento actual)?
+4. **¿Se muestra "Quedan N" al cliente o sólo se aplica el tope?** A0.1 ya decidió exponer el número derivado, no el físico.
+5. **Carrito guardado por encima del disponible al reabrir:** ¿se ajusta automáticamente o se avisa y se bloquea el checkout hasta corregir?
+6. **Secciones "promociones" / "promocionados":** ¿ocultan los productos agotados?
+
+**Plan resumido de I4** (detalle en el informe de discovery del 2026-10-08):
+
+- **Autoridad:** helper read-only de disponibilidad por negocio en `src/lib/stock-lifecycle.ts`; ningún route accede a ReservaStock.
+- **API pública:** `GET /api/negocios/[slug]` (+ `stockDisponible`, sólo rubro "negocio").
+- **Cliente:** `client-product-variants.ts` (decide con `stockDisponible`), `n/[slug]/page.tsx` (ocultar o deshabilitar según las decisiones 2 y 3; tope del selector), `cart-store.ts` / `cart-panel.tsx` (tope por clave, revalidación al abrir, 409 con detalle + refetch).
+- **Servidor:** `repetir` con disponible; `StockInsufficientError` con detalle por clave.
+- **Tests:** unitarios, routes, contratos y real-DB de la API pública (forma `toEqual` en `negocios/[slug]/route.test.ts`); smoke manual Cliente + Mesa.
+- **Rollback:** revert, sin schema.
+
+### Funcionalidades futuras (agrupadas)
+
+```text
+FUTURE_GENERIC_BUSINESS_FEATURES (orden ≠ prioridad salvo la indicada):
+F1  VENTA_POR_PESO — precio por kg + venta en gramos (ej.: queso $20.000/kg, 200 g → $4.000): unidades y conversiones, cantidades
+    decimales, peso solicitado vs peso real entregado y recálculo de la diferencia, Caja, pedidos comunes y de mesa, Inventario;
+    a evaluar: etiquetas de balanza con peso/precio embebido.
+    Relación: el schema ya guarda stockCantidad / VentaItem.cantidad / MovimientoInventario / ReservaStock como Float (pensado para
+    kg/litro), pero PedidoItem.cantidad es Int y la UI/validación asumen unidades enteras.
+    CORRECCIÓN de un hallazgo lateral de I3: "Caja acepta cantidades fraccionarias → 500" era INCORRECTO; las columnas son Float,
+    así que Caja hoy ACEPTA y PERSISTE fracciones sin una regla de producto (follow-up: definir unidad por producto y validar enteros
+    salvo productos por peso).
+F2  FIADOS / CUENTAS CORRIENTES — clientes locales del comercio, ventas fiadas, saldo, historial de retiros, pagos parciales y
+    totales, movimientos, estado de cuenta, integración con Caja e Inventario, permisos.
+    REGLA: la venta fiada descuenta stock al entregar; el pago posterior reduce la deuda, nunca genera otra venta ni vuelve a
+    descontar stock.
+F3  CONSULTA PRIVADA DE CUENTA CORRIENTE — el comercio crea la cuenta y entrega un enlace o QR privado; el cliente sólo
+    consulta (saldo, fiados, pagos), sin contraseña ni registro, sin poder modificar ni ver cuentas ajenas.
+    Token secreto de alta entropía (nunca un nombre público como único mecanismo), revocable y regenerable.
+    A auditar: separación estricta por negocio, tokens no predecibles, almacenamiento seguro (hash), privacidad del enlace,
+    controles anti-acceso ajeno, caché privada/no compartida, rate limiting, revocación y rotación.
+    Sin autenticación por contraseña para estos clientes.
+F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devolución de dinero, ajuste de stock cuando
+    corresponda, historial y trazabilidad (hoy no existe ningún camino de anulación de Venta).
+F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
+F6  ALERTAS DE REPOSICIÓN — stock mínimo (el campo stockMinimo ya existe en Producto y en Variante), alertas de pocas unidades,
+    listado y prioridades de reposición.
+F7  CIERRE DE CAJA — apertura, efectivo esperado vs contado, transferencias, diferencias, cierre, historial por responsable.
+F8  PROMOCIONES Y DESCUENTOS (módulo genérico) — ofertas, combos, descuentos por cantidad, promociones con fecha, integración
+    con Caja y pedidos (amplía, sin duplicar, el modelo actual de descuento por producto y Promocion).
+F9  CÓDIGOS DE BARRAS CON CÁMARA — PRIORITARIA dentro de este backlog (ver BARCODE_CAMERA_RESEARCH abajo).
+F10 TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
+    digital. Ticket interno ≠ facturación fiscal electrónica.
+DEPENDENCIAS RECOMENDADAS=
+  - terminar R3A-I4/I5 antes de ampliar el módulo;
+  - resolver cantidades decimales (unidad por producto) antes de F1;
+  - definir la identidad de clientes locales antes de F2/F3;
+  - auditar el modelo de productos/variantes/códigos antes de F9;
+  - auditar la integridad contable antes de F4 y F7.
+```
+
+### Investigación — lector de códigos de barras con cámara (F9)
+
+```text
+BARCODE_CAMERA_FEASIBLE=YES (con fallback manual obligatorio y certificación física)
+RECOMMENDED_SCANNER_LIBRARY=API estándar BarcodeDetector cuando exista (Chrome Android, Samsung Internet) + ponyfill
+  `barcode-detector` (MIT, ZXing-C++ WASM, v3.2.2, mantenido 08/2026; WASM servido desde DeliGO, no desde CDN) para iOS y el
+  resto, con UNA sola interfaz de detección; alternativa: @zxing/browser (v0.2.1, activo 07/2026; decodeFromVideoDevice +
+  controls.stop/switchTorch).
+  html5-qrcode descartado: en modo mantenimiento, busca dueños, último publish 04/2023.
+BARCODE_DETECTION_API=experimental, sólo contexto seguro (HTTPS); Chrome Android y Samsung Internet sí; Safari iOS/macOS
+  presente pero DESHABILITADO por defecto; Firefox no → nunca asumir soporte, detectar con getSupportedFormats()
+FORMATS_REQUIRED=ean_13, ean_8, upc_a, upc_e, code_128 (cubiertos por la API y por ambas librerías)
+IPHONE_SAFARI_SUPPORT=PROBABLE vía ponyfill + getUserMedia (cámara trasera con facingMode "environment") — sin certificar
+IPHONE_INSTALLED_PWA_SUPPORT=RIESGO DOCUMENTADO: bugs de WebKit en apps de pantalla de inicio (cámara que se corta o congela,
+  video rotado en iOS/iPadOS 26) → certificación física obligatoria; plan B: abrir el escáner en Safari o carga manual
+ANDROID_BROWSER_SUPPORT=PROBABLE (BarcodeDetector nativo) — sin certificar
+ANDROID_INSTALLED_PWA_SUPPORT=PROBABLE — sin certificar
+PWA_RULES=sólo HTTPS; la cámara se abre únicamente por acción del usuario; un solo lector a la vez; detener todas las pistas
+  (track.stop) al cerrar o cambiar de pantalla; ignorar lecturas repetidas consecutivas (debounce por valor); linterna si
+  MediaTrackCapabilities.torch; estados "cámara no disponible" y "permiso denegado"; ingreso manual siempre disponible;
+  decodificación LOCAL: no se guardan fotos ni se envía video al servidor
+PRODUCT_CREATION_SCAN_FLOW=Escanear → completar codigoBarras → buscar coincidencia EXACTA en productos y variantes del MISMO negocio
+  → si existe, avisar y ofrecer abrirlo; si no, seguir el alta con el código precargado (nombre/marca/precio los completa el
+  operador; leer el código no los trae)
+POS_SCAN_FLOW=Escanear → búsqueda EXACTA en el catálogo autorizado del negocio (producto o variante) → si existe, se agrega con
+  su precio vigente y respetando control de stock / disponible (I3); si no, "código no registrado" + búsqueda alternativa;
+  nunca se crea un producto al vender
+EXISTING_BARCODE_MODEL=Producto.codigoBarras String? y ProductoVariante.codigoBarras String? (además sku String?) — texto, conserva
+  ceros iniciales; SIN índice y SIN unicidad; Caja e Inventario buscan por substring (product-variant-search.ts, R3B)
+SCHEMA_CHANGE_LIKELY=YES (futuro, no ahora): índice para búsqueda exacta por código dentro del negocio + regla anti-duplicado
+  por negocio entre Producto y ProductoVariante (validación en la app y/o columna normalizada); normalizar a dígitos
+  (validar el dígito verificador EAN/UPC) sin perder ceros
+VARIANT_BARCODE_STRATEGY=código en la variante cuando el producto tiene variantes; el código del padre queda dormido (misma
+  exclusión que el stock)
+TENANT_ISOLATION_STRATEGY=toda búsqueda acotada por negocioId de la sesión; el mismo código comercial puede existir en negocios
+  distintos sin compartir datos ni precios
+USB_BLUETOOTH_READER=compatible a futuro como "teclado" (entrada rápida + Enter) sobre el mismo campo y la misma búsqueda exacta
+EXTERNAL_CATALOG_REQUIRED=NO — Open Food Facts es opcional a futuro: ODbL (atribución + share-alike, mezclar datos obliga a
+  reabrirlos), imágenes CC BY-SA, User-Agent obligatorio, límites de ~15 req/min (producto) y ~10 req/min (búsqueda) por IP,
+  cobertura en Argentina sin verificar; precio y stock siempre son del comercio
+PHYSICAL_DEVICE_TESTING_REQUIRED=YES (iPhone Safari, iPhone PWA instalada, Android Chrome, Android PWA instalada)
+IMPLEMENTATION_STATUS=DEFERRED
+```
 
 ## PRECEDING SNAPSHOT — P2-T54-A1 technical audit and design (2026-09-27; superseded as the "current" pointer by the P2-T56-R2C closeout above — T54-R1 itself, built on top of this A1 design, remains independently open and unresolved, see above)
 
