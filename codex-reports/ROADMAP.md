@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked by M3/M6 post-smoke evidence gap; F10 (Operaciones, turnos de Caja y control financiero) documented as PLANNED_NOT_STARTED (2026-10-08)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -129,8 +129,10 @@ CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
 F9_BARCODE_SCANNER_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: F9 implementada — escaneo continuo en Caja sobre el carrito y checkout existentes + captura por cámara en los 3 campos de código de Inventario + unicidad atómica por negocio (409 CODIGO_BARRAS_DUPLICADO); commits 85e701b · 3e687b2 · 306f34a por fast-forward 5fbfc60..306f34a; deploy TESTING c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS (commit match); tests F9 100/0; sin schema ni migraciones; R3A sin cambios; modo ON; Production sin cambios. F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR — ver codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12)
-NEXT_PRIORITY_TASK=F9_PHYSICAL_SMOKE (smoke físico del operador M1–M6 en los dispositivos disponibles)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F9_PHYSICAL_SMOKE
+F9_CERTIFICATION_BLOCKER=POST_SMOKE_EVIDENCE_GAP (2026-10-08, verificación READ-ONLY posterior al smoke informado 6/6 PASS + iPhone Safari/iPhone PWA/Android Chrome/Android PWA OK: la actividad de Inventario M5 SÍ aparece en TESTING; NO hay ventas de Caja posteriores al deploy F9 ni requests a /api/negocio/caja/ventas en los logs del período (20:33Z–22:38Z) → sin evidencia del cobro M3 ni del intento de sobreventa con reservas M6; reservas ON, 0 ACTIVA, sin stock negativo ni ventas duplicadas; Production sin cambios. Último RESULT=F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP. Pendiente: el operador confirma en qué entorno hizo M3/M6 o repite sólo esos pasos en TESTING. F9 NO está cerrado ni certificado; la planificación F10 no lo desbloquea)
+F10_STATUS=PLANNED_NOT_STARTED (2026-10-08: especificación funcional documentada en "### F10 — Operaciones, turnos de Caja y control financiero" más abajo; NO implementado, NO autorizado, ninguna etapa iniciada)
+NEXT_PRIORITY_TASK=RESOLVE_F9_M3_M6_EVIDENCE_GAP (luego el operador decide cuándo autoriza F10-A; F10 PLANNED_NOT_STARTED, sin desarrollo funcional sin nueva autorización)
+NEXT_ACTION=RESOLVE_F9_M3_M6_EVIDENCE_GAP_THEN_RETURN_TO_OPERATOR_FOR_F10_A_AUTHORIZATION
 OPEN_FOLLOWUPS_FROM_I5=FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE · FOLLOWUP_STOCK_OPS_CLI_PRISMA_LOG_NOISE · visibilidad Físico/Reservado/Disponible en Inventario · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (+99 filas R9)
 OPEN_FOLLOWUPS_FROM_I4=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN · promocionados genérico sin real-DB · A0.1-15 paso 2 · promociones sin filtro eliminado
 ```
@@ -248,22 +250,119 @@ F3  CONSULTA PRIVADA DE CUENTA CORRIENTE — el comercio crea la cuenta y entreg
 F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devolución de dinero, ajuste de stock cuando
     corresponda, historial y trazabilidad (hoy no existe ningún camino de anulación de Venta).
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
+    → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
+      de proveedores siguen en F5 (frontera exacta a definir en F10-A).
 F6  ALERTAS DE REPOSICIÓN — stock mínimo (el campo stockMinimo ya existe en Producto y en Variante), alertas de pocas unidades,
     listado y prioridades de reposición.
 F7  CIERRE DE CAJA — apertura, efectivo esperado vs contado, transferencias, diferencias, cierre, historial por responsable.
+    → 2026-10-08: alcance ABSORBIDO y ampliado por F10-B (turnos + cierre ciego) — absorción pendiente de confirmación del operador.
 F8  PROMOCIONES Y DESCUENTOS (módulo genérico) — ofertas, combos, descuentos por cantidad, promociones con fecha, integración
     con Caja y pedidos (amplía, sin duplicar, el modelo actual de descuento por producto y Promocion).
 F9  CÓDIGOS DE BARRAS CON CÁMARA — IMPLEMENTADA Y DESPLEGADA EN TESTING 2026-10-08, PENDIENTE SMOKE FÍSICO (ver F9_BARCODE_SCANNER_STATUS arriba y BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
     captura el NÚMERO del código para cargarlo o buscarlo en codigoBarras; sin catálogos externos ni reconocimiento de imágenes.
-F10 TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
+F11 (antes F10) TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
     digital. Ticket interno ≠ facturación fiscal electrónica.
+    → 2026-10-08: identificador F10 reasignado por el operador a "Operaciones, turnos de Caja y control financiero"; este ítem se
+      conserva intacto con el número provisorio F11 (renumeración pendiente de confirmación del operador).
+F10 OPERACIONES, TURNOS DE CAJA Y CONTROL FINANCIERO — PLANNED_NOT_STARTED (ver sección F10 abajo).
 DEPENDENCIAS RECOMENDADAS=
   - terminar R3A-I4/I5 antes de ampliar el módulo;
   - resolver cantidades decimales (unidad por producto) antes de F1;
   - definir la identidad de clientes locales antes de F2/F3;
   - auditar el modelo de productos/variantes/códigos antes de F9;
-  - auditar la integridad contable antes de F4 y F7.
+  - auditar la integridad contable antes de F4 y F7;
+  - F10: auditoría técnica F10-A antes de cualquier etapa; resolver la brecha de evidencia de F9 antes de integrar el lector en
+    Operaciones; idempotencia del checkout de Caja (hoy inexistente) antes de vincular cobros a turnos.
 ```
+
+### F10 — Operaciones, turnos de Caja y control financiero para negocios genéricos
+
+```text
+F10_STATUS=PLANNED_NOT_STARTED (documentado 2026-10-08 por decisión del operador; NO implementado; NO autorizado para implementación;
+  ninguna etapa iniciada; no crea código, schema, migraciones ni datos)
+F10_SCOPE=negocios genéricos (rubro "negocio"); NO modifica flujos de Restaurante, Ropa ni Mozo sin análisis específico
+F10_NUMBERING=el operador asignó "F10" a este bloque; el ítem previo "F10 TICKETS Y COMPROBANTES" se conserva como F11 provisorio y
+  "F7 CIERRE DE CAJA" queda absorbido por F10-B (ambos pendientes de confirmación — ver DECISIONES PENDIENTES)
+F9_RELATION=F10 reutilizará el lector F9; F9 sigue DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE con brecha de evidencia M3/M6 — esta
+  planificación NO desbloquea ni sustituye su certificación
+R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON en TESTING; F10 debe preservar sus autoridades
+```
+
+**Objetivo de negocio.** Convertir DeliGO en la herramienta diaria de mostrador de comercios chicos: registrar ventas, escanear códigos, controlar inventario, administrar turnos de empleados, controlar el efectivo, llevar cuentas y movimientos financieros, supervisar reposiciones e identificar diferencias de Caja. Para este segmento el valor principal no es necesariamente recibir pedidos online.
+
+**Segmento objetivo.** Almacenes pequeños, kioscos, minimercados familiares y comercios sencillos de mostrador. Muchos no tienen computadora en la Caja → experiencia **mobile-first** (PWA y navegador del teléfono) con soporte completo de escritorio.
+
+**Contexto comercial (no vinculante).** Restaurantes: comisión por pedidos según reglas vigentes. Ropa: catálogo gratuito en la etapa inicial para ampliar la oferta. Genéricos: idea preliminar de catálogo gratuito + abono mensual por las herramientas de gestión; referencia exploratoria ARS 9.900/mes y prueba de 45 días — **NO** son precios ni condiciones aprobadas. F10 **no** incluye suscripciones ni bloqueo por falta de pago.
+
+**Línea de base existente (verificada READ-ONLY, 2026-10-08) — para no confundir lo existente con lo propuesto:**
+- Caja: `Venta` = negocioId, total, `metodoPago` único (EFECTIVO | TRANSFERENCIA | OTRO), cantidadItems, createdAt; **sin** referencia a empleado, turno, remitente ni pagos mixtos. `POST/GET /api/negocio/caja/ventas` sólo aceptan la sesión del negocio (un empleado no puede vender por Caja hoy). El checkout **no** tiene clave de idempotencia. Precio de servidor, aislamiento por negocio, transacción Serializable y validación R3A sí existen.
+- Inventario: `POST /api/negocio/inventario/movimientos` (ENTRADA/SALIDA/AJUSTE, sólo sesión del negocio) aplica el stock **inmediatamente**; no existe recepción pendiente de aprobación.
+- Empleados/Operaciones: `Empleado.rol` es texto libre (default "mozo"); existe un preset de rol "cajero" y el permiso `gestion_caja` ("ver resumen de ventas/cierre de caja") en `src/lib/empleado-permissions.ts`, pero **ninguna ruta de Caja los consume**; áreas operativas actuales: sin_asignar | mozo | salon | pyr. `CuentaOperativa` es identidad operativa de empleados, **no** una cuenta financiera (evitar colisión de nombres).
+- No existen modelos de turnos de Caja, movimientos de efectivo, cuentas financieras, proveedores, recepciones ni conciliación. No existe integración bancaria ni con el saldo de Mercado Pago.
+- F9 (lector) disponible en la Caja del panel del negocio; R3A con reservas ON en TESTING.
+
+#### Alcance funcional y decisiones APROBADAS por el operador (2026-10-08)
+
+1. **Rol Cajero en DeliGO Operaciones.** Empleado de negocio genérico con el futuro rol `CAJERO` (nombres exactos de permisos/enums/entidades a definir tras F10-A). Pantalla principal centrada en Caja, simple y móvil: abrir turno · registrar ventas · escanear con F9 · registrar entradas de mercadería para revisión del dueño · registrar salidas de efectivo · consultar los movimientos de su propio turno · cerrar turno. Sin navegación administrativa innecesaria. **No** administra precios oficiales, stock oficial, otros empleados, cuentas financieras globales, saldo global de Mercado Pago, configuración, estadísticas completas ni turnos/movimientos de otros sin autorización. Permisos validados en el **servidor** (no sólo botones ocultos); aislamiento estricto por negocio. Los mecanismos existentes de Operaciones para otros rubros no se reemplazan. El dueño conserva el acceso administrativo y puede operar Caja con los mismos flujos (sin sistema paralelo).
+2. **Apertura de turno.** Registra negocio, cajero, Caja/terminal, fecha-hora, fondo inicial declarado y estado. Evita aperturas simultáneas incompatibles sobre la misma Caja física. No requiere al dueño presente; el dueño supervisa desde el panel. El fondo inicial entra al efectivo esperado **sin** registrarse como venta; puede provenir del turno anterior y el diseño debe impedir duplicar fondos entre turnos.
+3. **Ventas asociadas al turno.** Reutiliza la Caja oficial (ningún segundo motor de ventas). Cada venta guarda negocio, cajero, turno, fecha-hora, productos, cantidades, total, medio(s) de pago realmente soportados e identificadores oficiales. Mantiene validaciones de inventario, precios y reservas R3A; reutiliza F9 para escanear desde el celular. Cobros y movimientos financieros **idempotentes** (hoy el checkout no lo es → requisito nuevo). Efectivo afecta la Caja física; los cobros digitales pertenecen a las cuentas del negocio y **no** incrementan el efectivo del cajón.
+4. **Nombre de quien transfirió (cobros por Transferencia).** Al elegir Transferencia, campo "Nombre de quien transfirió", usable desde el celular; según el diseño que se apruebe también referencia/observación, identificador de operación y comprobante adjunto. Se guarda ligado a la **venta y al cobro específico** (no sólo al turno), con quién lo ingresó o corrigió. El dueño lo consulta con importe, fecha-hora, cajero, turno, venta, nombre informado y estado de revisión/conciliación, y puede buscar/filtrar por nombre, fecha e importe. Motivo: identificar transferencias declaradas por el cajero que el dueño no encuentra en su cuenta. Obligatoriedad (opcional / configurable) **no decidida**.
+5. **Distinción de seguridad.** Transferencia declarada ≠ transferencia acreditada; un comprobante mostrado por el cliente no prueba la acreditación. Estados conceptuales: cobro declarado/pendiente de conciliación · cobro comprobado/acreditado · diferencia detectada · revisión administrativa. Representación concreta a definir sin romper el flujo de ventas. **Sin** integración bancaria ni con Mercado Pago inventada; **sin** nuevo bloqueo automático del checkout (requiere análisis propio).
+6. **Salidas de efectivo inmediatas.** El cajero registra salidas **sin** autorización previa (proveedores que cobran en el momento: el control es posterior, no bloqueante). Ejemplos: pago de reposición, gasto operativo, entrega autorizada, otros egresos identificados. Cada movimiento guarda Caja y turno, cajero, importe, tipo, motivo, fecha-hora, medio y cuenta afectados, referencia a proveedor/recepción y comprobante si existen. Se descuenta **inmediatamente** del efectivo esperado del turno. El cajero no puede borrar ni reescribir movimientos confirmados. Revisión posterior del dueño: Sin revisar · Revisado · Observado (los estados **no** vuelven a descontar dinero). Alertas informativas configurables por importes elevados, sin bloqueo automático.
+7. **Recepción de mercadería pendiente de aprobación.** El cajero carga proveedor (si se conoce), productos, cantidades, fecha-hora, responsable, costos/importes si hay, observaciones y foto de factura/remito. Queda **PENDIENTE** y **no** incrementa el stock oficial. El dueño, en "Reposiciones pendientes", consulta, ve quién la registró, revisa, aprueba, rechaza o corrige cantidades con auditoría antes de aprobar. La aprobación aplica el stock de forma **atómica e idempotente** (dos aprobaciones simultáneas no duplican existencias), respetando la autoridad de Inventario y R3A. Recepción ≠ pago: la recepción aprobada incrementa stock; el pago disminuye dinero; una recepción puede estar pagada, parcialmente pagada o impaga (cuentas por pagar: etapa futura si no existe).
+8. **Cierre ciego.** El cajero finaliza operaciones, ingresa el efectivo contado, registra lo entregado al dueño/resguardo y el fondo que deja para el próximo turno, y confirma; **no** ve el esperado ni la diferencia. No requiere al dueño conectado. El cierre confirmado no se edita libremente. Vista del dueño: cajero, Caja, apertura, cierre, fondo inicial, ventas en efectivo, otras entradas de efectivo, salidas de efectivo, transferencias y ventas digitales por separado, efectivo esperado, declarado, diferencia (+/−), importe entregado, fondo dejado y estado de revisión. Diferencia visible sólo para roles administrativos. **Fórmula: efectivo esperado = fondo inicial + entradas reales de efectivo − salidas reales de efectivo** (sin transferencias ni cobros digitales). Sin doble conteo de fondos trasladados (ej.: entrega $80.000 y deja $20.000 → trazable; el fondo que recibe el siguiente cajero queda identificado y sujeto a revisión). Correcciones sólo por ajustes auditados que preservan los valores originales; sin ediciones silenciosas de cierres históricos.
+9. **Cuentas y movimientos del negocio (dueño).** Apartado independiente del turno. Cuentas iniciales: Efectivo/Caja y Mercado Pago; diseño extensible sin integraciones externas comprometidas. El dueño registra movimientos ajenos a ventas: pago a proveedor desde Mercado Pago, servicios, comisiones, retiro personal, ingreso de fondos, transferencia entre cuentas propias, ajustes justificados, cambios efectivo/transferencia. Cada movimiento guarda cuenta, tipo, importe, fecha-hora, responsable, descripción, origen/destino, operación vinculada, estado de conciliación, comprobante opcional y auditoría de correcciones. **Saldos = movimientos contabilizados/conciliados según el modelo elegido; NUNCA presentados como saldo real verificado de Mercado Pago** sin una integración que lo confirme (considerar pendientes de acreditación, comisiones, devoluciones, movimientos fuera de DeliGO y diferencias calculado vs real). Conciliación y ajustes controlados; los ajustes no son ventas ni alteran ventas sin auditoría. El cajero registra cobros digitales de sus ventas pero no ve el saldo global ni transfiere desde la cuenta del dueño.
+10. **Cambio de efectivo por transferencia y viceversa (objetivo aprobado).** Distinto de una transferencia interna. Caso A (cliente entrega $50.000 en efectivo y recibe transferencia): Efectivo +50.000 · Mercado Pago −50.000 · Ventas 0 · Gastos 0 (salvo cargos reales). Caso B (cliente transfiere $50.000 y recibe efectivo): Mercado Pago +50.000 una vez confirmada la acreditación · Efectivo −50.000 · Ventas 0. **Nunca** entregar efectivo basándose sólo en una captura o comprobante no verificado. Comisión opcional registrada aparte como ingreso por servicio, sin confundirla con ventas ni duplicar el movimiento entre cuentas. Datos previstos: tipo, importe en efectivo, importe transferido, cuenta origen y destino, contraparte informada, fecha-hora, responsable, turno/Caja si corresponde, comisión, comprobante/referencia, estado de confirmación/conciliación. Movimientos vinculados consistentes e idempotentes. **Pendiente:** si un cajero puede ejecutar cambios que envían fondos desde Mercado Pago o queda reservado al dueño (separado de la salida de efectivo, que sí está aprobada).
+11. **Transferencias entre cuentas propias.** Transferencia interna con sus dos partes; no genera ingreso por ventas ni gasto; sin duplicación en reportes; distinta de retiro personal, pago a proveedor, cambio con cliente y ajuste de conciliación.
+12. **Control del dueño y auditoría.** Consultas por cajero, fecha, turno, Caja, cuenta, tipo, proveedor, importe, nombre de quien transfirió, estado de revisión y de conciliación. Controles: cierres y diferencias, reposiciones pendientes, salidas de efectivo, pagos a proveedores, transferencias pendientes de conciliación, cambios efectivo/transferencia, ajustes, historial. Sin eliminaciones silenciosas ni alteraciones de dinero sin auditoría (quién, cuándo, por qué, valores originales). Información financiera sólo para usuarios autorizados del mismo negocio.
+
+#### Principios obligatorios para la implementación futura
+1 mobile-first sin perder escritorio · 2 ningún segundo motor de ventas · 3 reutilizar Caja, Inventario y F9 · 4 integridad de R3A · 5 aislamiento por negocio · 6 roles y permisos validados en servidor · 7 sin operaciones duplicadas · 8 diferenciar movimientos físicos, digitales y contables · 9 saldo calculado ≠ saldo bancario verificado · 10 no bloquear al cajero esperando al dueño para gastos cotidianos en efectivo · 11 aprobación del dueño para reposiciones de stock · 12 cierre ciego · 13 registro auditable de correcciones · 14 no tocar Restaurante/Ropa/Mozo sin análisis específico · 15 no asumir disponibilidad offline (riesgo documentado; decidir estrategia antes de permitir operaciones financieras sin conexión).
+
+#### Etapas (tentativas; ajustables tras F10-A sin omitir objetivos) — TODAS FUTURAS, NINGUNA INICIADA
+- **F10-A — Auditoría y diseño técnico** (sin cambios funcionales): autenticación y roles, DeliGO Operaciones, Caja y ventas, Inventario, R3A, movimientos financieros actuales, modelo de productos/variantes.
+- **F10-B — Rol Cajero y turnos:** asociación de empleados con rol Cajero, interfaz móvil de Operaciones, apertura, ventas vinculadas al turno, cierre ciego, entrega y continuidad de fondos, supervisión administrativa.
+- **F10-C — Salidas de efectivo y reposiciones:** salidas inmediatas, historial y revisión del dueño, registro de mercadería recibida, aprobación/rechazo, actualización atómica de stock, relación pago↔recepción.
+- **F10-D — Cuentas y conciliación:** cuentas del negocio, saldos calculados, ingresos y egresos, movimientos del dueño, conciliación de Mercado Pago (manual/controlada), remitente en cobros por transferencia, consulta de transferencias faltantes, ajustes auditados.
+- **F10-E — Cambios de efectivo y transferencias:** efectivo→transferencia, transferencia→efectivo, transferencias entre cuentas, comisiones opcionales, seguridad/permisos/confirmación de fondos, reportes sin doble contabilización.
+
+#### Dependencias
+- F10-A antes de cualquier etapa; cada etapa con autorización propia del operador.
+- F9: resolver la brecha de evidencia M3/M6 y certificar antes de habilitar el lector dentro de Operaciones.
+- Caja: ruta de autorización de empleados en el checkout (hoy sólo sesión del negocio) + idempotencia del cobro (hoy inexistente) antes de vincular ventas a turnos.
+- Pagos mixtos: hoy `Venta` tiene un único `metodoPago`; decidir si F10 los requiere.
+- Inventario/R3A: la aprobación de recepciones debe usar la autoridad de stock existente (Serializable + reservas ACTIVA).
+- Operaciones: auditar `Empleado.rol`/permisos/áreas y `CuentaOperativa` para no romper Mozo/Salón/PyR.
+- Almacenamiento de comprobantes/fotos (privado, por negocio) a definir.
+- Relación con F4 (anulaciones/devoluciones en el cierre), F5 (proveedores/cuentas por pagar) y F2 (fiados como medio de cobro).
+
+#### Riesgos
+- Conectividad: operación offline no soportada; operaciones financieras sin conexión requieren estrategia explícita.
+- Fraude/errores: transferencias declaradas no acreditadas, capturas falsas, efectivo entregado sin confirmación.
+- Doble conteo de fondos entre turnos o de cambios efectivo/transferencia en reportes.
+- Concurrencia: aprobaciones simultáneas de reposiciones, aperturas simultáneas de la misma Caja, contención Serializable ya conocida (FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE).
+- Fugas de permisos/datos financieros entre roles o negocios; datos personales (nombres de remitentes) — privacidad y retención.
+- Expectativa de "saldo real" de Mercado Pago sin integración; confusión ticket interno vs facturación fiscal.
+- Colisión de nombres con `CuentaOperativa`; usabilidad en teléfonos de gama baja.
+
+#### Criterios funcionales previstos para la futura aceptación (NO son pruebas aprobadas)
+1 un cajero abre y cierra su turno desde el celular · 2 las ventas quedan vinculadas al turno y al responsable · 3 el lector F9 puede usarse desde Operaciones cuando se habilite la integración · 4 el cajero registra salidas de efectivo sin aprobación previa · 5 esas salidas afectan el efectivo esperado de su Caja · 6 el dueño revisa cada salida después · 7 el cajero registra una reposición sin modificar el stock oficial · 8 al aprobar una reposición el stock aumenta exactamente una vez · 9 el cajero declara el efectivo contado sin ver el esperado · 10 el dueño consulta las diferencias de los cierres · 11 el cajero declara el fondo que deja al próximo turno · 12 los fondos trasladados entre turnos no generan ingresos ficticios · 13 el dueño registra movimientos de Mercado Pago sin depender de un cajero · 14 un cobro por transferencia permite identificar el nombre del remitente · 15 el dueño investiga transferencias no conciliadas · 16 un cambio de efectivo por transferencia no se contabiliza como venta · 17 una transferencia entre cuentas propias no se contabiliza como ingreso · 18 las comisiones reales se registran por separado · 19 auditoría y aislamiento por negocio en todas las operaciones · 20 los roles de otros rubros siguen funcionando como antes.
+
+#### Decisiones PENDIENTES (no inventar; requieren al operador o a F10-A)
+1. Si un cajero puede ejecutar cambios que envían fondos desde Mercado Pago o queda reservado al dueño.
+2. Nombre de quien transfirió: opcional, obligatorio o configurable por negocio; qué campos extra (referencia, id de operación, comprobante) entran.
+3. Representación de los estados declarado / acreditado / diferencia / revisión sin romper el flujo de ventas.
+4. Política del checkout ante transferencias no conciliadas (hoy: ningún bloqueo nuevo).
+5. Nombres de rol, permisos, enums y entidades; reutilizar o no el preset de rol "cajero" y `gestion_caja` existentes.
+6. Modelo de Caja/terminal física y regla exacta de aperturas simultáneas; si el dueño opera con turno propio.
+7. Pagos mixtos en una misma venta.
+8. Umbrales y canal de las alertas por importes elevados.
+9. Estrategia offline.
+10. Cuentas por pagar y pagos parciales a proveedores (F10 vs F5).
+11. Saldo inicial de cuentas y modelo de conciliación (manual) de Mercado Pago.
+12. Almacenamiento y privacidad de comprobantes/fotos.
+13. Confirmar la numeración: Tickets F10→F11 y absorción de F7 por F10-B.
+14. Precios, abono y período de prueba (fuera de F10; referencia ARS 9.900/mes y 45 días sólo exploratoria).
 
 ### Investigación — lector de códigos de barras con cámara (F9)
 

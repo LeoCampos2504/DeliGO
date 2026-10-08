@@ -1,12 +1,14 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification, R3A-I1 TESTING verification and R3A-I2 branch implementation (2026-10-05), R3A-I2-F1 mode-race hardening and R3A-I2 TESTING deployment mode OFF and R3A-I2-F2 timeout hardening on branch (2026-10-06), R3A-I2-F3 mesa cancellation timeout hardening on branch, F2+F3 TESTING integration + real-DB re-verification and R3A-I2 CLOSED_TESTING_CERTIFIED (2026-10-07), R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED mode ON — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08)
+## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification, R3A-I1 TESTING verification and R3A-I2 branch implementation (2026-10-05), R3A-I2-F1 mode-race hardening and R3A-I2 TESTING deployment mode OFF and R3A-I2-F2 timeout hardening on branch (2026-10-06), R3A-I2-F3 mesa cancellation timeout hardening on branch, F2+F3 TESTING integration + real-DB re-verification and R3A-I2 CLOSED_TESTING_CERTIFIED (2026-10-07), R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED mode ON — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked (M3/M6 evidence gap) · F10 documented PLANNED_NOT_STARTED (2026-10-08)
 
 ```text
-CURRENT_TASK=F9-BARCODE-CONTINUOUS-SCANNER (antes: P2-T56-R3A-I5-MANUAL-SMOKE-CLOSEOUT, CLOSED_TESTING_CERTIFIED)
-CURRENT_TASK_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE
-RESULT=F9_BARCODE_CONTINUOUS_SCANNER_DEPLOYED_TESTING
+CURRENT_TASK=F10-PLANNING-DOCUMENTATION (exclusivamente documental; antes: F9-BARCODE-CONTINUOUS-SCANNER)
+CURRENT_TASK_STATUS=DOCUMENTED
+RESULT=F10_ROADMAP_AND_CONTEXT_DOCUMENTED
+F10_STATUS=PLANNED_NOT_STARTED (ver "### F10 — síntesis" abajo y codex-reports/ROADMAP.md "### F10 — Operaciones, turnos de Caja y control financiero"; NO implementado, NO autorizado)
 F9_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: escaneo continuo en Caja sobre carrito/checkout existentes + captura por cámara en los 3 campos de Inventario + unicidad atómica por negocio 409 CODIGO_BARRAS_DUPLICADO; barcode-detector 3.2.2 con WASM servido por DeliGO; Permissions-Policy camera=(self); commits 85e701b · 3e687b2 · 306f34a, fast-forward 5fbfc60..306f34a; deploy c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS commit match; tests F9 100/0; sin schema; R3A sin cambios; modo ON; reporte codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md) · F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR
+F9_CERTIFICATION_BLOCKER=POST_SMOKE_EVIDENCE_GAP (2026-10-08, verificación READ-ONLY posterior al smoke informado 6/6 PASS + iPhone Safari/iPhone PWA/Android Chrome/Android PWA OK: la actividad de Inventario M5 SÍ aparece en TESTING; NO hay ventas de Caja posteriores al deploy F9 ni requests a /api/negocio/caja/ventas en los logs del período (20:33Z–22:38Z) → sin evidencia del cobro M3 ni del intento de sobreventa con reservas M6; reservas ON, 0 ACTIVA, sin stock negativo ni ventas duplicadas; Production sin cambios. Último RESULT=F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP. Pendiente: el operador confirma en qué entorno hizo M3/M6 o repite sólo esos pasos en TESTING. F9 NO está cerrado ni certificado; la planificación F10 no lo desbloquea)
 DELIGO_WORKTREE_POLICY=SINGLE_PHYSICAL_PROJECT_DIRECTORY (reaffirmed — todo el trabajo T56 R2A→R3B se ejecutó exclusivamente en C:\Leo Campos\Trabajo\deligo-main-limpio, sin crear worktree ni carpeta paralela)
 TASK_WORKTREES_ALLOWED=NO
 TESTING_CODEX_HEAD=e0a0c0e1a4c0ef84e82c517eaafd21ec3acb9965 (R3A A0/A0.1/P0/P0-F1 + P0 docs + I1 a28cf42 + I1-F1 e0a0c0e; functional deploy c8888200-902c-4c12-9a23-faf63595c66e SUCCESS) + I1 closeout docs commit cc628e0 + I2 0e3b2a3 + I2-F1 8c436616e72f52d2f000e49c05198c9655efee4a + blocker docs 134c785 + F2 8bc2d7d + F3 ed009f30c107fb527a0fa4d2d841e486938b2130 (fast-forward 2026-10-07; deploy 265e65c5-a6f9-4c0d-88e3-9a6a7c0f0a5a SUCCESS, commit match) + F2/F3 verification docs 8d472de + I2 closeout docs 1334e67 + I3 8ff7d0bc175666f47a3ea7fba055ade185471d25 (fast-forward 2026-10-08; deploy d82631a2-c873-47f8-b1c8-fb0bcff11975 SUCCESS, commit match) + I3 integration docs 28cef64 + I3 certification closeout docs 7a6d0af + I4 discovery docs a9ed8a4 + I4 dbf342b2ef428c3730292428e9ca749757cd181e (fast-forward 2026-10-08; deploy 6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS, commit match) + I4 integration docs 40ccaad (deploy fe86d801-559f-4696-86d1-3908cef1c624 SUCCESS) + I4 certification closeout docs 607ac04 (deploy 367d6e0f SUCCESS) + I5-P0 96a93b69ad8b4a696ef171f0692837727612fa93 (fast-forward 2026-10-08; deploy 9e267fe5-65fc-4b36-8ccc-3100ebc09c94 SUCCESS, commit match) + I5-P0 docs 7d29aa0 (deploy 22bf1264 SUCCESS) + I5 activation docs d691063 (deploy 349017fc SUCCESS; sin cambios de código en I5) + I5 certification closeout docs commit on top.
@@ -25,11 +27,59 @@ TESTING_CODEX_HEAD_F9=306f34a9f9c4ea9d34033f1e0d9a770e1c49b6d9 (F9, deploy c2015
 FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED (SALÓN TERMINAL — CIERRE DE CUENTA: en una Terminal Salón la cuenta activa de una mesa no muestra "Cerrar cuenta", mientras un empleado con rol Salón sí puede cerrarla; separado de T56 R3A I2; no investigado ni clasificado; auditar después del bloque actual: comportamiento esperado, permisos server-side, UI, endpoint y paridad empleado Salón vs Terminal Salón; no se asume que la Terminal deba tener ese permiso)
 FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE=OPEN (agregación por clave cubierta por mock + fake; sin prueba PostgreSQL real ni smoke manual — resolver antes de una futura promoción a Production) · FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE=OPEN (suites real-DB usan rubro "negocio"; Restaurante/Ropa cubiertos sólo por mocks/contratos) · FOLLOWUP_ROPA_STOCK_RESERVATIONS=FUTURE_STAGE (R3A limitado a rubro "negocio")
 STOCK_RESERVATION_MODE_TESTING=ON (2026-10-08; 0 ACTIVA tras el smoke) · PRODUCTION=sin cambios (main 42ca500; sin reservas en Production)
-FUTURE_GENERIC_BUSINESS_FEATURES=backlog aprobado en ROADMAP (F1 venta por peso · F2 fiados/cuentas corrientes · F3 consulta privada por enlace/QR · F4 devoluciones/anulaciones · F5 proveedores/compras · F6 alertas de reposición · F7 cierre de Caja · F8 promociones/descuentos · F9 códigos de barras con cámara — sólo captura el número, datos cargados a mano · F10 tickets/comprobantes); ninguna iniciada
-NEXT_PRIORITY_TASK=F9_PHYSICAL_SMOKE (smoke físico del operador M1–M6; no declarar PASS en dispositivos no probados)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F9_PHYSICAL_SMOKE
+FUTURE_GENERIC_BUSINESS_FEATURES=backlog aprobado en ROADMAP (F1 venta por peso · F2 fiados/cuentas corrientes · F3 consulta privada por enlace/QR · F4 devoluciones/anulaciones · F5 proveedores/compras · F6 alertas de reposición · F7 cierre de Caja · F8 promociones/descuentos · F9 códigos de barras con cámara — sólo captura el número, datos cargados a mano · F10 tickets/comprobantes); ninguna iniciada · 2026-10-08: F10 = OPERACIONES, TURNOS DE CAJA Y CONTROL FINANCIERO (PLANNED_NOT_STARTED); el ítem previo Tickets y comprobantes se conserva como F11 provisorio y F7 Cierre de Caja queda absorbido por F10-B (ambos pendientes de confirmación)
+NEXT_PRIORITY_TASK=RESOLVE_F9_M3_M6_EVIDENCE_GAP (luego el operador decide cuándo autoriza F10-A; F10 PLANNED_NOT_STARTED, sin desarrollo funcional sin nueva autorización)
+NEXT_ACTION=RESOLVE_F9_M3_M6_EVIDENCE_GAP_THEN_RETURN_TO_OPERATOR_FOR_F10_A_AUTHORIZATION
 REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F9_BARCODE_CONTINUOUS_SCANNER.md (R3A I4: codex-reports\P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md; I3: codex-reports\P2_T56_R3A_I3_CAJA_INVENTARIO.md; I2: codex-reports\P2_T56_R3A_I2_STOCK_LIFECYCLE_RUNTIME.md; I1: codex-reports\P2_T56_R3A_I1_STOCK_FOUNDATION.md; P0: codex-reports\P2_T56_R3A_P0_MOZO_VARIANT_PARITY.md; diseño R3A: codex-reports\P2_T56_R3A_ORDER_STOCK_LIFECYCLE_DESIGN.md; R3B: codex-reports\P2_T56_R3B_VARIANT_SEARCH.md; R2C: codex-reports\P2_T56_R2C_PRODUCT_VARIANTS.md)
 ```
+
+### F10 — síntesis (2026-10-08) · PLANNED_NOT_STARTED
+
+**Qué es.** El bloque futuro "Operaciones, turnos de Caja y control financiero" para negocios genéricos. Está documentado y aprobado como objetivo, pero NO implementado ni autorizado. Ninguna etapa está iniciada. El detalle completo está en `codex-reports/ROADMAP.md` → "### F10 — Operaciones, turnos de Caja y control financiero para negocios genéricos".
+
+**Por qué existe.** Almacenes, kioscos y minimercados familiares suelen no tener computadora en la Caja. Para ellos el valor de DeliGO es la gestión diaria del mostrador: ventas, escaneo, inventario, turnos de empleados, efectivo, cuentas, reposiciones y diferencias de Caja, más que recibir pedidos online. La experiencia es mobile-first (PWA y navegador) sin perder el escritorio. Comercialmente se piensa en catálogo gratuito y abono por gestión (referencia exploratoria ARS 9.900/mes y 45 días de prueba, NO aprobada). F10 no implementa suscripciones.
+
+**Qué problemas resuelve.** Sin F10, una venta no sabe qué empleado ni qué turno la hizo, y no hay cierre de Caja. No hay registro de salidas de efectivo, reposiciones aprobadas, cuentas del negocio ni forma de rastrear transferencias declaradas.
+
+**Cómo funcionará Operaciones para un negocio genérico.** Un empleado con el futuro rol CAJERO ve una pantalla centrada en Caja: abrir turno, vender (con el lector F9), registrar mercadería recibida, registrar salidas de efectivo, ver los movimientos de su turno y cerrar turno. Los permisos se validan en el servidor y no hay acceso a precios oficiales, stock oficial, empleados, cuentas globales, saldo de Mercado Pago ni configuración. Los flujos de Restaurante, Ropa y Mozo no cambian.
+
+**Qué hace el dueño.** Supervisa aperturas y cierres con sus diferencias, aprueba, rechaza o corrige reposiciones pendientes y revisa las salidas de efectivo (Sin revisar / Revisado / Observado). También lleva "Cuentas y movimientos" (Efectivo/Caja + Mercado Pago, extensible), registra pagos a proveedores, servicios, comisiones, retiros, ingresos, transferencias internas y ajustes auditados. Concilia transferencias y busca por cajero, fecha, turno, Caja, cuenta, tipo, proveedor, importe, remitente y estados. Puede operar Caja con los mismos flujos.
+
+**Inmediato vs revisión.**
+- **Inmediato:** las salidas de efectivo del cajero se registran sin autorización previa y descuentan el esperado al instante; el dueño las revisa después, y la revisión no vuelve a descontar.
+- **Requiere aprobación del dueño:** la recepción de mercadería. Mientras está pendiente no toca el stock oficial; al aprobarse se aplica una sola vez, de forma atómica.
+- **Cierre:** el cierre confirmado no se edita; sólo se corrige con ajustes auditados que preservan los valores originales.
+
+**Cierre ciego.** El cajero ingresa el efectivo contado, lo que entrega y el fondo que deja para el siguiente turno, sin ver el esperado ni la diferencia, y sin necesitar al dueño. El esperado es fondo inicial + entradas reales de efectivo − salidas reales de efectivo; no incluye transferencias ni cobros digitales. Los fondos trasladados entre turnos son trazables y no generan ingresos ficticios.
+
+**Mercado Pago.** Los saldos de DeliGO son calculados a partir de movimientos contabilizados y conciliados, y nunca se presentan como saldo real verificado de Mercado Pago, porque no hay integración. La conciliación y los ajustes son manuales y controlados. El cajero registra cobros digitales de sus ventas, pero no ve el saldo global ni transfiere desde la cuenta del dueño.
+
+**Nombre de quien transfiere.** Al cobrar por Transferencia se registra el nombre informado del remitente, ligado a la venta y al cobro. Sirve para que el dueño encuentre transferencias que el cajero declaró y que él no ve en su cuenta. Una transferencia declarada no es una transferencia acreditada (estados conceptuales: declarado/pendiente · acreditado · diferencia · revisión). No se agrega ningún bloqueo nuevo al checkout, y la obligatoriedad del campo no está decidida.
+
+**Cambios de efectivo, pagos y transferencias.**
+- **Cambio efectivo↔transferencia con un cliente:** mueve Efectivo y Mercado Pago en sentidos opuestos, no es venta ni gasto. Nunca se entrega efectivo por una captura no verificada, y la comisión, si existe, va aparte como ingreso por servicio.
+- **Transferencia entre cuentas propias:** dos partes, sin ingreso ni gasto.
+- **Pago a proveedor:** disminuye una cuenta y es distinto de la recepción, que aumenta stock.
+- **Retiro personal y ajuste de conciliación:** tipos propios.
+
+**Qué sigue sin aprobar.**
+- Si el cajero puede hacer cambios que envían fondos desde Mercado Pago.
+- Si el nombre del remitente es obligatorio.
+- Cómo se representan los estados declarado/acreditado, y qué política aplica el checkout ante transferencias no conciliadas.
+- Nombres de roles, permisos y entidades; modelo de Caja física y aperturas simultáneas; pagos mixtos.
+- Umbrales de alerta; estrategia offline; cuentas por pagar (F10 vs F5).
+- Saldo inicial y conciliación de Mercado Pago; almacenamiento de comprobantes.
+- Numeración (Tickets F10→F11, F7 absorbido por F10-B); precios y abono.
+
+**Dependencias antes de implementar.**
+- Autorización de F10-A (auditoría y diseño sin cambios funcionales) y luego de cada etapa (F10-B turnos y cierre ciego · F10-C salidas de efectivo y reposiciones · F10-D cuentas y conciliación · F10-E cambios efectivo/transferencia).
+- Cerrar la brecha de evidencia de F9 (M3/M6) antes de integrar el lector en Operaciones.
+- Agregar autorización de empleados e idempotencia al checkout de Caja: hoy sólo acepta la sesión del negocio y no tiene clave de idempotencia.
+- Respetar R3A (reservas ON).
+- Auditar Empleado.rol/permisos/áreas y CuentaOperativa (que es identidad operativa, no cuenta financiera).
+- Definir el almacenamiento de comprobantes.
+- Relación con F4, F5 y F2.
+
 
 ### T56 — Generic Business Operations: cierre completo (R1 → R2A → R2B → R2B-F1 → R2C → R2C-F1 → R2C-F2)
 
