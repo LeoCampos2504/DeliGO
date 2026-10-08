@@ -906,3 +906,336 @@ export async function contarReservasActivasProducto(
     where: { negocioId: params.negocioId, productoId: params.productoId, estado: "ACTIVA" },
   })
 }
+
+// ---------------------------------------------------------------------------
+// P2-T56-R3A-I5-P0 — Controlador auditado de modos (A0.1-9, A0.1-10 #12)
+// ---------------------------------------------------------------------------
+// ÚNICA autoridad que escribe ConfigPlataforma.stockReservaModo. Transiciones
+// permitidas: OFF→ON, ON→DRAINING, DRAINING→OFF (esta última sólo con 0
+// reservas ACTIVA, contadas DENTRO de la misma tx). Cualquier otra (ON→OFF,
+// OFF→DRAINING, misma→misma, ...) se rechaza sin escribir. El llamador corre
+// la función dentro de runStockSerializable: la lectura del modo, la
+// precondición, el CAS (id + modo + updatedAt) y el AuditLog se confirman
+// juntos o no se confirma nada. La carrera MODE vs RES (A0.1-10 #12) la
+// resuelve SSI: el planner lee el modo e inserta reservas en su propia tx
+// Serializable; esta tx cuenta ACTIVA y actualiza el modo → una de las dos
+// aborta (P2034, reintentada por runStockSerializable con relectura).
+// Sin endpoint ni UI: sólo lo invoca el comando interno
+// scripts/stock-reservation-mode.ts (dry-run por defecto).
+
+export const STOCK_MODE_ALLOWED_TRANSITIONS: ReadonlyArray<readonly [StockReservationMode, StockReservationMode]> = [
+  ["OFF", "ON"],
+  ["ON", "DRAINING"],
+  ["DRAINING", "OFF"],
+]
+
+export function isAllowedStockModeTransition(from: StockReservationMode, to: StockReservationMode): boolean {
+  return STOCK_MODE_ALLOWED_TRANSITIONS.some(([a, b]) => a === from && b === to)
+}
+
+export const STOCK_OPS_REASON_MIN_LENGTH = 10
+export const STOCK_ROLLBACK_MAX_IDS = 200
+
+/** Rechazo del controlador de modos / de la recuperación: nunca escribe nada. */
+export class StockOperationRejectedError extends StockLifecycleError {
+  constructor(code: string, message: string, details?: Record<string, unknown>) {
+    super(code, 409, message, details)
+    this.name = "StockOperationRejectedError"
+  }
+}
+
+export interface StockOperationActor {
+  /** SuperAdmin.id verificado (existente y activo) DENTRO de la tx. */
+  superAdminId: string
+  /** Texto obligatorio del operador (mínimo STOCK_OPS_REASON_MIN_LENGTH). */
+  reason: string
+  /** Referencia única de la operación (queda en el AuditLog). */
+  operationRef: string
+  /** Origen de la operación (p. ej. "cli:stock-reservation-mode"). */
+  source: string
+}
+
+function validarActorOperacion(actor: StockOperationActor): string[] {
+  const problems: string[] = []
+  if (!actor.superAdminId?.trim()) problems.push("ACTOR_REQUIRED")
+  if ((actor.reason ?? "").trim().length < STOCK_OPS_REASON_MIN_LENGTH) problems.push("REASON_TOO_SHORT")
+  if (!actor.operationRef?.trim()) problems.push("OPERATION_REF_REQUIRED")
+  if (!actor.source?.trim()) problems.push("SOURCE_REQUIRED")
+  return problems
+}
+
+async function actorSuperAdminActivo(reader: Tx, superAdminId: string): Promise<boolean> {
+  if (!superAdminId?.trim()) return false
+  const admin = await reader.superAdmin.findFirst({ where: { id: superAdminId, activo: true }, select: { id: true } })
+  return admin !== null
+}
+
+export interface StockModeTransitionRequest extends StockOperationActor {
+  /** Modo previo esperado: si el vigente es otro, se rechaza (estado desactualizado). */
+  from: StockReservationMode
+  to: StockReservationMode
+}
+
+export interface StockModeTransitionPreview {
+  currentMode: StockReservationMode | null
+  from: StockReservationMode
+  to: StockReservationMode
+  allowed: boolean
+  activeReservations: number
+  problems: string[]
+}
+
+/**
+ * READ-ONLY (dry-run): evalúa una transición sin escribir nada. Devuelve todos
+ * los problemas que harían rechazar la ejecución real.
+ */
+export async function evaluarCambioModoReservaStock(
+  reader: Tx,
+  request: StockModeTransitionRequest
+): Promise<StockModeTransitionPreview> {
+  const problems = validarActorOperacion(request)
+  const config = await reader.configPlataforma.findUnique({
+    where: { clave: PLATFORM_CONFIG_KEY },
+    select: { stockReservaModo: true },
+  })
+  const currentMode = parseStockReservationMode(config?.stockReservaModo)
+  const activeReservations = await reader.reservaStock.count({ where: { estado: "ACTIVA" } })
+  const allowed = isAllowedStockModeTransition(request.from, request.to)
+  if (currentMode === null) problems.push("MODE_INVALID")
+  else if (currentMode !== request.from) problems.push("STALE_EXPECTED_MODE")
+  if (!allowed) problems.push("TRANSITION_FORBIDDEN")
+  if (request.to === "OFF" && activeReservations > 0) problems.push("ACTIVE_RESERVATIONS")
+  if (request.superAdminId?.trim() && !(await actorSuperAdminActivo(reader, request.superAdminId))) problems.push("ACTOR_INVALID")
+  return { currentMode, from: request.from, to: request.to, allowed, activeReservations, problems }
+}
+
+export interface StockModeTransitionResult {
+  from: StockReservationMode
+  to: StockReservationMode
+  activeReservations: number
+  auditLogId: string
+}
+
+/**
+ * Ejecuta una transición de modo. DEBE correr dentro de runStockSerializable.
+ * Orden: validar request → actor activo → leer config → modo esperado →
+ * transición permitida → precondición (DRAINING→OFF: 0 ACTIVA) → CAS →
+ * AuditLog. Cualquier rechazo lanza StockOperationRejectedError antes de
+ * escribir; una falla posterior (CAS perdido, AuditLog) revierte la tx entera.
+ */
+export async function cambiarModoReservaStock(
+  tx: Tx,
+  request: StockModeTransitionRequest
+): Promise<StockModeTransitionResult> {
+  const inputProblems = validarActorOperacion(request)
+  if (!isStockReservationModeValue(request.from) || !isStockReservationModeValue(request.to)) inputProblems.push("MODE_VALUE_INVALID")
+  if (inputProblems.length > 0) {
+    throw new StockOperationRejectedError("STOCK_MODE_REQUEST_INVALID", "Solicitud de cambio de modo inválida", { problems: inputProblems })
+  }
+  if (!(await actorSuperAdminActivo(tx, request.superAdminId))) {
+    throw new StockOperationRejectedError("STOCK_MODE_ACTOR_INVALID", "El actor no es un SuperAdmin activo")
+  }
+  const config = await tx.configPlataforma.findUnique({
+    where: { clave: PLATFORM_CONFIG_KEY },
+    select: { id: true, stockReservaModo: true, updatedAt: true },
+  })
+  const current = parseStockReservationMode(config?.stockReservaModo)
+  if (!config || current === null) throw new StockReservationModeInvalidError()
+  if (current !== request.from) {
+    throw new StockOperationRejectedError("STOCK_MODE_STALE_EXPECTED", "El modo vigente no coincide con el esperado", {
+      expected: request.from,
+      current,
+    })
+  }
+  if (!isAllowedStockModeTransition(request.from, request.to)) {
+    throw new StockOperationRejectedError("STOCK_MODE_TRANSITION_FORBIDDEN", "Transición de modo no permitida", {
+      from: request.from,
+      to: request.to,
+      allowed: STOCK_MODE_ALLOWED_TRANSITIONS.map(([a, b]) => `${a}->${b}`),
+    })
+  }
+  const activeReservations = await tx.reservaStock.count({ where: { estado: "ACTIVA" } })
+  if (request.to === "OFF" && activeReservations > 0) {
+    throw new StockOperationRejectedError("STOCK_MODE_ACTIVE_RESERVATIONS", "No se puede volver a OFF con reservas ACTIVA", {
+      activeReservations,
+    })
+  }
+  const cas = await tx.configPlataforma.updateMany({
+    where: { id: config.id, stockReservaModo: current, updatedAt: config.updatedAt },
+    data: { stockReservaModo: request.to },
+  })
+  if (cas.count !== 1) {
+    throw new StockOperationRejectedError("STOCK_MODE_CONCURRENT_CHANGE", "La configuración cambió durante la operación")
+  }
+  const audit = await tx.auditLog.create({
+    data: {
+      userId: request.superAdminId,
+      userType: "superadmin",
+      accion: "stock.reserva_modo_cambiado",
+      recurso: "config_plataforma",
+      recursoId: config.id,
+      detalle: JSON.stringify({
+        from: request.from,
+        to: request.to,
+        reason: request.reason.trim(),
+        operationRef: request.operationRef,
+        source: request.source,
+        activeReservations,
+        previousUpdatedAt: config.updatedAt.toISOString(),
+        result: "APPLIED",
+      }),
+      ip: "",
+    },
+    select: { id: true },
+  })
+  return { from: request.from, to: request.to, activeReservations, auditLogId: audit.id }
+}
+
+function isStockReservationModeValue(value: unknown): value is StockReservationMode {
+  return parseStockReservationMode(value) !== null
+}
+
+// ---------------------------------------------------------------------------
+// P2-T56-R3A-I5-P0 — Recuperación extraordinaria (hard rollback, A0.1-9)
+// ---------------------------------------------------------------------------
+// Sólo en DRAINING, sólo por IDs exactos de UN negocio, y sólo para reservas
+// ACTIVA cuyo pedido ya está CANCELADO (anomalía: la cancelación debió
+// liberarlas). Un pedido PENDIENTE (recibido/aceptado/…) se rechaza: su
+// reserva se resuelve por el flujo normal — cancelarlo (aplicarEfectosCancelacion
+// libera con el motivo correcto) o prepararlo (consume) —, así nunca queda un
+// pedido activo sin reserva indistinguible de uno creado en OFF. Un pedido
+// cancelado no puede volver a preparando (grafo de transiciones: cancelado es
+// terminal), así que liberar su reserva no habilita una preparación sin
+// protección. Reservas CONSUMIDA o pedidos en estado posterior con reserva
+// ACTIVA (inconsistencia) → rechazo total. Ya LIBERADA → no-op idempotente.
+// Nunca borra filas, nunca toca stockCantidad ni crea MovimientoInventario.
+
+export interface StockReservationRollbackRequest extends StockOperationActor {
+  negocioId: string
+  reservaIds: ReadonlyArray<string>
+}
+
+export interface StockReservationRollbackItem {
+  reservaId: string
+  estado: string | null
+  pedidoId: string | null
+  pedidoEstado: string | null
+  action: "RELEASE" | "ALREADY_RELEASED" | "REJECT"
+  reason: string | null
+}
+
+export interface StockReservationRollbackPreview {
+  mode: StockReservationMode | null
+  items: StockReservationRollbackItem[]
+  problems: string[]
+}
+
+async function clasificarReservasRollback(
+  reader: Tx,
+  request: StockReservationRollbackRequest
+): Promise<StockReservationRollbackPreview> {
+  const problems = validarActorOperacion(request)
+  const ids = [...request.reservaIds]
+  if (!request.negocioId?.trim()) problems.push("NEGOCIO_REQUIRED")
+  if (ids.length === 0) problems.push("RESERVA_IDS_REQUIRED")
+  if (ids.length > STOCK_ROLLBACK_MAX_IDS) problems.push("TOO_MANY_RESERVA_IDS")
+  if (new Set(ids).size !== ids.length) problems.push("DUPLICATE_RESERVA_IDS")
+
+  const config = await reader.configPlataforma.findUnique({ where: { clave: PLATFORM_CONFIG_KEY }, select: { stockReservaModo: true } })
+  const mode = parseStockReservationMode(config?.stockReservaModo)
+  if (mode !== "DRAINING") problems.push("MODE_NOT_DRAINING")
+
+  const reservas = ids.length
+    ? await reader.reservaStock.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, negocioId: true, pedidoId: true, estado: true },
+      })
+    : []
+  const pedidoIds = [...new Set(reservas.map((r) => r.pedidoId))]
+  const pedidos = pedidoIds.length
+    ? await reader.pedido.findMany({ where: { id: { in: pedidoIds } }, select: { id: true, negocioId: true, estado: true } })
+    : []
+
+  const items: StockReservationRollbackItem[] = ids.map((id) => {
+    const r = reservas.find((x) => x.id === id)
+    if (!r) return { reservaId: id, estado: null, pedidoId: null, pedidoEstado: null, action: "REJECT", reason: "RESERVA_NOT_FOUND" }
+    const p = pedidos.find((x) => x.id === r.pedidoId) ?? null
+    const base = { reservaId: id, estado: r.estado, pedidoId: r.pedidoId, pedidoEstado: p?.estado ?? null }
+    if (r.negocioId !== request.negocioId) return { ...base, action: "REJECT", reason: "RESERVA_OTHER_NEGOCIO" }
+    if (r.estado === "LIBERADA") return { ...base, action: "ALREADY_RELEASED", reason: null }
+    if (r.estado !== "ACTIVA") return { ...base, action: "REJECT", reason: `RESERVA_${r.estado}` }
+    if (!p) return { ...base, action: "REJECT", reason: "PEDIDO_NOT_FOUND" }
+    if (p.negocioId !== r.negocioId) return { ...base, action: "REJECT", reason: "PEDIDO_OTHER_NEGOCIO" }
+    if (p.estado !== "cancelado") return { ...base, action: "REJECT", reason: "PEDIDO_NOT_CANCELLED_USE_NORMAL_FLOW" }
+    return { ...base, action: "RELEASE", reason: null }
+  })
+  if (items.some((i) => i.action === "REJECT")) problems.push("ITEMS_REJECTED")
+  if (request.superAdminId?.trim() && !(await actorSuperAdminActivo(reader, request.superAdminId))) problems.push("ACTOR_INVALID")
+  return { mode, items, problems }
+}
+
+/** READ-ONLY (dry-run) de la recuperación: clasifica cada ID sin escribir. */
+export async function evaluarRollbackReservas(
+  reader: Tx,
+  request: StockReservationRollbackRequest
+): Promise<StockReservationRollbackPreview> {
+  return clasificarReservasRollback(reader, request)
+}
+
+export interface StockReservationRollbackResult {
+  released: string[]
+  alreadyReleased: string[]
+  auditLogId: string | null
+}
+
+/**
+ * Ejecuta la recuperación. DEBE correr dentro de runStockSerializable. Revalida
+ * TODO dentro de la tx; cualquier problema → StockOperationRejectedError sin
+ * escribir. Libera sólo las reservas clasificadas RELEASE (ACTIVA → LIBERADA,
+ * motivo ROLLBACK) y registra el AuditLog en la misma tx.
+ */
+export async function liberarReservasPorRollback(
+  tx: Tx,
+  request: StockReservationRollbackRequest,
+  now: Date = new Date()
+): Promise<StockReservationRollbackResult> {
+  const preview = await clasificarReservasRollback(tx, request)
+  if (preview.problems.length > 0) {
+    throw new StockOperationRejectedError("STOCK_ROLLBACK_REJECTED", "Recuperación rechazada", {
+      problems: preview.problems,
+      items: preview.items.filter((i) => i.action === "REJECT"),
+    })
+  }
+  const release = preview.items.filter((i) => i.action === "RELEASE").map((i) => i.reservaId)
+  const alreadyReleased = preview.items.filter((i) => i.action === "ALREADY_RELEASED").map((i) => i.reservaId)
+  if (release.length === 0) return { released: [], alreadyReleased, auditLogId: null }
+
+  const updated = await tx.reservaStock.updateMany({
+    where: { id: { in: release }, negocioId: request.negocioId, estado: "ACTIVA" },
+    data: { estado: "LIBERADA", liberadaEn: now, motivoLiberacion: "ROLLBACK" },
+  })
+  if (updated.count !== release.length) throw new StockReservationIntegrityError()
+
+  const audit = await tx.auditLog.create({
+    data: {
+      userId: request.superAdminId,
+      userType: "superadmin",
+      accion: "stock.reservas_liberadas_rollback",
+      recurso: "reserva_stock",
+      recursoId: request.negocioId,
+      detalle: JSON.stringify({
+        reservaIds: release,
+        pedidoIds: [...new Set(preview.items.filter((i) => i.action === "RELEASE").map((i) => i.pedidoId))],
+        alreadyReleased,
+        reason: request.reason.trim(),
+        operationRef: request.operationRef,
+        source: request.source,
+        motivo: "ROLLBACK",
+        result: "APPLIED",
+      }),
+      ip: "",
+    },
+    select: { id: true },
+  })
+  return { released: release, alreadyReleased, auditLogId: audit.id }
+}
