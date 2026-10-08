@@ -9,7 +9,7 @@
 // always re-validated/recomputed server-side on checkout — the client
 // total shown here is only a preview.
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Banknote,
@@ -20,6 +20,7 @@ import {
   Package,
   Plus,
   Receipt,
+  ScanBarcode,
   Search,
   ShoppingCart,
   Trash2,
@@ -33,6 +34,16 @@ import { cn, formatPrice } from "@/lib/utils"
 import { computeStockStatus, isProductSellable } from "@/lib/inventario"
 import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
 import { matchesCajaSearch } from "@/lib/product-variant-search"
+import {
+  barcodeLookupKey,
+  describeScanStockWarning,
+  resolveBarcodeMatch,
+  resolveScannedBarcode,
+  type BarcodeMatch,
+  type ResolvedScan,
+} from "@/lib/barcode"
+import { primeScanAudio } from "@/lib/scan-feedback"
+import { BarcodeScanner, type ScanFeedback } from "@/components/business/barcode-scanner"
 import {
   addCartLine,
   cartItemCount,
@@ -60,6 +71,10 @@ interface CajaVariante {
   // (full Prisma include) — just not previously declared/read here.
   sku: string | null
   codigoBarras: string | null
+  // F9 (D5): físico − reservas ACTIVA, present only for controlled rows of a
+  // generic business (GET /api/negocio/productos). Warning input only — the
+  // checkout stays the stock authority.
+  stockDisponible?: number | null
 }
 
 interface CajaProducto {
@@ -77,6 +92,8 @@ interface CajaProducto {
   marca: string | null
   sku: string | null
   codigoBarras: string | null
+  // F9 (D5): same note as CajaVariante.stockDisponible.
+  stockDisponible?: number | null
 }
 
 // P2-T56-R2A: snapshot line, exactly as persisted on VentaItem — never
@@ -144,7 +161,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
   const queryClient = useQueryClient()
 
-  const { data: productos, isLoading } = useQuery<CajaProducto[]>({
+  const { data: productos, isLoading, refetch: refetchProductos } = useQuery<CajaProducto[]>({
     queryKey: ["negocio-caja-productos", negocioId],
     queryFn: async () => {
       const res = await fetch("/api/negocio/productos")
@@ -260,6 +277,113 @@ function VenderView({ negocioId }: { negocioId: string }) {
     setCart((prev) => setCartLineQuantity(prev, productoId, cantidad, varianteId))
   }
 
+  // ============================================
+  // F9 — continuous barcode scanning into THIS cart
+  // ============================================
+  // The scanner never sells and never keeps its own cart: every accepted
+  // read resolves an exact code against this business's catalog (already
+  // tenant-scoped by GET /api/negocio/productos) and goes through the same
+  // addCartLine as a tap. Quantities are then edited in the existing
+  // CartPanel and the sale is confirmed by the existing checkout.
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanVarianteSelector, setScanVarianteSelector] = useState<CajaProducto | null>(null)
+  const [scanAmbiguous, setScanAmbiguous] = useState<Array<BarcodeMatch<CajaProducto, CajaVariante>> | null>(null)
+  const [scanAnnouncement, setScanAnnouncement] = useState<(ScanFeedback & { id: number }) | null>(null)
+  const cartRef = useRef<CartLine[]>(cart)
+  const scanRefetchedRef = useRef<Set<string>>(new Set())
+  const announcementSeq = useRef(0)
+  useEffect(() => {
+    cartRef.current = cart
+  }, [cart])
+
+  function openScanner() {
+    primeScanAudio()
+    scanRefetchedRef.current = new Set()
+    setScannerOpen(true)
+  }
+
+  function announce(feedback: ScanFeedback) {
+    announcementSeq.current += 1
+    setScanAnnouncement({ ...feedback, id: announcementSeq.current })
+  }
+
+  function addScannedLine(p: CajaProducto, variante: CajaVariante | null): ScanFeedback {
+    const line: CartLine = variante
+      ? { productoId: p.id, varianteId: variante.id, nombre: p.nombre, varianteNombre: variante.nombre, precio: variante.precio, cantidad: 1 }
+      : { productoId: p.id, nombre: p.nombre, precio: p.precio, cantidad: 1 }
+    const next = addCartLine(cartRef.current, line)
+    cartRef.current = next
+    setCart(next)
+    const cantidad = next.find((l) => l.productoId === p.id && (l.varianteId ?? null) === (variante?.id ?? null))?.cantidad ?? 1
+    const authority = variante ?? p
+    const warning = describeScanStockWarning({
+      controlStock: authority.controlStock,
+      stockCantidad: authority.stockCantidad,
+      stockDisponible: authority.stockDisponible,
+      cantidadEnCarrito: cantidad,
+    })
+    const label = variante ? `${p.nombre} — ${variante.nombre}` : p.nombre
+    return warning
+      ? { tone: "warning", title: `Agregado: ${label} (×${cantidad})`, detail: warning }
+      : { tone: "success", title: `Agregado: ${label}`, detail: `Cantidad en carrito: ${cantidad} · ${formatPrice(line.precio)} c/u` }
+  }
+
+  // The scanner always calls the latest onCode (it keeps it in a ref), so
+  // this reads the live catalog without memoization.
+  async function handleScannedCode(code: string): Promise<ScanFeedback> {
+    let resolution = resolveScannedBarcode<CajaVariante, CajaProducto>(activos, code)
+    // Stale catalog (e.g. a product created moments ago in Inventario):
+    // refetch ONCE per code per scanner session, then decide.
+    const key = barcodeLookupKey(code)
+    if (resolution.kind === "not_found" && key && !scanRefetchedRef.current.has(key)) {
+      scanRefetchedRef.current.add(key)
+      const fresh = await refetchProductos()
+      resolution = resolveScannedBarcode<CajaVariante, CajaProducto>((fresh.data ?? []).filter((p) => !p.eliminado), code)
+    }
+    if (resolution.kind === "not_found") {
+      return { tone: "error", title: "Producto no encontrado", detail: `Código ${code}` }
+    }
+    if (resolution.kind === "ambiguous") {
+      setScanAmbiguous(resolution.matches)
+      return { tone: "warning", title: "Código asignado a varios productos", detail: "Elegí el correcto" }
+    }
+    return applyScanResolution(resolution)
+  }
+
+  function applyScanResolution(resolution: ResolvedScan<CajaProducto, CajaVariante>): ScanFeedback {
+    switch (resolution.kind) {
+      case "unavailable":
+        return {
+          tone: "error",
+          title: resolution.reason === "sin_stock" ? "Sin stock" : "Producto no disponible",
+          detail: resolution.label,
+        }
+      case "add_producto":
+        return addScannedLine(resolution.producto, null)
+      case "add_variante":
+        return addScannedLine(resolution.producto, resolution.variante)
+      case "choose_variante":
+        setScanVarianteSelector(resolution.producto)
+        return { tone: "info", title: "Elegí la variante", detail: resolution.producto.nombre }
+    }
+  }
+
+  function pickScannedVariante(p: CajaProducto, variante: CajaVariante) {
+    setScanVarianteSelector(null)
+    announce(addScannedLine(p, variante))
+  }
+
+  function pickAmbiguousMatch(match: BarcodeMatch<CajaProducto, CajaVariante>) {
+    setScanAmbiguous(null)
+    announce(applyScanResolution(resolveBarcodeMatch<CajaVariante, CajaProducto>(match)))
+  }
+
+  function viewCartFromScanner() {
+    setScannerOpen(false)
+    const desktop = typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches === true
+    if (!desktop) setMobileCartOpen(true)
+  }
+
   const total = cartTotal(cart)
   const itemCount = cartItemCount(cart)
 
@@ -301,6 +425,9 @@ function VenderView({ negocioId }: { negocioId: string }) {
 
   const productGrid = (
     <>
+      <Button type="button" className="w-full h-11 rounded-xl font-bold gap-2" onClick={openScanner}>
+        <ScanBarcode className="h-5 w-5" /> Escanear productos
+      </Button>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar producto…" className="pl-9 rounded-xl" />
@@ -443,7 +570,84 @@ function VenderView({ negocioId }: { negocioId: string }) {
           onSelect={(variante) => addVariante(varianteSelector, variante)}
         />
       )}
+
+      {scannerOpen && (
+        <BarcodeScanner
+          mode="continuous"
+          title="Escanear productos"
+          onClose={() => setScannerOpen(false)}
+          onCode={handleScannedCode}
+          paused={scanVarianteSelector !== null || scanAmbiguous !== null}
+          announcement={scanAnnouncement}
+          footer={
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-white/70">{itemCount} producto{itemCount === 1 ? "" : "s"} en el carrito</p>
+                <p className="text-base font-bold">{formatPrice(total)}</p>
+              </div>
+              <Button type="button" variant="secondary" className="rounded-xl font-semibold gap-1.5" onClick={viewCartFromScanner}>
+                <ShoppingCart className="h-4 w-4" /> Ver carrito
+              </Button>
+            </div>
+          }
+        />
+      )}
+
+      {/* Rendered after the scanner so these Radix portals stack above it. */}
+      {scanVarianteSelector && (
+        <VarianteSelectorDialog
+          producto={scanVarianteSelector}
+          onClose={() => setScanVarianteSelector(null)}
+          onSelect={(variante) => pickScannedVariante(scanVarianteSelector, variante)}
+        />
+      )}
+
+      {scanAmbiguous && (
+        <AmbiguousBarcodeDialog
+          matches={scanAmbiguous}
+          onClose={() => setScanAmbiguous(null)}
+          onSelect={pickAmbiguousMatch}
+        />
+      )}
     </div>
+  )
+}
+
+// F9 §6.4: a code shared by several articles (historical duplicates) is
+// never resolved automatically — the cashier picks the right one.
+function AmbiguousBarcodeDialog({
+  matches,
+  onClose,
+  onSelect,
+}: {
+  matches: Array<BarcodeMatch<CajaProducto, CajaVariante>>
+  onClose: () => void
+  onSelect: (match: BarcodeMatch<CajaProducto, CajaVariante>) => void
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
+        <DialogHeader><DialogTitle>Elegí el producto</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2">Este código está asignado a más de un artículo.</p>
+        <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+          {matches.map((match) => {
+            const label = match.kind === "variante" ? `${match.producto.nombre} — ${match.variante.nombre}` : match.producto.nombre
+            const precio = match.kind === "variante" ? match.variante.precio : match.producto.precio
+            const key = match.kind === "variante" ? `v-${match.variante.id}` : `p-${match.producto.id}`
+            return (
+              <button
+                key={key}
+                onClick={() => onSelect(match)}
+                className="flex w-full items-center justify-between rounded-xl border border-border px-3 py-2.5 text-left"
+              >
+                <span className="text-sm font-medium">{label}</span>
+                <span className="text-sm font-bold">{formatPrice(precio)}</span>
+              </button>
+            )
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
