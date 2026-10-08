@@ -1,11 +1,11 @@
 # P2-T56-R3A-I4 — Disponibilidad pública y control del carrito
 
 ```text
-TASK=P2-T56-R3A-I4 (implementación → integración y deploy TESTING §11)
+TASK=P2-T56-R3A-I4 (implementación → integración y deploy TESTING §11 → certificación manual §13)
 DATE=2026-10-08
 BRANCH=work/p2-t56-r3-stock-lifecycle-i4
 BASE=testing-codex 7a6d0af6e9326634406b4daeda3da8f545403318 (cierre I3) + cherry-pick del discovery 6e47fcb → a9ed8a47fa97474a9b9ca1c6363f2fa0befc04a6
-R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (§11; antes IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION)
+R3A_I4_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, modo OFF; §13 — antes DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE §11 e IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION)
 SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0
 TESTING_CODEX=7a6d0af..dbf342b (fast-forward) · FUNCTIONAL_DEPLOY=6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS (commit match)
 TESTING_DB_TOUCHED=SI (sólo tests real-DB con fixtures + limpieza autorizada por ID exacto) · MODE_ACTIVATED=NO (OFF) · I5_STARTED=NO · PRODUCTION_TOUCHED=NO
@@ -346,12 +346,108 @@ Negocio genérico de TESTING. Modo OFF: no cambiarlo.
 
 Con OFF, dos pedidos distintos que individualmente caben pueden sumar más que el stock: es el límite conocido de OFF y no es un fallo del smoke.
 
-## 12. Estado actual
+## 12. Estado al cierre de la integración (histórico; superado por §13)
 
 ```text
-R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE
-RESULT=T56_R3A_I4_DEPLOYED_TESTING_AWAITING_MANUAL_SMOKE
-MANUAL_SMOKE_STATUS=PENDING_OPERATOR
-R3A_I5_STARTED=NO · MODE_ACTIVATED=NO · PRODUCTION_TOUCHED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I4_MANUAL_SMOKE
+R3A_I4_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (histórico)
+RESULT=T56_R3A_I4_DEPLOYED_TESTING_AWAITING_MANUAL_SMOKE (histórico)
+MANUAL_SMOKE_STATUS=PENDING_OPERATOR (histórico → resuelto en §13: PASS 6/6)
+```
+
+## 13. Closeout — Certificación manual TESTING MODE OFF (2026-10-08)
+
+Ronda documental y de verificación READ-ONLY. Sin código, tests, escrituras en la base, cambios de modo ni deploy funcional.
+
+### Smoke manual del operador (registrado tal como fue informado)
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Producto agotado: ocultamiento en el catálogo público | PASS |
+| 2 | Variantes agotadas: comportamiento de las variantes sin disponibilidad | PASS |
+| 3 | Límite de cantidades: el cliente no supera las unidades disponibles desde la interfaz | PASS |
+| 4 | Carrito desactualizado: advertencia cuando cambia el stock y corrección necesaria antes de continuar | PASS |
+| 5 | Stock cambia al confirmar: no se puede finalizar un pedido que ya no tiene stock suficiente | PASS |
+| 6 | Pedido desde mesa QR | PASS |
+
+```text
+MANUAL_SMOKE_ENVIRONMENT=TESTING
+MANUAL_SMOKE_MODE=OFF
+MANUAL_SMOKE_TOTAL=6
+MANUAL_SMOKE_PASS=6
+MANUAL_SMOKE_FAIL=0
+MANUAL_SMOKE_NOT_AVAILABLE=0
+MANUAL_SMOKE_RESULT=PASS
+```
+
+El checklist (§11.8) proponía en el escenario 6 «Mesa/QR **o** promociones». El operador informó el resultado como «Pedido desde mesa QR», así que **no** se atribuye una certificación manual independiente a promociones.
+
+### Verificación READ-ONLY de esta ronda
+
+- **Git:** `testing-codex` = `origin/testing-codex` = `40ccaad`; `origin/main` = `42ca500`; árbol limpio, sin stash. Tags: `r3a-i1-testing-verified` y el local `r3a-i4-pre-integration-testing-codex`.
+- **Railway:** amiable-rejoicing / TESTING (f37d0c49-…) / DeliGO Copy. Deployment activo `fe86d801-559f-4696-86d1-3908cef1c624` SUCCESS, branch testing-codex, commit `40ccaad` (match). Production/DeliGO `6bf1ee84` SUCCESS @ `42ca500` (sin cambios).
+- **Logs del deployment activo** (ventana recuperable 06:05:28–06:15:17 UTC, durante la cual corrió el smoke; el deployment anterior `6806139e` sólo contiene el smoke HTTP técnico de 05:57):
+  - "38 migrations found", "No pending migrations to apply", "Ready";
+  - **0 líneas** de error, excepción, fatal, unhandled o P20xx (incluye P2028/P2034), sin errores de Prisma, catálogo, checkout, carrito ni Mesa/QR;
+  - 296 solicitudes «→ 200» y 3 «→ 401» (push subscribe, reconcile-stale-owner y chat sin sesión; benignas).
+- **Límites de la evidencia de logs:**
+  - El logger de `src/proxy.ts` registra cada API que pasa por el proxy con un **status 200 provisorio** (no conoce el status final del handler). Un 409 o un 500 del handler no se ve en el código de status: sólo se detectaría por líneas de error, y hubo 0.
+  - En la ventana recuperada no aparece ninguna línea `POST /api/pedidos`; sí aparecen `/api/public/mesa-geofence`, `/api/public/mesa-cuenta`, catálogo público, Inventario y variantes. Los logs no corroboran ni contradicen el tráfico de pedidos; el resultado manual se apoya en el informe del operador.
+- **Modo:** OFF según la última lectura (posterior al deploy funcional, 2026-10-08). Esta ronda no consultó ni escribió la base.
+
+### Base de la certificación
+
+- **Implementación** (§1–§10): las seis decisiones del operador; gates PASS (tsc 33 = baseline, 0 nuevos).
+- **Integración** (§11): fast-forward `7a6d0af..dbf342b`; deploy funcional `6806139e` SUCCESS con commit match; build OK; Prisma inicializado; 38 migraciones, 0 pendientes; smoke HTTP sin 5xx; catálogo público con `stockDisponible`; modo OFF; Production intacta.
+- **Real-DB:**
+
+```text
+REAL_DB_TOTAL_PASS=433 (416 de suites existentes + 17 del harness ad-hoc I4)
+REAL_DB_TOTAL_FAIL=2
+I4_ADHOC_REAL_DB=PASS_17_17
+REGRESSION_TOTAL_FAILURES=2
+FAILURES_CLASSIFICATION=NON_I4_TIMEOUTS_WITH_CODE_PATH_EVIDENCE
+BASELINE_REPRODUCTION=NOT_RUN
+FAILURES_RESOLVED=NO
+```
+
+  Las 2 fallas (P2028 de `client-block-security` en denuncias/notificaciones y el timeout de 60 s de `superadmin-notifications` test 11) no ejecutan lógica de I4 según la auditoría de código. **No** se declaran PASS ni preexistentes demostradas, y siguen abiertas.
+- **Limpieza** (no repetida):
+
+```text
+NOTIFICATIONS_DELETED=121 · SUPERADMIN_TEST_NOTIFICATIONS_DELETED=10 · SESSIONS_DELETED=13 · AUDIT_LOG_DELETED=0 (92 conservados)
+CORE_FIXTURE_RESIDUE=0 · UNAUTHORIZED_ROWS_CHANGED=0 · CLEANUP_REPEATED=NO
+```
+
+### Alcance de la certificación
+
+Certifica I4 **sólo en TESTING con reservas en OFF**. **No** certifica:
+- las reservas reales en modo ON (I5);
+- que todas las regresiones estén aprobadas (2 fallas abiertas);
+- el filtrado de `promocionados` con real-DB.
+
+### Limitaciones explícitas
+
+- **A. Reservas reales.** La resta de reservas ACTIVA no se certificó contra reservas reales (no se fabricaron). Corresponde a I5.
+- **B. Sobreventa acumulada en OFF.** I4 impide que un pedido individual supere el disponible. Con OFF los pedidos no reservan, así que varios pedidos separados pueden superar en suma el stock físico. Es una limitación conocida y aceptada temporalmente; la protección completa con reservas transaccionales corresponde a I5.
+- **C. Promocionados.** El filtrado de agotados genéricos en `GET /api/negocios/promocionados` sólo tiene cobertura con mocks, no la certificación real-DB del resto (el flag global `promocionadosActivos` está en false).
+- **D. Timeouts abiertos.** `FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028` · `FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT`.
+- **E. Limpieza de suites.** `FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP`.
+- **F. Mesa/QR.** Hallazgo lateral: un pedido de Mesa rechazado puede dejar abierta la ocupación de la mesa. **No** fue corregido en I4, y el smoke manual no lo resuelve. Follow-up separado: `FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN` (investigar el flujo de ocupación y liberación).
+- **G. Otros pendientes:** Terminal Salón — cierre de cuenta (`FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED`); cobertura real-DB de líneas repetidas en Caja; cobertura real-DB de rubros no genéricos; gate de rubro del servidor; reservas para Ropa en una etapa futura; quitar `stockCantidad` del contrato público (A0.1-15 paso 2); promociones que no filtran `eliminado`.
+
+Ninguno se implementa ahora.
+
+### Production
+
+`origin/main` = `42ca5005d2ecd412de87e454b52820f38aaec5c0` y production/DeliGO `6bf1ee84-702e-41e1-80a8-d075e3ce9362` SUCCESS @ `42ca500`, sin cambios. `PRODUCTION_TOUCHED=NO`.
+
+### Estado final
+
+```text
+R3A_I4_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, modo OFF — NO certifica reservas en modo ON; eso es I5)
+R3A_I1_STATUS=CLOSED_TESTING_VERIFIED · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED · R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED
+R3A_I5_STARTED=NO · MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF
+TESTING_FUNCTIONAL_HEAD=dbf342b2ef428c3730292428e9ca749757cd181e (deploy 6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS)
+RESULT=T56_R3A_I4_CLOSED_TESTING_CERTIFIED
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I5_PLANNING_DECISION
 ```

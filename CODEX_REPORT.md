@@ -6,7 +6,42 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I4-MANUAL-SMOKE-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=T56_R3A_I4_CLOSED_TESTING_CERTIFIED
+R3A_I4_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, mode OFF — NOT a certification of reservations in mode ON; that is I5)
+R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_TESTING_CERTIFIED (R3A NOT closed; I5 = mode ON activation + real-reservation certification, next phase pending authorization)
+TESTING_CODEX_HEAD=40ccaadefdd281a45b871d980a8a5224b5a2ea43 (I4 integration docs) + the closeout docs commit "docs: certify T56 R3A I4 testing smoke" on top (its docs-only autodeploy is reported in the round result); functional head dbf342b2ef428c3730292428e9ca749757cd181e (deploy 6806139e-4348-4b1f-834d-62c3dbdc5934 SUCCESS); integration docs deploy fe86d801-559f-4696-86d1-3908cef1c624 SUCCESS
+MANUAL_SMOKE_ENVIRONMENT=TESTING · MANUAL_SMOKE_MODE=OFF · MANUAL_SMOKE_TOTAL=6 · MANUAL_SMOKE_PASS=6 · MANUAL_SMOKE_FAIL=0 · MANUAL_SMOKE_NOT_AVAILABLE=0 · MANUAL_SMOKE_RESULT=PASS
+MANUAL_SMOKE_DETAIL=1 depleted product hidden PASS · 2 depleted variants PASS · 3 quantity limit PASS · 4 stale cart warning + correction required PASS · 5 stock change at confirmation blocks the order PASS · 6 order from table QR PASS (promotions NOT independently certified manually — the operator reported scenario 6 as Mesa/QR)
+CLOSEOUT_READ_ONLY_CHECKS=Railway TESTING DeliGO Copy fe86d801 SUCCESS @ 40ccaad (match); logs 06:05–06:15 UTC (smoke window): migrations up to date, Ready, 0 error/exception/P20xx lines; proxy logs API requests with a placeholder 200 (handler 409/500 not visible by status, only via error lines = 0); no POST /api/pedidos line in the retrievable window (logs neither corroborate nor contradict order traffic; manual result rests on the operator's report); TESTING DB not accessed this round
+CERTIFICATION_BASIS=operator manual smoke 6/6 + real-DB (REAL_DB_TOTAL_PASS=433 = 416 suites + 17 ad-hoc I4; I4_ADHOC_REAL_DB=PASS_17_17) + automatic gates (tsc 33 = baseline, ESLint, build, diff-check) + integration evidence (FF, deploy SUCCESS + match, 0 migrations, HTTP smoke no 5xx, stockDisponible live)
+REGRESSION_TOTAL_FAILURES=2 · FAILURES_CLASSIFICATION=NON_I4_TIMEOUTS_WITH_CODE_PATH_EVIDENCE · BASELINE_REPRODUCTION=NOT_RUN · FAILURES_RESOLVED=NO (not PASS, not proven pre-existing)
+CLEANUP=NOTIFICATIONS_DELETED=121 (incl. 10 superadmin test notifications) · SESSIONS_DELETED=13 · AUDIT_LOG_DELETED=0 · CORE_FIXTURE_RESIDUE=0 · UNAUTHORIZED_ROWS_CHANGED=0 · CLEANUP_REPEATED=NO
+LIMITATIONS=A real ACTIVE-reservation subtraction not certified (I5) · B OFF does not prevent cumulative oversell across orders (accepted; I5) · C generic promocionados filtering mock-only · D open timeouts · E suite auxiliary-table cleanup · F rejected Mesa order may leave table occupancy open (not fixed) · G other follow-ups below
+FOLLOWUPS_OPEN=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN · FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED · FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE · FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE · server-side rubro gate · Ropa stock reservations (future) · A0.1-15 step 2 (remove stockCantidad from public contract) · promociones/promocionados do not filter eliminado
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF (last read after the functional deploy, 2026-10-08; not read this round)
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged) · local r3a-i4-pre-integration-testing-codex → 7a6d0af (not pushed)
+R3A_I5_STARTED=NO
+TESTING_DB_TOUCHED=NO (this round) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I5 requires explicit operator planning/authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I5_PLANNING_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I4_PUBLIC_AVAILABILITY.md (§13 = manual certification closeout; §11 = TESTING integration + real-DB + cleanup)
+
+R3A-I4 (public availability, cart control, OFF order validation for generic businesses) is
+CLOSED_TESTING_CERTIFIED in TESTING with the mode OFF: manual smoke 6/6 PASS on top of real-DB
+and automatic coverage. Two regression timeouts outside I4 remain open; mode ON / real
+reservations and cumulative-oversell protection belong to I5. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I4 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08; superseded as the current pointer by the I4 certification closeout above — the manual smoke it awaited PASSED 6/6) ===
 
 CURRENT_TASK=P2-T56-R3A-I4-TESTING-INTEGRATION-REAL-DB
 CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE
