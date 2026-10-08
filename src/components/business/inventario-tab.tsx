@@ -52,6 +52,22 @@ import {
 import { matchesCategoryFilter, mergeManagedCategories, SIN_CATEGORIA } from "@/lib/category-normalization"
 import { matchesInventorySearch, findMatchingVariante } from "@/lib/product-variant-search"
 import { AdministrarCategoriasDialog } from "./administrar-categorias-dialog"
+import { BarcodeField, keepDialogOpenWhileScanning } from "./barcode-scanner"
+import { barcodeLookupKey, describeBarcodeConflict, findBarcodeConflict, findRepeatedBarcodes } from "@/lib/barcode"
+
+// F9: early duplicate warning for a code being typed/scanned in Inventario.
+// Only when the code differs from the row's saved one (same rule as the
+// server guard). The server stays the authority (409 CODIGO_BARRAS_DUPLICADO).
+function barcodeWarningFor(
+  catalog: ReadonlyArray<InventarioProducto>,
+  value: string,
+  original: string | null | undefined,
+  exclude: { productoId?: string; varianteId?: string }
+): string | null {
+  if (!value.trim() || barcodeLookupKey(value) === barcodeLookupKey(original ?? null)) return null
+  const conflict = findBarcodeConflict(catalog, value, exclude)
+  return conflict ? describeBarcodeConflict(conflict) : null
+}
 
 // P2-T56-R2C: a product WITH >=1 variant keeps this shape too (nombre/
 // categoria/imagenUrl etc. are still read from Producto), but its own
@@ -394,6 +410,7 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
         <ProductoFormDialog
           producto={editing}
           categorias={categorias}
+          catalog={productos ?? []}
           onClose={() => setFormOpen(false)}
           onSaved={() => { setFormOpen(false); invalidate() }}
         />
@@ -402,6 +419,7 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
       {detailProduct && (
         <ProductoDetailDialog
           producto={detailProduct}
+          catalog={productos ?? []}
           onClose={() => setDetailProduct(null)}
           onEdit={() => { setEditing(detailProduct); setDetailProduct(null); setFormOpen(true) }}
           onChanged={invalidate}
@@ -548,11 +566,13 @@ function ProductoCardMobile({
 function ProductoFormDialog({
   producto,
   categorias,
+  catalog,
   onClose,
   onSaved,
 }: {
   producto: InventarioProducto | null
   categorias: string[]
+  catalog: ReadonlyArray<InventarioProducto>
   onClose: () => void
   onSaved: () => void
 }) {
@@ -677,7 +697,7 @@ function ProductoFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl" onInteractOutside={keepDialogOpenWhileScanning} onEscapeKeyDown={keepDialogOpenWhileScanning}>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar producto" : "Nuevo producto"}</DialogTitle>
         </DialogHeader>
@@ -720,6 +740,12 @@ function ProductoFormDialog({
                 <VarianteDraftRowEditor
                   key={row.key}
                   row={row}
+                  barcodeWarning={
+                    barcodeWarningFor(catalog, row.codigoBarras, null, {}) ??
+                    (findRepeatedBarcodes(variantRows.map((r) => r.codigoBarras)).some((c) => barcodeLookupKey(c) === barcodeLookupKey(row.codigoBarras))
+                      ? "Este código está repetido en otra variante del formulario"
+                      : null)
+                  }
                   onChange={(patch) => updateVariantRow(row.key, patch)}
                   onRemove={() => removeVariantRow(row.key)}
                 />
@@ -772,7 +798,12 @@ function ProductoFormDialog({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="inv-barras">Código de barras</Label>
-                    <Input id="inv-barras" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} />
+                    <BarcodeField
+                      id="inv-barras"
+                      value={codigoBarras}
+                      onChange={setCodigoBarras}
+                      warning={barcodeWarningFor(catalog, codigoBarras, producto?.codigoBarras, { productoId: producto?.id })}
+                    />
                   </div>
                 </div>
               )}
@@ -846,10 +877,12 @@ function ProductoFormDialog({
 // hiding the problem — section 15).
 function VarianteDraftRowEditor({
   row,
+  barcodeWarning,
   onChange,
   onRemove,
 }: {
   row: VarianteDraftRow
+  barcodeWarning: string | null
   onChange: (patch: Partial<VarianteDraftRow>) => void
   onRemove: () => void
 }) {
@@ -912,9 +945,15 @@ function VarianteDraftRowEditor({
 
       {row.showMore && (
         <div className="space-y-2">
+          {barcodeWarning && <p className="text-[11px] font-medium text-amber-600">{barcodeWarning}</p>}
           <div className="grid grid-cols-2 gap-2">
             <Input value={row.sku} onChange={(e) => onChange({ sku: e.target.value })} placeholder="SKU" className="rounded-lg" />
-            <Input value={row.codigoBarras} onChange={(e) => onChange({ codigoBarras: e.target.value })} placeholder="Código de barras" className="rounded-lg" />
+            <BarcodeField
+              value={row.codigoBarras}
+              onChange={(codigoBarras) => onChange({ codigoBarras })}
+              placeholder="Código de barras"
+              inputClassName="rounded-lg"
+            />
           </div>
           <div className="flex items-center justify-between rounded-lg bg-muted/40 px-2.5 py-1.5">
             <p className="text-xs font-medium">Controlar stock</p>
@@ -943,11 +982,13 @@ function VarianteDraftRowEditor({
 // ============================================
 function ProductoDetailDialog({
   producto,
+  catalog,
   onClose,
   onEdit,
   onChanged,
 }: {
   producto: InventarioProducto
+  catalog: ReadonlyArray<InventarioProducto>
   onClose: () => void
   onEdit: () => void
   onChanged: () => void
@@ -1123,6 +1164,7 @@ function ProductoDetailDialog({
       {varianteForm && (
         <VarianteFormDialog
           productoId={producto.id}
+          catalog={catalog}
           variante={varianteForm.mode === "edit" ? varianteForm.variante : null}
           onClose={() => setVarianteForm(null)}
           onSaved={() => { setVarianteForm(null); onChanged() }}
@@ -1313,11 +1355,13 @@ export function AjusteDeficitWarningDialog({
 // ============================================
 function VarianteFormDialog({
   productoId,
+  catalog,
   variante,
   onClose,
   onSaved,
 }: {
   productoId: string
+  catalog: ReadonlyArray<InventarioProducto>
   variante: InventarioVariante | null
   onClose: () => void
   onSaved: () => void
@@ -1370,7 +1414,7 @@ function VarianteFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-xs sm:max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
+      <DialogContent className="max-w-xs sm:max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl" onInteractOutside={keepDialogOpenWhileScanning} onEscapeKeyDown={keepDialogOpenWhileScanning}>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar variante" : "Nueva variante"}</DialogTitle>
         </DialogHeader>
@@ -1396,7 +1440,12 @@ function VarianteFormDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="var-barras">Código de barras</Label>
-              <Input id="var-barras" value={codigoBarras} onChange={(e) => setCodigoBarras(e.target.value)} />
+              <BarcodeField
+                id="var-barras"
+                value={codigoBarras}
+                onChange={setCodigoBarras}
+                warning={barcodeWarningFor(catalog, codigoBarras, variante?.codigoBarras, { varianteId: variante?.id })}
+              />
             </div>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
