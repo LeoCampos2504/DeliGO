@@ -17,6 +17,7 @@
 //
 // Todas las lecturas/escrituras se acotan por negocioId resuelto server-side.
 
+import { createHash } from "node:crypto"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { MOVIMIENTO_TIPO_PEDIDO, resolveNextStock } from "@/lib/inventario"
 import { PLATFORM_CONFIG_KEY } from "@/lib/platform-settings"
@@ -24,6 +25,7 @@ import { revertirTarifaSiCorresponde } from "@/lib/pedido-cancelacion-financiera
 import {
   agregarCantidadesPorClave,
   computeAvailableStock,
+  computeReservationDeficit,
   parseStockReservationMode,
   stockKey,
   type ReservaMotivoLiberacion,
@@ -46,7 +48,9 @@ export class StockLifecycleError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
-    message: string
+    message: string,
+    /** I3: datos estructurados para la UI (disponible, reservado, etc.). */
+    readonly details?: Record<string, unknown>
   ) {
     super(message)
     this.name = "StockLifecycleError"
@@ -157,9 +161,11 @@ export async function runStockSerializable<T>(
  */
 export function mapStockLifecycleError(
   error: unknown
-): { status: number; body: { error: string; code: string } } | null {
+): { status: number; body: { error: string; code: string; details?: Record<string, unknown> } } | null {
   if (error instanceof StockLifecycleError) {
-    return { status: error.status, body: { error: error.message, code: error.code } }
+    const body: { error: string; code: string; details?: Record<string, unknown> } = { error: error.message, code: error.code }
+    if (error.details) body.details = error.details
+    return { status: error.status, body }
   }
   if (isStockSerializationConflict(error)) {
     return {
@@ -485,6 +491,325 @@ export async function aplicarEfectosCancelacion(
     motivo: params.motivo,
   })
   return { reservasLiberadas }
+}
+
+// ---------------------------------------------------------------------------
+// P2-T56-R3A-I3 — Caja y Movimientos manuales respetan las reservas ACTIVA
+// (A0.1-1, A0.1-9 I14, A0.1-18 I9/I10). INDEPENDIENTE DEL MODO: acá nunca se
+// lee stockReservaModo; con 0 reservas ACTIVA el resultado es el de siempre.
+// Fuera del negocio genérico no existen reservas (el gate de creación de I2 lo
+// impide), así que para Restaurante/Ropa reservado = 0 → sin cambio.
+// Toda función corre dentro de la tx Serializable del llamador
+// (runStockSerializable): lee la fila autoridad y el predicado SUM(ACTIVA) y
+// escribe la fila autoridad en la MISMA tx (matriz SSI A0.1-10 #2–#6).
+// ---------------------------------------------------------------------------
+
+/** Lo pedido supera el disponible porque hay unidades reservadas para pedidos (Decisión B). */
+export class StockReservedForOrdersError extends StockLifecycleError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super("STOCK_RESERVED_FOR_ORDERS", 409, message, details)
+  }
+}
+
+/** Sin reservas en juego: el stock físico no alcanza (comportamiento previo de Caja). */
+export class StockPhysicalInsufficientError extends StockLifecycleError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super("STOCK_INSUFFICIENT", 409, message, details)
+  }
+}
+
+/** Movimiento manual inválido según resolveNextStock (mismo 400 de siempre). */
+export class StockMovementInvalidError extends StockLifecycleError {
+  constructor(message: string) {
+    super("STOCK_MOVEMENT_INVALID", 400, message)
+  }
+}
+
+/** La autoridad de stock de la clave ya no existe para este negocio. */
+export class StockAuthorityNotFoundError extends StockLifecycleError {
+  constructor() {
+    super("STOCK_AUTHORITY_NOT_FOUND", 404, "Producto no encontrado")
+  }
+}
+
+export interface StockKeyAvailability extends StockKeyRef {
+  controlStock: boolean
+  physical: number
+  activeReserved: number
+  available: number
+  deficit: number
+}
+
+/**
+ * Disponibilidad de UNA clave de stock (variante si existe, si no Producto)
+ * para el negocio de la sesión: físico, reservado ACTIVA, disponible y déficit.
+ * CONSUMIDA y LIBERADA nunca cuentan. null = la autoridad no existe en el negocio.
+ */
+export async function leerDisponibilidadStock(
+  tx: Tx,
+  params: { negocioId: string; key: StockKeyRef }
+): Promise<StockKeyAvailability | null> {
+  const authority = await loadStockAuthority(tx, params.negocioId, params.key)
+  if (!authority) return null
+  const activeReserved = await sumActiveReserved(tx, params.negocioId, params.key)
+  return {
+    productoId: params.key.productoId,
+    productoVarianteId: params.key.productoVarianteId,
+    controlStock: authority.controlStock,
+    physical: authority.stockCantidad,
+    activeReserved,
+    available: computeAvailableStock(authority.stockCantidad, activeReserved),
+    deficit: computeReservationDeficit(authority.stockCantidad, activeReserved),
+  }
+}
+
+// --- Caja ---------------------------------------------------------------------
+
+export interface VentaCajaStockLine {
+  productoId: string
+  productoVarianteId: string | null
+  cantidad: number
+  /** controlStock de la autoridad leída por el route en esta misma tx. */
+  controlStock: boolean
+  /** Etiqueta para mensajes: "Producto" o "Producto — Variante". */
+  nombre: string
+}
+
+export interface VentaCajaStockPlanItem extends StockKeyRef {
+  cantidad: number
+  stockAntes: number
+  stockDespues: number
+}
+
+/**
+ * Valida una venta de Caja contra el DISPONIBLE (Decisión B) agregando primero
+ * las líneas repetidas por clave (Decisión C). Lanza:
+ *   - StockReservedForOrdersError (409 STOCK_RESERVED_FOR_ORDERS) si hay
+ *     reservas ACTIVA y lo pedido supera el disponible;
+ *   - StockPhysicalInsufficientError (409 STOCK_INSUFFICIENT) si no hay
+ *     reservas y el físico no alcanza (mismo mensaje que antes de I3).
+ * No escribe nada. Devuelve un ítem por clave controlada a descontar.
+ */
+export async function planificarStockVentaCaja(
+  tx: Tx,
+  params: { negocioId: string; lines: ReadonlyArray<VentaCajaStockLine> }
+): Promise<VentaCajaStockPlanItem[]> {
+  const controlled = params.lines.filter((line) => line.controlStock)
+  const labels = new Map(controlled.map((line) => [stockKey(line.productoId, line.productoVarianteId), line.nombre]))
+  const plan: VentaCajaStockPlanItem[] = []
+
+  for (const total of agregarCantidadesPorClave(controlled)) {
+    const key = { productoId: total.productoId, productoVarianteId: total.productoVarianteId }
+    const label = labels.get(stockKey(key.productoId, key.productoVarianteId)) ?? "Producto"
+    const availability = await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key })
+    if (!availability) throw new StockAuthorityNotFoundError()
+    // Lectura fresca de la autoridad en esta tx: si el control se desactivó, la
+    // clave no tiene límite de inventario → no se descuenta (igual que antes).
+    if (!availability.controlStock) continue
+
+    const details = {
+      productoId: key.productoId,
+      productoVarianteId: key.productoVarianteId,
+      solicitado: total.cantidad,
+      stockFisico: availability.physical,
+      reservasActivas: availability.activeReserved,
+      disponible: availability.available,
+    }
+    if (total.cantidad > availability.available) {
+      if (availability.activeReserved > 0) {
+        const quedan =
+          availability.available === 0
+            ? "no quedan unidades disponibles para vender"
+            : `sólo quedan ${availability.available} disponibles para vender`
+        throw new StockReservedForOrdersError(
+          `"${label}": hay ${availability.physical} en stock pero ${availability.activeReserved} están reservadas para pedidos pendientes, así que ${quedan} (pediste ${total.cantidad}).`,
+          details
+        )
+      }
+      throw new StockPhysicalInsufficientError(`"${label}" no tiene stock suficiente`, details)
+    }
+
+    const next = resolveNextStock(availability.physical, "VENTA", total.cantidad)
+    if (!next.ok) throw new StockPhysicalInsufficientError(`"${label}" no tiene stock suficiente`, details)
+    plan.push({ ...key, cantidad: total.cantidad, stockAntes: availability.physical, stockDespues: next.nextStock })
+  }
+  return plan
+}
+
+/**
+ * Aplica el plan de Caja: UN descuento y UN MovimientoInventario VENTA por
+ * clave agregada (Decisión C), en la misma tx que creó la Venta. Las líneas
+ * individuales viven en VentaItem.
+ */
+export async function registrarStockVentaCaja(
+  tx: Tx,
+  params: { negocioId: string; ventaId: string; plan: ReadonlyArray<VentaCajaStockPlanItem> }
+): Promise<void> {
+  for (const item of params.plan) {
+    if (item.productoVarianteId) {
+      await tx.productoVariante.update({ where: { id: item.productoVarianteId }, data: { stockCantidad: item.stockDespues } })
+    } else {
+      await tx.producto.update({ where: { id: item.productoId }, data: { stockCantidad: item.stockDespues } })
+    }
+    await tx.movimientoInventario.create({
+      data: {
+        negocioId: params.negocioId,
+        productoId: item.productoId,
+        productoVarianteId: item.productoVarianteId,
+        tipo: "VENTA",
+        cantidad: item.cantidad,
+        stockAntes: item.stockAntes,
+        stockDespues: item.stockDespues,
+        ventaId: params.ventaId,
+      },
+    })
+  }
+}
+
+// --- Movimientos manuales -----------------------------------------------------
+
+export type MovimientoManualTipo = "ENTRADA" | "SALIDA" | "AJUSTE"
+
+export interface AjusteConfirmacion {
+  stockActual: number
+  stockPropuesto: number
+  reservasActivas: number
+  deficitResultante: number
+  /**
+   * Huella de lo que el usuario vio: negocio + clave + AJUSTE + stock propuesto
+   * + físico + reservado. El servidor la RECALCULA dentro de la tx con el estado
+   * actual; sólo si coincide exactamente aplica el ajuste deficitario.
+   */
+  huella: string
+}
+
+export type MovimientoManualPlan =
+  | { kind: "apply"; stockAntes: number; stockDespues: number; reservasActivas: number; deficitResultante: number }
+  | { kind: "confirm"; confirmacion: AjusteConfirmacion; vencida: boolean }
+
+export function huellaAjusteDeficitario(params: {
+  negocioId: string
+  key: StockKeyRef
+  stockActual: number
+  stockPropuesto: number
+  reservasActivas: number
+}): string {
+  const canonical = [
+    "P2-T56-R3A-I3",
+    "AJUSTE",
+    params.negocioId,
+    params.key.productoId,
+    params.key.productoVarianteId ?? "",
+    params.stockActual,
+    params.stockPropuesto,
+    params.reservasActivas,
+  ].join("|")
+  return createHash("sha256").update(canonical).digest("hex")
+}
+
+/**
+ * Política de movimientos manuales (A0.1-1 + refinamiento I3 del operador):
+ *   ENTRADA siempre; las reservas no cambian.
+ *   SALIDA  rechazada (409 STOCK_RESERVED_FOR_ORDERS) si físico posterior < reservado ACTIVA.
+ *   AJUSTE  sin déficit → se aplica. Con déficit (lo provoca o lo mantiene) →
+ *           NO se escribe nada y se devuelve la confirmación requerida, salvo
+ *           que `huellaConfirmada` coincida EXACTAMENTE con la huella recalculada
+ *           ahora (mismo negocio, clave, propuesto, físico y reservado). Si el
+ *           estado cambió desde la advertencia, se pide confirmar de nuevo con
+ *           los valores actualizados (`vencida: true`). Nunca toca reservas.
+ */
+export async function planificarMovimientoManual(
+  tx: Tx,
+  params: {
+    negocioId: string
+    key: StockKeyRef
+    tipo: MovimientoManualTipo
+    cantidad: number
+    huellaConfirmada?: string | null
+  }
+): Promise<MovimientoManualPlan> {
+  const availability = await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key: params.key })
+  if (!availability) throw new StockAuthorityNotFoundError()
+
+  const next = resolveNextStock(availability.physical, params.tipo, params.cantidad)
+  if (!next.ok) throw new StockMovementInvalidError(next.error)
+  const reservasActivas = availability.activeReserved
+
+  if (params.tipo === "SALIDA" && next.nextStock < reservasActivas) {
+    throw new StockReservedForOrdersError(
+      `Hay ${reservasActivas} unidades reservadas para pedidos pendientes: con ${availability.physical} en stock sólo podés retirar hasta ${availability.available}.`,
+      {
+        productoId: params.key.productoId,
+        productoVarianteId: params.key.productoVarianteId,
+        solicitado: params.cantidad,
+        stockFisico: availability.physical,
+        reservasActivas,
+        disponible: availability.available,
+      }
+    )
+  }
+
+  const deficitResultante = computeReservationDeficit(next.nextStock, reservasActivas)
+  if (params.tipo === "AJUSTE" && deficitResultante > 0) {
+    const huella = huellaAjusteDeficitario({
+      negocioId: params.negocioId,
+      key: params.key,
+      stockActual: availability.physical,
+      stockPropuesto: next.nextStock,
+      reservasActivas,
+    })
+    if (params.huellaConfirmada !== huella) {
+      return {
+        kind: "confirm",
+        vencida: typeof params.huellaConfirmada === "string" && params.huellaConfirmada.length > 0,
+        confirmacion: {
+          stockActual: availability.physical,
+          stockPropuesto: next.nextStock,
+          reservasActivas,
+          deficitResultante,
+          huella,
+        },
+      }
+    }
+  }
+
+  return { kind: "apply", stockAntes: availability.physical, stockDespues: next.nextStock, reservasActivas, deficitResultante }
+}
+
+/** Aplica un movimiento manual ya planificado: escribe la autoridad + MovimientoInventario. */
+export async function registrarMovimientoManual(
+  tx: Tx,
+  params: {
+    negocioId: string
+    key: StockKeyRef
+    tipo: MovimientoManualTipo
+    cantidad: number
+    motivo: string | null
+    plan: Extract<MovimientoManualPlan, { kind: "apply" }>
+  }
+) {
+  const variante = params.key.productoVarianteId
+    ? await tx.productoVariante.update({
+        where: { id: params.key.productoVarianteId },
+        data: { stockCantidad: params.plan.stockDespues },
+      })
+    : null
+  const producto = params.key.productoVarianteId
+    ? null
+    : await tx.producto.update({ where: { id: params.key.productoId }, data: { stockCantidad: params.plan.stockDespues } })
+  const movimiento = await tx.movimientoInventario.create({
+    data: {
+      negocioId: params.negocioId,
+      productoId: params.key.productoId,
+      productoVarianteId: params.key.productoVarianteId,
+      tipo: params.tipo,
+      cantidad: params.cantidad,
+      stockAntes: params.plan.stockAntes,
+      stockDespues: params.plan.stockDespues,
+      motivo: params.motivo,
+    },
+  })
+  return { producto, variante, movimiento }
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,13 @@ import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { computeSaleFromAuthoritativeProducts, isValidMetodoPagoVenta, type ServerSaleLineInput } from "@/lib/caja-venta"
+import {
+  mapStockLifecycleError,
+  planificarStockVentaCaja,
+  registrarStockVentaCaja,
+  runStockSerializable,
+  type VentaCajaStockLine,
+} from "@/lib/stock-lifecycle"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -100,7 +107,9 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const result = await db.$transaction(async (tx) => {
+    // P2-T56-R3A-I3: Serializable con maxWait/timeout explícitos y retry acotado
+    // SÓLO ante P2034 (runStockSerializable, la autoridad compartida de I2).
+    const result = await runStockSerializable(db, async (tx) => {
       // Tenant-scoped, authoritative product+variant read — a productoId
       // that doesn't belong to this negocio (or is inactive) simply won't
       // be in this map, and computeSaleFromAuthoritativeProducts rejects
@@ -130,24 +139,25 @@ export async function POST(req: NextRequest) {
         return { ok: false as const, status: 400, error: computed.error }
       }
 
-      // Sellability + stock gate (sections 25/26): reject the whole sale if
-      // any controlled line doesn't have enough stock, rather than
-      // partially selling and leaving an inconsistent cart. Variant lines
-      // check the VARIANT's own stock, never the parent Producto's
-      // (section 8/9 — dormant once a product has variants).
+      // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
+      // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
+      // = físico − reservas ACTIVA (Decisión B), leído en esta misma tx
+      // Serializable por la autoridad compartida. Lanza 409
+      // STOCK_RESERVED_FOR_ORDERS / STOCK_INSUFFICIENT antes de crear nada.
       const productsByIdFull = new Map(productos.map((p) => [p.id, p]))
       const variantesById = new Map(productos.flatMap((p) => p.variantes.map((v) => [v.id, v] as const)))
-      for (const line of computed.items) {
+      const stockLines: VentaCajaStockLine[] = computed.items.map((line) => {
         const producto = productsByIdFull.get(line.productoId)!
-        if (line.varianteId) {
-          const variante = variantesById.get(line.varianteId)!
-          if (variante.controlStock && variante.stockCantidad < line.cantidad) {
-            return { ok: false as const, status: 409, error: `"${producto.nombre} — ${variante.nombre}" no tiene stock suficiente` }
-          }
-        } else if (producto.controlStock && producto.stockCantidad < line.cantidad) {
-          return { ok: false as const, status: 409, error: `"${producto.nombre}" no tiene stock suficiente` }
+        const variante = line.varianteId ? variantesById.get(line.varianteId)! : null
+        return {
+          productoId: line.productoId,
+          productoVarianteId: line.varianteId ?? null,
+          cantidad: line.cantidad,
+          controlStock: variante ? variante.controlStock : producto.controlStock,
+          nombre: variante ? `${producto.nombre} — ${variante.nombre}` : producto.nombre,
         }
-      }
+      })
+      const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })
 
       const venta = await tx.venta.create({
         data: {
@@ -170,49 +180,12 @@ export async function POST(req: NextRequest) {
         include: { items: true },
       })
 
-      // Stock decrement + traceable movement, only for controlStock=true
-      // products/variants — never a double-discount when nothing is
-      // controlled. A variant line decrements ONLY that variant's own
-      // stock, never the parent Producto's (section 24).
-      for (const line of computed.items) {
-        if (line.varianteId) {
-          const variante = variantesById.get(line.varianteId)!
-          if (!variante.controlStock) continue
-          const nextStock = variante.stockCantidad - line.cantidad
-          await tx.productoVariante.update({ where: { id: variante.id }, data: { stockCantidad: nextStock } })
-          await tx.movimientoInventario.create({
-            data: {
-              negocioId,
-              productoId: line.productoId,
-              productoVarianteId: variante.id,
-              tipo: "VENTA",
-              cantidad: line.cantidad,
-              stockAntes: variante.stockCantidad,
-              stockDespues: nextStock,
-              ventaId: venta.id,
-            },
-          })
-          continue
-        }
-        const producto = productsByIdFull.get(line.productoId)!
-        if (!producto.controlStock) continue
-        const nextStock = producto.stockCantidad - line.cantidad
-        await tx.producto.update({ where: { id: producto.id }, data: { stockCantidad: nextStock } })
-        await tx.movimientoInventario.create({
-          data: {
-            negocioId,
-            productoId: producto.id,
-            tipo: "VENTA",
-            cantidad: line.cantidad,
-            stockAntes: producto.stockCantidad,
-            stockDespues: nextStock,
-            ventaId: venta.id,
-          },
-        })
-      }
+      // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
+      // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
+      await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })
 
       return { ok: true as const, venta }
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    })
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
@@ -237,6 +210,10 @@ export async function POST(req: NextRequest) {
         { error: "El stock cambió mientras se procesaba la venta. Volvé a intentar." },
         { status: 409 }
       )
+    }
+    const stockError = mapStockLifecycleError(error)
+    if (stockError) {
+      return NextResponse.json(stockError.body, { status: stockError.status })
     }
     console.error("Error creating venta:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al registrar la venta" }, { status: 500 })

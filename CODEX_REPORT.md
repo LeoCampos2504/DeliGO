@@ -6,7 +6,42 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I2 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-07) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 CAJA + INVENTARIO RESPECT ACTIVE RESERVATIONS — ON DEDICATED BRANCH (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I3-CAJA-INVENTARIO-RESERVATIONS
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+RESULT=READY_FOR_T56_R3A_I3_TESTING_INTEGRATION_REVIEW
+R3A_I3_STATUS=IMPLEMENTED_TESTED_AWAITING_TESTING_INTEGRATION
+R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_IMPLEMENTED_ON_BRANCH (R3A NOT closed; I4–I5 not started)
+I3_BRANCH=work/p2-t56-r3-stock-lifecycle-i3 (base testing-codex 1334e67f8066be54ef504d27a1831b31c218b77d; commit "feat: enforce stock reservations in cash and inventory"; pushed only to origin/work/p2-t56-r3-stock-lifecycle-i3; NOT integrated)
+TESTING_CODEX_HEAD=1334e67f8066be54ef504d27a1831b31c218b77d (unchanged; TESTING runs I2 + F1/F2/F3, mode OFF; last redeploy 237fd8cf-e13a-4ad2-8efa-94efb9efa449 SUCCESS)
+OPERATOR_DECISIONS_I3=A: deficit AJUSTE requires a PRE-save warning + explicit confirmation (approved refinement of A0.1-1, recorded in the I3 report; design doc not rewritten) · B: Caja over available → 409 STOCK_RESERVED_FOR_ORDERS with available/reserved in the message, distinct from STOCK_INSUFFICIENT · C: duplicate Caja lines aggregated per key, one VENTA movement per key, VentaItem kept
+I3_SCOPE=src/lib/stock-lifecycle.ts (leerDisponibilidadStock, planificar/registrarStockVentaCaja, planificar/registrarMovimientoManual, huellaAjusteDeficitario, new 409/400/404 errors with details) + Caja route + Movimientos route (both runStockSerializable 5 s/15 s, P2034-only retry, 40P01 → 409 kept) + inventario-tab AjusteDeficitWarningDialog (AlertDialog); mode never read; ReservaStock only read in the authority
+AJUSTE_CONFIRMATION_PROTOCOL=SERVER_RECOMPUTED_STATE_FINGERPRINT (sha256 of negocio+key+AJUSTE+physical+proposed+reserved; recomputed inside the Serializable tx; mismatch → new warning with confirmacionVencida, nothing written; no new tables/secrets)
+MODE_OFF_COMPATIBILITY=PASS (0 ACTIVA → previous behavior except approved duplicate-line aggregation, P2034 retry, explicit timeout; deficit warning never triggers without reservations)
+RESTAURANTE_RESERVATION_SCOPE_CHANGED=NO · ROPA_RESERVATION_SCOPE_CHANGED=NO · SCHEMA_CHANGE_REQUIRED=NO · NEW_MIGRATIONS=0
+TESTS=I3 authority 32/32; Caja route 14/14; Movimientos route 19/19; UI warning flow 4/4; wiring contract 34/34 (+6 I3); mutation (ignore reservations) → 20+3+10 fail; full per-file sweep 372 files 4314 pass — failures identical to pre-I3 baseline (same 8 non-DB CRLF-class files, same 72 DB_ENV); tsc 33 = baseline (0 new); ESLint PASS; build PASS; diff-check PASS
+REAL_DB_TESTS=DEFERRED_TO_I3_TESTING_INTEGRATION (existing Caja + Movimientos DB suites, real sale/sale concurrency) · ON-mode reservation concurrency → DEFERRED_TO_R3A_I5_MODE_ON_CERTIFICATION
+LATERAL_FINDINGS_OPEN=Caja fractional quantities (→ 500, no partial effect); no server-side rubro gate on Caja/Inventario (A0.1 follow-up); product-with-variants sold/moved without varianteId reclassified as intentional backward compatibility (Caja DB test); FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED (unchanged)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+TESTING_CODEX_TOUCHED=NO · TESTING_DB_TOUCHED=NO · RAILWAY_TOUCHED=NO · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0)
+R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (I3 testing-codex integration requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_TESTING_INTEGRATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I3_CAJA_INVENTARIO.md
+
+R3A-I3 makes Caja sales and manual inventory movements respect ACTIVE order reservations through
+the shared stock authority, independent of the mode, and adds the operator-approved pre-save
+confirmation for deficit adjustments. Branch-only; nothing integrated, deployed or migrated; mode OFF.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I2 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-07; superseded as the current pointer by R3A-I3 above — I2 itself remains CLOSED_TESTING_CERTIFIED) ===
 
 CURRENT_TASK=P2-T56-R3A-I2-MANUAL-SMOKE-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED

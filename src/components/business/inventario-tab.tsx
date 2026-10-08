@@ -28,6 +28,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
@@ -1131,7 +1141,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AjusteStockDialog({
+// P2-T56-R3A-I3: exportado sólo para el test de UI de la advertencia previa.
+export function AjusteStockDialog({
   producto,
   variante,
   onClose,
@@ -1147,9 +1158,14 @@ function AjusteStockDialog({
   const [tipo, setTipo] = useState<"ENTRADA" | "SALIDA" | "AJUSTE">("ENTRADA")
   const [cantidad, setCantidad] = useState("")
   const [motivo, setMotivo] = useState("")
+  // P2-T56-R3A-I3: advertencia PREVIA de un AJUSTE que deja menos stock físico
+  // que las reservas activas. El servidor no guarda nada hasta que el usuario
+  // confirma; la confirmación reenvía la huella que el servidor calculó y él la
+  // vuelve a verificar contra el estado actual (si cambió, devuelve valores nuevos).
+  const [advertencia, setAdvertencia] = useState<{ confirmacion: AjusteConfirmacionUI; vencida: boolean } | null>(null)
 
   const mutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (huellaConfirmada?: string): Promise<{ kind: "saved" } | { kind: "confirm"; confirmacion: AjusteConfirmacionUI; vencida: boolean }> => {
       const res = await fetch("/api/negocio/inventario/movimientos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1159,13 +1175,25 @@ function AjusteStockDialog({
           tipo,
           cantidad: Number(cantidad),
           motivo: motivo.trim() || undefined,
+          ...(huellaConfirmada ? { confirmacionAjuste: { huella: huellaConfirmada } } : {}),
         }),
       })
       const data = await res.json()
+      if (res.status === 409 && data.code === "STOCK_ADJUSTMENT_CONFIRMATION_REQUIRED" && data.confirmacion) {
+        return { kind: "confirm", confirmacion: data.confirmacion as AjusteConfirmacionUI, vencida: data.confirmacionVencida === true }
+      }
       if (!res.ok) throw new Error(data.error || "Error al ajustar el stock")
-      return data
+      return { kind: "saved" }
     },
-    onSuccess: () => { toast.success("Stock actualizado"); onAdjusted() },
+    onSuccess: (outcome) => {
+      if (outcome.kind === "confirm") {
+        setAdvertencia({ confirmacion: outcome.confirmacion, vencida: outcome.vencida })
+        return
+      }
+      setAdvertencia(null)
+      toast.success("Stock actualizado")
+      onAdjusted()
+    },
     onError: (error: Error) => toast.error(error.message),
   })
 
@@ -1196,12 +1224,84 @@ function AjusteStockDialog({
             <Label htmlFor="ajuste-motivo">Motivo (opcional)</Label>
             <Input id="ajuste-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
-          <Button className="w-full rounded-xl" onClick={() => mutation.mutate()} disabled={mutation.isPending || !cantidad}>
+          <Button className="w-full rounded-xl" onClick={() => mutation.mutate(undefined)} disabled={mutation.isPending || !cantidad}>
             {mutation.isPending ? "Guardando…" : "Confirmar"}
           </Button>
         </div>
       </DialogContent>
+      <AjusteDeficitWarningDialog
+        advertencia={advertencia}
+        pending={mutation.isPending}
+        onCancel={() => setAdvertencia(null)}
+        onConfirm={(huella) => mutation.mutate(huella)}
+      />
     </Dialog>
+  )
+}
+
+// P2-T56-R3A-I3: valores que el servidor devuelve con
+// STOCK_ADJUSTMENT_CONFIRMATION_REQUIRED (sin escribir nada todavía).
+interface AjusteConfirmacionUI {
+  stockActual: number
+  stockPropuesto: number
+  reservasActivas: number
+  deficitResultante: number
+  huella: string
+}
+
+export function AjusteDeficitWarningDialog({
+  advertencia,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  advertencia: { confirmacion: AjusteConfirmacionUI; vencida: boolean } | null
+  pending: boolean
+  onCancel: () => void
+  onConfirm: (huella: string) => void
+}) {
+  const c = advertencia?.confirmacion
+  return (
+    <AlertDialog open={advertencia !== null} onOpenChange={(next) => { if (!next && !pending) onCancel() }}>
+      <AlertDialogContent className="rounded-2xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Advertencia de stock</AlertDialogTitle>
+          <AlertDialogDescription>
+            {advertencia?.vencida && (
+              <span className="block mb-2 font-medium text-amber-700">
+                El stock o las reservas cambiaron mientras confirmabas. Estos son los valores actualizados.
+              </span>
+            )}
+            {c && (
+              <span className="block">
+                Hay {c.reservasActivas} unidades reservadas para pedidos pendientes. Si cambiás el stock a {c.stockPropuesto}, van a
+                faltar {c.deficitResultante} unidades para cubrir esos pedidos. ¿Querés continuar con el ajuste?
+              </span>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {c && (
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted/50 p-3 text-sm" data-testid="ajuste-deficit-valores">
+            <InfoRow label="Stock actual" value={String(c.stockActual)} />
+            <InfoRow label="Stock propuesto" value={String(c.stockPropuesto)} />
+            <InfoRow label="Reservas activas" value={String(c.reservasActivas)} />
+            <InfoRow label="Faltante resultante" value={String(c.deficitResultante)} />
+          </div>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel} disabled={pending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(event) => {
+              event.preventDefault()
+              if (c) onConfirm(c.huella)
+            }}
+            disabled={pending || !c}
+          >
+            {pending ? "Guardando…" : "Confirmar ajuste"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

@@ -64,6 +64,8 @@ const CANCELLATION_SITES = [
   "src/lib/mesa-pedido-cancelacion.ts",
 ]
 const sorted = (xs: string[]) => [...xs].sort()
+const CAJA = "src/app/api/negocio/caja/ventas/route.ts"
+const MOVIMIENTOS = "src/app/api/negocio/inventario/movimientos/route.ts"
 
 describe("ORDER_CREATION_WIRING=2/2", () => {
   test("los únicos creadores productivos de Pedido son los 2 entrypoints conocidos", () => {
@@ -218,7 +220,8 @@ describe("I2-F2 — política de timeout de la transacción de stock: explícita
 
   test("los callers de runStockSerializable no pasan maxWait/timeout propios", () => {
     const callers = productive.filter(({ path, src }) => path !== AUTHORITY && src.includes("runStockSerializable("))
-    expect(callers.length).toBe(8)
+    // I2: 2 creadores + 6 escritores de preparando; I3: + Caja + Movimientos manuales.
+    expect(sorted(callers.map(({ path }) => path))).toEqual(sorted([...CREATORS, ...PREPARANDO_WRITERS, CAJA, MOVIMIENTOS]))
     for (const { path, src } of callers) {
       let from = 0
       for (;;) {
@@ -270,6 +273,95 @@ describe("I2-F3 — política de timeout de las transacciones de cancelación (a
       const src = read(path)
       expect({ path, maxWait: /\bmaxWait\s*:/.test(src), timeout: /\btimeout\s*:/.test(src) }).toEqual({ path, maxWait: false, timeout: false })
     }
+  })
+})
+
+// I3: Caja y Movimientos manuales respetan las reservas ACTIVA a través de la
+// autoridad compartida — nunca leen ReservaStock, nunca escriben stock por su
+// cuenta y nunca dependen del modo.
+describe("I3 — Caja e Inventario con reservas ACTIVA (autoridad única)", () => {
+  test("Caja: Serializable con retry acotado, plan agregado por clave contra el disponible y escritura vía la autoridad", () => {
+    const src = read(CAJA)
+    expect(src).toContain("await runStockSerializable(db, async (tx) => {")
+    expect(src).toContain("const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })")
+    expect(src).toContain("await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })")
+    expect(src.indexOf("planificarStockVentaCaja(tx,")).toBeLessThan(src.indexOf("tx.venta.create("))
+    expect(src).toContain("mapStockLifecycleError(error)")
+    // el mensaje de siempre ante P2034/deadlock agotado se conserva
+    expect(src).toContain("El stock cambió mientras se procesaba la venta. Volvé a intentar.")
+  })
+
+  test("Movimientos: Serializable con retry acotado, política SALIDA/AJUSTE en la autoridad y confirmación por huella", () => {
+    const src = read(MOVIMIENTOS)
+    expect(src).toContain("await runStockSerializable(db, async (tx): Promise<MovimientoResult> => {")
+    expect(src).toContain("await planificarMovimientoManual(tx, {")
+    expect(src).toContain("await registrarMovimientoManual(tx, {")
+    expect(src).toContain('code: "STOCK_ADJUSTMENT_CONFIRMATION_REQUIRED"')
+    expect(src).toMatch(/\/\^\[0-9a-f\]\{64\}\$\/\.test\(huella\)/)
+    expect(src.replace(/\/\/[^\n]*/g, "")).not.toMatch(/confirmado\s*[:=]/)
+    expect(src).toContain("mapStockLifecycleError(error)")
+  })
+
+  test("la autoridad recalcula la huella con el estado ACTUAL dentro de la tx y nunca toca reservas en Movimientos/Caja", () => {
+    const authority = read(AUTHORITY)
+    const planner = authority.slice(authority.indexOf("export async function planificarMovimientoManual("))
+    const body = planner.slice(0, planner.indexOf("\n}\n"))
+    expect(body).toContain("const availability = await leerDisponibilidadStock(tx,")
+    expect(body).toContain("const huella = huellaAjusteDeficitario({")
+    expect(body).toContain("if (params.huellaConfirmada !== huella) {")
+    for (const fn of ["planificarStockVentaCaja", "registrarStockVentaCaja", "planificarMovimientoManual", "registrarMovimientoManual"]) {
+      const start = authority.indexOf(`export async function ${fn}(`)
+      const fnBody = authority.slice(start, authority.indexOf("\n}\n", start))
+      expect({ fn, touchesReservas: /reservaStock\.(update|updateMany|create|createMany|delete)/.test(fnBody) }).toEqual({ fn, touchesReservas: false })
+      expect({ fn, readsMode: /readStockReservationMode|stockReservaModo/.test(fnBody) }).toEqual({ fn, readsMode: false })
+    }
+  })
+
+  test("Caja y Movimientos no leen ReservaStock, no leen el modo ni escriben stockCantidad por su cuenta", () => {
+    for (const path of [CAJA, MOVIMIENTOS]) {
+      const src = read(path)
+      expect({ path, reservaStock: /\.reservaStock\./.test(src) }).toEqual({ path, reservaStock: false })
+      expect({ path, mode: /readStockReservationMode|stockReservaModo|configPlataforma/.test(src) }).toEqual({ path, mode: false })
+      expect({ path, stockWrite: /stockCantidad:\s*(next|item|nextStock)/.test(src) }).toEqual({ path, stockWrite: false })
+      expect({ path, update: /\.(producto|productoVariante)\.update\(/.test(src) }).toEqual({ path, update: false })
+    }
+  })
+
+  test("escritores productivos de stockCantidad: sólo la autoridad + stock inicial al CREAR producto/variante", () => {
+    // Escritura real = stockCantidad dentro de una llamada producto/productoVariante
+    // .create/.createMany/.update/.updateMany/.upsert (paréntesis balanceados).
+    const writeCalls = (src: string): string[] => {
+      const out: string[] = []
+      const re = /\b(?:producto|productoVariante)\.(?:create|createMany|update|updateMany|upsert)\(/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(src))) {
+        let depth = 0
+        let end = m.index + m[0].length - 1
+        for (; end < src.length; end++) {
+          if (src[end] === "(") depth++
+          else if (src[end] === ")" && --depth === 0) break
+        }
+        out.push(src.slice(m.index, end + 1))
+      }
+      return out
+    }
+    const writers = productive
+      .filter(({ src }) => writeCalls(src).some((call) => /\bstockCantidad\s*:/.test(call)))
+      .map(({ path }) => path)
+    expect(sorted(writers)).toEqual(
+      sorted([AUTHORITY, "src/app/api/negocio/productos/route.ts", "src/app/api/negocio/productos/[id]/variantes/route.ts"])
+    )
+    // edición de producto/variante: stockCantidad intencionalmente NO aceptado
+    expect(read("src/app/api/negocio/productos/[id]/route.ts")).toContain("stockCantidad is intentionally NOT accepted here")
+    expect(read("src/app/api/negocio/productos/[id]/variantes/[varianteId]/route.ts")).toContain("stockCantidad is intentionally NOT accepted here")
+  })
+
+  test("UI de Inventario: la advertencia previa reenvía la huella del servidor (nunca un booleano)", () => {
+    const ui = read("src/components/business/inventario-tab.tsx")
+    expect(ui).toContain('data.code === "STOCK_ADJUSTMENT_CONFIRMATION_REQUIRED"')
+    expect(ui).toContain("confirmacionAjuste: { huella: huellaConfirmada }")
+    expect(ui).toContain("<AjusteDeficitWarningDialog")
+    expect(ui).not.toMatch(/confirmado:\s*true/)
   })
 })
 
