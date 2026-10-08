@@ -6,7 +6,42 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I4 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5-P0 AUDITED MODE CONTROLLER DEPLOYED TO TESTING (MODE OFF) — AWAITING ON ACTIVATION AUTHORIZATION (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I5-P0-MODE-CONTROLLER
+CURRENT_TASK_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_ACTIVATION
+RESULT=T56_R3A_I5_P0_DEPLOYED_TESTING_READY_FOR_ON_ACTIVATION_REVIEW
+R3A_I5_P0_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_ACTIVATION
+R3A_I5_STATUS=NOT_CERTIFIED (I5 itself — mode ON + real-reservation certification — not started)
+R3A_I4_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_TESTING_CERTIFIED_I5_P0_DEPLOYED_TESTING_MODE_OFF (R3A NOT closed; I5 = mode ON activation + certification, pending authorization)
+WHY=I5 audit found no code writing stockReservaModo and no hard-rollback script (A0.1-9/A0.1-20 gap); operator approved I5-P0 before any activation
+IMPLEMENTATION=src/lib/stock-lifecycle.ts: cambiarModoReservaStock (only writer of the mode; OFF->ON, ON->DRAINING, DRAINING->OFF only with 0 ACTIVE counted inside the same Serializable tx; everything else rejected without writing; CAS id+mode+updatedAt; AuditLog "stock.reserva_modo_cambiado" in the same tx; actor = active SuperAdmin verified in the tx) + evaluarCambioModoReservaStock (read-only dry-run) + liberarReservasPorRollback / evaluarRollbackReservas (DRAINING only; exact IDs of one business; only ACTIVE reservations of an already CANCELLED order; pending orders rejected → normal cancel/prepare flow; ACTIVA→LIBERADA ROLLBACK, audited, idempotent, never deletes rows or touches stock) · src/lib/stock-reservation-ops.ts (command orchestration, injected deps) · scripts/stock-reservation-mode.ts + scripts/stock-reservation-rollback.ts (dry-run by default; --execute + exact --confirm; env allowlist TESTING only; DB fingerprint guard sha256(system_identifier) = d64be28f676e; not in start/build/cron)
+TESTS=new: controller+rollback 32/0 · ops 15/0 · static contract 10/0 · regression lifecycle 43, I3 32, I4 20, I1 contract 19, I2 contract 34, I4 contract 15 all 0 fail · mutation check 3/3 detected · full sweep 383 files / 4442 pass / 209 fail / 72 DB_ENV — only the 3 new files changed vs the I4 sweep; non-DB failures = the same 8 baseline files
+GATES=Prisma validate+generate PASS · schema unchanged · NEW_MIGRATIONS=0 · tsc 33 = baseline (0 new) · ESLint PASS · build PASS · diff-check PASS
+REAL_DB=read-only dry-runs of the real scripts against TESTING (no actor → ACTOR_EMAIL_REQUIRED; --env=production → ENV_NOT_ALLOWED; wrong --expect-db → DB_FINGERPRINT_NOT_EXPECTED; rollback unknown actor → ACTOR_NOT_ACTIVE_SUPERADMIN; computed fingerprint d64be28f676e); state identical before/after · DEFERRED_TO_I5=persistent real transitions, real CAS/SSI, MODE vs RES race, real DRAINING recovery, full dry-run with a real actor
+INTEGRATION=fast-forward testing-codex 607ac04..96a93b6 (1 commit, 8 files, UNRELATED=0, no prisma/) · SAFETY_REF=local annotated tag r3a-i5p0-pre-integration-testing-codex → 607ac04 (not pushed)
+FUNCTIONAL_DEPLOY=Railway amiable-rejoicing / TESTING / DeliGO Copy 9e267fe5-65fc-4b36-8ccc-3100ebc09c94 SUCCESS, branch testing-codex, commit 96a93b69ad8b4a696ef171f0692837727612fa93 (COMMIT_MATCH=YES) · "No pending migrations to apply." (38) · Ready · 0 error lines · HTTP_SMOKE=PASS_NO_5XX
+TESTING_CODEX_HEAD=96a93b69ad8b4a696ef171f0692837727612fa93 (functional) + the docs commit "docs: record T56 R3A I5-P0 mode controller" on top (its docs-only autodeploy is reported in the round result)
+STOCK_MODE_BEFORE=OFF · STOCK_MODE_AFTER=OFF · ACTIVE_RESERVATIONS_BEFORE=0 · ACTIVE_RESERVATIONS_AFTER=0 · config updatedAt unchanged · controller audit rows 0 · MODE_ACTIVATED=NO · no rollback executed
+NEXT_PHASE_PROCEDURE=I5-P0 report §7 (dry-run → --execute --confirm=OFF->ON with the operator's SuperAdmin email; verification; R1–R9 real-DB; 6-scenario manual smoke; DRAINING; stuck reservations; DRAINING->OFF; final-mode decision)
+FOLLOWUPS_OPEN=I4 follow-ups unchanged (denuncias P2028 · superadmin-notifications test 11 · suite auxiliary-table cleanup · Mesa rejected-order occupancy · promocionados real-DB · A0.1-15 step 2 · promotions without eliminado filter) · STALE_OPEN_ORDER_EXPIRATION_POLICY (A0.1) · Inventario physical/reserved/available visibility (I5 plan decision 2) · TESTING fingerprint pinned in code (re-pin if the TESTING cluster is recreated)
+R3A_I5_STARTED=NO (only I5-P0) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged; Production not enabled in the command allowlist)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I5 — ON activation and certification with real reservations in TESTING — requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I5_ON_ACTIVATION_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I5_P0_MODE_CONTROLLER.md
+
+R3A-I5-P0 adds the audited mode controller and the DRAINING-only recovery tool required by A0.1,
+plus guarded internal commands (dry-run by default, TESTING only, DB fingerprint). Deployed to
+TESTING with the mode still OFF and 0 reservations; nothing was activated or rolled back.
+I5 (ON + certification) awaits explicit authorization. Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I4 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08; superseded as the current pointer by R3A-I5-P0 above — I4 remains CLOSED_TESTING_CERTIFIED) ===
 
 CURRENT_TASK=P2-T56-R3A-I4-MANUAL-SMOKE-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
