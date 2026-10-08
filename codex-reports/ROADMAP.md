@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08)
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -128,8 +128,9 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-NEXT_PRIORITY_TASK=NONE_AUTHORIZED (el operador decide la próxima funcionalidad de negocios genéricos — backlog F1–F10 abajo — u otra prioridad)
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_GENERIC_BUSINESS_FEATURE_DECISION
+F9_BARCODE_SCANNER_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: F9 implementada — escaneo continuo en Caja sobre el carrito y checkout existentes + captura por cámara en los 3 campos de código de Inventario + unicidad atómica por negocio (409 CODIGO_BARRAS_DUPLICADO); commits 85e701b · 3e687b2 · 306f34a por fast-forward 5fbfc60..306f34a; deploy TESTING c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS (commit match); tests F9 100/0; sin schema ni migraciones; R3A sin cambios; modo ON; Production sin cambios. F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR — ver codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12)
+NEXT_PRIORITY_TASK=F9_PHYSICAL_SMOKE (smoke físico del operador M1–M6 en los dispositivos disponibles)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F9_PHYSICAL_SMOKE
 OPEN_FOLLOWUPS_FROM_I5=FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE · FOLLOWUP_STOCK_OPS_CLI_PRISMA_LOG_NOISE · visibilidad Físico/Reservado/Disponible en Inventario · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (+99 filas R9)
 OPEN_FOLLOWUPS_FROM_I4=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN · promocionados genérico sin real-DB · A0.1-15 paso 2 · promociones sin filtro eliminado
 ```
@@ -252,7 +253,7 @@ F6  ALERTAS DE REPOSICIÓN — stock mínimo (el campo stockMinimo ya existe en 
 F7  CIERRE DE CAJA — apertura, efectivo esperado vs contado, transferencias, diferencias, cierre, historial por responsable.
 F8  PROMOCIONES Y DESCUENTOS (módulo genérico) — ofertas, combos, descuentos por cantidad, promociones con fecha, integración
     con Caja y pedidos (amplía, sin duplicar, el modelo actual de descuento por producto y Promocion).
-F9  CÓDIGOS DE BARRAS CON CÁMARA — PRIORITARIA dentro de este backlog (ver BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
+F9  CÓDIGOS DE BARRAS CON CÁMARA — IMPLEMENTADA Y DESPLEGADA EN TESTING 2026-10-08, PENDIENTE SMOKE FÍSICO (ver F9_BARCODE_SCANNER_STATUS arriba y BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
     captura el NÚMERO del código para cargarlo o buscarlo en codigoBarras; sin catálogos externos ni reconocimiento de imágenes.
 F10 TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
     digital. Ticket interno ≠ facturación fiscal electrónica.
@@ -309,7 +310,12 @@ USB_BLUETOOTH_READER=compatible a futuro como "teclado" (entrada rápida + Enter
 EXTERNAL_CATALOG_REQUIRED=NO — y no se usará: los catálogos externos quedaron fuera de alcance (ver BARCODE_SCOPE). La opción de
   catálogo externo que figuraba en el discovery queda retirada
 PHYSICAL_DEVICE_TESTING_REQUIRED=YES (iPhone Safari, iPhone PWA instalada, Android Chrome, Android PWA instalada)
-IMPLEMENTATION_STATUS=DEFERRED (no implementado; requiere auditoría y autorización propias)
+IMPLEMENTATION_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08; antes DEFERRED). Implementado según las decisiones D1–D6 del
+  operador: barcode-detector 3.2.2 (nativo + ponyfill zxing-wasm 3.1.3 servido desde /vendor, sin CDN); Permissions-Policy
+  camera=(self); unicidad por negocio entre Producto y Variante (variantes inactivas cuentan, eliminados excluidos, UPC-A≡EAN-13)
+  con transacción Serializable + advisory lock transaccional + reintento P2034 acotado, verificada con escrituras concurrentes
+  reales; escaneo continuo en Caja (lock por frames: 2 frames / 700 ms / 1,2 s) sobre addCartLine y el checkout existente;
+  single-read en Inventario; sin schema; html5-qrcode queda sólo en Mozo. Reporte: codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md
 ```
 
 ## PRECEDING SNAPSHOT — P2-T54-A1 technical audit and design (2026-09-27; superseded as the "current" pointer by the P2-T56-R2C closeout above — T54-R1 itself, built on top of this A1 design, remains independently open and unresolved, see above)

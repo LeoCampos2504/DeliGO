@@ -6,7 +6,36 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I5 CLOSED_TESTING_CERTIFIED (MODE ON) — R3A STOCK LIFECYCLE CLOSED IN TESTING (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — F9 BARCODE SCANNER + CONTINUOUS CAJA SCANNING DEPLOYED TO TESTING — AWAITING PHYSICAL SMOKE (2026-10-08) ===
+
+CURRENT_TASK=F9-BARCODE-CONTINUOUS-SCANNER
+CURRENT_TASK_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE
+RESULT=F9_BARCODE_CONTINUOUS_SCANNER_DEPLOYED_TESTING
+F9_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE · F9_TECHNICAL_TESTS=PASS · F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR (iPhone Safari / iPhone PWA / Android Chrome / Android PWA — none certified yet)
+F9_SCOPE=generic businesses (rubro "negocio") only: Caja continuous scanning into the EXISTING cart (addCartLine) and EXISTING checkout (POST /api/negocio/caja/ventas, unchanged) + camera capture in the 3 Inventario barcode fields (base product, inline variant rows, variant edit). Restaurante/Ropa untouched.
+F9_DECISIONS=D1 barcode-detector 3.2.2 exact (native BarcodeDetector or zxing-wasm 3.1.3 ponyfill; WASM self-hosted at /vendor/zxing-wasm/3.1.3/zxing_reader.wasm, SHA-256 = package ZXING_WASM_SHA256; no CDN) · D2 Permissions-Policy camera=(self) (rest of headers/CSP unchanged) · D3 per-business uniqueness across Producto+Variante (inactive variants count, deleted products excluded, UPC-A≡EAN-13, own code OK, historical duplicates never block unrelated edits) → 409 CODIGO_BARRAS_DUPLICADO · D4 parent code: 1 sellable active variant adds, several open the selector, none = not available · D5 warn above known stock (real available = físico − ACTIVA via read-only GET /api/negocio/productos stockDisponible), checkout stays authority · D6 sound on by default + mute + vibration
+DUPLICATE_PROTECTION=ATOMIC (runBarcodeGuardedWrite: Serializable tx + pg_advisory_xact_lock per business+canonical code + re-read + write, bounded P2034 retry; own runner, outside R3A's runStockSerializable allowlist) · DUPLICATE_RACE_REAL_DB=PASS (8 concurrent creates → 1×201 + 7×409; mixed product/variant/edit race with UPC-A+EAN-13 → 1 + 5×409; 1 row per code)
+SCAN_LOCK=frame-driven (2 consecutive frames · re-arm after 700 ms absence · 1.2 s same-code floor · paused while choosing) — starting values, tune with the physical smoke
+COMMITS=85e701bb0d7526d954e3f841ae99cfb7cf70807b (S1 lookup + safeguards) · 3e687b271f0bf99c1b18db2efb503c190fb9a60c (S2 Caja continuous scanning) · 306f34a9f9c4ea9d34033f1e0d9a770e1c49b6d9 (S3 Inventario capture) — branch work/f9-barcode-continuous-scanner (pushed), fast-forward testing-codex 5fbfc60..306f34a
+DEPLOY=c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS, commit match 306f34a (TESTING / DeliGO Copy, autodeploy)
+TESTS=F9 new 100/0 (barcode 34 · scan-lock 12 · scanner component 9 · Caja integration 7 · Inventario capture 3 · catalog availability 3 · static contract 20 · real-DB routes+race 12) · targeted regressions 41 files 677 pass / 9 fail = Windows-checkout CRLF baseline (3 static contracts comparing "\n" literals; pass 17/0 and 21/0 on LF-normalized base and F9 sources) · tsc 0 · ESLint 0 · next build OK · prisma validate/generate OK · diff-check clean
+SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0 · R3A_CODE_CHANGED=NO · STOCK_RESERVATION_MODE=ON (before and after, read-only) · ACTIVE_RESERVATIONS=0
+SAFETY_REF=local tag f9-pre-integration-testing-codex → 5fbfc60a8e521681e876bec5fc8bf8f7e18fcdb8 · ROLLBACK=git revert of the 3 F9 commits on testing-codex (code only; no DB rollback; never disable reservations ON for scanner issues)
+TESTING_CODEX_HEAD=306f34a9f9c4ea9d34033f1e0d9a770e1c49b6d9 (F9) + the F9 docs commit "docs: record F9 barcode scanner testing deploy" on top
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (unchanged)
+F9_RISKS=installed-iPhone-PWA camera (WebKit history) · lock thresholds untuned on devices · WASM speed on low-end phones without native detector · more Serializable writes on productos (cross-business serialization conflicts are retried; pre-existing for duplicate/reorder) · package-lock.json not regenerated (Railway uses bun.lock)
+NEXT_PRIORITY_TASK=F9_PHYSICAL_SMOKE (operator, M1–M6 in codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F9_PHYSICAL_SMOKE
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F9_BARCODE_CONTINUOUS_SCANNER.md
+
+F9 adds barcode reading to generic businesses without a parallel sales
+path: the scanner only fills the existing Caja cart (or one Inventario
+field); the sale, prices, tenant isolation, R3A reservations and 409s stay
+in the unchanged checkout. Physical camera behaviour on iPhone/Android is
+NOT certified until the operator's smoke.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I5 CLOSED_TESTING_CERTIFIED (MODE ON) — R3A STOCK LIFECYCLE CLOSED IN TESTING (2026-10-08; superseded as the current pointer by F9 above — R3A remains CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS) ===
 
 CURRENT_TASK=P2-T56-R3A-I5-MANUAL-SMOKE-CLOSEOUT
 CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
