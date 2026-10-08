@@ -6,7 +6,40 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — P2-T56-R3A-I3 CLOSED_TESTING_CERTIFIED (MODE OFF) (2026-10-08) ===
+
+CURRENT_TASK=P2-T56-R3A-I3-MANUAL-SMOKE-CLOSEOUT
+CURRENT_TASK_STATUS=CLOSED_TESTING_CERTIFIED
+RESULT=T56_R3A_I3_CLOSED_TESTING_CERTIFIED
+R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, mode OFF — NOT a certification of reservations in mode ON; that is I5)
+R3A_I2_STATUS=CLOSED_TESTING_CERTIFIED (unchanged) · R3A_I1_STATUS=CLOSED_TESTING_VERIFIED (unchanged) · P2_T56_R3A_P0_STATUS=CLOSED_TESTING_CERTIFIED (unchanged)
+P2_T56_R3A_STATUS=ARCHITECTURE_HARDENED_P0_CERTIFIED_I1_TESTING_VERIFIED_I2_TESTING_CERTIFIED_I3_TESTING_CERTIFIED_I4_NOT_STARTED (R3A NOT closed; I4 next, pending authorization; I5 = mode ON activation + real-reservation certification, pending)
+TESTING_CODEX_HEAD=28cef6499c0be2d7955d8f10ddb5d6a0ea1b04d8 (I3 integration docs) + the closeout docs commit "docs: close T56 R3A I3 testing certification" on top (its docs-only autodeploy is reported in the round result); functional head 8ff7d0bc175666f47a3ea7fba055ade185471d25 (deploy d82631a2-c873-47f8-b1c8-fb0bcff11975 SUCCESS)
+MANUAL_SMOKE_ENVIRONMENT=TESTING · MANUAL_SMOKE_MODE=OFF · MANUAL_SMOKE_PASS=5 · MANUAL_SMOKE_FAIL=0 · MANUAL_SMOKE_NOT_AVAILABLE=1 · MANUAL_SMOKE_TOTAL=6 · MANUAL_SMOKE_RESULT=PASS_WITH_DOCUMENTED_COVERAGE_LIMITATION
+MANUAL_SMOKE_DETAIL=1 Caja sale within stock PASS · 2 Caja sale over stock rejected, no partial sale/decrement PASS · 3 variant sale PASS · 4 Inventario ENTRADA/SALIDA/AJUSTE + history PASS (no deficit warning with mode OFF and 0 reservations) · 5 SALIDA over stock rejected PASS · 6 duplicate product lines in Caja NOT_AVAILABLE/NOT_EXECUTED (not available from the UI used; no cause asserted)
+CERTIFICATION_BASIS=representative manual smoke + automatic coverage (I3 authority 32, Caja route 14, Movimientos route 19, UI 4, contract 34, mutation check) + real-DB (Caja 21/21, Inventario 13/13, sale/sale concurrency product + variant PASS, I2 regression 234/234; 0 I3-attributable failures, 0 P2028, 0 connection errors) + gates (Prisma PASS, 0 migrations, tsc 0 new, ESLint, build, diff-check) + mode OFF preserved + no residue; the 8 Inventario UI contract failures match the pre-existing CRLF baseline (not counted as passing). Not every path was tested manually
+DUPLICATE_LINES_REAL_DB=NOT_TESTED_FOLLOWUP · CAJA_NON_GENERIC_RUBRO_REAL_DB=NOT_TESTED_FOLLOWUP · AJUSTE_ACTIVE_RESERVATIONS_CERTIFICATION=DEFERRED_TO_I5
+FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE=OPEN (agregación por clave cubierta por mock + fake; sin prueba PostgreSQL real ni smoke manual — resolver antes de una futura promoción a Production) · FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE=OPEN (suites real-DB usan rubro "negocio"; Restaurante/Ropa cubiertos sólo por mocks/contratos) · FOLLOWUP_ROPA_STOCK_RESERVATIONS=FUTURE_STAGE (R3A limitado a rubro "negocio")
+OTHER_FOLLOWUPS=FOLLOWUP_SALON_TERMINAL_CLOSE_ACCOUNT=OPEN_DEFERRED · Caja fractional quantities · server-side rubro gate (all unchanged, not addressed)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF · RESERVAS_STOCK_ROW_COUNT=0 (last read 2026-10-08)
+SAFETY_TAG=r3a-i1-testing-verified → cc628e0c4cb374d4e99f1432db8887d89eec3b0b (unchanged)
+R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
+TESTING_DB_TOUCHED=NO (this round) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84-702e-41e1-80a8-d075e3ce9362 unchanged)
+OTHER_OPEN_THREADS_UNRELATED_TO_T56=unchanged (P2-T54-R1 blocked on its own testing-codex integration authorization — re-verify ancestry, testing-codex advanced; P2-T44 paused; P2-T52 Fase 4 deferred; P2-T33/P2-T37 sequenced)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (R3A-I4 requires explicit operator authorization)
+MASTER_HANDOFF_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\CODEX_REPORT.md
+FULL_CONTEXT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\DELIGO_FULL_CONTEXT_LATEST.md
+ROADMAP_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\ROADMAP.md
+REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I4_DECISION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\P2_T56_R3A_I3_CAJA_INVENTARIO.md (§12 = manual certification closeout; §11 = TESTING integration + real-DB)
+
+R3A-I3 (Caja + Inventario respecting ACTIVE reservations, deficit-AJUSTE pre-save confirmation) is
+CLOSED_TESTING_CERTIFIED in TESTING with the mode OFF: 5/6 manual checks PASS, 1 not available,
+combined with automatic and real-DB coverage; duplicate-line and non-generic-rubro real-DB coverage
+and active-reservation certification are explicit follow-ups / I5. I4 not started; Production untouched.
+
+=== HISTORICAL HANDOFF — P2-T56-R3A-I3 INTEGRATED + DEPLOYED TO TESTING (MODE OFF) — REAL-DB VERIFIED — AWAITING MANUAL SMOKE (2026-10-08; superseded as the current pointer by the I3 certification closeout above — the manual smoke it awaited PASSED with a documented limitation) ===
 
 CURRENT_TASK=P2-T56-R3A-I3-TESTING-INTEGRATION-REAL-DB
 CURRENT_TASK_STATUS=AWAITING_OPERATOR_MANUAL_SMOKE

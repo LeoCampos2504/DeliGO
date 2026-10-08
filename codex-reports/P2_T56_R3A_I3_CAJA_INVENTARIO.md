@@ -260,10 +260,10 @@ PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; pro
 ### Estado
 
 ```text
-R3A_I3_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (NO CLOSED; falta el smoke manual del operador)
+R3A_I3_STATUS=DEPLOYED_TESTING_MODE_OFF_AWAITING_MANUAL_SMOKE (histórico — superseded por §12: CLOSED_TESTING_CERTIFIED)
 TESTING_CODEX_FUNCTIONAL_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25
 R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
-NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE (histórico — smoke realizado, §12)
 ```
 
 ### Checklist sugerido para el smoke manual (TESTING, modo OFF, sin reservas)
@@ -276,3 +276,86 @@ NEXT_ACTION=RETURN_TO_OPERATOR_FOR_I3_MODE_OFF_MANUAL_SMOKE
 6. **Regresión rápida:** un pedido de Cliente y uno de Mozo en negocio genérico siguen funcionando como en I2 (sin cambios).
 
 `AJUSTE_CONFIRMATION` y Caja con reservas activas reales: **no** se pueden certificar manualmente en OFF; corresponden a I5.
+
+## 12. Closeout — Certificación manual TESTING MODE OFF (2026-10-08)
+
+Ronda documental: sin código, sin tests nuevos, sin DB, sin cambios de modo.
+
+### Smoke manual del operador (registrado tal como fue informado)
+
+```text
+MANUAL_SMOKE_ENVIRONMENT=TESTING
+MANUAL_SMOKE_MODE=OFF
+```
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Venta normal desde Caja: producto con control de stock dentro de lo disponible; el stock se descontó correctamente | PASS |
+| 2 | Venta sin stock suficiente: rechazada, sin venta parcial y sin descontar stock | PASS |
+| 3 | Venta de una variante, con el descuento correspondiente | PASS |
+| 4 | Movimientos de Inventario ENTRADA, SALIDA y AJUSTE: stock e historial correctos; con modo OFF y sin reservas activas el ajuste no requirió advertencia por déficit | PASS |
+| 5 | SALIDA superior al stock: rechazada, sin modificar el inventario | PASS |
+| 6 | Producto repetido en Caja (dos líneas del mismo producto en una venta) | **NOT_AVAILABLE / NOT_EXECUTED**: la prueba no estuvo disponible para el operador desde la interfaz utilizada. No se registra PASS ni FAIL, y no se afirma ninguna causa: no quedó comprobado que la UI impida o agrupe duplicados. |
+
+```text
+MANUAL_SMOKE_PASS=5
+MANUAL_SMOKE_FAIL=0
+MANUAL_SMOKE_NOT_AVAILABLE=1
+MANUAL_SMOKE_TOTAL=6
+MANUAL_SMOKE_RESULT=PASS_WITH_DOCUMENTED_COVERAGE_LIMITATION
+```
+
+### Base de la certificación
+
+Smoke manual representativo satisfactorio, combinado con la cobertura automática y la verificación real-DB, con limitaciones explícitas de cobertura. **No** se afirma que todos los caminos posibles fueron probados manualmente.
+
+- **Implementación** (§6, branch): autoridad I3 32/32 · route de Caja 14/14 · route de Movimientos 19/19 · UI de la advertencia 4/4 · contrato estático 34/34. Mutation check: ignorar las reservas hizo fallar los tests diseñados para detectarlo.
+- **Integración real-DB** (§11):
+  - Caja 21/21 · Inventario 13/13;
+  - concurrencia venta/venta con producto PASS y con variante PASS (PostgreSQL real, P2034 observado, un solo éxito, stock final 0);
+  - regresión I2 234/234.
+  - Sin fallas atribuibles a I3, sin P2028 y sin errores de conexión.
+- **Gates:** Prisma PASS · 0 migraciones nuevas · TypeScript 0 errores nuevos (33 = baseline) · ESLint PASS · build PASS · diff-check PASS.
+- **Contratos de UI de Inventario:** las 8 fallas observadas coinciden, por nombre, con el baseline previo de portabilidad CRLF. No se presentan como tests aprobados.
+- **Invariantes:** modo OFF preservado (`MODE_ACTIVATED=NO`), `reservas_stock` = 0 y sin residuos de las suites. Production sin cambios.
+
+### Limitaciones de cobertura (explícitas)
+
+```text
+DUPLICATE_LINES_REAL_DB=NOT_TESTED_FOLLOWUP
+CAJA_NON_GENERIC_RUBRO_REAL_DB=NOT_TESTED_FOLLOWUP
+AJUSTE_ACTIVE_RESERVATIONS_CERTIFICATION=DEFERRED_TO_I5
+```
+
+- **A. Líneas repetidas en Caja.**
+  - La agregación por clave y el descuento único están implementados y cubiertos por tests automatizados (route real con db mock + fake de la autoridad).
+  - No se completó la comprobación manual (smoke #6 NOT_AVAILABLE) ni hay una prueba equivalente con PostgreSQL real.
+  - Follow-up: `FOLLOWUP_CAJA_DUPLICATE_LINES_REAL_DB_COVERAGE`, a resolver antes de una futura promoción a Production. No es un PASS real-DB.
+- **B. Restaurante / Ropa.**
+  - Las suites real-DB de Caja e Inventario usan negocios genéricos (`rubro: "negocio"`); la regresión específica de Restaurante/Ropa está cubierta por mocks y contratos, no por suites reales.
+  - Follow-up: `FOLLOWUP_CAJA_INVENTARIO_NON_GENERIC_RUBRO_REAL_DB_COVERAGE`.
+  - R3A sigue limitado a `rubro = "negocio"`; Ropa queda para una etapa futura.
+- **C. Advertencia de AJUSTE con reservas activas.**
+  - La confirmación previa, la cancelación y la revalidación del servidor tienen tests automatizados satisfactorios.
+  - TESTING está en OFF con 0 reservas, así que no se certificó manualmente contra reservas reales. Queda para I5.
+- **D. Follow-ups anteriores** (separados, no investigados ni corregidos):
+  - Terminal Salón — Cerrar cuenta (`OPEN_DEFERRED`);
+  - cantidades fraccionarias en Caja;
+  - gate de rubro en el servidor;
+  - incorporación futura de Ropa al sistema de reservas.
+
+### Alcance de la certificación
+
+Esta certificación **no** significa que las reservas en modo ON estén certificadas. La certificación con reservas activas (ON, concurrencia venta/reserva, SALIDA/reserva, MODE/RES, AJUSTE deficitario real) queda pendiente para I5.
+
+### Estado final
+
+```text
+R3A_I3_STATUS=CLOSED_TESTING_CERTIFIED (TESTING, modo OFF)
+TESTING_FUNCTIONAL_HEAD=8ff7d0bc175666f47a3ea7fba055ade185471d25 (deploy d82631a2-c873-47f8-b1c8-fb0bcff11975 SUCCESS)
+MODE_ACTIVATED=NO · STOCK_RESERVATION_MODE_CURRENT=OFF
+R3A_I4_STARTED=NO · R3A_I5_STARTED=NO
+PRODUCTION_TOUCHED=NO
+RESULT=T56_R3A_I3_CLOSED_TESTING_CERTIFIED
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_R3A_I4_DECISION
+```
