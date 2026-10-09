@@ -5,9 +5,9 @@ Base: `5d91732` (F10-B2.0 IMPLEMENTED_TESTING) · rama `work/f10-b2-1-physical-c
 
 ```text
 F10_B2_1_STATUS=IMPLEMENTED_TESTING (2026-10-09; motor y API; sin interfaz; obligatoriedad NO activada)
-F10_B2_2_STATUS=A_TESTED_ON_TESTING_DEPLOY_PENDING · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
+F10_B2_2_STATUS=A_AND_B_IMPLEMENTED_TESTING · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
 CONSUMO_INTERNO_STATUS=PLANNED_NOT_STARTED
-SHIFT_ENFORCEMENT=OPCIONAL en todos los negocios (no activado; activación prevista para F10-B2.2)
+SHIFT_ENFORCEMENT=OPCIONAL en todos los negocios (no activado; cualquier activación requiere completar y autorizar sus gates posteriores)
 ```
 
 **Actualización F10-B2.2-A (2026-10-09):** PostgreSQL TESTING volvió a autenticar; la
@@ -285,12 +285,14 @@ Destacados en la regresión: B2.1 real-DB 22/0 · B2.0 real-DB 11/0 · B1 real-D
 
 No considerar «cierre completo» listo mientras falten los invariantes de dinero, estados/transiciones, doble submit, ventas concurrentes, fondos remanentes, entrega, diferencia, traspaso y recuperación. Pruebas con base real, datos TESTING, migraciones aplicadas y despliegues necesitan autorización separada.
 
-## 20. F10-B2.2-A — implementación local y pruebas TESTING (2026-10-09; deploy pendiente)
+## 20. F10-B2.2-A — implementación y pruebas TESTING (2026-10-09; estado de esa fecha: deploy pendiente)
 
 `DECISION_17=APPROVED_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_ACTIVE_REGISTER`.
 Esta sección registra la implementación y las pruebas autorizadas para A. La
 integración real contra PostgreSQL TESTING pasó; el commit, push a
-`testing-codex` y despliegue automático Railway TESTING quedan pendientes.
+`testing-codex` y despliegue automático Railway TESTING quedaron pendientes en
+el momento en que se escribió esta sección; ver la actualización vigente al
+final del informe para el estado A+B.
 No se creó esquema ni migración.
 
 - El empleado abre su propio turno por `POST /api/operativo/caja/[slug]/turno`
@@ -349,8 +351,28 @@ No se creó esquema ni migración.
 - La auditoría posterior read-only encontró cero negocios fixture
   `test-f10b21-*`/`test-f10b0-*` y cero cuentas operativas temporales.
 - Schema: sin cambios; migraciones nuevas: 0. Sólo se escribieron y limpiaron
-  los fixtures de estas pruebas en TESTING. Deploy aún pendiente. Production no
-  fue tocada. F10-B2.2-B permanece `NOT_STARTED`; vuelto en productos y consumo
+  los fixtures de estas pruebas en TESTING. El estado de despliegue de esta
+  sección es histórico. Production no fue tocada. Vuelto en productos y consumo
   interno siguen `PLANNED_NOT_STARTED`.
+
+## Estado vigente F10-B2.2 — 2026-10-09
+
+F10-B2.2-A y F10-B2.2-B están implementados y desplegados en Railway TESTING.
+El commit de código B2.2-B es `a210edb9acea594c70579a20eeab80b165d8bb4e` y su
+deployment `617eecb9-7e2d-4791-8ed5-713f3ccd4f2b` terminó `SUCCESS`. La UI de
+cajas/turnos incluye apertura de empleado habilitada sólo en TESTING con flag y
+allowlist controlada, gestión del dueño, selección automática si existe un
+único turno abierto y selección requerida si hay varios. Sin turnos conserva
+el comportamiento OPCIONAL. No se agregó migración, cierre, diferencias ni
+activación de `OBLIGATORIO`.
+
+Las pruebas locales relevantes dieron 138/0 (1.403 aserciones), la integración
+real PostgreSQL usada como regresión pasó 24/24 (225 aserciones), TypeScript
+conservó el baseline de 35 errores con cero en archivos cambiados; Prisma
+validate, ESLint, build y `git diff --check` pasaron. Smoke posterior: `/` 200,
+APIs de Caja/turno sin sesión 401. No hubo prueba autenticada de navegador ni
+prueba física de iPhone PWA. Production continúa en el deployment previo y no
+fue tocada. F10-B2.2-C permanece sin iniciar. Consultar el handoff vigente para
+detalles y cualquier deployment documental posterior.
 
 **Vuelto en productos:** `VUELTO_EN_PRODUCTOS=PLANNED_NOT_STARTED`; no pertenece al alcance de B2.2. El vuelto automático puede evaluarse como mejora UX separada del mecanismo de entrega en productos. La extensión futura debe distinguir precio comercial, importe entregado, vuelto calculado, devolución en efectivo, equivalente de productos y efectivo retenido. No inventar ingreso ni inventario; consentimiento del cliente y revisión de normas de protección al consumidor antes de publicación. Ubicación recomendada: extensión posterior al cierre de F10-B2.2, en Caja F10-B, sin asignar identificador que colisione con C/D/E.

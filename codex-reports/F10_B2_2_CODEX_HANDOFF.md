@@ -1,6 +1,55 @@
-# DeliGO — continuidad Codex y preparación F10-B2.2 (diagnóstico previo, supersedido)
+# DeliGO — continuidad Codex y F10-B2.2
 
-Estado vigente: consultar la sección `ACTUALIZACIÓN VIGENTE — F10-B2.2-A local` más abajo. El material anterior conserva el preflight de la transición y ahora es histórico.
+## ACTUALIZACIÓN VIGENTE — F10-B2.2-B desplegado en TESTING (2026-10-09)
+
+Esta sección es la fuente vigente para F10-B2.2. El preflight y los informes A
+posteriores que aparecen abajo son históricos; sus estados de despliegue
+pendiente quedaron supersedidos por esta evidencia.
+
+```text
+F10_B2_2_A_STATUS=IMPLEMENTED_TESTING
+F10_B2_2_B_STATUS=IMPLEMENTED_TESTING
+F10_B2_2_STATUS=A_AND_B_IMPLEMENTED_TESTING
+CODE_COMMIT=a210edb9acea594c70579a20eeab80b165d8bb4e
+CODE_DEPLOY_ID=617eecb9-7e2d-4791-8ed5-713f3ccd4f2b
+CODE_DEPLOY_STATUS=SUCCESS
+TESTING_BRANCH=testing-codex
+PRODUCTION_TOUCHED=NO
+F10_B2_2_C_STATUS=NOT_STARTED
+```
+
+F10-B2.2-B incorpora UI de turnos de empleado controlada por entorno/flag y
+allowlist, vista/administración de cajas y turnos para el dueño, y selección
+automática del único turno abierto o selección explícita cuando hay varios.
+Mantiene venta opcional sin turno si no hay turnos abiertos, preserva carrito
+ante selección obsoleta y conserva destino/idempotencia en reintentos. No agrega
+schema ni migraciones. No implementa cierre ni activa `OBLIGATORIO`.
+
+Validación: PostgreSQL TESTING de sólo lectura confirmó identidad `railway`,
+huella `d64be28f676e` y migraciones F10-B0/B2.0/B2.1. La suite real B2.1 usada
+como regresión pasó 24/24 (225 aserciones); las regresiones locales relevantes
+pasaron 138/0 (1.403 aserciones). TypeScript mantiene 35 errores baseline y
+cero en archivos tocados; Prisma validate, ESLint, build (162/162 páginas) y
+`git diff --check` pasan. Los fixtures B2.1 se limpiaron y se comprobó que no
+quedaran registros temporales. Los smoke HTTP posteriores al despliegue dieron
+200 para `/` y 401 esperado sin sesión en los endpoints de Caja y turno.
+
+La interfaz no recibió un smoke autenticado en navegador ni una prueba física
+en iPhone PWA: `IPHONE_PHYSICAL_SMOKE=NOT_PERFORMED`. Los controles de acceso
+operativo general siguen cerrados salvo configuración deliberada de TESTING,
+flag y empleado allowlisted. Production conserva el deployment anterior
+`6bf1ee84-702e-41e1-80a8-d075e3ce9362` en `main` (`42ca5005...`); no se tocó.
+
+El deploy citado corresponde al commit de código B. Una sincronización
+documental posterior sobre `testing-codex` puede disparar un deploy adicional;
+consultar Railway para su estado final. No iniciar F10-B2.2-C sin autorización.
+
+---
+
+## Registro histórico previo
+
+El material anterior conserva el diagnóstico de transición y las mediciones
+de F10-B2.2-A antes de su push/deploy; no representa el estado vigente.
 
 Fecha de auditoría: 2026-10-09 (America/Buenos_Aires)
 Alcance: transición documental y diagnóstico read-only. No se implementó F10-B2.2.
