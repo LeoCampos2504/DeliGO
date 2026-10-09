@@ -4,14 +4,9 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { computeSaleFromAuthoritativeProducts, isValidMetodoPagoVenta, type ServerSaleLineInput } from "@/lib/caja-venta"
-import {
-  mapStockLifecycleError,
-  planificarStockVentaCaja,
-  registrarStockVentaCaja,
-  runStockSerializable,
-  type VentaCajaStockLine,
-} from "@/lib/stock-lifecycle"
+import { isValidMetodoPagoVenta, isValidVentaIdempotencyKey, type ServerSaleLineInput } from "@/lib/caja-venta"
+import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
+import { registrarVentaCaja } from "@/lib/caja-venta-service"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -52,6 +47,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function readIdempotencyKey(req: NextRequest): { ok: true; key: string | null } | { ok: false; error: string } {
+  const raw = req.headers.get("idempotency-key")
+  if (raw === null) return { ok: true, key: null }
+  const key = raw.trim()
+  if (!isValidVentaIdempotencyKey(key)) return { ok: false, error: "Idempotency-Key inválida" }
+  return { ok: true, key: key.toLowerCase() }
+}
+
 function round(value: number) {
   return Math.round(value * 100) / 100
 }
@@ -84,6 +87,15 @@ export async function POST(req: NextRequest) {
     if (!isValidMetodoPagoVenta(metodoPago)) {
       return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 })
     }
+
+    // F10-B0 — Idempotency-Key (UUID per checkout attempt, same format as
+    // POST /api/pedidos). Transition: the owner route still accepts requests
+    // WITHOUT the header (legacy semantics, no dedupe); the current Caja UI
+    // always sends it. A present-but-malformed header is rejected.
+    const idempotency = readIdempotencyKey(req)
+    if (!idempotency.ok) {
+      return NextResponse.json({ error: idempotency.error }, { status: 400 })
+    }
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: "La venta no tiene productos" }, { status: 400 })
     }
@@ -107,88 +119,29 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // P2-T56-R3A-I3: Serializable con maxWait/timeout explícitos y retry acotado
-    // SÓLO ante P2034 (runStockSerializable, la autoridad compartida de I2).
-    const result = await runStockSerializable(db, async (tx) => {
-      // Tenant-scoped, authoritative product+variant read — a productoId
-      // that doesn't belong to this negocio (or is inactive) simply won't
-      // be in this map, and computeSaleFromAuthoritativeProducts rejects
-      // any requested line that isn't in it. Every active AND inactive
-      // variant is fetched (never trust "activo" from the client either) so
-      // an inactive variant is resolvable-but-rejectable below, not just
-      // silently missing.
-      const productos = await tx.producto.findMany({
-        where: { id: { in: requestedLines.map((l) => l.productoId) }, negocioId, eliminado: false },
-        include: { variantes: true },
-      })
-      const productsById = new Map(
-        productos.map((p) => [
-          p.id,
-          {
-            nombre: p.nombre,
-            precio: p.precio,
-            variantes: new Map(
-              p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: v.precio }])
-            ),
-          },
-        ])
-      )
-
-      const computed = computeSaleFromAuthoritativeProducts(requestedLines, productsById)
-      if (!computed.ok) {
-        return { ok: false as const, status: 400, error: computed.error }
-      }
-
-      // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
-      // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
-      // = físico − reservas ACTIVA (Decisión B), leído en esta misma tx
-      // Serializable por la autoridad compartida. Lanza 409
-      // STOCK_RESERVED_FOR_ORDERS / STOCK_INSUFFICIENT antes de crear nada.
-      const productsByIdFull = new Map(productos.map((p) => [p.id, p]))
-      const variantesById = new Map(productos.flatMap((p) => p.variantes.map((v) => [v.id, v] as const)))
-      const stockLines: VentaCajaStockLine[] = computed.items.map((line) => {
-        const producto = productsByIdFull.get(line.productoId)!
-        const variante = line.varianteId ? variantesById.get(line.varianteId)! : null
-        return {
-          productoId: line.productoId,
-          productoVarianteId: line.varianteId ?? null,
-          cantidad: line.cantidad,
-          controlStock: variante ? variante.controlStock : producto.controlStock,
-          nombre: variante ? `${producto.nombre} — ${variante.nombre}` : producto.nombre,
-        }
-      })
-      const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })
-
-      const venta = await tx.venta.create({
-        data: {
-          negocioId,
-          total: computed.total,
-          metodoPago,
-          cantidadItems: computed.cantidadItems,
-          items: {
-            create: computed.items.map((item) => ({
-              productoId: item.productoId,
-              productoVarianteId: item.varianteId ?? null,
-              nombre: item.nombre,
-              varianteNombre: item.varianteNombre ?? null,
-              precio: item.precio,
-              cantidad: item.cantidad,
-              subtotal: item.subtotal,
-            })),
-          },
-        },
-        include: { items: true },
-      })
-
-      // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
-      // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
-      await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })
-
-      return { ok: true as const, venta }
+    // F10-B0: the whole sale (R3A stock plan, Venta/VentaItem, stock write,
+    // CobroVenta, cash ledger leg) runs in ONE Serializable transaction inside
+    // the shared engine — the only Caja sale writer (src/lib/caja-venta-service.ts).
+    // The actor is the owner session; nothing in the body can choose it.
+    const result = await registrarVentaCaja(db, {
+      negocioId,
+      actor: { tipo: "NEGOCIO" },
+      metodoPago,
+      lines: requestedLines,
+      idempotencyKey: idempotency.key,
     })
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status })
+      return NextResponse.json(
+        result.code ? { error: result.error, code: result.code } : { error: result.error },
+        { status: result.status }
+      )
+    }
+
+    // Exact idempotent replay (same Idempotency-Key, same content): the sale
+    // already exists — return it as-is, no new audit entry, no side effects.
+    if (result.replayed) {
+      return NextResponse.json(result.venta, { status: 200, headers: { "Idempotency-Replayed": "true" } })
     }
 
     await auditLog({

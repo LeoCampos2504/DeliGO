@@ -64,7 +64,12 @@ const CANCELLATION_SITES = [
   "src/lib/mesa-pedido-cancelacion.ts",
 ]
 const sorted = (xs: string[]) => [...xs].sort()
-const CAJA = "src/app/api/negocio/caja/ventas/route.ts"
+// F10-B0: the Caja sale write moved, unchanged, from the route into the single
+// shared engine. CAJA (the runStockSerializable caller and the plan → venta →
+// registro sequence) is now the engine; CAJA_ROUTE must delegate to it and must
+// not touch stock, reservations or the mode itself.
+const CAJA = "src/lib/caja-venta-service.ts"
+const CAJA_ROUTE = "src/app/api/negocio/caja/ventas/route.ts"
 const MOVIMIENTOS = "src/app/api/negocio/inventario/movimientos/route.ts"
 
 describe("ORDER_CREATION_WIRING=2/2", () => {
@@ -221,6 +226,7 @@ describe("I2-F2 — política de timeout de la transacción de stock: explícita
   test("los callers de runStockSerializable no pasan maxWait/timeout propios", () => {
     const callers = productive.filter(({ path, src }) => path !== AUTHORITY && src.includes("runStockSerializable("))
     // I2: 2 creadores + 6 escritores de preparando; I3: + Caja + Movimientos manuales.
+    // F10-B0: el caller de Caja es el motor único compartido (no la ruta).
     expect(sorted(callers.map(({ path }) => path))).toEqual(sorted([...CREATORS, ...PREPARANDO_WRITERS, CAJA, MOVIMIENTOS]))
     for (const { path, src } of callers) {
       let from = 0
@@ -286,9 +292,16 @@ describe("I3 — Caja e Inventario con reservas ACTIVA (autoridad única)", () =
     expect(src).toContain("const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })")
     expect(src).toContain("await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })")
     expect(src.indexOf("planificarStockVentaCaja(tx,")).toBeLessThan(src.indexOf("tx.venta.create("))
-    expect(src).toContain("mapStockLifecycleError(error)")
+    // F10-B0: la ruta delega en el motor único y conserva el mapeo de errores de siempre
+    const route = read(CAJA_ROUTE)
+    expect(route).toContain("await registrarVentaCaja(db, {")
+    expect(route).not.toContain("runStockSerializable(")
+    expect(route).not.toContain("planificarStockVentaCaja")
+    expect(route).not.toContain("registrarStockVentaCaja")
+    expect(route).not.toMatch(/tx\.venta\.create\(|db\.venta\.create\(/)
+    expect(route).toContain("mapStockLifecycleError(error)")
     // el mensaje de siempre ante P2034/deadlock agotado se conserva
-    expect(src).toContain("El stock cambió mientras se procesaba la venta. Volvé a intentar.")
+    expect(route).toContain("El stock cambió mientras se procesaba la venta. Volvé a intentar.")
   })
 
   test("Movimientos: Serializable con retry acotado, política SALIDA/AJUSTE en la autoridad y confirmación por huella", () => {
@@ -318,7 +331,7 @@ describe("I3 — Caja e Inventario con reservas ACTIVA (autoridad única)", () =
   })
 
   test("Caja y Movimientos no leen ReservaStock, no leen el modo ni escriben stockCantidad por su cuenta", () => {
-    for (const path of [CAJA, MOVIMIENTOS]) {
+    for (const path of [CAJA, CAJA_ROUTE, MOVIMIENTOS]) {
       const src = read(path)
       expect({ path, reservaStock: /\.reservaStock\./.test(src) }).toEqual({ path, reservaStock: false })
       expect({ path, mode: /readStockReservationMode|stockReservaModo|configPlataforma/.test(src) }).toEqual({ path, mode: false })

@@ -193,3 +193,73 @@ export function computeSaleFromAuthoritativeProducts(
     cantidadItems: items.length,
   }
 }
+
+// ============================================
+// F10-B0 — checkout idempotency (pure, shared by client and server)
+// ============================================
+// Same key format as POST /api/pedidos (Seguridad-5C): a UUID per checkout
+// ATTEMPT. The client binds the key to the exact request content
+// (canonicalVentaCajaRequest) and reuses it only to retry that same content;
+// the server hashes the same canonical form into Venta.idempotencyFingerprint.
+
+export const VENTA_IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export function isValidVentaIdempotencyKey(value: unknown): value is string {
+  return typeof value === "string" && VENTA_IDEMPOTENCY_KEY_PATTERN.test(value)
+}
+
+/**
+ * Canonical, order-insensitive representation of "which sale is this":
+ * payment method + every requested line (repeated lines are kept, the
+ * server aggregates them). Never includes prices, totals or identities —
+ * the server derives those itself.
+ */
+export function canonicalVentaCajaRequest(
+  metodoPago: string,
+  lines: ReadonlyArray<Pick<ServerSaleLineInput, "productoId" | "varianteId" | "cantidad">>
+): string {
+  const items = lines
+    .map((line) => [line.productoId, line.varianteId ?? null, line.cantidad] as const)
+    .sort((a, b) => (a[0] + "|" + (a[1] ?? "") + "|" + a[2]).localeCompare(b[0] + "|" + (b[1] ?? "") + "|" + b[2]))
+  return JSON.stringify({ metodoPago, items })
+}
+
+// ============================================
+// F10-B0 — cobros per sale (D7: multi-payment-ready, single method in the UI)
+// ============================================
+// A TRANSFERENCIA cobro starts DECLARADO: it records what the seller declared,
+// never a verified Mercado Pago credit. EFECTIVO/OTRO: NO_APLICA.
+export type EstadoConciliacionCobro = "NO_APLICA" | "DECLARADO"
+
+export function estadoConciliacionInicial(metodo: MetodoPagoVenta): EstadoConciliacionCobro {
+  return metodo === "TRANSFERENCIA" ? "DECLARADO" : "NO_APLICA"
+}
+
+export interface CobroVentaResumen {
+  metodo: string
+  importe: number
+  estadoConciliacion: string
+  /** true = sale created before F10-B0: derived from Venta.metodoPago, never persisted. */
+  legacy: boolean
+}
+
+/**
+ * Read-compatibility for historical sales: a sale without CobroVenta rows
+ * (pre-F10-B0) is read as ONE cobro of its own metodoPago for its total.
+ * Nothing is written back — historical rows are never migrated blindly.
+ */
+export function resolveCobrosVenta(
+  venta: { metodoPago: string; total: number },
+  cobros: ReadonlyArray<{ metodo: string; importe: number; estadoConciliacion: string }>
+): CobroVentaResumen[] {
+  if (cobros.length > 0) return cobros.map((c) => ({ ...c, legacy: false }))
+  return [
+    {
+      metodo: venta.metodoPago,
+      importe: venta.total,
+      estadoConciliacion: venta.metodoPago === "TRANSFERENCIA" ? "DECLARADO" : "NO_APLICA",
+      legacy: true,
+    },
+  ]
+}

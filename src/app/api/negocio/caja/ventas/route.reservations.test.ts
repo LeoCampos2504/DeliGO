@@ -18,6 +18,10 @@ interface State {
   reservas: Array<{ negocioId: string; productoId: string; productoVarianteId: string | null; cantidad: number; estado: string }>
   ventas: Array<Record<string, unknown> & { items: Array<Record<string, unknown>> }>
   movimientos: Array<Record<string, unknown>>
+  // F10-B0: cobros + minimal cash ledger written by the shared sale engine
+  cobros: Array<Record<string, unknown>>
+  operaciones: Array<Record<string, unknown>>
+  cuentas: Array<{ id: string; negocioId: string; clave: string }>
 }
 
 let state: State
@@ -36,6 +40,9 @@ function reset(overrides: Partial<State> = {}) {
     reservas: [],
     ventas: [],
     movimientos: [],
+    cobros: [],
+    operaciones: [],
+    cuentas: [],
     ...overrides,
   }
   txOptions = []
@@ -98,9 +105,40 @@ mock.module("@/lib/db", () => {
         return data
       },
     },
+    // F10-B0 additions (shared sale engine): no Idempotency-Key in these tests,
+    // so venta.findUnique is never reached; actor is always the owner.
+    cobroVenta: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `cobro-${state.cobros.length + 1}`, ...data }
+        state.cobros.push(row)
+        return row
+      },
+    },
+    operacionFinanciera: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `op-${state.operaciones.length + 1}`, ...data }
+        state.operaciones.push(row)
+        return row
+      },
+    },
   }
   return {
     db: {
+      cuentaFinanciera: {
+        createMany: async ({ data }: { data: Array<{ negocioId: string; clave: string }> }) => {
+          for (const row of data) {
+            if (!state.cuentas.some((c) => c.negocioId === row.negocioId && c.clave === row.clave)) {
+              state.cuentas.push({ id: `cuenta-${state.cuentas.length + 1}`, negocioId: row.negocioId, clave: row.clave })
+            }
+          }
+          return { count: data.length }
+        },
+        findUniqueOrThrow: async ({ where }: { where: { negocioId_clave: { negocioId: string; clave: string } } }) => {
+          const c = state.cuentas.find((row) => row.negocioId === where.negocioId_clave.negocioId && row.clave === where.negocioId_clave.clave)
+          if (!c) throw new Error("cuenta no encontrada")
+          return { id: c.id }
+        },
+      },
       $transaction: async (fn: (t: unknown) => Promise<unknown>, options?: Record<string, unknown>) => {
         txOptions.push(options)
         const injected = failNextTransactionWith.shift()

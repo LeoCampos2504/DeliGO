@@ -91,6 +91,10 @@ function request(url: string, method: string, cookie: string, body?: unknown) {
 afterAll(async () => {
   for (const token of createdSessions) await deleteSession(token)
   await db.movimientoInventario.deleteMany({ where: { negocioId: { in: createdBusinesses } } })
+  // F10-B0: a sale with a ledger record cannot be deleted alone (NO ACTION FK) — drop the
+  // fixture ledger first (legs cascade from their operation), then the system cash account.
+  await db.operacionFinanciera.deleteMany({ where: { negocioId: { in: createdBusinesses } } })
+  await db.cuentaFinanciera.deleteMany({ where: { negocioId: { in: createdBusinesses } } })
   await db.ventaItem.deleteMany({ where: { venta: { negocioId: { in: createdBusinesses } } } })
   await db.venta.deleteMany({ where: { negocioId: { in: createdBusinesses } } })
   await db.producto.deleteMany({ where: { negocioId: { in: createdBusinesses } } })

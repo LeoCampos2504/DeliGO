@@ -102,9 +102,18 @@ describe("I1-S — la migración contiene exactamente las operaciones aditivas e
     .map((s) => s.trim())
     .filter(Boolean)
 
-  test("es la única migración nueva de I1 y la más reciente", () => {
+  // F10-B0 (2026-10-09): "la más reciente" sólo podía valer hasta la siguiente
+  // migración. La intención se conserva así: la migración de I1 sigue presente
+  // y ninguna migración posterior toca objetos de R3A ni es destructiva.
+  test("es la única migración nueva de I1; las posteriores no tocan R3A y son aditivas", () => {
     const dirs = readdirSync(join(ROOT, "prisma/migrations")).filter((d) => statSync(join(ROOT, "prisma/migrations", d)).isDirectory()).sort()
-    expect(dirs[dirs.length - 1]).toBe(MIGRATION_DIR.split("/").pop()!)
+    const i1 = MIGRATION_DIR.split("/").pop()!
+    expect(dirs).toContain(i1)
+    for (const later of dirs.slice(dirs.indexOf(i1) + 1)) {
+      const laterSql = readFileSync(join(ROOT, "prisma/migrations", later, "migration.sql"), "utf8").replace(/--[^\n]*/g, "")
+      expect({ later, touchesR3A: /reservas_stock|stockReservaModo/.test(laterSql) }).toEqual({ later, touchesR3A: false })
+      expect({ later, destructive: /DROP|ALTER COLUMN|TRUNCATE/i.test(laterSql) }).toEqual({ later, destructive: false })
+    }
   })
 
   test("1 tabla, 2 columnas, 5 índices, 6 FKs — nada más", () => {

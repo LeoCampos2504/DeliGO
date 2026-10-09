@@ -182,6 +182,10 @@ model Negocio {
   movimientosInventario MovimientoInventario[]
   ventas                Venta[]
   reservasStock         ReservaStock[] // P2-T56-R3A-I1
+  cobrosVenta           CobroVenta[] // F10-B0
+  cuentasFinancieras    CuentaFinanciera[] // F10-B0
+  operacionesFinancieras OperacionFinanciera[] // F10-B0
+  movimientosFinancieros MovimientoFinanciero[] // F10-B0
 
   // Plan
   planTipo            String  @default("prueba")
@@ -454,16 +458,136 @@ model Venta {
   id            String   @id @default(cuid())
   negocioId     String
   total         Float
+  // Medio de la venta (resumen). F10-B0: se conserva como fuente de las
+  // estadisticas existentes; el detalle por cobro vive en CobroVenta (D7).
   metodoPago    String // EFECTIVO | TRANSFERENCIA | OTRO
   cantidadItems Int
   createdAt     DateTime @default(now())
 
+  // F10-B0 - idempotencia del checkout (mismo patron que Pedido, Seguridad-5C).
+  // NULL en ventas historicas y en clientes legacy sin cabecera.
+  idempotencyKey         String?
+  idempotencyFingerprint String?
+  // F10-B0 - autoria derivada SIEMPRE de la sesion del servidor.
+  // NEGOCIO = dueno (sesion del negocio) | EMPLEADO = cajero (F10-B1+).
+  // NULL = venta anterior a F10-B0 (sin registro de autoria).
+  actorTipo  String?
+  actorId    String?
+  empleadoId String?
+  // El turno (F10-B2) se agregara con su FK cuando exista TurnoCaja.
+
   negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  empleado    Empleado?              @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
   items       VentaItem[]
   movimientos MovimientoInventario[]
+  cobros      CobroVenta[]
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, createdAt])
+  @@index([empleadoId])
+  @@map("ventas_caja")
+}
+
+// ============================================
+// F10-B0 - COBROS POR VENTA (preparados para pagos mixtos, D7)
+// ============================================
+// Una venta nueva genera exactamente UN cobro (la interfaz sigue con un solo
+// medio). Las ventas anteriores a F10-B0 no tienen cobros: su medio se lee de
+// Venta.metodoPago (resolveCobrosVenta). Las estadisticas siguen leyendo Venta,
+// asi que este registro nunca duplica totales.
+// estadoConciliacion: TRANSFERENCIA nace DECLARADO = el cobro fue DECLARADO por
+// quien vendio; NO es una acreditacion verificada de Mercado Pago. EFECTIVO/OTRO:
+// NO_APLICA. VERIFICADO / OBSERVADO / DIFERENCIA llegan en F10-D.
+model CobroVenta {
+  id                 String   @id @default(cuid())
+  negocioId          String
+  ventaId            String
+  metodo             String // EFECTIVO | TRANSFERENCIA | OTRO
+  importe            Float
+  estadoConciliacion String   @default("NO_APLICA") // NO_APLICA | DECLARADO
+  createdAt          DateTime @default(now())
+
+  negocio             Negocio              @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  venta               Venta                @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  operacionFinanciera OperacionFinanciera?
 
   @@index([negocioId, createdAt])
-  @@map("ventas_caja")
+  @@index([ventaId])
+  @@map("cobros_venta")
+}
+
+// ============================================
+// F10-B0 - LIBRO FINANCIERO (base minima)
+// ============================================
+// Cuenta -> Operacion (cabecera) -> Movimientos (patas con signo). En F10-B0 solo
+// se contabilizan los cobros EN EFECTIVO de Caja, en una cuenta de sistema por
+// negocio ("efectivo_caja_sin_asignar") porque todavia no existen cajas fisicas.
+// El libro EMPIEZA con el primer cobro registrado despues del deploy de F10-B0:
+// su saldo NO reconstruye el efectivo historico del negocio, ni es el saldo de
+// un cajon concreto, ni incluye fondos iniciales no declarados. Ningun saldo de
+// Mercado Pago se calcula ni se muestra. Las correcciones futuras seran
+// operaciones compensatorias (revierteOperacionId); los importes no se editan.
+model CuentaFinanciera {
+  id        String   @id @default(cuid())
+  negocioId String
+  clave     String // identificador estable de sistema (F10-B0: "efectivo_caja_sin_asignar")
+  tipo      String // EFECTIVO (F10-B0); futuros: MERCADO_PAGO | OTRA
+  nombre    String
+  activa    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  movimientos MovimientoFinanciero[]
+
+  @@unique([negocioId, clave])
+  @@map("cuentas_financieras")
+}
+
+model OperacionFinanciera {
+  id                  String   @id @default(cuid())
+  negocioId           String
+  tipo                String // VENTA_COBRO (F10-B0); futuros: GASTO, PAGO_PROVEEDOR, TRANSFERENCIA_INTERNA, CAMBIO_*, AJUSTE, REVERSION
+  estado              String   @default("CONFIRMADA")
+  // Origen: un cobro de venta genera a lo sumo UNA operacion (anti-duplicado).
+  cobroVentaId        String?  @unique
+  // Reversion compensatoria futura: una operacion se revierte a lo sumo una vez.
+  revierteOperacionId String?  @unique
+  actorTipo           String // NEGOCIO | EMPLEADO (derivado de la sesion)
+  actorId             String
+  // Idempotencia de operaciones manuales futuras (NULL para las derivadas de ventas).
+  idempotencyKey      String?
+  createdAt           DateTime @default(now())
+
+  negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  // NoAction: una venta con registro financiero no puede borrarse sola; borrar
+  // el negocio completo sigue funcionando (verificacion al final de la sentencia).
+  cobroVenta  CobroVenta?            @relation(fields: [cobroVentaId], references: [id], onDelete: NoAction)
+  revierte    OperacionFinanciera?   @relation("ReversionOperacionFinanciera", fields: [revierteOperacionId], references: [id], onDelete: NoAction)
+  reversion   OperacionFinanciera?   @relation("ReversionOperacionFinanciera")
+  movimientos MovimientoFinanciero[]
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, createdAt])
+  @@map("operaciones_financieras")
+}
+
+model MovimientoFinanciero {
+  id          String   @id @default(cuid())
+  negocioId   String
+  operacionId String
+  cuentaId    String
+  importe     Float // con signo: + entra a la cuenta, - sale
+  estado      String   @default("CONFIRMADO") // CONFIRMADO (F10-B0); futuros: DECLARADO | OBSERVADO
+  createdAt   DateTime @default(now())
+
+  negocio   Negocio             @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  operacion OperacionFinanciera @relation(fields: [operacionId], references: [id], onDelete: Cascade)
+  cuenta    CuentaFinanciera    @relation(fields: [cuentaId], references: [id], onDelete: NoAction)
+
+  @@unique([operacionId, cuentaId])
+  @@index([cuentaId, createdAt])
+  @@index([negocioId, createdAt])
+  @@map("movimientos_financieros")
 }
 
 // Snapshot inmutable por línea — una venta histórica nunca cambia porque
@@ -1255,6 +1379,7 @@ model Empleado {
   cuentaOperativa   CuentaOperativa? @relation(fields: [cuentaOperativaId], references: [id], onDelete: SetNull)
   mesas            Mesa[] // Mesas asignadas a este mozo
   codigosIncorporacionObjetivo CodigoIncorporacionMozo[]
+  ventasCaja       Venta[] // F10-B0: ventas de Caja registradas por este empleado (F10-B1+)
 
   // La unicidad vigente de código se mantiene en SQL como índice único parcial
   // (negocioId, codigo) WHERE eliminado = false. Prisma no soporta índices
