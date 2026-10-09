@@ -8,6 +8,7 @@ import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { parseVentaCajaRequestBody, registrarVentaCaja } from "@/lib/caja-venta-service"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure, ventaParaCajero } from "@/lib/operativo-caja"
+import { turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
 
 // ============================================
 // F10-B1 — POST /api/operativo/caja/[slug]/ventas (cashier sale)
@@ -40,9 +41,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const parsed = parseVentaCajaRequestBody(await req.json().catch(() => null))
     if (!parsed.ok) return noStore(NextResponse.json({ ok: false, error: parsed.error }, { status: 400 }))
 
+    // F10-B2.1: the employee's OWN open shift, resolved from the session (the
+    // body can never name a shift); the engine re-validates it.
+    const turno = await turnoAbiertoDeActor(db, auth.negocio.id, { tipo: "EMPLEADO", empleadoId: auth.empleado.id })
+
     const result = await registrarVentaCaja(db, {
       negocioId: auth.negocio.id,
       actor: { tipo: "EMPLEADO", empleadoId: auth.empleado.id },
+      turnoCajaId: turno?.id ?? null,
       metodoPago: parsed.metodoPago,
       lines: parsed.lines,
       idempotencyKey: rawKey.toLowerCase(),

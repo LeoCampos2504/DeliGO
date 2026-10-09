@@ -8,6 +8,7 @@ import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
 import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
+import { turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -99,9 +100,15 @@ export async function POST(req: NextRequest) {
     // CobroVenta, cash ledger leg) runs in ONE Serializable transaction inside
     // the shared engine — the only Caja sale writer (src/lib/caja-venta-service.ts).
     // The actor is the owner session; nothing in the body can choose it.
+    // F10-B2.1: only the owner's OWN open shift (responsable NEGOCIO) — an
+    // owner sale is never attributed to an employee's shift; without one it
+    // stays a sale without shift (pending product decision #17).
+    const turno = await turnoAbiertoDeActor(db, negocioId, { tipo: "NEGOCIO" })
+
     const result = await registrarVentaCaja(db, {
       negocioId,
       actor: { tipo: "NEGOCIO" },
+      turnoCajaId: turno?.id ?? null,
       metodoPago,
       lines: requestedLines,
       idempotencyKey: idempotency.key,

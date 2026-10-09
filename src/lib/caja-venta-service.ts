@@ -28,7 +28,17 @@
 // The Float is the transport form of the exact Decimal, so both always carry
 // the same cents amount. Decimal objects never leave the server as-is
 // (ventaCajaParaRespuesta strips them from the owner's JSON contract).
-// Not done here on purpose: no Mercado Pago account or balance, no shifts,
+// Added by F10-B2.1 (same transaction): shift attribution. The caller passes
+// the turnoCajaId it resolved FROM THE SESSION (never from the body); the
+// engine re-validates inside its transaction that the shift is ABIERTO, of
+// THIS negocio and that the actor IS its responsible person, then records it
+// on the Venta and on the cash operation, and books the cash leg on THAT
+// register's cash account (one account per physical register). Without a
+// shift, cash keeps going to the historical efectivo_caja_sin_asignar account
+// (identifiable, never mixed with a register). When the business switched
+// cajaTurnosModo to OBLIGATORIO, a cashier (EMPLEADO) without a shift cannot
+// sell (enforced here too, not only in the route).
+// Not done here on purpose: no Mercado Pago account or balance, no closing,
 // no mixed payments.
 
 import { createHash } from "node:crypto"
@@ -42,6 +52,7 @@ import {
   type ServerSaleLineInput,
 } from "@/lib/caja-venta"
 import { isMoneyInRange, MoneyError, moneyToNumber, saleAmountsExact, type SaleAmountsExact } from "@/lib/money"
+import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO } from "@/lib/caja-turnos-service"
 import {
   planificarStockVentaCaja,
   registrarStockVentaCaja,
@@ -68,6 +79,12 @@ export interface RegistrarVentaCajaInput {
   lines: ServerSaleLineInput[]
   /** null = legacy client without Idempotency-Key (owner route transition only). */
   idempotencyKey: string | null
+  /**
+   * F10-B2.1: the actor's open shift, resolved by the caller from the verified
+   * session (turnoAbiertoDeActor) — NEVER taken from the request body. The
+   * engine re-validates it. null/undefined = sale without shift.
+   */
+  turnoCajaId?: string | null
 }
 
 export type VentaCajaConItems = Prisma.VentaGetPayload<{ include: { items: true } }>
@@ -78,6 +95,9 @@ export type RegistrarVentaCajaResult =
 
 export const IDEMPOTENCY_KEY_REUSED_CODE = "IDEMPOTENCY_KEY_REUSED"
 export const IMPORTE_FUERA_DE_RANGO = "El importe de la venta está fuera del rango permitido"
+export const TURNO_NO_DISPONIBLE_CODE = "TURNO_NO_DISPONIBLE"
+export const TURNO_REQUERIDO_CODE = "TURNO_REQUERIDO"
+export const CUENTA_EFECTIVO_CAJA_FISICA_PREFIX = "efectivo_caja_fisica:"
 
 /**
  * F10-B2.0 — the owner's existing JSON contract for a sale (POST 201/200 and
@@ -101,7 +121,7 @@ export function ventaCajaParaRespuesta(venta: VentaCajaConItems): VentaCajaRespu
   }
 }
 
-type SaleDb = Pick<PrismaClient, "$transaction" | "venta" | "cuentaFinanciera">
+type SaleDb = Pick<PrismaClient, "$transaction" | "venta" | "cuentaFinanciera" | "turnoCaja">
 
 /** sha256 of the canonical request, namespaced by negocio. */
 export function fingerprintVentaCaja(negocioId: string, metodoPago: string, lines: ServerSaleLineInput[]): string {
@@ -166,10 +186,49 @@ export async function asegurarCuentaEfectivoCaja(db: Pick<PrismaClient, "cuentaF
   return cuenta.id
 }
 
+/**
+ * F10-B2.1 — the cash account of ONE physical register (created outside the
+ * sale transaction with ON CONFLICT DO NOTHING, like the system account).
+ * Separate per register: cash sold at one register never increases another's.
+ */
+export async function asegurarCuentaEfectivoCajaFisica(
+  db: Pick<PrismaClient, "cuentaFinanciera">,
+  negocioId: string,
+  cajaFisicaId: string
+): Promise<string> {
+  const clave = `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaId}`
+  await db.cuentaFinanciera.createMany({
+    data: [{ negocioId, clave, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId }],
+    skipDuplicates: true,
+  })
+  const cuenta = await db.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave, cajaFisicaId }, select: { id: true } })
+  return cuenta.id
+}
+
+const TURNO_NO_DISPONIBLE = {
+  ok: false as const,
+  status: 409 as const,
+  code: TURNO_NO_DISPONIBLE_CODE,
+  error: "Tu turno de Caja ya no está disponible. Actualizá la pantalla.",
+}
+
 export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
   const { negocioId, actor, metodoPago, lines: requestedLines, idempotencyKey } = input
+  const turnoCajaId = input.turnoCajaId ?? null
   const fingerprint = idempotencyKey ? fingerprintVentaCaja(negocioId, metodoPago, requestedLines) : null
-  const cuentaEfectivoId = metodoPago === "EFECTIVO" ? await asegurarCuentaEfectivoCaja(db, negocioId) : null
+  // F10-B2.1: the register of the shift (tenant-scoped) decides the cash account.
+  let cajaFisicaIdDelTurno: string | null = null
+  if (turnoCajaId) {
+    const turnoPre = await db.turnoCaja.findFirst({ where: { id: turnoCajaId, negocioId }, select: { cajaFisicaId: true } })
+    if (!turnoPre) return TURNO_NO_DISPONIBLE
+    cajaFisicaIdDelTurno = turnoPre.cajaFisicaId
+  }
+  const cuentaEfectivoId =
+    metodoPago !== "EFECTIVO"
+      ? null
+      : cajaFisicaIdDelTurno
+        ? await asegurarCuentaEfectivoCajaFisica(db, negocioId, cajaFisicaIdDelTurno)
+        : await asegurarCuentaEfectivoCaja(db, negocioId)
 
   try {
     return await runStockSerializable(db, async (tx) => {
@@ -196,6 +255,27 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
         if (!empleado) return { ok: false as const, status: 403 as const, error: "Acceso denegado" }
         actorId = empleado.id
         empleadoId = empleado.id
+      }
+
+      // F10-B2.1: the shift must still be OPEN, of THIS negocio, on the same
+      // register, and the actor must be its responsible person — a shift id
+      // the actor does not own is never accepted.
+      if (turnoCajaId) {
+        const turno = await tx.turnoCaja.findFirst({
+          where: { id: turnoCajaId, negocioId, estado: TURNO_ESTADO_ABIERTO, cajaFisicaId: cajaFisicaIdDelTurno!, responsableTipo: actor.tipo, responsableId: actorId },
+          select: { id: true },
+        })
+        if (!turno) return TURNO_NO_DISPONIBLE
+      } else if (actor.tipo === "EMPLEADO") {
+        const negocio = await tx.negocio.findUnique({ where: { id: negocioId }, select: { cajaTurnosModo: true } })
+        if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {
+          return {
+            ok: false as const,
+            status: 409 as const,
+            code: TURNO_REQUERIDO_CODE,
+            error: "Para vender tenés que abrir un turno de Caja.",
+          }
+        }
       }
 
       // Tenant-scoped, authoritative product+variant read — a productoId
@@ -273,6 +353,7 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
           actorTipo: actor.tipo,
           actorId,
           empleadoId,
+          turnoCajaId,
           items: {
             create: computed.items.map((item, index) => ({
               productoId: item.productoId,
@@ -316,6 +397,7 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
             cobroVentaId: cobro.id,
             actorTipo: actor.tipo,
             actorId,
+            turnoCajaId,
             movimientos: {
               create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: moneyToNumber(totalExacto), importeDecimal: totalExacto }],
             },
