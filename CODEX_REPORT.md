@@ -6,7 +6,33 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — F10-A COMPLETED + F10-B0 CORE SALES / IDEMPOTENCY / PAYMENTS / LEDGER BASE IMPLEMENTED IN TESTING (2026-10-09) ===
+=== LATEST CURRENT HANDOFF — F10-B1 CASHIER IN DELIGO OPERACIONES (MOBILE-FIRST) IMPLEMENTED IN TESTING, AWAITING PHYSICAL SMOKE (2026-10-09) ===
+
+CURRENT_TASK=F10-B1-CASHIER-OPERATIONS
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE
+RESULT=F10_B1_IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE
+F10_B1_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-09: área operativa caja (sólo rubro negocio, sin gate de Salón, sin capacidades Mozo/Salón/PyR, sin revivir rol/permisos; el dueño la asigna desde Salón → Mozos/Empleados, 409 fuera de genéricos); pantalla /operaciones/mi-panel/[slug]/caja con VenderView (catálogo, F9, carrito, variantes, checkout idempotente) y alcance del intento empleado+negocio; GET /api/operativo/caja/[slug]/productos (sólo campos de venta, misma disponibilidad físico − ACTIVA) y POST /api/operativo/caja/[slug]/ventas (Idempotency-Key OBLIGATORIA, motor único registrarVentaCaja con actor EMPLEADO derivado de la sesión, sin turnoId); replay sólo al mismo actor (otra persona con la misma clave → 409); el cajero no recibe esperado/diferencias/totales por medio/resumen/MP/ventas ajenas y su cookie no abre rutas del dueño; sin schema ni migraciones; commits 0d03398 · 03baa1b · ea276ca; fast-forward e72c61b..ea276ca; deploy TESTING 59d78750-0571-4fb9-a1ed-61b16333946b SUCCESS commit match; tests nuevos 40/0 (real-DB 23/0); regresiones 133 archivos sin fallas nuevas (preexistentes/entorno clasificadas en el reporte §8); TypeScript 35 = conjunto idéntico a e72c61b; build OK; smoke físico PENDIENTE del operador; NO es Caja completa hasta F10-B2; reporte codex-reports/F10_B1_CASHIER_OPERATIONS.md)
+F10_B1_DESIGN=autorización sólo en el servidor vía resolveOperativoAreaForSlug(req, slug, "caja") (sesión personal CuentaOperativa, negocio aprobado/no suspendido/empleados activos/rubro negocio, Empleado activo de ese negocio con área caja; 401 sin_sesion · 403 acceso_no_disponible · 403 area_no_habilitada); negocioId/empleadoId sólo de esa resolución, el cuerpo sólo pasa por parseVentaCajaRequestBody (compartido con el dueño); catálogo con CAJERO_PRODUCTO_SELECT + anotarDisponibilidadCaja (la misma función que usa ahora GET /api/negocio/productos); cliente: CajaVenderSource (ownerCajaSource conserva exactamente endpoints, claves y alcance del dueño), intento del cajero en sessionStorage con alcance operativo:<empleadoId>:<negocioId>; mutaciones /api/operativo/** con protección de origen del proxy
+F10_B1_NOT_IMPLEMENTED=turnos, apertura/cierre, cierre ciego, cajas físicas, Venta.turnoId (B2) · salidas de efectivo, recepciones (C) · cuentas, MP, remitente, conciliación (D) · cambios efectivo/transferencia (E) · terminales compartidas/QR para Caja · offline · resumen/estadísticas para el cajero
+F10_B2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
+MIGRATION_CHECKSUM_REVIEW=TRIVIAL_WHITESPACE_ONLY (F10-B0 20261009120000: _prisma_migrations.checksum TESTING d3faab68… = copia aplicada con un \n final extra; blob versionado 51625d5d…; sin diferencia SQL; drift sólo ALTER INDEX RENAME preexistente de chat_attachment_deletion_jobs; migración y registro NO modificados; corrección recomendada (a) dejar documentado — Production aplicará el blob; opción (b) UPDATE del checksum sólo con autorización explícita; reporte F10-B1 §2)
+MONEY_FLOAT_RISK=OPEN_DOCUMENTED (Venta/VentaItem/CobroVenta/MovimientoFinanciero/Producto en Float; propuesta: columnas Decimal(12,2) aditivas + backfill ROUND verificado + escritura doble + retiro autorizado de Float, antes de F10-B2 efectivo esperado y obligatorio antes de F10-D; sin cambios en B1; reporte F10-B1 §3)
+F10_B1_PHYSICAL_SMOKE=PENDING_OPERATOR (9 pasos × iPhone Safari / iPhone PWA / Android Chrome / Android PWA en el reporte §11; no se declara PASS sin resultados)
+SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0 · STOCK_RESERVATION_MODE=ON (antes y después; config sin cambios desde 2026-10-08T17:51:08Z) · R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (sin cambios) · F9_STATUS=CLOSED_TESTING_CERTIFIED (reutilizado)
+POST_DEPLOY_READ_ONLY_CHECK=PASS (huella d64be28f676e; logs: No pending migrations, Ready, sin errores; sin sesión: APIs del cajero 401, página 200; base: 8 ventas históricas intactas, 0 claves duplicadas/cobros dobles/movimientos VENTA duplicados/stock negativo, 0 empleados caja fuera de genéricos, 0 ventas de empleado inconsistentes, 0 residuos test-f10b1-*/test-f10b0-*/test-f9-*)
+KNOWN_LIMITATIONS=no es Caja completa (sin turnos/cierre ciego/efectivo por cajero: las ventas en efectivo del cajero van a efectivo_caja_sin_asignar como las del dueño) · el área se asigna desde Salón → Mozos (wording de restaurante) · sessionStorage por pestaña · sin offline (D9) · dinero en Float · checksum TESTING de la migración B0 documentado · contención R3A conocida · hallazgo lateral: /api/negocio/caja fuera de NEGOCIO_ORIGIN_PROTECTED_PREFIXES (preexistente, no tocado) · fallas preexistentes de regresión clasificadas (UI/static ×5, OAuth ×2 idénticas en e72c61b; timeouts de 5 s con base remota)
+TESTING_CODEX_HEAD_F10_B1=ea276ca27bcb048bb6fdecbb57569087cbb69c19 (F10-B1 funcional, deploy 59d78750-0571-4fb9-a1ed-61b16333946b) + el commit documental "docs: record F10-B1 cashier testing deploy" encima
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84 sin cambios)
+NEXT_PRIORITY_TASK=F10_B1_PHYSICAL_SMOKE_BY_OPERATOR (smoke físico de F10-B1 en TESTING; F10-B2 NO autorizado ni iniciado)
+NEXT_ACTION=OPERATOR_RUNS_F10_B1_PHYSICAL_SMOKE_AND_REPORTS_RESULTS
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B1_CASHIER_OPERATIONS.md · base: codex-reports\F10_B0_IMPLEMENTATION.md · diseño: codex-reports\F10_A_TECHNICAL_DESIGN.md
+
+F10-B1 permite vender desde el celular del empleado con área Caja en un
+negocio genérico, sobre el mismo motor, la misma idempotencia y las mismas
+reservas que la Caja del dueño. No hay turnos ni cierre ciego todavía:
+no habilitarlo como Caja completa para empleados reales hasta F10-B2.
+
+=== HISTORICAL HANDOFF — F10-A COMPLETED + F10-B0 CORE SALES / IDEMPOTENCY / PAYMENTS / LEDGER BASE IMPLEMENTED IN TESTING (2026-10-09) — superseded as the current pointer by F10-B1 above; F10-B0 remains IMPLEMENTED_TESTING ===
 
 CURRENT_TASK=F10-B0-CORE-SALES-IDEMPOTENCY
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTING
