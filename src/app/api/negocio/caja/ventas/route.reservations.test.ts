@@ -143,7 +143,7 @@ mock.module("@/lib/db", () => {
         txOptions.push(options)
         const injected = failNextTransactionWith.shift()
         if (injected) throw injected
-        const snapshot = structuredClone(state)
+        const snapshot = snapshotState(state)
         try {
           return await fn(tx)
         } catch (error) {
@@ -156,6 +156,19 @@ mock.module("@/lib/db", () => {
 })
 
 const { POST } = await import("./route")
+
+// F10-B2.0: the engine now stores Prisma.Decimal values (exact money columns),
+// which structuredClone cannot copy. Same rollback snapshot, but Decimals
+// (immutable) are kept by reference. Assertions are unchanged.
+function snapshotState<T>(value: T): T {
+  if (value instanceof Prisma.Decimal) return value
+  if (value instanceof Date) return new Date(value.getTime()) as T
+  if (Array.isArray(value)) return value.map((v) => snapshotState(v)) as T
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, snapshotState(v)])) as T
+  }
+  return value
+}
 
 function line(overrides: Record<string, unknown> = {}) {
   return { productoId: "p-coca", cantidad: 1, ...overrides }
