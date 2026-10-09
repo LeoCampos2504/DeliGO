@@ -164,14 +164,49 @@ function SubTabButton({ active, icon, label, onClick }: { active: boolean; icon:
 // ============================================
 // VENDER — product picker + cart (desktop two-pane / mobile sticky cart)
 // ============================================
-function VenderView({ negocioId }: { negocioId: string }) {
+// F10-B1: where the selling view reads its catalog and posts its sales. The
+// owner's Caja keeps EXACTLY its previous endpoints, query keys and attempt
+// scope (ownerCajaSource). The cashier PWA (/operaciones/mi-panel/[slug]/caja)
+// passes its own operativo endpoints and an attempt scope bound to the
+// employee + business, so an uncertain attempt is never recovered by another
+// person or in another business. Same view, same cart, same F9 scanner, same
+// checkout engine on the server — no second Caja.
+export interface CajaVenderSource {
+  /** sessionStorage scope of the pending checkout attempt. */
+  attemptScope: string
+  productosUrl: string
+  productosQueryKey: readonly unknown[]
+  /** null = no managed-categories endpoint (category pills derive from products). */
+  categoriasUrl: string | null
+  categoriasQueryKey: readonly unknown[]
+  ventasUrl: string
+  /** Owner-only daily summary to refresh after a sale; null for the cashier. */
+  ventasHoyQueryKey: readonly unknown[] | null
+  /** Session/area lost (401/403): the host page decides where to go. */
+  onAccessLost?: (status: number) => void
+}
+
+export function ownerCajaSource(negocioId: string): CajaVenderSource {
+  return {
+    attemptScope: negocioId,
+    productosUrl: "/api/negocio/productos",
+    productosQueryKey: ["negocio-caja-productos", negocioId],
+    categoriasUrl: "/api/negocio/categorias",
+    categoriasQueryKey: ["negocio-categorias", negocioId],
+    ventasUrl: "/api/negocio/caja/ventas",
+    ventasHoyQueryKey: ["negocio-caja-ventas-hoy", negocioId],
+  }
+}
+
+export function VenderView({ negocioId, source: sourceProp }: { negocioId: string; source?: CajaVenderSource }) {
+  const source = sourceProp ?? ownerCajaSource(negocioId)
   const [search, setSearch] = useState("")
   const [categoria, setCategoria] = useState("todas")
   // F10-B0 (D9): the checkout attempt in flight / not yet confirmed. Its key is
   // reused ONLY to retry the exact same content (idempotent replay server-side).
   // Restored after a reload / killed PWA (sessionStorage; null on the server):
   // same cart, same key — confirming again recovers the sale, never sells twice.
-  const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => readPendingAttempt(negocioId))
+  const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => readPendingAttempt(source.attemptScope))
   const [cart, setCart] = useState<CartLine[]>(() => pendingAttempt?.cart ?? [])
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
@@ -179,20 +214,24 @@ function VenderView({ negocioId }: { negocioId: string }) {
   const queryClient = useQueryClient()
 
   const { data: productos, isLoading, refetch: refetchProductos } = useQuery<CajaProducto[]>({
-    queryKey: ["negocio-caja-productos", negocioId],
+    queryKey: source.productosQueryKey,
     queryFn: async () => {
-      const res = await fetch("/api/negocio/productos")
+      const res = await fetch(source.productosUrl)
+      if (res.status === 401 || res.status === 403) source.onAccessLost?.(res.status)
       if (!res.ok) throw new Error("Error al obtener productos")
-      return res.json()
+      const json = await res.json()
+      // owner: plain array (GET /api/negocio/productos) · cashier: { productos }
+      return (Array.isArray(json) ? json : json.productos ?? []) as CajaProducto[]
     },
   })
 
   // P2-T56-R2B: SAME managed-category authority Inventario reads — never a
   // second, independent derivation (see the R2B report §14).
   const { data: categoriasManaged = [] } = useQuery<string[]>({
-    queryKey: ["negocio-categorias", negocioId],
+    queryKey: source.categoriasQueryKey,
     queryFn: async () => {
-      const res = await fetch("/api/negocio/categorias")
+      if (!source.categoriasUrl) return []
+      const res = await fetch(source.categoriasUrl)
       if (!res.ok) return []
       const json = await res.json()
       return json.categorias ?? []
@@ -406,7 +445,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
 
   function forgetPendingAttempt() {
     setPendingAttempt(null)
-    clearPendingAttempt(negocioId)
+    clearPendingAttempt(source.attemptScope)
   }
 
   const saleMutation = useMutation({
@@ -418,11 +457,11 @@ function VenderView({ negocioId }: { negocioId: string }) {
       const key = resolveAttemptKey(pendingAttempt, canonical) ?? newIdempotencyKey()
       const attempt: PendingCheckoutAttempt = { key, canonical, metodoPago, cart, createdAt: Date.now() }
       setPendingAttempt(attempt)
-      writePendingAttempt(negocioId, attempt)
+      writePendingAttempt(source.attemptScope, attempt)
 
       let res: Response
       try {
-        res = await fetch("/api/negocio/caja/ventas", {
+        res = await fetch(source.ventasUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Idempotency-Key": key },
           body: JSON.stringify({ metodoPago, items }),
@@ -436,6 +475,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
       } catch {
         data = {}
       }
+      if (res.status === 401 || res.status === 403) source.onAccessLost?.(res.status)
       const outcome = classifyCheckoutResponse(res.status, data.code)
       if (outcome === "success") {
         return { venta: data as VentaResumen, replayed: res.headers?.get?.("Idempotency-Replayed") === "true" }
@@ -452,8 +492,8 @@ function VenderView({ negocioId }: { negocioId: string }) {
       setCheckoutOpen(false)
       setMobileCartOpen(false)
       setSuccessSale(venta)
-      queryClient.invalidateQueries({ queryKey: ["negocio-caja-productos", negocioId] })
-      queryClient.invalidateQueries({ queryKey: ["negocio-caja-ventas-hoy", negocioId] })
+      queryClient.invalidateQueries({ queryKey: source.productosQueryKey })
+      if (source.ventasHoyQueryKey) queryClient.invalidateQueries({ queryKey: source.ventasHoyQueryKey })
     },
     onError: (error: Error) => toast.error(error.message),
   })

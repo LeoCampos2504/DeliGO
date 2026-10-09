@@ -14,7 +14,12 @@ const DIALOG = readFileSync(resolve(import.meta.dir, "administrar-categorias-dia
 describe("P2-T56-R2B — Inventario and Caja share ONE managed-category authority", () => {
   test("both fetch Negocio.categorias via the SAME query key (no independent lists)", () => {
     expect(INVENTARIO).toContain('queryKey: ["negocio-categorias", negocio.id]')
-    expect(CAJA).toContain('queryKey: ["negocio-categorias", negocioId]')
+    // F10-B1: the owner's Caja query key now lives in ownerCajaSource (same
+    // literal key, same endpoint); the selling view reads it from its source.
+    expect(CAJA).toContain('categoriasQueryKey: ["negocio-categorias", negocioId],')
+    expect(CAJA).toContain('categoriasUrl: "/api/negocio/categorias",')
+    expect(CAJA).toContain("queryKey: source.categoriasQueryKey,")
+    expect(CAJA).toContain("const source = sourceProp ?? ownerCajaSource(negocioId)")
   })
 
   test("both derive their filter list via mergeManagedCategories, never an ad-hoc Set", () => {

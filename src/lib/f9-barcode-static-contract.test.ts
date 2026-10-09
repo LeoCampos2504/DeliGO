@@ -112,7 +112,10 @@ describe("F9 — Caja reuses the existing cart and checkout", () => {
   test("scans go through addCartLine; the only POST is the existing checkout", () => {
     expect(caja).toContain("const next = addCartLine(cartRef.current, line)")
     expect(caja.match(/method: "POST"/g)?.length).toBe(1)
-    expect(caja).toContain('fetch("/api/negocio/caja/ventas", {')
+    // F10-B1: the single POST goes to the source's checkout; the owner's source is
+    // still exactly the existing Caja checkout endpoint.
+    expect(caja).toContain("res = await fetch(source.ventasUrl, {")
+    expect(caja).toContain('ventasUrl: "/api/negocio/caja/ventas",')
     const handler = caja.slice(caja.indexOf("async function handleScannedCode"), caja.indexOf("function applyScanResolution"))
     expect(handler).not.toContain("fetch(")
   })
