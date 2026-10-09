@@ -4,9 +4,10 @@ Fecha: 2026-10-09 · Entorno: TESTING únicamente (amiable-rejoicing / TESTING /
 Base: F10-B0 (`codex-reports/F10_B0_IMPLEMENTATION.md`) · diseño: `codex-reports/F10_A_TECHNICAL_DESIGN.md` (decisión D5).
 
 ```text
-F10_B1_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-09)
+F10_B1_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; antes IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE — certificación en §15)
 F10_B2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
-PHYSICAL_SMOKE=PENDING_OPERATOR (no se declara PASS sin los resultados del operador)
+F10_B1_IPHONE_PWA_SMOKE=PASS_9_OF_9_OPERATOR_REPORTED · OTHER_DEVICE_PHYSICAL_COVERAGE=NOT_REPORTED (iPhone Safari, Android Chrome, Android PWA)
+ALCANCE: TESTING únicamente · sin certificación de Production · NO es un sistema completo de Caja con turnos
 ```
 
 > **Importante:** F10-B1 permite que un empleado venda desde su teléfono, pero **todavía no es una Caja completa**: no hay turnos, apertura, cierre ciego ni control de efectivo por cajero (F10-B2). No habilitarlo como Caja completa para empleados reales hasta implementar y validar F10-B2.
@@ -216,7 +217,7 @@ Destacados: Caja B0 idempotencia (real DB, con el replay por actor) 11/0 · Caja
 - **Production** `6bf1ee84` @ `42ca500`: sin cambios.
 - **Commit documental:** "docs: record F10-B1 cashier testing deploy" encima de `ea276ca` (ver CODEX_REPORT para su hash y deploy).
 
-## 11. Smoke físico (pendiente del operador)
+## 11. Smoke físico (instrucciones; resultado y certificación en §15)
 
 Preparación (dueño, en TESTING):
 - usar un negocio **genérico** con algún producto con control de stock y, si es posible, uno con código de barras y otro con variantes;
@@ -263,3 +264,101 @@ Informar por cada paso y dispositivo PASS / FAIL / NO DISPONIBLE (con captura si
 - Cuentas de efectivo por caja (el libro ya admite varias); la venta del cajero pasará a la cuenta de su caja.
 - Cierre ciego en dos fases con CAS e idempotencia: el cajero informa contado/entregado/fondo sin ver esperado ni diferencia (los contratos de B1 ya impiden esas lecturas).
 - Resolver antes el riesgo de §3 (Decimal) y decidir la corrección de checksum de §2.
+
+## 15. Smoke físico, auditoría post-smoke y certificación (2026-10-09)
+
+### 15.1 Resultados físicos (informados por el operador)
+
+Dispositivo: **iPhone PWA instalada**. Resultado: `F10_B1_IPHONE_PWA_SMOKE=PASS_9_OF_9_OPERATOR_REPORTED`. Sin errores.
+
+| # | Paso | Resultado |
+|---|---|---|
+| 1 | Ingreso y permisos | PASS |
+| 2 | Pantalla de ventas | PASS |
+| 3 | Venta en efectivo | PASS |
+| 4 | Escaneo F9 y transferencia | PASS |
+| 5 | Variantes y cantidades | PASS |
+| 6 | Reintento seguro | PASS |
+| 7 | Recuperación de intento | PASS |
+| 8 | Stock reservado | PASS |
+| 9 | Revocación del acceso | PASS |
+
+Son pruebas manuales informadas por el operador. **No** se ejecutaron (ni se afirma que se ejecutaron) en iPhone Safari, Android Chrome ni Android PWA: `OTHER_DEVICE_PHYSICAL_COVERAGE=NOT_REPORTED`. Es cobertura física no informada, **no** una falla. No se exige repetir pruebas exitosas sin un motivo técnico concreto.
+
+### 15.2 Auditoría post-smoke READ-ONLY (TESTING, huella `d64be28f676e`)
+
+Sólo `SELECT` y lectura de logs. No se crearon ventas, ni se cambiaron permisos, reservas o datos del operador.
+
+**Ventas del cajero.** Desde el último registro previo (2026-10-09T00:15:08Z) hay exactamente **4 ventas nuevas**, todas en el negocio genérico `paola-vinal` y del mismo empleado (`cmuq91zhp0008ka0ab4fqenuj`, vínculo activo de ese negocio):
+
+| Hora (UTC) | Producto | Cant. | Total | Medio | Cobro | Libro | Movimiento de inventario |
+|---|---|---|---|---|---|---|---|
+| 03:32:55 | producto controlado (`…ien7`) | 1 | 1000 | EFECTIVO | 1 × 1000 NO_APLICA | 1 pata +1000 en `efectivo_caja_sin_asignar`, actor EMPLEADO | 1 VENTA 10→9 |
+| 03:34:26 | producto creado por el dueño a las 03:34:13 (`…h7d`) | 1 | 2000 | TRANSFERENCIA | 1 × 2000 DECLARADO | ninguno (correcto) | 1 VENTA 10→9 |
+| 03:34:39 | producto con variante "1L" (`…dox` / `…qvhp`) | 1 | 2000 | EFECTIVO | 1 × 2000 NO_APLICA | 1 pata +2000 | 1 VENTA sobre la variante 2→1 |
+| 03:35:17 | `…h7d` | 1 | 2000 | EFECTIVO | 1 × 2000 NO_APLICA | 1 pata +2000 | 1 VENTA 9→8 |
+
+- Las 4 tienen `actorTipo=EMPLEADO` con `actorId = empleadoId`, empleado del mismo negocio, clave de idempotencia, total = suma de ítems, un solo cobro igual al total y un movimiento VENTA por clave. Hay 4 auditorías `venta.creada` con `userType=empleado`.
+- El stock actual coincide con la cadena de movimientos (`…ien7` 9, `…h7d` 8, variante 1L 1).
+- **Correspondencia con el smoke:** la secuencia del dueño encaja con los pasos 1–9:
+  - 03:31:35 asignó el área `caja` (`empleado.area_cambiada`, versión 6);
+  - 03:34:13 creó un producto, vendido por transferencia a las 03:34:26;
+  - 03:36:07 entró un pedido online y se aceptó a las 03:36:14;
+  - 03:36:53 cambió el área a `sin_asignar` (versión 7).
+
+  Es una correspondencia por horario y secuencia. La base no registra qué paso del guion corresponde a cada venta, ni si un producto se agregó por escaneo o por toque.
+- **Integridad global:** 0 claves duplicadas, 0 cobros dobles, 0 ventas sin cobro o sin ítems, 0 cobros con importe distinto, 0 operaciones sin patas o de medios no efectivo, 0 efectivo sin operación, 0 transferencias no DECLARADO, 0 movimientos VENTA duplicados, 0 movimientos o ítems entre negocios, 0 ventas de empleado inconsistentes, 0 empleados `caja` fuera de genéricos, 0 stock negativo, 0 fixtures de prueba.
+
+**Idempotencia.** Los logs HTTP del período (03:31–03:40Z) muestran **5** `POST /api/operativo/caja/paola-vinal/ventas`:
+- 4 se corresponden 1 a 1 con las 4 ventas;
+- el 5.º (03:36:37Z) no dejó venta, cobro ni movimiento (ver reservas).
+
+No hay POST adicionales que indiquen un replay del servidor durante el corte de conexión. Lo coherente con los datos es que el intento cortado no llegó al servidor (o no se completó) y el reintento registró la venta **una sola vez**. No se observó un replay en logs y no se afirma uno. El logger del proxy muestra un status provisorio ("200" incluso en el 401 conocido del smoke sin sesión de las 03:12Z), así que los códigos HTTP de esos logs no son evidencia.
+
+Las garantías de replay y concurrencia provienen de las pruebas automatizadas (real-DB: replay 200, 409 por contenido distinto, 6 solicitudes concurrentes → 1 venta, misma clave por otra persona → 409). La evidencia manual sólo muestra ausencia de duplicados.
+
+**Reservas R3A.**
+- Modo **ON** (config sin cambios desde 2026-10-08T17:51:08Z).
+- A las 03:36:07Z se creó una reserva **ACTIVA** de 1 unidad de la variante "1L" (pedido `cmv0ey358…`, estado `aceptado`). La variante tenía stock físico 1, así que su disponible quedó en 0 (déficit 0).
+- El POST de 03:36:37Z ocurrió con esa reserva activa y **no** produjo venta. Es coherente con el paso 8 (rechazo controlado), pero el código de respuesta no quedó registrado: **no se afirma** que haya habido un HTTP 409.
+- La reserva sigue ACTIVA porque el pedido continúa abierto. Es un dato legítimo del operador, no tocado.
+- Estado global: ACTIVA 1 · CONSUMIDA 1 · LIBERADA 4. 0 stock negativo, 0 movimientos duplicados.
+
+**Seguridad.**
+- Sólo el empleado con área `caja` del negocio vendió, y sólo en su negocio.
+- Tras la revocación de las 03:36:53Z no hubo ningún POST de venta (sólo una lectura del catálogo a las 03:36:55Z y los sondeos de `/api/operativo/me`).
+- No hubo accesos del cajero a rutas financieras del dueño en el período.
+- El aislamiento por negocio y la denegación de rutas del dueño están cubiertos por las pruebas real-DB de B1.
+- Sin errores de autenticación inesperados en los logs.
+
+**Infraestructura.**
+- Deploy de código `59d78750` y documental `1b2cc823` (commit `2b75d0a`), SUCCESS.
+- Logs del período sin errores, excepciones ni 5xx. Sólo advertencias de configuración de npm y de deprecación de Node, preexistentes.
+- Production `6bf1ee84` @ `42ca500` sin cambios.
+
+**Hallazgo lateral (no tocado).** 47 filas de `audit_logs` del 2026-10-09 01:07–02:51Z (26 `venta.creada`, 8 `empleado.creado`, 3 `empleado.area_asignada`, 10 `producto.stock_ajustado`) pertenecen a negocios de prueba ya borrados. Las dejaron suites real-DB preexistentes durante la regresión de B1 (sus limpiezas no borran auditoría). Es el mismo patrón que `FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP`. No se borraron (tarea sin cambios de datos). Las filas del smoke pertenecen todas a registros existentes.
+
+### 15.3 Decisión
+
+`F10_B1_STATUS=CLOSED_TESTING_CERTIFIED` (2026-10-09):
+- implementación técnica completada;
+- 40 pruebas nuevas aprobadas según el informe de implementación (§8);
+- evidencia manual iPhone PWA 9/9 PASS;
+- auditoría post-smoke sin contradicciones materiales;
+- **alcance: TESTING**;
+- **sin** certificación física de iPhone Safari, Android Chrome ni Android PWA;
+- **sin** certificación de Production;
+- F10-B1 **no** es un sistema completo de Caja con turnos: no habilitarlo como Caja completa para empleados reales hasta F10-B2.
+
+Se conservan como limitaciones documentadas las de §12, el checksum trivial de §2 (sin `UPDATE` de `_prisma_migrations` ni edición de migraciones aplicadas), el riesgo `Float` de §3 y la deuda de TypeScript preexistente (35 errores, idénticos en `e72c61b`).
+
+### 15.4 Dependencias técnicas registradas antes de F10-B2
+
+1. Representación exacta del dinero: no sumar importes `Float` para calcular diferencias de Caja (propuesta en §3).
+2. Migración gradual compatible con ventas y cobros históricos.
+3. Fondo inicial y dinero entregado entre turnos sin doble contabilización.
+4. Cada venta asociada a un responsable y a una caja/turno cuando corresponda.
+5. Revisión de autorización y protección de origen (incluye que `/api/negocio/caja` no figura en `NEGOCIO_ORIGIN_PROTECTED_PREFIXES`).
+6. Conservar las garantías de idempotencia y R3A.
+
+F10-B2: **NOT_STARTED**. El nuevo backlog **Consumo interno** (`PLANNED_NOT_STARTED`) está en `codex-reports/ROADMAP.md` y no altera el alcance de F10-B2.

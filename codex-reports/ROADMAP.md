@@ -131,10 +131,10 @@ IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 F9_BARCODE_SCANNER_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; antes DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: F9 implementada — escaneo continuo en Caja sobre el carrito y checkout existentes + captura por cámara en los 3 campos de código de Inventario + unicidad atómica por negocio (409 CODIGO_BARRAS_DUPLICADO); commits 85e701b · 3e687b2 · 306f34a por fast-forward 5fbfc60..306f34a; deploy TESTING c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS (commit match); tests F9 100/0; sin schema ni migraciones; R3A sin cambios; modo ON; Production sin cambios. F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR — ver codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12))
 F9_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; alcance probado en TESTING — no es certificación universal de dispositivos ni de Production). F9_TECHNICAL_TESTS=PASS · F9_PHYSICAL_SMOKE=PASS · F9_MANUAL_SCENARIOS=6_PASS_0_FAIL (detalle M1–M6 informado por el operador sobre iPhone PWA) · F9_TESTED_ENVIRONMENTS=IPHONE_SAFARI,IPHONE_PWA,ANDROID_CHROME,ANDROID_PWA (confirmación general del operador, sin matriz M1–M6 por dispositivo) · M3: venta confirmada encontrada en TESTING (3 ventas Caja reales del operador tras la auditoría previa: 23:32:09Z 9 de oro ×10 EFECTIVO $20.010 · 23:33:02Z Safiris ×3 EFECTIVO $6.000 · 00:15:08Z Safiris ×3 TRANSFERENCIA $6.000; importes, movimientos VENTA y stock coherentes; sin duplicados) · M6_UI_STOCK_RESERVATION_BLOCK=PASS (operator-reported): con un pedido que reservaba 10/10 de Safiris (ACTIVA 23:34:02Z–00:14:53Z, disponible 0) no hubo ningún POST /api/negocio/caja/ventas — el operador no llegó al checkout; NO hubo 409 observado en ese intento, NI venta rechazada registrada, NI reserva creada por el intento; las garantías del servidor provienen de tests existentes (caja/ventas route.reservations: 409 STOCK_RESERVED_FOR_ORDERS sin venta parcial para producto y variante; I5 real-DB R4 en TESTING; smoke I5 #5 "Caja respeta las unidades reservadas"; F9 Caja: 409 mostrado y carrito conservado) y el checkout no cambió con F9
 F9_CERTIFICATION_BLOCKER_HISTORY=RESOLVED 2026-10-09 (la ausencia de ventas en la auditoría del 2026-10-08 22:46Z se explicó: el operador todavía no había confirmado ninguna venta; luego confirmó ventas reales — ver F9_STATUS). Registro original: F9_CERTIFICATION_BLOCKER=POST_SMOKE_EVIDENCE_GAP (2026-10-08, verificación READ-ONLY posterior al smoke informado 6/6 PASS + iPhone Safari/iPhone PWA/Android Chrome/Android PWA OK: la actividad de Inventario M5 SÍ aparece en TESTING; NO hay ventas de Caja posteriores al deploy F9 ni requests a /api/negocio/caja/ventas en los logs del período (20:33Z–22:38Z) → sin evidencia del cobro M3 ni del intento de sobreventa con reservas M6; reservas ON, 0 ACTIVA, sin stock negativo ni ventas duplicadas; Production sin cambios. Último RESULT=F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP. Pendiente: el operador confirma en qué entorno hizo M3/M6 o repite sólo esos pasos en TESTING. F9 NO está cerrado ni certificado; la planificación F10 no lo desbloquea)
-F10_STATUS=IN_PROGRESS (F10-A COMPLETED · F10-B0 IMPLEMENTED_TESTING · F10-B1 IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE · B2/C/D/E NOT_STARTED; especificación en "### F10 — Operaciones, turnos de Caja y control financiero" más abajo)
+F10_STATUS=IN_PROGRESS (F10-A COMPLETED · F10-B0 IMPLEMENTED_TESTING · F10-B1 CLOSED_TESTING_CERTIFIED · B2/C/D/E NOT_STARTED · Consumo interno PLANNED_NOT_STARTED; especificación en "### F10 — Operaciones, turnos de Caja y control financiero" más abajo)
 ROADMAP_NUMBERING_CONFIRMED=2026-10-09 por el operador: F7 CIERRE DE CAJA absorbido por F10-B (no es un desarrollo independiente pendiente; historial conservado) · antiguo "F10 TICKETS Y COMPROBANTES" renumerado F11 (sin colisión: no existía otro F11; contenido intacto) · F10 reservado para "Operaciones, turnos de Caja y control financiero" (PLANNED_NOT_STARTED, sin cambios de alcance)
-NEXT_PRIORITY_TASK=F10_B1_PHYSICAL_SMOKE_BY_OPERATOR (smoke físico de F10-B1 en TESTING; F10-B2 NO autorizado ni iniciado)
-NEXT_ACTION=OPERATOR_RUNS_F10_B1_PHYSICAL_SMOKE_AND_REPORTS_RESULTS
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F10-B1 CLOSED_TESTING_CERTIFIED; el operador decide la siguiente etapa — F10-B2 requiere antes las dependencias técnicas registradas (dinero exacto Decimal, migración gradual, fondos entre turnos, responsable+caja/turno, autorización y protección de origen, idempotencia y R3A); Consumo interno PLANNED_NOT_STARTED)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_STAGE_AUTHORIZATION
 OPEN_FOLLOWUPS_FROM_I5=FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE · FOLLOWUP_STOCK_OPS_CLI_PRISMA_LOG_NOISE · visibilidad Físico/Reservado/Disponible en Inventario · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (+99 filas R9)
 OPEN_FOLLOWUPS_FROM_I4=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN · promocionados genérico sin real-DB · A0.1-15 paso 2 · promociones sin filtro eliminado
 ```
@@ -287,7 +287,7 @@ DEPENDENCIAS RECOMENDADAS=
 F10_STATUS=PLANNED_NOT_STARTED (documentado 2026-10-08 por decisión del operador; NO implementado; NO autorizado para implementación;
 F10_A_STATUS=COMPLETED (2026-10-09; auditoría READ-ONLY sobre f984b4c; informe permanente codex-reports/F10_A_TECHNICAL_DESIGN.md)
 F10_B0_STATUS=IMPLEMENTED_TESTING (2026-10-09: motor único de ventas de Caja src/lib/caja-venta-service.ts; idempotencia real del checkout (Idempotency-Key + huella, @@unique([negocioId, idempotencyKey]), replay 200 / conflicto 409 IDEMPOTENCY_KEY_REUSED, doble toque real → 1 venta); actor de la venta desde la sesión (dueño = NEGOCIO); CobroVenta (1 por venta, preparado para pagos mixtos; transferencia DECLARADO, nunca acreditada); libro mínimo (sólo efectivo, cuenta de sistema efectivo_caja_sin_asignar, inicio = primer cobro post-deploy); migración aditiva 20261009120000 aplicada en TESTING; commits f72b0e7 (docs F10-A) · 3ecff2e (motor) · 88ff0c1 (cliente); fast-forward f984b4c..88ff0c1; deploy TESTING 232d72cf-7e44-4786-9e91-7b4f958debf9 SUCCESS commit match; tests nuevos 36/0; regresiones 695/0 (43 archivos); real-DB 11/0 idempotencia/cobro/libro + Caja 21/0; reporte codex-reports/F10_B0_IMPLEMENTATION.md)
-F10_B1_STATUS=IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-09: área operativa caja (sólo rubro negocio, sin gate de Salón, sin capacidades Mozo/Salón/PyR, sin revivir rol/permisos; el dueño la asigna desde Salón → Mozos/Empleados, 409 fuera de genéricos); pantalla /operaciones/mi-panel/[slug]/caja con VenderView (catálogo, F9, carrito, variantes, checkout idempotente) y alcance del intento empleado+negocio; GET /api/operativo/caja/[slug]/productos (sólo campos de venta, misma disponibilidad físico − ACTIVA) y POST /api/operativo/caja/[slug]/ventas (Idempotency-Key OBLIGATORIA, motor único registrarVentaCaja con actor EMPLEADO derivado de la sesión, sin turnoId); replay sólo al mismo actor (otra persona con la misma clave → 409); el cajero no recibe esperado/diferencias/totales por medio/resumen/MP/ventas ajenas y su cookie no abre rutas del dueño; sin schema ni migraciones; commits 0d03398 · 03baa1b · ea276ca; fast-forward e72c61b..ea276ca; deploy TESTING 59d78750-0571-4fb9-a1ed-61b16333946b SUCCESS commit match; tests nuevos 40/0 (real-DB 23/0); regresiones 133 archivos sin fallas nuevas (preexistentes/entorno clasificadas en el reporte §8); TypeScript 35 = conjunto idéntico a e72c61b; build OK; smoke físico PENDIENTE del operador; NO es Caja completa hasta F10-B2; reporte codex-reports/F10_B1_CASHIER_OPERATIONS.md)
+F10_B1_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09: implementación técnica completa — área operativa caja sólo en negocios genéricos, pantalla /operaciones/mi-panel/[slug]/caja con VenderView/F9, catálogo y venta del cajero sobre el motor único registrarVentaCaja con Idempotency-Key obligatoria y actor EMPLEADO de la sesión, replay sólo al mismo actor, sin datos de cierre ciego para el cajero; 40 tests nuevos aprobados según el informe de implementación (real-DB 23/0); evidencia manual iPhone PWA instalada 9/9 PASS informada por el operador (F10_B1_IPHONE_PWA_SMOKE=PASS_9_OF_9_OPERATOR_REPORTED); auditoría post-smoke READ-ONLY PASS (4 ventas EMPLEADO 03:32–03:35Z coherentes en negocio, productos, variante, importes, medios, cobros, libro y movimientos; 0 duplicados; reservas ON; 0 stock negativo); alcance certificado: TESTING; SIN certificación física de iPhone Safari, Android Chrome ni Android PWA (OTHER_DEVICE_PHYSICAL_COVERAGE=NOT_REPORTED — cobertura no informada, NO es una falla); SIN certificación de Production; F10-B1 NO es un sistema completo de Caja con turnos (F10-B2); commits 0d03398 · 03baa1b · ea276ca + docs 2b75d0a; deploy TESTING 59d78750-0571-4fb9-a1ed-61b16333946b SUCCESS; reporte codex-reports/F10_B1_CASHIER_OPERATIONS.md §15)
 F10_B2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
   ninguna etapa iniciada; no crea código, schema, migraciones ni datos)
 F10_SCOPE=negocios genéricos (rubro "negocio"); NO modifica flujos de Restaurante, Ropa ni Mozo sin análisis específico
@@ -347,6 +347,15 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 - Operaciones: auditar `Empleado.rol`/permisos/áreas y `CuentaOperativa` para no romper Mozo/Salón/PyR.
 - Almacenamiento de comprobantes/fotos (privado, por negocio) a definir.
 - Relación con F4 (anulaciones/devoluciones en el cierre), F5 (proveedores/cuentas por pagar) y F2 (fiados como medio de cobro).
+- **Antes de F10-B2 (registrado 2026-10-09, tras certificar F10-B1):**
+  1. representación exacta del dinero, sin sumar importes `Float` para diferencias de Caja (propuesta Decimal(12,2) en `codex-reports/F10_B1_CASHIER_OPERATIONS.md` §3);
+  2. migración gradual compatible con ventas y cobros históricos;
+  3. fondo inicial y dinero entregado entre turnos sin doble contabilización;
+  4. cada venta asociada a responsable y caja/turno cuando corresponda;
+  5. revisión de autorización y protección de origen (`/api/negocio/caja` fuera de `NEGOCIO_ORIGIN_PROTECTED_PREFIXES`);
+  6. conservar idempotencia y R3A.
+
+  Se mantiene documentado el checksum trivial de la migración F10-B0, sin `UPDATE` de `_prisma_migrations` ni edición de migraciones aplicadas. La deuda de TypeScript preexistente (35 errores, idénticos en `e72c61b`) es independiente de F10.
 
 #### Riesgos
 - Conectividad: operación offline no soportada; operaciones financieras sin conexión requieren estrategia explícita.
@@ -361,12 +370,42 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 1 un cajero abre y cierra su turno desde el celular · 2 las ventas quedan vinculadas al turno y al responsable · 3 el lector F9 puede usarse desde Operaciones cuando se habilite la integración · 4 el cajero registra salidas de efectivo sin aprobación previa · 5 esas salidas afectan el efectivo esperado de su Caja · 6 el dueño revisa cada salida después · 7 el cajero registra una reposición sin modificar el stock oficial · 8 al aprobar una reposición el stock aumenta exactamente una vez · 9 el cajero declara el efectivo contado sin ver el esperado · 10 el dueño consulta las diferencias de los cierres · 11 el cajero declara el fondo que deja al próximo turno · 12 los fondos trasladados entre turnos no generan ingresos ficticios · 13 el dueño registra movimientos de Mercado Pago sin depender de un cajero · 14 un cobro por transferencia permite identificar el nombre del remitente · 15 el dueño investiga transferencias no conciliadas · 16 un cambio de efectivo por transferencia no se contabiliza como venta · 17 una transferencia entre cuentas propias no se contabiliza como ingreso · 18 las comisiones reales se registran por separado · 19 auditoría y aislamiento por negocio en todas las operaciones · 20 los roles de otros rubros siguen funcionando como antes.
 
 #### Decisiones APROBADAS tras F10-A (operador, 2026-10-09)
-- **D5 — Permisos del cajero:** nueva área operativa `caja` integrada al sistema real de `areaOperativa`; exclusiva de negocios genéricos; NO exige Salón; NO se revive `Empleado.rol`/`permisos` (código muerto) como autoridad paralela. Implementación: F10-B1 (IMPLEMENTED_TESTING_AWAITING_PHYSICAL_SMOKE 2026-10-09 — codex-reports/F10_B1_CASHIER_OPERATIONS.md).
+- **D5 — Permisos del cajero:** nueva área operativa `caja` integrada al sistema real de `areaOperativa`; exclusiva de negocios genéricos; NO exige Salón; NO se revive `Empleado.rol`/`permisos` (código muerto) como autoridad paralela. Implementación: F10-B1 (CLOSED_TESTING_CERTIFIED 2026-10-09 en TESTING; iPhone PWA 9/9 PASS informado por el operador — codex-reports/F10_B1_CASHIER_OPERATIONS.md §15).
 - **D6 — Cajas físicas y turnos:** varias cajas físicas por negocio; una caja inicial por defecto al habilitar el módulo; como máximo un turno activo por caja; el dueño también usa la Caja y se registra quién hizo cada venta (empleado o dueño); las operaciones del dueño sobre una caja usada por un cajero quedan identificadas, sin mezclar fondos. Apertura, cierre ciego, entrega de fondos y diferencias: F10-B2 (no iniciada).
 - **D7 — Preparación para pagos mixtos:** estructura de varios cobros por venta (`CobroVenta`); la interfaz sigue con UN medio por venta; `Venta.metodoPago` se conserva compatible durante la transición; pagos mixtos NO habilitados; sin cobros duplicados.
 - **D9 — Operaciones sólo en línea:** sin operaciones monetarias offline; ante un corte se informa, se conserva el carrito y la identidad del intento de cobro, y se reintenta de forma idempotente; nunca se afirma una venta sin confirmación del servidor; sin colas locales ni sincronización offline.
 - **Principio — identidad del dueño en Caja:** las ventas del dueño registran autoría derivada de la sesión real (F10-B0); sin exigirle turno mientras los turnos no existan; sin cambios en las autorizaciones del panel.
 - **Principio — Mercado Pago declarado vs acreditado:** un cobro por transferencia declarado NO es dinero bancario verificado; estados futuros: declarado · verificado/acreditado · observado · diferencia de conciliación; sin APIs financieras ni saldos reales inventados. Remitente y controles administrativos: F10-D.
+
+#### Funcionalidad futura relacionada — Consumo interno (PLANNED_NOT_STARTED, registrada 2026-10-09 por pedido del operador)
+
+```text
+CONSUMO_INTERNO=PLANNED_NOT_STARTED (NO implementado: sin código, endpoints, interfaces ni migraciones)
+UBICACIÓN=relacionada con Caja e Inventario; afín a F10-C (movimientos autorizados de inventario + revisión del dueño);
+  recomendada como sub-etapa posterior a F10-C SIN identificador propio hasta que el operador lo confirme
+  (no se asigna un número que pueda colisionar con el roadmap); NO altera el alcance de F10-B2
+```
+
+- **Necesidad:** en pequeños comercios el dueño, un familiar, un empleado autorizado u otra persona autorizada retiran o consumen mercadería sin cobrarla. Baja el stock físico, pero **no** hay venta comercial ni ingreso de dinero.
+- **Experiencia:** opción **"Consumo interno"** en el flujo de Caja. Puede verse junto a los medios de pago por comodidad, pero técnicamente **no** es un método de pago de una venta ordinaria: es una operación diferenciada de salida de inventario.
+- **Datos:**
+  - productos y variantes, cantidades;
+  - beneficiario y su categoría (dueño / familiar / empleado / otro autorizado);
+  - identidad de quien registra (empleado o dueño) y de quien autoriza cuando corresponda;
+  - negocio, fecha y hora, turno si existe, motivo u observaciones;
+  - valor de venta de referencia y costo si está disponible. Los valores de referencia son informativos, **no** dinero cobrado.
+- **Efectos al confirmar un consumo autorizado:**
+  - descontar existencias con la autoridad de inventario existente, respetando disponible y reservas R3A;
+  - sin descuento doble por reintentos (idempotencia);
+  - **sin** `CobroVenta`, **sin** cuentas financieras, **sin** movimientos de efectivo ni Mercado Pago;
+  - **fuera** de facturación y de estadísticas de ventas comerciales;
+  - auditoría con responsable y beneficiario, e historial consultable desde el panel del dueño.
+  - La anulación o corrección es auditada y compensa el movimiento de inventario cuando corresponda.
+- **Permisos:**
+  - el dueño puede registrar consumos (**APROBADO**);
+  - los empleados requieren autorización del dueño, y **nunca** está habilitado por defecto para todos los cajeros;
+  - la modalidad de autorización queda pendiente (decisión #15).
+- **No confundir con:** venta fiada o cuenta por cobrar (F2), merma por rotura o vencimiento, regalo promocional, ajuste de inventario, venta con descuento total. Tienen motivación, trazabilidad y efectos financieros distintos.
 
 #### Decisiones PENDIENTES (no inventar; requieren al operador o a F10-A)
 1. Si un cajero puede ejecutar cambios que envían fondos desde Mercado Pago o queda reservado al dueño.
@@ -383,6 +422,7 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 12. Almacenamiento y privacidad de comprobantes/fotos.
 13. ~~Confirmar la numeración: Tickets F10→F11 y absorción de F7 por F10-B.~~ RESUELTA 2026-10-09 (confirmadas por el operador).
 14. Precios, abono y período de prueba (fuera de F10; referencia ARS 9.900/mes y 45 días sólo exploratoria).
+15. Consumo interno — modalidad de autorización de empleados: permiso permanente por empleado · autorización individual por retiro · límites configurables · combinaciones (registrada 2026-10-09; PENDIENTE del operador).
 
 ### Investigación — lector de códigos de barras con cámara (F9)
 
