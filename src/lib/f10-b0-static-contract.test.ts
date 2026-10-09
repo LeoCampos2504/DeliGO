@@ -40,7 +40,9 @@ describe("F10-B0 — one sales engine", () => {
   test("ledger: only cash enters it, in the system cash account; no Mercado Pago account or balance", () => {
     const engine = read(ENGINE)
     expect(engine).toContain('export const CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR = "efectivo_caja_sin_asignar"')
-    expect(engine).toContain('const cuentaEfectivoId = metodoPago === "EFECTIVO" ? await asegurarCuentaEfectivoCaja(db, negocioId) : null')
+    // F10-B2.1: still cash only — the system account without a shift, the
+    // register's cash account with a shift; non-cash methods get no account.
+    expect(engine).toMatch(/const cuentaEfectivoId =\s+metodoPago !== "EFECTIVO"\s+\? null\s+: cajaFisicaIdDelTurno\s+\? await asegurarCuentaEfectivoCajaFisica\(db, negocioId, cajaFisicaIdDelTurno\)\s+: await asegurarCuentaEfectivoCaja\(db, negocioId\)/)
     expect(engine).not.toMatch(/MERCADO_PAGO|mercadopago|saldo/i)
     expect(engine).toContain("estadoConciliacion: estadoConciliacionInicial(metodoPago)")
   })
@@ -70,11 +72,15 @@ describe("F10-B0 — scope limits (no B1/B2/C/D/E, no mixed payments)", () => {
     expect(cashier).toContain("await registrarVentaCaja(db, {")
     expect(cashier).not.toMatch(/\.venta\.create\(|runStockSerializable\(/)
   })
-  test("no shifts or physical registers yet (F10-B2): no models, no Venta.turnoId", () => {
+  // F10-B2.1 (authorized) introduced registers and shifts; the B0 invariant
+  // that remains is that the shift of a sale is written only by the single
+  // engine (verified in depth by f10-b2-1-static-contract.test.ts).
+  test("shifts arrive with F10-B2.1: Venta.turnoCajaId is optional and written only by the engine", () => {
     const schema = read("prisma/schema.prisma")
-    expect(schema).not.toMatch(/model (TurnoCaja|CajaFisica)\b/)
+    expect(schema).toMatch(/model (TurnoCaja|CajaFisica)\b/)
     const venta = schema.slice(schema.indexOf("model Venta {"), schema.indexOf("}", schema.indexOf("model Venta {")))
-    expect(venta).not.toMatch(/turnoId/)
+    expect(venta).toContain("turnoCajaId String?")
+    expect(productive.filter(({ src }) => /\bturnoCajaId,\r?\n/.test(src) && /\.venta\.create\(/.test(src)).map(({ path }) => path)).toEqual([ENGINE])
   })
   test("the checkout still takes exactly one payment method", () => {
     const caja = read("src/components/business/caja-tab.tsx")

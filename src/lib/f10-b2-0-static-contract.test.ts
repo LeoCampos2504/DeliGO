@@ -25,7 +25,7 @@ const MIGRATION = `prisma/migrations/${MIGRATION_DIR}/migration.sql`
 
 describe("F10-B2.0 — single writer of the exact money columns", () => {
   test("only the shared Caja engine writes totalDecimal / subtotalDecimal / importeDecimal", () => {
-    const writers = productive.filter(({ src }) => /\b(totalDecimal|subtotalDecimal|importeDecimal):\s*(?!true\b)/.test(src)).map(({ path }) => path)
+    const writers = productive.filter(({ src }) => /\b(totalDecimal|subtotalDecimal|importeDecimal):(?!\s*true\b)/.test(src)).map(({ path }) => path)
     expect(writers).toEqual([ENGINE])
   })
 
