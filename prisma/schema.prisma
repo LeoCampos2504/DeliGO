@@ -458,6 +458,10 @@ model Venta {
   id            String   @id @default(cuid())
   negocioId     String
   total         Float
+  // F10-B2.0: importe exacto (NUMERIC(12,2), ROUND_HALF_UP a centavos) escrito
+  // en la misma tx que `total` (escritura doble). NULL sólo en filas creadas por
+  // un código anterior antes del backfill — leer con storedMoney().
+  totalDecimal  Decimal? @db.Decimal(12, 2)
   // Medio de la venta (resumen). F10-B0: se conserva como fuente de las
   // estadisticas existentes; el detalle por cobro vive en CobroVenta (D7).
   metodoPago    String // EFECTIVO | TRANSFERENCIA | OTRO
@@ -504,6 +508,7 @@ model CobroVenta {
   ventaId            String
   metodo             String // EFECTIVO | TRANSFERENCIA | OTRO
   importe            Float
+  importeDecimal     Decimal? @db.Decimal(12, 2) // F10-B2.0: importe exacto (escritura doble con `importe`)
   estadoConciliacion String   @default("NO_APLICA") // NO_APLICA | DECLARADO
   createdAt          DateTime @default(now())
 
@@ -577,6 +582,7 @@ model MovimientoFinanciero {
   operacionId String
   cuentaId    String
   importe     Float // con signo: + entra a la cuenta, - sale
+  importeDecimal Decimal? @db.Decimal(12, 2) // F10-B2.0: importe exacto con signo (escritura doble con `importe`)
   estado      String   @default("CONFIRMADO") // CONFIRMADO (F10-B0); futuros: DECLARADO | OBSERVADO
   createdAt   DateTime @default(now())
 
@@ -603,6 +609,7 @@ model VentaItem {
   precio             Float // snapshot: precio unitario aplicado (de la variante si corresponde)
   cantidad           Float
   subtotal           Float
+  subtotalDecimal    Decimal? @db.Decimal(12, 2) // F10-B2.0: round2(precio × cantidad) exacto (escritura doble con `subtotal`)
 
   venta            Venta             @relation(fields: [ventaId], references: [id], onDelete: Cascade)
   producto         Producto?         @relation(fields: [productoId], references: [id], onDelete: SetNull)
