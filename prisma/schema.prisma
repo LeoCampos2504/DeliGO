@@ -152,6 +152,11 @@ model Negocio {
   // Salón / Mesas
   salonActivo      Boolean @default(false)
   empleadosActivos Boolean @default(false)
+  // F10-B2.1: obligatoriedad del turno de Caja para cajeros (persistida, por
+  // negocio). OPCIONAL = transicion (F10-B1 vende sin turno; si hay turno
+  // abierto la venta se atribuye). OBLIGATORIO = un cajero sin turno abierto no
+  // puede vender. CHECK en SQL. Sin ruta para activarlo hasta F10-B2.2.
+  cajaTurnosModo   String  @default("OPCIONAL")
   zonasSalon       String  @default("[]") // JSON array of zone names
 
   // Pago
@@ -186,6 +191,8 @@ model Negocio {
   cuentasFinancieras    CuentaFinanciera[] // F10-B0
   operacionesFinancieras OperacionFinanciera[] // F10-B0
   movimientosFinancieros MovimientoFinanciero[] // F10-B0
+  cajasFisicas           CajaFisica[] // F10-B2.1
+  turnosCaja             TurnoCaja[] // F10-B2.1
 
   // Plan
   planTipo            String  @default("prueba")
@@ -478,10 +485,15 @@ model Venta {
   actorTipo  String?
   actorId    String?
   empleadoId String?
-  // El turno (F10-B2) se agregara con su FK cuando exista TurnoCaja.
+  // F10-B2.1: turno de Caja al que se atribuye la venta (resuelto por el
+  // servidor desde la sesion y revalidado por el motor dentro de su tx).
+  // NULL = venta sin turno (anterior a F10-B2.1 o transicion OPCIONAL).
+  turnoCajaId String?
 
   negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   empleado    Empleado?              @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
+  // NoAction: un turno con ventas no puede borrarse solo.
+  turnoCaja   TurnoCaja?             @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   items       VentaItem[]
   movimientos MovimientoInventario[]
   cobros      CobroVenta[]
@@ -489,6 +501,7 @@ model Venta {
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
   @@index([empleadoId])
+  @@index([turnoCajaId])
   @@map("ventas_caja")
 }
 
@@ -540,8 +553,12 @@ model CuentaFinanciera {
   nombre    String
   activa    Boolean  @default(true)
   createdAt DateTime @default(now())
+  // F10-B2.1: cuenta de efectivo de una caja fisica (clave "efectivo_caja_fisica:<id>").
+  // NULL = cuenta sin caja (p. ej. efectivo_caja_sin_asignar, historico).
+  cajaFisicaId String?
 
   negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cajaFisica  CajaFisica?            @relation(fields: [cajaFisicaId], references: [id], onDelete: NoAction)
   movimientos MovimientoFinanciero[]
 
   @@unique([negocioId, clave])
@@ -562,8 +579,11 @@ model OperacionFinanciera {
   // Idempotencia de operaciones manuales futuras (NULL para las derivadas de ventas).
   idempotencyKey      String?
   createdAt           DateTime @default(now())
+  // F10-B2.1: turno de Caja al que pertenece la operacion (NULL = sin turno).
+  turnoCajaId         String?
 
   negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  turnoCaja   TurnoCaja?             @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   // NoAction: una venta con registro financiero no puede borrarse sola; borrar
   // el negocio completo sigue funcionando (verificacion al final de la sentencia).
   cobroVenta  CobroVenta?            @relation(fields: [cobroVentaId], references: [id], onDelete: NoAction)
@@ -573,7 +593,71 @@ model OperacionFinanciera {
 
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
+  @@index([turnoCajaId])
   @@map("operaciones_financieras")
+}
+
+// ============================================
+// F10-B2.1 — Cajas fisicas y turnos de Caja (negocios genericos)
+// ============================================
+// Invariantes en SQL (migracion 20261011120000, no representables en el DSL):
+//   - una sola caja predeterminada ACTIVA por negocio (indice unico parcial);
+//   - nombre de caja unico por negocio sin distinguir mayusculas/espacios;
+//   - predeterminada implica activa (CHECK);
+//   - un solo turno ABIERTO por caja, por empleado y por dueno (indices parciales);
+//   - responsable coherente y fondo inicial >= 0 (CHECK);
+//   - el turno y su caja son del mismo negocio (FK compuesta).
+model CajaFisica {
+  id               String   @id @default(cuid())
+  negocioId        String
+  nombre           String
+  descripcion      String?
+  esPredeterminada Boolean  @default(false)
+  activa           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  negocio Negocio            @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  turnos  TurnoCaja[]
+  cuentas CuentaFinanciera[]
+
+  @@unique([id, negocioId])
+  @@index([negocioId])
+  @@map("cajas_fisicas")
+}
+
+model TurnoCaja {
+  id           String @id @default(cuid())
+  negocioId    String
+  cajaFisicaId String
+  // Responsable (= quien abre en F10-B2.1), SIEMPRE derivado de la sesion:
+  // NEGOCIO -> responsableId = negocioId, empleadoId NULL;
+  // EMPLEADO -> responsableId = empleadoId (activo, area caja).
+  responsableTipo String
+  responsableId   String
+  empleadoId      String?
+  // F10-B2.1 sólo abre turnos: ABIERTO. Cierre y estados finales: F10-B2.2.
+  estado          String   @default("ABIERTO")
+  abiertoEn       DateTime @default(now())
+  // Dinero que ya esta fisicamente en la caja al abrir: declarado, exacto, NO es
+  // venta ni ingreso (no genera operacion financiera).
+  fondoInicialDecimal    Decimal  @db.Decimal(12, 2)
+  idempotencyKey         String?
+  idempotencyFingerprint String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  negocio     Negocio               @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cajaFisica  CajaFisica            @relation(fields: [cajaFisicaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  empleado    Empleado?             @relation(fields: [empleadoId], references: [id], onDelete: NoAction)
+  ventas      Venta[]
+  operaciones OperacionFinanciera[]
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, abiertoEn])
+  @@index([cajaFisicaId])
+  @@index([empleadoId])
+  @@map("turnos_caja")
 }
 
 model MovimientoFinanciero {
@@ -1387,6 +1471,7 @@ model Empleado {
   mesas            Mesa[] // Mesas asignadas a este mozo
   codigosIncorporacionObjetivo CodigoIncorporacionMozo[]
   ventasCaja       Venta[] // F10-B0: ventas de Caja registradas por este empleado (F10-B1+)
+  turnosCaja       TurnoCaja[] // F10-B2.1: turnos de Caja de los que fue responsable
 
   // La unicidad vigente de código se mantiene en SQL como índice único parcial
   // (negocioId, codigo) WHERE eliminado = false. Prisma no soporta índices
