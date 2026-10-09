@@ -6,7 +6,33 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — F10-B1 CLOSED_TESTING_CERTIFIED (iPhone PWA 9/9 + POST-SMOKE READ-ONLY AUDIT) · CONSUMO INTERNO BACKLOG DOCUMENTED (2026-10-09) ===
+=== LATEST CURRENT HANDOFF — F10-B2.0 EXACT MONEY (DECIMAL DUAL WRITE) + CAJA ORIGIN PROTECTION IMPLEMENTED IN TESTING (2026-10-09) ===
+
+CURRENT_TASK=F10-B2-0-MONEY-PRECISION-SECURITY
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTING
+RESULT=F10_B2_0_IMPLEMENTED_TESTING
+F10_B2_0_STATUS=IMPLEMENTED_TESTING (2026-10-09: dinero exacto para Caja — src/lib/money.ts (Prisma.Decimal; round2 HALF_UP; regla de línea = la anterior bit a bit; acumulación exacta); migración aditiva 20261010120000_f10_b2_0_money_decimal_columns (totalDecimal/subtotalDecimal/importeDecimal NUMERIC(12,2) NULL + backfill ROUND(x::numeric,2) de NULLs en rango) aplicada SÓLO en TESTING, checksum 10f49eab… = archivo = blob, F10-B0 d3faab68… sin cambios; backfill 12/15/4/3 filas, 0 discrepancias; escritura doble Float+Decimal en registrarVentaCaja (misma tx) para venta, ítems, cobro y pata de efectivo; 400 fuera de NUMERIC(12,2); JSON del dueño sin Decimal (ventaCajaParaRespuesta) y resumen diario con sumas exactas; backfill idempotente con huella scripts/money-decimal-backfill.ts (dry-run por defecto); /api/negocio/caja agregado a NEGOCIO_ORIGIN_PROTECTED_PREFIXES (403 cross-origin/sin origen, verificado en vivo); commits aff31ad · 420f5d6 · d55e0ab · 21d86de · b175c52 · 522c821; fast-forward 2a25b0d..522c821; deploy TESTING e30bd062-9bdd-4a2c-a7df-1472247bcf2d SUCCESS commit match; tests nuevos 47/0 (real-DB 11/0); regresiones 137 archivos sin regresiones nuevas pendientes; TypeScript 35 = baseline; build OK; reporte codex-reports/F10_B2_0_MONEY_PRECISION_SECURITY.md)
+F10_B2_1_STATUS=NOT_STARTED · F10_B2_2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
+F10_B2_0_DESIGN=importes de Caja que se suman/restan/comparan calculados con Prisma.Decimal en el servidor (módulo sólo servidor src/lib/money.ts): subtotal de línea = regla anterior exacta en centavos, total = suma exacta, cobro y pata = total; Float = forma de transporte del mismo Decimal (mismos centavos); lectura compatible storedMoney(decimal ?? round2(float)); VentaItem.precio sin columna decimal (no se suma; el catálogo admite precios con >2 decimales); Producto.precio y Float comerciales fuera de Caja sin cambios
+F10_B2_0_DATA_AUDIT=TESTING: 0 importes con >2 decimales, 0 negativos, 0 no finitos, 0 fuera de rango, 0 cantidades fraccionarias; consistencia histórica 0 excepciones; ROUND(x::numeric,2) exacto en todas las filas
+F10_B2_0_POST_DEPLOY=PASS (logs: 40 migrations, No pending migrations, Ready, sin errores; smoke HTTP sin crear ventas: cross-origin con cookie de dueño → 403 Origen no permitido, same-origin → handler, sin sesión → 401; base: checksum 10f49eab = archivo, F10-B0 d3faab68 sin cambios, backfill dry-run 0 pendientes, Decimal completo y coherente, stock/reservas/modo ON sin cambios, 0 duplicados, 0 fixtures remanentes)
+MONEY_ROUNDING_OPEN_DECISION=#16 regla de redondeo de línea para cantidades FRACCIONARIAS o precios con >2 decimales: hoy se conserva bit a bit la regla anterior (Math.round(precio×cantidad×100)/100), que difiere en 1 centavo del HALF_UP exacto en medios centavos verdaderos (p. ej. 0,29×0,5 → 0,14 vs 0,15; 20.979/600.000 combinaciones fraccionarias); 0 datos afectados; decidir antes de venta por peso (F1) o de cuantizar precios (PENDIENTE del operador)
+SECURITY_LATERAL_FINDINGS=prefijos mutantes del dueño sin protección de origen (NO tocados en B2.0, fuera del alcance de Caja): /api/negocio/inventario/movimientos · /api/negocio/mesas · /api/negocio/solicitudes-revision-resenas — se recomienda una tarea de seguridad dedicada
+FLAKY_TEST_PREEXISTING=mesa-pedido-cancelacion.test.ts K (concurrencia real contra base remota): falla intermitente también en e72c61b (K2 en 2 de 3 corridas de base); sin relación con F10
+REAL_DB_SUITE_AUDIT_LEFTOVERS_UPDATE=+34 filas huérfanas de audit_logs dejadas por suites real-DB preexistentes durante la regresión de B2.0 (2026-10-09 05:10–05:34Z) — total documentado 81; no borradas (mismo follow-up)
+STOCK_RESERVATION_MODE=ON · R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS · F9_STATUS=CLOSED_TESTING_CERTIFIED · F10_B1_STATUS=CLOSED_TESTING_CERTIFIED (sin cambios) · CONSUMO_INTERNO_STATUS=PLANNED_NOT_STARTED (sin cambios)
+SCHEMA_CHANGED=YES (aditivo, 4 columnas NULL) · NEW_MIGRATIONS=1 (aplicada sólo en TESTING) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84 sin cambios)
+OPERATOR_SMOKE_REQUIRED=NO (sin cambios visibles de interfaz; verificación opcional: una venta efectivo + una transferencia desde la Caja del dueño y una desde el cajero, importes y Resumen iguales)
+TESTING_CODEX_HEAD=522c8219ab4fcc1acfd2c10870ac8e5383c0ecc3 (F10-B2.0 funcional, deploy e30bd062) + el commit documental "docs: record F10-B2.0 money precision and caja security" encima
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F10-B2.0 IMPLEMENTED_TESTING; el operador decide si autoriza F10-B2.1 — cajas físicas, turnos y fondo inicial sobre el dinero exacto; decisiones abiertas #15 Consumo interno y #16 redondeo fraccionario)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F10_B2_1_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B2_0_MONEY_PRECISION_SECURITY.md
+
+F10-B2.0 deja el dinero de Caja exacto (Decimal con escritura doble y
+backfill verificado) y la Caja del dueño bajo la protección de origen
+existente, sin cambios visibles. No hay turnos ni cajas físicas todavía.
+
+=== HISTORICAL HANDOFF — F10-B1 CLOSED_TESTING_CERTIFIED (iPhone PWA 9/9 + POST-SMOKE READ-ONLY AUDIT) · CONSUMO INTERNO BACKLOG DOCUMENTED (2026-10-09) — superseded as the current pointer by F10-B2.0 above; F10-B1 remains CLOSED_TESTING_CERTIFIED ===
 
 CURRENT_TASK=F10-B1-CERTIFICATION-AND-INTERNAL-CONSUMPTION-BACKLOG (auditoría READ-ONLY + documentación)
 CURRENT_TASK_STATUS=DONE
