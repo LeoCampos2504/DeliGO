@@ -320,6 +320,10 @@ const ORIGIN_PROTECTED_PREFIXES = [
 
 const NEGOCIO_ORIGIN_PROTECTED_PREFIXES = [
   "/api/negocio/agregados",
+  // F10-B2.0: owner Caja (POST /api/negocio/caja/ventas creates sales, cobros
+  // and cash-ledger legs) — same Origin/Referer allowlist as the rest of the
+  // owner panel; the cashier route is already covered by "/api/operativo".
+  "/api/negocio/caja",
   "/api/negocio/categorias",
   "/api/negocio/config",
   "/api/negocio/empleados",
