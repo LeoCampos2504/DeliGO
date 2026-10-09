@@ -6,7 +6,8 @@ import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
-import { parseVentaCajaRequestBody, registrarVentaCaja } from "@/lib/caja-venta-service"
+import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
+import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -32,15 +33,21 @@ export async function GET(req: NextRequest) {
       take: 100,
     })
 
+    // F10-B2.0: exact sums (Decimal column, or the legacy Float quantized to
+    // cents for a row written before the backfill); same numeric JSON shape.
+    const sumar = (metodo?: string) =>
+      moneyToNumber(
+        addMoney(...ventasHoy.filter((v) => !metodo || v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total)))
+      )
     const resumenHoy = {
       cantidadVentas: ventasHoy.length,
-      totalVendido: round(ventasHoy.reduce((sum, v) => sum + v.total, 0)),
-      totalEfectivo: round(ventasHoy.filter((v) => v.metodoPago === "EFECTIVO").reduce((sum, v) => sum + v.total, 0)),
-      totalTransferencia: round(ventasHoy.filter((v) => v.metodoPago === "TRANSFERENCIA").reduce((sum, v) => sum + v.total, 0)),
-      totalOtro: round(ventasHoy.filter((v) => v.metodoPago === "OTRO").reduce((sum, v) => sum + v.total, 0)),
+      totalVendido: sumar(),
+      totalEfectivo: sumar("EFECTIVO"),
+      totalTransferencia: sumar("TRANSFERENCIA"),
+      totalOtro: sumar("OTRO"),
     }
 
-    return NextResponse.json({ ventasHoy, resumenHoy })
+    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy })
   } catch (error) {
     console.error("Error listing ventas de caja:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener las ventas" }, { status: 500 })
@@ -53,10 +60,6 @@ function readIdempotencyKey(req: NextRequest): { ok: true; key: string | null } 
   const key = raw.trim()
   if (!isValidVentaIdempotencyKey(key)) return { ok: false, error: "Idempotency-Key inválida" }
   return { ok: true, key: key.toLowerCase() }
-}
-
-function round(value: number) {
-  return Math.round(value * 100) / 100
 }
 
 // POST - Finalize a Caja sale (section 19): atomically creates the Venta +
@@ -114,7 +117,7 @@ export async function POST(req: NextRequest) {
     // Exact idempotent replay (same Idempotency-Key, same content): the sale
     // already exists — return it as-is, no new audit entry, no side effects.
     if (result.replayed) {
-      return NextResponse.json(result.venta, { status: 200, headers: { "Idempotency-Replayed": "true" } })
+      return NextResponse.json(ventaCajaParaRespuesta(result.venta), { status: 200, headers: { "Idempotency-Replayed": "true" } })
     }
 
     await auditLog({
@@ -126,7 +129,7 @@ export async function POST(req: NextRequest) {
       detalle: { total: result.venta.total, metodoPago: result.venta.metodoPago, cantidadItems: result.venta.cantidadItems },
     })
 
-    return NextResponse.json(result.venta, { status: 201 })
+    return NextResponse.json(ventaCajaParaRespuesta(result.venta), { status: 201 })
   } catch (error) {
     const isSerializationConflict =
       (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||

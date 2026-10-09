@@ -46,7 +46,10 @@ describe("F10-B0 — one sales engine", () => {
   })
   test("statistics keep reading Venta (no double counting through cobros)", () => {
     const route = read(ROUTE)
-    expect(route).toContain('totalEfectivo: round(ventasHoy.filter((v) => v.metodoPago === "EFECTIVO")')
+    // F10-B2.0: the summary now sums exact amounts, still per Venta.metodoPago
+    // (Venta.totalDecimal / legacy total), never through cobros.
+    expect(route).toContain("ventasHoy.filter((v) => !metodo || v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total))")
+    expect(route).toContain('totalEfectivo: sumar("EFECTIVO"),')
     expect(route).not.toMatch(/cobroVenta|cobros/)
   })
   test("the Caja client sends an Idempotency-Key bound to the attempt", () => {

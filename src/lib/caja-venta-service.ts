@@ -20,8 +20,16 @@
 //   - exactly one CobroVenta per new sale (D7: multi-payment-ready);
 //   - EFECTIVO only: one VENTA_COBRO operation + one +importe leg on the
 //     negocio's system cash account (no physical register exists yet).
+// Added by F10-B2.0 (same transaction, dual write): every money amount is
+// computed exactly (src/lib/money.ts: round2 HALF_UP per line, exact sum) and
+// written to BOTH the legacy Float column and its NUMERIC(12,2) *Decimal
+// column — Venta.total/totalDecimal, VentaItem.subtotal/subtotalDecimal,
+// CobroVenta.importe/importeDecimal, MovimientoFinanciero.importe/importeDecimal.
+// The Float is the transport form of the exact Decimal, so both always carry
+// the same cents amount. Decimal objects never leave the server as-is
+// (ventaCajaParaRespuesta strips them from the owner's JSON contract).
 // Not done here on purpose: no Mercado Pago account or balance, no shifts,
-// no cashier access, no mixed payments.
+// no mixed payments.
 
 import { createHash } from "node:crypto"
 import { Prisma, type PrismaClient } from "@prisma/client"
@@ -33,6 +41,7 @@ import {
   type MetodoPagoVenta,
   type ServerSaleLineInput,
 } from "@/lib/caja-venta"
+import { isMoneyInRange, MoneyError, moneyToNumber, saleAmountsExact, type SaleAmountsExact } from "@/lib/money"
 import {
   planificarStockVentaCaja,
   registrarStockVentaCaja,
@@ -68,6 +77,29 @@ export type RegistrarVentaCajaResult =
   | { ok: false; status: 400 | 403 | 409; error: string; code?: string }
 
 export const IDEMPOTENCY_KEY_REUSED_CODE = "IDEMPOTENCY_KEY_REUSED"
+export const IMPORTE_FUERA_DE_RANGO = "El importe de la venta está fuera del rango permitido"
+
+/**
+ * F10-B2.0 — the owner's existing JSON contract for a sale (POST 201/200 and
+ * GET ventasHoy): the same fields as before, without the internal exact
+ * *Decimal columns (Prisma Decimal objects would otherwise serialize as
+ * strings). The numeric `total` / `subtotal` already carry the exact cents.
+ */
+export type VentaCajaRespuesta = Omit<VentaCajaConItems, "totalDecimal" | "items"> & {
+  items: Array<Omit<VentaCajaConItems["items"][number], "subtotalDecimal">>
+}
+
+export function ventaCajaParaRespuesta(venta: VentaCajaConItems): VentaCajaRespuesta {
+  const { totalDecimal: _totalDecimal, items, ...rest } = venta
+  void _totalDecimal
+  return {
+    ...rest,
+    items: items.map(({ subtotalDecimal: _subtotalDecimal, ...item }) => {
+      void _subtotalDecimal
+      return item
+    }),
+  }
+}
 
 type SaleDb = Pick<PrismaClient, "$transaction" | "venta" | "cuentaFinanciera">
 
@@ -195,6 +227,20 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
         return { ok: false as const, status: 400 as const, error: computed.error }
       }
 
+      // F10-B2.0 — exact amounts: the single authority for every money column
+      // written below (Float = transport form of the same exact cents).
+      let importes: SaleAmountsExact
+      try {
+        importes = saleAmountsExact(computed.items)
+      } catch (error) {
+        if (error instanceof MoneyError) return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
+        throw error
+      }
+      if (!isMoneyInRange(importes.total) || !importes.subtotales.every((s) => isMoneyInRange(s))) {
+        return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
+      }
+      const totalExacto = importes.total
+
       // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
       // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
       // = físico − reservas ACTIVA (Decisión B), leído en esta misma tx
@@ -218,7 +264,8 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
       const venta = await tx.venta.create({
         data: {
           negocioId,
-          total: computed.total,
+          total: moneyToNumber(totalExacto),
+          totalDecimal: totalExacto,
           metodoPago,
           cantidadItems: computed.cantidadItems,
           idempotencyKey,
@@ -227,14 +274,15 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
           actorId,
           empleadoId,
           items: {
-            create: computed.items.map((item) => ({
+            create: computed.items.map((item, index) => ({
               productoId: item.productoId,
               productoVarianteId: item.varianteId ?? null,
               nombre: item.nombre,
               varianteNombre: item.varianteNombre ?? null,
               precio: item.precio,
               cantidad: item.cantidad,
-              subtotal: item.subtotal,
+              subtotal: moneyToNumber(importes.subtotales[index]),
+              subtotalDecimal: importes.subtotales[index],
             })),
           },
         },
@@ -251,7 +299,8 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
           negocioId,
           ventaId: venta.id,
           metodo: metodoPago,
-          importe: venta.total,
+          importe: moneyToNumber(totalExacto),
+          importeDecimal: totalExacto,
           estadoConciliacion: estadoConciliacionInicial(metodoPago),
         },
         select: { id: true },
@@ -267,7 +316,9 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
             cobroVentaId: cobro.id,
             actorTipo: actor.tipo,
             actorId,
-            movimientos: { create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: venta.total }] },
+            movimientos: {
+              create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: moneyToNumber(totalExacto), importeDecimal: totalExacto }],
+            },
           },
           select: { id: true },
         })
