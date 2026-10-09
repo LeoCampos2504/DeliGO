@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import { AREA_CAJA_RUBRO } from "@/lib/area-operativa"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
-const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr", "caja"] as const // F10-B1: + caja (sólo rubro genérico)
 const PENDING_EMPLOYEE_NAME = "Pendiente de vinculación"
 
 /** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
@@ -148,6 +149,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // F10-B1: "caja" es exclusiva de negocios genéricos (nunca Restaurante/Ropa).
+    if (areaOperativa === "caja") {
+      const negocioRubro = await db.negocio.findUnique({ where: { id: negocioId }, select: { rubro: true } })
+      if (negocioRubro?.rubro !== AREA_CAJA_RUBRO) {
+        return noStoreJson({ error: "El área Caja sólo está disponible para negocios genéricos." }, { status: 409 })
+      }
+    }
     // No permitir crear un empleado inactivo con un área asignada.
     if (!empleadoActivo && areaOperativa !== "sin_asignar") {
       return noStoreJson(

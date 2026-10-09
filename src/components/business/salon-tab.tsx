@@ -180,6 +180,8 @@ interface SalonTabProps {
     slug: string
     nombre: string
     colorPrincipal: string
+    /** F10-B1: only a generic business ("negocio") can assign the Caja area. */
+    rubro?: string
   }
 }
 
@@ -213,10 +215,15 @@ const AREA_OPERATIVA_OPTIONS = [
   { value: "mozo", label: "Mozo" },
   { value: "salon", label: "Salón" },
   { value: "pyr", label: "Pedidos y reseñas" },
+  { value: "caja", label: "Caja" },
 ] as const
 
 const areaOperativaLabel = (area?: string) =>
   AREA_OPERATIVA_OPTIONS.find((a) => a.value === area)?.label ?? "Sin área asignada"
+
+// F10-B1: "Caja" is offered only to generic businesses (the server enforces it too).
+const areaOperativaOptionsFor = (rubro?: string) =>
+  AREA_OPERATIVA_OPTIONS.filter((a) => a.value !== "caja" || rubro === "negocio")
 
 // Status config for mesa orders
 const MESA_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Clock }> = {
@@ -2808,6 +2815,7 @@ function HistorialSubTab({ negocio }: { negocio: SalonTabProps["negocio"] }) {
 // ============================================
 function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]; slug: string }) {
   const queryClient = useQueryClient()
+  const areaOptions = areaOperativaOptionsFor(negocio.rubro)
   const [showAddForm, setShowAddForm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -3130,7 +3138,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                   <SelectValue placeholder="Sin área asignada" />
                 </SelectTrigger>
                 <SelectContent>
-                  {AREA_OPERATIVA_OPTIONS.map((a) => (
+                  {areaOptions.map((a) => (
                     <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -3221,7 +3229,7 @@ function EmpleadosSection({ negocio, slug }: { negocio: SalonTabProps["negocio"]
                           <SelectValue placeholder="Sin área asignada" />
                         </SelectTrigger>
                         <SelectContent>
-                          {AREA_OPERATIVA_OPTIONS.map((a) => (
+                          {areaOptions.map((a) => (
                             <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
                           ))}
                         </SelectContent>

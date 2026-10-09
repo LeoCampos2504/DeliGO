@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
+  areaOperativaDisponibleEnNegocio,
   areaOperativaRequiereSalon,
   resolveAreaOperativaEfectiva,
   type AreaOperativa,
@@ -38,6 +39,7 @@ export type OperativoMozoAuth =
         logoUrl: string | null
         salonActivo: boolean
         empleadosActivos: boolean
+        rubro: string
       }
     }
   | {
@@ -110,10 +112,12 @@ export async function resolveOperativoAreaForSlug(
       logoUrl: true,
       salonActivo: true,
       empleadosActivos: true,
+      rubro: true,
     },
   })
 
-  if (!negocio) {
+  // F10-B1: misma regla única de disponibilidad por área (Salón / rubro genérico).
+  if (!negocio || !areaOperativaDisponibleEnNegocio(areaEsperada, negocio)) {
     return { ok: false, status: 403, state: "acceso_no_disponible" }
   }
 

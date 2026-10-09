@@ -3,12 +3,12 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
-import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
+import { resolveAreaOperativaEfectiva, AREA_CAJA_RUBRO } from "@/lib/area-operativa"
 import { tieneSalonHabilitado } from "@/lib/negocio-salon-contract"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
-const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr"] as const
+const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr", "caja"] as const // F10-B1: + caja (sólo rubro genérico)
 
 /** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
 function normalizeAreaOperativa(value: unknown): string | null {
@@ -120,6 +120,13 @@ export async function PUT(
               { error: "El negocio no tiene Salón habilitado. Activalo antes de asignar esta área." },
               { status: 409 }
             )
+          }
+        }
+        // F10-B1: "caja" es exclusiva de negocios genéricos (nunca Restaurante/Ropa).
+        if (normalized === "caja") {
+          const negocioRubro = await db.negocio.findUnique({ where: { id: negocioId }, select: { rubro: true } })
+          if (negocioRubro?.rubro !== AREA_CAJA_RUBRO) {
+            return NextResponse.json({ error: "El área Caja sólo está disponible para negocios genéricos." }, { status: 409 })
           }
         }
         updateData.areaOperativa = normalized

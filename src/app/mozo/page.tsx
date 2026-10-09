@@ -64,6 +64,7 @@ const AREA_LABELS: Record<string, string> = {
   mozo: "Mozo",
   salon: "Salón",
   pyr: "Pedidos y reseñas",
+  caja: "Caja",
   sin_asignar: "Sin área asignada",
 }
 
@@ -500,6 +501,15 @@ export default function MozoPanelPage() {
                       <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
                         <Link href={`/operaciones/mi-panel/${encodeURIComponent(vinculo.negocio.slug)}/pyr`}>
                           Abrir panel de Pedidos y reseñas
+                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                        </Link>
+                      </Button>
+                    ) : areaEfectiva === "caja" ? (
+                      // F10-B1 — Área Caja (negocios genéricos): pantalla personal de venta
+                      // bajo /operaciones/mi-panel. El servidor decide el acceso.
+                      <Button asChild className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/15 hover:bg-amber-600">
+                        <Link href={`/operaciones/mi-panel/${encodeURIComponent(vinculo.negocio.slug)}/caja`}>
+                          Abrir Caja
                           <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                         </Link>
                       </Button>

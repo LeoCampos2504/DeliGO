@@ -6,7 +6,7 @@ import {
 } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
-  areaOperativaRequiereSalon,
+  areaOperativaDisponibleEnNegocio,
   resolveAreaOperativaEfectiva,
 } from "@/lib/area-operativa"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
                 suspendido: true,
                 salonActivo: true,
                 empleadosActivos: true,
+                rubro: true,
               },
             },
           },
@@ -111,7 +112,8 @@ export async function GET(req: NextRequest) {
         empleado.negocio.aprobado &&
         !empleado.negocio.suspendido &&
         empleado.negocio.empleadosActivos &&
-        (!areaOperativaRequiereSalon(areaOperativaEfectiva) || empleado.negocio.salonActivo)
+        // F10-B1: regla única de disponibilidad por área (Salón / rubro genérico para caja).
+        areaOperativaDisponibleEnNegocio(areaOperativaEfectiva, empleado.negocio)
       )
       .map(({ empleado, areaOperativaEfectiva }) => ({
         empleado: {
