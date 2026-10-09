@@ -6,7 +6,34 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — F10-B2.0 EXACT MONEY (DECIMAL DUAL WRITE) + CAJA ORIGIN PROTECTION IMPLEMENTED IN TESTING (2026-10-09) ===
+=== LATEST CURRENT HANDOFF — F10-B2.1 PHYSICAL CASH REGISTERS + SHIFTS + FINANCIAL ATTRIBUTION IMPLEMENTED IN TESTING (2026-10-09) ===
+
+CURRENT_TASK=F10-B2-1-PHYSICAL-CASH-REGISTERS-SHIFTS
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTING
+RESULT=F10_B2_1_IMPLEMENTED_TESTING
+F10_B2_1_STATUS=IMPLEMENTED_TESTING (2026-10-09: motor de cajas físicas y turnos — CajaFisica (varias por negocio, una predeterminada 'Caja principal' idempotente y concurrente) y TurnoCaja (responsable inequívoco NEGOCIO/EMPLEADO, fondo inicial exacto NUMERIC(12,2) ≥ 0, apertura idempotente con Idempotency-Key); invariantes en PostgreSQL (un turno ABIERTO por caja/empleado/dueño, una predeterminada activa, nombre único sin mayúsculas/espacios, FK compuesta turno↔caja del mismo negocio, CHECKs); atribución en el motor único registrarVentaCaja (turno del propio actor resuelto desde la sesión y revalidado en la tx; Venta.turnoCajaId + OperacionFinanciera.turnoCajaId; efectivo en la cuenta de ESA caja; sin turno = comportamiento F10-B1 a efectivo_caja_sin_asignar; venta del dueño nunca al turno de un empleado); efectivo esperado exacto sólo para el dueño (GET /api/negocio/caja/turnos/[id]); el cajero nunca lo recibe; flag persistido Negocio.cajaTurnosModo (OPCIONAL en todos; OBLIGATORIO aplicado en ruta y motor; sin ruta de activación); sin interfaz; migración 20261011120000 aplicada sólo en TESTING, checksum f2c7a0b9 = archivo = blob; commits c765597 · 362ece2 · 9c6b2e2 · d3c93c2 · 4b836a7; fast-forward 5d91732..4b836a7; deploy TESTING d5fb7c06-27a1-41f2-9990-2c003ab125de SUCCESS commit match; tests nuevos 52/0 (real-DB 22/0); regresiones 141 archivos sin regresiones nuevas pendientes; TypeScript 35 = baseline; build OK; reporte codex-reports/F10_B2_1_CASH_REGISTERS_SHIFTS.md)
+F10_B2_2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
+F10_B2_1_APIS=dueño (sesión negocio, rubro genérico, origen protegido): GET/POST /api/negocio/caja/cajas · PATCH /api/negocio/caja/cajas/[id] · GET/POST /api/negocio/caja/turnos (abre SU turno) · GET /api/negocio/caja/turnos/[id] (incluye efectivo esperado) — cajero (sesión personal, área caja): GET/POST /api/operativo/caja/[slug]/turno (cajas activas con 'ocupada', su turno, abre el suyo; nunca esperado/totales/saldos/turnos ajenos)
+F10_B2_1_READY_VS_DISABLED=LISTO: modelos, caja predeterminada, administración de cajas, apertura idempotente, atribución de ventas y efectivo por caja, esperado exacto para el dueño, flag + cumplimiento — DESHABILITADO hasta F10-B2.2: obligatoriedad (OPCIONAL en todos, sin ruta de activación), cierre/cierre ciego/diferencias/entrega y traspaso de fondos/recuperación, interfaz
+F10_B2_1_POST_DEPLOY=PASS (logs: 41 migrations, No pending migrations, Ready, sin errores; smoke sin datos: sin sesión 401, cross-origin 403 Origen no permitido, same-origin → handler; base: checksums f2c7a0b9/10f49eab/d3faab68, 0 cajas/turnos creados por el deploy, 12 ventas sin turno, Decimal/stock/reservas/modo ON sin cambios, integridad 0 problemas, 0 fixtures remanentes)
+OWNER_SHARED_COUNTER_OPEN_DECISION=#17 el dueño vende en una caja con turno abierto de un empleado: hoy (conservador) su venta va a SU propio turno o queda sin turno, nunca al del empleado; alternativas (A) contar sus ventas en el esperado del turno del empleado con autoría NEGOCIO visible · (B) el dueño usa otra caja con turno propio · (C) quedan siempre fuera (riesgo de diferencia si el efectivo entra al cajón del empleado); también: si el dueño debe tener turno cuando el negocio active OBLIGATORIO (PENDIENTE del operador, antes de F10-B2.2)
+SHIFT_ENFORCEMENT_STATE=OPCIONAL en todos los negocios (0 OBLIGATORIO); NO activar hasta F10-B2.2 (no existe cierre ni recuperación de turnos)
+REAL_DB_SUITE_AUDIT_LEFTOVERS_UPDATE_B21=+34 filas huérfanas de audit_logs de suites real-DB preexistentes durante la regresión de B2.1 — total documentado 115; no borradas; las suites F10 limpian las suyas
+STOCK_RESERVATION_MODE=ON · R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS · F9_STATUS=CLOSED_TESTING_CERTIFIED · F10_B1_STATUS=CLOSED_TESTING_CERTIFIED · F10_B2_0_STATUS=IMPLEMENTED_TESTING · CONSUMO_INTERNO_STATUS=PLANNED_NOT_STARTED (sin cambios)
+SCHEMA_CHANGED=YES (aditivo: 2 tablas, 4 columnas, invariantes SQL) · NEW_MIGRATIONS=1 (aplicada sólo en TESTING) · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84 sin cambios)
+OPERATOR_SMOKE_REQUIRED=NO (sin interfaz nueva; F10-B1 sin cambios visibles con OPCIONAL)
+CAJA_READY_FOR_REAL_EMPLOYEES=NO (falta F10-B2.2: cierre ciego, diferencias, entrega de fondos)
+TESTING_CODEX_HEAD=4b836a738d2855c076342ae4f62d241d6b0826a6 (F10-B2.1 funcional, deploy d5fb7c06) + el commit documental "docs: record F10-B2.1 cash registers and shifts" encima
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F10-B2.1 IMPLEMENTED_TESTING; el operador decide si autoriza F10-B2.2 — cierre ciego, diferencias, entrega y traspaso de fondos, recuperación y activación por negocio; decisiones abiertas #15 Consumo interno, #16 redondeo fraccionario, #17 dueño en mostrador con turno de empleado)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F10_B2_2_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B2_1_CASH_REGISTERS_SHIFTS.md
+
+F10-B2.1 deja el motor de cajas físicas y turnos en TESTING: varias cajas
+por negocio, apertura idempotente con fondo exacto, ventas y efectivo
+atribuidos al turno y a la caja correctos, y efectivo esperado exacto sólo
+para el dueño. La obligatoriedad sigue apagada hasta el cierre de F10-B2.2.
+
+=== HISTORICAL HANDOFF — F10-B2.0 EXACT MONEY (DECIMAL DUAL WRITE) + CAJA ORIGIN PROTECTION IMPLEMENTED IN TESTING (2026-10-09) — superseded as the current pointer by F10-B2.1 above; F10-B2.0 remains IMPLEMENTED_TESTING ===
 
 CURRENT_TASK=F10-B2-0-MONEY-PRECISION-SECURITY
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTING
