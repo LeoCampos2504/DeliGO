@@ -162,8 +162,12 @@ describe("F10-B1 — blind-close safety (no business-wide data for the cashier)"
 })
 
 describe("F10-B1 — no schema change", () => {
-  test("the latest migration is still F10-B0's", () => {
+  // F10-B2.0 added the next migration; the B1 invariant is that B1 itself
+  // added none: the migration right after F10-B0's is F10-B2.0's.
+  test("F10-B1 added no migration (F10-B0's is followed directly by F10-B2.0's)", () => {
     const migrations = readdirSync(join(root, "prisma/migrations")).filter((d) => /^\d{14}_/.test(d)).sort()
-    expect(migrations.at(-1)).toBe("20261009120000_f10_b0_sales_idempotency_payments_ledger")
+    const b0 = migrations.indexOf("20261009120000_f10_b0_sales_idempotency_payments_ledger")
+    expect(b0).toBeGreaterThan(-1)
+    expect(migrations[b0 + 1]).toBe("20261010120000_f10_b2_0_money_decimal_columns")
   })
 })
