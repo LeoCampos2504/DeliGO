@@ -285,6 +285,9 @@ DEPENDENCIAS RECOMENDADAS=
 
 ```text
 F10_STATUS=PLANNED_NOT_STARTED (documentado 2026-10-08 por decisión del operador; NO implementado; NO autorizado para implementación;
+F10_A_STATUS=COMPLETED (2026-10-09; auditoría READ-ONLY sobre f984b4c; informe permanente codex-reports/F10_A_TECHNICAL_DESIGN.md)
+F10_B0_STATUS=AUTHORIZED_IN_PROGRESS (2026-10-09; bases técnicas: servicio único de venta, idempotencia del checkout, actor, CobroVenta, libro financiero mínimo — ver codex-reports/F10_B0_IMPLEMENTATION.md)
+F10_B1_STATUS=NOT_STARTED · F10_B2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
   ninguna etapa iniciada; no crea código, schema, migraciones ni datos)
 F10_SCOPE=negocios genéricos (rubro "negocio"); NO modifica flujos de Restaurante, Ropa ni Mozo sin análisis específico
 F10_NUMBERING=CONFIRMADO por el operador 2026-10-09: "F10" = este bloque; el antiguo "F10 TICKETS Y COMPROBANTES" es F11 (sin
@@ -356,16 +359,24 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 #### Criterios funcionales previstos para la futura aceptación (NO son pruebas aprobadas)
 1 un cajero abre y cierra su turno desde el celular · 2 las ventas quedan vinculadas al turno y al responsable · 3 el lector F9 puede usarse desde Operaciones cuando se habilite la integración · 4 el cajero registra salidas de efectivo sin aprobación previa · 5 esas salidas afectan el efectivo esperado de su Caja · 6 el dueño revisa cada salida después · 7 el cajero registra una reposición sin modificar el stock oficial · 8 al aprobar una reposición el stock aumenta exactamente una vez · 9 el cajero declara el efectivo contado sin ver el esperado · 10 el dueño consulta las diferencias de los cierres · 11 el cajero declara el fondo que deja al próximo turno · 12 los fondos trasladados entre turnos no generan ingresos ficticios · 13 el dueño registra movimientos de Mercado Pago sin depender de un cajero · 14 un cobro por transferencia permite identificar el nombre del remitente · 15 el dueño investiga transferencias no conciliadas · 16 un cambio de efectivo por transferencia no se contabiliza como venta · 17 una transferencia entre cuentas propias no se contabiliza como ingreso · 18 las comisiones reales se registran por separado · 19 auditoría y aislamiento por negocio en todas las operaciones · 20 los roles de otros rubros siguen funcionando como antes.
 
+#### Decisiones APROBADAS tras F10-A (operador, 2026-10-09)
+- **D5 — Permisos del cajero:** nueva área operativa `caja` integrada al sistema real de `areaOperativa`; exclusiva de negocios genéricos; NO exige Salón; NO se revive `Empleado.rol`/`permisos` (código muerto) como autoridad paralela. Implementación: F10-B1 (no iniciada).
+- **D6 — Cajas físicas y turnos:** varias cajas físicas por negocio; una caja inicial por defecto al habilitar el módulo; como máximo un turno activo por caja; el dueño también usa la Caja y se registra quién hizo cada venta (empleado o dueño); las operaciones del dueño sobre una caja usada por un cajero quedan identificadas, sin mezclar fondos. Apertura, cierre ciego, entrega de fondos y diferencias: F10-B2 (no iniciada).
+- **D7 — Preparación para pagos mixtos:** estructura de varios cobros por venta (`CobroVenta`); la interfaz sigue con UN medio por venta; `Venta.metodoPago` se conserva compatible durante la transición; pagos mixtos NO habilitados; sin cobros duplicados.
+- **D9 — Operaciones sólo en línea:** sin operaciones monetarias offline; ante un corte se informa, se conserva el carrito y la identidad del intento de cobro, y se reintenta de forma idempotente; nunca se afirma una venta sin confirmación del servidor; sin colas locales ni sincronización offline.
+- **Principio — identidad del dueño en Caja:** las ventas del dueño registran autoría derivada de la sesión real (F10-B0); sin exigirle turno mientras los turnos no existan; sin cambios en las autorizaciones del panel.
+- **Principio — Mercado Pago declarado vs acreditado:** un cobro por transferencia declarado NO es dinero bancario verificado; estados futuros: declarado · verificado/acreditado · observado · diferencia de conciliación; sin APIs financieras ni saldos reales inventados. Remitente y controles administrativos: F10-D.
+
 #### Decisiones PENDIENTES (no inventar; requieren al operador o a F10-A)
 1. Si un cajero puede ejecutar cambios que envían fondos desde Mercado Pago o queda reservado al dueño.
 2. Nombre de quien transfirió: opcional, obligatorio o configurable por negocio; qué campos extra (referencia, id de operación, comprobante) entran.
 3. Representación de los estados declarado / acreditado / diferencia / revisión sin romper el flujo de ventas.
 4. Política del checkout ante transferencias no conciliadas (hoy: ningún bloqueo nuevo).
-5. Nombres de rol, permisos, enums y entidades; reutilizar o no el preset de rol "cajero" y `gestion_caja` existentes.
-6. Modelo de Caja/terminal física y regla exacta de aperturas simultáneas; si el dueño opera con turno propio.
-7. Pagos mixtos en una misma venta.
+5. ~~Nombres de rol, permisos, enums y entidades; reutilizar o no el preset de rol "cajero" y `gestion_caja` existentes.~~ RESUELTA 2026-10-09 → D5 (área `caja`; preset antiguo NO reutilizado).
+6. ~~Modelo de Caja/terminal física y regla exacta de aperturas simultáneas; si el dueño opera con turno propio.~~ RESUELTA 2026-10-09 → D6 (varias cajas, una por defecto, ≤1 turno activo por caja, autoría del dueño identificada).
+7. ~~Pagos mixtos en una misma venta.~~ RESUELTA 2026-10-09 → D7 (estructura preparada, interfaz con un medio).
 8. Umbrales y canal de las alertas por importes elevados.
-9. Estrategia offline.
+9. ~~Estrategia offline.~~ RESUELTA 2026-10-09 → D9 (sólo en línea con reintento idempotente).
 10. Cuentas por pagar y pagos parciales a proveedores (F10 vs F5).
 11. Saldo inicial de cuentas y modelo de conciliación (manual) de Mercado Pago.
 12. Almacenamiento y privacidad de comprobantes/fotos.
