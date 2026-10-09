@@ -6,7 +6,31 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — F9 CLOSED_TESTING_CERTIFIED + ROADMAP NUMBERING CONFIRMED (F7→F10-B, OLD F10 TICKETS→F11) (2026-10-09) ===
+=== LATEST CURRENT HANDOFF — F10-A COMPLETED + F10-B0 CORE SALES / IDEMPOTENCY / PAYMENTS / LEDGER BASE IMPLEMENTED IN TESTING (2026-10-09) ===
+
+CURRENT_TASK=F10-B0-CORE-SALES-IDEMPOTENCY
+CURRENT_TASK_STATUS=IMPLEMENTED_TESTING
+RESULT=F10_B0_IMPLEMENTED_TESTING
+F10_A_STATUS=COMPLETED (informe permanente codex-reports/F10_A_TECHNICAL_DESIGN.md: existente / propuesto / aprobado / pendiente)
+F10_DECISIONS_APPROVED=D5 área operativa caja (genéricos, sin gate de Salón, sin revivir rol/permisos) · D6 varias cajas físicas, una por defecto, ≤1 turno activo por caja, autoría del dueño identificada · D7 varios cobros por venta, UI con un medio · D9 sólo en línea con reintento idempotente · principios: autoría del dueño en Caja; transferencia declarada ≠ acreditada
+F10_B0_STATUS=IMPLEMENTED_TESTING (2026-10-09: motor único de ventas de Caja src/lib/caja-venta-service.ts; idempotencia real del checkout (Idempotency-Key + huella, @@unique([negocioId, idempotencyKey]), replay 200 / conflicto 409 IDEMPOTENCY_KEY_REUSED, doble toque real → 1 venta); actor de la venta desde la sesión (dueño = NEGOCIO); CobroVenta (1 por venta, preparado para pagos mixtos; transferencia DECLARADO, nunca acreditada); libro mínimo (sólo efectivo, cuenta de sistema efectivo_caja_sin_asignar, inicio = primer cobro post-deploy); migración aditiva 20261009120000 aplicada en TESTING; commits f72b0e7 (docs F10-A) · 3ecff2e (motor) · 88ff0c1 (cliente); fast-forward f984b4c..88ff0c1; deploy TESTING 232d72cf-7e44-4786-9e91-7b4f958debf9 SUCCESS commit match; tests nuevos 36/0; regresiones 695/0 (43 archivos); real-DB 11/0 idempotencia/cobro/libro + Caja 21/0; reporte codex-reports/F10_B0_IMPLEMENTATION.md)
+F10_B0_DESIGN=ruta POST /api/negocio/caja/ventas delega en registrarVentaCaja (misma tx Serializable: plan R3A → Venta/VentaItem → stock+MovimientoInventario → CobroVenta → operación+pata de efectivo); el GET y sus estadísticas siguen leyendo Venta.metodoPago (sin doble conteo); cliente: clave por intento atada al contenido, incierto (sin respuesta/5xx) conserva la clave, 4xx definitivo/clave reutilizada la descarta, sessionStorage restaura carrito+clave tras recarga, offline no envía nada; convivencia: la ruta del dueño acepta todavía solicitudes sin cabecera (semántica legacy), la ruta del cajero de F10-B1 deberá exigirla
+R3A_CONTRACT_RELOCATED=p2-t56-r3a-i2-wiring-static-contract: mismas cadenas literales verificadas ahora en el motor (llamador de runStockSerializable en la lista exacta) + la ruta debe delegar y no tocar stock/reservas/modo — no se debilitó ninguna aserción
+F10_B0_NOT_IMPLEMENTED=área caja / ruta / vista del cajero (B1) · cajas físicas, turnos, cierre ciego, Venta.turnoId (B2) · salidas de efectivo, recepciones (C) · cuentas editables, Mercado Pago, remitente, conciliación (D) · cambios efectivo/transferencia, transferencias internas (E) · pagos mixtos en la UI
+SCHEMA_CHANGED=YES (aditivo) · NEW_MIGRATIONS=1 (20261009120000_f10_b0_sales_idempotency_payments_ledger, aplicada sólo en TESTING) · STOCK_RESERVATION_MODE=ON (antes y después) · F9_STATUS=CLOSED_TESTING_CERTIFIED · R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS
+OPEN_DECISIONS=#1 permiso del cajero para cambios con MP · #2 obligatoriedad del remitente · #3 estados de conciliación · #4 política ante transferencias no acreditadas · #8 alertas · #10 proveedores/cuentas por pagar · #11 saldo inicial/conciliación MP · #12 comprobantes · #14 tarifas
+KNOWN_LIMITATIONS=convivencia sin cabecera (legacy sin deduplicación) · dinero en Float · cuenta efectivo_caja_sin_asignar no es un cajón ni el efectivo real · +2–3 inserciones por venta en la tx Serializable · sessionStorage por pestaña · 9 fallas baseline CRLF conocidas en contratos de UI · migration_lock.toml no versionado (preexistente)
+TESTING_CODEX_HEAD=88ff0c1e2afbb06d700412da1e4cd7ddfd34a9e7 (F10-B0 funcional) + el commit documental "docs: record F10-B0 testing deploy" encima
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84 sin cambios)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F10-B0 en TESTING; el operador decide si autoriza F10-B1 — área caja + ruta/vista del cajero; nada de B1+ iniciado)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F10_B1_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B0_IMPLEMENTATION.md · diseño: codex-reports\F10_A_TECHNICAL_DESIGN.md
+
+F10-B0 deja las bases internas (motor único, idempotencia, autoría, cobros y
+libro mínimo) en TESTING sin habilitar ninguna funcionalidad visible de etapas
+posteriores. No hay cajeros, turnos ni Mercado Pago todavía.
+
+=== HISTORICAL HANDOFF — F9 CLOSED_TESTING_CERTIFIED + ROADMAP NUMBERING CONFIRMED (F7→F10-B, OLD F10 TICKETS→F11) (2026-10-09) — superseded as the current pointer by F10-B0 above; F9 remains CLOSED_TESTING_CERTIFIED ===
 
 CURRENT_TASK=F9-CERTIFICATION-AND-ROADMAP-CONFIRMATIONS (verificación READ-ONLY + documentación)
 CURRENT_TASK_STATUS=DONE
