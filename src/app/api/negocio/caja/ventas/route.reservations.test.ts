@@ -124,6 +124,8 @@ mock.module("@/lib/db", () => {
   }
   return {
     db: {
+      // F10-B2.1: the owner route looks up the owner's own open shift; none in these tests.
+      turnoCaja: { findFirst: async () => null },
       cuentaFinanciera: {
         createMany: async ({ data }: { data: Array<{ negocioId: string; clave: string }> }) => {
           for (const row of data) {
