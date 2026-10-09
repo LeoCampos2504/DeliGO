@@ -50,6 +50,13 @@ describe("idempotency key + canonical content", () => {
     expect(fingerprintVentaCaja("n1", "EFECTIVO", lines)).toMatch(/^[0-9a-f]{64}$/)
     expect(fingerprintVentaCaja("n1", "EFECTIVO", lines)).not.toBe(fingerprintVentaCaja("n2", "EFECTIVO", lines))
   })
+  test("owner-selected register changes the fingerprint; automatic selection preserves legacy fingerprint shape", () => {
+    const lines = [{ productoId: "p1", cantidad: 1 }]
+    const automatic = fingerprintVentaCaja("n1", "EFECTIVO", lines)
+    expect(fingerprintVentaCaja("n1", "EFECTIVO", lines, null)).toBe(automatic)
+    expect(fingerprintVentaCaja("n1", "EFECTIVO", lines, "caja-a")).not.toBe(automatic)
+    expect(fingerprintVentaCaja("n1", "EFECTIVO", lines, "caja-a")).not.toBe(fingerprintVentaCaja("n1", "EFECTIVO", lines, "caja-b"))
+  })
 })
 
 describe("cobros (D7) and declared-vs-credited", () => {

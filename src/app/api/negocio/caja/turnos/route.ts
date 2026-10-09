@@ -17,12 +17,20 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireNegocioCajaGenerico(req)
     if (!auth.ok) return auth.response
-    const turnos = await db.turnoCaja.findMany({
-      where: { negocioId: auth.negocioId },
-      include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
-      orderBy: { abiertoEn: "desc" },
-      take: 50,
-    })
+    const [activos, recientesCerrados] = await Promise.all([
+      db.turnoCaja.findMany({
+        where: { negocioId: auth.negocioId, estado: "ABIERTO" },
+        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+        orderBy: { abiertoEn: "desc" },
+      }),
+      db.turnoCaja.findMany({
+        where: { negocioId: auth.negocioId, estado: { not: "ABIERTO" } },
+        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+        orderBy: { abiertoEn: "desc" },
+        take: 50,
+      }),
+    ])
+    const turnos = [...activos, ...recientesCerrados]
     return NextResponse.json({
       modoTurnos: auth.cajaTurnosModo,
       turnos: turnos.map((t) => ({

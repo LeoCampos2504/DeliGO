@@ -85,6 +85,29 @@ mock.module("@/lib/db", () => {
         return { ...v }
       },
     },
+    // The owner resolves zero active registers in this R3A fixture and keeps
+    // the legacy unassigned cash account. The raw lock query therefore has
+    // no register rows to return.
+    $queryRaw: async () => [],
+    turnoCaja: {
+      findMany: async () => [],
+      findFirst: async () => null,
+    },
+    cuentaFinanciera: {
+      createMany: async ({ data }: { data: Array<{ negocioId: string; clave: string }> }) => {
+        for (const row of data) {
+          if (!state.cuentas.some((c) => c.negocioId === row.negocioId && c.clave === row.clave)) {
+            state.cuentas.push({ id: `cuenta-${state.cuentas.length + 1}`, negocioId: row.negocioId, clave: row.clave })
+          }
+        }
+        return { count: data.length }
+      },
+      findUniqueOrThrow: async ({ where }: { where: { negocioId_clave: { negocioId: string; clave: string } } }) => {
+        const c = state.cuentas.find((row) => row.negocioId === where.negocioId_clave.negocioId && row.clave === where.negocioId_clave.clave)
+        if (!c) throw new Error("cuenta no encontrada")
+        return { id: c.id }
+      },
+    },
     reservaStock: {
       aggregate: async ({ where }: { where: Record<string, unknown> }) => {
         const rows = state.reservas.filter((r) => Object.entries(where).every(([k, v]) => (r as Record<string, unknown>)[k] === v))
@@ -124,7 +147,7 @@ mock.module("@/lib/db", () => {
   }
   return {
     db: {
-      // F10-B2.1: the owner route looks up the owner's own open shift; none in these tests.
+      // Retained root delegate for the idempotency-unique-violation fallback.
       turnoCaja: { findFirst: async () => null },
       cuentaFinanciera: {
         createMany: async ({ data }: { data: Array<{ negocioId: string; clave: string }> }) => {
@@ -176,11 +199,11 @@ function line(overrides: Record<string, unknown> = {}) {
   return { productoId: "p-coca", cantidad: 1, ...overrides }
 }
 
-async function vender(items: Array<Record<string, unknown>>) {
+async function vender(items: Array<Record<string, unknown>>, cajaFisicaId?: string) {
   const req = new NextRequest("http://localhost/api/negocio/caja/ventas", {
     method: "POST",
     headers: { "Content-Type": "application/json", cookie: "deligo_session=token" },
-    body: JSON.stringify({ metodoPago: "EFECTIVO", items }),
+    body: JSON.stringify({ metodoPago: "EFECTIVO", items, ...(cajaFisicaId !== undefined ? { cajaFisicaId } : {}) }),
   })
   const res = await POST(req)
   return { res, body: await res.json() }
@@ -192,6 +215,12 @@ const activa = (cantidad: number, productoId = "p-coca", productoVarianteId: str
 beforeEach(() => reset())
 
 describe("P2-T56-R3A-I3 — Caja respeta reservas ACTIVA", () => {
+  test("an empty explicit physical-register selection is rejected, never treated as automatic", async () => {
+    const { res } = await vender([line()], "")
+    expect(res.status).toBe(400)
+    expect(txOptions).toHaveLength(0)
+  })
+
   test("stock suficiente sin reservas: 201, descuenta, 1 movimiento VENTA, tx Serializable con política explícita", async () => {
     const { res } = await vender([line({ cantidad: 3 })])
     expect(res.status).toBe(201)

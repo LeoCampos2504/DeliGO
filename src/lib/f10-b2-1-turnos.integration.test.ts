@@ -324,29 +324,35 @@ describe("F10-B2.1 — opening shifts", () => {
 // ---------------------------------------------------------------------------
 
 describe("F10-B2.1 — sales and cash attributed to the shift", () => {
-  test("fund 20000 + cash 5000 + transfer 8000 → expected cash 25000 (owner only); legs on THAT register's account", async () => {
+  test("employee and owner share one shift; cash counts both actors and transfer is excluded", async () => {
     const { negocio, owner } = await crearNegocio()
     const p = await crearProducto(negocio.id, 1000)
     const { cookie } = await crearCajero(negocio.id)
     const turno = (await abrirCajero(cookie, negocio.slug, { fondoInicial: "20000.00" })).body.turno
-    const cash = await venderCajero(cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 5 }] })
-    const transfer = await venderCajero(cookie, negocio.slug, { metodoPago: "TRANSFERENCIA", items: [{ productoId: p.id, cantidad: 8 }] })
-    expect([cash.status, transfer.status]).toEqual([201, 201])
+    const [cash, ownerCash] = await Promise.all([
+      venderCajero(cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 5 }] }),
+      venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 8 }] }),
+    ])
+    const transfer = await venderCajero(cookie, negocio.slug, { metodoPago: "TRANSFERENCIA", items: [{ productoId: p.id, cantidad: 10 }] })
+    expect([cash.status, ownerCash.status, transfer.status]).toEqual([201, 201, 201])
     expect(Object.keys(cash.body).sort()).toEqual(["cantidadItems", "createdAt", "id", "items", "metodoPago", "total"])
     const ventas = await db.venta.findMany({ where: { negocioId: negocio.id }, include: { cobros: true } })
     for (const v of ventas) expect(v.turnoCajaId).toBe(turno.id)
     const cuenta = await cuentaDeCaja(negocio.id, turno.caja.id)
     expect(cuenta).toMatchObject({ tipo: "EFECTIVO", cajaFisicaId: turno.caja.id })
-    expect((await saldoCuenta(cuenta!.id)).toFixed(2)).toBe("5000.00")
+    expect((await saldoCuenta(cuenta!.id)).toFixed(2)).toBe("13000.00")
     const ops = await db.operacionFinanciera.findMany({ where: { negocioId: negocio.id } })
-    expect(ops).toHaveLength(1)
-    expect(ops[0].turnoCajaId).toBe(turno.id)
+    expect(ops).toHaveLength(2)
+    expect(ops.every((op) => op.turnoCajaId === turno.id)).toBe(true)
     const sinAsignar = await db.cuentaFinanciera.findFirst({ where: { negocioId: negocio.id, clave: "efectivo_caja_sin_asignar" } })
     expect(sinAsignar).toBeNull()
     const d = await detalle(owner, turno.id)
     expect(d.status).toBe(200)
-    expect(d.body.efectivo).toEqual({ fondoInicial: 20000, ingresosEfectivo: 5000, salidasEfectivo: 0, esperado: 25000 })
-    expect(d.body.ventas).toEqual({ cantidad: 2, totalEfectivo: 5000, totalTransferencia: 8000, totalOtro: 0 })
+    expect(d.body.efectivo).toEqual({ fondoInicial: 20000, ingresosEfectivo: 13000, salidasEfectivo: 0, esperado: 33000 })
+    expect(d.body.ventas).toEqual({ cantidad: 3, totalEfectivo: 13000, totalTransferencia: 10000, totalOtro: 0 })
+    const ownerVenta = await db.venta.findUniqueOrThrow({ where: { id: ownerCash.body.id } })
+    expect(ownerVenta).toMatchObject({ actorTipo: "NEGOCIO", actorId: negocio.id, turnoCajaId: turno.id, empleadoId: null })
+    expect((await db.venta.findUniqueOrThrow({ where: { id: cash.body.id } })).actorTipo).toBe("EMPLEADO")
   })
 
   test("exact cents: fund 0.10 + cash 0.20 + cash 0.10×3 → expected exactly 0.60", async () => {
@@ -409,27 +415,67 @@ describe("F10-B2.1 — sales and cash attributed to the shift", () => {
     expect((await venderCajero(cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })).status).toBe(201)
     const ownerSale = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
     expect(ownerSale.status).toBe(201)
-    expect(ownerSale.body.turnoCajaId).toBeNull()
+    expect(ownerSale.body.turnoCajaId).not.toBeNull()
   })
 
-  test("the owner's sale is never attributed to an employee's shift; with their own shift it goes to that shift", async () => {
+  test("one open register resolves automatically; multiple open registers require explicit owner selection", async () => {
     const { negocio, owner } = await crearNegocio()
     const p = await crearProducto(negocio.id, 10)
     await listarCajas(owner)
-    const segunda = (await crearCaja(owner, "Segunda")).body
     const { cookie } = await crearCajero(negocio.id)
     const tEmp = (await abrirCajero(cookie, negocio.slug, { fondoInicial: 0 })).body.turno
-    const s1 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
-    expect(s1.status).toBe(201)
-    expect(s1.body.turnoCajaId).toBeNull()
-    expect((await detalle(owner, tEmp.id)).body.efectivo.esperado).toBe(0)
-    const tOwner = (await abrirOwner(owner, { cajaFisicaId: segunda.id, fondoInicial: 0 })).body
-    const s2 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 2 }] })
-    expect(s2.body.turnoCajaId).toBe(tOwner.id)
-    const v = await db.venta.findUniqueOrThrow({ where: { id: s2.body.id } })
-    expect(v).toMatchObject({ actorTipo: "NEGOCIO", actorId: negocio.id, turnoCajaId: tOwner.id })
-    expect((await detalle(owner, tOwner.id)).body.efectivo.esperado).toBe(20)
-    expect((await detalle(owner, tEmp.id)).body.efectivo.esperado).toBe(0)
+    const active = await json(await getTurnosOwner(ownerReq("/api/negocio/caja/turnos", owner)))
+    expect(active.body.turnos.find((t: { id: string }) => t.id === tEmp.id)).toMatchObject({ estado: "ABIERTO", responsableNombre: expect.any(String) })
+    const emptySelection = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: "", items: [{ productoId: p.id, cantidad: 1 }] })
+    expect(emptySelection.status).toBe(400)
+    const key = randomUUID()
+    const auto = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] }, key)
+    expect(auto.status).toBe(201)
+    expect(auto.body.turnoCajaId).toBe(tEmp.id)
+    const segunda = (await crearCaja(owner, "Segunda")).body
+    const cashier2 = await crearCajero(negocio.id)
+    const t2 = (await abrirCajero(cashier2.cookie, negocio.slug, { cajaFisicaId: segunda.id, fondoInicial: 0 })).body.turno
+    const ambiguous = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
+    expect(ambiguous.status).toBe(409)
+    expect(ambiguous.body.code).toBe("CAJA_SELECCION_REQUERIDA")
+    const selected = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: segunda.id, items: [{ productoId: p.id, cantidad: 2 }] })
+    expect(selected.status).toBe(201)
+    expect(selected.body.turnoCajaId).toBe(t2.id)
+    const v = await db.venta.findUniqueOrThrow({ where: { id: selected.body.id } })
+    expect(v).toMatchObject({ actorTipo: "NEGOCIO", actorId: negocio.id, turnoCajaId: t2.id })
+    expect((await detalle(owner, tEmp.id)).body.efectivo.esperado).toBe(10)
+    expect((await detalle(owner, t2.id)).body.efectivo.esperado).toBe(20)
+    const changedBox = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: segunda.id, items: [{ productoId: p.id, cantidad: 1 }] }, key)
+    expect(changedBox.status).toBe(409)
+    expect(changedBox.body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+    const otro = await crearNegocio()
+    const cajaAjena = (await listarCajas(otro.owner)).body.cajas[0]
+    const foreign = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: cajaAjena.id, items: [{ productoId: p.id, cantidad: 1 }] })
+    expect(foreign.status).toBe(404)
+    await db.turnoCaja.update({ where: { id: t2.id }, data: { estado: "CERRADO" } })
+    const closed = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: segunda.id, items: [{ productoId: p.id, cantidad: 1 }] })
+    expect(closed.status).toBe(409)
+    expect(closed.body.code).toBe("TURNO_NO_DISPONIBLE")
+  })
+
+  test("an exact owner replay keeps its original shift after that register is reopened", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const p = await crearProducto(negocio.id, 10)
+    const cashier = await crearCajero(negocio.id)
+    const firstTurno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: 0 })).body.turno
+    const key = randomUUID()
+    const body = { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] }
+    const first = await venderOwner(owner, body, key)
+    expect(first.status).toBe(201)
+    await db.turnoCaja.update({ where: { id: firstTurno.id }, data: { estado: "CERRADO" } })
+    const reopened = (await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: firstTurno.caja.id, fondoInicial: 50 })).body.turno
+    expect(reopened.id).not.toBe(firstTurno.id)
+    const replay = await venderOwner(owner, body, key)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    expect(replay.body.id).toBe(first.body.id)
+    expect(replay.body.turnoCajaId).toBe(firstTurno.id)
+    expect((await detalle(owner, reopened.id)).body.ventas.cantidad).toBe(0)
   })
 
   test("a shift the actor does not own is never accepted (engine: another employee's / the owner's / another business's) and the body cannot name a shift", async () => {
@@ -512,6 +558,7 @@ describe("F10-B2.1 — access and blind-close safety", () => {
     expect((await abrirCajero(mozo.cookie, negocio.slug, { fondoInicial: 1 })).status).toBe(403)
     const inactivo = await crearCajero(negocio.id, { activo: false })
     expect((await abrirCajero(inactivo.cookie, negocio.slug, { fondoInicial: 1 })).status).toBe(403)
+    expect((await venderCajero(inactivo.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: "foreign", cantidad: 1 }] })).status).toBe(403)
     const susp = await crearNegocio({ suspendido: true })
     const cs = await crearCajero(susp.negocio.id)
     expect((await abrirCajero(cs.cookie, susp.negocio.slug, { fondoInicial: 1 })).status).toBe(403)

@@ -85,13 +85,15 @@ export interface RegistrarVentaCajaInput {
    * engine re-validates it. null/undefined = sale without shift.
    */
   turnoCajaId?: string | null
+  /** Owner-only register choice. null/undefined means: resolve the sole open shift, if any. */
+  ownerCajaFisicaId?: string | null
 }
 
 export type VentaCajaConItems = Prisma.VentaGetPayload<{ include: { items: true } }>
 
 export type RegistrarVentaCajaResult =
   | { ok: true; replayed: boolean; venta: VentaCajaConItems }
-  | { ok: false; status: 400 | 403 | 409; error: string; code?: string }
+  | { ok: false; status: 400 | 403 | 404 | 409; error: string; code?: string }
 
 export const IDEMPOTENCY_KEY_REUSED_CODE = "IDEMPOTENCY_KEY_REUSED"
 export const IMPORTE_FUERA_DE_RANGO = "El importe de la venta está fuera del rango permitido"
@@ -124,8 +126,9 @@ export function ventaCajaParaRespuesta(venta: VentaCajaConItems): VentaCajaRespu
 type SaleDb = Pick<PrismaClient, "$transaction" | "venta" | "cuentaFinanciera" | "turnoCaja">
 
 /** sha256 of the canonical request, namespaced by negocio. */
-export function fingerprintVentaCaja(negocioId: string, metodoPago: string, lines: ServerSaleLineInput[]): string {
-  return createHash("sha256").update(`${negocioId}\n${canonicalVentaCajaRequest(metodoPago, lines)}`).digest("hex")
+export function fingerprintVentaCaja(negocioId: string, metodoPago: string, lines: ServerSaleLineInput[], ownerCajaFisicaId?: string | null): string {
+  const cajaIntent = ownerCajaFisicaId ? `\nCAJA_FISICA:${ownerCajaFisicaId}` : ""
+  return createHash("sha256").update(`${negocioId}\n${canonicalVentaCajaRequest(metodoPago, lines)}${cajaIntent}`).digest("hex")
 }
 
 // F10-B1: a replay is returned only to the SAME actor that created the sale
@@ -162,10 +165,9 @@ function isIdempotencyUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Ensures the negocio's system cash account exists, OUTSIDE the sale
- * transaction (INSERT … ON CONFLICT DO NOTHING in autocommit) so concurrent
- * first sales never fight over it and the Serializable sale transaction that
- * follows always sees it committed.
+ * Ensures the negocio's legacy unassigned cash account exists. The sale engine
+ * now calls the equivalent write inside its Serializable transaction, after
+ * idempotency replay and live register resolution.
  */
 export async function asegurarCuentaEfectivoCaja(db: Pick<PrismaClient, "cuentaFinanciera">, negocioId: string): Promise<string> {
   await db.cuentaFinanciera.createMany({
@@ -187,9 +189,8 @@ export async function asegurarCuentaEfectivoCaja(db: Pick<PrismaClient, "cuentaF
 }
 
 /**
- * F10-B2.1 — the cash account of ONE physical register (created outside the
- * sale transaction with ON CONFLICT DO NOTHING, like the system account).
- * Separate per register: cash sold at one register never increases another's.
+ * F10-B2.1 — ensures the separate cash account of ONE physical register.
+ * Cash sold at one register never increases another's.
  */
 export async function asegurarCuentaEfectivoCajaFisica(
   db: Pick<PrismaClient, "cuentaFinanciera">,
@@ -214,21 +215,10 @@ const TURNO_NO_DISPONIBLE = {
 
 export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
   const { negocioId, actor, metodoPago, lines: requestedLines, idempotencyKey } = input
-  const turnoCajaId = input.turnoCajaId ?? null
-  const fingerprint = idempotencyKey ? fingerprintVentaCaja(negocioId, metodoPago, requestedLines) : null
-  // F10-B2.1: the register of the shift (tenant-scoped) decides the cash account.
-  let cajaFisicaIdDelTurno: string | null = null
-  if (turnoCajaId) {
-    const turnoPre = await db.turnoCaja.findFirst({ where: { id: turnoCajaId, negocioId }, select: { cajaFisicaId: true } })
-    if (!turnoPre) return TURNO_NO_DISPONIBLE
-    cajaFisicaIdDelTurno = turnoPre.cajaFisicaId
+  if (actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined && input.ownerCajaFisicaId !== null && !input.ownerCajaFisicaId.trim()) {
+    return { ok: false, status: 400, error: "Caja inválida" }
   }
-  const cuentaEfectivoId =
-    metodoPago !== "EFECTIVO"
-      ? null
-      : cajaFisicaIdDelTurno
-        ? await asegurarCuentaEfectivoCajaFisica(db, negocioId, cajaFisicaIdDelTurno)
-        : await asegurarCuentaEfectivoCaja(db, negocioId)
+  const fingerprint = idempotencyKey ? fingerprintVentaCaja(negocioId, metodoPago, requestedLines, actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined) : null
 
   try {
     return await runStockSerializable(db, async (tx) => {
@@ -256,13 +246,105 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
         actorId = empleado.id
         empleadoId = empleado.id
       }
+      let turnoCajaId = input.turnoCajaId ?? null
 
-      // F10-B2.1: the shift must still be OPEN, of THIS negocio, on the same
-      // register, and the actor must be its responsible person — a shift id
-      // the actor does not own is never accepted.
+      // F10-B2.2-A: an owner is a permitted actor for the selected active
+      // physical register's open shift, even when an employee is responsible.
+      // Replay above deliberately precedes this live destination resolution.
+      let cajaFisicaIdDelTurno: string | null = null
+      if (actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined) {
+        const cajaIdSeleccionada = input.ownerCajaFisicaId
+        if (cajaIdSeleccionada) {
+          const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+            SELECT "id", "activa" FROM "cajas_fisicas"
+            WHERE "id" = ${cajaIdSeleccionada} AND "negocioId" = ${negocioId}
+            FOR UPDATE`
+          const caja = cajaRows[0]
+          if (!caja) return { ok: false as const, status: 404 as const, error: "Caja no encontrada." }
+          if (!caja.activa) return { ok: false as const, status: 409 as const, code: "CAJA_INACTIVA", error: "La caja está desactivada." }
+          const turno = await tx.turnoCaja.findFirst({
+            where: { negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
+            select: { id: true, cajaFisicaId: true },
+          })
+          if (!turno) return TURNO_NO_DISPONIBLE
+          turnoCajaId = turno.id
+          cajaFisicaIdDelTurno = turno.cajaFisicaId
+        } else {
+          // Opening a shift locks its register row too. Lock all existing
+          // registers before counting so a concurrent opening cannot turn a
+          // previously unique automatic destination into an ambiguous one.
+          await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT "id" FROM "cajas_fisicas"
+            WHERE "negocioId" = ${negocioId}
+            ORDER BY "id"
+            FOR UPDATE`
+          const abiertos = await tx.turnoCaja.findMany({
+            where: { negocioId, estado: TURNO_ESTADO_ABIERTO },
+            select: { id: true, cajaFisicaId: true },
+            take: 2,
+          })
+          if (abiertos.length > 1) {
+            return { ok: false as const, status: 409 as const, code: "CAJA_SELECCION_REQUERIDA", error: "Hay varias cajas abiertas. Seleccioná en cuál cobrar." }
+          }
+          if (abiertos.length === 1) {
+            const selected = abiertos[0]
+            const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+              SELECT "id", "activa" FROM "cajas_fisicas"
+              WHERE "id" = ${selected.cajaFisicaId} AND "negocioId" = ${negocioId}
+              FOR UPDATE`
+            const caja = cajaRows[0]
+            if (!caja || !caja.activa) return TURNO_NO_DISPONIBLE
+            const turno = await tx.turnoCaja.findFirst({
+              where: { id: selected.id, negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
+              select: { id: true, cajaFisicaId: true },
+            })
+            if (!turno) return TURNO_NO_DISPONIBLE
+            turnoCajaId = turno.id
+            cajaFisicaIdDelTurno = turno.cajaFisicaId
+          }
+        }
+      }
+
+      if (turnoCajaId && !(actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined)) {
+        const turno = await tx.turnoCaja.findFirst({ where: { id: turnoCajaId, negocioId }, select: { cajaFisicaId: true } })
+        if (!turno) return TURNO_NO_DISPONIBLE
+        const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+          SELECT "id", "activa" FROM "cajas_fisicas"
+          WHERE "id" = ${turno.cajaFisicaId} AND "negocioId" = ${negocioId}
+          FOR UPDATE`
+        if (!cajaRows[0]?.activa) return TURNO_NO_DISPONIBLE
+        cajaFisicaIdDelTurno = turno.cajaFisicaId
+      }
+
+      // Resolve/create the ledger account only after idempotency and shift
+      // authorization. Keep the account creation in the same transaction.
+      const cuentaEfectivoId = metodoPago !== "EFECTIVO"
+        ? null
+        : cajaFisicaIdDelTurno
+          ? await (async () => {
+              await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId: cajaFisicaIdDelTurno }], skipDuplicates: true })
+              const cuenta = await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, cajaFisicaId: cajaFisicaIdDelTurno }, select: { id: true } })
+              return cuenta.id
+            })()
+          : await (async () => {
+              await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR, tipo: "EFECTIVO", nombre: "Efectivo de Caja (sin caja física asignada)" }], skipDuplicates: true })
+              const cuenta = await tx.cuentaFinanciera.findUniqueOrThrow({ where: { negocioId_clave: { negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } }, select: { id: true } })
+              return cuenta.id
+            })()
+
+      // F10-B2.2-A: employees must remain the shift's responsible person.
+      // Owner is separately authorized for their selected/automatic register
+      // above, while its employee responsibility remains unchanged.
       if (turnoCajaId) {
+        const ownerSharesEmployeeShift = actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined
         const turno = await tx.turnoCaja.findFirst({
-          where: { id: turnoCajaId, negocioId, estado: TURNO_ESTADO_ABIERTO, cajaFisicaId: cajaFisicaIdDelTurno!, responsableTipo: actor.tipo, responsableId: actorId },
+          where: {
+            id: turnoCajaId,
+            negocioId,
+            estado: TURNO_ESTADO_ABIERTO,
+            cajaFisicaId: cajaFisicaIdDelTurno!,
+            ...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),
+          },
           select: { id: true },
         })
         if (!turno) return TURNO_NO_DISPONIBLE

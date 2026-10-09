@@ -65,16 +65,19 @@ describe("F10-B2.1 — attribution is decided by the server", () => {
     expect(src).not.toMatch(/(?<![.\w])body\.|turnoCajaId:(?!\s*turno\?\.id)/)
   })
 
-  test("owner sale route: only the owner's OWN shift (never an employee's)", () => {
+  test("owner sale route delegates register choice to the engine; only session supplies owner identity", () => {
     const src = read(OWNER_SALE)
-    expect(src).toContain('const turno = await turnoAbiertoDeActor(db, negocioId, { tipo: "NEGOCIO" })')
-    expect(src).toContain("turnoCajaId: turno?.id ?? null,")
+    expect(src).toContain('actor: { tipo: "NEGOCIO" },')
+    expect(src).toContain("ownerCajaFisicaId: cajaFisicaId,")
+    expect(src).not.toContain("turnoAbiertoDeActor")
   })
 
-  test("engine re-validates the shift inside its transaction and books cash on that register's account", () => {
+  test("engine resolves the owner's shared shift after replay and keeps employee responsibility checks", () => {
     const src = read(ENGINE)
-    expect(src).toContain("where: { id: turnoCajaId, negocioId, estado: TURNO_ESTADO_ABIERTO, cajaFisicaId: cajaFisicaIdDelTurno!, responsableTipo: actor.tipo, responsableId: actorId },")
-    expect(src).toContain("await asegurarCuentaEfectivoCajaFisica(db, negocioId, cajaFisicaIdDelTurno)")
+    expect(src.indexOf("if (existing) return replayOrConflict(existing, fingerprint, actor, negocioId)")).toBeLessThan(src.indexOf("// F10-B2.2-A: an owner is a permitted actor"))
+    expect(src).toContain('code: "CAJA_SELECCION_REQUERIDA"')
+    expect(src).toContain('ownerSharesEmployeeShift = actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined')
+    expect(src).toContain('...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),')
     expect(src).toContain("if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {")
     expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(2) // Venta + OperacionFinanciera
     expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path)).toEqual([ENGINE])

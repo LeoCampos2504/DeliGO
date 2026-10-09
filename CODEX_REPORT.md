@@ -3,8 +3,87 @@ REPORT_MODEL=SPLIT_HANDOFF_PLUS_REGISTRIES
 MASTER_HANDOFF=CODEX_REPORT.md
 
 REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
-REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
-WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
+REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
+WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
+
+=== LATEST CURRENT HANDOFF — F10-B2.2-A TESTING GATES PASS; DEPLOY PENDING (2026-10-09) ===
+
+CURRENT_TASK=F10-B2.2-A_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_REGISTER
+CURRENT_TASK_STATUS=TESTING_DB_CONFIRMED_ALL_GATES_PASS_DEPLOY_PENDING
+RESULT=F10_B2_2_A_TESTED_AWAITING_TESTING_DEPLOY
+REPOSITORY_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio
+WORK_BRANCH=work/f10-b2-1-physical-cash-registers-shifts
+TESTING_CODEX_TARGET=testing-codex; pre-push remote head 8da7d2552c602598d150bb188cc8e693361f73a9
+PRODUCTION_BRANCH=main; verified Production commit 42ca5005d2ecd412de87e454b52820f38aaec5c0; no changes made
+CREDENTIAL_SOURCE=PROCESS_EQUALS_PROJECT_ENV_EQUALS_CODEX_ENV_BY_SHA256; process environment has priority; no secret printed
+P1000_RESOLVED=YES; PostgreSQL authentication succeeded in the current process
+TESTING_DATABASE=railway; role postgres; SHA256(system_identifier)[0:12]=d64be28f676e; TESTING fingerprint matched; Production excluded
+TESTING_MIGRATIONS=20261009120000_f10_b0_sales_idempotency_payments_ledger; 20261010120000_f10_b2_0_money_decimal_columns; 20261011120000_f10_b2_1_cash_registers_shifts; all finished; Prisma reports 41 migrations and schema up to date
+F10_B2_2_A_STATUS=IMPLEMENTED_AND_TESTED_ON_TESTING; employee shift + owner shared-register sales; no new migration or schema change
+REAL_DB_TESTS=23_PASS_0_FAIL_218_ASSERTIONS; exact temporary fixture prefixes audited at zero after cleanup
+SHARED_REGISTER_TESTS=PASS; single open shift automatic; multiple shifts require selection; concurrent owner/employee sales retain integrity
+OWNER_EMPLOYEE_ATTRIBUTION=PASS; owner NEGOCIO and employee EMPLEADO, same shift preserved
+FINANCIAL_INTEGRITY=PASS; exact cash legs from both actors count; transfer creates no physical cash leg
+IDEMPOTENCY=PASS; exact replay is one sale and keeps original shift; selected register changes request fingerprint
+REGRESSION_TESTS=255_PASS_0_FAIL_1871_ASSERTIONS; includes F9, R3A, F10-B0/B1/B2 contracts and Caja routes
+TYPESCRIPT=35_BASELINE_DIAGNOSTICS; 0 diagnostics in changed files
+BUILD=PASS_162_STATIC_PAGES · ESLINT=PASS_CHANGED_TYPESCRIPT · PRISMA_VALIDATE=PASS · MIGRATE_STATUS=41_APPLIED_UP_TO_DATE · GIT_DIFF_CHECK=PASS
+RAILWAY_TARGET=project amiable-rejoicing; TESTING service DeliGO Copy c6335604-063a-4a10-9c82-b0acb9e8ca7a follows LeoCampos2504/DeliGO testing-codex; Production DeliGO follows main
+COMMITS=to be created from the reviewed F10-B2.2-A file set
+TESTING_DEPLOY=automatic Railway deploy follows push to testing-codex; deployment ID/status pending confirmation
+PRODUCTION_TOUCHED=NO
+PRESERVED=all pre-existing untracked files and path 32; none staged except explicitly named F10-B2.2-A report/code files
+F10_B2_2_B_STATUS=NOT_STARTED; no blind close, mandatory shifts, product change or Production edits
+NEXT_ACTION=review final staged paths, create scoped commit(s), fast-forward testing-codex, verify Railway TESTING deployment commit/status and post-deploy smoke
+
+=== HISTORICAL HANDOFF — F10-B2.2-A IMPLEMENTED LOCALLY; TESTING AUTH BLOCKED BEFORE CREDENTIAL REFRESH (2026-10-09) ===
+
+CURRENT_TASK=F10-B2.2-A_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_REGISTER
+CURRENT_TASK_STATUS=IMPLEMENTED_LOCALLY_TESTING_UNVERIFIED_DB_AUTH_BLOCKED
+RESULT=F10_B2_2_A_IMPLEMENTED_LOCALLY_NOT_TESTING_CERTIFIED
+REPOSITORY_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio
+CURRENT_BRANCH=work/f10-b2-1-physical-cash-registers-shifts (dedicated work branch; not main)
+LOCAL_HEAD=8da7d2552c602598d150bb188cc8e693361f73a9
+REMOTE_TESTING_CODEX_HEAD=8da7d2552c602598d150bb188cc8e693361f73a9 (origin/testing-codex; also remote work/f10-b2-1-physical-cash-registers-shifts)
+REMOTE_MAIN_HEAD=42ca5005d2ecd412de87e454b52820f38aaec5c0 (origin/main; not modified)
+WORKTREE_STATUS=pre-existing tracked docs plus B2.2-A source/tests/docs have local edits; no files are staged; pre-existing untracked reports/artifacts preserved without cleaning.
+PREEXISTING_UNTRACKED_PATHS=327 entries in the default directory-collapsed status at preflight (not a recursive file count); includes user/Claude artifacts and file `32`, all preserved without cleaning or incorporation
+CONCURRENT_WORK_RISK=Claude Code PID 24544 has a session whose cwd maps to this repository. Its transcript did not update while checks ran; no competing file edits were observed, but the process remains alive and cannot be ruled out conclusively. Recheck before staging/push.
+DOCS_READ=F10_A_TECHNICAL_DESIGN.md, F10_B0_IMPLEMENTATION.md, F10_B1_CASHIER_OPERATIONS.md, F10_B2_0_MONEY_PRECISION_SECURITY.md and F10_B2_1_CASH_REGISTERS_SHIFTS.md read in full for this task; relevant current F10 sections of CODEX_REPORT.md, DELIGO_FULL_CONTEXT_LATEST.md and ROADMAP.md reviewed. Historical non-F10 portions of the two very large handoffs and roadmap were not read line-by-line.
+F9_STATUS=CLOSED_TESTING_CERTIFIED
+R3A_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (reservation mode ON per authority docs)
+F10_B0_STATUS=IMPLEMENTED_TESTING
+F10_B1_STATUS=CLOSED_TESTING_CERTIFIED (iPhone PWA smoke 9/9 operator reported; no physical certification asserted for other platforms or Production)
+F10_B2_0_STATUS=IMPLEMENTED_TESTING
+F10_B2_1_STATUS=IMPLEMENTED_TESTING (motor/API; no full shifts UI/close; requirement flag remains OPCIONAL; 52 tests / 0 failures are prior report evidence, not rerun here)
+F10_B2_2_A_STATUS=IMPLEMENTED_LOCALLY_TESTING_UNVERIFIED
+F10_B2_2_B_STATUS=NOT_STARTED
+F10_B2_2_STATUS=A_IMPLEMENTED_LOCALLY_TESTING_UNVERIFIED
+
+DECISION_17=APPROVED_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_ACTIVE_REGISTER: employee opens own shift with personal session and needs no duplicate invitation; owner shares via business session, preserving NEGOCIO vs EMPLEADO sale authorship; one open shift auto-selects, multiple require explicit cajaFisicaId; additional employees remain unauthorized without a future explicit participation capability.
+HISTORICAL_DECISION_17=F10-B2.1 §11's alternatives A/B/C and question about the owner's OBLIGATORIO shift were pending at the time. They are superseded by the approved shared-register rule; retained as history only.
+OWNER_SALES_ATTRIBUTION=Implemented in local source: server derives NEGOCIO from session; unique active shift is automatic; multiple active shifts require cajaFisicaId; selected foreign box 404 and selected box without open shift 409; no-selection/no-open retains OPCIONAL unassigned cash.
+EMPLOYEE_SALES_ATTRIBUTION=Employee resolves own shift from personal Operaciones session and remains its sole responsible person; same shift can include owner-authored sales without changing responsibility.
+EXPECTED_CASH_PRIVACY=Expected and differences only on owner/admin surfaces; no values, aggregates, balances, other employees' turns, or metadata leakage to cashier APIs/UI/errors.
+IDEMPOTENCY_AND_CONCURRENCY=Exact replay precedes live owner destination resolution; unchanged auto-selection replays original turn after turn changes; explicit cajaFisicaId is part of fingerprint and a different selection conflicts. New owner resolution/turn authorization occurs inside Serializable transaction with register row locks; DB integration proof is blocked by TESTING auth failure. Existing one-open-turn partial index unchanged.
+
+VUELTO_AUTOMATICO_DOCUMENTED=PLANNED_NOT_STARTED; possible cash checkout UX improvement, separately scoped.
+VUELTO_EN_PRODUCTOS_DOCUMENTED=PLANNED_NOT_STARTED; distinguish calculated change, cash change, product equivalent, sale amount and cash retained; never book nonexistent cash income or unsupported inventory movement; client consent and consumer-protection review before commercial publication.
+FUTURE_ROADMAP_LOCATION=Post-F10-B2.2 extension of F10-B/Caja; no C/D/E identifier assigned to avoid collision.
+
+FILES_CHANGED=src/lib/caja-venta-service.ts; src/app/api/negocio/caja/ventas/route.ts; src/app/api/negocio/caja/turnos/route.ts; src/lib/f10-b2-1-turnos.integration.test.ts; src/lib/f10-b2-1-static-contract.test.ts; src/lib/f10-b0-static-contract.test.ts; src/app/api/negocio/caja/ventas/route.reservations.test.ts; src/lib/caja-venta-f10b0.test.ts; codex-reports/F10_B2_1_CASH_REGISTERS_SHIFTS.md; codex-reports/ROADMAP.md; codex-reports/F10_B2_2_CODEX_HANDOFF.md; CODEX_REPORT.md
+TESTS=159/0 local unit/static across 10 files; 15/0 R3A fake route regressions; separate F10 static contracts 51/0. PostgreSQL integration attempted but rejected credentials/P1000 before any fixture; real DB test count PASS=0. Prisma validate PASS; ESLint modified files PASS; TypeScript 35 diagnostics = documented B2.1 baseline, 0 in changed files; Next build PASS, 162 pages; git diff --check PASS.
+SCHEMA_CHANGED=NO · NEW_MIGRATIONS=0 · DATABASE_CHANGED=NO
+DOCUMENTATION_COMMIT=NONE; no commit/push/deploy because the real TESTING DB gate failed
+TESTING_DEPLOY_ID=NONE · TESTING_DEPLOY_STATUS=NOT_RUN · TESTING_DEPLOY_COMMIT_MATCH=NOT_APPLICABLE
+PRODUCTION_TOUCHED=NO
+DOC_ROUTE_CONFLICT=Git tracks this root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent despite local skill naming it primary. DELIGO_FULL_CONTEXT_LATEST.md is tracked although closeout skill says untracked. No duplicate was created and neither path's tracking state changed; secondary summary left untouched.
+
+F10_B2_2_PROPOSED_STAGES=(A local code/tests/docs implemented but TESTING verification blocked; no participant schema; B UI not started; C blind declaration/CAS; D owner reconciliation; E counted cash/delivery/remanent; F transfer; G abandoned-shift recovery; H protected OBLIGATORIO activation only after all prior gates).
+TECHNICAL_RISKS=Real PostgreSQL behavior, account creation concurrency and all new API/attribution integration cases remain unverified until TESTING authentication is repaired; close-vs-sale lock use remains a future close requirement; additional employee participants are not supported; do not deploy this unverified working tree.
+OPEN_DECISIONS=No new B2.2-A product decision remains: no-open OPCIONAL preserves unassigned cash; selected box without an open shift is rejected; employees other than shift responsible have no access. Closing actor, count evidence, delivery destination, recovery and product change review remain future stages.
+NEXT_RECOMMENDED_ACTION=Repair/refresh the established TESTING PostgreSQL credentials, re-verify server identity, then rerun the real B2.2-A integration/regression gates. Stage/commit/push/deploy remain gated on all checks passing; recheck the still-running Claude process before any Git integration.
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B2_2_CODEX_HANDOFF.md
 
 === LATEST CURRENT HANDOFF — F10-B2.1 PHYSICAL CASH REGISTERS + SHIFTS + FINANCIAL ATTRIBUTION IMPLEMENTED IN TESTING (2026-10-09) ===
 

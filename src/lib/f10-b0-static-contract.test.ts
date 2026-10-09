@@ -40,9 +40,11 @@ describe("F10-B0 — one sales engine", () => {
   test("ledger: only cash enters it, in the system cash account; no Mercado Pago account or balance", () => {
     const engine = read(ENGINE)
     expect(engine).toContain('export const CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR = "efectivo_caja_sin_asignar"')
-    // F10-B2.1: still cash only — the system account without a shift, the
-    // register's cash account with a shift; non-cash methods get no account.
-    expect(engine).toMatch(/const cuentaEfectivoId =\s+metodoPago !== "EFECTIVO"\s+\? null\s+: cajaFisicaIdDelTurno\s+\? await asegurarCuentaEfectivoCajaFisica\(db, negocioId, cajaFisicaIdDelTurno\)\s+: await asegurarCuentaEfectivoCaja\(db, negocioId\)/)
+    // F10-B2.2-A: only cash gets a ledger account, chosen from the resolved
+    // physical register after replay and authorization; non-cash gets none.
+    expect(engine).toContain('const cuentaEfectivoId = metodoPago !== "EFECTIVO"')
+    expect(engine).toContain('tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`')
+    expect(engine).toContain('tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR')
     expect(engine).not.toMatch(/MERCADO_PAGO|mercadopago|saldo/i)
     expect(engine).toContain("estadoConciliacion: estadoConciliacionInicial(metodoPago)")
   })

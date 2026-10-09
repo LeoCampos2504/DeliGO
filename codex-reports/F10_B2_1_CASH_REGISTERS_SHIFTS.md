@@ -5,10 +5,21 @@ Base: `5d91732` (F10-B2.0 IMPLEMENTED_TESTING) · rama `work/f10-b2-1-physical-c
 
 ```text
 F10_B2_1_STATUS=IMPLEMENTED_TESTING (2026-10-09; motor y API; sin interfaz; obligatoriedad NO activada)
-F10_B2_2_STATUS=NOT_STARTED · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
+F10_B2_2_STATUS=A_TESTED_ON_TESTING_DEPLOY_PENDING · F10_C_STATUS=NOT_STARTED · F10_D_STATUS=NOT_STARTED · F10_E_STATUS=NOT_STARTED
 CONSUMO_INTERNO_STATUS=PLANNED_NOT_STARTED
 SHIFT_ENFORCEMENT=OPCIONAL en todos los negocios (no activado; activación prevista para F10-B2.2)
 ```
+
+**Actualización F10-B2.2-A (2026-10-09):** PostgreSQL TESTING volvió a autenticar; la
+huella `d64be28f676e` coincide y las migraciones B0/B2.0/B2.1 están aplicadas.
+La certificación real del código local dio 23/23 pruebas (218 aserciones), incluidas
+atribución dueño/empleado, efectivo compartido, selección de Caja, reintentos,
+concurrencia, aislamiento, R3A y privacidad del esperado. Regresiones focales: 255/255
+(1.871 aserciones, incluye F9/R3A); TypeScript conserva exactamente los 35 errores
+baseline, sin errores en archivos tocados. Prisma validate, ESLint, build de 162 páginas
+y `git diff --check` pasan. Los fixtures temporales quedaron en cero. No hay migración
+nueva ni activación de OBLIGATORIO. Integración al branch `testing-codex` y deploy
+Railway TESTING quedan pendientes de este cierre.
 
 > **No es todavía una Caja para uso real con empleados.** Falta el cierre (ciego), las diferencias y la entrega de fondos (F10-B2.2). La obligatoriedad de turno queda **desactivada** (`OPCIONAL`) en todos los negocios.
 
@@ -131,16 +142,9 @@ Los índices parciales, de expresión y los CHECK no son representables en el DS
 - `OBLIGATORIO` se aplica en la ruta **y en el motor**: un cajero sin turno → 409 `TURNO_REQUERIDO`. No hay ruta ni interfaz para activarlo. Se activará por negocio en F10-B2.2, cuando existan cierre y recuperación.
 - **Dueño con `OBLIGATORIO`:** no se le exige turno (decisión pendiente #17).
 
-## 11. Decisión de producto pendiente (#17) — el dueño en un mostrador con turno de empleado
+## 11. Decisión de producto #17 — sustituida por la decisión del operador (2026-10-09)
 
-D6 aprueba que el dueño use la Caja con autoría identificada y "sin mezclar fondos", pero no define este caso. B2.1 aplica lo más conservador: la venta del dueño va a **su propio** turno, o queda **sin turno**; nunca al del empleado.
-
-Alternativas para decidir antes de F10-B2.2:
-- **(A)** Las ventas del dueño en esa caja cuentan en el esperado del turno del empleado, porque el efectivo físico entra a ese cajón, con autoría NEGOCIO visible.
-- **(B)** El dueño debe usar otra caja física con su propio turno.
-- **(C)** Las ventas del dueño quedan siempre fuera de los turnos de empleados (hoy), con el riesgo de una diferencia en el cierre ciego si el efectivo entra físicamente al cajón del empleado.
-
-Relacionado: si el dueño debe tener turno obligatorio cuando el negocio active `OBLIGATORIO`.
+**Estado al escribir B2.1 (histórico):** D6 no definía cómo registrar una venta del dueño en el cajón de un empleado; B2.1 la asignaba sólo al turno propio del dueño o la dejaba sin turno. El documento original enumeró A/B/C. Esa decisión quedó **reemplazada** por la regla aprobada que se transcribe en §19; las alternativas A/B/C ya no están pendientes ni son opciones vigentes.
 
 ## 12. Migración
 
@@ -252,4 +256,101 @@ Destacados en la regresión: B2.1 real-DB 22/0 · B2.0 real-DB 11/0 · B1 real-D
 - Recuperación de turnos abandonados.
 - Activación del flag por negocio (ruta del dueño con origen protegido).
 - Interfaz de apertura y cierre para el cajero y supervisión para el dueño.
-- Decidir #17 antes de implementar.
+- Incorporar y probar la adaptación de atribución de la decisión #17 antes de la interfaz y el cierre.
+
+## 19. Decisión #17 aprobada y handoff de continuidad (2026-10-09)
+
+`DECISION_17_SHARED_CASH_REGISTER=APPROVED`: la caja física pertenece al negocio y el dueño la administra. Un turno tiene un responsable operativo y puede tener empleados participantes autorizados. El dueño vende desde el panel principal en la misma caja y el mismo turno abierto del empleado; la venta se registra con autoría NEGOCIO y el empleado conserva autoría EMPLEADO en sus propias ventas. Ambas ventas entran al efectivo esperado del turno. El dueño no abre un segundo turno en esa caja. La selección física del dueño es explícita cuando existen varias cajas. El cajero no recibe esperado ni diferencia; el dueño mantiene acceso administrativo.
+
+**Propuesta técnica previa a B2.2:**
+- Mantener `TurnoCaja.responsableTipo/responsableId/empleadoId` como responsable único, inmutable. No reinterpretarlo como quien hizo todas las ventas.
+- Incorporar una relación aditiva de participantes, recomendada como `TurnoCajaParticipante` para empleados: turno, negocio, empleado, fecha/actor de alta, revocación y estado; unicidad por turno/empleado. Sólo el dueño del mismo negocio autoriza o revoca. Validar empleado activo, del mismo negocio y con área operativa `caja`. El dueño es participante implícito por su sesión administrativa, no una cuenta compartida ni una fila de empleado.
+- Para el dueño, permitir elegir `cajaFisicaId` explícitamente. El servidor deriva el negocio de la sesión, carga esa caja dentro del tenant, resuelve el único `TurnoCaja` abierto en ella y no acepta `turnoCajaId` del cliente. Si no hay turno, no asociar silenciosamente la venta a otra caja; usar el flujo OPCIONAL existente hasta definir UX/contrato, o rechazar si el modo ya fuera obligatorio. La elección de flujo ante caja sin turno debe resolverse antes de implementar.
+- Para el empleado, resolver su turno como hoy y validar que siga abierto y que el participante no esté revocado. La ruta/motor deriva actor exclusivamente de sesión. La venta de dueño mantiene `actorTipo=NEGOCIO`, `actorId=negocioId`; la de empleado mantiene `actorTipo=EMPLEADO`, `actorId=empleadoId`, `empleadoId` ligado a ese actor.
+- Una vez autorizado el actor, guardar el mismo `turnoCajaId` en `Venta` y `OperacionFinanciera`; el efectivo usa la cuenta de `CajaFisica` vinculada al turno. El esperado continúa como fondo inicial + patas exactas con signo asociadas al turno. Las transferencias no incrementan efectivo.
+- Preservar el índice parcial PostgreSQL de un turno abierto por caja y la FK compuesta turno↔caja del mismo negocio. No flexibilizar el contrato de una caja/turno para habilitar al dueño.
+- Revalidar caja, estado de turno, pertenencia del empleado/participante y tenant dentro de la misma transacción Serializable que graba inventario, venta, cobro y libro. Resolver las carreras venta-vs-revocación y venta-vs-cierre con bloqueo/CAS definido; cada transacción debe terminar completa o sin efectos.
+- Incluir `cajaFisicaId` y el turno resuelto en la huella de idempotencia. Misma clave + mismo actor/contenido/caja permite replay al mismo actor; distinta caja o turno da conflicto 409, nunca mueve una venta existente. Mantener la unicidad por negocio y las restricciones actuales.
+- Cambiar el panel del dueño para mostrar y seleccionar caja física y turno actual, sin esconder la selección cuando hay varias; seleccionar el turno no sustituye autorización server-side. El panel de cajero sólo muestra su caja/turno y acciones autorizadas; jamás efectivo esperado, diferencias, saldo global ni totales de otros.
+
+**Secuencia propuesta de F10-B2.2 (no iniciada ni autorizada):**
+1. Contrato y esquema aditivo para participantes, auditoría de alta/revocación y cambios del motor/idempotencia; pruebas unitarias/estáticas y transaccionales locales para autoría, aislamiento, replay, caja/turno, concurrencia y R3A. Sin interfaz ni activación.
+2. API y UX de cajas/turnos compartidos: el dueño selecciona caja explícitamente y gestiona participantes; el empleado inicia con su sesión y participa sólo si está autorizado. Mantener `cajaTurnosModo=OPCIONAL`; certificar seguridad y recuperar reintentos.
+3. Cierre ciego en dos fases: solicitud idempotente con CAS que congela el turno para ventas; el responsable declara el efectivo contado sin que respuesta, UI, metadata ni errores filtren esperado/diferencia. La carrera con ventas queda serializada o la venta falla íntegra.
+4. Cierre normal/revisión: guardar declaración inmutable; el dueño ve esperado exacto, contado y diferencia; ajustes sólo mediante eventos auditados con motivo y autor, sin reescribir el origen.
+5. Reparto de fondos: persistir efectivo contado, importe entregado a dueño/resguardo y fondo remanente. Invariante inicial: contado = entregado + remanente. La diferencia contra esperado se registra aparte y no altera ese balance. El remanente pasa como fondo inicial trazable al turno sucesor sin una entrada financiera nueva ni doble suma. Cualquier otro destino (gasto, retiro, cambio) requiere operación separada y autorizada antes de incluirse.
+6. Traspaso: relacionar turno origen/destino, importe y responsables; crear ambos lados de forma atómica e idempotente. No convertir un mero cambio de responsable en transferencia de dinero.
+7. Recuperación de turnos abandonados: dueño puede retomar o ejecutar cierre de recuperación con su identidad, motivo, evidencia/contado y auditoría; nunca borrar ni mutar responsable original, cerrar por timeout ni reabrir un turno cerrado. Resolver la indisponibilidad del responsable y las ventas inciertas pendientes antes de fijar estados.
+8. Sólo tras completar los contratos anteriores: activación protegida por negocio de `OBLIGATORIO`, default OPCIONAL y procedimiento de reversión operacional. No activarlo en este handoff.
+
+No considerar «cierre completo» listo mientras falten los invariantes de dinero, estados/transiciones, doble submit, ventas concurrentes, fondos remanentes, entrega, diferencia, traspaso y recuperación. Pruebas con base real, datos TESTING, migraciones aplicadas y despliegues necesitan autorización separada.
+
+## 20. F10-B2.2-A — implementación local y pruebas TESTING (2026-10-09; deploy pendiente)
+
+`DECISION_17=APPROVED_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_ACTIVE_REGISTER`.
+Esta sección registra la implementación y las pruebas autorizadas para A. La
+integración real contra PostgreSQL TESTING pasó; el commit, push a
+`testing-codex` y despliegue automático Railway TESTING quedan pendientes.
+No se creó esquema ni migración.
+
+- El empleado abre su propio turno por `POST /api/operativo/caja/[slug]/turno`
+  con su sesión personal, negocio, área Caja, caja física, fondo e idempotency
+  key. El responsable sigue siendo ese empleado; no se requiere una invitación
+  adicional para que él mismo venda.
+- `GET /api/negocio/caja/turnos` devuelve todos los turnos abiertos más hasta
+  50 cerrados recientes. `GET /api/negocio/caja/cajas` ya expone cada caja y su
+  turno/responsable activo. Ambos son exclusivos del dueño.
+- `POST /api/negocio/caja/ventas` deriva `actorTipo=NEGOCIO` de la sesión y puede
+  recibir `cajaFisicaId` (nunca acepta un `turnoCajaId` del cliente). Sin una
+  elección, el motor asigna el único turno abierto; si hay más de uno devuelve
+  `409 CAJA_SELECCION_REQUERIDA`. Una selección se valida por tenant y actividad,
+  y requiere turno abierto en esa caja; una caja sin turno seleccionado falla
+  con `409 TURNO_NO_DISPONIBLE`, sin cambiar a otra caja.
+- Sin turnos abiertos ni selección explícita, el negocio conserva OPCIONAL:
+  la venta sigue sin `turnoCajaId` y el efectivo se lleva a
+  `efectivo_caja_sin_asignar`. No se abre un turno automático. El modo
+  OBLIGATORIO no se activa; el dueño no queda forzado a abrir turno.
+- Las ventas del dueño y del empleado responsable conservan autoría separada
+  (`NEGOCIO` y `EMPLEADO`) y apuntan al mismo `turnoCajaId`. El saldo esperado
+  administrativo suma las patas exactas de efectivo de ambas ventas; una
+  transferencia no crea una pata de efectivo. El cálculo Decimal de B2.0 no se
+  duplica ni cambia.
+- El replay del mismo actor/contenido se consulta antes de resolver el destino
+  abierto actual. Un replay sin selección mantiene la venta y turno originales
+  aunque cambien turnos. Cuando se selecciona caja, el fingerprint incluye esa
+  intención: reutilizar clave con otra selección produce conflicto. Las nuevas
+  ventas revalidan caja y turno en la transacción Serializable y bloquean la
+  caja; el cierre futuro deberá adquirir ese mismo bloqueo antes de cambiar el
+  estado del turno.
+- No se creó `TurnoCajaParticipante`: el dueño participa por su sesión de
+  negocio y el responsable usa su propio turno. Un empleado adicional sigue sin
+  poder vender en el turno de otro empleado; autorización/revocación de terceros
+  queda pendiente explícita para otra etapa.
+- La superficie del empleado sigue sin recibir efectivo esperado, diferencia,
+  saldos, resumen global ni turnos ajenos. No hay UI completa, cierre,
+  diferencias, traspasos, recuperación, vuelto, consumo interno ni cambio de
+  OPCIONAL.
+
+### Evidencia actualizada tras refrescar credenciales
+
+- PostgreSQL TESTING autenticó sin P1000; la huella
+  `SHA256(system_identifier)[0:12]` coincide con `d64be28f676e`; están aplicadas
+  las migraciones F10-B0, F10-B2.0 y F10-B2.1. Prisma informa 41 migraciones y
+  esquema al día.
+- La integración real dio 23/23 (218 aserciones), incluidas apertura del turno
+  por empleado, ventas del dueño en el mismo turno, autoría dual, efectivo y
+  transferencias, selección de caja, reintentos, concurrencia, aislamiento,
+  R3A y privacidad del efectivo esperado.
+- Regresiones focales: 255/255 (1.871 aserciones; incluyen F9, R3A,
+  F10-B0/B1/B2). El build Next compiló y generó 162 páginas; ESLint en archivos
+  modificados, Prisma validate y `git diff --check` pasan.
+- TypeScript: 35 diagnósticos, coincidentes con la baseline de B2.1; cero en
+  los archivos de esta tarea.
+- La auditoría posterior read-only encontró cero negocios fixture
+  `test-f10b21-*`/`test-f10b0-*` y cero cuentas operativas temporales.
+- Schema: sin cambios; migraciones nuevas: 0. Sólo se escribieron y limpiaron
+  los fixtures de estas pruebas en TESTING. Deploy aún pendiente. Production no
+  fue tocada. F10-B2.2-B permanece `NOT_STARTED`; vuelto en productos y consumo
+  interno siguen `PLANNED_NOT_STARTED`.
+
+**Vuelto en productos:** `VUELTO_EN_PRODUCTOS=PLANNED_NOT_STARTED`; no pertenece al alcance de B2.2. El vuelto automático puede evaluarse como mejora UX separada del mecanismo de entrega en productos. La extensión futura debe distinguir precio comercial, importe entregado, vuelto calculado, devolución en efectivo, equivalente de productos y efectivo retenido. No inventar ingreso ni inventario; consentimiento del cliente y revisión de normas de protección al consumidor antes de publicación. Ubicación recomendada: extensión posterior al cierre de F10-B2.2, en Caja F10-B, sin asignar identificador que colisione con C/D/E.
