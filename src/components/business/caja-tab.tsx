@@ -55,7 +55,19 @@ import {
   totalUnidadesVenta,
   type CartLine,
   type MetodoPagoVenta,
+  canonicalVentaCajaRequest,
 } from "@/lib/caja-venta"
+import {
+  CHECKOUT_OFFLINE_MESSAGE,
+  CHECKOUT_UNCERTAIN_MESSAGE,
+  classifyCheckoutResponse,
+  clearPendingAttempt,
+  newIdempotencyKey,
+  readPendingAttempt,
+  resolveAttemptKey,
+  writePendingAttempt,
+  type PendingCheckoutAttempt,
+} from "@/lib/caja-checkout-attempt"
 
 // P2-T56-R2C: a product with >=1 variant sells THROUGH its variants only —
 // see VenderView's addProduct/handleProductTap for the exact selection
@@ -155,7 +167,12 @@ function SubTabButton({ active, icon, label, onClick }: { active: boolean; icon:
 function VenderView({ negocioId }: { negocioId: string }) {
   const [search, setSearch] = useState("")
   const [categoria, setCategoria] = useState("todas")
-  const [cart, setCart] = useState<CartLine[]>([])
+  // F10-B0 (D9): the checkout attempt in flight / not yet confirmed. Its key is
+  // reused ONLY to retry the exact same content (idempotent replay server-side).
+  // Restored after a reload / killed PWA (sessionStorage; null on the server):
+  // same cart, same key — confirming again recovers the sale, never sells twice.
+  const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => readPendingAttempt(negocioId))
+  const [cart, setCart] = useState<CartLine[]>(() => pendingAttempt?.cart ?? [])
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
@@ -387,18 +404,50 @@ function VenderView({ negocioId }: { negocioId: string }) {
   const total = cartTotal(cart)
   const itemCount = cartItemCount(cart)
 
+  function forgetPendingAttempt() {
+    setPendingAttempt(null)
+    clearPendingAttempt(negocioId)
+  }
+
   const saleMutation = useMutation({
-    mutationFn: async (metodoPago: MetodoPagoVenta) => {
-      const res = await fetch("/api/negocio/caja/ventas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metodoPago, items: cart.map((l) => ({ productoId: l.productoId, varianteId: l.varianteId ?? undefined, cantidad: l.cantidad })) }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Error al registrar la venta")
-      return data as VentaResumen
+    mutationFn: async (metodoPago: MetodoPagoVenta): Promise<{ venta: VentaResumen; replayed: boolean }> => {
+      const items = cart.map((l) => ({ productoId: l.productoId, varianteId: l.varianteId ?? undefined, cantidad: l.cantidad }))
+      // D9: online-only — never pretend a sale was registered without the server.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error(CHECKOUT_OFFLINE_MESSAGE)
+      const canonical = canonicalVentaCajaRequest(metodoPago, items)
+      const key = resolveAttemptKey(pendingAttempt, canonical) ?? newIdempotencyKey()
+      const attempt: PendingCheckoutAttempt = { key, canonical, metodoPago, cart, createdAt: Date.now() }
+      setPendingAttempt(attempt)
+      writePendingAttempt(negocioId, attempt)
+
+      let res: Response
+      try {
+        res = await fetch("/api/negocio/caja/ventas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+          body: JSON.stringify({ metodoPago, items }),
+        })
+      } catch {
+        throw new Error(CHECKOUT_UNCERTAIN_MESSAGE) // keep the attempt: the sale may exist
+      }
+      let data: { error?: string; code?: string } & Partial<VentaResumen> = {}
+      try {
+        data = await res.json()
+      } catch {
+        data = {}
+      }
+      const outcome = classifyCheckoutResponse(res.status, data.code)
+      if (outcome === "success") {
+        return { venta: data as VentaResumen, replayed: res.headers?.get?.("Idempotency-Replayed") === "true" }
+      }
+      if (outcome === "uncertain") throw new Error(CHECKOUT_UNCERTAIN_MESSAGE)
+      // Definitive rejection (nothing was written) or a reused key: drop the attempt.
+      forgetPendingAttempt()
+      throw new Error(data.error || "Error al registrar la venta")
     },
-    onSuccess: (venta) => {
+    onSuccess: ({ venta, replayed }) => {
+      forgetPendingAttempt()
+      if (replayed) toast.success("La venta ya estaba registrada: no se cobró dos veces.")
       setCart([])
       setCheckoutOpen(false)
       setMobileCartOpen(false)
@@ -425,6 +474,15 @@ function VenderView({ negocioId }: { negocioId: string }) {
 
   const productGrid = (
     <>
+      {pendingAttempt && !saleMutation.isPending && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" role="status">
+          <p className="font-semibold">Hay un cobro sin confirmar ({pendingAttempt.metodoPago === "EFECTIVO" ? "Efectivo" : pendingAttempt.metodoPago === "TRANSFERENCIA" ? "Transferencia" : "Otro"}).</p>
+          <p className="mt-0.5">Tocá Cobrar y confirmá con el mismo medio: si ya se registró, no se cobra dos veces.</p>
+          <button type="button" onClick={forgetPendingAttempt} className="mt-1 font-semibold underline underline-offset-2">
+            Descartar este intento
+          </button>
+        </div>
+      )}
       <Button type="button" className="w-full h-11 rounded-xl font-bold gap-2" onClick={openScanner}>
         <ScanBarcode className="h-5 w-5" /> Escanear productos
       </Button>
@@ -549,6 +607,7 @@ function VenderView({ negocioId }: { negocioId: string }) {
 
       {checkoutOpen && (
         <CheckoutDialog
+          initialMetodo={pendingAttempt?.metodoPago ?? "EFECTIVO"}
           total={total}
           onClose={() => setCheckoutOpen(false)}
           onConfirm={(metodo) => saleMutation.mutate(metodo)}
@@ -745,17 +804,19 @@ function CartPanel({
 }
 
 function CheckoutDialog({
+  initialMetodo = "EFECTIVO",
   total,
   onClose,
   onConfirm,
   loading,
 }: {
+  initialMetodo?: MetodoPagoVenta
   total: number
   onClose: () => void
   onConfirm: (metodo: MetodoPagoVenta) => void
   loading: boolean
 }) {
-  const [metodo, setMetodo] = useState<MetodoPagoVenta>("EFECTIVO")
+  const [metodo, setMetodo] = useState<MetodoPagoVenta>(initialMetodo)
   return (
     <Dialog open onOpenChange={(open) => !open && !loading && onClose()}>
       {/* R2A finding A (desktop): the shared DialogContent already ships an
