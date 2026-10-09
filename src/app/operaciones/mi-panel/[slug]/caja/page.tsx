@@ -12,8 +12,10 @@
 // Authorization is decided ONLY by the server (personal operational session +
 // área "caja"); this page just follows its answers: 401 → login, área lost →
 // personal home, business unavailable → message.
-// Not here on purpose (later stages): shifts, blind close, cash outflows,
-// receptions, accounts, Mercado Pago, business statistics.
+// F10-B2.2-B adds shift status and controlled opening through the existing
+// turn API. Opening stays unavailable outside the TESTING allowlist until a
+// close/recovery flow exists; blind close, cash outflows, receptions,
+// accounts, Mercado Pago and business statistics remain out of this screen.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
@@ -23,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { VenderView, type CajaVenderSource } from "@/components/business/caja-tab"
+import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
 
 interface CajaContexto {
   negocio: { id: string; nombre: string; slug: string; colorPrincipal: string; logoUrl: string | null }
@@ -129,7 +132,21 @@ export default function CajeroCajaPage() {
           </div>
         )}
 
-        {state.status === "ready" && source && <VenderView negocioId={state.ctx.negocio.id} source={source} />}
+        {state.status === "ready" && source && (
+          <>
+            <OperationalShiftPanel
+              slug={state.ctx.negocio.slug}
+              negocioId={state.ctx.negocio.id}
+              empleadoId={state.ctx.empleado.id}
+              empleadoNombre={state.ctx.empleado.nombre}
+              onAccessLost={handleAccessLost}
+            />
+            <section aria-label="Ventas de Caja" className="space-y-3">
+              <h2 className="px-1 text-base font-bold">Ventas</h2>
+              <VenderView negocioId={state.ctx.negocio.id} source={source} />
+            </section>
+          </>
+        )}
       </div>
     </main>
   )

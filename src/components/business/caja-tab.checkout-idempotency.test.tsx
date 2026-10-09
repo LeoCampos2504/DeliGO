@@ -33,8 +33,9 @@ const catalog = [
 ]
 const venta = { id: "venta-1", total: 1800, metodoPago: "EFECTIVO", cantidadItems: 1, items: [], createdAt: new Date().toISOString() }
 
-let posts: Array<{ key: string | null; body: { metodoPago: string; items: unknown[] } }> = []
+let posts: Array<{ key: string | null; body: { metodoPago: string; items: unknown[]; cajaFisicaId?: string } }> = []
 let nextPost: Array<"network" | { status: number; body: unknown; replayed?: boolean }> = []
+let registersPayload: { cajas: Array<Record<string, unknown>>; modoTurnos: "OPCIONAL" } = { cajas: [], modoTurnos: "OPCIONAL" }
 const originalFetch = globalThis.fetch
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -45,6 +46,7 @@ beforeEach(() => {
   window.sessionStorage.clear()
   posts = []
   nextPost = []
+  registersPayload = { cajas: [], modoTurnos: "OPCIONAL" }
   toastError.mockClear()
   toastSuccess.mockClear()
   Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => true })
@@ -60,6 +62,23 @@ beforeEach(() => {
       return json(next.body, next.status, next.replayed ? { "Idempotency-Replayed": "true" } : {})
     }
     if (url === "/api/negocio/caja/ventas") return json({ ventasHoy: [], resumenHoy: {} })
+    if (url === "/api/negocio/caja/cajas" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as { nombre: string }
+      const caja = { id: `caja-${registersPayload.cajas.length + 1}`, nombre: body.nombre, descripcion: null, esPredeterminada: false, activa: true, turnoAbierto: null }
+      registersPayload.cajas.push(caja)
+      return json(caja, 201)
+    }
+    if (url.startsWith("/api/negocio/caja/cajas/") && init?.method === "PATCH") {
+      const id = decodeURIComponent(url.split("/").at(-1) ?? "")
+      const caja = registersPayload.cajas.find((item) => item.id === id)
+      if (!caja) return json({ error: "Caja no encontrada" }, 404)
+      Object.assign(caja, JSON.parse(String(init.body)))
+      if ("esPredeterminada" in JSON.parse(String(init.body)) && (JSON.parse(String(init.body)) as { esPredeterminada?: boolean }).esPredeterminada) {
+        for (const other of registersPayload.cajas) if (other.id !== caja.id) other.esPredeterminada = false
+      }
+      return json(caja)
+    }
+    if (url === "/api/negocio/caja/cajas") return json(registersPayload)
     throw new Error(`unexpected fetch ${url}`)
   }) as typeof fetch
 })
@@ -109,6 +128,42 @@ async function cobrar() {
 }
 
 describe("F10-B0 — Caja checkout idempotency (client)", () => {
+  test("owner sees register status and the employee responsible in the management panel", async () => {
+    registersPayload.cajas = [{
+      id: "caja-a", nombre: "Caja principal", descripcion: null, esPredeterminada: true, activa: true,
+      turnoAbierto: { id: "turno-a", responsableTipo: "EMPLEADO", responsableNombre: "Cristian", abiertoEn: new Date().toISOString() },
+    }]
+    const root = await renderCaja()
+    await click(buttonByText("Cajas y turnos"))
+    expect(document.body.textContent).toContain("Turno abierto")
+    expect(document.body.textContent).toContain("Responsable: Cristian")
+    expect(document.body.textContent).toContain("Caja principal")
+    await act(async () => root.unmount())
+  })
+
+  test("owner can add a register, choose the default and cannot deactivate an occupied register", async () => {
+    registersPayload.cajas = [
+      { id: "caja-a", nombre: "Caja principal", descripcion: null, esPredeterminada: true, activa: true, turnoAbierto: null },
+      { id: "caja-b", nombre: "Caja ocupada", descripcion: null, esPredeterminada: false, activa: true, turnoAbierto: { id: "turno-b", responsableTipo: "EMPLEADO", responsableNombre: "Cristian", abiertoEn: new Date().toISOString() } },
+    ]
+    const root = await renderCaja()
+    await click(buttonByText("Cajas y turnos"))
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="Nombre de la nueva caja"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(nameInput, "Caja adicional")
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await click(buttonByText("Crear caja"))
+    expect(document.body.textContent).toContain("Caja adicional")
+    const additional = [...document.querySelectorAll("article")].find((article) => article.querySelector("h4")?.textContent?.includes("Caja adicional"))!
+    await click([...additional.querySelectorAll("button")].find((button) => button.textContent?.includes("Predeterminada")) as HTMLButtonElement)
+    expect(registersPayload.cajas.some((caja) => caja.nombre === "Caja adicional" && caja.esPredeterminada)).toBe(true)
+    const occupied = [...document.querySelectorAll("article")].find((article) => article.querySelector("h4")?.textContent?.includes("Caja ocupada"))!
+    const deactivate = [...occupied.querySelectorAll("button")].find((button) => button.textContent?.includes("Desactivar")) as HTMLButtonElement
+    expect(deactivate.disabled).toBe(true)
+    await act(async () => root.unmount())
+  })
+
   test("every checkout sends a UUID Idempotency-Key; success leaves nothing pending", async () => {
     const root = await renderCaja()
     await tapProduct("Arroz")
@@ -117,6 +172,83 @@ describe("F10-B0 — Caja checkout idempotency (client)", () => {
     expect(posts[0].key).toMatch(UUID)
     expect(window.sessionStorage.getItem("deligo:caja:checkout-attempt:v1:neg-1")).toBeNull()
     expect(document.body.textContent).toContain("Venta registrada")
+    await act(async () => root.unmount())
+  })
+
+  test("one open register is shown and attached to the owner's sale", async () => {
+    registersPayload.cajas = [{
+      id: "caja-a", nombre: "Caja principal", descripcion: null, esPredeterminada: true, activa: true,
+      turnoAbierto: { id: "turno-a", responsableTipo: "EMPLEADO", responsableNombre: "Cristian", abiertoEn: new Date().toISOString() },
+    }]
+    const root = await renderCaja()
+    expect(document.body.textContent).toContain("Caja principal — Turno de Cristian")
+    await tapProduct("Arroz")
+    await cobrar()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body.cajaFisicaId).toBe("caja-a")
+    await act(async () => root.unmount())
+  })
+
+  test("uncertain retry keeps its original register and idempotency key if that shift disappears", async () => {
+    registersPayload.cajas = [{
+      id: "caja-a", nombre: "Caja principal", descripcion: null, esPredeterminada: true, activa: true,
+      turnoAbierto: { id: "turno-a", responsableTipo: "EMPLEADO", responsableNombre: "Cristian", abiertoEn: new Date().toISOString() },
+    }]
+    nextPost.push("network", { status: 201, body: venta, replayed: true })
+    const root = await renderCaja()
+    await tapProduct("Arroz")
+    await cobrar()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body.cajaFisicaId).toBe("caja-a")
+    registersPayload.cajas = []
+    await click(buttonByText("Actualizar"))
+    await click(buttonByText("Confirmar venta"))
+    expect(posts).toHaveLength(2)
+    expect(posts[1].key).toBe(posts[0].key)
+    expect(posts[1].body.cajaFisicaId).toBe("caja-a")
+    await act(async () => root.unmount())
+  })
+
+  test("multiple open registers require a visible explicit selection", async () => {
+    registersPayload.cajas = ["a", "b"].map((id) => ({
+      id: `caja-${id}`, nombre: `Caja ${id}`, descripcion: null, esPredeterminada: id === "a", activa: true,
+      turnoAbierto: { id: `turno-${id}`, responsableTipo: "EMPLEADO", responsableNombre: `Empleado ${id}`, abiertoEn: new Date().toISOString() },
+    }))
+    const root = await renderCaja()
+    await tapProduct("Arroz")
+    await click(buttonByText("Cobrar"))
+    expect(posts).toHaveLength(0)
+    expect(toastError).toHaveBeenCalled()
+    const selector = document.querySelector<HTMLSelectElement>("#owner-caja-fisica")!
+    await act(async () => {
+      selector.value = "caja-b"
+      selector.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flush()
+    await cobrar()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body.cajaFisicaId).toBe("caja-b")
+    await act(async () => root.unmount())
+  })
+
+  test("a register that becomes invalid keeps the cart and lets the owner refresh without a silent reassignment", async () => {
+    registersPayload.cajas = ["a", "b"].map((id) => ({
+      id: `caja-${id}`, nombre: `Caja ${id}`, descripcion: null, esPredeterminada: id === "a", activa: true,
+      turnoAbierto: { id: `turno-${id}`, responsableTipo: "EMPLEADO", responsableNombre: `Empleado ${id}`, abiertoEn: new Date().toISOString() },
+    }))
+    nextPost.push({ status: 409, body: { error: "La caja seleccionada ya no tiene un turno abierto.", code: "CAJA_SIN_TURNO_ABIERTO" } })
+    const root = await renderCaja()
+    await tapProduct("Arroz")
+    const selector = document.querySelector<HTMLSelectElement>("#owner-caja-fisica")!
+    await act(async () => { selector.value = "caja-b"; selector.dispatchEvent(new Event("change", { bubbles: true })) })
+    await cobrar()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body.cajaFisicaId).toBe("caja-b")
+    expect(document.body.textContent).toContain("Arroz")
+    registersPayload.cajas = []
+    await click(buttonByText("Actualizar"))
+    expect(document.body.textContent).toContain("Sin turnos abiertos")
+    expect(document.body.textContent).toContain("Arroz")
     await act(async () => root.unmount())
   })
 

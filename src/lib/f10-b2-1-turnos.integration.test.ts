@@ -28,6 +28,12 @@ const testDatabaseUrl = process.env.DELIGO_TEST_DATABASE_URL
 if (!testDatabaseUrl || process.env.DATABASE_URL !== testDatabaseUrl) {
   throw new Error("Este test de integración requiere DELIGO_TEST_DATABASE_URL y DATABASE_URL apuntando a la misma base TESTING.")
 }
+const declaredEnvironment = process.env.DELIGO_ENVIRONMENT ?? process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.APP_ENV
+if (declaredEnvironment && declaredEnvironment.toUpperCase() !== "TESTING") {
+  throw new Error("La suite F10-B2.1 sólo puede ejecutarse con DELIGO_ENVIRONMENT=TESTING.")
+}
+process.env.DELIGO_ENVIRONMENT = "TESTING"
+process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = "true"
 
 const negocios: string[] = []
 const cuentas: string[] = []
@@ -74,6 +80,9 @@ async function crearCajero(negocioId: string, overrides: Partial<{ area: string;
   const empleado = await db.empleado.create({
     data: { nombre: `Cajero ${randomUUID().slice(0, 6)}`, codigo: randomUUID().slice(0, 8).toUpperCase(), negocioId, cuentaOperativaId: cuenta.id, areaOperativa: overrides.area ?? "caja", activo: overrides.activo ?? true, eliminado: false },
   })
+  const allowlist = new Set((process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS ?? "").split(/[\s,;]+/).filter(Boolean))
+  allowlist.add(empleado.id)
+  process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS = [...allowlist].join(",")
   const token = await createOperationalSession(cuenta.id)
   return { empleado, cookie: `${OPERATIONAL_SESSION_COOKIE_NAME}=${token}` }
 }
@@ -229,10 +238,33 @@ describe("F10-B2.1 — physical registers", () => {
 // ---------------------------------------------------------------------------
 
 describe("F10-B2.1 — opening shifts", () => {
+  test("shift opening route is limited to explicitly allowlisted employees in TESTING", async () => {
+    const { negocio } = await crearNegocio()
+    const { empleado, cookie } = await crearCajero(negocio.id)
+    const original = process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS ?? ""
+    process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS = original.split(/[\s,;]+/).filter((id) => id && id !== empleado.id).join(",")
+    try {
+      expect((await turnoCajero(cookie, negocio.slug)).body.aperturaHabilitada).toBe(false)
+      expect((await abrirCajero(cookie, negocio.slug, { fondoInicial: 10 })).status).toBe(403)
+      expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(0)
+    } finally {
+      process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS = original
+    }
+  })
+
   test("cashier opens the default register with an exact fund; replay returns it; reused key → 409; no ledger, no stock change", async () => {
     const { negocio, owner } = await crearNegocio()
     const producto = await crearProducto(negocio.id, 100, { controlStock: true, stockCantidad: 5 })
     const { empleado, cookie } = await crearCajero(negocio.id)
+    const current = await turnoCajero(cookie, negocio.slug)
+    expect(current.body.aperturaHabilitada).toBe(true)
+    expect(current.body).not.toHaveProperty("efectivoEsperado")
+    const enabled = process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED
+    process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = "false"
+    const closedGate = await abrirCajero(cookie, negocio.slug, { fondoInicial: 1 })
+    expect(closedGate.status).toBe(403)
+    expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(0)
+    process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = enabled
     const key = randomUUID()
     const first = await abrirCajero(cookie, negocio.slug, { fondoInicial: "20000.00" }, key)
     expect(first.status).toBe(201)
@@ -576,7 +608,7 @@ describe("F10-B2.1 — access and blind-close safety", () => {
     const t1 = (await abrirCajero(c1.cookie, negocio.slug, { fondoInicial: "777.00" })).body.turno
     await venderCajero(c1.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
     const own = await turnoCajero(c1.cookie, negocio.slug)
-    expect(Object.keys(own.body).sort()).toEqual(["cajas", "modoTurnos", "ok", "turno"])
+    expect(Object.keys(own.body).sort()).toEqual(["aperturaHabilitada", "cajas", "modoTurnos", "ok", "turno"])
     expect(Object.keys(own.body.turno).sort()).toEqual(["abiertoEn", "caja", "fondoInicial", "id"])
     const text = JSON.stringify(own.body)
     for (const leak of ["esperado", "ingresos", "salidas", "diferencia", "saldo", "totalEfectivo", "2011"]) expect(text).not.toContain(leak)

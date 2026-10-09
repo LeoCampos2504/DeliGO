@@ -16,6 +16,8 @@ import { isValidVentaIdempotencyKey, isValidMetodoPagoVenta, type CartLine, type
 export interface PendingCheckoutAttempt {
   key: string
   canonical: string
+  /** Owner-only physical register bound to this attempt, if selected. */
+  cajaFisicaId?: string
   metodoPago: MetodoPagoVenta
   cart: CartLine[]
   createdAt: number
@@ -77,6 +79,7 @@ export function readPendingAttempt(negocioId: string): PendingCheckoutAttempt | 
     if (
       !isValidVentaIdempotencyKey(parsed.key) ||
       typeof parsed.canonical !== "string" ||
+      (parsed.cajaFisicaId !== undefined && typeof parsed.cajaFisicaId !== "string") ||
       !isValidMetodoPagoVenta(parsed.metodoPago) ||
       !Array.isArray(parsed.cart) ||
       parsed.cart.length === 0

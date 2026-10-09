@@ -6,6 +6,7 @@ import { moneyToNumber } from "@/lib/money"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure } from "@/lib/operativo-caja"
 import { abrirTurnoCaja, asegurarCajaPredeterminada, TURNO_ESTADO_ABIERTO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
+import { isControlledShiftUiEnabled } from "@/lib/f10-b2-2-b-shift-ui-gate"
 
 // ============================================
 // F10-B2.1 — cashier: THEIR OWN shift
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       NextResponse.json({
         ok: true,
         modoTurnos: negocio?.cajaTurnosModo ?? "OPCIONAL",
+        aperturaHabilitada: isControlledShiftUiEnabled(auth.empleado.id),
         cajas: cajas.map((c) => ({ id: c.id, nombre: c.nombre, esPredeterminada: c.esPredeterminada, ocupada: ocupadas.has(c.id) })),
         turno: propio
           ? { id: propio.id, caja: propio.cajaFisica, abiertoEn: propio.abiertoEn, fondoInicial: moneyToNumber(propio.fondoInicialDecimal) }
@@ -56,6 +58,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const { slug } = await params
     const auth = await resolveOperativoAreaForSlug(req, slug, "caja")
     if (!auth.ok) return cajaAuthFailure(auth)
+    if (!isControlledShiftUiEnabled(auth.empleado.id)) {
+      return noStore(NextResponse.json({ ok: false, error: "La apertura de turnos aún no está habilitada para esta cuenta." }, { status: 403 }))
+    }
     const body = (await req.json().catch(() => null)) as { cajaFisicaId?: unknown; fondoInicial?: unknown } | null
     if (body?.cajaFisicaId !== undefined && body.cajaFisicaId !== null && typeof body.cajaFisicaId !== "string") {
       return noStore(NextResponse.json({ ok: false, error: "Caja inválida" }, { status: 400 }))

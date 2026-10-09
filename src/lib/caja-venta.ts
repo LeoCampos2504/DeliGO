@@ -217,12 +217,13 @@ export function isValidVentaIdempotencyKey(value: unknown): value is string {
  */
 export function canonicalVentaCajaRequest(
   metodoPago: string,
-  lines: ReadonlyArray<Pick<ServerSaleLineInput, "productoId" | "varianteId" | "cantidad">>
+  lines: ReadonlyArray<Pick<ServerSaleLineInput, "productoId" | "varianteId" | "cantidad">>,
+  cajaFisicaId?: string | null
 ): string {
   const items = lines
     .map((line) => [line.productoId, line.varianteId ?? null, line.cantidad] as const)
     .sort((a, b) => (a[0] + "|" + (a[1] ?? "") + "|" + a[2]).localeCompare(b[0] + "|" + (b[1] ?? "") + "|" + b[2]))
-  return JSON.stringify({ metodoPago, items })
+  return JSON.stringify(cajaFisicaId ? { metodoPago, items, cajaFisicaId } : { metodoPago, items })
 }
 
 // ============================================

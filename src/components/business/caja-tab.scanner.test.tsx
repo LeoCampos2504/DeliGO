@@ -95,6 +95,7 @@ beforeEach(() => {
       return jsonResponse(catalog)
     }
     if (url === "/api/negocio/categorias") return jsonResponse({ categorias: [] })
+    if (url === "/api/negocio/caja/cajas") return jsonResponse({ modoTurnos: "OPCIONAL", cajas: [] })
     if (url === "/api/negocio/caja/ventas" && init?.method === "POST") {
       ventaPosts.push(JSON.parse(String(init.body)))
       return jsonResponse(ventaResponse.body, ventaResponse.status)

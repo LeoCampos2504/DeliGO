@@ -95,7 +95,7 @@ describe("P2-T56-R2B-F1 — category-aware empty state (section 14)", () => {
 
 describe("P2-T56-R2B-F1 — changing Caja's category filter never touches the cart (section 8)", () => {
   test("cart state is declared once and never reset/cleared from the category filter code path", () => {
-    expect(CAJA).toContain("const [cart, setCart] = useState<CartLine[]>([])")
+    expect(CAJA).toContain("const [cart, setCart] = useState<CartLine[]>(() => pendingAttempt?.cart ?? [])")
     // The only setCart calls must be cart mutations (add/update/remove/clear-on-sale),
     // never something reacting to a category change.
     const setCartCalls = CAJA.match(/setCart\(/g) ?? []

@@ -24,9 +24,13 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  Store,
+  UserRound,
+  Star,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { OwnerCajaTurnosPanel, ownerRegisterQueryKey, type CajaFisicaResumen } from "@/components/business/owner-caja-turnos"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
@@ -130,20 +134,71 @@ interface VentaResumen {
   createdAt: string
 }
 
-type CajaSubTab = "vender" | "resumen"
+type CajaSubTab = "vender" | "resumen" | "turnos"
 
 export function CajaTab({ negocio }: { negocio: { id: string } }) {
   const [subTab, setSubTab] = useState<CajaSubTab>("vender")
+  const [registerSelection, setRegisterSelection] = useState({ cajaId: "", turnoId: "" })
+  const [pendingRegisterId, setPendingRegisterId] = useState<string | null>(null)
+  const registersQuery = useQuery<{ cajas: CajaFisicaResumen[] }>({
+    queryKey: ownerRegisterQueryKey(negocio.id),
+    queryFn: async () => {
+      const response = await fetch("/api/negocio/caja/cajas", { cache: "no-store" })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error ?? "No se pudieron cargar las cajas.")
+      return json
+    },
+  })
+  const openRegisters = (registersQuery.data?.cajas ?? []).filter((caja) => Boolean(caja.turnoAbierto))
+  const validSelectedRegister = openRegisters.find((caja) => caja.id === registerSelection.cajaId && caja.turnoAbierto?.id === registerSelection.turnoId)
+  const autoRegister = openRegisters.length === 1 ? openRegisters[0] : null
+  const pendingRegister = pendingRegisterId ? registersQuery.data?.cajas.find((caja) => caja.id === pendingRegisterId) ?? null : null
+  const selectedRegister = pendingRegister ?? autoRegister ?? (openRegisters.length > 1 ? validSelectedRegister ?? null : null)
+  const selectionRequired = openRegisters.length > 1 && !selectedRegister
+  const selectionReady = !registersQuery.isLoading && !registersQuery.isError
+
+  const selectOpenRegister = (id: string) => {
+    const selected = openRegisters.find((caja) => caja.id === id)
+    setRegisterSelection({ cajaId: selected?.id ?? "", turnoId: selected?.turnoAbierto?.id ?? "" })
+  }
 
   return (
     <div className="space-y-3">
-      <div className="flex bg-muted/60 rounded-xl p-1 gap-1">
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/60 p-1">
         <SubTabButton active={subTab === "vender"} icon={<ShoppingCart className="h-3.5 w-3.5" />} label="Vender" onClick={() => setSubTab("vender")} />
+        <SubTabButton active={subTab === "turnos"} icon={<Store className="h-3.5 w-3.5" />} label="Cajas y turnos" onClick={() => setSubTab("turnos")} />
         <SubTabButton active={subTab === "resumen"} icon={<Receipt className="h-3.5 w-3.5" />} label="Resumen" onClick={() => setSubTab("resumen")} />
       </div>
-      {subTab === "vender" ? <VenderView negocioId={negocio.id} /> : <ResumenView negocioId={negocio.id} />}
+      {subTab === "vender" ? (
+        <>
+          <OwnerSaleRegisterSelector registers={openRegisters} pendingRegister={pendingRegister} loading={registersQuery.isLoading} error={registersQuery.isError} selectedId={selectedRegister?.id ?? ""} selectionRequired={selectionRequired} onSelect={selectOpenRegister} onRefresh={() => void registersQuery.refetch()} />
+          <VenderView negocioId={negocio.id} ownerSaleAssignment={{
+            cajaFisicaId: selectedRegister?.id ?? null,
+            selectionRequired,
+            selectionReady,
+            onPendingRegisterChange: setPendingRegisterId,
+          }} />
+        </>
+      ) : subTab === "turnos" ? <OwnerCajaTurnosPanel negocioId={negocio.id} /> : <ResumenView negocioId={negocio.id} />}
     </div>
   )
+}
+
+function OwnerSaleRegisterSelector({ registers, pendingRegister, loading, error, selectedId, selectionRequired, onSelect, onRefresh }: { registers: CajaFisicaResumen[]; pendingRegister: CajaFisicaResumen | null; loading: boolean; error: boolean; selectedId: string; selectionRequired: boolean; onSelect: (id: string) => void; onRefresh: () => void }) {
+  if (loading) return <p role="status" className="rounded-xl border bg-card px-3 py-2 text-sm text-muted-foreground">Verificando turnos abiertos…</p>
+  if (error) return <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-card px-3 py-2 text-sm text-destructive"><span>No se pudieron verificar las cajas. Las ventas quedan bloqueadas hasta volver a cargar la selección.</span><Button variant="outline" size="sm" onClick={onRefresh}>Actualizar turnos</Button></div>
+  if (pendingRegister) return <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100"><span>Reintento fijado a {pendingRegister.nombre}{pendingRegister.turnoAbierto ? ` — Turno de ${pendingRegister.turnoAbierto.responsableNombre}` : " — el turno ya no aparece abierto"}. No se reasignará.</span><Button variant="outline" size="sm" onClick={onRefresh}>Actualizar</Button></div>
+  if (!registers.length) return <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"><span>Sin turnos abiertos: la venta seguirá sin asociarse a una caja física (modo opcional).</span><Button variant="outline" size="sm" onClick={onRefresh}>Actualizar turnos</Button></div>
+  if (registers.length === 1) return <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold"><span className="flex items-center gap-2"><Star className="h-4 w-4 shrink-0" />Venta asignada a {registers[0].nombre} — Turno de {registers[0].turnoAbierto?.responsableNombre}</span><Button variant="outline" size="sm" onClick={onRefresh}>Actualizar</Button></div>
+  return <div className="space-y-2 rounded-xl border bg-card p-3">
+    <div className="flex items-center justify-between gap-2"><label htmlFor="owner-caja-fisica" className="text-sm font-semibold">Elegí la caja para esta venta</label><Button variant="outline" size="sm" onClick={onRefresh}>Actualizar</Button></div>
+    <select id="owner-caja-fisica" value={selectedId} onChange={(event) => onSelect(event.target.value)} className="h-12 w-full rounded-xl border border-input bg-background px-3 text-sm">
+      <option value="">Seleccioná una caja…</option>
+      {registers.map((register) => <option key={register.id} value={register.id}>{register.nombre} — {register.turnoAbierto?.responsableNombre}</option>)}
+    </select>
+    {selectionRequired && <p role="alert" className="text-xs font-medium text-amber-700">Seleccioná una caja; no se elegirá otra automáticamente.</p>}
+    {selectedId && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserRound className="h-3.5 w-3.5" />La venta quedará visible en {registers.find((register) => register.id === selectedId)?.nombre} durante toda la compra.</p>}
+  </div>
 }
 
 function SubTabButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
@@ -186,6 +241,13 @@ export interface CajaVenderSource {
   onAccessLost?: (status: number) => void
 }
 
+interface OwnerSaleAssignment {
+  cajaFisicaId: string | null
+  selectionRequired: boolean
+  selectionReady: boolean
+  onPendingRegisterChange: (id: string | null) => void
+}
+
 export function ownerCajaSource(negocioId: string): CajaVenderSource {
   return {
     attemptScope: negocioId,
@@ -198,7 +260,7 @@ export function ownerCajaSource(negocioId: string): CajaVenderSource {
   }
 }
 
-export function VenderView({ negocioId, source: sourceProp }: { negocioId: string; source?: CajaVenderSource }) {
+export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment }: { negocioId: string; source?: CajaVenderSource; ownerSaleAssignment?: OwnerSaleAssignment }) {
   const source = sourceProp ?? ownerCajaSource(negocioId)
   const [search, setSearch] = useState("")
   const [categoria, setCategoria] = useState("todas")
@@ -212,6 +274,10 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
   const queryClient = useQueryClient()
+
+  useEffect(() => {
+    ownerSaleAssignment?.onPendingRegisterChange(pendingAttempt?.cajaFisicaId ?? null)
+  }, [pendingAttempt?.key, pendingAttempt?.cajaFisicaId, ownerSaleAssignment?.onPendingRegisterChange])
 
   const { data: productos, isLoading, refetch: refetchProductos } = useQuery<CajaProducto[]>({
     queryKey: source.productosQueryKey,
@@ -442,6 +508,24 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
 
   const total = cartTotal(cart)
   const itemCount = cartItemCount(cart)
+  const activeCartRequest = cart.map((line) => ({ productoId: line.productoId, varianteId: line.varianteId ?? undefined, cantidad: line.cantidad }))
+  const retryingPendingAttempt = Boolean(
+    pendingAttempt &&
+    canonicalVentaCajaRequest(pendingAttempt.metodoPago, pendingAttempt.cart.map((line) => ({ productoId: line.productoId, varianteId: line.varianteId ?? undefined, cantidad: line.cantidad })), pendingAttempt.cajaFisicaId) === pendingAttempt.canonical &&
+    canonicalVentaCajaRequest(pendingAttempt.metodoPago, activeCartRequest, pendingAttempt.cajaFisicaId) === pendingAttempt.canonical
+  )
+
+  function openCheckout() {
+    if (ownerSaleAssignment && !ownerSaleAssignment.selectionReady && !retryingPendingAttempt) {
+      toast.error("No se pudo verificar qué turno está abierto. Actualizá las cajas antes de vender.")
+      return
+    }
+    if (ownerSaleAssignment?.selectionRequired && !retryingPendingAttempt) {
+      toast.error("Seleccioná una caja para esta venta.")
+      return
+    }
+    setCheckoutOpen(true)
+  }
 
   function forgetPendingAttempt() {
     setPendingAttempt(null)
@@ -453,9 +537,21 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
       const items = cart.map((l) => ({ productoId: l.productoId, varianteId: l.varianteId ?? undefined, cantidad: l.cantidad }))
       // D9: online-only — never pretend a sale was registered without the server.
       if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error(CHECKOUT_OFFLINE_MESSAGE)
-      const canonical = canonicalVentaCajaRequest(metodoPago, items)
+      const legacyCanonical = canonicalVentaCajaRequest(metodoPago, items)
+      // Preserve an uncertain pre-selector attempt: the server replays it
+      // before resolving the currently open shift, retaining its original turn.
+      const retryingLegacyAttempt = Boolean(ownerSaleAssignment && pendingAttempt?.canonical === legacyCanonical)
+      // New attempts persist their register as well as in the canonical body;
+      // after a lost response, never silently retarget the same key to a new
+      // selection even if that register has since become unavailable.
+      const retryingSelectedAttempt = Boolean(
+        ownerSaleAssignment && pendingAttempt?.cajaFisicaId &&
+        pendingAttempt.canonical === canonicalVentaCajaRequest(metodoPago, items, pendingAttempt.cajaFisicaId)
+      )
+      const requestCajaFisicaId = retryingLegacyAttempt ? null : retryingSelectedAttempt ? pendingAttempt?.cajaFisicaId ?? null : ownerSaleAssignment?.cajaFisicaId ?? null
+      const canonical = retryingLegacyAttempt ? legacyCanonical : canonicalVentaCajaRequest(metodoPago, items, requestCajaFisicaId)
       const key = resolveAttemptKey(pendingAttempt, canonical) ?? newIdempotencyKey()
-      const attempt: PendingCheckoutAttempt = { key, canonical, metodoPago, cart, createdAt: Date.now() }
+      const attempt: PendingCheckoutAttempt = { key, canonical, metodoPago, cart, createdAt: Date.now(), ...(requestCajaFisicaId ? { cajaFisicaId: requestCajaFisicaId } : {}) }
       setPendingAttempt(attempt)
       writePendingAttempt(source.attemptScope, attempt)
 
@@ -464,7 +560,7 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
         res = await fetch(source.ventasUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-          body: JSON.stringify({ metodoPago, items }),
+          body: JSON.stringify({ metodoPago, items, ...(requestCajaFisicaId ? { cajaFisicaId: requestCajaFisicaId } : {}) }),
         })
       } catch {
         throw new Error(CHECKOUT_UNCERTAIN_MESSAGE) // keep the attempt: the sale may exist
@@ -518,6 +614,7 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" role="status">
           <p className="font-semibold">Hay un cobro sin confirmar ({pendingAttempt.metodoPago === "EFECTIVO" ? "Efectivo" : pendingAttempt.metodoPago === "TRANSFERENCIA" ? "Transferencia" : "Otro"}).</p>
           <p className="mt-0.5">Tocá Cobrar y confirmá con el mismo medio: si ya se registró, no se cobra dos veces.</p>
+          {pendingAttempt.cajaFisicaId && <p className="mt-0.5">El reintento conserva la caja elegida originalmente; no se reasignará a otro turno.</p>}
           <button type="button" onClick={forgetPendingAttempt} className="mt-1 font-semibold underline underline-offset-2">
             Descartar este intento
           </button>
@@ -600,7 +697,7 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
       cart={cart}
       onUpdateQuantity={updateQuantity}
       onRemove={(productoId, varianteId) => setCart((prev) => removeCartLine(prev, productoId, varianteId))}
-      onCobrar={() => setCheckoutOpen(true)}
+      onCobrar={openCheckout}
     />
   )
 
@@ -647,7 +744,8 @@ export function VenderView({ negocioId, source: sourceProp }: { negocioId: strin
 
       {checkoutOpen && (
         <CheckoutDialog
-          initialMetodo={pendingAttempt?.metodoPago ?? "EFECTIVO"}
+          initialMetodo={retryingPendingAttempt ? pendingAttempt?.metodoPago : "EFECTIVO"}
+          lockedMetodo={retryingPendingAttempt ? pendingAttempt?.metodoPago : undefined}
           total={total}
           onClose={() => setCheckoutOpen(false)}
           onConfirm={(metodo) => saleMutation.mutate(metodo)}
@@ -845,12 +943,14 @@ function CartPanel({
 
 function CheckoutDialog({
   initialMetodo = "EFECTIVO",
+  lockedMetodo,
   total,
   onClose,
   onConfirm,
   loading,
 }: {
   initialMetodo?: MetodoPagoVenta
+  lockedMetodo?: MetodoPagoVenta
   total: number
   onClose: () => void
   onConfirm: (metodo: MetodoPagoVenta) => void
@@ -870,10 +970,11 @@ function CheckoutDialog({
         <DialogHeader><DialogTitle>Cobrar {formatPrice(total)}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-2">
-            <MetodoButton label="Efectivo" icon={<Banknote className="h-4 w-4" />} active={metodo === "EFECTIVO"} onClick={() => setMetodo("EFECTIVO")} />
-            <MetodoButton label="Transferencia" icon={<CreditCard className="h-4 w-4" />} active={metodo === "TRANSFERENCIA"} onClick={() => setMetodo("TRANSFERENCIA")} />
-            <MetodoButton label="Otro" icon={<Receipt className="h-4 w-4" />} active={metodo === "OTRO"} onClick={() => setMetodo("OTRO")} />
+            <MetodoButton label="Efectivo" icon={<Banknote className="h-4 w-4" />} active={metodo === "EFECTIVO"} disabled={Boolean(lockedMetodo && lockedMetodo !== "EFECTIVO")} onClick={() => setMetodo("EFECTIVO")} />
+            <MetodoButton label="Transferencia" icon={<CreditCard className="h-4 w-4" />} active={metodo === "TRANSFERENCIA"} disabled={Boolean(lockedMetodo && lockedMetodo !== "TRANSFERENCIA")} onClick={() => setMetodo("TRANSFERENCIA")} />
+            <MetodoButton label="Otro" icon={<Receipt className="h-4 w-4" />} active={metodo === "OTRO"} disabled={Boolean(lockedMetodo && lockedMetodo !== "OTRO")} onClick={() => setMetodo("OTRO")} />
           </div>
+          {lockedMetodo && <p className="text-xs text-muted-foreground">El reintento conserva el mismo medio y destino para evitar registrar la venta dos veces.</p>}
           <Button
             className="w-full h-11 rounded-xl font-bold"
             disabled={loading || !isValidMetodoPagoVenta(metodo)}
@@ -887,10 +988,11 @@ function CheckoutDialog({
   )
 }
 
-function MetodoButton({ label, icon, active, onClick }: { label: string; icon: React.ReactNode; active: boolean; onClick: () => void }) {
+function MetodoButton({ label, icon, active, disabled = false, onClick }: { label: string; icon: React.ReactNode; active: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold",
         active ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"

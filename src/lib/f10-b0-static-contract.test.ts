@@ -87,7 +87,8 @@ describe("F10-B0 — scope limits (no B1/B2/C/D/E, no mixed payments)", () => {
   test("the checkout still takes exactly one payment method", () => {
     const caja = read("src/components/business/caja-tab.tsx")
     expect(caja).toContain("onConfirm: (metodo: MetodoPagoVenta) => void")
-    expect(caja).toContain("body: JSON.stringify({ metodoPago, items })")
+    expect(caja).toContain("body: JSON.stringify({ metodoPago, items,")
+    expect(caja).toContain("cajaFisicaId: requestCajaFisicaId")
   })
 })
 
