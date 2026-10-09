@@ -29,6 +29,7 @@ import {
   canonicalVentaCajaRequest,
   computeSaleFromAuthoritativeProducts,
   estadoConciliacionInicial,
+  isValidMetodoPagoVenta,
   type MetodoPagoVenta,
   type ServerSaleLineInput,
 } from "@/lib/caja-venta"
@@ -75,8 +76,22 @@ export function fingerprintVentaCaja(negocioId: string, metodoPago: string, line
   return createHash("sha256").update(`${negocioId}\n${canonicalVentaCajaRequest(metodoPago, lines)}`).digest("hex")
 }
 
-function replayOrConflict(existing: VentaCajaConItems, fingerprint: string | null): RegistrarVentaCajaResult {
-  if (existing.idempotencyFingerprint && existing.idempotencyFingerprint === fingerprint) {
+// F10-B1: a replay is returned only to the SAME actor that created the sale
+// (owner → actorId = negocioId; cashier → actorId = empleadoId). The same key
+// presented by a different person of the same negocio is a controlled 409 —
+// never another person's sale. The content fingerprint is unchanged.
+function sameActor(existing: VentaCajaConItems, actor: VentaCajaActor, negocioId: string): boolean {
+  const actorId = actor.tipo === "EMPLEADO" ? actor.empleadoId : negocioId
+  return existing.actorTipo === actor.tipo && existing.actorId === actorId
+}
+
+function replayOrConflict(
+  existing: VentaCajaConItems,
+  fingerprint: string | null,
+  actor: VentaCajaActor,
+  negocioId: string
+): RegistrarVentaCajaResult {
+  if (existing.idempotencyFingerprint && existing.idempotencyFingerprint === fingerprint && sameActor(existing, actor, negocioId)) {
     return { ok: true, replayed: true, venta: existing }
   }
   return {
@@ -134,7 +149,7 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
           where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } },
           include: { items: true },
         })
-        if (existing) return replayOrConflict(existing, fingerprint)
+        if (existing) return replayOrConflict(existing, fingerprint, actor, negocioId)
       }
 
       // Actor: derived from the session by the caller; an EMPLEADO must be an
@@ -268,8 +283,41 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
         where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } },
         include: { items: true },
       })
-      if (existing) return replayOrConflict(existing, fingerprint)
+      if (existing) return replayOrConflict(existing, fingerprint, actor, negocioId)
     }
     throw error
   }
+}
+
+// ============================================
+// F10-B1 — request body parsing shared by the owner and cashier routes
+// ============================================
+// Same validation and messages the owner route always had; the client only
+// chooses WHICH products/variants and quantities — never prices or totals.
+export type ParsedVentaCajaBody =
+  | { ok: true; metodoPago: MetodoPagoVenta; lines: ServerSaleLineInput[] }
+  | { ok: false; error: string }
+
+export function parseVentaCajaRequestBody(body: unknown): ParsedVentaCajaBody {
+  const { metodoPago, items } = (body ?? {}) as { metodoPago?: unknown; items?: unknown }
+  if (!isValidMetodoPagoVenta(metodoPago)) return { ok: false, error: "Método de pago inválido" }
+  if (!Array.isArray(items) || items.length === 0) return { ok: false, error: "La venta no tiene productos" }
+  const lines: ServerSaleLineInput[] = []
+  for (const raw of items as unknown[]) {
+    // P2-T56-R2C: varianteId is optional and, like price/name, NEVER trusted
+    // beyond "which variant was picked" — its precio always comes from the DB.
+    const line = raw as { productoId?: unknown; varianteId?: unknown; cantidad?: unknown }
+    if (typeof line?.productoId !== "string" || !line.productoId || typeof line.cantidad !== "number") {
+      return { ok: false, error: "Cada línea requiere productoId y cantidad" }
+    }
+    if (line.varianteId !== undefined && line.varianteId !== null && typeof line.varianteId !== "string") {
+      return { ok: false, error: "varianteId inválido" }
+    }
+    lines.push({
+      productoId: line.productoId,
+      varianteId: (line.varianteId as string | null | undefined) ?? undefined,
+      cantidad: line.cantidad,
+    })
+  }
+  return { ok: true, metodoPago, lines }
 }

@@ -4,9 +4,9 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
-import { isValidMetodoPagoVenta, isValidVentaIdempotencyKey, type ServerSaleLineInput } from "@/lib/caja-venta"
+import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
-import { registrarVentaCaja } from "@/lib/caja-venta-service"
+import { parseVentaCajaRequestBody, registrarVentaCaja } from "@/lib/caja-venta-service"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -59,11 +59,6 @@ function round(value: number) {
   return Math.round(value * 100) / 100
 }
 
-interface VentaRequestBody {
-  metodoPago?: unknown
-  items?: unknown
-}
-
 // POST - Finalize a Caja sale (section 19): atomically creates the Venta +
 // VentaItem snapshot rows, decrements stock for every controlStock=true
 // product, and records one MovimientoInventario per affected product — all
@@ -81,12 +76,12 @@ export async function POST(req: NextRequest) {
     }
     const negocioId = user.id
 
-    const body = (await req.json()) as VentaRequestBody
-    const { metodoPago, items } = body
-
-    if (!isValidMetodoPagoVenta(metodoPago)) {
-      return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 })
+    // F10-B1: one body-parsing rule shared with the cashier route (same messages).
+    const parsed = parseVentaCajaRequestBody(await req.json())
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
+    const { metodoPago, lines: requestedLines } = parsed
 
     // F10-B0 — Idempotency-Key (UUID per checkout attempt, same format as
     // POST /api/pedidos). Transition: the owner route still accepts requests
@@ -95,28 +90,6 @@ export async function POST(req: NextRequest) {
     const idempotency = readIdempotencyKey(req)
     if (!idempotency.ok) {
       return NextResponse.json({ error: idempotency.error }, { status: 400 })
-    }
-    if (!Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: "La venta no tiene productos" }, { status: 400 })
-    }
-
-    const requestedLines: ServerSaleLineInput[] = []
-    for (const raw of items as unknown[]) {
-      // P2-T56-R2C: varianteId is optional and, like price/name, NEVER
-      // trusted beyond "which variant was picked" — its precio always comes
-      // from the DB row fetched below (section 22).
-      const line = raw as { productoId?: unknown; varianteId?: unknown; cantidad?: unknown }
-      if (typeof line.productoId !== "string" || !line.productoId || typeof line.cantidad !== "number") {
-        return NextResponse.json({ error: "Cada línea requiere productoId y cantidad" }, { status: 400 })
-      }
-      if (line.varianteId !== undefined && line.varianteId !== null && typeof line.varianteId !== "string") {
-        return NextResponse.json({ error: "varianteId inválido" }, { status: 400 })
-      }
-      requestedLines.push({
-        productoId: line.productoId,
-        varianteId: (line.varianteId as string | null | undefined) ?? undefined,
-        cantidad: line.cantidad,
-      })
     }
 
     // F10-B0: the whole sale (R3A stock plan, Venta/VentaItem, stock write,

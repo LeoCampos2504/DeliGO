@@ -58,10 +58,14 @@ describe("F10-B0 — one sales engine", () => {
 })
 
 describe("F10-B0 — scope limits (no B1/B2/C/D/E, no mixed payments)", () => {
-  test("no cashier area, route or page yet (F10-B1)", () => {
-    expect(read("src/lib/area-operativa.ts")).not.toMatch(/"caja"/)
-    expect(existsSync(join(root, "src/app/api/operativo/caja"))).toBe(false)
-    expect(existsSync(join(root, "src/app/operaciones/mi-panel/[slug]/caja"))).toBe(false)
+  // F10-B1 (authorized 2026-10-09) replaced the original "no cashier yet" check:
+  // the cashier pieces now exist and are verified by f10-b1-static-contract.test.ts;
+  // here we keep the invariant that matters for B0 — the cashier route reuses the
+  // single engine and never writes sales itself.
+  test("the cashier sale route (F10-B1) reuses the single engine", () => {
+    const cashier = read("src/app/api/operativo/caja/[slug]/ventas/route.ts")
+    expect(cashier).toContain("await registrarVentaCaja(db, {")
+    expect(cashier).not.toMatch(/\.venta\.create\(|runStockSerializable\(/)
   })
   test("no shifts or physical registers yet (F10-B2): no models, no Venta.turnoId", () => {
     const schema = read("prisma/schema.prisma")

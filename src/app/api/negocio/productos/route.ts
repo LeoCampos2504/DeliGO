@@ -12,7 +12,7 @@ import {
 import { validateProductSectionsForSave } from "@/lib/product-own-sections"
 import { isValidUnidadMedida, validateVarianteMinimo } from "@/lib/inventario"
 import { normalizeBarcodeForStorage } from "@/lib/barcode"
-import { isGenericBusinessStockScope, leerReservasActivasPorClave, resolvePublicProductAvailability } from "@/lib/stock-lifecycle"
+import { anotarDisponibilidadCaja } from "@/lib/caja-catalogo"
 import { mapBarcodeWriteError, runBarcodeGuardedWrite, type BarcodeClaim } from "@/lib/barcode-uniqueness"
 import { Prisma } from "@prisma/client"
 
@@ -70,39 +70,14 @@ export async function GET(req: NextRequest) {
       orderBy: { orden: "asc" },
     })
 
-    // F9 (D5): read-only R3A context so Caja can warn against the real
-    // available stock (físico − reservas ACTIVA) instead of the physical one.
-    // One groupBy for the whole business (no N+1), only for a generic business
-    // that actually controls stock; Restaurante/Ropa responses are unchanged.
-    // The checkout stays the authority — this is only a preview input.
-    const controlsStock = productos.some((p) => p.controlStock || p.variantes.some((v) => v.controlStock))
-    const negocioScope = controlsStock
-      ? await db.negocio.findUnique({ where: { id: negocioId }, select: { rubro: true } })
-      : null
-    const reservedByKey = negocioScope && isGenericBusinessStockScope(negocioScope.rubro)
-      ? await leerReservasActivasPorClave(db, [negocioId])
-      : null
-    // Same R3A authority as the public catalog (resolvePublicProductAvailability),
-    // evaluated with the manual `stock` toggle forced on: Caja only needs the
-    // number, never the public visibility decision. stockDisponible is added
-    // only to controlled rows; an active controlled variant missing from
-    // variantesVisibles has 0 available.
-    const withDisponible = (p: (typeof productos)[number]) => {
-      if (!reservedByKey) return p
-      const availability = resolvePublicProductAvailability({ ...p, stock: true }, reservedByKey)
-      const variantDisponible = new Map(availability.variantesVisibles.map((v) => [v.id, v.stockDisponible]))
-      return {
-        ...p,
-        ...(p.controlStock && p.variantes.length === 0 ? { stockDisponible: availability.stockDisponible } : {}),
-        variantes: p.variantes.map((v) =>
-          v.controlStock && v.activo ? { ...v, stockDisponible: variantDisponible.get(v.id) ?? 0 } : v
-        ),
-      }
-    }
+    // F9 (D5) / F10-B1: read-only R3A availability (físico − reservas ACTIVA) for
+    // controlled rows of a generic business — ONE shared rule with the cashier
+    // catalog (src/lib/caja-catalogo.ts). Restaurante/Ropa responses unchanged.
+    const conDisponible = await anotarDisponibilidadCaja(db, negocioId, productos)
 
     // Parse JSON fields for each product
-    const productosParsed = productos.map((p) => ({
-      ...withDisponible(p),
+    const productosParsed = conDisponible.map((p) => ({
+      ...p,
       talles: safeParseJSON(p.talles, []),
       colores: safeParseJSON(p.colores, []),
       secciones: safeParseJSON(p.secciones, []),
