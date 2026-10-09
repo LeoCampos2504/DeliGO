@@ -6,7 +6,31 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ALL_TECHNICAL_REPORTS_MUST_EXIST_IN_CANONICAL_REPORT_DIR_EVEN_IF_WORK_EXECUTES_FROM_ANOTHER_WORKTREE
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=SI
 
-=== LATEST CURRENT HANDOFF — F10 OPERACIONES, TURNOS DE CAJA Y CONTROL FINANCIERO DOCUMENTED (PLANNED_NOT_STARTED) · F9 CERTIFICATION BLOCKED BY M3/M6 EVIDENCE GAP (2026-10-08) ===
+=== LATEST CURRENT HANDOFF — F9 CLOSED_TESTING_CERTIFIED + ROADMAP NUMBERING CONFIRMED (F7→F10-B, OLD F10 TICKETS→F11) (2026-10-09) ===
+
+CURRENT_TASK=F9-CERTIFICATION-AND-ROADMAP-CONFIRMATIONS (verificación READ-ONLY + documentación)
+CURRENT_TASK_STATUS=DONE
+RESULT=F9_CERTIFIED_AND_ROADMAP_DECISIONS_RECORDED
+ROADMAP_NUMBERING_CONFIRMED=2026-10-09 por el operador: F7 CIERRE DE CAJA absorbido por F10-B (no es un desarrollo independiente pendiente; historial conservado) · antiguo "F10 TICKETS Y COMPROBANTES" renumerado F11 (sin colisión: no existía otro F11; contenido intacto) · F10 reservado para "Operaciones, turnos de Caja y control financiero" (PLANNED_NOT_STARTED, sin cambios de alcance)
+F10_STATUS=PLANNED_NOT_STARTED (alcance aprobado sin cambios; NO implementado ni autorizado; detalle en codex-reports/ROADMAP.md "### F10 — Operaciones, turnos de Caja y control financiero para negocios genéricos"; la decisión pendiente #13 de numeración quedó resuelta, las otras 13 siguen pendientes para F10-A)
+F9_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; alcance probado en TESTING — no es certificación universal de dispositivos ni de Production). F9_TECHNICAL_TESTS=PASS · F9_PHYSICAL_SMOKE=PASS · F9_MANUAL_SCENARIOS=6_PASS_0_FAIL (detalle M1–M6 informado por el operador sobre iPhone PWA) · F9_TESTED_ENVIRONMENTS=IPHONE_SAFARI,IPHONE_PWA,ANDROID_CHROME,ANDROID_PWA (confirmación general del operador, sin matriz M1–M6 por dispositivo) · M3: venta confirmada encontrada en TESTING (3 ventas Caja reales del operador tras la auditoría previa: 23:32:09Z 9 de oro ×10 EFECTIVO $20.010 · 23:33:02Z Safiris ×3 EFECTIVO $6.000 · 00:15:08Z Safiris ×3 TRANSFERENCIA $6.000; importes, movimientos VENTA y stock coherentes; sin duplicados) · M6_UI_STOCK_RESERVATION_BLOCK=PASS (operator-reported): con un pedido que reservaba 10/10 de Safiris (ACTIVA 23:34:02Z–00:14:53Z, disponible 0) no hubo ningún POST /api/negocio/caja/ventas — el operador no llegó al checkout; NO hubo 409 observado en ese intento, NI venta rechazada registrada, NI reserva creada por el intento; las garantías del servidor provienen de tests existentes (caja/ventas route.reservations: 409 STOCK_RESERVED_FOR_ORDERS sin venta parcial para producto y variante; I5 real-DB R4 en TESTING; smoke I5 #5 "Caja respeta las unidades reservadas"; F9 Caja: 409 mostrado y carrito conservado) y el checkout no cambió con F9
+F9_EVIDENCE_LAYERS=(1) observado físicamente por el operador: M1–M6 PASS en iPhone PWA + funcionamiento correcto en iPhone Safari, iPhone PWA, Android Chrome y Android PWA · (2) registrado en TESTING (DB + logs): 3 ventas Caja reales con movimientos coherentes, 1 POST de checkout a las 23:31:52Z que no dejó venta ni movimiento (rechazado por el servidor sin venta parcial; motivo no registrado — el logger del proxy muestra un status placeholder), pedido con reserva 10/10 de Safiris durante el intento M6 sin ningún checkout · (3) tests automatizados previos: guardas de reservas del checkout (route.reservations 14/0, I5 real-DB R4) y 409 en la UI de Caja
+M6_DESIGN_NOTE=por diseño (D5) Caja advierte "hay unidades reservadas para pedidos" y deja la validación definitiva al checkout; el bloqueo informado por el operador es su observación de la interfaz, no un rechazo del servidor
+POST_SMOKE_READ_ONLY_CHECK=PASS (huella d64be28f676e; stockReservaModo=ON, config sin cambios desde 2026-10-08T17:51:08Z; reservas ACTIVA 0 · CONSUMIDA 1 · LIBERADA 4 (nueva: pedido cmv06artp001bml0a66u3o729 CANCELADO_VENDEDOR); 0 inconsistencias; 0 stock negativo; 0 ventas o movimientos duplicados; 0 residuos test-f9-*; logs sin errores). Dos alertas del script se explicaron con el timeline: la venta de 23:33:02Z y el pedido de 23:32:46Z sobre Safiris no tienen movimiento/reserva porque la variante recién pasó a controlStock a las 23:33:30Z (correcto)
+R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (sin cambios; reservas ON)
+F9_LIMITATIONS_PRESERVED=umbrales del lock ajustables ante futuros dispositivos · rendimiento WASM en gama baja · conflictos de serialización bajo escrituras simultáneas · 9 fallas baseline de contratos sensibles a CRLF en la copia Windows · lector QR de Mozo sin certificación física específica · lectores USB/Bluetooth sin certificación física específica · package-lock.json sin la dependencia (Railway usa bun.lock) · sin certificación de Production
+FILES_CHANGED=codex-reports/ROADMAP.md · CODEX_REPORT.md · DELIGO_FULL_CONTEXT_LATEST.md · codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md (documentación únicamente)
+DOCS_ONLY=YES · CODE_CHANGED=NO · SCHEMA_CHANGED=NO · DATABASE_CHANGED=NO (sólo lecturas) · F10_IMPLEMENTED=NO · PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0; production/DeliGO 6bf1ee84 sin cambios)
+TESTING_CODEX_HEAD=dd908e5141db1fb96ac961c3c285420694aee67a (F10 docs) + el commit documental "docs: certify F9 testing and confirm roadmap numbering" encima
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F9 cerrado en TESTING; el operador decide cuándo autoriza F10-A — auditoría y diseño técnico sin cambios funcionales; F10 PLANNED_NOT_STARTED)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F10_A_AUTHORIZATION
+REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F9_BARCODE_CONTINUOUS_SCANNER.md (§14 certificación) · F10: codex-reports\ROADMAP.md
+
+F9 queda cerrado en TESTING con la evidencia separada por capas (operador,
+datos/logs, tests). M6 fue un bloqueo observado en la interfaz, sin 409 en
+ese intento. La numeración del roadmap quedó confirmada. F10 sigue sin iniciar.
+
+=== HISTORICAL HANDOFF — F10 OPERACIONES, TURNOS DE CAJA Y CONTROL FINANCIERO DOCUMENTED (PLANNED_NOT_STARTED) · F9 CERTIFICATION BLOCKED BY M3/M6 EVIDENCE GAP (2026-10-08) — superseded as the current pointer by the F9 certification above; F10 remains PLANNED_NOT_STARTED and the F9 gap it recorded is RESOLVED ===
 
 CURRENT_TASK=F10-PLANNING-DOCUMENTATION (exclusivamente documental)
 CURRENT_TASK_STATUS=DOCUMENTED

@@ -5,9 +5,9 @@ Fecha: 2026-10-08 · Entorno autorizado: TESTING (amiable-rejoicing / TESTING / 
 ## 1. Resultado
 
 ```text
-F9_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE
+F9_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; antes DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE — ver §14)
 F9_TECHNICAL_TESTS=PASS
-F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR
+F9_PHYSICAL_DEVICE_CERTIFICATION=PASS_OPERATOR_REPORTED (antes PENDING_OPERATOR; alcance y capas de evidencia en §14)
 STOCK_RESERVATION_MODE=ON (antes y después; no se tocó)
 R3A_OVERALL_STATUS=CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS (sin cambios de código R3A)
 BASE_TESTING_CODEX_HEAD=5fbfc60a8e521681e876bec5fc8bf8f7e18fcdb8
@@ -181,7 +181,7 @@ Regresiones dirigidas — 41 archivos, 677 pass / 9 fail (cada archivo en su pro
 - Rollback de TESTING: revertir el/los commits funcionales F9 en `testing-codex` con `git revert` (nuevo commit), push y verificar el autodeploy. El permiso `camera=(self)` vuelve a `camera=()` con el revert (Mozo vuelve a quedar bloqueado en Chromium).
 - Datos creados con F9 (códigos cargados) son válidos sin el lector; no requieren limpieza.
 
-## 12. Smoke físico del operador (pendiente)
+## 12. Smoke físico del operador (realizado — ver §14)
 
 Dispositivos: iPhone Safari · iPhone PWA instalada · Android Chrome · Android PWA instalada. Registrar cuáles se probaron; no declarar PASS en los no disponibles.
 
@@ -194,3 +194,59 @@ Dispositivos: iPhone Safari · iPhone PWA instalada · Android Chrome · Android
 
 ## 13. Estado R3A
 Sin cambios en `stock-lifecycle.ts`, `stock-authority.ts`, checkout de Caja, rutas de pedidos ni tablas de reservas. `stockReservaModo=ON` leído en solo-lectura antes y después.
+
+## 14. Certificación física y verificación post-smoke (2026-10-09)
+
+```text
+F9_STATUS=CLOSED_TESTING_CERTIFIED (alcance probado en TESTING; NO es certificación universal de dispositivos ni de Production)
+F9_TECHNICAL_TESTS=PASS
+F9_PHYSICAL_SMOKE=PASS
+F9_MANUAL_SCENARIOS=6_PASS_0_FAIL (detalle M1–M6 informado por el operador sobre iPhone PWA)
+F9_TESTED_ENVIRONMENTS=IPHONE_SAFARI,IPHONE_PWA,ANDROID_CHROME,ANDROID_PWA (confirmación general del operador; no hay matriz M1–M6 por dispositivo)
+STOCK_RESERVATION_MODE=ON
+```
+
+**Historia de la brecha.** La primera verificación post-smoke (2026-10-08, hasta 22:46Z) no encontró ventas de Caja ni requests a `/api/negocio/caja/ventas` posteriores al deploy F9, y bloqueó el cierre (`F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP`). El operador aclaró que todavía no había confirmado ninguna venta, y después repitió M3 confirmando la venta. La brecha quedó resuelta con la evidencia de abajo.
+
+**Capas de evidencia (nunca mezcladas):**
+1. **Observado por el operador.** M1 escaneo continuo, M2 sin duplicaciones accidentales, M3 carrito/cantidades con venta confirmada, M4 variantes y desconocidos, M5 captura en Inventario y M6 protección de stock en la interfaz: todos PASS en iPhone PWA. Además, funcionamiento correcto en iPhone Safari, iPhone PWA, Android Chrome y Android PWA.
+2. **Registrado en TESTING** (READ-ONLY; huella d64be28f676e; logs de los deploys 6be10e84 y c65c81d1). Secuencia de la sesión del operador en paola-vinal, posterior a la auditoría anterior:
+   - **23:31:38Z:** carga del catálogo de Caja.
+   - **23:31:52Z:** POST de checkout que **no** dejó Venta ni movimiento. El servidor lo rechazó sin venta parcial; el motivo y el status no constan, porque el logger del proxy muestra un placeholder.
+   - **23:32:08Z:** venta `cmv068c16000kml0au2fm7h3c`, "Girasol san jorge — 9 de oro" ×10, EFECTIVO $20.010. 1 movimiento VENTA, stock de la variante 10→0.
+   - **23:32:46Z:** pedido `cmv06951a000sml0ahv8pys0d` (Safiris ×10) sin reserva: la variante todavía no controlaba stock, así que es correcto. Cancelado 23:33:49Z.
+   - **23:33:02Z:** venta `cmv069hmk000wml0an2h9v8ro`, Safiris ×3, EFECTIVO $6.000, sin movimiento por la misma razón (correcto).
+   - **23:33:30Z:** Safiris pasa a `controlStock`. **23:33:40Z:** AJUSTE 0→10.
+   - **23:34:02Z:** pedido `cmv06artp001bml0a66u3o729` (Safiris ×10) → reserva ACTIVA 10, disponible 0. Entre 23:34:09Z y 23:34:22Z se recargó el catálogo de Caja sin ningún checkout: es el intento M6, y el operador no llegó a "Confirmar venta".
+   - **00:14:53Z:** pedido cancelado; reserva LIBERADA (CANCELADO_VENDEDOR).
+   - **00:15:08Z:** venta `cmv07rm940007nz0a0gzsiao7`, Safiris ×3, TRANSFERENCIA $6.000. 1 movimiento VENTA, 10→7.
+   - **Cuadre:** 3 POST exitosos = 3 Ventas = 3 auditorías `venta.creada`; totales = suma de subtotales; 0 duplicados; 0 errores en logs.
+3. **Tests automatizados previos** (no repetidos):
+   - `caja/ventas/route.reservations.test.ts` (14/0 en las regresiones F9): 409 `STOCK_RESERVED_FOR_ORDERS` para producto y variante sin venta parcial.
+   - I5 real-DB R4 en TESTING: con stock reservado, 409 sin venta ni cambio de stock.
+   - Smoke I5 #5: "Caja respeta las unidades reservadas".
+   - `caja-tab.scanner.test.tsx`: el 409 se muestra y el carrito se conserva.
+   - El checkout no cambió con F9.
+
+**M6 — alcance real.** `M6_UI_STOCK_RESERVATION_BLOCK=PASS (operator-reported)`. La condición existió en TESTING: había reservas que dejaban el disponible en 0, y no hubo checkout en ese intento.
+- **No se afirma:** que ese intento produjera un HTTP 409, que el servidor rechazara una solicitud concreta, que exista una venta rechazada registrada, ni que el intento creara una reserva.
+- **Por diseño (D5),** Caja advierte sobre las unidades reservadas y deja la validación definitiva al checkout.
+- **Las garantías del servidor** provienen de la capa 3.
+
+**Verificación post-smoke (READ-ONLY): PASS.**
+- `stockReservaModo=ON`, sin cambios de configuración.
+- Reservas: ACTIVA 0 · CONSUMIDA 1 · LIBERADA 4.
+- 0 inconsistencias, 0 stock negativo, 0 ventas o movimientos duplicados, 0 residuos `test-f9-*`.
+- Railway TESTING sano (`c65c81d1` SUCCESS); Production `6bf1ee84` @ `42ca500` sin cambios.
+
+**Limitaciones conservadas:**
+- Umbrales del lock ajustables ante futuros dispositivos problemáticos.
+- Rendimiento del detector WASM en teléfonos de gama baja.
+- Conflictos de serialización bajo escrituras simultáneas.
+- 9 fallas baseline de contratos sensibles a CRLF (copia Windows).
+- Lector QR de Mozo sin certificación física específica de esta ronda.
+- Lectores USB/Bluetooth sin certificación física específica.
+- `package-lock.json` sin la nueva dependencia.
+- Sin certificación de Production.
+
+Ninguna de estas limitaciones es una falla del smoke aprobado.

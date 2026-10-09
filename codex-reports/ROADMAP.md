@@ -1,6 +1,6 @@
 # ROADMAP — DeliGO
 
-## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked by M3/M6 post-smoke evidence gap; F10 (Operaciones, turnos de Caja y control financiero) documented as PLANNED_NOT_STARTED (2026-10-08)
+## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked by M3/M6 post-smoke evidence gap; F10 (Operaciones, turnos de Caja y control financiero) documented as PLANNED_NOT_STARTED (2026-10-08) · F9 CLOSED_TESTING_CERTIFIED (2026-10-09) · roadmap numbering confirmed: F7→F10-B, old F10 Tickets→F11
 
 ```text
 P2_T56_R1_STATUS=CLOSED_TESTING_CERTIFIED_EQUIVALENT
@@ -128,11 +128,13 @@ TASK_WORKTREES_ALLOWED=NO
 CANONICAL_REPORT_DIR=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 IMPORTANT_TASK_ISOLATION=DEDICATED_GIT_BRANCH
 
-F9_BARCODE_SCANNER_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: F9 implementada — escaneo continuo en Caja sobre el carrito y checkout existentes + captura por cámara en los 3 campos de código de Inventario + unicidad atómica por negocio (409 CODIGO_BARRAS_DUPLICADO); commits 85e701b · 3e687b2 · 306f34a por fast-forward 5fbfc60..306f34a; deploy TESTING c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS (commit match); tests F9 100/0; sin schema ni migraciones; R3A sin cambios; modo ON; Production sin cambios. F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR — ver codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12)
-F9_CERTIFICATION_BLOCKER=POST_SMOKE_EVIDENCE_GAP (2026-10-08, verificación READ-ONLY posterior al smoke informado 6/6 PASS + iPhone Safari/iPhone PWA/Android Chrome/Android PWA OK: la actividad de Inventario M5 SÍ aparece en TESTING; NO hay ventas de Caja posteriores al deploy F9 ni requests a /api/negocio/caja/ventas en los logs del período (20:33Z–22:38Z) → sin evidencia del cobro M3 ni del intento de sobreventa con reservas M6; reservas ON, 0 ACTIVA, sin stock negativo ni ventas duplicadas; Production sin cambios. Último RESULT=F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP. Pendiente: el operador confirma en qué entorno hizo M3/M6 o repite sólo esos pasos en TESTING. F9 NO está cerrado ni certificado; la planificación F10 no lo desbloquea)
+F9_BARCODE_SCANNER_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; antes DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08: F9 implementada — escaneo continuo en Caja sobre el carrito y checkout existentes + captura por cámara en los 3 campos de código de Inventario + unicidad atómica por negocio (409 CODIGO_BARRAS_DUPLICADO); commits 85e701b · 3e687b2 · 306f34a por fast-forward 5fbfc60..306f34a; deploy TESTING c2015fe3-493b-4a69-888e-34796d6d9fb7 SUCCESS (commit match); tests F9 100/0; sin schema ni migraciones; R3A sin cambios; modo ON; Production sin cambios. F9_PHYSICAL_DEVICE_CERTIFICATION=PENDING_OPERATOR — ver codex-reports/F9_BARCODE_CONTINUOUS_SCANNER.md §12))
+F9_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; alcance probado en TESTING — no es certificación universal de dispositivos ni de Production). F9_TECHNICAL_TESTS=PASS · F9_PHYSICAL_SMOKE=PASS · F9_MANUAL_SCENARIOS=6_PASS_0_FAIL (detalle M1–M6 informado por el operador sobre iPhone PWA) · F9_TESTED_ENVIRONMENTS=IPHONE_SAFARI,IPHONE_PWA,ANDROID_CHROME,ANDROID_PWA (confirmación general del operador, sin matriz M1–M6 por dispositivo) · M3: venta confirmada encontrada en TESTING (3 ventas Caja reales del operador tras la auditoría previa: 23:32:09Z 9 de oro ×10 EFECTIVO $20.010 · 23:33:02Z Safiris ×3 EFECTIVO $6.000 · 00:15:08Z Safiris ×3 TRANSFERENCIA $6.000; importes, movimientos VENTA y stock coherentes; sin duplicados) · M6_UI_STOCK_RESERVATION_BLOCK=PASS (operator-reported): con un pedido que reservaba 10/10 de Safiris (ACTIVA 23:34:02Z–00:14:53Z, disponible 0) no hubo ningún POST /api/negocio/caja/ventas — el operador no llegó al checkout; NO hubo 409 observado en ese intento, NI venta rechazada registrada, NI reserva creada por el intento; las garantías del servidor provienen de tests existentes (caja/ventas route.reservations: 409 STOCK_RESERVED_FOR_ORDERS sin venta parcial para producto y variante; I5 real-DB R4 en TESTING; smoke I5 #5 "Caja respeta las unidades reservadas"; F9 Caja: 409 mostrado y carrito conservado) y el checkout no cambió con F9
+F9_CERTIFICATION_BLOCKER_HISTORY=RESOLVED 2026-10-09 (la ausencia de ventas en la auditoría del 2026-10-08 22:46Z se explicó: el operador todavía no había confirmado ninguna venta; luego confirmó ventas reales — ver F9_STATUS). Registro original: F9_CERTIFICATION_BLOCKER=POST_SMOKE_EVIDENCE_GAP (2026-10-08, verificación READ-ONLY posterior al smoke informado 6/6 PASS + iPhone Safari/iPhone PWA/Android Chrome/Android PWA OK: la actividad de Inventario M5 SÍ aparece en TESTING; NO hay ventas de Caja posteriores al deploy F9 ni requests a /api/negocio/caja/ventas en los logs del período (20:33Z–22:38Z) → sin evidencia del cobro M3 ni del intento de sobreventa con reservas M6; reservas ON, 0 ACTIVA, sin stock negativo ni ventas duplicadas; Production sin cambios. Último RESULT=F9_CERTIFICATION_BLOCKED_POST_SMOKE_EVIDENCE_GAP. Pendiente: el operador confirma en qué entorno hizo M3/M6 o repite sólo esos pasos en TESTING. F9 NO está cerrado ni certificado; la planificación F10 no lo desbloquea)
 F10_STATUS=PLANNED_NOT_STARTED (2026-10-08: especificación funcional documentada en "### F10 — Operaciones, turnos de Caja y control financiero" más abajo; NO implementado, NO autorizado, ninguna etapa iniciada)
-NEXT_PRIORITY_TASK=RESOLVE_F9_M3_M6_EVIDENCE_GAP (luego el operador decide cuándo autoriza F10-A; F10 PLANNED_NOT_STARTED, sin desarrollo funcional sin nueva autorización)
-NEXT_ACTION=RESOLVE_F9_M3_M6_EVIDENCE_GAP_THEN_RETURN_TO_OPERATOR_FOR_F10_A_AUTHORIZATION
+ROADMAP_NUMBERING_CONFIRMED=2026-10-09 por el operador: F7 CIERRE DE CAJA absorbido por F10-B (no es un desarrollo independiente pendiente; historial conservado) · antiguo "F10 TICKETS Y COMPROBANTES" renumerado F11 (sin colisión: no existía otro F11; contenido intacto) · F10 reservado para "Operaciones, turnos de Caja y control financiero" (PLANNED_NOT_STARTED, sin cambios de alcance)
+NEXT_PRIORITY_TASK=NONE_AUTHORIZED (F9 cerrado en TESTING; el operador decide cuándo autoriza F10-A — auditoría y diseño técnico sin cambios funcionales; F10 PLANNED_NOT_STARTED)
+NEXT_ACTION=RETURN_TO_OPERATOR_FOR_F10_A_AUTHORIZATION
 OPEN_FOLLOWUPS_FROM_I5=FOLLOWUP_STOCK_HIGH_CONTENTION_SERIALIZATION_CONFLICT_RATE · FOLLOWUP_STOCK_OPS_CLI_PRISMA_LOG_NOISE · visibilidad Físico/Reservado/Disponible en Inventario · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP (+99 filas R9)
 OPEN_FOLLOWUPS_FROM_I4=FOLLOWUP_DENUNCIAS_SERIALIZABLE_TX_DEFAULT_TIMEOUT_P2028 · FOLLOWUP_SUPERADMIN_NOTIFICATIONS_TEST11_TIMEOUT · FOLLOWUP_REAL_DB_SUITES_AUXILIARY_TABLE_CLEANUP · FOLLOWUP_MESA_REJECTED_ORDER_OCCUPANCY_LEFT_OPEN · promocionados genérico sin real-DB · A0.1-15 paso 2 · promociones sin filtro eliminado
 ```
@@ -255,15 +257,19 @@ F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes c
 F6  ALERTAS DE REPOSICIÓN — stock mínimo (el campo stockMinimo ya existe en Producto y en Variante), alertas de pocas unidades,
     listado y prioridades de reposición.
 F7  CIERRE DE CAJA — apertura, efectivo esperado vs contado, transferencias, diferencias, cierre, historial por responsable.
-    → 2026-10-08: alcance ABSORBIDO y ampliado por F10-B (turnos + cierre ciego) — absorción pendiente de confirmación del operador.
+    → ABSORBIDO por F10-B (Rol Cajero y turnos de Caja) — propuesto 2026-10-08, CONFIRMADO por el operador 2026-10-09. No es un
+      desarrollo independiente pendiente: sus requisitos compatibles (apertura, efectivo esperado vs contado, transferencias,
+      diferencias, cierre, historial por responsable) se conservan dentro de F10-B, ampliados con fondo inicial, ventas por
+      empleado, entradas/salidas de efectivo, cierre ciego, entrega y fondo para el siguiente turno, diferencias sólo para el
+      dueño y correcciones auditadas.
 F8  PROMOCIONES Y DESCUENTOS (módulo genérico) — ofertas, combos, descuentos por cantidad, promociones con fecha, integración
     con Caja y pedidos (amplía, sin duplicar, el modelo actual de descuento por producto y Promocion).
-F9  CÓDIGOS DE BARRAS CON CÁMARA — IMPLEMENTADA Y DESPLEGADA EN TESTING 2026-10-08, PENDIENTE SMOKE FÍSICO (ver F9_BARCODE_SCANNER_STATUS arriba y BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
+F9  CÓDIGOS DE BARRAS CON CÁMARA — CLOSED_TESTING_CERTIFIED 2026-10-09 (implementada y desplegada en TESTING 2026-10-08) (ver F9_BARCODE_SCANNER_STATUS arriba y BARCODE_CAMERA_RESEARCH abajo). ALCANCE: el lector sólo
     captura el NÚMERO del código para cargarlo o buscarlo en codigoBarras; sin catálogos externos ni reconocimiento de imágenes.
 F11 (antes F10) TICKETS Y COMPROBANTES — detalle de ventas, comprobantes de pagos parciales y totales y de fiados, impresión y opción
     digital. Ticket interno ≠ facturación fiscal electrónica.
     → 2026-10-08: identificador F10 reasignado por el operador a "Operaciones, turnos de Caja y control financiero"; este ítem se
-      conserva intacto con el número provisorio F11 (renumeración pendiente de confirmación del operador).
+      conserva intacto como F11 (renumeración CONFIRMADA por el operador 2026-10-09; sin colisión: no existía otro F11).
 F10 OPERACIONES, TURNOS DE CAJA Y CONTROL FINANCIERO — PLANNED_NOT_STARTED (ver sección F10 abajo).
 DEPENDENCIAS RECOMENDADAS=
   - terminar R3A-I4/I5 antes de ampliar el módulo;
@@ -271,7 +277,7 @@ DEPENDENCIAS RECOMENDADAS=
   - definir la identidad de clientes locales antes de F2/F3;
   - auditar el modelo de productos/variantes/códigos antes de F9;
   - auditar la integridad contable antes de F4 y F7;
-  - F10: auditoría técnica F10-A antes de cualquier etapa; resolver la brecha de evidencia de F9 antes de integrar el lector en
+  - F10: auditoría técnica F10-A antes de cualquier etapa; F9 ya certificado en TESTING (2026-10-09) — su integración dentro de el lector en
     Operaciones; idempotencia del checkout de Caja (hoy inexistente) antes de vincular cobros a turnos.
 ```
 
@@ -281,9 +287,11 @@ DEPENDENCIAS RECOMENDADAS=
 F10_STATUS=PLANNED_NOT_STARTED (documentado 2026-10-08 por decisión del operador; NO implementado; NO autorizado para implementación;
   ninguna etapa iniciada; no crea código, schema, migraciones ni datos)
 F10_SCOPE=negocios genéricos (rubro "negocio"); NO modifica flujos de Restaurante, Ropa ni Mozo sin análisis específico
-F10_NUMBERING=el operador asignó "F10" a este bloque; el ítem previo "F10 TICKETS Y COMPROBANTES" se conserva como F11 provisorio y
+F10_NUMBERING=CONFIRMADO por el operador 2026-10-09: "F10" = este bloque; el antiguo "F10 TICKETS Y COMPROBANTES" es F11 (sin
+  colisión) y "F7 CIERRE DE CAJA" quedó absorbido por F10-B (historial conservado)
   "F7 CIERRE DE CAJA" queda absorbido por F10-B (ambos pendientes de confirmación — ver DECISIONES PENDIENTES)
-F9_RELATION=F10 reutilizará el lector F9; F9 sigue DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE con brecha de evidencia M3/M6 — esta
+F9_RELATION=F10 reutilizará el lector F9; F9 CLOSED_TESTING_CERTIFIED en TESTING (2026-10-09); integrarlo en Operaciones es parte de
+  una etapa futura de F10, no está autorizado
   planificación NO desbloquea ni sustituye su certificación
 R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON en TESTING; F10 debe preservar sus autoridades
 ```
@@ -328,7 +336,7 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 
 #### Dependencias
 - F10-A antes de cualquier etapa; cada etapa con autorización propia del operador.
-- F9: resolver la brecha de evidencia M3/M6 y certificar antes de habilitar el lector dentro de Operaciones.
+- F9: CLOSED_TESTING_CERTIFIED (2026-10-09); habilitar el lector dentro de Operaciones requiere la etapa F10 correspondiente.
 - Caja: ruta de autorización de empleados en el checkout (hoy sólo sesión del negocio) + idempotencia del cobro (hoy inexistente) antes de vincular ventas a turnos.
 - Pagos mixtos: hoy `Venta` tiene un único `metodoPago`; decidir si F10 los requiere.
 - Inventario/R3A: la aprobación de recepciones debe usar la autoridad de stock existente (Serializable + reservas ACTIVA).
@@ -361,7 +369,7 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 10. Cuentas por pagar y pagos parciales a proveedores (F10 vs F5).
 11. Saldo inicial de cuentas y modelo de conciliación (manual) de Mercado Pago.
 12. Almacenamiento y privacidad de comprobantes/fotos.
-13. Confirmar la numeración: Tickets F10→F11 y absorción de F7 por F10-B.
+13. ~~Confirmar la numeración: Tickets F10→F11 y absorción de F7 por F10-B.~~ RESUELTA 2026-10-09 (confirmadas por el operador).
 14. Precios, abono y período de prueba (fuera de F10; referencia ARS 9.900/mes y 45 días sólo exploratoria).
 
 ### Investigación — lector de códigos de barras con cámara (F9)
@@ -409,7 +417,7 @@ USB_BLUETOOTH_READER=compatible a futuro como "teclado" (entrada rápida + Enter
 EXTERNAL_CATALOG_REQUIRED=NO — y no se usará: los catálogos externos quedaron fuera de alcance (ver BARCODE_SCOPE). La opción de
   catálogo externo que figuraba en el discovery queda retirada
 PHYSICAL_DEVICE_TESTING_REQUIRED=YES (iPhone Safari, iPhone PWA instalada, Android Chrome, Android PWA instalada)
-IMPLEMENTATION_STATUS=DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08; antes DEFERRED). Implementado según las decisiones D1–D6 del
+IMPLEMENTATION_STATUS=CLOSED_TESTING_CERTIFIED (2026-10-09; antes DEPLOYED_TESTING_AWAITING_PHYSICAL_SMOKE (2026-10-08; antes DEFERRED). Implementado según las decisiones D1–D6 del
   operador: barcode-detector 3.2.2 (nativo + ponyfill zxing-wasm 3.1.3 servido desde /vendor, sin CDN); Permissions-Policy
   camera=(self); unicidad por negocio entre Producto y Variante (variantes inactivas cuentan, eliminados excluidos, UPC-A≡EAN-13)
   con transacción Serializable + advisory lock transaccional + reintento P2034 acotado, verificada con escrituras concurrentes
