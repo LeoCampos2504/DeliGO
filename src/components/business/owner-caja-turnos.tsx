@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { BadgeCheck, CircleSlash, Plus, RefreshCw, Star, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 
 type Turno = { id: string; responsableTipo: "NEGOCIO" | "EMPLEADO"; responsableNombre: string; abiertoEn: string }
 export type CajaFisicaResumen = {
@@ -24,6 +25,9 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
   const [nombre, setNombre] = useState("")
   const [nombresEditados, setNombresEditados] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
+  const [efectivoContado, setEfectivoContado] = useState<Record<string, string>>({})
+  const [confirmingClose, setConfirmingClose] = useState<string | null>(null)
+  const closeKeys = useRef(new Map<string, string>())
   const query = useQuery<CajaResponse>({
     queryKey: ownerRegisterQueryKey(negocioId),
     queryFn: async () => {
@@ -54,6 +58,28 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
     onSuccess: ({ caja }) => { setNombresEditados((current) => { const next = { ...current }; delete next[caja.id]; return next }); setMessage("Caja actualizada."); void refresh() },
     onError: (error) => setMessage(error.message),
   })
+  const close = useMutation({
+    mutationFn: async ({ turnoId, amount }: { turnoId: string; amount: string }) => {
+      const canonical = `${turnoId}:${amount}`
+      let key = closeKeys.current.get(canonical)
+      if (!key) { key = newIdempotencyKey(); closeKeys.current.set(canonical, key) }
+      const response = await fetch(`/api/negocio/caja/turnos/${encodeURIComponent(turnoId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+        body: JSON.stringify({ efectivoContado: amount }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok || !json.ok) throw new Error(json.error ?? "No se pudo cerrar el turno.")
+      return { turnoId }
+    },
+    onSuccess: ({ turnoId }) => {
+      for (const key of closeKeys.current.keys()) if (key.startsWith(`${turnoId}:`)) closeKeys.current.delete(key)
+      setConfirmingClose(null)
+      setMessage("Cierre declarado registrado.")
+      void refresh()
+    },
+    onError: (error) => setMessage(error.message),
+  })
 
   if (query.isLoading) return <p className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Cargando cajas…</p>
   if (query.isError) return <div className="rounded-xl border bg-card p-5"><p role="alert" className="text-sm text-destructive">{query.error.message}</p><Button className="mt-3" variant="outline" onClick={() => void query.refetch()}>Reintentar</Button></div>
@@ -75,7 +101,13 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
                 <div className="min-w-0"><h4 className="truncate font-bold">{caja.nombre}{caja.esPredeterminada ? " · Principal" : ""}</h4><p className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${ocupada ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200" : caja.activa ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground"}`}>{ocupada ? "Turno abierto" : caja.activa ? "Disponible" : "Inactiva"}</p></div>
                 {caja.esPredeterminada && <Star className="h-4 w-4 shrink-0 fill-current text-primary" aria-label="Predeterminada" />}
               </div>
-              {caja.turnoAbierto && <div className="rounded-xl bg-muted/50 p-3 text-sm"><p className="flex items-center gap-1.5 font-semibold"><UserRound className="h-4 w-4" />Responsable: {caja.turnoAbierto.responsableNombre}</p><p className="mt-1 text-xs text-muted-foreground">Abierto {new Date(caja.turnoAbierto.abiertoEn).toLocaleString("es-AR")}</p></div>}
+              {caja.turnoAbierto && <div className="rounded-xl bg-muted/50 p-3 text-sm"><p className="flex items-center gap-1.5 font-semibold"><UserRound className="h-4 w-4" />Responsable: {caja.turnoAbierto.responsableNombre}</p><p className="mt-1 text-xs text-muted-foreground">Abierto {new Date(caja.turnoAbierto.abiertoEn).toLocaleString("es-AR")}</p>
+                {caja.turnoAbierto.responsableTipo === "NEGOCIO" && <div className="mt-3 space-y-2">
+                  <label className="block space-y-1 text-sm font-medium" htmlFor={`cierre-dueno-${caja.turnoAbierto.id}`}><span>Efectivo contado para tu turno</span><Input id={`cierre-dueno-${caja.turnoAbierto.id}`} inputMode="decimal" type="number" min="0" step="0.01" value={efectivoContado[caja.turnoAbierto.id] ?? ""} onChange={(event) => setEfectivoContado((current) => ({ ...current, [caja.turnoAbierto!.id]: event.target.value }))} disabled={close.isPending} className="h-11 rounded-xl" /></label>
+                  {confirmingClose === caja.turnoAbierto.id ? <div className="grid grid-cols-2 gap-2"><Button type="button" variant="outline" disabled={close.isPending} onClick={() => setConfirmingClose(null)}>Volver</Button><Button type="button" disabled={close.isPending || !/^\d{1,10}(\.\d{1,2})?$/.test((efectivoContado[caja.turnoAbierto.id] ?? "").trim())} onClick={() => close.mutate({ turnoId: caja.turnoAbierto!.id, amount: efectivoContado[caja.turnoAbierto!.id].trim() })}>{close.isPending ? "Cerrando…" : "Confirmar cierre"}</Button></div> : <Button type="button" variant="outline" disabled={close.isPending} onClick={() => setConfirmingClose(caja.turnoAbierto!.id)}>Preparar cierre de tu turno</Button>}
+                  <p className="text-xs text-muted-foreground">El cierre termina el turno y no muestra efectivo esperado ni diferencia.</p>
+                </div>}
+              </div>}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input aria-label={`Nombre de ${caja.nombre}`} value={nombreActual} onChange={(event) => setNombresEditados((current) => ({ ...current, [caja.id]: event.target.value }))} className="h-11 min-w-0 rounded-xl" />
                 <Button variant="outline" className="h-11 rounded-xl" disabled={update.isPending || !nombreActual.trim() || nombreActual.trim() === caja.nombre} onClick={() => update.mutate({ caja, patch: { nombre: nombreActual.trim() } })}>Renombrar</Button>

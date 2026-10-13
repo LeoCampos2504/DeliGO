@@ -16,7 +16,7 @@ import { createOperationalSession, createSession, deleteSession, OPERATIONAL_SES
 import { GET as getCajas, POST as postCaja } from "@/app/api/negocio/caja/cajas/route"
 import { PATCH as patchCaja } from "@/app/api/negocio/caja/cajas/[id]/route"
 import { GET as getTurnosOwner, POST as postTurnoOwner } from "@/app/api/negocio/caja/turnos/route"
-import { GET as getTurnoDetalle } from "@/app/api/negocio/caja/turnos/[id]/route"
+import { GET as getTurnoDetalle, POST as postCierreTurnoOwner } from "@/app/api/negocio/caja/turnos/[id]/route"
 import { POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
 import { GET as getTurnoCajero, POST as postTurnoCajero } from "@/app/api/operativo/caja/[slug]/turno/route"
 import { POST as postVentaCajero } from "@/app/api/operativo/caja/[slug]/ventas/route"
@@ -29,7 +29,7 @@ if (!testDatabaseUrl || process.env.DATABASE_URL !== testDatabaseUrl) {
   throw new Error("Este test de integración requiere DELIGO_TEST_DATABASE_URL y DATABASE_URL apuntando a la misma base TESTING.")
 }
 const declaredEnvironment = process.env.DELIGO_ENVIRONMENT ?? process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.APP_ENV
-if (declaredEnvironment && declaredEnvironment.toUpperCase() !== "TESTING") {
+if (!declaredEnvironment || declaredEnvironment.toUpperCase() !== "TESTING") {
   throw new Error("La suite F10-B2.1 sólo puede ejecutarse con DELIGO_ENVIRONMENT=TESTING.")
 }
 process.env.DELIGO_ENVIRONMENT = "TESTING"
@@ -110,6 +110,10 @@ const detalle = async (owner: string, id: string) => json(await getTurnoDetalle(
 const turnoCajero = async (cookie: string, slug: string) => json(await getTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie), slugCtx(slug)))
 const abrirCajero = async (cookie: string, slug: string, body: unknown, key: string | undefined = randomUUID()) =>
   json(await postTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie, "POST", body, key), slugCtx(slug)))
+const cerrarCajero = async (cookie: string, slug: string, turnoCajaId: string, efectivoContado: unknown, key = randomUUID()) =>
+  json(await postTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie, "POST", { action: "close", turnoCajaId, efectivoContado }, key), slugCtx(slug)))
+const cerrarOwner = async (owner: string, turnoCajaId: string, efectivoContado: unknown, key = randomUUID()) =>
+  json(await postCierreTurnoOwner(ownerReq(`/api/negocio/caja/turnos/${turnoCajaId}`, owner, "POST", { efectivoContado }, key), idCtx(turnoCajaId)))
 const venderCajero = async (cookie: string, slug: string, body: unknown, key = randomUUID()) =>
   json(await postVentaCajero(ownerReq(`/api/operativo/caja/${slug}/ventas`, cookie, "POST", body, key), slugCtx(slug)))
 const venderOwner = async (owner: string, body: unknown, key = randomUUID()) => json(await postVentaOwner(ownerReq("/api/negocio/caja/ventas", owner, "POST", body, key)))
@@ -608,7 +612,7 @@ describe("F10-B2.1 — access and blind-close safety", () => {
     const t1 = (await abrirCajero(c1.cookie, negocio.slug, { fondoInicial: "777.00" })).body.turno
     await venderCajero(c1.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
     const own = await turnoCajero(c1.cookie, negocio.slug)
-    expect(Object.keys(own.body).sort()).toEqual(["aperturaHabilitada", "cajas", "modoTurnos", "ok", "turno"])
+    expect(Object.keys(own.body).sort()).toEqual(["aperturaHabilitada", "cajas", "modoTurnos", "ok", "turno", "ultimoCierre"])
     expect(Object.keys(own.body.turno).sort()).toEqual(["abiertoEn", "caja", "fondoInicial", "id"])
     const text = JSON.stringify(own.body)
     for (const leak of ["esperado", "ingresos", "salidas", "diferencia", "saldo", "totalEfectivo", "2011"]) expect(text).not.toContain(leak)
@@ -629,5 +633,103 @@ describe("F10-B2.1 — access and blind-close safety", () => {
     expect((await json(await getTurnosOwner(ownerReq("/api/negocio/caja/turnos", otro.owner)))).body.turnos).toHaveLength(0)
     // and this owner does see the administrative figure
     expect((await detalle(owner, t1.id)).body.efectivo.esperado).toBe(2011)
+  })
+})
+
+describe("F10-B2.2-C — blind declared close", () => {
+  test("responsible cashier closes once, replay is idempotent, shared owner cannot close it, and sales stop", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const producto = await crearProducto(negocio.id, 7)
+    await listarCajas(owner)
+    const cashier = await crearCajero(negocio.id)
+    const other = await crearCajero(negocio.id)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "1.25" })).body.turno
+    await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] })
+    await venderCajero(cashier.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] })
+
+    const unauthorized = await cerrarCajero(other.cookie, negocio.slug, turno.id, "15.25")
+    expect(unauthorized.status).toBe(403)
+    expect((await cerrarOwner(owner, turno.id, "15.25")).status).toBe(403)
+
+    const key = randomUUID()
+    const closed = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "15.25", key)
+    expect(closed.status).toBe(200)
+    expect(closed.body.turno).toMatchObject({ id: turno.id, estado: "CERRADO_DECLARADO" })
+    expect(closed.body.turno.efectivoContado).toBeUndefined()
+    expect(JSON.stringify(closed.body)).not.toMatch(/esperado|diferencia|15\.25/i)
+    const replay = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "15.25", key)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    const reused = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "15.26", key)
+    expect(reused.status).toBe(409)
+    expect(reused.body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+
+    const saved = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
+    expect(saved.estado).toBe("CERRADO_DECLARADO")
+    expect(saved.efectivoContadoDecimal?.toFixed(2)).toBe("15.25")
+    expect(saved.cerradoEn).toBeInstanceOf(Date)
+    const employeeView = await turnoCajero(cashier.cookie, negocio.slug)
+    expect(employeeView.body.turno).toBeNull()
+    expect(employeeView.body.ultimoCierre).toMatchObject({ id: turno.id })
+    const employeeJson = JSON.stringify(employeeView.body)
+    for (const field of ["esperado", "diferencia", "efectivoContado", "15.25"]) expect(employeeJson).not.toContain(field)
+    const saleAfterClose = await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: turno.caja.id, items: [{ productoId: producto.id, cantidad: 1 }] })
+    expect(saleAfterClose.status).toBe(409)
+    expect(saleAfterClose.body.code).toBe("TURNO_NO_DISPONIBLE")
+  })
+
+  test("the owner closes only their own NEGOCIO shift", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const opened = await abrirOwner(owner, { fondoInicial: "0" })
+    expect(opened.status).toBe(201)
+    const turno = opened.body
+    const result = await cerrarOwner(owner, turno.id, "0.10")
+    expect(result.status).toBe(200)
+    expect(result.body.turno.estado).toBe("CERRADO_DECLARADO")
+    const saved = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
+    expect(saved.responsableTipo).toBe("NEGOCIO")
+    expect(saved.efectivoContadoDecimal?.toFixed(2)).toBe("0.10")
+    const employee = await crearCajero(negocio.id)
+    expect((await cerrarCajero(employee.cookie, negocio.slug, turno.id, "0.10")).status).toBe(403)
+  })
+
+  test("simultaneous closes resolve to one persisted declaration; missing and already-closed turns are rejected", async () => {
+    const { negocio } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "0" })).body.turno
+    const key = randomUUID()
+    const attempts = await Promise.all(Array.from({ length: 6 }, () => cerrarCajero(cashier.cookie, negocio.slug, turno.id, "4.50", key)))
+    expect(attempts.every((attempt) => attempt.status === 200)).toBe(true)
+    expect(attempts.filter((attempt) => !attempt.replayed)).toHaveLength(1)
+    const row = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
+    expect(row.estado).toBe("CERRADO_DECLARADO")
+    expect(row.efectivoContadoDecimal?.toFixed(2)).toBe("4.50")
+    expect((await cerrarCajero(cashier.cookie, negocio.slug, "missing-turno-id", "4.50")).status).toBe(404)
+    const secondKey = randomUUID()
+    const closedAgain = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "4.50", secondKey)
+    expect(closedAgain.status).toBe(409)
+    expect(closedAgain.body.code).toBe("TURNO_NO_ABIERTO")
+  })
+
+  test("concurrent sale and close are serialized; no sale can commit after closure", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const producto = await crearProducto(negocio.id, 11)
+    const cashier = await crearCajero(negocio.id)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "0" })).body.turno
+    const [sale, close] = await Promise.all([
+      venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: turno.caja.id, items: [{ productoId: producto.id, cantidad: 1 }] }),
+      cerrarCajero(cashier.cookie, negocio.slug, turno.id, "11.00"),
+    ])
+    expect(close.status).toBe(200)
+    expect([201, 409]).toContain(sale.status)
+    const after = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
+    expect(after.estado).toBe("CERRADO_DECLARADO")
+    if (sale.status === 201) {
+      const savedSale = await db.venta.findUniqueOrThrow({ where: { id: sale.body.id } })
+      expect(savedSale.turnoCajaId).toBe(turno.id)
+      expect(savedSale.createdAt.getTime()).toBeLessThanOrEqual(after.cerradoEn!.getTime())
+    } else {
+      expect(await db.venta.count({ where: { negocioId: negocio.id } })).toBe(0)
+    }
   })
 })

@@ -14,16 +14,24 @@ let enabled = false
 let currentShift: unknown = null
 let postResults: Array<"network" | "success"> = []
 const openingKeys: Array<string | null> = []
+const closingKeys: Array<string | null> = []
 
 beforeEach(() => {
   enabled = false
   currentShift = null
   postResults = []
   openingKeys.length = 0
+  closingKeys.length = 0
   window.sessionStorage.clear()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith("/turno") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body ?? "{}")) as { action?: string }
+      if (body.action === "close") {
+        closingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
+        currentShift = null
+        return new Response(JSON.stringify({ ok: true, turno: { id: "turno-1", estado: "CERRADO_DECLARADO", cerradoEn: new Date().toISOString() } }), { status: 200 })
+      }
       openingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
       const result = postResults.shift() ?? "success"
       if (result === "network") throw new TypeError("network lost")
@@ -82,6 +90,30 @@ describe("F10-B2.2-B — employee shift interface", () => {
     expect(document.body.textContent).toContain("Turno abierto")
     expect(document.body.textContent).toContain("Responsable: Cristian")
     expect(document.body.textContent).not.toContain("$300")
+    await act(async () => root.unmount())
+  })
+
+  test("employee confirms blind count, then sees terminal closure without a cash summary", async () => {
+    enabled = true
+    currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: 0 }
+    const root = await renderPanel()
+    const closeButton = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Cerrar turno")) as HTMLButtonElement
+    await act(async () => closeButton.click())
+    const input = document.querySelector("#efectivo-contado-turno") as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "15.25")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    const confirm = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Confirmar cierre")) as HTMLButtonElement
+    await act(async () => confirm.click())
+    await flush()
+    expect(closingKeys).toHaveLength(1)
+    expect(closingKeys[0]).toBeTruthy()
+    expect(document.body.textContent).toContain("Cierre declarado registrado.")
+    expect(document.body.textContent).not.toContain("esperado")
+    expect(document.body.textContent).not.toContain("diferencia")
+    expect(document.body.textContent).not.toContain("15.25")
     await act(async () => root.unmount())
   })
 })

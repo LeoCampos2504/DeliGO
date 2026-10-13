@@ -28,6 +28,7 @@ import { MONEY_MAX, MoneyError, toDecimalExact } from "@/lib/money"
 
 export const CAJA_PREDETERMINADA_NOMBRE = "Caja principal"
 export const TURNO_ESTADO_ABIERTO = "ABIERTO"
+export const TURNO_ESTADO_CERRADO_DECLARADO = "CERRADO_DECLARADO"
 export const CAJA_TURNOS_MODO_OPCIONAL = "OPCIONAL"
 export const CAJA_TURNOS_MODO_OBLIGATORIO = "OBLIGATORIO"
 export const CAJA_NOMBRE_MAX = 60
@@ -48,6 +49,20 @@ const fail = (status: 400 | 403 | 404 | 409, error: string, code?: string) => ({
 
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+}
+
+function isSerializationConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
+}
+
+async function withSerializableRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db.$transaction(fn, { ...TX_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (error) {
+      if (!isSerializationConflict(error) || attempt >= 3) throw error
+    }
+  }
 }
 
 function actorResponsable(negocioId: string, actor: CajaActor) {
@@ -309,4 +324,102 @@ export async function turnoAbiertoDeActor(db: Pick<Db, "turnoCaja">, negocioId: 
     where: { negocioId, estado: TURNO_ESTADO_ABIERTO, responsableTipo: r.responsableTipo, responsableId: r.responsableId },
     include: { cajaFisica: { select: { id: true, nombre: true } } },
   })
+}
+
+export interface CerrarTurnoInput {
+  negocioId: string
+  turnoCajaId: string
+  actor: CajaActor
+  efectivoContado: unknown
+  idempotencyKey: string
+}
+
+type TurnoCerradoPayload = { id: string; estado: typeof TURNO_ESTADO_CERRADO_DECLARADO; cerradoEn: Date; efectivoContadoDecimal: Prisma.Decimal }
+type CerrarTurnoResult = CajaResult<{ turno: TurnoCerradoPayload; replayed: boolean }>
+
+function actorPuedeCerrar(negocioId: string, actor: CajaActor, turno: { responsableTipo: string; responsableId: string }) {
+  return actor.tipo === "EMPLEADO"
+    ? turno.responsableTipo === "EMPLEADO" && turno.responsableId === actor.empleadoId
+    : turno.responsableTipo === "NEGOCIO" && turno.responsableId === negocioId
+}
+
+function fingerprintCierre(negocioId: string, turnoCajaId: string, efectivoContado: Prisma.Decimal, actor: CajaActor) {
+  const actorId = actor.tipo === "EMPLEADO" ? actor.empleadoId : negocioId
+  return createHash("sha256").update(`${negocioId}\n${turnoCajaId}\n${efectivoContado.toFixed(2)}\n${actor.tipo}:${actorId}`).digest("hex")
+}
+
+/**
+ * Closes the responsible actor's own shift as a terminal declaration only.
+ * The physical-register lock is shared with the sale engine, and this
+ * Serializable transaction makes a sale racing the close either commit first
+ * or retry against the closed state. No expected cash/difference is computed.
+ */
+export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<CajaResult<{ turno: TurnoCerradoPayload; replayed: boolean }>> {
+  const { negocioId, turnoCajaId, actor } = input
+  if (!turnoCajaId?.trim()) return fail(400, "Turno inválido.", "TURNO_INVALIDO")
+  if (!isValidVentaIdempotencyKey(input.idempotencyKey)) return fail(400, "Falta una Idempotency-Key válida para cerrar el turno.", "IDEMPOTENCY_KEY_REQUIRED")
+  const idempotencyKey = input.idempotencyKey.toLowerCase()
+  const count = parseFondoInicial(input.efectivoContado)
+  if (!count.ok) return fail(400, "El efectivo contado debe ser válido, sin negativos y con hasta 2 decimales.", "EFECTIVO_CONTADO_INVALIDO")
+  const fingerprint = fingerprintCierre(negocioId, turnoCajaId, count.value, actor)
+
+  if (actor.tipo === "EMPLEADO") {
+    const employee = await db.empleado.findFirst({
+      where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
+      select: { areaOperativa: true, rol: true },
+    })
+    if (!employee || resolveAreaOperativaEfectiva(employee) !== "caja") return fail(403, "Acceso denegado")
+  }
+
+  const result = await withSerializableRetry<CerrarTurnoResult>(db, async (tx): Promise<CerrarTurnoResult> => {
+    const sameKey = await tx.turnoCaja.findUnique({
+      where: { negocioId_cierreIdempotencyKey: { negocioId, cierreIdempotencyKey: idempotencyKey } },
+      select: { id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true, efectivoContadoDecimal: true, cierreIdempotencyFingerprint: true },
+    })
+    if (sameKey) {
+      if (!actorPuedeCerrar(negocioId, actor, sameKey) || sameKey.id !== turnoCajaId || sameKey.cierreIdempotencyFingerprint !== fingerprint || !sameKey.cerradoEn || !sameKey.efectivoContadoDecimal) {
+        return fail(409, "Este intento de cierre ya se usó con otros datos.", "IDEMPOTENCY_KEY_REUSED")
+      }
+      return { ok: true as const, value: { turno: { id: sameKey.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: sameKey.cerradoEn, efectivoContadoDecimal: sameKey.efectivoContadoDecimal }, replayed: true } }
+    }
+
+    const target = await tx.turnoCaja.findFirst({
+      where: { id: turnoCajaId, negocioId },
+      select: { id: true, cajaFisicaId: true, responsableTipo: true, responsableId: true, estado: true },
+    })
+    if (!target) return fail(404, "Turno no encontrado.", "TURNO_NO_ENCONTRADO")
+    if (!actorPuedeCerrar(negocioId, actor, target)) return fail(403, "Sólo la persona responsable puede cerrar este turno.", "TURNO_RESPONSABLE_REQUERIDO")
+
+    const register = await lockCaja(tx, negocioId, target.cajaFisicaId)
+    if (!register) return fail(404, "Caja no encontrada.", "CAJA_NO_ENCONTRADA")
+    if (target.estado !== TURNO_ESTADO_ABIERTO) return fail(409, "El turno ya no está abierto.", "TURNO_NO_ABIERTO")
+
+    // A real row version change is required: merely taking FOR UPDATE would
+    // let an older Serializable sale snapshot wait, then keep seeing the old
+    // ABIERTO state. The increment makes that waiter abort/retry against the
+    // committed close.
+    const touchedRegister = await tx.cajaFisica.updateMany({
+      where: { id: target.cajaFisicaId, negocioId },
+      data: { turnoLockRevision: { increment: 1 } },
+    })
+    if (touchedRegister.count !== 1) return fail(404, "Caja no encontrada.", "CAJA_NO_ENCONTRADA")
+
+    const closedAt = new Date()
+    const updated = await tx.turnoCaja.updateMany({
+      where: { id: turnoCajaId, negocioId, cajaFisicaId: target.cajaFisicaId, estado: TURNO_ESTADO_ABIERTO },
+      data: {
+        estado: TURNO_ESTADO_CERRADO_DECLARADO,
+        cerradoEn: closedAt,
+        efectivoContadoDecimal: count.value,
+        cierreIdempotencyKey: idempotencyKey,
+        cierreIdempotencyFingerprint: fingerprint,
+      },
+    })
+    if (updated.count !== 1) return fail(409, "El turno ya no está abierto.", "TURNO_NO_ABIERTO")
+    return {
+      ok: true as const,
+      value: { turno: { id: turnoCajaId, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: closedAt, efectivoContadoDecimal: count.value }, replayed: false },
+    }
+  })
+  return result
 }

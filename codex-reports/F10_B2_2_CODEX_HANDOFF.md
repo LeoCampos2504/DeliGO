@@ -1,3 +1,87 @@
+## F10-B2.2-C — intento local con dependencias restauradas 2026-10-13
+
+RESULT=BLOCKED_BY_HOST_ACCESS
+BUN_NO_ENV_FILE=SUPPORTED_BY_BUN_1_3_14
+SUITE_PREFLIGHT=caja-turnos.test.ts usa validación/matemática en memoria; operational-shift-panel.test.tsx reemplaza fetch por respuestas locales. Ninguna lee process.env, instancia DB ni contacta servicios externos.
+UNIT_TESTS=BLOCKED_BEFORE_CASES; bun --no-env-file test devolvió EPERM al abrir node_modules/@prisma/client/index.js y no resolvió @happy-dom/global-registrator; 0 casos.
+DEPENDENCY_METADATA=TypeScript, Happy DOM y Prisma tienen rutas presentes después de la restauración reportada por el operador; la presencia no habilita lectura desde el proceso del host.
+PRISMA_VALIDATE=NOT_VERIFIED; wrapper con schema copiado, cwd temporal y DATABASE_URL ficticia devolvió exit 1 sin conservar diagnóstico. GENERATE se omitió porque validate no terminó correctamente.
+TYPESCRIPT=BLOCKED; node tsc devuelve EPERM al abrir node_modules/typescript/bin/tsc.
+BUILD=NOT_RUN; Next podría cargar .env independientemente de --no-env-file de Bun.
+MIGRATION=Revisión estática PASS; se confirmó la columna turnoLockRevision agregada. NO aplicada.
+REAL_DB_TESTS=NOT_RUN; TESTING no fue identificado inequívocamente. Production no se usó.
+DIFF_CHECK=PASS; ruta 32 presente; HEAD sin cambios, sin commit.
+SECRETS_READ=NO; las suites usaron --no-env-file; Prisma recibió una URL ficticia y se ejecutó en temp sin .env.
+NEXT=el operador debe ejecutar los comandos locales indicados en la respuesta para devolver sólo exit codes y conteos; después retomar pruebas y build desde el host autorizado. B2.2-D pendiente.
+
+---
+## F10-B2.2-C — reanudación de verificación 2026-10-13
+
+F10_B2_2_C_STATUS=BLOCKED_LOCAL_VERIFICATION
+BRANCH=work/f10-b2-1-physical-cash-registers-shifts
+HEAD=953773caccc2b4725a98d32a381f88650438f442 (sin commit)
+PRISMA_VALIDATE=NOT_RUN; la lectura de dependencias queda bloqueada por EPERM y no se ejecutó CLI que pudiera cargar .env.
+PRISMA_GENERATE=NOT_RUN; depende de validación y acceso a los paquetes.
+DEPENDENCIES=@happy-dom/global-registrator declarado en package.json y lockfiles; restauración bun install --frozen-lockfile falló con EPERM. Bun informó que la carga automática de .env fue denegada; no se obtuvo ni se mostró valor alguno.
+UNIT_AND_REGRESSION_TESTS=BLOCKED; 0 casos ejecutados en la prueba local; ejecución fuera del sandbox rechazada por el host.
+TYPESCRIPT=BLOCKED; falta node_modules/typescript/bin/tsc.
+BUILD=NOT_RUN; se evita Next build porque podría cargar archivos .env bajo la restricción vigente.
+MIGRATION_REVIEW=PASS_STATIC_AFTER_LOCAL_FIX; la migración ahora agrega también cajas_fisicas.turnoLockRevision, requerido por el servicio. Aditiva; sin DROP, DELETE, actualización de datos históricos ni lógica D/E/F/G/H.
+REAL_DB_TESTS=NOT_RUN; no se verificó una conexión exclusivamente TESTING.
+MIGRATION_APPLIED_TO_TESTING=NO
+TESTING_DEPLOYMENT=NOT_DEPLOYED
+PRODUCTION_TOUCHED=NO
+SECRETS_READ=NO; carga de .env denegada antes de leer contenido; ningún valor fue mostrado.
+FILES_CHANGED=prisma/migrations/20261013120000_f10_b2_2_c_blind_shift_close/migration.sql (agregado turnoLockRevision); este estado fue actualizado en el handoff y CODEX_REPORT.
+NEXT=restaurar dependencias y ejecutar validación/tests/TypeScript/build en un entorno autorizado que no lea .env; después identificar TESTING con seguridad antes de migrar o desplegar. B2.2-D sigue pendiente.
+
+---
+## F10-B2.2-C — ejecución local 2026-10-13 (verificación pendiente)
+
+F10_B2_2_C_STATUS=IMPLEMENTED_LOCALLY_NOT_TESTED_NOT_DEPLOYED
+BRANCH=work/f10-b2-1-physical-cash-registers-shifts
+HEAD_BEFORE=953773caccc2b4725a98d32a381f88650438f442
+HEAD_AFTER=953773caccc2b4725a98d32a381f88650438f442 (sin commit)
+BACKEND=servicio Serializable con clave/fingerprint idempotente, autorización del responsable, owner limitado a su turno NEGOCIO, CAS ABIERTO→CERRADO_DECLARADO y conteo exacto; respuesta sin conteo, esperado o diferencia.
+CONCURRENCIA=el cierre incrementa turnoLockRevision en la fila de CajaFisica que comparten los locks del motor de ventas; una venta con snapshot anterior debe abortar/reintentar y revalidar el estado del turno.
+UI=PWA Operaciones y panel del dueño para el turno propio NEGOCIO; confirmación explícita y sin resumen económico. Empleado sólo ve su último estado de cierre, fecha y caja.
+DATABASE=migración incremental 20261013120000_f10_b2_2_c_blind_shift_close; creada, NO aplicada.
+TESTS=se agregaron casos de autorización, replay/conflicto, cierre simultáneo, privacidad, venta posterior y carrera cierre/venta; suite de integración y UI no ejecutadas.
+LOCAL_VERIFICATION=git diff --check PASS; transpilación sintáctica aislada de 7 archivos PASS; bun test no inició casos: EPERM al leer node_modules/@prisma/client y paquete @happy-dom/global-registrator no disponible.
+PRISMA_TYPESCRIPT_BUILD=NOT_VERIFIED (generación Prisma rechazada por el control del host; no se reintentó).
+TESTING_DEPLOYMENT=NOT_DEPLOYED; no se usó Railway ni se aplicó la migración.
+PRODUCTION_TOUCHED=NO
+NEXT=desbloquear ejecución local autorizada de dependencias; luego confirmar destino TESTING y aplicar/verificar allí la migración, ejecutar integración/regresiones, build y smoke físico en iPhone. Continuar a B2.2-D sólo tras certificar C.
+
+---
+## F10-B2.2-C — certificación TESTING, checkpoint 2026-10-13
+
+RESULT=BLOCKED_PENDING_TESTING_IDENTITY
+USER_CONFIRMED_LOCAL_TESTS=caja-turnos.test.ts 9/9 PASS; operational-shift-panel.test.tsx 3/3 PASS; error TypeScript propio de B2.2-C ausente en segunda ejecución. TSC no se repite; errores restantes son baseline ajeno.
+TESTING_DATABASE=NOT_VERIFIED; la suite exige igualdad de DELIGO_TEST_DATABASE_URL y DATABASE_URL más marcador TESTING, pero eso no prueba la identidad física del servidor. No se conectó ni ejecutó SQL.
+MIGRATION=STATIC_REVIEW_PASS; aditiva: turnoLockRevision, cerradoEn, efectivoContadoDecimal, claves/fingerprint idempotentes, índice único y checks de estado/conteo. No aplicada.
+INTEGRATION_SUITE=NOT_RUN; la suite escribe fixtures en PostgreSQL y limpia por IDs exactos; queda pendiente identificar inequívocamente TESTING.
+BUILD=NOT_RUN; Next puede cargar archivos .env por su propio mecanismo aun con Bun --no-env-file; no se inició un build que pudiera leerlos.
+RAILWAY=NOT_CALLED; el catálogo de herramientas muestra capacidad Railway, pero conexión/autorización/alcance TESTING no se verificó. No se reconectó ni se usó.
+DEPLOYMENT=NOT_DEPLOYED; no hubo push ni deployment.
+PRODUCTION_TOUCHED=NO
+SECRETS_READ=NO
+F10_B2_2_D=NOT_STARTED
+NEXT=operador debe proporcionar una sesión de ejecución local cuyo destino PostgreSQL esté identificado como TESTING mediante consulta read-only/fingerprint no secreta; entonces ejecutar migración e integración sólo desde esa sesión. Build/deployment requieren además entorno de build sin lectura de .env y autorización de push/deploy a testing-codex.
+
+---
+## F10-B2.2-C — intento de cierre TESTING 2026-10-13
+
+OPERADOR_CONFIRMÓ_MIGRATION_BASELINE=LOCAL_PREVIOUS_COUNT=41; TESTING_APPLIED_COUNT=41; MISSING=0; UNEXPECTED=0; INCOMPLETE=0; B2_2_C_APPLIED=NO (comparación nombre por nombre en editor SQL TESTING).
+RAILWAY_CONFIG=NOT_VERIFIED; la integración Railway disponible lista únicamente el proyecto `miraculous-learning` para las cuentas conectadas; `amiable-rejoicing`/DeliGO Copy no aparece. No se consultaron variables ni se inició operación remota.
+BRANCH=work/f10-b2-1-physical-cash-registers-shifts; existe rama local `testing-codex`, pero no se cambió de rama. La migración B2.2-C y `migration_lock.toml` siguen untracked; no están publicadas.
+UNIT_UI_TESTS=BLOCKED_BY_HOST; comando `bun --no-env-file test src/lib/caja-turnos.test.ts src/components/business/operational-shift-panel.test.tsx`; 0 casos, EPERM leyendo `node_modules/@prisma/client/index.js` y falta `@happy-dom/global-registrator`.
+TYPESCRIPT=BLOCKED_BY_HOST; comando `bun --no-env-file x tsc --noEmit`; EPERM al abrir `node_modules/typescript/bin/tsc`.
+BUILD=BLOCKED_BY_HOST; comando `bun --no-env-file run build`; EPERM al abrir `node_modules/prisma/build/index.js`, antes de Prisma generate/Next build.
+INTEGRATION=NOT_RUN; no se conectó desde este proceso a una base cuyo destino pudiera verificarse. Migración no aplicada; deployment no ejecutado.
+COMMIT=NOT_CREATED; se conserva el trabajo local y todos los archivos ajenos, incluida ruta 32. No se hizo push.
+PRODUCTION_TOUCHED=NO; SECRETS_READ=NO; F10_B2_2_D=NOT_STARTED.
+NEXT=conectar Railway al workspace/proyecto que contiene `amiable-rejoicing` para verificar DeliGO Copy/TESTING, rama `testing-codex`, referencia DATABASE_URL y `preDeployCommand`; desbloquear lectura/ejecución de dependencias sin cargar .env; luego repetir pruebas antes del commit y deploy autorizados.
 # DeliGO — continuidad Codex y F10-B2.2
 
 ## ACTUALIZACIÓN VIGENTE — F10-B2.2-B desplegado en TESTING (2026-10-09)

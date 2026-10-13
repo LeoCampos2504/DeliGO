@@ -1,3 +1,19 @@
+## F10-B2.2-C — ejecución local 2026-10-13 (verificación pendiente)
+
+F10_B2_2_C_STATUS=IMPLEMENTED_LOCALLY_NOT_TESTED_NOT_DEPLOYED
+BRANCH=work/f10-b2-1-physical-cash-registers-shifts
+HEAD_BEFORE=953773caccc2b4725a98d32a381f88650438f442
+HEAD_AFTER=953773caccc2b4725a98d32a381f88650438f442 (sin commit)
+BACKEND=servicio Serializable con clave/fingerprint idempotente, autorización del responsable, owner limitado a su turno NEGOCIO, CAS ABIERTO→CERRADO_DECLARADO y conteo exacto; respuesta sin conteo, esperado o diferencia.
+CONCURRENCIA=el cierre incrementa turnoLockRevision en la fila de CajaFisica que comparten los locks del motor de ventas; una venta con snapshot anterior debe abortar/reintentar y revalidar el estado del turno.
+UI=PWA Operaciones y panel del dueño para el turno propio NEGOCIO; confirmación explícita y sin resumen económico. Empleado sólo ve su último estado de cierre, fecha y caja.
+DATABASE=migración incremental 20261013120000_f10_b2_2_c_blind_shift_close; creada, NO aplicada.
+TESTS=se agregaron casos de autorización, replay/conflicto, cierre simultáneo, privacidad, venta posterior y carrera cierre/venta; suite de integración y UI no ejecutadas.
+LOCAL_VERIFICATION=git diff --check PASS; transpilación sintáctica aislada de 7 archivos PASS; bun test no inició casos: EPERM al leer node_modules/@prisma/client y paquete @happy-dom/global-registrator no disponible.
+PRISMA_TYPESCRIPT_BUILD=NOT_VERIFIED (generación Prisma rechazada por el control del host; no se reintentó).
+TESTING_DEPLOYMENT=NOT_DEPLOYED; no se usó Railway ni se aplicó la migración.
+PRODUCTION_TOUCHED=NO
+NEXT=desbloquear ejecución local autorizada de dependencias; luego confirmar destino TESTING y aplicar/verificar allí la migración, ejecutar integración/regresiones, build y smoke físico en iPhone. Continuar a B2.2-D sólo tras certificar C.
 # F10-B2.1 — Cajas físicas, turnos y atribución financiera
 
 Fecha: 2026-10-09 · Entorno: TESTING únicamente (amiable-rejoicing / TESTING / DeliGO Copy / testing-codex) · Production: sin cambios.
