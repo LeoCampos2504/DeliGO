@@ -17,6 +17,8 @@ import { GET as getCajas, POST as postCaja } from "@/app/api/negocio/caja/cajas/
 import { PATCH as patchCaja } from "@/app/api/negocio/caja/cajas/[id]/route"
 import { GET as getTurnosOwner, POST as postTurnoOwner } from "@/app/api/negocio/caja/turnos/route"
 import { GET as getTurnoDetalle, POST as postCierreTurnoOwner } from "@/app/api/negocio/caja/turnos/[id]/route"
+import { GET as getTurnosCerrados } from "@/app/api/negocio/caja/turnos/cerrados/route"
+import { GET as getRevisionesTurno, POST as postRevisionTurno } from "@/app/api/negocio/caja/turnos/[id]/revisiones/route"
 import { POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
 import { GET as getTurnoCajero, POST as postTurnoCajero } from "@/app/api/operativo/caja/[slug]/turno/route"
 import { POST as postVentaCajero } from "@/app/api/operativo/caja/[slug]/ventas/route"
@@ -107,6 +109,9 @@ const editarCaja = async (owner: string, id: string, body: unknown) => json(awai
 const abrirOwner = async (owner: string, body: unknown, key: string | undefined = randomUUID()) =>
   json(await postTurnoOwner(ownerReq("/api/negocio/caja/turnos", owner, "POST", body, key)))
 const detalle = async (owner: string, id: string) => json(await getTurnoDetalle(ownerReq(`/api/negocio/caja/turnos/${id}`, owner), idCtx(id)))
+const turnosCerrados = async (owner: string) => json(await getTurnosCerrados(ownerReq("/api/negocio/caja/turnos/cerrados", owner)))
+const revisionesTurno = async (owner: string, id: string) => json(await getRevisionesTurno(ownerReq(`/api/negocio/caja/turnos/${id}/revisiones`, owner), idCtx(id)))
+const revisarTurno = async (owner: string, id: string, observacion: string | null, key = randomUUID()) => json(await postRevisionTurno(ownerReq(`/api/negocio/caja/turnos/${id}/revisiones`, owner, "POST", { observacion }, key), idCtx(id)))
 const turnoCajero = async (cookie: string, slug: string) => json(await getTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie), slugCtx(slug)))
 const abrirCajero = async (cookie: string, slug: string, body: unknown, key: string | undefined = randomUUID()) =>
   json(await postTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie, "POST", body, key), slugCtx(slug)))
@@ -136,6 +141,7 @@ afterAll(async () => {
   await db.pedidoItem.deleteMany({ where: { pedido: { negocioId: { in: negocios } } } })
   await db.pedido.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.movimientoInventario.deleteMany({ where: { negocioId: { in: negocios } } })
+  await db.revisionTurnoCaja.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.operacionFinanciera.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.cuentaFinanciera.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.ventaItem.deleteMany({ where: { venta: { negocioId: { in: negocios } } } })
@@ -731,5 +737,86 @@ describe("F10-B2.2-C — blind declared close", () => {
     } else {
       expect(await db.venta.count({ where: { negocioId: negocio.id } })).toBe(0)
     }
+  })
+})
+
+describe("F10-B2.2-D — owner review of closed shifts", () => {
+  test("exact shared cash, match/shortage/surplus, immutable declaration, idempotent review and history after register reuse", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const producto = await crearProducto(negocio.id, 0.1)
+    const cashier = await crearCajero(negocio.id)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+
+    const openClose = async (fund: string, count: string) => {
+      const opened = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: fund })
+      expect(opened.status).toBe(201)
+      const turno = opened.body.turno
+      await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: caja.id, items: [{ productoId: producto.id, cantidad: 1 }] })
+      await venderCajero(cashier.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] })
+      const close = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, count)
+      expect(close.status).toBe(200)
+      return turno.id as string
+    }
+
+    const coincidente = await openClose("0.10", "0.30")
+    const missing = await openClose("0.10", "0.29")
+    const surplus = await openClose("0.10", "0.31")
+
+    const listed = await turnosCerrados(owner)
+    expect(listed.status).toBe(200)
+    expect(listed.body.turnos).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: coincidente, efectivoEsperado: 0.3, efectivoContado: 0.3, diferencia: 0, resultado: "COINCIDE", estadoRevision: "PENDIENTE_REVISION" }),
+      expect.objectContaining({ id: missing, efectivoEsperado: 0.3, efectivoContado: 0.29, diferencia: -0.01, resultado: "FALTANTE" }),
+      expect.objectContaining({ id: surplus, efectivoEsperado: 0.3, efectivoContado: 0.31, diferencia: 0.01, resultado: "SOBRANTE" }),
+    ]))
+
+    expect((await revisarTurno(owner, coincidente, null)).status).toBe(201)
+    const missingNoNote = await revisarTurno(owner, missing, null)
+    expect(missingNoNote.status).toBe(400)
+    expect(missingNoNote.body.code).toBe("OBSERVACION_REQUERIDA")
+    const reviewKey = randomUUID()
+    const missingReview = await revisarTurno(owner, missing, "Conteo verificado con responsable", reviewKey)
+    expect(missingReview.status).toBe(201)
+    expect(missingReview.body.revision).toMatchObject({ efectivoEsperado: 0.3, efectivoContado: 0.29, diferencia: -0.01 })
+    const concurrentReplay = await Promise.all(Array.from({ length: 5 }, () => revisarTurno(owner, missing, "Conteo verificado con responsable", reviewKey)))
+    expect(concurrentReplay.every((result) => [200, 201].includes(result.status))).toBe(true)
+    expect(concurrentReplay.filter((result) => result.status === 201)).toHaveLength(0)
+    const replay = await revisarTurno(owner, missing, "Conteo verificado con responsable", reviewKey)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    expect((await revisarTurno(owner, missing, "Otra observación", reviewKey)).body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+    expect((await revisarTurno(owner, surplus, "Diferencia registrada")).status).toBe(201)
+
+    const events = await revisionesTurno(owner, missing)
+    expect(events.body.revisiones).toHaveLength(1)
+    expect(events.body.revisiones[0]).toMatchObject({ observacion: "Conteo verificado con responsable", diferencia: -0.01 })
+    const saved = await db.turnoCaja.findUniqueOrThrow({ where: { id: missing } })
+    expect(saved.efectivoContadoDecimal?.toFixed(2)).toBe("0.29")
+    expect(saved.efectivoEsperadoDecimal?.toFixed(2)).toBe("0.30")
+
+    const openedAgain = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "5.00" })
+    expect(openedAgain.status).toBe(201)
+    const afterReuse = await turnosCerrados(owner)
+    expect(afterReuse.body.turnos.map((turno: { id: string }) => turno.id)).toEqual(expect.arrayContaining([coincidente, missing, surplus]))
+    expect(afterReuse.body.turnos.find((turno: { id: string }) => turno.id === missing).estadoRevision).toBe("REVISADO")
+
+    const otherBusiness = await crearNegocio()
+    expect((await revisionesTurno(otherBusiness.owner, missing)).status).toBe(404)
+    expect((await revisarTurno(otherBusiness.owner, missing, "Intento ajeno")).status).toBe(404)
+    expect([401, 403]).toContain((await turnosCerrados(cashier.cookie)).status)
+    expect([401, 403]).toContain((await revisionesTurno(cashier.cookie, missing)).status)
+    expect([401, 403]).toContain((await revisarTurno(cashier.cookie, missing, "Intento de empleado")).status)
+    const cashierView = await turnoCajero(cashier.cookie, negocio.slug)
+    expect(JSON.stringify(cashierView.body)).not.toMatch(/esperado|diferencia|efectivoContado|0\.29|0\.30/i)
+  })
+
+  test("open shifts cannot be reviewed and review never writes financial movements", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "9.00" })).body.turno
+    const before = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
+    expect((await revisarTurno(owner, turno.id, "Intento sobre turno abierto")).status).toBe(409)
+    expect(await db.revisionTurnoCaja.count({ where: { negocioId: negocio.id } })).toBe(0)
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(before)
   })
 })

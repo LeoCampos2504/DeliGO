@@ -6,6 +6,7 @@ import { BadgeCheck, CircleSlash, Plus, RefreshCw, Star, UserRound } from "lucid
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+import { OwnerCajaRevisiones } from "@/components/business/owner-caja-revisiones"
 
 type Turno = { id: string; responsableTipo: "NEGOCIO" | "EMPLEADO"; responsableNombre: string; abiertoEn: string }
 export type CajaFisicaResumen = {
@@ -125,6 +126,7 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
         <Button type="submit" disabled={!nombre.trim() || create.isPending} className="h-11 rounded-xl"><Plus className="mr-1 h-4 w-4" />{create.isPending ? "Creando…" : "Crear caja"}</Button>
       </form>
       {query.data?.modoTurnos === "OPCIONAL" && <p className="text-xs text-muted-foreground">Los turnos siguen en modo opcional. Las ventas sin turno mantienen el flujo actual.</p>}
+      <OwnerCajaRevisiones negocioId={negocioId} />
       {message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}
     </section>
   )

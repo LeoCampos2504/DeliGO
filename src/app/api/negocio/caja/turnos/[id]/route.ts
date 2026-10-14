@@ -23,10 +23,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
     })
     if (!turno) return NextResponse.json({ error: "Turno no encontrado" }, { status: 404 })
-    const [efectivo, ventas] = await Promise.all([
-      calcularEfectivoEsperadoTurno(db, auth.negocioId, turno.id),
+    const [efectivoCalculado, ventas] = await Promise.all([
+      turno.estado === TURNO_ESTADO_CERRADO_DECLARADO && turno.efectivoEsperadoDecimal
+        ? Promise.resolve(null)
+        : calcularEfectivoEsperadoTurno(db, auth.negocioId, turno.id),
       resumenVentasTurno(db, auth.negocioId, turno.id),
     ])
+    const efectivoEsperado = turno.estado === TURNO_ESTADO_CERRADO_DECLARADO
+      ? turno.efectivoEsperadoDecimal
+      : efectivoCalculado?.esperado
+    const efectivoCounted = turno.estado === TURNO_ESTADO_CERRADO_DECLARADO ? turno.efectivoContadoDecimal : null
+    const diferencia = efectivoEsperado && efectivoCounted ? efectivoCounted.minus(efectivoEsperado) : null
     return NextResponse.json({
       id: turno.id,
       caja: turno.cajaFisica,
@@ -34,12 +41,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       responsableNombre: turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño",
       estado: turno.estado,
       abiertoEn: turno.abiertoEn,
-      efectivo: {
-        fondoInicial: moneyToNumber(efectivo!.fondoInicial),
-        ingresosEfectivo: moneyToNumber(efectivo!.ingresosEfectivo),
-        salidasEfectivo: moneyToNumber(efectivo!.salidasEfectivo),
-        esperado: moneyToNumber(efectivo!.esperado),
-      },
+      cerradoEn: turno.cerradoEn,
+      efectivo: efectivoEsperado ? {
+        fondoInicial: moneyToNumber(turno.fondoInicialDecimal),
+        ingresosEfectivo: efectivoCalculado ? moneyToNumber(efectivoCalculado.ingresosEfectivo) : null,
+        salidasEfectivo: efectivoCalculado ? moneyToNumber(efectivoCalculado.salidasEfectivo) : null,
+        esperado: moneyToNumber(efectivoEsperado),
+        contadoDeclarado: efectivoCounted ? moneyToNumber(efectivoCounted) : null,
+        diferencia: diferencia ? moneyToNumber(diferencia) : null,
+      } : null,
       ventas: {
         cantidad: ventas.cantidadVentas,
         totalEfectivo: moneyToNumber(ventas.totalEfectivo),

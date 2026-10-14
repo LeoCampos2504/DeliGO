@@ -1,0 +1,122 @@
+"use client"
+
+import { useRef, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+
+type Resultado = "COINCIDE" | "FALTANTE" | "SOBRANTE"
+type TurnoCerrado = {
+  id: string
+  caja: { id: string; nombre: string }
+  responsableNombre: string
+  abiertoEn: string
+  cerradoEn: string
+  estado: "CERRADO_DECLARADO"
+  fondoInicial: number
+  efectivoEsperado: number
+  efectivoContado: number
+  diferencia: number
+  resultado: Resultado
+  estadoRevision: "PENDIENTE_REVISION" | "REVISADO"
+}
+type Revision = { id: string; actor: string; accion: string; observacion: string | null; efectivoEsperado: number; efectivoContado: number; diferencia: number; createdAt: string }
+
+const money = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" })
+const closedShiftsKey = (negocioId: string) => ["caja-turnos-cerrados", negocioId] as const
+const reviewHistoryKey = (negocioId: string, turnoId: string) => ["caja-turno-revisiones", negocioId, turnoId] as const
+
+function ResultadoBadge({ resultado }: { resultado: Resultado }) {
+  const label = resultado === "COINCIDE" ? "Coincide" : resultado === "FALTANTE" ? "Faltante" : "Sobrante"
+  const style = resultado === "COINCIDE" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : resultado === "FALTANTE" ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200" : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+  return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${style}`}>{label}</span>
+}
+
+export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const attempts = useRef(new Map<string, string>())
+  const query = useQuery<{ turnos: TurnoCerrado[] }>({
+    queryKey: closedShiftsKey(negocioId),
+    queryFn: async () => {
+      const response = await fetch("/api/negocio/caja/turnos/cerrados", { cache: "no-store" })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error ?? "No se pudieron cargar los turnos cerrados.")
+      return json
+    },
+  })
+  const detail = useQuery<{ revisiones: Revision[] }>({
+    queryKey: reviewHistoryKey(negocioId, selected ?? ""),
+    enabled: Boolean(selected),
+    queryFn: async () => {
+      const response = await fetch(`/api/negocio/caja/turnos/${encodeURIComponent(selected!)}/revisiones`, { cache: "no-store" })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error ?? "No se pudo cargar el detalle.")
+      return json
+    },
+  })
+  const review = useMutation({
+    mutationFn: async ({ turno, observacion }: { turno: TurnoCerrado; observacion: string }) => {
+      const canonical = `${turno.id}:${observacion.trim()}`
+      let key = attempts.current.get(canonical)
+      if (!key) { key = newIdempotencyKey(); attempts.current.set(canonical, key) }
+      const response = await fetch(`/api/negocio/caja/turnos/${encodeURIComponent(turno.id)}/revisiones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+        body: JSON.stringify({ observacion: observacion.trim() || null }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.error ?? "No se pudo registrar la revisión.")
+      attempts.current.delete(canonical)
+      return turno.id
+    },
+    onSuccess: (turnoId) => {
+      void queryClient.invalidateQueries({ queryKey: closedShiftsKey(negocioId) })
+      void queryClient.invalidateQueries({ queryKey: reviewHistoryKey(negocioId, turnoId) })
+    },
+  })
+
+  return <section className="space-y-3 rounded-2xl border bg-card p-4" aria-label="Turnos cerrados y revisiones de caja">
+    <div className="flex items-start justify-between gap-3">
+      <div><h3 className="text-base font-bold">Turnos cerrados / Revisiones de caja</h3><p className="text-sm text-muted-foreground">Revisá cada declaración sin alterar el cierre ni los movimientos de caja.</p></div>
+      <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>Actualizar</Button>
+    </div>
+    {query.isLoading ? <p role="status" className="text-sm text-muted-foreground">Cargando turnos cerrados…</p>
+      : query.isError ? <p role="alert" className="text-sm text-destructive">{query.error.message}</p>
+      : !query.data?.turnos.length ? <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">Todavía no hay turnos cerrados para revisar.</p>
+      : <div className="space-y-3">{query.data.turnos.map((turno) => {
+        const open = selected === turno.id
+        const note = notes[turno.id] ?? ""
+        const requiresNote = turno.diferencia !== 0
+        return <article key={turno.id} className="space-y-3 rounded-xl border p-3 sm:p-4">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+            <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{turno.caja.nombre}</h4><span className="rounded-full border px-2 py-1 text-xs font-medium">CERRADO_DECLARADO</span><ResultadoBadge resultado={turno.resultado} /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoRevision === "REVISADO" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{turno.estadoRevision === "REVISADO" ? "Revisado" : "Pendiente de revisión"}</span></div><p className="text-sm text-muted-foreground">Abrió y cerró: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")} · Cierre {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p></div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setSelected(open ? null : turno.id)}>{open ? "Ocultar detalle" : "Ver detalle"}</Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <Money label="Fondo inicial" value={turno.fondoInicial} />
+            <Money label="Efectivo esperado" value={turno.efectivoEsperado} />
+            <Money label="Efectivo declarado" value={turno.efectivoContado} />
+            <Money label="Diferencia" value={turno.diferencia} emphasize />
+          </div>
+          {open && <div className="space-y-3 border-t pt-3">
+            <div><h5 className="text-sm font-semibold">Historial administrativo</h5>
+              {detail.isLoading ? <p className="text-sm text-muted-foreground">Cargando historial…</p> : detail.isError ? <p role="alert" className="text-sm text-destructive">{detail.error.message}</p> : detail.data?.revisiones.length ? <ol className="mt-2 space-y-2">{detail.data.revisiones.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.actor} · {new Date(item.createdAt).toLocaleString("es-AR")}</p><p>Esperado {money.format(item.efectivoEsperado)} · Declarado {money.format(item.efectivoContado)} · Diferencia {money.format(item.diferencia)}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol> : <p className="mt-1 text-sm text-muted-foreground">Sin revisiones anteriores.</p>}</div>
+            <form onSubmit={(event) => { event.preventDefault(); review.mutate({ turno, observacion: note }) }} className="space-y-2 rounded-lg border p-3">
+              <label htmlFor={`revision-nota-${turno.id}`} className="block text-sm font-medium">Observación administrativa {requiresNote ? "(obligatoria para esta diferencia)" : "(opcional)"}</label>
+              <Input id={`revision-nota-${turno.id}`} value={note} maxLength={1000} onChange={(event) => setNotes((current) => ({ ...current, [turno.id]: event.target.value }))} placeholder="Dejá constancia de la revisión" className="h-11 rounded-xl" />
+              {review.isError && <p role="alert" className="text-sm text-destructive">{review.error.message}</p>}
+              <Button type="submit" disabled={review.isPending || (requiresNote && !note.trim())}>{review.isPending ? "Registrando…" : "Registrar revisión administrativa"}</Button>
+              <p className="text-xs text-muted-foreground">La revisión deja un registro inmutable. No modifica el efectivo declarado ni crea ingresos o egresos.</p>
+            </form>
+          </div>}
+        </article>
+      })}</div>}
+  </section>
+}
+
+function Money({ label, value, emphasize = false }: { label: string; value: number; emphasize?: boolean }) {
+  return <div className="min-w-0 rounded-lg bg-muted/40 p-2"><p className="text-xs text-muted-foreground">{label}</p><p className={`mt-0.5 break-words font-semibold ${emphasize && value < 0 ? "text-rose-700 dark:text-rose-300" : emphasize && value > 0 ? "text-amber-700 dark:text-amber-300" : ""}`}>{money.format(value)}</p></div>
+}

@@ -34,9 +34,13 @@ describe("F10-B2.1 — single writer of registers and shifts", () => {
     expect(writers(/\.turnoCaja\.(create|createMany|upsert)\(/)).toEqual([SERVICE])
   })
 
-  test("no path changes a shift (responsible person / fund are immutable in B2.1) and registers are never deleted", () => {
-    expect(writers(/\.turnoCaja\.(update|updateMany|delete|deleteMany)\(/)).toEqual([])
+  test("only the shift service performs the controlled close update; shifts and registers are never deleted", () => {
+    expect(writers(/\.turnoCaja\.(update|updateMany)\(/)).toEqual([SERVICE])
+    expect(writers(/\.turnoCaja\.(delete|deleteMany)\(/)).toEqual([])
     expect(writers(/\.cajaFisica\.(delete|deleteMany)\(/)).toEqual([])
+    const service = read(SERVICE)
+    expect(service).toContain("estado: TURNO_ESTADO_CERRADO_DECLARADO")
+    expect(service).toContain("efectivoEsperadoDecimal: snapshotCierre.esperado")
   })
 
   test("opening a shift never creates financial operations / ledger legs / inventory movements", () => {
@@ -96,7 +100,10 @@ describe("F10-B2.1 — expected cash is owner-only (blind close F10-B2.2)", () =
   })
 
   test("no cashier code (operativo APIs, Operaciones pages, client components) touches expected cash or the ledger", () => {
-    const cashier = productive.filter(({ path }) => path.startsWith("src/app/api/operativo/") || path.startsWith("src/app/operaciones/") || path.startsWith("src/components/"))
+    const cashier = productive.filter(({ path }) =>
+      path.startsWith("src/app/api/operativo/") || path.startsWith("src/app/operaciones/") ||
+      (path.startsWith("src/components/") && path !== "src/components/business/owner-caja-revisiones.tsx")
+    )
     for (const { path, src } of cashier) {
       expect({ path, admin: /caja-turnos-admin|calcularEfectivoEsperado|efectivoEsperado|esperado:/.test(src) }).toEqual({ path, admin: false })
     }
@@ -105,10 +112,18 @@ describe("F10-B2.1 — expected cash is owner-only (blind close F10-B2.2)", () =
   })
 
   test("admin module computes with exact money only", () => {
-    const src = read(ADMIN)
-    expect(src).toContain("storedMoney(l.importeDecimal, l.importe)")
+    const src = read("src/lib/caja-turnos-snapshot.ts")
+    expect(src).toContain("storedMoney(leg.importeDecimal, leg.importe)")
     expect(src).toContain("turno.fondoInicialDecimal.plus(ingresosEfectivo).minus(salidasEfectivo)")
     expect(src).not.toMatch(/reduce\(\(\w+, \w+\) => \w+ \+ /)
+  })
+
+  test("close persists the exact snapshot without adding it to the cashier close response", () => {
+    const service = read("src/lib/caja-turnos-service.ts")
+    expect(service).toContain("calcularSnapshotEfectivoTurno(tx, negocioId, turnoCajaId)")
+    expect(service).toContain("efectivoEsperadoDecimal: snapshotCierre.esperado")
+    const cashierRoute = read(CASHIER_TURNO)
+    expect(cashierRoute).not.toMatch(/efectivoEsperado|diferencia|caja-turnos-admin/)
   })
 })
 

@@ -17,39 +17,11 @@
 
 import type { Prisma, PrismaClient } from "@prisma/client"
 import { addMoney, storedMoney } from "@/lib/money"
+import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
 
 type Db = Pick<PrismaClient, "turnoCaja" | "cuentaFinanciera" | "movimientoFinanciero" | "venta">
 
-export interface EfectivoEsperadoTurno {
-  fondoInicial: Prisma.Decimal
-  ingresosEfectivo: Prisma.Decimal
-  salidasEfectivo: Prisma.Decimal
-  esperado: Prisma.Decimal
-}
-
-export async function calcularEfectivoEsperadoTurno(db: Db, negocioId: string, turnoId: string): Promise<EfectivoEsperadoTurno | null> {
-  const turno = await db.turnoCaja.findFirst({ where: { id: turnoId, negocioId }, select: { id: true, cajaFisicaId: true, fondoInicialDecimal: true } })
-  if (!turno) return null
-  const cuenta = await db.cuentaFinanciera.findFirst({
-    where: { negocioId, cajaFisicaId: turno.cajaFisicaId, tipo: "EFECTIVO" },
-    select: { id: true },
-  })
-  const legs = cuenta
-    ? await db.movimientoFinanciero.findMany({
-        where: { negocioId, cuentaId: cuenta.id, operacion: { turnoCajaId: turno.id, negocioId } },
-        select: { importe: true, importeDecimal: true },
-      })
-    : []
-  const importes = legs.map((l) => storedMoney(l.importeDecimal, l.importe))
-  const ingresosEfectivo = addMoney(...importes.filter((x) => x.isPositive() && !x.isZero()))
-  const salidasEfectivo = addMoney(...importes.filter((x) => x.isNegative() && !x.isZero()).map((x) => x.abs()))
-  return {
-    fondoInicial: turno.fondoInicialDecimal,
-    ingresosEfectivo,
-    salidasEfectivo,
-    esperado: turno.fondoInicialDecimal.plus(ingresosEfectivo).minus(salidasEfectivo),
-  }
-}
+export const calcularEfectivoEsperadoTurno = calcularSnapshotEfectivoTurno
 
 /** Sales attributed to a shift, by method (exact). Transfers are DECLARADO, never verified credits. */
 export async function resumenVentasTurno(db: Db, negocioId: string, turnoId: string) {

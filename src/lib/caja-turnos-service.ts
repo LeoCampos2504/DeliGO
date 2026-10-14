@@ -25,6 +25,7 @@ import { Prisma, type PrismaClient } from "@prisma/client"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { MONEY_MAX, MoneyError, toDecimalExact } from "@/lib/money"
+import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
 
 export const CAJA_PREDETERMINADA_NOMBRE = "Caja principal"
 export const TURNO_ESTADO_ABIERTO = "ABIERTO"
@@ -405,12 +406,15 @@ export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<
     if (touchedRegister.count !== 1) return fail(404, "Caja no encontrada.", "CAJA_NO_ENCONTRADA")
 
     const closedAt = new Date()
+    const snapshotCierre = await calcularSnapshotEfectivoTurno(tx, negocioId, turnoCajaId)
+    if (!snapshotCierre) return fail(404, "Turno no encontrado.", "TURNO_NO_ENCONTRADO")
     const updated = await tx.turnoCaja.updateMany({
       where: { id: turnoCajaId, negocioId, cajaFisicaId: target.cajaFisicaId, estado: TURNO_ESTADO_ABIERTO },
       data: {
         estado: TURNO_ESTADO_CERRADO_DECLARADO,
         cerradoEn: closedAt,
         efectivoContadoDecimal: count.value,
+        efectivoEsperadoDecimal: snapshotCierre.esperado,
         cierreIdempotencyKey: idempotencyKey,
         cierreIdempotencyFingerprint: fingerprint,
       },
