@@ -60,6 +60,7 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
   const [destinations, setDestinations] = useState<Record<string, { type: "DUENO" | "RESGUARDO"; name: string }>>({})
   const [rectifying, setRectifying] = useState<Record<string, boolean>>({})
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
+  const [custodySuccess, setCustodySuccess] = useState<Record<string, string>>({})
   const attempts = useRef(new Map<string, string>())
   const query = useQuery<{ turnos: TurnoCerrado[] }>({
     queryKey: closedShiftsKey(negocioId),
@@ -122,11 +123,48 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
       const json = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(json.error ?? "No se pudo registrar la entrega.")
       attempts.current.delete(canonical)
-      return turno.id
+      const entrega = json.entrega as Omit<CustodyEvent, "actor" | "efectivoEsperado" | "diferencia">
+      return {
+        turno,
+        tipo,
+        replayed: Boolean(json.replayed),
+        entrega: {
+          ...entrega,
+          actor: "Dueño",
+          efectivoEsperado: turno.efectivoEsperado,
+          diferencia: turno.diferencia,
+        } satisfies CustodyEvent,
+      }
     },
-    onSuccess: (turnoId) => {
+    onSuccess: ({ turno, entrega, tipo }) => {
+      queryClient.setQueryData<{ turnos: TurnoCerrado[] }>(closedShiftsKey(negocioId), (current) => current && ({
+        ...current,
+        turnos: current.turnos.map((item) => item.id === turno.id ? {
+          ...item,
+          estadoEntrega: "ENTREGA_CONFIRMADA",
+          entregaActual: {
+            efectivoEntregado: entrega.efectivoEntregado,
+            fondoRemanente: entrega.fondoRemanente,
+            destinoTipo: entrega.destinoTipo,
+            destinoNombre: entrega.destinoNombre,
+            actor: entrega.actor,
+            confirmadoEn: entrega.confirmadoEn,
+            observacion: entrega.observacion,
+          },
+        } : item),
+      }))
+      queryClient.setQueryData<{ entregas: CustodyEvent[] }>(custodyHistoryKey(negocioId, turno.id), (current) => {
+        const events = current?.entregas ?? []
+        return { entregas: [...events.filter((event) => event.id !== entrega.id), entrega].sort((a, b) => a.confirmadoEn.localeCompare(b.confirmadoEn)) }
+      })
+      setCustodySuccess((current) => ({ ...current, [turno.id]: tipo === "RECTIFICACION" ? "Rectificación registrada correctamente" : "Entrega registrada correctamente" }))
+      setRectifying((current) => ({ ...current, [turno.id]: false }))
+      setConfirmed((current) => ({ ...current, [turno.id]: false }))
+      setDeliveryAmounts((current) => { const next = { ...current }; delete next[turno.id]; return next })
+      setCustodyNotes((current) => { const next = { ...current }; delete next[turno.id]; return next })
+      setDestinations((current) => { const next = { ...current }; delete next[turno.id]; return next })
       void queryClient.invalidateQueries({ queryKey: closedShiftsKey(negocioId) })
-      void queryClient.invalidateQueries({ queryKey: custodyHistoryKey(negocioId, turnoId) })
+      void queryClient.invalidateQueries({ queryKey: custodyHistoryKey(negocioId, turno.id) })
     },
   })
 
@@ -167,7 +205,25 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
             <div className="space-y-3 rounded-lg border p-3" aria-label="Entrega de efectivo y fondo remanente">
               <div><h5 className="text-sm font-semibold">Entrega y fondo remanente</h5><p className="text-xs text-muted-foreground">Se divide el efectivo declarado ({money.format(turno.efectivoContado)}); no modifica la diferencia ni genera movimientos financieros.</p></div>
               <ol className="space-y-2">{custody.isLoading ? <li className="text-sm text-muted-foreground">Cargando historial de custodia…</li> : custody.isError ? <li role="alert" className="text-sm text-destructive">{custody.error.message}</li> : custody.data?.entregas.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.tipo === "RECTIFICACION" ? "Rectificación" : "Entrega confirmada"} · {new Date(item.confirmadoEn).toLocaleString("es-AR")}</p><p>{money.format(item.efectivoEntregado)} entregado · {money.format(item.fondoRemanente)} remanente · {item.destinoTipo === "DUENO" ? "Dueño" : item.destinoNombre}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol>
-              {turno.estadoEntrega === "ENTREGA_CONFIRMADA" && <Button type="button" variant="outline" size="sm" onClick={() => { setRectifying((current) => ({ ...current, [turno.id]: !current[turno.id] })); setConfirmed((current) => ({ ...current, [turno.id]: false })) }}>{rectifying[turno.id] ? "Cancelar rectificación" : "Registrar rectificación"}</Button>}
+              {custodySuccess[turno.id] && <p role="status" className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{custodySuccess[turno.id]}</p>}
+              {turno.estadoEntrega === "ENTREGA_CONFIRMADA" && <Button type="button" variant="outline" size="sm" onClick={() => {
+                const closing = Boolean(rectifying[turno.id])
+                setConfirmed((current) => ({ ...current, [turno.id]: false }))
+                setCustodySuccess((current) => { const next = { ...current }; delete next[turno.id]; return next })
+                deliver.reset()
+                if (closing) {
+                  setRectifying((current) => ({ ...current, [turno.id]: false }))
+                  setDeliveryAmounts((current) => { const next = { ...current }; delete next[turno.id]; return next })
+                  setCustodyNotes((current) => { const next = { ...current }; delete next[turno.id]; return next })
+                  setDestinations((current) => { const next = { ...current }; delete next[turno.id]; return next })
+                } else {
+                  const latest = custody.data?.entregas.at(-1)
+                  setRectifying((current) => ({ ...current, [turno.id]: true }))
+                  setDeliveryAmounts((current) => ({ ...current, [turno.id]: (latest?.efectivoEntregado ?? turno.entregaActual?.efectivoEntregado ?? turno.efectivoContado).toFixed(2) }))
+                  setCustodyNotes((current) => ({ ...current, [turno.id]: "" }))
+                  setDestinations((current) => ({ ...current, [turno.id]: { type: latest?.destinoTipo ?? turno.entregaActual?.destinoTipo ?? "DUENO", name: latest?.destinoNombre ?? turno.entregaActual?.destinoNombre ?? "" } }))
+                }
+              }}>{rectifying[turno.id] ? "Cancelar rectificación" : "Registrar rectificación"}</Button>}
               {(turno.estadoEntrega === "PENDIENTE_ENTREGA" || rectifying[turno.id]) && (() => {
                 const delivered = deliveryAmounts[turno.id] ?? turno.efectivoContadoExacto
                 const retained = remainingFrom(turno.efectivoContadoExacto, delivered) ?? ""
@@ -193,4 +249,3 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
 function Money({ label, value, emphasize = false }: { label: string; value: number; emphasize?: boolean }) {
   return <div className="min-w-0 rounded-lg bg-muted/40 p-2"><p className="text-xs text-muted-foreground">{label}</p><p className={`mt-0.5 break-words font-semibold ${emphasize && value < 0 ? "text-rose-700 dark:text-rose-300" : emphasize && value > 0 ? "text-amber-700 dark:text-amber-300" : ""}`}>{money.format(value)}</p></div>
 }
-
