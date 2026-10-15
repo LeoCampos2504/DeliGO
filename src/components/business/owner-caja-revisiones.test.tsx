@@ -238,6 +238,7 @@ describe("F10-B2.2-E — owner cash custody interface", () => {
     await act(async () => root.unmount())
 
     custodyPostFailure = null
+    custodyPostCount = 0
     deferCustodyPost = true
     const pendingRoot = await renderPanel()
     await openTurnoDetails()
