@@ -116,10 +116,11 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - **Pruebas:** nueva regresión real-DB en `f4-a-devoluciones.integration.test.ts` (ambas cookies, cookie vencida, sin
   fallback, otro negocio, marcar leído aislado) — corre sólo en CI; locales 103/0.
 - **CI de la rama:** se agregó un disparador `push` sólo para esta rama al workflow de validación (sin despliegue).
-  Run 38824220699 falló en `caja-devoluciones.test.tsx` (el diálogo Radix no se montó) porque se había sumado
-  `notification-center.test.ts` al lote, que importa la campana sin DOM; se quitó del lote. Run 38824562325 sobre
-  `cfd23e3`: **PASS** (migraciones en PostgreSQL efímero, integración real-DB F4-A con la regresión de la campana,
-  build). Railway TESTING no desplegó nada.
+  `notification-center.test.ts` (verifica que cada campana envíe su feed) corre en un paso propio, en otro proceso.
+  Historial: `de82621` falló en `caja-devoluciones.test.tsx`; `cfd23e3` y `b1c3912` pasaron; `95c0ce4` falló en una
+  prueba previa de ventas concurrentes (`f10-b2-1-turnos.integration.test.ts:440`). Las tres últimas corrieron el mismo
+  lote: son fallas intermitentes, no de esta corrección. La explicación Radix/DOM de la primera falla no está probada.
+  Railway TESTING no desplegó nada.
 - **Pendiente:** autorización del operador para integrar en `testing-codex`, CI, Railway TESTING y una comprobación
   manual de la campana.
 

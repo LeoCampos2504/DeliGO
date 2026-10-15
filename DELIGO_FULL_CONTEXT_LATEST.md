@@ -6,7 +6,7 @@
 F4_A_STATUS=DEPLOYED_TESTING; manual review 7/8 confirmed by operator; owner bell item FAILING until this fix is integrated and re-checked (not PASS)
 CAUSE=employee cookie deligo_operativo_session (path "/") made /api/notificaciones serve the employee feed to the owner's bell on a shared browser
 FIX=branch codex/f4-a-owner-bell-notification commit 0495d48 (feed named per bell, session of that feed validated, no fallback); not integrated, not deployed
-CI_TASK_BRANCH=PASS run 38824562325 on cfd23e3 (real-DB regression incl. owner bell + build); branch-only push trigger, no deploy
+CI_TASK_BRANCH=branch-only trigger; bell unit test in its own CI step; history PASS cfd23e3/b1c3912, FAIL de82621 (caja-devoluciones UI) and 95c0ce4 (pre-existing concurrent-sales test) on identical batches → intermittent suite; final-SHA run in CODEX_REPORT.md
 PRESERVE=local branch preserve/checkout-f10-docs-2026-10-15 commit 5c6651d (not pushed)
 NEXT_ACTION=operator authorization to integrate into testing-codex; see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
 ```
