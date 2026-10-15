@@ -100,6 +100,24 @@ describe("runStockSerializable (I2-A … I2-D)", () => {
     expect(calls).toBe(3)
   })
 
+  test("I2-B2: Prisma P2010 con SQLSTATE 40001 → reintenta; otros P2010 no", async () => {
+    const serialization = new Prisma.PrismaClientKnownRequestError("raw serialization conflict", {
+      code: "P2010",
+      clientVersion: "test",
+      meta: { code: "40001" },
+    })
+    const otherRawError = new Prisma.PrismaClientKnownRequestError("other raw query failure", {
+      code: "P2010",
+      clientVersion: "test",
+      meta: { code: "42501" },
+    })
+    let calls = 0
+    const client = { $transaction: async (fn: (tx: unknown) => Promise<unknown>) => { calls++; if (calls === 1) throw serialization; return fn({}) } }
+    expect(await runStockSerializable(client as never, async () => "ok")).toBe("ok")
+    expect(calls).toBe(2)
+    expect(isStockSerializationConflict(otherRawError)).toBe(false)
+  })
+
   test("I2-C: agotados los intentos relanza el P2034 (traducible a 409), sin retry infinito", async () => {
     let calls = 0
     const client = { $transaction: async () => { calls++; throw p2034() } }
@@ -496,3 +514,4 @@ describe("PEDIDO system-only (I2-AE) y tenant isolation", () => {
     expect(await consumirReservasPedido(fake.client as never, { negocioId: N, pedidoId: "nada" })).toEqual({ consumidas: 0, movimientos: 0, huerfanasLiberadas: 0 })
   })
 })
+

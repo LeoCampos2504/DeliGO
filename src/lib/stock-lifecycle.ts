@@ -134,7 +134,11 @@ export class StockReservationIntegrityError extends StockLifecycleError {
 export const STOCK_SERIALIZABLE_MAX_ATTEMPTS = 3
 
 export function isStockSerializationConflict(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  if (error.code === "P2034") return true
+  // PostgreSQL 40001 raised by a raw lock query is surfaced by Prisma as P2010.
+  // Retry only this exact SQLSTATE; unrelated raw query errors must propagate.
+  return error.code === "P2010" && typeof error.meta?.code === "string" && error.meta.code === "40001"
 }
 
 // P2-T56-R3A-I2-F2: política explícita de la transacción interactiva, ÚNICA para
@@ -1239,3 +1243,4 @@ export async function liberarReservasPorRollback(
   })
   return { released: release, alreadyReleased, auditLogId: audit.id }
 }
+
