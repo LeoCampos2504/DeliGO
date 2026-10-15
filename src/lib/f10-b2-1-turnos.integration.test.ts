@@ -989,9 +989,9 @@ describe("F10-B2.2-F — carry over physical cash remainder", () => {
     expect(await fails(db.traspasoFondoTurnoCaja.update({ where: { id: savedTransfer.id }, data: { montoDecimal: D("1.00") } }))).toBe(true)
     expect(await fails(db.traspasoFondoTurnoCaja.delete({ where: { id: savedTransfer.id } }))).toBe(true)
     expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(beforeMovements)
-    const employeeView = JSON.stringify((await turnoCajero(receiver.cookie, negocio.slug)).body)
-    expect(employeeView).toContain("5000.00")
-    expect(employeeView).not.toMatch(/efectivoEsperado|diferencia|efectivoEntregado|fondoRemanente|responsableNombre/i)
+    const employeeView = (await turnoCajero(receiver.cookie, negocio.slug)).body
+    expect(employeeView.turno).toMatchObject({ fondoInicial: 5000 })
+    expect(JSON.stringify(employeeView)).not.toMatch(/efectivoEsperado|diferencia|efectivoEntregado|fondoRemanente|responsableNombre/i)
     const ownerHistory = await listarCajas(owner)
     expect(ownerHistory.body.traspasos).toHaveLength(1)
     expect(ownerHistory.body.traspasos[0]).toMatchObject({ importe: "5000.00", turnoOrigen: { id: sourceShiftId }, turnoDestino: { id: first.body.turno.id } })
