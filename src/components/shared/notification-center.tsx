@@ -172,6 +172,11 @@ function timeAgo(dateStr: string): string {
 // NotificationBell Component
 // ============================================
 
+/** Session a bell reads from /api/notificaciones: employee (operational) or personal/owner. */
+export function notificationFeedFor(operational: boolean): "operativo" | "cuenta" {
+  return operational ? "operativo" : "cuenta"
+}
+
 interface NotificationBellProps {
   /** Called when a notification is clicked — should navigate to the target tab */
   onNavigate?: (tab: string, notif: NotificationItem) => void
@@ -184,12 +189,15 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const router = useRouter()
+  // F4-A fix: name the session this bell reads, so an employee cookie on the
+  // same browser never replaces the owner's feed (and vice versa).
+  const feed = notificationFeedFor(operational)
 
   // Fetch unread count
   const { data: notifData } = useQuery({
-    queryKey: ["notifications-unread"],
+    queryKey: ["notifications-unread", feed],
     queryFn: async () => {
-      const res = await fetch("/api/notificaciones?limit=1&unread=true")
+      const res = await fetch(`/api/notificaciones?feed=${feed}&limit=1&unread=true`)
       if (!res.ok) return { noLeidos: 0 }
       return res.json() as Promise<{ noLeidos: number }>
     },
@@ -199,9 +207,9 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
 
   // Fetch full notification list (only when popover is open)
   const { data: listData, isLoading: listLoading } = useQuery({
-    queryKey: ["notifications-list"],
+    queryKey: ["notifications-list", feed],
     queryFn: async () => {
-      const res = await fetch("/api/notificaciones?limit=50")
+      const res = await fetch(`/api/notificaciones?feed=${feed}&limit=50`)
       if (!res.ok) return { notificaciones: [] as NotificationItem[], noLeidos: 0 }
       return res.json() as Promise<{ notificaciones: NotificationItem[]; noLeidos: number }>
     },
@@ -219,7 +227,7 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
   // Mark single as read
   const markAsRead = useCallback(async (notifId: string) => {
     try {
-      const res = await fetch("/api/notificaciones", {
+      const res = await fetch(`/api/notificaciones?feed=${feed}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_read", notificationId: notifId }),
@@ -230,12 +238,12 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
         queryClient.invalidateQueries({ queryKey: ["notifications-list"] })
       }
     } catch {}
-  }, [setNoLeidos, queryClient])
+  }, [setNoLeidos, queryClient, feed])
 
   // Mark all as read
   const markAllRead = useCallback(async () => {
     try {
-      const res = await fetch("/api/notificaciones", {
+      const res = await fetch(`/api/notificaciones?feed=${feed}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
@@ -245,7 +253,7 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
         queryClient.invalidateQueries({ queryKey: ["notifications-list"] })
       }
     } catch {}
-  }, [setNoLeidos, queryClient])
+  }, [setNoLeidos, queryClient, feed])
 
   // Handle notification click — navigate + mark as read.
   // P2-T44-R1P2 (G1): precedencia de navegación —

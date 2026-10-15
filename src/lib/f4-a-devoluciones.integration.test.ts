@@ -26,6 +26,7 @@ import { POST as postReintegroOwner } from "@/app/api/negocio/caja/devoluciones/
 import { GET as getDevolucionesOwner } from "@/app/api/negocio/caja/devoluciones/route"
 import { GET as getHistorialOwner } from "@/app/api/negocio/caja/ventas/historial/route"
 import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
+import { GET as getNotificaciones, PATCH as patchNotificaciones } from "@/app/api/notificaciones/route"
 
 setDefaultTimeout(240_000)
 
@@ -490,5 +491,80 @@ describe("F4-A — concurrency, idempotency, permissions and shift modes", () =>
     // Its refund is already registered: a second one is refused.
     const reintegroSinCaja = await reintegroOwner(owner, res.body.devolucion.id, { medio: "EFECTIVO", confirmo: true })
     expect(reintegroSinCaja.body.code).toBe("REINTEGRO_YA_REGISTRADO")
+  })
+})
+
+// F4-A fix — the owner's bell. Operator manual check failed: the owner never saw
+// the notice. Cause: the operational cookie (path "/") also reaches the owner's
+// panel on a shared browser and /api/notificaciones picked the employee feed by
+// its mere presence. Each bell now names its feed; identity still comes only
+// from the validated session cookie of that feed.
+describe("F4-A — owner bell receives the return notice even with an employee session on the same browser", () => {
+  const notifs = async (cookie: string, query: string) =>
+    json(await getNotificaciones(req(`/api/notificaciones?${query}`, cookie)))
+  const marcar = async (cookie: string, query: string, body: unknown) =>
+    json(await patchNotificaciones(req(`/api/notificaciones?${query}`, cookie, "PATCH", body)))
+
+  ephemeralTest("owner feed, employee feed, both cookies, no fallback, other business, mark-read isolation", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const producto = await crearProducto(negocio.id, "Gaseosa", 2000)
+    const cajero = await crearCajero(negocio.id, "Beto")
+    const venta = await venderCajero(cajero.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 2 }] })
+    expect(venta.status).toBe(201)
+    const devolucion = await devolverCajero(cajero.cookie, negocio.slug, venta.body.id, parcial([{ ventaItemId: itemDe(venta.body, producto.id), cantidad: 1, reingresaStock: false }], { modo: "PENDIENTE" }, "Cliente arrepentido"))
+    expect(devolucion.status).toBe(201)
+    // An employee-addressed notification, so the employee feed is not empty.
+    await db.notificacion.create({ data: { userId: cajero.empleado.id, userType: "empleado", tipo: "general", titulo: "Aviso del empleado", cuerpo: "solo para Beto", negocioId: negocio.id } })
+
+    const ambas = `${owner}; ${cajero.cookie}`
+    const esAvisoF4A = (n: { tipo: string; userId: string; userType: string; cuerpo: string }) =>
+      n.tipo === "caja_devolucion" && n.userId === negocio.id && n.userType === "negocio" && n.cuerpo.includes("Beto") && n.cuerpo.includes("Cliente arrepentido") && /\$\s?2\.?000/.test(n.cuerpo)
+
+    // Owner bell (feed=cuenta) with BOTH cookies: the owner's feed with the F4-A notice.
+    for (const cookie of [owner, ambas]) {
+      const lista = await notifs(cookie, "feed=cuenta&limit=50")
+      expect(lista.status).toBe(200)
+      expect(lista.body.notificaciones.some(esAvisoF4A)).toBe(true)
+      expect(lista.body.notificaciones.every((n: { userId: string; userType: string }) => n.userId === negocio.id && n.userType === "negocio")).toBe(true)
+      const unread = await notifs(cookie, "feed=cuenta&limit=1&unread=true")
+      expect(unread.body.noLeidos).toBeGreaterThanOrEqual(1)
+    }
+    // Clients cached before the fix (no feed param) with both cookies: the owner's feed.
+    expect((await notifs(ambas, "limit=50")).body.notificaciones.some(esAvisoF4A)).toBe(true)
+
+    // Employee bell (feed=operativo) with BOTH cookies: only the employee's own feed.
+    for (const cookie of [cajero.cookie, ambas]) {
+      const lista = await notifs(cookie, "feed=operativo&limit=50")
+      expect(lista.status).toBe(200)
+      expect(lista.body.notificaciones.map((n: { titulo: string }) => n.titulo)).toEqual(["Aviso del empleado"])
+      expect(lista.body.notificaciones.some((n: { userType: string }) => n.userType !== "empleado")).toBe(false)
+    }
+    // Only the employee session and no param: unchanged employee feed.
+    expect((await notifs(cajero.cookie, "limit=50")).body.notificaciones.map((n: { titulo: string }) => n.titulo)).toEqual(["Aviso del empleado"])
+
+    // A stale employee cookie never blocks the owner; a named feed never falls back.
+    const stale = `${OPERATIONAL_SESSION_COOKIE_NAME}=${randomUUID()}`
+    expect((await notifs(`${owner}; ${stale}`, "feed=cuenta&limit=50")).body.notificaciones.some(esAvisoF4A)).toBe(true)
+    expect((await notifs(`${owner}; ${stale}`, "limit=50")).body.notificaciones.some(esAvisoF4A)).toBe(true)
+    expect((await notifs(cajero.cookie, "feed=cuenta")).status).toBe(401)
+    expect((await notifs(owner, "feed=operativo")).status).toBe(401)
+    expect((await notifs(`${owner}; ${stale}`, "feed=operativo")).status).toBe(401)
+    expect((await notifs(ambas, "feed=otro")).status).toBe(400)
+
+    // Another business's owner never sees it.
+    const otro = await crearNegocio()
+    expect((await notifs(otro.owner, "feed=cuenta&limit=50")).body.notificaciones.some((n: { userId: string }) => n.userId === negocio.id)).toBe(false)
+
+    // Mark-read stays inside each feed.
+    const aviso = await db.notificacion.findFirstOrThrow({ where: { userId: negocio.id, userType: "negocio", tipo: "caja_devolucion" } })
+    expect((await marcar(ambas, "feed=operativo", { action: "mark_read", notificationId: aviso.id })).status).toBe(404)
+    expect((await marcar(otro.owner, "feed=cuenta", { action: "mark_read", notificationId: aviso.id })).status).toBe(404)
+    expect((await db.notificacion.findUniqueOrThrow({ where: { id: aviso.id } })).leido).toBe(false)
+    const ok = await marcar(ambas, "feed=cuenta", { action: "mark_read", notificationId: aviso.id })
+    expect(ok.status).toBe(200)
+    expect((await db.notificacion.findUniqueOrThrow({ where: { id: aviso.id } })).leido).toBe(true)
+    // The employee's own notice is untouched by the owner's mark-all.
+    expect((await marcar(ambas, "feed=cuenta", { action: "mark_all_read" })).status).toBe(200)
+    expect((await db.notificacion.findFirstOrThrow({ where: { userId: cajero.empleado.id, userType: "empleado" } })).leido).toBe(false)
   })
 })

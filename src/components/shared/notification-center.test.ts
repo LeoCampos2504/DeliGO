@@ -9,7 +9,10 @@ import {
   parseNotificationData,
   getNavigateTab,
   resolveNotificationNavigation,
+  notificationFeedFor,
 } from "./notification-center"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import type { NotificationItem } from "@/store/notification-store"
 
 function notif(overrides: Partial<NotificationItem> & { datos: string }): NotificationItem {
@@ -143,5 +146,21 @@ describe("resolveNotificationNavigation — precedencia real (P2-T44-R1P2 / R1P1
   test("tipo Negocio existente (new_order) con navigateTo -> sigue usando el contrato legacy, sin regresión", () => {
     const n = notif({ tipo: "new_order", userType: "negocio", datos: '{"navigateTo":{"negocio":"pedidos"}}' })
     expect(resolveNotificationNavigation(n)).toEqual({ kind: "tab", tab: "pedidos" })
+  })
+})
+
+// F4-A fix: each bell names the session it reads, so an employee cookie on the
+// same browser never replaces the owner's feed (route side: f4-a-devoluciones
+// integration suite, "owner bell receives the return notice…").
+describe("notification feed per bell", () => {
+  test("operational bells read the employee feed; every other bell the personal/owner feed", () => {
+    expect(notificationFeedFor(true)).toBe("operativo")
+    expect(notificationFeedFor(false)).toBe("cuenta")
+  })
+  test("every bell request to /api/notificaciones carries its feed", () => {
+    const src = readFileSync(join(process.cwd(), "src/components/shared/notification-center.tsx"), "utf8")
+    const calls = src.match(/fetch\(`?"?\/api\/notificaciones[^,)]*/g) ?? []
+    expect(calls.length).toBe(4)
+    for (const call of calls) expect(call).toContain("feed=${feed}")
   })
 })

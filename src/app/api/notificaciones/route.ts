@@ -1,16 +1,56 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { getOperationalAccountFromRequest, getUserFromToken, OPERATIONAL_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, type AuthUser } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+
+// F4-A fix — which feed a bell reads. The operational cookie has path "/", so
+// on a browser shared by the owner and an employee it also reaches the owner's
+// panel; choosing the feed by the mere presence of that cookie handed the owner
+// the employee feed (or a 401 when that cookie was stale). Each bell now names
+// the session it reads (?feed=cuenta = personal/owner session, ?feed=operativo =
+// employee session). The parameter only picks WHICH cookie to validate — the
+// identity always comes from that validated session and never falls back to the
+// other one. Without the parameter (clients cached before this fix) a valid
+// personal session wins, otherwise the operational one.
+type Feed =
+  | { ok: true; kind: "operativo"; employeeIds: string[] }
+  | { ok: true; kind: "cuenta"; user: AuthUser }
+  | { ok: false; response: NextResponse }
+
+async function resolverFeed(req: NextRequest): Promise<Feed> {
+  const pedido = new URL(req.url).searchParams.get("feed")
+  if (pedido !== null && pedido !== "operativo" && pedido !== "cuenta") {
+    return { ok: false, response: NextResponse.json({ error: "Feed no válido" }, { status: 400 }) }
+  }
+  const operativo = async () => {
+    if (!req.cookies.get(OPERATIONAL_SESSION_COOKIE_NAME)?.value) return null
+    const account = await getOperationalAccountFromRequest(req)
+    return account ? account.empleados.map((empleado) => empleado.id) : null
+  }
+  const cuenta = async () => {
+    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+    return token ? getUserFromToken(token) : null
+  }
+  const sinSesion = () => ({ ok: false as const, response: NextResponse.json({ error: "No autenticado" }, { status: 401 }) })
+
+  if (pedido === "operativo") {
+    const employeeIds = await operativo()
+    return employeeIds ? { ok: true, kind: "operativo", employeeIds } : sinSesion()
+  }
+  const user = await cuenta()
+  if (user) return { ok: true, kind: "cuenta", user }
+  if (pedido === "cuenta") return sinSesion()
+  const employeeIds = await operativo()
+  return employeeIds ? { ok: true, kind: "operativo", employeeIds } : sinSesion()
+}
 
 // GET /api/notificaciones — List notifications for current user
 export async function GET(req: NextRequest) {
   try {
-    if (req.cookies.get("deligo_operativo_session")?.value) {
-      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
-      const account = await getOperationalAccountFromRequest(req)
-      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
-      const employeeIds = account.empleados.map((empleado) => empleado.id)
+    const feed = await resolverFeed(req)
+    if (!feed.ok) return feed.response
+    if (feed.kind === "operativo") {
+      const employeeIds = feed.employeeIds
       const url = new URL(req.url)
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100)
       const offset = parseInt(url.searchParams.get("offset") || "0")
@@ -24,15 +64,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ notificaciones, total, noLeidos })
     }
 
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user) {
-      return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
-    }
+    const user = feed.user
 
     const url = new URL(req.url)
     const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100)
@@ -72,11 +104,10 @@ export async function GET(req: NextRequest) {
 // PATCH /api/notificaciones — Mark notifications as read
 export async function PATCH(req: NextRequest) {
   try {
-    if (req.cookies.get("deligo_operativo_session")?.value) {
-      const { getOperationalAccountFromRequest } = await import("@/lib/auth")
-      const account = await getOperationalAccountFromRequest(req)
-      if (!account) return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
-      const employeeIds = account.empleados.map((empleado) => empleado.id)
+    const feed = await resolverFeed(req)
+    if (!feed.ok) return feed.response
+    if (feed.kind === "operativo") {
+      const employeeIds = feed.employeeIds
       const body = await req.json()
       const { action, notificationId } = body as { action: "mark_read" | "mark_all_read"; notificationId?: string }
       if (action === "mark_read" && notificationId) {
@@ -93,15 +124,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Acción no válida" }, { status: 400 })
     }
 
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user) {
-      return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
-    }
+    const user = feed.user
 
     const body = await req.json()
     const { action, notificationId } = body as {
