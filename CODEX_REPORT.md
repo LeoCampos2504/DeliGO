@@ -6,7 +6,27 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F10-B2.2-A TESTING GATES PASS; DEPLOY PENDING (2026-10-09) ===
+=== LATEST CURRENT HANDOFF — F10-B2.2-F CARRYOVER OPENING FIX DEPLOYED TO TESTING; MANUAL RECHECK PENDING (2026-10-15, Claude Code) ===
+
+CURRENT_TASK=F10-B2.2-F_FIX_OPEN_SHIFT_WITH_TRANSFERRED_FUND
+CURRENT_TASK_STATUS=FIXED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_RECHECK
+RESULT=ROOT_CAUSE_PROVEN_FIX_DEPLOYED_TESTING; F10-B2.2-F NOT YET MANUALLY CERTIFIED
+NOTE=this root CODEX_REPORT.md on testing-codex did not carry the B2.2-B..F handoff blocks (those live in codex-reports/F10_B2_2_CODEX_HANDOFF.md and in uncommitted edits of the main checkout); detailed report: codex-reports/F10_B2_2_F_CARRYOVER_OPEN_FIX.md
+WORKTREE=C:\Leo Campos\Trabajo\deligo-f-carryover-fix (branch work/f10-b2-2-f-carryover-fix from origin/testing-codex fabd111); main checkout untouched
+ROOT_CAUSE=TESTING applied migration 20261015120000_f10_b2_2_f_cash_fund_carryover from the deployment of 35395f3 (2026-10-15 17:50Z). Its trigger validate_fondo_transfer_turno_caja did not exclude the receiving shift from the "source is still the latest shift" check, so every legitimate carryover raised P0001 'fund transfer source is no longer the latest shift' on traspasoFondoTurnoCaja.create → route 500 "Error al abrir el turno" (Railway log evidence, paola-vinal). 7a220fd fixed the trigger by EDITING the already-applied migration; Prisma never re-runs it, so TESTING kept the defective function. CI passed because its ephemeral PostgreSQL applies the final file.
+FIX_COMMIT=dde47b7ebbdbfbb8c2e24fe50c860572ad2dd68f (fast-forward fabd111..dde47b7 on testing-codex)
+FIX=additive migration 20261015190000_f10_b2_2_f_fix_fund_transfer_trigger (CREATE OR REPLACE FUNCTION only; published migration 20261015120000 NOT edited) · employee UI: immediate open-shift state on success, availability refresh + clear messages on known 409s, server-error message keeping the idempotency key, double-submit guard · no service logic change
+TESTS_ADDED=integration regression (installs the TESTING-applied trigger → 500 without shift/transfer; applies the real corrective file → same key 201, fondo 1500.00, origin/destination/entrega linked, replay 200, no reuse 409, employee view without private amounts, custody/ledger/sales untouched, later rectification 409, pg_get_functiondef check) · same employee receives own remainder · 3 UI tests (immediate success + double click = 1 request; 409 fund taken; 500 then same-key retry)
+LOCAL_TESTS=operational-shift-panel.test.tsx + caja-turnos.test.ts 17_PASS_0_FAIL_104_ASSERTIONS · tsc: 0 diagnostics in touched files · git diff --check PASS
+CI=GitHub Actions run 38786146519 "F10-B2.2-E TESTING validation" on dde47b7 = success (prisma validate, generate, migrate deploy on ephemeral PostgreSQL, the 6 caja test files incl. integration, Next build). Exact test/assertion counts NOT captured (job log download needs auth; not obtained).
+RAILWAY_TESTING=DeliGO Copy deployment cad192a3-13b9-4f45-b414-7f08ba332c04 SUCCESS, commitHash dde47b7ebbdbfbb8c2e24fe50c860572ad2dd68f; deploy log: 46 migrations, "Applying migration 20261015190000_f10_b2_2_f_fix_fund_transfer_trigger", all applied, Ready
+MIGRATION_CHECKSUM_NOTE=_prisma_migrations checksum of 20261015120000 in TESTING corresponds to the 35395f3 file, not the current blob (edited later by 7a220fd). Harmless for migrate deploy; documented, not modified.
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 unchanged; Production environment not accessed)
+PRESERVED=path 32 and all untracked files in the main checkout untouched; no stash/reset/clean
+LATERAL_FINDING=header "Vendiendo como Pendiente de vinculación" (known visual issue) not related to this failure; not touched
+NEXT_ACTION=operator re-runs the Paola Vinal manual check (open shift with the $1.500 transferred fund); on PASS, record F10-B2.2-F manual certification. Do not start F10-B2.2-G/H before that.
+
+=== HISTORICAL HANDOFF — F10-B2.2-A TESTING GATES PASS; DEPLOY PENDING (2026-10-09) ===
 
 CURRENT_TASK=F10-B2.2-A_EMPLOYEE_STARTS_SHIFT_OWNER_SHARES_REGISTER
 CURRENT_TASK_STATUS=TESTING_DB_CONFIRMED_ALL_GATES_PASS_DEPLOY_PENDING

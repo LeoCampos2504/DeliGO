@@ -1,5 +1,15 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE — F10-B2.2-F carryover opening fix (2026-10-15, Claude Code)
+
+```text
+F10_B2_2_F_STATUS=FIX_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_RECHECK (not manually certified)
+ROOT_CAUSE=TESTING kept the defective trigger validate_fondo_transfer_turno_caja applied from 35395f3 (receiving shift not excluded → P0001 → 500 "Error al abrir el turno"); 7a220fd edited the already-applied migration instead of adding one
+FIX=commit dde47b7 (testing-codex): additive migration 20261015190000_f10_b2_2_f_fix_fund_transfer_trigger + employee UI error handling + regression tests
+CI=run 38786146519 success · RAILWAY_TESTING=DeliGO Copy cad192a3-13b9-4f45-b414-7f08ba332c04 SUCCESS commit match, migration applied · PRODUCTION_TOUCHED=NO (origin/main 42ca500)
+NEXT_ACTION=operator re-runs Paola Vinal $1.500 transfer opening; see CODEX_REPORT.md top block and codex-reports/F10_B2_2_F_CARRYOVER_OPEN_FIX.md
+```
+
 ## CURRENT AUTHORITATIVE STATE — P2-T56-R2C PRODUCT VARIANTS CLOSEOUT (2026-09-29) · synced for P2-T56-R3B closeout, P2-T56-R3A A0.1 hardening (2026-09-30) R3A-P0 TESTING deployment (2026-10-01), P0-F1 (2026-10-02) R3A-P0 certification, R3A-I1 TESTING verification and R3A-I2 branch implementation (2026-10-05), R3A-I2-F1 mode-race hardening and R3A-I2 TESTING deployment mode OFF and R3A-I2-F2 timeout hardening on branch (2026-10-06), R3A-I2-F3 mesa cancellation timeout hardening on branch, F2+F3 TESTING integration + real-DB re-verification and R3A-I2 CLOSED_TESTING_CERTIFIED (2026-10-07), R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED mode ON — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked (M3/M6 evidence gap) · F10 documented PLANNED_NOT_STARTED (2026-10-08) · F9 CLOSED_TESTING_CERTIFIED + roadmap numbering confirmed (2026-10-09) · F10-A COMPLETED + F10-B0 implemented in TESTING (2026-10-09) · F10-B1 cashier in Operaciones implemented in TESTING (2026-10-09) · F10-B1 CLOSED_TESTING_CERTIFIED (iPhone PWA 9/9) + Consumo interno backlog (2026-10-09) · F10-B2.0 exact money + Caja origin protection implemented in TESTING (2026-10-09) · F10-B2.1 physical registers + shifts + attribution implemented in TESTING (2026-10-09)
 
 ```text
