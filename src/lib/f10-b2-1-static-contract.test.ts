@@ -23,6 +23,7 @@ const writers = (re: RegExp) => productive.filter(({ src }) => re.test(src)).map
 const SERVICE = "src/lib/caja-turnos-service.ts"
 const ADMIN = "src/lib/caja-turnos-admin.ts"
 const ENGINE = "src/lib/caja-venta-service.ts"
+const DEVOLUCIONES = "src/lib/caja-devoluciones-service.ts"
 const CASHIER_SALE = "src/app/api/operativo/caja/[slug]/ventas/route.ts"
 const CASHIER_TURNO = "src/app/api/operativo/caja/[slug]/turno/route.ts"
 const OWNER_SALE = "src/app/api/negocio/caja/ventas/route.ts"
@@ -84,7 +85,8 @@ describe("F10-B2.1 — attribution is decided by the server", () => {
     expect(src).toContain('...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),')
     expect(src).toContain("if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {")
     expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(2) // Venta + OperacionFinanciera
-    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path)).toEqual([ENGINE])
+    // F4-A: a cash refund is attributed to the open shift that hands the money back.
+    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path)).toEqual([DEVOLUCIONES, ENGINE])
   })
 
   test("still ONE sales engine", () => {

@@ -49,6 +49,14 @@ import {
 import { primeScanAudio } from "@/lib/scan-feedback"
 import { BarcodeScanner, type ScanFeedback } from "@/components/business/barcode-scanner"
 import {
+  CajaVentasHistorial,
+  EstadoDevolucionBadge,
+  OwnerDevolucionesHistorial,
+  VentaDevolucionesDialog,
+  type CajaDevolucionesEndpoints,
+  type EstadoDevolucionVenta,
+} from "@/components/business/caja-devoluciones"
+import {
   addCartLine,
   cartItemCount,
   cartTotal,
@@ -132,6 +140,18 @@ interface VentaResumen {
   cantidadItems: number
   items: VentaItemSnapshot[]
   createdAt: string
+}
+
+// F4-A: the owner's endpoints for voids / partial returns (same UI as the cashier's).
+function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoints {
+  return {
+    historialUrl: "/api/negocio/caja/ventas/historial",
+    ventaUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/devoluciones`,
+    reintegroUrl: (id) => `/api/negocio/caja/devoluciones/${encodeURIComponent(id)}/reintegro`,
+    queryScope: ["negocio-caja-devoluciones", negocioId],
+    invalidateAlso: [["negocio-caja-ventas-hoy", negocioId], ownerRegisterQueryKey(negocioId), ["negocio-caja-productos", negocioId]],
+    ownerRegistersUrl: "/api/negocio/caja/cajas",
+  }
 }
 
 type CajaSubTab = "vender" | "resumen" | "turnos"
@@ -1029,7 +1049,9 @@ function SuccessDialog({ venta, onNuevaVenta }: { venta: VentaResumen; onNuevaVe
 // ============================================
 function ResumenView({ negocioId }: { negocioId: string }) {
   const [detailSale, setDetailSale] = useState<VentaResumen | null>(null)
-  const { data, isLoading } = useQuery<{ ventasHoy: VentaResumen[]; resumenHoy: Record<string, number> }>({
+  const [gestionVentaId, setGestionVentaId] = useState<string | null>(null)
+  const devolucionesEndpoints = useMemo(() => ownerDevolucionesEndpoints(negocioId), [negocioId])
+  const { data, isLoading } = useQuery<{ ventasHoy: VentaResumen[]; resumenHoy: Record<string, number>; devolucionesPorVenta?: Record<string, { totalDevuelto: number; estadoDevolucion: EstadoDevolucionVenta }> }>({
     queryKey: ["negocio-caja-ventas-hoy", negocioId],
     queryFn: async () => {
       const res = await fetch("/api/negocio/caja/ventas")
@@ -1051,6 +1073,8 @@ function ResumenView({ negocioId }: { negocioId: string }) {
         <SummaryCard label="Ventas" value={String(resumen?.cantidadVentas ?? 0)} />
         <SummaryCard label="Efectivo" value={formatPrice(resumen?.totalEfectivo ?? 0)} />
         <SummaryCard label="Transferencia" value={formatPrice(resumen?.totalTransferencia ?? 0)} />
+        <SummaryCard label="Devoluciones hoy" value={formatPrice(resumen?.totalDevuelto ?? 0)} />
+        <SummaryCard label="Neto hoy" value={formatPrice(resumen?.totalNeto ?? resumen?.totalVendido ?? 0)} />
       </div>
 
       <div>
@@ -1073,7 +1097,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
                   className="flex w-full items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-left hover:bg-muted/40"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">{formatPrice(v.total)}</p>
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{formatPrice(v.total)}{data?.devolucionesPorVenta?.[v.id] && <EstadoDevolucionBadge estado={data.devolucionesPorVenta[v.id].estadoDevolucion} />}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{formatUnidadesVenta(unidades)} · {v.metodoPago}</p>
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
@@ -1085,8 +1109,16 @@ function ResumenView({ negocioId }: { negocioId: string }) {
       </div>
 
       {detailSale && (
-        <VentaDetailDialog venta={detailSale} onClose={() => setDetailSale(null)} />
+        <VentaDetailDialog venta={detailSale} onClose={() => setDetailSale(null)} onGestionar={() => { setGestionVentaId(detailSale.id); setDetailSale(null) }} />
       )}
+      {gestionVentaId && <VentaDevolucionesDialog ventaId={gestionVentaId} endpoints={devolucionesEndpoints} onClose={() => setGestionVentaId(null)} />}
+
+      <div className="border-t pt-3">
+        <CajaVentasHistorial endpoints={devolucionesEndpoints} titulo="Buscar ventas anteriores (anular o devolver)" />
+      </div>
+      <div className="border-t pt-3">
+        <OwnerDevolucionesHistorial url="/api/negocio/caja/devoluciones" queryKey={[...devolucionesEndpoints.queryScope, "operaciones"]} />
+      </div>
     </div>
   )
 }
@@ -1094,7 +1126,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
 // P2-T56-R2A section 8: per-line breakdown from VentaItem's own snapshot
 // fields — never recomputed from the live Producto (section 11), so a
 // price/name change tomorrow never rewrites yesterday's sale.
-function VentaDetailDialog({ venta, onClose }: { venta: VentaResumen; onClose: () => void }) {
+function VentaDetailDialog({ venta, onClose, onGestionar }: { venta: VentaResumen; onClose: () => void; onGestionar: () => void }) {
   const unidades = totalUnidadesVenta(venta.items)
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -1123,6 +1155,8 @@ function VentaDetailDialog({ venta, onClose }: { venta: VentaResumen; onClose: (
             <p className="text-xs text-muted-foreground">Método: {venta.metodoPago}</p>
             <p className="text-xs text-muted-foreground">Hora: {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
           </div>
+          {/* F4-A: void / partial return of this sale (current returned state is loaded fresh). */}
+          <Button variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={onGestionar}>Anular o devolver productos</Button>
           <Button variant="secondary" className="w-full rounded-xl" onClick={onClose}>Cerrar</Button>
         </div>
       </DialogContent>

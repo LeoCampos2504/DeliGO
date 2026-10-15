@@ -18,6 +18,7 @@ function walk(dir: string): string[] {
 }
 const productive = walk("src").map((path) => ({ path, src: read(path) }))
 const ENGINE = "src/lib/caja-venta-service.ts"
+const DEVOLUCIONES = "src/lib/caja-devoluciones-service.ts"
 const ROUTE = "src/app/api/negocio/caja/ventas/route.ts"
 const MIGRATION = "prisma/migrations/20261009120000_f10_b0_sales_idempotency_payments_ledger/migration.sql"
 
@@ -26,9 +27,10 @@ describe("F10-B0 — one sales engine", () => {
     const writers = (re: RegExp) => productive.filter(({ src }) => re.test(src)).map(({ path }) => path)
     expect(writers(/\b(?:tx|db)\.venta\.create\(/)).toEqual([ENGINE])
     expect(writers(/\.cobroVenta\.(create|createMany|update|upsert)\(/)).toEqual([ENGINE])
-    expect(writers(/\.operacionFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([ENGINE])
+    // F4-A: the sale-return service is the only other ledger writer (DEVOLUCION_VENTA cash refunds).
+    expect(writers(/\.operacionFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([DEVOLUCIONES, ENGINE])
     expect(writers(/\.movimientoFinanciero\.(create|createMany|update|upsert)\(/)).toEqual([])
-    expect(writers(/\.cuentaFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([ENGINE])
+    expect(writers(/\.cuentaFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([DEVOLUCIONES, ENGINE])
   })
   test("the owner route delegates to the engine with the session actor; body never chooses the actor", () => {
     const route = read(ROUTE)

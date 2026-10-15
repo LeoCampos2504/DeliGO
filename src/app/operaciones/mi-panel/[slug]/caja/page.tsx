@@ -16,6 +16,8 @@
 // turn API. Opening stays unavailable outside the TESTING allowlist until a
 // close/recovery flow exists; blind close, cash outflows, receptions,
 // accounts, Mercado Pago and business statistics remain out of this screen.
+// F4-A adds the business's previous sales (search by day or reference) to void
+// them or return products, through the cashier's own operativo endpoints only.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
@@ -26,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { VenderView, type CajaVenderSource } from "@/components/business/caja-tab"
 import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
+import { CajaVentasHistorial, type CajaDevolucionesEndpoints } from "@/components/business/caja-devoluciones"
 
 interface CajaContexto {
   negocio: { id: string; nombre: string; slug: string; colorPrincipal: string; logoUrl: string | null }
@@ -88,6 +91,19 @@ export default function CajeroCajaPage() {
     }
   }, [state, handleAccessLost])
 
+  const devoluciones = useMemo<CajaDevolucionesEndpoints | null>(() => {
+    if (state.status !== "ready") return null
+    const { negocio, empleado } = state.ctx
+    const base = `/api/operativo/caja/${encodeURIComponent(negocio.slug)}`
+    return {
+      historialUrl: `${base}/ventas/historial`,
+      ventaUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/devoluciones`,
+      reintegroUrl: (id) => `${base}/devoluciones/${encodeURIComponent(id)}/reintegro`,
+      queryScope: ["operativo-caja-devoluciones", empleado.id, negocio.id],
+      invalidateAlso: [["operativo-caja-productos", empleado.id, negocio.id]],
+    }
+  }, [state])
+
   return (
     <main className="min-h-screen bg-background pb-[env(safe-area-inset-bottom,0px)]">
       <div className="mx-auto w-full max-w-5xl space-y-3 p-3 sm:p-4">
@@ -145,6 +161,11 @@ export default function CajeroCajaPage() {
               <h2 className="px-1 text-base font-bold">Ventas</h2>
               <VenderView negocioId={state.ctx.negocio.id} source={source} />
             </section>
+            {devoluciones && (
+              <section aria-label="Historial de ventas" className="min-w-0 rounded-2xl border border-border bg-card p-3">
+                <CajaVentasHistorial endpoints={devoluciones} titulo="Ventas anteriores: anular o devolver" />
+              </section>
+            )}
           </>
         )}
       </div>

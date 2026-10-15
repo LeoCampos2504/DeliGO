@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Truck,
   AlertTriangle,
+  RotateCcw,
   Settings,
   Sparkles,
   Trash2,
@@ -140,6 +141,9 @@ function getNotifIcon(tipo: string) {
       return <Star className="h-4 w-4 text-amber-500" />
     case "operaciones_pyr_chat":
       return <MessageSquare className="h-4 w-4 text-violet-500" />
+    // F4-A: anulación / devolución registrada por un empleado de Caja.
+    case "caja_devolucion":
+      return <RotateCcw className="h-4 w-4 text-orange-500" />
     default:
       return <Bell className="h-4 w-4 text-muted-foreground" />
   }

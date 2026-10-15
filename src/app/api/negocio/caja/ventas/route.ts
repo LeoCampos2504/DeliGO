@@ -32,6 +32,17 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
       take: 100,
     })
+    // F4-A: returns/voids REGISTERED today (whatever the sale date). The sale
+    // rows stay gross; net = sold today − returned today.
+    const devolucionesHoy = await db.devolucionVenta.findMany({
+      where: { negocioId, createdAt: { gte: startOfDay } },
+      select: { importeDecimal: true },
+    })
+    // Return state of the listed sales, kept OUT of the sale objects (their
+    // JSON contract is unchanged): { [ventaId]: { totalDevuelto, estadoDevolucion } }.
+    const devolucionesDeVentas = ventasHoy.length
+      ? await db.devolucionVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, select: { ventaId: true, tipo: true, importeDecimal: true } })
+      : []
 
     // F10-B2.0: exact sums (Decimal column, or the legacy Float quantized to
     // cents for a row written before the backfill); same numeric JSON shape.
@@ -45,9 +56,23 @@ export async function GET(req: NextRequest) {
       totalEfectivo: sumar("EFECTIVO"),
       totalTransferencia: sumar("TRANSFERENCIA"),
       totalOtro: sumar("OTRO"),
+      totalDevuelto: moneyToNumber(addMoney(...devolucionesHoy.map((d) => d.importeDecimal))),
+      totalNeto: 0,
+    }
+    resumenHoy.totalNeto = moneyToNumber(addMoney(...ventasHoy.map((v) => storedMoney(v.totalDecimal, v.total))).minus(addMoney(...devolucionesHoy.map((d) => d.importeDecimal))))
+
+    const devolucionesPorVenta: Record<string, { totalDevuelto: number; estadoDevolucion: string }> = {}
+    for (const venta of ventasHoy) {
+      const propias = devolucionesDeVentas.filter((d) => d.ventaId === venta.id)
+      if (propias.length === 0) continue
+      const devuelto = addMoney(...propias.map((d) => d.importeDecimal))
+      devolucionesPorVenta[venta.id] = {
+        totalDevuelto: moneyToNumber(devuelto),
+        estadoDevolucion: propias.some((d) => d.tipo === "ANULACION") ? "ANULADA" : devuelto.gte(storedMoney(venta.totalDecimal, venta.total)) ? "DEVUELTA_TOTAL" : "DEVOLUCION_PARCIAL",
+      }
     }
 
-    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy })
+    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta })
   } catch (error) {
     console.error("Error listing ventas de caja:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener las ventas" }, { status: 500 })
