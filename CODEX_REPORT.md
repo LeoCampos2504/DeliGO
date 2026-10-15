@@ -18,7 +18,10 @@ FIX=0495d48: each bell names its feed (?feed=cuenta personal/owner, ?feed=operat
 TESTS=local: notification-center.test.ts + caja-devoluciones unit/UI + proxy 103/0 · new real-DB regression in f4-a-devoluciones.integration.test.ts (both cookies per feed, no-param legacy, stale employee cookie, no fallback 401, other business, invalid feed 400, mark-read isolation) runs only on the ephemeral CI DB (no local PostgreSQL) — NOT yet executed; CI runs on push to testing-codex
 GATES=eslint clean on touched files · git diff --check clean · tsc: 164 diagnostics in this checkout, all from the stale generated Prisma client (not regenerated because prisma CLI/next build would load the checkout .env, forbidden by SECRET_READ_POLICY); 0 in the changed files/lines · local build NOT run for the same reason → build gate = CI on integration
 PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0)
-NEXT_ACTION=operator authorization to integrate codex/f4-a-owner-bell-notification into testing-codex (fast-forward) → CI + Railway TESTING verification → one manual check: owner bell shows the employee's return notice.
+TASK_BRANCH=codex/f4-a-owner-bell-notification HEAD = remote 48f1c0f0abd36103810fab7de25289eb312cea97 (0495d48 fix + 48f1c0f docs + this reconciliation commit); fast-forward over origin/testing-codex 4af5f9d
+CI_TASK_BRANCH=NO_RUN — .github/workflows/f10-b2-2-e-testing.yml triggers only on push to testing-codex (GitHub API: 0 runs for the branch/SHA). The real-DB regression and the build have NOT run. Options: integrate (needs operator authorization) or add a task-branch trigger to the workflow (persistent CI config change, needs operator decision).
+CHECKOUT_NOTE=untracked count 328 = 335 − 6 now tracked by the branch − tsconfig.tsbuildinfo, a pre-existing regenerable TypeScript cache that was deleted by mistake during the tsc gate (not recreated; reported to the operator)
+NEXT_ACTION=operator decision: how to obtain CI for the branch, then authorization to integrate into testing-codex (fast-forward) → CI + Railway TESTING verification → one manual check: owner bell shows the employee's return notice.
 
 === HISTORICAL HANDOFF — F4-A SALE VOIDS AND PARTIAL RETURNS DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-15, Claude Code) ===
 
@@ -160,7 +163,7 @@ OPEN_DECISIONS=No new B2.2-A product decision remains: no-open OPCIONAL preserve
 NEXT_RECOMMENDED_ACTION=Repair/refresh the established TESTING PostgreSQL credentials, re-verify server identity, then rerun the real B2.2-A integration/regression gates. Stage/commit/push/deploy remain gated on all checks passing; recheck the still-running Claude process before any Git integration.
 REPORT_PATH=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\F10_B2_2_CODEX_HANDOFF.md
 
-=== LATEST CURRENT HANDOFF — F10-B2.1 PHYSICAL CASH REGISTERS + SHIFTS + FINANCIAL ATTRIBUTION IMPLEMENTED IN TESTING (2026-10-09) ===
+=== HISTORICAL HANDOFF — F10-B2.1 PHYSICAL CASH REGISTERS + SHIFTS + FINANCIAL ATTRIBUTION IMPLEMENTED IN TESTING (2026-10-09) ===
 
 CURRENT_TASK=F10-B2-1-PHYSICAL-CASH-REGISTERS-SHIFTS
 CURRENT_TASK_STATUS=IMPLEMENTED_TESTING

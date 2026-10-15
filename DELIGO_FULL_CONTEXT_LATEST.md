@@ -6,11 +6,12 @@
 F4_A_STATUS=DEPLOYED_TESTING; manual review 7/8 confirmed by operator; owner bell item FAILING until this fix is integrated and re-checked (not PASS)
 CAUSE=employee cookie deligo_operativo_session (path "/") made /api/notificaciones serve the employee feed to the owner's bell on a shared browser
 FIX=branch codex/f4-a-owner-bell-notification commit 0495d48 (feed named per bell, session of that feed validated, no fallback); not integrated, not deployed
+CI_TASK_BRANCH=NO_RUN (only workflow triggers on push to testing-codex) → real-DB regression and build not executed yet
 PRESERVE=local branch preserve/checkout-f10-docs-2026-10-15 commit 5c6651d (not pushed)
 NEXT_ACTION=operator authorization to integrate into testing-codex; see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
 ```
 
-## LATEST UPDATE — F4-A sale voids and partial returns (2026-10-15, Claude Code)
+## PREVIOUS UPDATE (historical) — F4-A sale voids and partial returns (2026-10-15, Claude Code)
 
 ```text
 F4_A_STATUS=DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST (employee or owner voids a sale or returns some units with mandatory reason; immutable compensation events; refund pending/done separate; cash refund lowers the expected cash of the shift open at that moment; closed shifts untouched; restock via DEVOLUCION movement; persistent owner notice, no push)
@@ -19,7 +20,7 @@ F10_B2_2_G_STATUS=DEPLOYED_TESTING, manual test pending · H not started
 NEXT_ACTION=operator manual test of F4-A (and G); see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
 ```
 
-## LATEST UPDATE — F10-B2.2-G owner shift recovery (2026-10-16, Claude Code)
+## PREVIOUS UPDATE (historical) — F10-B2.2-G owner shift recovery (2026-10-16, Claude Code)
 
 ```text
 F10_B2_2_F_STATUS=MANUALLY_VALIDATED_BY_OPERATOR_IN_TESTING (Paola Vinal $1.500 carryover, next shift difference $0)
@@ -28,7 +29,7 @@ COMMIT=abeddee · MIGRATION=20261016120000_f10_b2_2_g_shift_recovery applied in 
 NEXT_ACTION=operator manual test of G; H not started; see CODEX_REPORT.md top block and codex-reports/F10_B2_2_G_SHIFT_RECOVERY.md
 ```
 
-## LATEST UPDATE — F10-B2.2-F carryover opening fix (2026-10-15, Claude Code)
+## PREVIOUS UPDATE (historical) — F10-B2.2-F carryover opening fix (2026-10-15, Claude Code)
 
 ```text
 F10_B2_2_F_STATUS=FIX_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_RECHECK (not manually certified)

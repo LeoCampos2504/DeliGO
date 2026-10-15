@@ -115,8 +115,10 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
   migración, sin push y sin cambios en devoluciones, reintegros, stock, importes ni cierres.
 - **Pruebas:** nueva regresión real-DB en `f4-a-devoluciones.integration.test.ts` (ambas cookies, cookie vencida, sin
   fallback, otro negocio, marcar leído aislado) — corre sólo en CI; locales 103/0.
-- **Pendiente:** autorización del operador para integrar en `testing-codex`, CI, Railway TESTING y una comprobación
-  manual de la campana.
+- **CI de la rama:** no hay ejecución — el único workflow (`f10-b2-2-e-testing.yml`) se dispara sólo con push a
+  `testing-codex`; la regresión real-DB y el build todavía no corrieron.
+- **Pendiente:** decisión del operador sobre cómo obtener CI para la rama, autorización para integrar en
+  `testing-codex`, CI, Railway TESTING y una comprobación manual de la campana.
 
 ## Prueba manual sugerida (TESTING)
 
