@@ -399,7 +399,7 @@ describe("F10-B2.1 — sales and cash attributed to the shift", () => {
     expect(sinAsignar).toBeNull()
     const d = await detalle(owner, turno.id)
     expect(d.status).toBe(200)
-    expect(d.body.efectivo).toEqual({ fondoInicial: 20000, ingresosEfectivo: 13000, salidasEfectivo: 0, esperado: 33000 })
+    expect(d.body.efectivo).toEqual({ fondoInicial: 20000, ingresosEfectivo: 13000, salidasEfectivo: 0, esperado: 33000, contadoDeclarado: null, diferencia: null })
     expect(d.body.ventas).toEqual({ cantidad: 3, totalEfectivo: 13000, totalTransferencia: 10000, totalOtro: 0 })
     const ownerVenta = await db.venta.findUniqueOrThrow({ where: { id: ownerCash.body.id } })
     expect(ownerVenta).toMatchObject({ actorTipo: "NEGOCIO", actorId: negocio.id, turnoCajaId: turno.id, empleadoId: null })

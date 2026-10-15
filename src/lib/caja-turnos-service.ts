@@ -61,7 +61,11 @@ async function withSerializableRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>): Pro
     try {
       return await db.$transaction(fn, { ...TX_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     } catch (error) {
-      if (!isSerializationConflict(error) || attempt >= 3) throw error
+      // Closing requests with the same idempotency key can arrive as a burst.
+      // Each losing Serializable snapshot must retry far enough to observe the
+      // committed idempotency record and return the original close response.
+      if (!isSerializationConflict(error) || attempt >= 8) throw error
+      await new Promise((resolve) => setTimeout(resolve, Math.min(attempt * 15, 100)))
     }
   }
 }
