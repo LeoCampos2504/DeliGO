@@ -107,28 +107,30 @@ export function OwnerCajaRecuperacion({ negocioId, registerQueryKey, caja, turno
   const montoValido = AMOUNT.test(contado.trim())
   const puedeConfirmar = montoValido && motivo.trim().length > 0 && confirmo && !recover.isPending
 
-  return <div className="mt-3 space-y-2 border-t pt-3">
+  // The base Button is nowrap + fixed height; inside a narrow register card the
+  // actions are stacked full-width and the CTA may wrap, so nothing overflows.
+  return <div className="mt-3 min-w-0 space-y-2 border-t pt-3">
     <dl className="grid grid-cols-2 gap-2 text-xs">
-      <div><dt className="text-muted-foreground">Fondo inicial</dt><dd className="font-semibold">{money.format(turno.fondoInicial)}</dd></div>
-      <div><dt className="text-muted-foreground">Abierto hace</dt><dd className="font-semibold">{tiempoTranscurrido(turno.abiertoEn)}</dd></div>
-      <div className="col-span-2"><dt className="text-muted-foreground">Actividad registrada</dt><dd className="font-semibold">{turno.cantidadVentas ? `${turno.cantidadVentas} ${turno.cantidadVentas === 1 ? "venta" : "ventas"} · última ${new Date(turno.ultimaVentaEn!).toLocaleString("es-AR")}` : "Sin ventas registradas en este turno"}</dd></div>
+      <div className="min-w-0"><dt className="text-muted-foreground">Fondo inicial</dt><dd className="break-words font-semibold">{money.format(turno.fondoInicial)}</dd></div>
+      <div className="min-w-0"><dt className="text-muted-foreground">Abierto hace</dt><dd className="break-words font-semibold">{tiempoTranscurrido(turno.abiertoEn)}</dd></div>
+      <div className="col-span-2 min-w-0"><dt className="text-muted-foreground">Actividad registrada</dt><dd className="break-words font-semibold">{turno.cantidadVentas ? `${turno.cantidadVentas} ${turno.cantidadVentas === 1 ? "venta" : "ventas"} · última ${new Date(turno.ultimaVentaEn!).toLocaleString("es-AR")}` : "Sin ventas registradas en este turno"}</dd></div>
     </dl>
-    {!abierto ? <Button type="button" variant="outline" className="w-full" onClick={() => { setError(null); setAbierto(true) }}><LifeBuoy className="mr-1 h-4 w-4" />Recuperar turno</Button>
-      : <form aria-label={`Recuperar turno — ${caja.nombre}`} onSubmit={(event) => { event.preventDefault(); if (!puedeConfirmar || inFlight.current) return; inFlight.current = true; recover.mutate() }} className="space-y-3 rounded-xl border bg-background p-3">
-        <div><p className="font-semibold">Recuperar turno — {caja.nombre}</p>
-          <p className="text-xs text-muted-foreground">Responsable original: {turno.responsableNombre} · Abierto desde {new Date(turno.abiertoEn).toLocaleString("es-AR")}</p></div>
-        <p className="text-sm">Esta operación permitirá cerrar administrativamente el turno para liberar la caja. El historial de ventas y el responsable original permanecerán registrados.</p>
-        <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />Un turno abierto no significa que esté abandonado: {turno.responsableNombre} podría seguir operando. Después de recuperarlo no podrá vender ni cerrar en este turno.</p>
-        <label className="block space-y-1 text-sm font-medium" htmlFor={`recuperar-contado-${turno.id}`}><span>Efectivo contado físicamente</span>
-          <Input id={`recuperar-contado-${turno.id}`} inputMode="decimal" value={contado} onChange={(event) => setContado(event.target.value)} placeholder="Contá el efectivo de la caja" disabled={recover.isPending} className="h-11 rounded-xl" /></label>
+    {!abierto ? <Button type="button" variant="outline" className="min-h-11 w-full rounded-xl" onClick={() => { setError(null); setAbierto(true) }}><LifeBuoy className="mr-1 h-4 w-4" />Recuperar turno</Button>
+      : <form aria-label={`Recuperar turno — ${caja.nombre}`} onSubmit={(event) => { event.preventDefault(); if (!puedeConfirmar || inFlight.current) return; inFlight.current = true; recover.mutate() }} className="min-w-0 space-y-3 rounded-xl border bg-background p-3">
+        <div className="min-w-0"><p className="break-words font-semibold">Recuperar turno — {caja.nombre}</p>
+          <p className="break-words text-xs text-muted-foreground">Responsable original: {turno.responsableNombre} · Abierto desde {new Date(turno.abiertoEn).toLocaleString("es-AR")}</p></div>
+        <p className="break-words text-sm">Esta operación permitirá cerrar administrativamente el turno para liberar la caja. El historial de ventas y el responsable original permanecerán registrados.</p>
+        <p className="flex min-w-0 items-start gap-1.5 rounded-lg bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 break-words">Un turno abierto no significa que esté abandonado: {turno.responsableNombre} podría seguir operando. Después de recuperarlo no podrá vender ni cerrar en este turno.</span></p>
+        <label className="block min-w-0 space-y-1 text-sm font-medium" htmlFor={`recuperar-contado-${turno.id}`}><span>Efectivo contado físicamente</span>
+          <Input id={`recuperar-contado-${turno.id}`} inputMode="decimal" value={contado} onChange={(event) => setContado(event.target.value)} placeholder="Contá el efectivo de la caja" disabled={recover.isPending} className="h-11 w-full min-w-0 rounded-xl" /></label>
         {contado.trim() !== "" && !montoValido && <p className="text-xs text-destructive">Ingresá un importe sin negativos y con hasta 2 decimales.</p>}
-        <label className="block space-y-1 text-sm font-medium" htmlFor={`recuperar-motivo-${turno.id}`}><span>Motivo de la recuperación (obligatorio)</span>
-          <Input id={`recuperar-motivo-${turno.id}`} value={motivo} maxLength={500} onChange={(event) => setMotivo(event.target.value)} placeholder="Ej.: el empleado se retiró sin cerrar el turno" disabled={recover.isPending} className="h-11 rounded-xl" /></label>
-        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmo} onChange={(event) => setConfirmo(event.target.checked)} disabled={recover.isPending} /><span>Confirmo que revisé la situación y deseo cerrar administrativamente este turno.</span></label>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <div className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" disabled={recover.isPending} onClick={() => { setAbierto(false); setError(null) }}>Cancelar</Button>
-          <Button type="submit" disabled={!puedeConfirmar}>{recover.isPending ? "Recuperando…" : "Confirmar recuperación del turno"}</Button>
+        <label className="block min-w-0 space-y-1 text-sm font-medium" htmlFor={`recuperar-motivo-${turno.id}`}><span>Motivo de la recuperación (obligatorio)</span>
+          <Input id={`recuperar-motivo-${turno.id}`} value={motivo} maxLength={500} onChange={(event) => setMotivo(event.target.value)} placeholder="Ej.: el empleado se retiró sin cerrar el turno" disabled={recover.isPending} className="h-11 w-full min-w-0 rounded-xl" /></label>
+        <label className="flex min-w-0 items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={confirmo} onChange={(event) => setConfirmo(event.target.checked)} disabled={recover.isPending} /><span className="min-w-0 break-words">Confirmo que revisé la situación y deseo cerrar administrativamente este turno.</span></label>
+        {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}
+        <div className="flex flex-col gap-2" data-testid="recuperacion-acciones">
+          <Button type="submit" aria-label="Confirmar recuperación del turno" disabled={!puedeConfirmar} className="h-auto min-h-11 w-full whitespace-normal rounded-xl px-4 py-2 text-center font-bold leading-snug">{recover.isPending ? "Recuperando…" : "Confirmar recuperación"}</Button>
+          <Button type="button" variant="outline" disabled={recover.isPending} className="min-h-11 w-full rounded-xl" onClick={() => { setAbierto(false); setError(null) }}>Cancelar</Button>
         </div>
       </form>}
   </div>

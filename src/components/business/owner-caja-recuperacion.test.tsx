@@ -75,23 +75,49 @@ describe("F10-B2.2-G — owner recovery form", () => {
     expect(document.body.textContent).toContain("El historial de ventas y el responsable original permanecerán registrados")
     expect(document.body.textContent).toContain("podría seguir operando")
     expect((document.querySelector("#recuperar-contado-turno-g") as HTMLInputElement).value).toBe("")
-    expect(button("Confirmar recuperación del turno")!.disabled).toBe(true)
+    expect(button("Confirmar recuperación")!.disabled).toBe(true)
     await type("#recuperar-contado-turno-g", "24000")
-    expect(button("Confirmar recuperación del turno")!.disabled).toBe(true)
+    expect(button("Confirmar recuperación")!.disabled).toBe(true)
     await type("#recuperar-motivo-turno-g", "Se retiró")
-    expect(button("Confirmar recuperación del turno")!.disabled).toBe(true)
+    expect(button("Confirmar recuperación")!.disabled).toBe(true)
     await act(async () => (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
-    expect(button("Confirmar recuperación del turno")!.disabled).toBe(false)
+    expect(button("Confirmar recuperación")!.disabled).toBe(false)
     await type("#recuperar-contado-turno-g", "-5")
-    expect(button("Confirmar recuperación del turno")!.disabled).toBe(true)
+    expect(button("Confirmar recuperación")!.disabled).toBe(true)
     expect(posts).toHaveLength(0)
+    await act(async () => root.unmount())
+  })
+
+  test("the form keeps only count, reason and confirmation, with stacked full-width actions that cannot overflow", async () => {
+    const root = await render()
+    await act(async () => button("Recuperar turno")!.click())
+    const form = document.querySelector("form") as HTMLFormElement
+    expect([...form.querySelectorAll("input")].map((input) => input.type || "text")).toEqual(["text", "text", "checkbox"])
+    expect(form.querySelector("#recuperar-contado-turno-g")).toBeTruthy()
+    expect(form.querySelector("#recuperar-motivo-turno-g")).toBeTruthy()
+    expect(form.textContent).not.toMatch(/entregado|remanente|destino|observación administrativa/i)
+    const actions = form.querySelector('[data-testid="recuperacion-acciones"]') as HTMLDivElement
+    expect(actions.className).toContain("flex-col")
+    expect(actions.className).not.toContain("grid-cols-2")
+    const [confirm, cancel] = [...actions.querySelectorAll("button")] as HTMLButtonElement[]
+    expect(confirm.type).toBe("submit")
+    expect(confirm.getAttribute("aria-label")).toBe("Confirmar recuperación del turno")
+    expect(confirm.textContent).toBe("Confirmar recuperación")
+    for (const cls of ["w-full", "whitespace-normal", "h-auto", "min-h-11"]) expect(confirm.className).toContain(cls)
+    expect(cancel.textContent).toBe("Cancelar")
+    expect(cancel.className).toContain("w-full")
+    for (const id of ["#recuperar-contado-turno-g", "#recuperar-motivo-turno-g"]) {
+      const cls = (form.querySelector(id) as HTMLInputElement).className
+      expect(cls).toContain("w-full")
+      expect(cls).toContain("min-w-0")
+    }
     await act(async () => root.unmount())
   })
 
   test("success is unequivocal: one request on double click, notice shown and form closed", async () => {
     const root = await render()
     await fillForm()
-    const submit = button("Confirmar recuperación del turno")!
+    const submit = button("Confirmar recuperación")!
     await act(async () => { submit.click(); submit.click() })
     await flush()
     expect(posts).toHaveLength(1)
@@ -107,13 +133,13 @@ describe("F10-B2.2-G — owner recovery form", () => {
     responses = [{ status: 500, body: { ok: false, error: "internal" } }]
     const root = await render()
     await fillForm()
-    await act(async () => button("Confirmar recuperación del turno")!.click())
+    await act(async () => button("Confirmar recuperación")!.click())
     await flush()
     expect(document.body.textContent).toContain("No pudimos recuperar el turno por un error del servidor")
     expect(document.body.textContent).not.toContain("internal")
     expect((document.querySelector("#recuperar-contado-turno-g") as HTMLInputElement).value).toBe("24000")
     expect((document.querySelector("#recuperar-motivo-turno-g") as HTMLInputElement).value).toBe("El empleado se retiró sin cerrar")
-    await act(async () => button("Confirmar recuperación del turno")!.click())
+    await act(async () => button("Confirmar recuperación")!.click())
     await flush()
     expect(posts).toHaveLength(2)
     expect(posts[1].key).toBe(posts[0].key)
@@ -125,7 +151,7 @@ describe("F10-B2.2-G — owner recovery form", () => {
     responses = [{ status: 409, body: { ok: false, error: "El turno ya fue cerrado.", code: "TURNO_NO_ABIERTO" } }]
     const root = await render()
     await fillForm()
-    await act(async () => button("Confirmar recuperación del turno")!.click())
+    await act(async () => button("Confirmar recuperación")!.click())
     await flush()
     expect(document.body.textContent).toContain("El turno ya fue cerrado (por el empleado u otra recuperación)")
     expect(notices.at(-1)).toContain("El turno ya fue cerrado")
