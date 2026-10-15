@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireNegocioCajaGenerico(req)
     if (!auth.ok) return auth.response
-    const body = (await req.json().catch(() => null)) as { cajaFisicaId?: unknown; fondoInicial?: unknown } | null
+    const body = (await req.json().catch(() => null)) as { cajaFisicaId?: unknown; fondoInicial?: unknown; transferirDesdeTurnoCajaId?: unknown; confirmoRecepcionFondo?: unknown } | null
     if (body?.cajaFisicaId !== undefined && body.cajaFisicaId !== null && typeof body.cajaFisicaId !== "string") {
       return NextResponse.json({ error: "Caja inválida" }, { status: 400 })
     }
@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
       actor: { tipo: "NEGOCIO" },
       cajaFisicaId: (body?.cajaFisicaId as string | null | undefined) ?? null,
       fondoInicial: body?.fondoInicial,
+      transferirDesdeTurnoCajaId: body?.transferirDesdeTurnoCajaId,
+      confirmoRecepcionFondo: body?.confirmoRecepcionFondo,
       idempotencyKey: req.headers.get("idempotency-key")?.trim() ?? "",
     })
     if (!result.ok) return NextResponse.json(result.code ? { error: result.error, code: result.code } : { error: result.error }, { status: result.status })
@@ -85,3 +87,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Error al abrir el turno" }, { status: 500 })
   }
 }
+

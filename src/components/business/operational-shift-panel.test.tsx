@@ -12,15 +12,19 @@ const { OperationalShiftPanel } = await import("./operational-shift-panel")
 const originalFetch = globalThis.fetch
 let enabled = false
 let currentShift: unknown = null
+let transferableFund: { turnoOrigenId: string; importe: string } | null = null
 let postResults: Array<"network" | "success"> = []
 const openingKeys: Array<string | null> = []
+const openingBodies: Array<Record<string, unknown>> = []
 const closingKeys: Array<string | null> = []
 
 beforeEach(() => {
   enabled = false
   currentShift = null
+  transferableFund = null
   postResults = []
   openingKeys.length = 0
+  openingBodies.length = 0
   closingKeys.length = 0
   window.sessionStorage.clear()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -33,9 +37,10 @@ beforeEach(() => {
         return new Response(JSON.stringify({ ok: true, turno: { id: "turno-1", estado: "CERRADO_DECLARADO", cerradoEn: new Date().toISOString() } }), { status: 200 })
       }
       openingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
+      openingBodies.push(body)
       const result = postResults.shift() ?? "success"
       if (result === "network") throw new TypeError("network lost")
-      currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: 300 }
+      currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: Number(body.fondoInicial ?? 300) }
       return new Response(JSON.stringify({ ok: true, turno: currentShift }), { status: 201 })
     }
     if (url.endsWith("/turno")) return new Response(JSON.stringify({
@@ -43,8 +48,8 @@ beforeEach(() => {
       modoTurnos: "OPCIONAL",
       aperturaHabilitada: enabled,
       cajas: [
-        { id: "caja-1", nombre: "Caja principal", esPredeterminada: true, ocupada: Boolean(currentShift) },
-        { id: "caja-2", nombre: "Caja secundaria", esPredeterminada: false, ocupada: true },
+        { id: "caja-1", nombre: "Caja principal", esPredeterminada: true, ocupada: Boolean(currentShift), fondoTransferible: transferableFund },
+        { id: "caja-2", nombre: "Caja secundaria", esPredeterminada: false, ocupada: true, fondoTransferible: null },
       ],
       turno: currentShift,
     }), { status: 200 })
@@ -93,6 +98,46 @@ describe("F10-B2.2-B — employee shift interface", () => {
     await act(async () => root.unmount())
   })
 
+  test("employee explicitly confirms the exact previous remainder before opening with it", async () => {
+    enabled = true
+    transferableFund = { turnoOrigenId: "turno-origen", importe: "5000.00" }
+    const root = await renderPanel()
+    const registerButton = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Caja principal")) as HTMLButtonElement
+    await act(async () => registerButton.click())
+    const checks = [...document.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
+    expect(checks).toHaveLength(2)
+    expect(document.body.textContent).toContain("5.000,00")
+    await act(async () => checks[0].click())
+    const submitBeforeConfirmation = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
+    expect(submitBeforeConfirmation.disabled).toBe(true)
+    await act(async () => checks[1].click())
+    const submit = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
+    expect(submit.disabled).toBe(false)
+    await act(async () => submit.click())
+    await flush()
+    expect(openingBodies).toHaveLength(1)
+    expect(openingBodies[0]).toMatchObject({ cajaFisicaId: "caja-1", fondoInicial: "5000.00", transferirDesdeTurnoCajaId: "turno-origen", confirmoRecepcionFondo: true })
+    expect(document.body.textContent).toContain("Turno iniciado con el fondo recibido del turno anterior.")
+    expect(document.body.textContent).not.toMatch(/efectivo esperado|diferencia|efectivoEntregado|responsableNombre/i)
+    await act(async () => root.unmount())
+  })
+
+  test("manual opening stays available and does not claim the prior remainder was transferred", async () => {
+    enabled = true
+    transferableFund = { turnoOrigenId: "turno-origen", importe: "5000.00" }
+    const root = await renderPanel()
+    const registerButton = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Caja principal")) as HTMLButtonElement
+    await act(async () => registerButton.click())
+    expect(document.body.textContent).toContain("Si abrís manualmente, este remanente dejará de estar disponible")
+    const submit = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Iniciar turno") as HTMLButtonElement
+    await act(async () => submit.click())
+    await flush()
+    expect(openingBodies).toHaveLength(1)
+    expect(openingBodies[0]).not.toHaveProperty("transferirDesdeTurnoCajaId")
+    expect(openingBodies[0]).not.toHaveProperty("confirmoRecepcionFondo")
+    await act(async () => root.unmount())
+  })
+
   test("employee confirms blind count, then sees terminal closure without a cash summary", async () => {
     enabled = true
     currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: 0 }
@@ -117,3 +162,4 @@ describe("F10-B2.2-B — employee shift interface", () => {
     await act(async () => root.unmount())
   })
 })
+

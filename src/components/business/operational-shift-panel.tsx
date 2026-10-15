@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 
-type Register = { id: string; nombre: string; esPredeterminada: boolean; ocupada: boolean }
+type Register = { id: string; nombre: string; esPredeterminada: boolean; ocupada: boolean; fondoTransferible: { turnoOrigenId: string; importe: string } | null }
 type Shift = { id: string; caja: { id: string; nombre: string }; abiertoEn: string; fondoInicial: number }
 type ClosedShift = { id: string; caja: { id: string; nombre: string }; cerradoEn: string }
 type State = {
@@ -58,6 +58,8 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
   const [state, setState] = useState<State>(EMPTY)
   const [selected, setSelected] = useState("")
   const [fondoInicial, setFondoInicial] = useState("0")
+  const [usarFondoTransferido, setUsarFondoTransferido] = useState(false)
+  const [confirmoRecepcionFondo, setConfirmoRecepcionFondo] = useState(false)
   const [efectivoContado, setEfectivoContado] = useState("")
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -82,13 +84,21 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
 
   async function openShift() {
     const fondo = Number(fondoInicial)
-    if (!selected || !Number.isFinite(fondo) || fondo < 0 || !/^\d+(\.\d{1,2})?$/.test(fondoInicial.trim())) {
+    const registroSeleccionado = state.cajas.find((caja) => caja.id === selected)
+    const transferencia = usarFondoTransferido ? registroSeleccionado?.fondoTransferible : null
+    if (!selected || (!transferencia && (!Number.isFinite(fondo) || fondo < 0 || !/^\d+(\.\d{1,2})?$/.test(fondoInicial.trim())))) {
       setMessage("Elegí una caja disponible e ingresá un fondo inicial válido.")
+      return
+    }
+    if (usarFondoTransferido && (!transferencia || !confirmoRecepcionFondo)) {
+      setMessage("Confirmá que recibiste físicamente el fondo disponible antes de iniciar el turno.")
       return
     }
     setSaving(true)
     setMessage(null)
-    const body = { cajaFisicaId: selected, fondoInicial: fondoInicial.trim() }
+    const body = transferencia
+      ? { cajaFisicaId: selected, fondoInicial: transferencia.importe, transferirDesdeTurnoCajaId: transferencia.turnoOrigenId, confirmoRecepcionFondo: true }
+      : { cajaFisicaId: selected, fondoInicial: fondoInicial.trim() }
     const canonical = JSON.stringify(body)
     try {
       const response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, {
@@ -103,7 +113,9 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
         throw new Error(json.error ?? "No pudimos iniciar el turno.")
       }
       clearAttempt(scope)
-      setMessage("Turno iniciado.")
+      setUsarFondoTransferido(false)
+      setConfirmoRecepcionFondo(false)
+      setMessage(transferencia ? "Turno iniciado con el fondo recibido del turno anterior." : "Turno iniciado.")
       await refresh()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos confirmar la apertura. Podés reintentar sin duplicarla.")
@@ -191,21 +203,33 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
           <p className="text-sm font-semibold">Seleccioná una caja disponible para iniciar tu turno.</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {state.cajas.map((caja) => (
-              <button key={caja.id} type="button" disabled={caja.ocupada || !state.aperturaHabilitada || saving} onClick={() => setSelected(caja.id)}
+              <button key={caja.id} type="button" disabled={caja.ocupada || !state.aperturaHabilitada || saving} onClick={() => { setSelected(caja.id); setUsarFondoTransferido(false); setConfirmoRecepcionFondo(false) }}
                 aria-pressed={selected === caja.id} className={`min-h-12 rounded-xl border px-3 py-2 text-left text-sm ${caja.ocupada ? "cursor-not-allowed bg-muted text-muted-foreground" : selected === caja.id ? "border-primary bg-primary/5" : "bg-background"}`}>
                 <span className="font-semibold">{caja.nombre}{caja.esPredeterminada ? " · Principal" : ""}</span>
                 <span className="mt-0.5 block text-xs">{caja.ocupada ? "Ocupada" : "Disponible"}</span>
               </button>
             ))}
           </div>
-          <label className="block space-y-1 text-sm font-medium" htmlFor="fondo-inicial-turno">
-            <span className="flex items-center gap-1.5"><Banknote className="h-4 w-4" />Fondo inicial declarado</span>
-            <Input id="fondo-inicial-turno" inputMode="decimal" type="number" min="0" step="0.01" value={fondoInicial} onChange={(event) => setFondoInicial(event.target.value)} disabled={!state.aperturaHabilitada || saving} className="h-12 rounded-xl" />
-          </label>
+          {(() => {
+            const selectedRegister = state.cajas.find((caja) => caja.id === selected)
+            const available = selectedRegister?.fondoTransferible
+            return <>
+              {available && <div className="space-y-3 rounded-xl border p-3">
+                <p className="text-sm font-semibold">Fondo disponible del turno anterior: {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(available.importe))}</p>
+                <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={usarFondoTransferido} onChange={(event) => { setUsarFondoTransferido(event.target.checked); setConfirmoRecepcionFondo(false) }} disabled={!state.aperturaHabilitada || saving} /><span>Recibir el fondo del turno anterior como fondo inicial</span></label>
+                {!usarFondoTransferido && <p className="text-xs text-muted-foreground">Si abrís manualmente, este remanente dejará de estar disponible para un traspaso posterior.</p>}
+                {usarFondoTransferido && <label className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" checked={confirmoRecepcionFondo} onChange={(event) => setConfirmoRecepcionFondo(event.target.checked)} disabled={!state.aperturaHabilitada || saving} /><span>Confirmo que recibí físicamente {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(available.importe))} para comenzar mi turno</span></label>}
+              </div>}
+              {!usarFondoTransferido && <label className="block space-y-1 text-sm font-medium" htmlFor="fondo-inicial-turno">
+                <span className="flex items-center gap-1.5"><Banknote className="h-4 w-4" />Fondo inicial declarado</span>
+                <Input id="fondo-inicial-turno" inputMode="decimal" type="number" min="0" step="0.01" value={fondoInicial} onChange={(event) => setFondoInicial(event.target.value)} disabled={!state.aperturaHabilitada || saving} className="h-12 rounded-xl" />
+              </label>}
+            </>
+          })()}
           {!state.aperturaHabilitada && <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground"><LockKeyhole className="mr-1 inline h-4 w-4" />La apertura y el cierre están limitados a cuentas controladas de TESTING.</p>}
           {state.modoTurnos === "OPCIONAL" && <p className="text-xs text-muted-foreground">Mientras no haya un turno abierto, las ventas existentes siguen disponibles en modo opcional.</p>}
-          <Button type="button" onClick={() => void openShift()} disabled={!state.aperturaHabilitada || saving || !selected} className="h-12 w-full rounded-xl font-bold sm:w-auto">
-            {saving ? "Iniciando…" : "Iniciar turno"}
+          <Button type="button" onClick={() => void openShift()} disabled={!state.aperturaHabilitada || saving || !selected || (usarFondoTransferido && !confirmoRecepcionFondo)} className="h-12 w-full rounded-xl font-bold sm:w-auto">
+            {saving ? "Iniciando…" : usarFondoTransferido ? "Abrir turno con fondo transferido" : "Iniciar turno"}
           </Button>
         </div>
       )}
@@ -213,3 +237,4 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
     </section>
   )
 }
+

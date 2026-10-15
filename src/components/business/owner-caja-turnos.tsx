@@ -16,8 +16,10 @@ export type CajaFisicaResumen = {
   esPredeterminada: boolean
   activa: boolean
   turnoAbierto: Turno | null
+  fondoTransferible: { turnoOrigenId: string; importe: string; cerradoEn: string } | null
 }
-type CajaResponse = { modoTurnos: "OPCIONAL" | "OBLIGATORIO"; cajas: CajaFisicaResumen[] }
+type TraspasoResumen = { id: string; caja: { id: string; nombre: string }; importe: string; confirmadoEn: string; estado: string; turnoOrigen: { id: string; responsableNombre: string }; turnoDestino: { id: string; responsableNombre: string } }
+type CajaResponse = { modoTurnos: "OPCIONAL" | "OBLIGATORIO"; cajas: CajaFisicaResumen[]; traspasos: TraspasoResumen[] }
 
 export const ownerRegisterQueryKey = (negocioId: string) => ["negocio-caja-registros-turnos", negocioId] as const
 
@@ -28,7 +30,11 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
   const [message, setMessage] = useState<string | null>(null)
   const [efectivoContado, setEfectivoContado] = useState<Record<string, string>>({})
   const [confirmingClose, setConfirmingClose] = useState<string | null>(null)
+  const [fondosIniciales, setFondosIniciales] = useState<Record<string, string>>({})
+  const [usarTransferencia, setUsarTransferencia] = useState<Record<string, boolean>>({})
+  const [confirmarRecepcion, setConfirmarRecepcion] = useState<Record<string, boolean>>({})
   const closeKeys = useRef(new Map<string, string>())
+  const openKeys = useRef(new Map<string, string>())
   const query = useQuery<CajaResponse>({
     queryKey: ownerRegisterQueryKey(negocioId),
     queryFn: async () => {
@@ -81,11 +87,42 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
     },
     onError: (error) => setMessage(error.message),
   })
+  const open = useMutation({
+    mutationFn: async ({ caja, fondo, transferencia }: { caja: CajaFisicaResumen; fondo: string; transferencia: boolean }) => {
+      const source = transferencia ? caja.fondoTransferible : null
+      if (transferencia && !source) throw new Error("El fondo del turno anterior ya no está disponible.")
+      if (!transferencia && !/^\d{1,10}(\.\d{1,2})?$/.test(fondo.trim())) throw new Error("Ingresá un fondo inicial válido, con hasta dos decimales.")
+      if (transferencia && !confirmarRecepcion[caja.id]) throw new Error("Confirmá que recibiste físicamente el fondo antes de abrir el turno.")
+      const body = source
+        ? { cajaFisicaId: caja.id, fondoInicial: source.importe, transferirDesdeTurnoCajaId: source.turnoOrigenId, confirmoRecepcionFondo: true }
+        : { cajaFisicaId: caja.id, fondoInicial: fondo.trim() }
+      const canonical = JSON.stringify(body)
+      let key = openKeys.current.get(canonical)
+      if (!key) { key = newIdempotencyKey(); openKeys.current.set(canonical, key) }
+      const response = await fetch("/api/negocio/caja/turnos", { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: canonical })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        if (response.status < 500) openKeys.current.delete(canonical)
+        throw new Error(json.error ?? "No se pudo abrir el turno.")
+      }
+      openKeys.current.delete(canonical)
+      return { transferencia: Boolean(source) }
+    },
+    onSuccess: ({ transferencia }) => {
+      setMessage(transferencia ? "Turno abierto con el fondo recibido del turno anterior." : "Turno abierto.")
+      setUsarTransferencia({})
+      setConfirmarRecepcion({})
+      void refresh()
+    },
+    onError: (error) => setMessage(error.message),
+  })
 
   if (query.isLoading) return <p className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Cargando cajas…</p>
   if (query.isError) return <div className="rounded-xl border bg-card p-5"><p role="alert" className="text-sm text-destructive">{query.error.message}</p><Button className="mt-3" variant="outline" onClick={() => void query.refetch()}>Reintentar</Button></div>
 
   const cajas = query.data?.cajas ?? []
+  const traspasos = query.data?.traspasos ?? []
+  const ownerHasOpenShift = cajas.some((caja) => caja.turnoAbierto?.responsableTipo === "NEGOCIO")
   return (
     <section className="space-y-4" aria-label="Administración de cajas y turnos">
       <div className="flex items-center justify-between gap-3">
@@ -109,6 +146,18 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
                   <p className="text-xs text-muted-foreground">El cierre termina el turno y no muestra efectivo esperado ni diferencia.</p>
                 </div>}
               </div>}
+              {!ocupada && <div className="space-y-2 rounded-xl border p-3">
+                <p className="text-sm font-semibold">Abrir mi turno</p>
+                {caja.fondoTransferible && <>
+                  <p className="text-sm">Fondo disponible del turno anterior: {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(caja.fondoTransferible.importe))}</p>
+                  <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={usarTransferencia[caja.id] === true} onChange={(event) => { setUsarTransferencia((current) => ({ ...current, [caja.id]: event.target.checked })); setConfirmarRecepcion((current) => ({ ...current, [caja.id]: false })) }} disabled={open.isPending || !caja.activa || ownerHasOpenShift} /><span>Recibir el remanente como fondo inicial</span></label>
+                  {usarTransferencia[caja.id] !== true && <p className="text-xs text-muted-foreground">Si abrís manualmente, este remanente dejará de estar disponible para un traspaso posterior.</p>}
+                  {usarTransferencia[caja.id] && <label className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" checked={confirmarRecepcion[caja.id] === true} onChange={(event) => setConfirmarRecepcion((current) => ({ ...current, [caja.id]: event.target.checked }))} disabled={open.isPending || !caja.activa || ownerHasOpenShift} /><span>Confirmo que recibí físicamente {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(caja.fondoTransferible.importe))} para comenzar mi turno</span></label>}
+                </>}
+                {!usarTransferencia[caja.id] && <label className="block space-y-1 text-sm font-medium" htmlFor={`fondo-inicial-dueno-${caja.id}`}><span>Fondo inicial manual</span><Input id={`fondo-inicial-dueno-${caja.id}`} inputMode="decimal" type="number" min="0" step="0.01" value={fondosIniciales[caja.id] ?? "0"} onChange={(event) => setFondosIniciales((current) => ({ ...current, [caja.id]: event.target.value }))} disabled={open.isPending || !caja.activa || ownerHasOpenShift} className="h-11 rounded-xl" /></label>}
+                {ownerHasOpenShift && <p className="text-xs text-muted-foreground">Ya tenés un turno abierto en otra caja.</p>}
+                <Button type="button" className="w-full" disabled={open.isPending || !caja.activa || ownerHasOpenShift || (usarTransferencia[caja.id] === true && confirmarRecepcion[caja.id] !== true)} onClick={() => open.mutate({ caja, fondo: fondosIniciales[caja.id] ?? "0", transferencia: usarTransferencia[caja.id] === true })}>{open.isPending ? "Abriendo…" : usarTransferencia[caja.id] ? "Abrir turno con fondo transferido" : "Abrir turno"}</Button>
+              </div>}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input aria-label={`Nombre de ${caja.nombre}`} value={nombreActual} onChange={(event) => setNombresEditados((current) => ({ ...current, [caja.id]: event.target.value }))} className="h-11 min-w-0 rounded-xl" />
                 <Button variant="outline" className="h-11 rounded-xl" disabled={update.isPending || !nombreActual.trim() || nombreActual.trim() === caja.nombre} onClick={() => update.mutate({ caja, patch: { nombre: nombreActual.trim() } })}>Renombrar</Button>
@@ -121,6 +170,14 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
           )
         })}
       </div>
+      <section className="space-y-2 rounded-2xl border bg-card p-4" aria-label="Historial de traspasos de fondos entre turnos">
+        <h4 className="font-bold">Traspasos de fondo entre turnos</h4>
+        {traspasos.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay fondos transferidos entre turnos.</p> : <ol className="space-y-2">{traspasos.map((traspaso) => <li key={traspaso.id} className="rounded-xl bg-muted/40 p-3 text-sm">
+          <p className="font-semibold">{traspaso.caja.nombre} · {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(Number(traspaso.importe))} · {traspaso.estado}</p>
+          <p>Origen: turno de {traspaso.turnoOrigen.responsableNombre} ({traspaso.turnoOrigen.id})</p>
+          <p>Recibió: {traspaso.turnoDestino.responsableNombre} ({traspaso.turnoDestino.id}) · {new Date(traspaso.confirmadoEn).toLocaleString("es-AR")}</p>
+        </li>)}</ol>}
+      </section>
       <form onSubmit={(event) => { event.preventDefault(); setMessage(null); create.mutate() }} className="flex flex-col gap-2 rounded-2xl border bg-card p-4 sm:flex-row">
         <Input aria-label="Nombre de la nueva caja" value={nombre} onChange={(event) => setNombre(event.target.value)} maxLength={80} placeholder="Nombre de la caja adicional" className="h-11 min-w-0 rounded-xl" />
         <Button type="submit" disabled={!nombre.trim() || create.isPending} className="h-11 rounded-xl"><Plus className="mr-1 h-4 w-4" />{create.isPending ? "Creando…" : "Crear caja"}</Button>
@@ -131,3 +188,4 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
     </section>
   )
 }
+

@@ -40,6 +40,6 @@ jobs:
       - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
-      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/owner-caja-revisiones.test.tsx src/lib/f10-b2-1-turnos.integration.test.ts
+      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/lib/f10-b2-1-turnos.integration.test.ts
       - run: bun --no-env-file run build
 

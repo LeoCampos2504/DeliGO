@@ -102,6 +102,10 @@ export async function registrarEntregaCustodia(db: PrismaClient, input: EntregaI
         })
         if (!turno) return fail(404, "TURNO_NO_ENCONTRADO", "Turno cerrado no encontrado.")
         if (turno.estado !== "CERRADO_DECLARADO" || !turno.cerradoEn || !turno.efectivoContadoDecimal || !turno.efectivoEsperadoDecimal) return fail(409, "TURNO_NO_CERRADO", "Sólo se puede registrar custodia de un turno declarado y cerrado.")
+        if (tipo === "RECTIFICACION") {
+          const traspaso = await tx.traspasoFondoTurnoCaja.findUnique({ where: { turnoOrigenId: turno.id }, select: { id: true } })
+          if (traspaso) return fail(409, "FONDO_REMANENTE_YA_TRANSFERIDO", "El remanente ya fue recibido por otro turno; no se puede rectificar silenciosamente.")
+        }
         if (!delivered.plus(retained).equals(turno.efectivoContadoDecimal)) return fail(400, "SUMA_NO_COINCIDE", "La entrega y el remanente deben sumar exactamente el efectivo declarado.")
 
         const existingInitial = await tx.entregaCustodiaTurnoCaja.findFirst({ where: { negocioId: input.negocioId, turnoCajaId: input.turnoCajaId, tipo: "ENTREGA_CONFIRMADA" } })

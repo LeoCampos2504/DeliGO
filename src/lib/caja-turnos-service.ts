@@ -55,9 +55,10 @@ function isUniqueViolation(error: unknown): boolean {
 function isSerializationConflict(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
   if (error.code === "P2034") return true
-  // Raw PostgreSQL serialization failures from SELECT ... FOR UPDATE are
-  // surfaced as P2010. Retry only the exact SQLSTATE 40001, not other raw SQL
-  // errors that may represent permanent failures.
+  // PostgreSQL 40001 from a raw SELECT ... FOR UPDATE is surfaced by Prisma as
+  // P2010 (raw-query failure), while model writes surface the same conflict as
+  // P2034. Retry only the exact serialization SQLSTATE; other P2010 errors are
+  // not transient and must keep failing.
   return error.code === "P2010" && typeof error.meta?.code === "string" && error.meta.code === "40001"
 }
 
@@ -180,6 +181,61 @@ async function lockCaja(tx: Tx, negocioId: string, cajaFisicaId: string) {
   return rows[0] ?? null
 }
 
+export type FondoRemanenteDisponible = {
+  turnoOrigenId: string
+  entregaOrigenId: string
+  cajaFisicaId: string
+  cajaNombre: string
+  fondoRemanenteDecimal: Prisma.Decimal
+  confirmadoEn: Date
+  cerradoEn: Date
+  responsableTipo: string
+  responsableNombre: string
+}
+
+/** Only the newest closed shift in an active register may offer its latest positive E remainder. */
+export async function listarFondosRemanentesTransferibles(db: Db, negocioId: string, cajaFisicaIds?: string[]): Promise<FondoRemanenteDisponible[]> {
+  if (cajaFisicaIds && cajaFisicaIds.length === 0) return []
+  const registerFilter = cajaFisicaIds ? Prisma.sql`AND t."cajaFisicaId" IN (${Prisma.join(cajaFisicaIds)})` : Prisma.empty
+  return db.$queryRaw<FondoRemanenteDisponible[]>`
+    SELECT
+      t."id" AS "turnoOrigenId",
+      e."id" AS "entregaOrigenId",
+      t."cajaFisicaId",
+      c."nombre" AS "cajaNombre",
+      e."fondoRemanenteDecimal",
+      e."confirmadoEn",
+      t."cerradoEn",
+      t."responsableTipo",
+      CASE WHEN t."responsableTipo" = 'EMPLEADO' THEN COALESCE(emp."nombre", 'Empleado') ELSE 'Dueño' END AS "responsableNombre"
+    FROM "turnos_caja" t
+    JOIN "cajas_fisicas" c ON c."id" = t."cajaFisicaId" AND c."negocioId" = t."negocioId" AND c."activa" = TRUE
+    LEFT JOIN "empleados" emp ON emp."id" = t."empleadoId"
+    JOIN LATERAL (
+      SELECT event."id", event."fondoRemanenteDecimal", event."confirmadoEn", event."estado"
+      FROM "entregas_custodia_turnos_caja" event
+      WHERE event."negocioId" = t."negocioId" AND event."turnoCajaId" = t."id"
+      ORDER BY event."secuencia" DESC
+      LIMIT 1
+    ) e ON TRUE
+    WHERE t."negocioId" = ${negocioId}
+      AND t."estado" = 'CERRADO_DECLARADO'
+      AND t."cerradoEn" IS NOT NULL
+      AND e."estado" = 'CONFIRMADA'
+      AND e."fondoRemanenteDecimal" > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM "traspasos_fondo_turnos_caja" transfer
+        WHERE transfer."negocioId" = t."negocioId" AND transfer."turnoOrigenId" = t."id"
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM "turnos_caja" newer
+        WHERE newer."negocioId" = t."negocioId" AND newer."cajaFisicaId" = t."cajaFisicaId"
+          AND (newer."abiertoEn" > t."abiertoEn" OR (newer."abiertoEn" = t."abiertoEn" AND newer."id" > t."id"))
+      )
+      ${registerFilter}
+    ORDER BY t."abiertoEn" DESC, t."id" DESC`
+}
+
 /**
  * Rename / describe / activate / deactivate / make default. A register with an
  * open shift, or the default register, cannot be deactivated. Registers are
@@ -243,9 +299,10 @@ export async function actualizarCajaFisica(
 // Shifts
 // ---------------------------------------------------------------------------
 
-export function fingerprintAperturaTurno(negocioId: string, cajaFisicaId: string, fondo: Prisma.Decimal, actor: CajaActor): string {
+export function fingerprintAperturaTurno(negocioId: string, cajaFisicaId: string, fondo: Prisma.Decimal, actor: CajaActor, transferenciaOrigenTurnoId?: string): string {
   const r = actorResponsable(negocioId, actor)
-  return createHash("sha256").update(`${negocioId}\n${cajaFisicaId}\n${fondo.toFixed(2)}\n${r.responsableTipo}:${r.responsableId}`).digest("hex")
+  const canonical = `${negocioId}\n${cajaFisicaId}\n${fondo.toFixed(2)}\n${r.responsableTipo}:${r.responsableId}`
+  return createHash("sha256").update(transferenciaOrigenTurnoId ? `${canonical}\nTRANSFERENCIA:${transferenciaOrigenTurnoId}` : canonical).digest("hex")
 }
 
 export interface AbrirTurnoInput {
@@ -254,10 +311,117 @@ export interface AbrirTurnoInput {
   /** null/undefined = the business's default register. */
   cajaFisicaId?: string | null
   fondoInicial: unknown
+  transferirDesdeTurnoCajaId?: unknown
+  confirmoRecepcionFondo?: unknown
   idempotencyKey: string
 }
 
 type TurnoConCaja = Prisma.TurnoCajaGetPayload<{ include: { cajaFisica: { select: { id: true; nombre: true } } } }>
+
+type TransferOpenResult = CajaResult<{ turno: TurnoConCaja; replayed: boolean }>
+
+async function replayTransferOpen(db: Pick<PrismaClient, "traspasoFondoTurnoCaja">, input: AbrirTurnoInput, existing: TurnoConCaja, sourceShiftId: string, idempotencyKey: string): Promise<TransferOpenResult> {
+  const transfer = await db.traspasoFondoTurnoCaja.findUnique({ where: { turnoDestinoId: existing.id } })
+  const responsible = actorResponsable(input.negocioId, input.actor)
+  const requestedFund = parseFondoInicial(input.fondoInicial)
+  const fingerprint = fingerprintAperturaTurno(input.negocioId, existing.cajaFisicaId, existing.fondoInicialDecimal, input.actor, sourceShiftId)
+  if ((!input.cajaFisicaId || input.cajaFisicaId === existing.cajaFisicaId)
+      && requestedFund.ok && requestedFund.value.equals(existing.fondoInicialDecimal)
+      && transfer?.turnoOrigenId === sourceShiftId && transfer.montoDecimal.equals(existing.fondoInicialDecimal)
+      && transfer.idempotencyKey === idempotencyKey && transfer.idempotencyFingerprint === fingerprint
+      && existing.idempotencyFingerprint === fingerprint && existing.responsableTipo === responsible.responsableTipo && existing.responsableId === responsible.responsableId) {
+    return { ok: true, value: { turno: existing, replayed: true } }
+  }
+  return fail(409, "Este intento de apertura ya se usó con otros datos. Volvé a intentar.", "IDEMPOTENCY_KEY_REUSED")
+}
+
+async function abrirTurnoConFondoTransferido(db: Db, input: AbrirTurnoInput, sourceShiftId: string): Promise<TransferOpenResult> {
+  const { negocioId, actor } = input
+  if (input.confirmoRecepcionFondo !== true) return fail(400, "Confirmá que recibiste físicamente el fondo para comenzar el turno.", "CONFIRMACION_RECEPCION_REQUERIDA")
+  if (!isValidVentaIdempotencyKey(input.idempotencyKey)) return fail(400, "Falta una Idempotency-Key válida para abrir el turno.", "IDEMPOTENCY_KEY_REQUIRED")
+  const idempotencyKey = input.idempotencyKey.toLowerCase()
+  if (actor.tipo === "EMPLEADO") {
+    const empleado = await db.empleado.findFirst({
+      where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
+      select: { areaOperativa: true, rol: true },
+    })
+    if (!empleado || resolveAreaOperativaEfectiva(empleado) !== "caja") return fail(403, "Acceso denegado")
+  }
+  const cajaFisicaId = input.cajaFisicaId ?? (await asegurarCajaPredeterminada(db, negocioId)).id
+  const include = { cajaFisica: { select: { id: true, nombre: true } } } as const
+  const previous = await db.turnoCaja.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include })
+  if (previous) return replayTransferOpen(db, input, previous, sourceShiftId, idempotencyKey)
+
+  try {
+    return await db.$transaction(async (tx): Promise<TransferOpenResult> => {
+      const caja = await lockCaja(tx, negocioId, cajaFisicaId)
+      if (!caja) return fail(404, "Caja no encontrada.")
+      if (!caja.activa) return fail(409, "La caja está desactivada.", "CAJA_INACTIVA")
+
+      const sameKey = await tx.turnoCaja.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include })
+      if (sameKey) return replayTransferOpen(tx, input, sameKey, sourceShiftId, idempotencyKey)
+
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "turnos_caja" WHERE "id" = ${sourceShiftId} AND "negocioId" = ${negocioId} FOR UPDATE`
+      if (!locked.length) return fail(409, "El fondo del turno anterior ya no está disponible.", "FONDO_REMANENTE_NO_DISPONIBLE")
+
+      const latestShift = await tx.turnoCaja.findFirst({
+        where: { negocioId, cajaFisicaId },
+        orderBy: [{ abiertoEn: "desc" }, { id: "desc" }],
+        select: { id: true, estado: true, cerradoEn: true },
+      })
+      if (!latestShift || latestShift.id !== sourceShiftId || latestShift.estado !== TURNO_ESTADO_CERRADO_DECLARADO || !latestShift.cerradoEn) {
+        return fail(409, "El fondo del turno anterior ya no está disponible.", "FONDO_REMANENTE_NO_DISPONIBLE")
+      }
+      const origen = await tx.turnoCaja.findFirst({
+        where: { id: sourceShiftId, negocioId, cajaFisicaId, estado: TURNO_ESTADO_CERRADO_DECLARADO },
+        include: { entregasCustodia: { orderBy: { secuencia: "desc" }, take: 1 } },
+      })
+      const entrega = origen?.entregasCustodia[0]
+      if (!origen || !entrega || entrega.estado !== "CONFIRMADA" || !entrega.fondoRemanenteDecimal.gt(0)) {
+        return fail(409, "No hay un remanente confirmado para transferir desde ese turno.", "FONDO_REMANENTE_NO_DISPONIBLE")
+      }
+      const alreadyTransferred = await tx.traspasoFondoTurnoCaja.findUnique({ where: { turnoOrigenId: sourceShiftId }, select: { id: true } })
+      if (alreadyTransferred) return fail(409, "Ese fondo ya fue recibido por otro turno.", "FONDO_REMANENTE_YA_TRANSFERIDO")
+
+      const fondo = entrega.fondoRemanenteDecimal
+      const requestedFund = parseFondoInicial(input.fondoInicial)
+      if (!requestedFund.ok || !requestedFund.value.equals(fondo)) return fail(409, "El importe debe coincidir exactamente con el remanente confirmado.", "IMPORTE_TRASPASO_NO_COINCIDE")
+      const responsable = actorResponsable(negocioId, actor)
+      const fingerprint = fingerprintAperturaTurno(negocioId, cajaFisicaId, fondo, actor, sourceShiftId)
+      const turno = await tx.turnoCaja.create({
+        data: { negocioId, cajaFisicaId, ...responsable, estado: TURNO_ESTADO_ABIERTO, fondoInicialDecimal: fondo, idempotencyKey, idempotencyFingerprint: fingerprint },
+        include,
+      })
+      await tx.traspasoFondoTurnoCaja.create({
+        data: {
+          negocioId,
+          cajaFisicaId,
+          turnoOrigenId: sourceShiftId,
+          entregaOrigenId: entrega.id,
+          turnoDestinoId: turno.id,
+          montoDecimal: fondo,
+          recibidoPorTipo: responsable.responsableTipo,
+          recibidoPorId: responsable.responsableId,
+          confirmadoEn: new Date(),
+          estado: "CONFIRMADO",
+          idempotencyKey,
+          idempotencyFingerprint: fingerprint,
+        },
+      })
+      return { ok: true, value: { turno, replayed: false } }
+    }, TX_OPTIONS)
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error
+    const sameKey = await db.turnoCaja.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include })
+    if (sameKey) return replayTransferOpen(db, input, sameKey, sourceShiftId, idempotencyKey)
+    const alreadyTransferred = await db.traspasoFondoTurnoCaja.findUnique({ where: { turnoOrigenId: sourceShiftId }, select: { id: true } })
+    if (alreadyTransferred) return fail(409, "Ese fondo ya fue recibido por otro turno.", "FONDO_REMANENTE_YA_TRANSFERIDO")
+    const occupied = await db.turnoCaja.findFirst({ where: { cajaFisicaId, estado: TURNO_ESTADO_ABIERTO }, select: { id: true } })
+    if (occupied) return fail(409, "Esta caja ya tiene un turno abierto.", "CAJA_CON_TURNO_ABIERTO")
+    return fail(409, "Ya tenés un turno abierto en otra caja.", "TURNO_YA_ABIERTO")
+  }
+}
 
 /**
  * Opens a shift for the session's actor on a register of THEIR business.
@@ -268,6 +432,10 @@ type TurnoConCaja = Prisma.TurnoCajaGetPayload<{ include: { cajaFisica: { select
  */
 export async function abrirTurnoCaja(db: Db, input: AbrirTurnoInput): Promise<CajaResult<{ turno: TurnoConCaja; replayed: boolean }>> {
   const { negocioId, actor } = input
+  if (input.transferirDesdeTurnoCajaId !== undefined) {
+    if (typeof input.transferirDesdeTurnoCajaId !== "string" || !input.transferirDesdeTurnoCajaId.trim()) return fail(400, "El turno de origen del fondo no es válido.", "TURNO_ORIGEN_INVALIDO")
+    return abrirTurnoConFondoTransferido(db, input, input.transferirDesdeTurnoCajaId.trim())
+  }
   if (!isValidVentaIdempotencyKey(input.idempotencyKey)) {
     return fail(400, "Falta una Idempotency-Key válida para abrir el turno.", "IDEMPOTENCY_KEY_REQUIRED")
   }
@@ -461,3 +629,4 @@ export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<
   }
   return result
 }
+

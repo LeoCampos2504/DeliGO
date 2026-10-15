@@ -193,6 +193,7 @@ model Negocio {
   movimientosFinancieros MovimientoFinanciero[] // F10-B0
   cajasFisicas           CajaFisica[] // F10-B2.1
   turnosCaja             TurnoCaja[] // F10-B2.1
+  traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
 
   // Plan
   planTipo            String  @default("prueba")
@@ -623,6 +624,7 @@ model CajaFisica {
   negocio Negocio            @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   turnos  TurnoCaja[]
   entregasCustodia EntregaCustodiaTurnoCaja[]
+  traspasosFondo TraspasoFondoTurnoCaja[]
   cuentas CuentaFinanciera[]
 
   @@unique([id, negocioId])
@@ -665,10 +667,13 @@ model TurnoCaja {
   operaciones OperacionFinanciera[]
   revisionesAdministrativas RevisionTurnoCaja[]
   entregasCustodia EntregaCustodiaTurnoCaja[]
+  traspasoFondoOrigen TraspasoFondoTurnoCaja? @relation("TraspasoFondoTurnoOrigen")
+  traspasoFondoDestino TraspasoFondoTurnoCaja? @relation("TraspasoFondoTurnoDestino")
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, cierreIdempotencyKey])
   @@unique([id, negocioId])
+  @@unique([id, negocioId, cajaFisicaId])
   @@index([negocioId, abiertoEn])
   @@index([cajaFisicaId])
   @@index([empleadoId])
@@ -731,8 +736,39 @@ model EntregaCustodiaTurnoCaja {
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, turnoCajaId, secuencia])
+  @@unique([id, negocioId, cajaFisicaId, turnoCajaId])
   @@index([negocioId, turnoCajaId, secuencia])
+  traspasoFondoOrigen TraspasoFondoTurnoCaja?
   @@map("entregas_custodia_turnos_caja")
+}
+
+// F10-B2.2-F — immutable custody transfer from the latest confirmed
+// remainder of one closed shift to the opening fund of the next shift.
+model TraspasoFondoTurnoCaja {
+  id                    String   @id @default(cuid())
+  negocioId             String
+  cajaFisicaId          String
+  turnoOrigenId         String   @unique
+  entregaOrigenId       String   @unique
+  turnoDestinoId        String   @unique
+  montoDecimal          Decimal  @db.Decimal(12, 2)
+  recibidoPorTipo       String
+  recibidoPorId         String
+  confirmadoEn          DateTime @default(now())
+  estado                String   @default("CONFIRMADO")
+  idempotencyKey        String
+  idempotencyFingerprint String
+  createdAt             DateTime @default(now())
+
+  negocio       Negocio                    @relation(fields: [negocioId], references: [id], onDelete: Restrict)
+  caja          CajaFisica                 @relation(fields: [cajaFisicaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  turnoOrigen   TurnoCaja                  @relation("TraspasoFondoTurnoOrigen", fields: [turnoOrigenId, negocioId, cajaFisicaId], references: [id, negocioId, cajaFisicaId], onDelete: Restrict)
+  turnoDestino  TurnoCaja                  @relation("TraspasoFondoTurnoDestino", fields: [turnoDestinoId, negocioId, cajaFisicaId], references: [id, negocioId, cajaFisicaId], onDelete: Restrict)
+  entregaOrigen EntregaCustodiaTurnoCaja   @relation(fields: [entregaOrigenId, negocioId, cajaFisicaId, turnoOrigenId], references: [id, negocioId, cajaFisicaId, turnoCajaId], onDelete: Restrict)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, cajaFisicaId, confirmadoEn])
+  @@map("traspasos_fondo_turnos_caja")
 }
 
 model MovimientoFinanciero {

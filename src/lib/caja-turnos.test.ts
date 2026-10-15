@@ -50,6 +50,10 @@ describe("F10-B2.1 — opening idempotency fingerprint", () => {
     expect(fingerprintAperturaTurno("n1", "c1", D("100"), { tipo: "EMPLEADO", empleadoId: "e2" })).not.toBe(base)
     expect(fingerprintAperturaTurno("n1", "c1", D("100"), { tipo: "NEGOCIO" })).not.toBe(base)
     expect(fingerprintAperturaTurno("n2", "c1", D("100"), { tipo: "EMPLEADO", empleadoId: "e1" })).not.toBe(base)
+    const transferred = fingerprintAperturaTurno("n1", "c1", D("100"), { tipo: "EMPLEADO", empleadoId: "e1" }, "source-shift-1")
+    expect(transferred).not.toBe(base)
+    expect(fingerprintAperturaTurno("n1", "c1", D("100"), { tipo: "EMPLEADO", empleadoId: "e1" }, "source-shift-2")).not.toBe(transferred)
+    expect(fingerprintAperturaTurno("n1", "c1", D("100"), { tipo: "EMPLEADO", empleadoId: "e1" }, "source-shift-1")).toBe(transferred)
   })
 })
 
@@ -120,3 +124,4 @@ describe("F10-B2.1 — expected cash (owner-only, exact)", () => {
     expect(r.totalOtro.toFixed(2)).toBe("0.00")
   })
 })
+

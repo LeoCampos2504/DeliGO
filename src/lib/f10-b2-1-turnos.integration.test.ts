@@ -944,3 +944,115 @@ describe("F10-B2.2-E — owner cash custody", () => {
   })
 })
 
+describe("F10-B2.2-F — carry over physical cash remainder", () => {
+  const ephemeralTest = isEphemeralIntegrationDb ? test : test.skip
+
+  async function closedShiftWithCustody(owner: string, negocio: { id: string; slug: string }, cashier: { cookie: string }, cajaFisicaId: string, amount: string, remainder: string) {
+    const opened = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId, fondoInicial: "0.00" })
+    expect(opened.status).toBe(201)
+    const shiftId = opened.body.turno.id as string
+    expect((await cerrarCajero(cashier.cookie, negocio.slug, shiftId, amount)).status).toBe(200)
+    const delivery = await entregarTurno(owner, shiftId, {
+      tipo: "ENTREGA_CONFIRMADA",
+      efectivoEntregado: D(amount).minus(remainder).toFixed(2),
+      fondoRemanente: remainder,
+      destinoTipo: "DUENO",
+      confirmar: true,
+    })
+    expect(delivery.status).toBe(201)
+    return shiftId
+  }
+
+  ephemeralTest("transfers the exact latest confirmed remainder, replays once, and creates no financial movement", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const previous = await crearCajero(negocio.id)
+    const receiver = await crearCajero(negocio.id)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, previous, caja.id, "5000.00", "5000.00")
+    const available = await turnoCajero(receiver.cookie, negocio.slug)
+    expect(available.body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toMatchObject({ turnoOrigenId: sourceShiftId, importe: "5000.00" })
+    const beforeMovements = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
+    const key = randomUUID()
+    const request = { cajaFisicaId: caja.id, fondoInicial: "5000.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true }
+    const first = await abrirCajero(receiver.cookie, negocio.slug, request, key)
+    expect(first.status).toBe(201)
+    expect(first.body.turno.fondoInicial).toBe(5000)
+    const replay = await abrirCajero(receiver.cookie, negocio.slug, request, key)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    const mismatchedReplay = await abrirCajero(receiver.cookie, negocio.slug, { ...request, fondoInicial: "4999.99" }, key)
+    expect(mismatchedReplay.status).toBe(409)
+    expect(mismatchedReplay.body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(1)
+    const savedTransfer = await db.traspasoFondoTurnoCaja.findUniqueOrThrow({ where: { turnoOrigenId: sourceShiftId } })
+    expect(savedTransfer.montoDecimal.toFixed(2)).toBe("5000.00")
+    expect(await fails(db.traspasoFondoTurnoCaja.update({ where: { id: savedTransfer.id }, data: { montoDecimal: D("1.00") } }))).toBe(true)
+    expect(await fails(db.traspasoFondoTurnoCaja.delete({ where: { id: savedTransfer.id } }))).toBe(true)
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(beforeMovements)
+    const employeeView = JSON.stringify((await turnoCajero(receiver.cookie, negocio.slug)).body)
+    expect(employeeView).toContain("5000.00")
+    expect(employeeView).not.toMatch(/efectivoEsperado|diferencia|efectivoEntregado|fondoRemanente|responsableNombre/i)
+    const ownerHistory = await listarCajas(owner)
+    expect(ownerHistory.body.traspasos).toHaveLength(1)
+    expect(ownerHistory.body.traspasos[0]).toMatchObject({ importe: "5000.00", turnoOrigen: { id: sourceShiftId }, turnoDestino: { id: first.body.turno.id } })
+  })
+
+  ephemeralTest("does not offer zero or unconfirmed remainders; rejects cross-business and cross-register sources", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    const receiver = await crearCajero(negocio.id)
+    const other = await crearNegocio()
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, cashier, caja.id, "10.00", "0.00")
+    expect((await turnoCajero(receiver.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toBeNull()
+    const noDelivery = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "0.00" })
+    expect(noDelivery.status).toBe(201)
+    expect((await cerrarCajero(cashier.cookie, negocio.slug, noDelivery.body.turno.id, "0.00")).status).toBe(200)
+    expect((await turnoCajero(receiver.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toBeNull()
+    const foreignAttempt = await abrirCajero(other.owner, other.negocio.slug, { cajaFisicaId: (await listarCajas(other.owner)).body.cajas[0].id, fondoInicial: "10.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true })
+    expect(foreignAttempt.status).toBe(409)
+
+    const { negocio: registerBusiness, owner: registerOwner } = await crearNegocio()
+    const originCashier = await crearCajero(registerBusiness.id)
+    const targetCashier = await crearCajero(registerBusiness.id)
+    const defaultRegister = (await listarCajas(registerOwner)).body.cajas[0]
+    const secondRegister = await crearCaja(registerOwner, "Caja secundaria")
+    expect(secondRegister.status).toBe(201)
+    const origin = await closedShiftWithCustody(registerOwner, registerBusiness, originCashier, defaultRegister.id, "20.00", "20.00")
+    const differentRegisterAttempt = await abrirCajero(targetCashier.cookie, registerBusiness.slug, { cajaFisicaId: secondRegister.body.id, fondoInicial: "20.00", transferirDesdeTurnoCajaId: origin, confirmoRecepcionFondo: true })
+    expect(differentRegisterAttempt.status).toBe(409)
+  })
+
+  ephemeralTest("only one concurrent receiver consumes a remainder; later rectification is rejected", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const previous = await crearCajero(negocio.id)
+    const firstReceiver = await crearCajero(negocio.id)
+    const secondReceiver = await crearCajero(negocio.id)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, previous, caja.id, "7.00", "5.00")
+    const body = { cajaFisicaId: caja.id, fondoInicial: "5.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true }
+    const contenders = await Promise.all([
+      abrirCajero(firstReceiver.cookie, negocio.slug, body, randomUUID()),
+      abrirCajero(secondReceiver.cookie, negocio.slug, body, randomUUID()),
+    ])
+    expect(contenders.filter((result) => result.status === 201)).toHaveLength(1)
+    expect(contenders.filter((result) => result.status === 409)).toHaveLength(1)
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(1)
+    const correction = await entregarTurno(owner, sourceShiftId, { tipo: "RECTIFICACION", efectivoEntregado: "2.00", fondoRemanente: "5.00", destinoTipo: "DUENO", observacion: "Intento posterior al traspaso", confirmar: true })
+    expect(correction.status).toBe(409)
+    expect(correction.body.code).toBe("FONDO_REMANENTE_YA_TRANSFERIDO")
+    expect(await db.entregaCustodiaTurnoCaja.count({ where: { turnoCajaId: sourceShiftId } })).toBe(1)
+  })
+
+  ephemeralTest("a manual opening does not create a transfer and makes the old remainder ineligible", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const previous = await crearCajero(negocio.id)
+    const next = await crearCajero(negocio.id)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, previous, caja.id, "5.00", "5.00")
+    expect((await abrirCajero(next.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "5.00" })).status).toBe(201)
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(0)
+    expect((await turnoCajero(previous.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toBeNull()
+  })
+})
+

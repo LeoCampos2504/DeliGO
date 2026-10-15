@@ -5,7 +5,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure } from "@/lib/operativo-caja"
-import { abrirTurnoCaja, cerrarTurnoCaja, asegurarCajaPredeterminada, TURNO_ESTADO_ABIERTO, TURNO_ESTADO_CERRADO_DECLARADO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
+import { abrirTurnoCaja, cerrarTurnoCaja, asegurarCajaPredeterminada, listarFondosRemanentesTransferibles, TURNO_ESTADO_ABIERTO, TURNO_ESTADO_CERRADO_DECLARADO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
 import { isControlledShiftUiEnabled } from "@/lib/f10-b2-2-b-shift-ui-gate"
 
 // ============================================
@@ -40,12 +40,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       db.negocio.findUnique({ where: { id: auth.negocio.id }, select: { cajaTurnosModo: true } }),
     ])
     const ocupadas = new Set(abiertas.map((t) => t.cajaFisicaId))
+    const fondosTransferibles = await listarFondosRemanentesTransferibles(db, auth.negocio.id, cajas.map((c) => c.id))
+    const fondoPorCaja = new Map(fondosTransferibles.map((fondo) => [fondo.cajaFisicaId, fondo]))
     return noStore(
       NextResponse.json({
         ok: true,
         modoTurnos: negocio?.cajaTurnosModo ?? "OPCIONAL",
         aperturaHabilitada: isControlledShiftUiEnabled(auth.empleado.id),
-        cajas: cajas.map((c) => ({ id: c.id, nombre: c.nombre, esPredeterminada: c.esPredeterminada, ocupada: ocupadas.has(c.id) })),
+        cajas: cajas.map((c) => {
+          const fondo = fondoPorCaja.get(c.id)
+          return {
+            id: c.id,
+            nombre: c.nombre,
+            esPredeterminada: c.esPredeterminada,
+            ocupada: ocupadas.has(c.id),
+            fondoTransferible: fondo ? { turnoOrigenId: fondo.turnoOrigenId, importe: fondo.fondoRemanenteDecimal.toFixed(2) } : null,
+          }
+        }),
         turno: propio
           ? { id: propio.id, caja: propio.cajaFisica, abiertoEn: propio.abiertoEn, fondoInicial: moneyToNumber(propio.fondoInicialDecimal) }
           : null,
@@ -68,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     if (!isControlledShiftUiEnabled(auth.empleado.id)) {
       return noStore(NextResponse.json({ ok: false, error: "La operación de turnos aún no está habilitada para esta cuenta." }, { status: 403 }))
     }
-    const body = (await req.json().catch(() => null)) as { action?: unknown; turnoCajaId?: unknown; efectivoContado?: unknown; cajaFisicaId?: unknown; fondoInicial?: unknown } | null
+    const body = (await req.json().catch(() => null)) as { action?: unknown; turnoCajaId?: unknown; efectivoContado?: unknown; cajaFisicaId?: unknown; fondoInicial?: unknown; transferirDesdeTurnoCajaId?: unknown; confirmoRecepcionFondo?: unknown } | null
     if (body?.action === "close") {
       if (typeof body.turnoCajaId !== "string") return noStore(NextResponse.json({ ok: false, error: "Turno inválido." }, { status: 400 }))
       const result = await cerrarTurnoCaja(db, {
@@ -103,6 +114,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       actor: { tipo: "EMPLEADO", empleadoId: auth.empleado.id },
       cajaFisicaId: (body?.cajaFisicaId as string | null | undefined) ?? null,
       fondoInicial: body?.fondoInicial,
+      transferirDesdeTurnoCajaId: body?.transferirDesdeTurnoCajaId,
+      confirmoRecepcionFondo: body?.confirmoRecepcionFondo,
       idempotencyKey: req.headers.get("idempotency-key")?.trim() ?? "",
     })
     if (!result.ok) {
@@ -132,3 +145,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     return noStore(NextResponse.json({ ok: false, error: "Error al abrir el turno" }, { status: 500 }))
   }
 }
+
