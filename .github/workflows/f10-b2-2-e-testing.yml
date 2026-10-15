@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - testing-codex
+      # CI-only run for the F4-A owner-bell fix before integration (no deploy step here;
+      # Railway TESTING deploys only from testing-codex).
+      - codex/f4-a-owner-bell-notification
 
 permissions:
   contents: read
