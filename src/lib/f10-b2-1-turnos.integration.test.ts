@@ -9,6 +9,8 @@
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { randomUUID } from "crypto"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
@@ -1043,6 +1045,109 @@ describe("F10-B2.2-F — carry over physical cash remainder", () => {
     expect(correction.status).toBe(409)
     expect(correction.body.code).toBe("FONDO_REMANENTE_YA_TRANSFERIDO")
     expect(await db.entregaCustodiaTurnoCaja.count({ where: { turnoCajaId: sourceShiftId } })).toBe(1)
+  })
+
+  // Regression for the manual TESTING failure ("Error al abrir el turno"): TESTING
+  // applied the F migration before its trigger excluded the receiving shift from
+  // the "source is still the latest shift" check, so every carryover raised
+  // P0001 and the route answered 500. Reproduce that exact database state, then
+  // apply the real corrective migration file and open with the same request.
+  ephemeralTest("regression: a second employee opens with the $1.500 remainder after the corrective trigger migration", async () => {
+    const correctiveSql = readFileSync(join(process.cwd(), "prisma/migrations/20261015190000_f10_b2_2_f_fix_fund_transfer_trigger/migration.sql"), "utf8")
+    const fixedLines = [
+      `     OR destino."abiertoEn" < origen."abiertoEn"\n`,
+      `     OR (destino."abiertoEn" = origen."abiertoEn" AND destino."id" <= origen."id")\n`,
+      `      AND newer."id" <> NEW."turnoDestinoId"\n`,
+    ]
+    const correctiveStatement = correctiveSql.slice(correctiveSql.indexOf("CREATE OR REPLACE FUNCTION"))
+    for (const line of fixedLines) expect(correctiveStatement.replace(/\r\n/g, "\n")).toContain(line)
+    const legacyStatement = fixedLines.reduce((sql, line) => sql.replace(line, ""), correctiveStatement.replace(/\r\n/g, "\n"))
+
+    const { negocio, owner } = await crearNegocio()
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const previous = await crearCajero(negocio.id)
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, previous, caja.id, "4000.00", "1500.00")
+    const sourceBefore = await db.turnoCaja.findUniqueOrThrow({ where: { id: sourceShiftId } })
+    const custodyBefore = await db.entregaCustodiaTurnoCaja.findMany({ where: { turnoCajaId: sourceShiftId }, orderBy: { secuencia: "asc" } })
+    expect(custodyBefore).toHaveLength(1)
+    const receiver = await crearCajero(negocio.id)
+    const offered = await turnoCajero(receiver.cookie, negocio.slug)
+    const offeredRegister = offered.body.cajas.find((item: { id: string }) => item.id === caja.id)
+    expect(offeredRegister).toMatchObject({ ocupada: false, fondoTransferible: { turnoOrigenId: sourceShiftId, importe: "1500.00" } })
+    const beforeMovements = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
+    const beforeOperations = await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })
+    const beforeSales = await db.venta.count({ where: { negocioId: negocio.id } })
+    // Exactly what the browser sends after both confirmations.
+    const request = { cajaFisicaId: caja.id, fondoInicial: offeredRegister.fondoTransferible.importe, transferirDesdeTurnoCajaId: offeredRegister.fondoTransferible.turnoOrigenId, confirmoRecepcionFondo: true }
+    const key = randomUUID()
+
+    try {
+      await db.$executeRawUnsafe(legacyStatement)
+      const failed = await abrirCajero(receiver.cookie, negocio.slug, request, key)
+      expect(failed.status).toBe(500)
+      expect(failed.body).toMatchObject({ ok: false, error: "Error al abrir el turno" })
+      expect(await db.turnoCaja.count({ where: { cajaFisicaId: caja.id, estado: "ABIERTO" } })).toBe(0)
+      expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(0)
+      expect((await turnoCajero(receiver.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toMatchObject({ importe: "1500.00" })
+    } finally {
+      await db.$executeRawUnsafe(correctiveStatement)
+    }
+    const definition = await db.$queryRaw<Array<{ def: string }>>`SELECT pg_get_functiondef('"validate_fondo_transfer_turno_caja"'::regproc) AS def`
+    expect(definition[0].def).toContain(`newer."id" <> NEW."turnoDestinoId"`)
+
+    // Same idempotency key as the failed attempt (the browser keeps it after a 5xx).
+    const opened = await abrirCajero(receiver.cookie, negocio.slug, request, key)
+    expect(opened.status).toBe(201)
+    expect(opened.body.turno).toMatchObject({ caja: { id: caja.id }, fondoInicial: 1500 })
+    const newShift = await db.turnoCaja.findUniqueOrThrow({ where: { id: opened.body.turno.id } })
+    expect(newShift).toMatchObject({ estado: "ABIERTO", cajaFisicaId: caja.id, negocioId: negocio.id, empleadoId: receiver.empleado.id })
+    expect(newShift.fondoInicialDecimal.toFixed(2)).toBe("1500.00")
+    const transfer = await db.traspasoFondoTurnoCaja.findFirstOrThrow({ where: { turnoOrigenId: sourceShiftId } })
+    expect(transfer).toMatchObject({ negocioId: negocio.id, cajaFisicaId: caja.id, turnoDestinoId: newShift.id, entregaOrigenId: custodyBefore[0].id, recibidoPorTipo: "EMPLEADO", recibidoPorId: receiver.empleado.id, estado: "CONFIRMADO" })
+    expect(transfer.montoDecimal.toFixed(2)).toBe("1500.00")
+
+    const replay = await abrirCajero(receiver.cookie, negocio.slug, request, key)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    expect(replay.body.turno.id).toBe(newShift.id)
+
+    const receiverView = await turnoCajero(receiver.cookie, negocio.slug)
+    expect(receiverView.body.turno).toMatchObject({ id: newShift.id, fondoInicial: 1500 })
+    expect(receiverView.body.cajas.find((item: { id: string }) => item.id === caja.id)).toMatchObject({ ocupada: true, fondoTransferible: null })
+    expect(JSON.stringify(receiverView.body)).not.toMatch(/efectivoEsperado|efectivoContado|diferencia|efectivoEntregado|fondoRemanente|responsableNombre/i)
+
+    // The consumed remainder cannot be received again, by anyone.
+    const third = await crearCajero(negocio.id)
+    const reuse = await abrirCajero(third.cookie, negocio.slug, request)
+    expect(reuse.status).toBe(409)
+    expect(["FONDO_REMANENTE_NO_DISPONIBLE", "FONDO_REMANENTE_YA_TRANSFERIDO", "CAJA_CON_TURNO_ABIERTO"]).toContain(reuse.body.code)
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(1)
+    expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(2)
+
+    // Pure custody: the closed shift, its delivery history and the ledger are untouched.
+    const sourceAfter = await db.turnoCaja.findUniqueOrThrow({ where: { id: sourceShiftId } })
+    expect(sourceAfter.efectivoContadoDecimal?.toFixed(2)).toBe(sourceBefore.efectivoContadoDecimal?.toFixed(2))
+    expect(sourceAfter.efectivoEsperadoDecimal?.toFixed(2)).toBe(sourceBefore.efectivoEsperadoDecimal?.toFixed(2))
+    expect(sourceAfter.estado).toBe("CERRADO_DECLARADO")
+    const custodyAfter = await db.entregaCustodiaTurnoCaja.findMany({ where: { turnoCajaId: sourceShiftId }, orderBy: { secuencia: "asc" } })
+    expect(custodyAfter.map((e) => [e.id, e.efectivoEntregadoDecimal.toFixed(2), e.fondoRemanenteDecimal.toFixed(2)])).toEqual([[custodyBefore[0].id, "2500.00", "1500.00"]])
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(beforeMovements)
+    expect(await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })).toBe(beforeOperations)
+    expect(await db.venta.count({ where: { negocioId: negocio.id } })).toBe(beforeSales)
+    const rectification = await entregarTurno(owner, sourceShiftId, { tipo: "RECTIFICACION", efectivoEntregado: "3000.00", fondoRemanente: "1000.00", destinoTipo: "DUENO", observacion: "Posterior al traspaso", confirmar: true })
+    expect(rectification.status).toBe(409)
+    expect(rectification.body.code).toBe("FONDO_REMANENTE_YA_TRANSFERIDO")
+  })
+
+  ephemeralTest("the same employee who closed the shift can receive its remainder in the next shift", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const cashier = await crearCajero(negocio.id)
+    const sourceShiftId = await closedShiftWithCustody(owner, negocio, cashier, caja.id, "4000.00", "1500.00")
+    const opened = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "1500.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true })
+    expect(opened.status).toBe(201)
+    expect(opened.body.turno.fondoInicial).toBe(1500)
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId, turnoDestinoId: opened.body.turno.id } })).toBe(1)
   })
 
   ephemeralTest("a manual opening does not create a transfer and makes the old remainder ineligible", async () => {

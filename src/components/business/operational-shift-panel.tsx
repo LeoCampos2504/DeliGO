@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { BadgeCheck, Banknote, LockKeyhole, RefreshCw, Store, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,17 @@ const EMPTY: State = { loading: true, error: null, modoTurnos: "OPCIONAL", apert
 const STORAGE_PREFIX = "deligo:caja:apertura-turno:v1:"
 const CLOSE_STORAGE_PREFIX = "deligo:caja:cierre-turno:v1:"
 const inMemoryAttempts = new Map<string, string>()
+
+// Known opening conflicts: the shown availability is stale, so re-read it.
+const STALE_AVAILABILITY_CODES = new Set(["FONDO_REMANENTE_NO_DISPONIBLE", "FONDO_REMANENTE_YA_TRANSFERIDO", "IMPORTE_TRASPASO_NO_COINCIDE", "CAJA_CON_TURNO_ABIERTO", "CAJA_INACTIVA"])
+const OPENING_CONFLICT_MESSAGES: Record<string, string> = {
+  FONDO_REMANENTE_YA_TRANSFERIDO: "Ese fondo ya fue recibido por otro turno. Actualizamos la disponibilidad de la caja.",
+  FONDO_REMANENTE_NO_DISPONIBLE: "El fondo del turno anterior ya no está disponible. Actualizamos la disponibilidad de la caja.",
+  IMPORTE_TRASPASO_NO_COINCIDE: "El fondo disponible cambió. Revisá el importe actualizado antes de abrir el turno.",
+  CAJA_CON_TURNO_ABIERTO: "Esta caja ya tiene un turno abierto. Elegí otra caja disponible.",
+  CAJA_INACTIVA: "Esta caja fue desactivada. Elegí otra caja disponible.",
+  TURNO_YA_ABIERTO: "Ya tenés un turno abierto.",
+}
 
 function attemptFor(scope: string, canonical: string, prefix = STORAGE_PREFIX): string {
   const mapKey = `${prefix}${scope}:${canonical}`
@@ -64,6 +75,7 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const openingRef = useRef(false)
   const scope = `${negocioId}:${empleadoId}`
 
   const refresh = useCallback(async () => {
@@ -94,6 +106,8 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       setMessage("Confirmá que recibiste físicamente el fondo disponible antes de iniciar el turno.")
       return
     }
+    if (openingRef.current) return
+    openingRef.current = true
     setSaving(true)
     setMessage(null)
     const body = transferencia
@@ -101,25 +115,47 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       : { cajaFisicaId: selected, fondoInicial: fondoInicial.trim() }
     const canonical = JSON.stringify(body)
     try {
-      const response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": attemptFor(scope, canonical) },
-        body: JSON.stringify(body),
-      })
+      let response: Response
+      try {
+        response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": attemptFor(scope, canonical) },
+          body: JSON.stringify(body),
+        })
+      } catch {
+        // The key is kept: a retry replays the original opening instead of duplicating it.
+        setMessage("No pudimos confirmar la apertura por un problema de conexión. Podés reintentar sin duplicarla.")
+        return
+      }
       const json = await response.json().catch(() => ({}))
       if (response.status === 401 || response.status === 403) onAccessLost(response.status, json.estado)
-      if (!response.ok || !json.ok) {
-        if (response.status < 500) clearAttempt(scope)
-        throw new Error(json.error ?? "No pudimos iniciar el turno.")
+      if (response.ok && json.ok && json.turno) {
+        clearAttempt(scope)
+        setUsarFondoTransferido(false)
+        setConfirmoRecepcionFondo(false)
+        // The server confirmed the shift: show it now, then reconcile with a fresh read.
+        setState((current) => ({ ...current, turno: json.turno, cajas: current.cajas.map((caja) => caja.id === json.turno.caja?.id ? { ...caja, ocupada: true, fondoTransferible: null } : caja) }))
+        setMessage(transferencia ? "Turno iniciado con el fondo recibido del turno anterior." : "Turno iniciado.")
+        await refresh()
+        return
+      }
+      if (response.status >= 500) {
+        // Keep the key so a retry is idempotent; the server logged the real cause.
+        setMessage("No pudimos abrir el turno por un error del servidor. Podés reintentar sin duplicarlo; si persiste, avisá al responsable del negocio.")
+        return
       }
       clearAttempt(scope)
-      setUsarFondoTransferido(false)
-      setConfirmoRecepcionFondo(false)
-      setMessage(transferencia ? "Turno iniciado con el fondo recibido del turno anterior." : "Turno iniciado.")
-      await refresh()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No pudimos confirmar la apertura. Podés reintentar sin duplicarla.")
+      const code = typeof json.code === "string" ? json.code : ""
+      if (response.status === 409 && (STALE_AVAILABILITY_CODES.has(code) || code === "TURNO_YA_ABIERTO")) {
+        setUsarFondoTransferido(false)
+        setConfirmoRecepcionFondo(false)
+        setMessage(OPENING_CONFLICT_MESSAGES[code] ?? json.error ?? "La disponibilidad de la caja cambió. Revisá el estado actualizado.")
+        await refresh()
+        return
+      }
+      setMessage(json.error ?? "No pudimos iniciar el turno.")
     } finally {
+      openingRef.current = false
       setSaving(false)
     }
   }

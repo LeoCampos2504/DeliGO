@@ -13,7 +13,7 @@ const originalFetch = globalThis.fetch
 let enabled = false
 let currentShift: unknown = null
 let transferableFund: { turnoOrigenId: string; importe: string } | null = null
-let postResults: Array<"network" | "success"> = []
+let postResults: Array<"network" | "success" | "server-error" | "fund-taken" | "slow-success"> = []
 const openingKeys: Array<string | null> = []
 const openingBodies: Array<Record<string, unknown>> = []
 const closingKeys: Array<string | null> = []
@@ -40,6 +40,12 @@ beforeEach(() => {
       openingBodies.push(body)
       const result = postResults.shift() ?? "success"
       if (result === "network") throw new TypeError("network lost")
+      if (result === "server-error") return new Response(JSON.stringify({ ok: false, error: "Error al abrir el turno" }), { status: 500 })
+      if (result === "fund-taken") {
+        transferableFund = null
+        return new Response(JSON.stringify({ ok: false, error: "Ese fondo ya fue recibido por otro turno.", code: "FONDO_REMANENTE_YA_TRANSFERIDO" }), { status: 409 })
+      }
+      if (result === "slow-success") await new Promise((resolve) => setTimeout(resolve, 40))
       currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: Number(body.fondoInicial ?? 300) }
       return new Response(JSON.stringify({ ok: true, turno: currentShift }), { status: 201 })
     }
@@ -121,6 +127,63 @@ describe("F10-B2.2-B — employee shift interface", () => {
     expect(openingBodies[0]).toMatchObject({ cajaFisicaId: "caja-1", fondoInicial: "5000.00", transferirDesdeTurnoCajaId: "turno-origen", confirmoRecepcionFondo: true })
     expect(document.body.textContent).toContain("Turno iniciado con el fondo recibido del turno anterior.")
     expect(document.body.textContent).not.toMatch(/efectivo esperado|diferencia|efectivoEntregado|responsableNombre/i)
+    await act(async () => root.unmount())
+  })
+
+  async function confirmTransferAndSubmit() {
+    const registerButton = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Caja principal")) as HTMLButtonElement
+    await act(async () => registerButton.click())
+    await act(async () => (document.querySelectorAll('input[type="checkbox"]')[0] as HTMLInputElement).click())
+    await act(async () => (document.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement).click())
+    return [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
+  }
+
+  test("transfer opening shows the open shift immediately and sends only one request on double click", async () => {
+    enabled = true
+    transferableFund = { turnoOrigenId: "turno-origen", importe: "1500.00" }
+    postResults = ["slow-success"]
+    const root = await renderPanel()
+    const submit = await confirmTransferAndSubmit()
+    await act(async () => { submit.click(); submit.click() })
+    await flush(80)
+    expect(openingBodies).toHaveLength(1)
+    expect(document.body.textContent).toContain("Turno abierto")
+    expect(document.body.textContent).toContain("Turno iniciado con el fondo recibido del turno anterior.")
+    expect(document.body.textContent).not.toContain("Abrir turno con fondo transferido")
+    await act(async () => root.unmount())
+  })
+
+  test("a remainder already received by another shift is explained and availability is refreshed", async () => {
+    enabled = true
+    transferableFund = { turnoOrigenId: "turno-origen", importe: "1500.00" }
+    postResults = ["fund-taken"]
+    const root = await renderPanel()
+    const submit = await confirmTransferAndSubmit()
+    await act(async () => submit.click())
+    await flush()
+    expect(document.body.textContent).toContain("Ese fondo ya fue recibido por otro turno.")
+    expect(document.body.textContent).not.toContain("Fondo disponible del turno anterior")
+    expect(document.body.textContent).not.toContain("Abrir turno con fondo transferido")
+    expect(document.body.textContent).not.toContain("Turno abierto")
+    await act(async () => root.unmount())
+  })
+
+  test("a server error keeps the form, shows a useful message and retries with the same key", async () => {
+    enabled = true
+    transferableFund = { turnoOrigenId: "turno-origen", importe: "1500.00" }
+    postResults = ["server-error", "success"]
+    const root = await renderPanel()
+    const submit = await confirmTransferAndSubmit()
+    await act(async () => submit.click())
+    await flush()
+    expect(document.body.textContent).toContain("No pudimos abrir el turno por un error del servidor.")
+    expect(document.body.textContent).not.toContain("Turno abierto")
+    const retry = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
+    await act(async () => retry.click())
+    await flush()
+    expect(openingKeys).toHaveLength(2)
+    expect(openingKeys[1]).toBe(openingKeys[0])
+    expect(document.body.textContent).toContain("Turno abierto")
     await act(async () => root.unmount())
   })
 
