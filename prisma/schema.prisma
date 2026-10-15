@@ -657,6 +657,14 @@ model TurnoCaja {
   idempotencyFingerprint String?
   cierreIdempotencyKey   String?
   cierreIdempotencyFingerprint String?
+  // F10-B2.2-G: quien cerro realmente. RESPONSABLE = el propio responsable
+  // (todos los cierres historicos); RECUPERACION_ADMINISTRATIVA = el dueno
+  // recupero el turno de un empleado (cierreActorId = negocioId, motivo
+  // obligatorio). El estado terminal sigue siendo CERRADO_DECLARADO.
+  cierreOrigen           String?
+  cierreActorTipo        String?
+  cierreActorId          String?
+  cierreMotivo           String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -675,6 +683,7 @@ model TurnoCaja {
   @@unique([id, negocioId])
   @@unique([id, negocioId, cajaFisicaId])
   @@index([negocioId, abiertoEn])
+  @@index([negocioId, cierreOrigen])
   @@index([cajaFisicaId])
   @@index([empleadoId])
   @@map("turnos_caja")

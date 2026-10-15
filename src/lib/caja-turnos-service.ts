@@ -512,8 +512,13 @@ export interface CerrarTurnoInput {
   idempotencyKey: string
 }
 
-type TurnoCerradoPayload = { id: string; estado: typeof TURNO_ESTADO_CERRADO_DECLARADO; cerradoEn: Date; efectivoContadoDecimal: Prisma.Decimal }
+type TurnoCerradoPayload = { id: string; estado: typeof TURNO_ESTADO_CERRADO_DECLARADO; cerradoEn: Date; efectivoContadoDecimal: Prisma.Decimal; efectivoEsperadoDecimal: Prisma.Decimal | null }
 type CerrarTurnoResult = CajaResult<{ turno: TurnoCerradoPayload; replayed: boolean }>
+
+/** F10-B2.2-G: who really closed a shift (persisted in turnos_caja.cierreOrigen). */
+export const CIERRE_ORIGEN_RESPONSABLE = "RESPONSABLE"
+export const CIERRE_ORIGEN_RECUPERACION = "RECUPERACION_ADMINISTRATIVA"
+export const MOTIVO_RECUPERACION_MAX = 500
 
 function actorPuedeCerrar(negocioId: string, actor: CajaActor, turno: { responsableTipo: string; responsableId: string }) {
   return actor.tipo === "EMPLEADO"
@@ -526,61 +531,66 @@ function fingerprintCierre(negocioId: string, turnoCajaId: string, efectivoConta
   return createHash("sha256").update(`${negocioId}\n${turnoCajaId}\n${efectivoContado.toFixed(2)}\n${actor.tipo}:${actorId}`).digest("hex")
 }
 
-async function resolverCierreConcurrente(db: Db, input: CerrarTurnoInput, idempotencyKey: string, fingerprint: string): Promise<CerrarTurnoResult | null> {
-  const sameKey = await db.turnoCaja.findUnique({
-    where: { negocioId_cierreIdempotencyKey: { negocioId: input.negocioId, cierreIdempotencyKey: idempotencyKey } },
-    select: { id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true, efectivoContadoDecimal: true, cierreIdempotencyFingerprint: true },
-  })
-  if (!sameKey) return null
-  if (!actorPuedeCerrar(input.negocioId, input.actor, sameKey) || sameKey.id !== input.turnoCajaId || sameKey.cierreIdempotencyFingerprint !== fingerprint || !sameKey.cerradoEn || !sameKey.efectivoContadoDecimal) {
-    return fail(409, "Este intento de cierre ya se usó con otros datos.", "IDEMPOTENCY_KEY_REUSED")
-  }
-  return { ok: true, value: { turno: { id: sameKey.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: sameKey.cerradoEn, efectivoContadoDecimal: sameKey.efectivoContadoDecimal }, replayed: true } }
-}
+const CIERRE_REPLAY_SELECT = {
+  id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true,
+  efectivoContadoDecimal: true, efectivoEsperadoDecimal: true, cierreIdempotencyFingerprint: true, cierreOrigen: true,
+} as const
+type CierreReplayRow = Prisma.TurnoCajaGetPayload<{ select: typeof CIERRE_REPLAY_SELECT }>
+type CierreTarget = { id: string; cajaFisicaId: string; responsableTipo: string; responsableId: string; estado: string }
 
 /**
- * Closes the responsible actor's own shift as a terminal declaration only.
- * The physical-register lock is shared with the sale engine, and this
- * Serializable transaction makes a sale racing the close either commit first
- * or retry against the closed state. No expected cash/difference is computed.
+ * The ONE close transaction, shared by the responsible person's blind close
+ * (C) and the owner's administrative recovery (G). The physical-register lock
+ * is shared with the sale engine, and this Serializable transaction makes a
+ * sale racing the close either commit first (and enter the expected-cash
+ * snapshot) or retry against the closed state.
  */
-export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<CajaResult<{ turno: TurnoCerradoPayload; replayed: boolean }>> {
-  const { negocioId, turnoCajaId, actor } = input
-  if (!turnoCajaId?.trim()) return fail(400, "Turno inválido.", "TURNO_INVALIDO")
-  if (!isValidVentaIdempotencyKey(input.idempotencyKey)) return fail(400, "Falta una Idempotency-Key válida para cerrar el turno.", "IDEMPOTENCY_KEY_REQUIRED")
-  const idempotencyKey = input.idempotencyKey.toLowerCase()
-  const count = parseFondoInicial(input.efectivoContado)
-  if (!count.ok) return fail(400, "El efectivo contado debe ser válido, sin negativos y con hasta 2 decimales.", "EFECTIVO_CONTADO_INVALIDO")
-  const fingerprint = fingerprintCierre(negocioId, turnoCajaId, count.value, actor)
+interface CierreCoreInput {
+  negocioId: string
+  turnoCajaId: string
+  idempotencyKey: string
+  fingerprint: string
+  efectivoContado: Prisma.Decimal
+  /** The row already holding this key belongs to this exact operation. */
+  replayMatches: (row: CierreReplayRow) => boolean
+  /** Authorization / expectation checks on the target before locking. */
+  authorize: (target: CierreTarget) => CerrarTurnoResult | null
+  cierre: { cierreOrigen: string; cierreActorTipo: string; cierreActorId: string; cierreMotivo: string | null }
+}
 
-  if (actor.tipo === "EMPLEADO") {
-    const employee = await db.empleado.findFirst({
-      where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
-      select: { areaOperativa: true, rol: true },
-    })
-    if (!employee || resolveAreaOperativaEfectiva(employee) !== "caja") return fail(403, "Acceso denegado")
+function replayCierre(input: CierreCoreInput, row: CierreReplayRow): CerrarTurnoResult {
+  if (!input.replayMatches(row) || row.id !== input.turnoCajaId || row.cierreIdempotencyFingerprint !== input.fingerprint || !row.cerradoEn || !row.efectivoContadoDecimal) {
+    return fail(409, "Este intento de cierre ya se usó con otros datos.", "IDEMPOTENCY_KEY_REUSED")
   }
+  return { ok: true, value: { turno: { id: row.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: row.cerradoEn, efectivoContadoDecimal: row.efectivoContadoDecimal, efectivoEsperadoDecimal: row.efectivoEsperadoDecimal }, replayed: true } }
+}
 
+async function resolverCierreConcurrente(db: Db, input: CierreCoreInput): Promise<CerrarTurnoResult | null> {
+  const sameKey = await db.turnoCaja.findUnique({
+    where: { negocioId_cierreIdempotencyKey: { negocioId: input.negocioId, cierreIdempotencyKey: input.idempotencyKey } },
+    select: CIERRE_REPLAY_SELECT,
+  })
+  return sameKey ? replayCierre(input, sameKey) : null
+}
+
+async function cerrarTurnoCore(db: Db, input: CierreCoreInput): Promise<CerrarTurnoResult> {
+  const { negocioId, turnoCajaId, idempotencyKey, fingerprint } = input
   let result: CerrarTurnoResult
   try {
     result = await withSerializableRetry<CerrarTurnoResult>(db, async (tx): Promise<CerrarTurnoResult> => {
     const sameKey = await tx.turnoCaja.findUnique({
       where: { negocioId_cierreIdempotencyKey: { negocioId, cierreIdempotencyKey: idempotencyKey } },
-      select: { id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true, efectivoContadoDecimal: true, cierreIdempotencyFingerprint: true },
+      select: CIERRE_REPLAY_SELECT,
     })
-    if (sameKey) {
-      if (!actorPuedeCerrar(negocioId, actor, sameKey) || sameKey.id !== turnoCajaId || sameKey.cierreIdempotencyFingerprint !== fingerprint || !sameKey.cerradoEn || !sameKey.efectivoContadoDecimal) {
-        return fail(409, "Este intento de cierre ya se usó con otros datos.", "IDEMPOTENCY_KEY_REUSED")
-      }
-      return { ok: true as const, value: { turno: { id: sameKey.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: sameKey.cerradoEn, efectivoContadoDecimal: sameKey.efectivoContadoDecimal }, replayed: true } }
-    }
+    if (sameKey) return replayCierre(input, sameKey)
 
     const target = await tx.turnoCaja.findFirst({
       where: { id: turnoCajaId, negocioId },
       select: { id: true, cajaFisicaId: true, responsableTipo: true, responsableId: true, estado: true },
     })
     if (!target) return fail(404, "Turno no encontrado.", "TURNO_NO_ENCONTRADO")
-    if (!actorPuedeCerrar(negocioId, actor, target)) return fail(403, "Sólo la persona responsable puede cerrar este turno.", "TURNO_RESPONSABLE_REQUERIDO")
+    const denied = input.authorize(target)
+    if (denied) return denied
 
     const register = await lockCaja(tx, negocioId, target.cajaFisicaId)
     if (!register) return fail(404, "Caja no encontrada.", "CAJA_NO_ENCONTRADA")
@@ -604,29 +614,127 @@ export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<
       data: {
         estado: TURNO_ESTADO_CERRADO_DECLARADO,
         cerradoEn: closedAt,
-        efectivoContadoDecimal: count.value,
+        efectivoContadoDecimal: input.efectivoContado,
         efectivoEsperadoDecimal: snapshotCierre.esperado,
         cierreIdempotencyKey: idempotencyKey,
         cierreIdempotencyFingerprint: fingerprint,
+        ...input.cierre,
       },
     })
     if (updated.count !== 1) return fail(409, "El turno ya no está abierto.", "TURNO_NO_ABIERTO")
     return {
       ok: true as const,
-      value: { turno: { id: turnoCajaId, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: closedAt, efectivoContadoDecimal: count.value }, replayed: false },
+      value: { turno: { id: turnoCajaId, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: closedAt, efectivoContadoDecimal: input.efectivoContado, efectivoEsperadoDecimal: snapshotCierre.esperado }, replayed: false },
     }
     })
   } catch (error) {
     if (isSerializationConflict(error) || isUniqueViolation(error)) {
-      const concurrent = await resolverCierreConcurrente(db, input, idempotencyKey, fingerprint)
+      const concurrent = await resolverCierreConcurrente(db, input)
       if (concurrent) return concurrent
     }
     throw error
   }
   if (!result.ok && result.code === "TURNO_NO_ABIERTO") {
-    const concurrent = await resolverCierreConcurrente(db, input, idempotencyKey, fingerprint)
+    const concurrent = await resolverCierreConcurrente(db, input)
     if (concurrent) return concurrent
   }
   return result
+}
+
+/**
+ * Closes the responsible actor's own shift as a terminal declaration only
+ * (blind close: the response carries no expected cash or difference).
+ */
+export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<CerrarTurnoResult> {
+  const { negocioId, turnoCajaId, actor } = input
+  if (!turnoCajaId?.trim()) return fail(400, "Turno inválido.", "TURNO_INVALIDO")
+  if (!isValidVentaIdempotencyKey(input.idempotencyKey)) return fail(400, "Falta una Idempotency-Key válida para cerrar el turno.", "IDEMPOTENCY_KEY_REQUIRED")
+  const idempotencyKey = input.idempotencyKey.toLowerCase()
+  const count = parseFondoInicial(input.efectivoContado)
+  if (!count.ok) return fail(400, "El efectivo contado debe ser válido, sin negativos y con hasta 2 decimales.", "EFECTIVO_CONTADO_INVALIDO")
+  const fingerprint = fingerprintCierre(negocioId, turnoCajaId, count.value, actor)
+
+  if (actor.tipo === "EMPLEADO") {
+    const employee = await db.empleado.findFirst({
+      where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
+      select: { areaOperativa: true, rol: true },
+    })
+    if (!employee || resolveAreaOperativaEfectiva(employee) !== "caja") return fail(403, "Acceso denegado")
+  }
+
+  const responsable = actorResponsable(negocioId, actor)
+  return cerrarTurnoCore(db, {
+    negocioId,
+    turnoCajaId,
+    idempotencyKey,
+    fingerprint,
+    efectivoContado: count.value,
+    replayMatches: (row) => actorPuedeCerrar(negocioId, actor, row) && (row.cierreOrigen ?? CIERRE_ORIGEN_RESPONSABLE) === CIERRE_ORIGEN_RESPONSABLE,
+    authorize: (target) => actorPuedeCerrar(negocioId, actor, target) ? null : fail(403, "Sólo la persona responsable puede cerrar este turno.", "TURNO_RESPONSABLE_REQUERIDO"),
+    cierre: { cierreOrigen: CIERRE_ORIGEN_RESPONSABLE, cierreActorTipo: responsable.responsableTipo, cierreActorId: responsable.responsableId, cierreMotivo: null },
+  })
+}
+
+export function parseMotivoRecuperacion(value: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  const motivo = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : ""
+  if (!motivo) return { ok: false, error: "Indicá el motivo de la recuperación del turno." }
+  if (motivo.length > MOTIVO_RECUPERACION_MAX) return { ok: false, error: `El motivo admite hasta ${MOTIVO_RECUPERACION_MAX} caracteres.` }
+  return { ok: true, value: motivo }
+}
+
+export interface RecuperarTurnoInput {
+  /** ALWAYS the owner session's business; the owner is the closing actor. */
+  negocioId: string
+  turnoCajaId: string
+  /** Register the owner saw the shift in; a mismatch is a stale screen (409). */
+  cajaFisicaId?: unknown
+  efectivoContado: unknown
+  motivo: unknown
+  confirmo: unknown
+  idempotencyKey: string
+}
+
+function fingerprintRecuperacion(negocioId: string, turnoCajaId: string, efectivoContado: Prisma.Decimal, motivo: string) {
+  return createHash("sha256").update(`${CIERRE_ORIGEN_RECUPERACION}\n${negocioId}\n${turnoCajaId}\n${efectivoContado.toFixed(2)}\nNEGOCIO:${negocioId}\n${motivo}`).digest("hex")
+}
+
+/**
+ * F10-B2.2-G — the business owner closes an EMPLOYEE's open shift
+ * administratively to free its physical register. Same close transaction as
+ * the blind close: exact expected-cash snapshot, shared register lock and
+ * Serializable retries. The responsible employee is kept; the real closing
+ * actor (owner), the explicit physical count and the reason are recorded as a
+ * RECUPERACION_ADMINISTRATIVA close — never as the employee's declaration. It
+ * never opens the next shift nor creates a carryover, sale or ledger movement.
+ */
+export async function recuperarTurnoCaja(db: Db, input: RecuperarTurnoInput): Promise<CerrarTurnoResult> {
+  const { negocioId } = input
+  const turnoCajaId = typeof input.turnoCajaId === "string" ? input.turnoCajaId.trim() : ""
+  if (!turnoCajaId) return fail(400, "Turno inválido.", "TURNO_INVALIDO")
+  if (input.cajaFisicaId !== undefined && input.cajaFisicaId !== null && typeof input.cajaFisicaId !== "string") return fail(400, "Caja inválida.", "CAJA_INVALIDA")
+  if (!isValidVentaIdempotencyKey(input.idempotencyKey)) return fail(400, "Falta una Idempotency-Key válida para recuperar el turno.", "IDEMPOTENCY_KEY_REQUIRED")
+  const idempotencyKey = input.idempotencyKey.toLowerCase()
+  const count = parseFondoInicial(input.efectivoContado)
+  if (!count.ok) return fail(400, "Ingresá el efectivo contado físicamente: un importe válido, sin negativos y con hasta 2 decimales.", "EFECTIVO_CONTADO_INVALIDO")
+  const motivo = parseMotivoRecuperacion(input.motivo)
+  if (!motivo.ok) return fail(400, motivo.error, "MOTIVO_RECUPERACION_REQUERIDO")
+  if (input.confirmo !== true) return fail(400, "Confirmá explícitamente que querés cerrar administrativamente este turno.", "CONFIRMACION_RECUPERACION_REQUERIDA")
+  const expectedRegister = typeof input.cajaFisicaId === "string" && input.cajaFisicaId.trim() ? input.cajaFisicaId.trim() : null
+
+  return cerrarTurnoCore(db, {
+    negocioId,
+    turnoCajaId,
+    idempotencyKey,
+    fingerprint: fingerprintRecuperacion(negocioId, turnoCajaId, count.value, motivo.value),
+    efectivoContado: count.value,
+    replayMatches: (row) => row.cierreOrigen === CIERRE_ORIGEN_RECUPERACION,
+    authorize: (target) => {
+      if (expectedRegister && target.cajaFisicaId !== expectedRegister) return fail(409, "El turno ya no corresponde a esa caja. Actualizá el panel.", "CAJA_NO_COINCIDE")
+      if (target.responsableTipo !== "EMPLEADO") return fail(409, "Tu propio turno se cierra con el cierre normal, no con una recuperación.", "TURNO_PROPIO_DEL_DUENO")
+      if (target.estado !== TURNO_ESTADO_ABIERTO) return fail(409, "El turno ya fue cerrado.", "TURNO_NO_ABIERTO")
+      return null
+    },
+    cierre: { cierreOrigen: CIERRE_ORIGEN_RECUPERACION, cierreActorTipo: "NEGOCIO", cierreActorId: negocioId, cierreMotivo: motivo.value },
+  })
 }
 

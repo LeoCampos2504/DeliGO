@@ -22,6 +22,7 @@ import { GET as getTurnoDetalle, POST as postCierreTurnoOwner } from "@/app/api/
 import { GET as getTurnosCerrados } from "@/app/api/negocio/caja/turnos/cerrados/route"
 import { GET as getRevisionesTurno, POST as postRevisionTurno } from "@/app/api/negocio/caja/turnos/[id]/revisiones/route"
 import { GET as getEntregasTurno, POST as postEntregaTurno } from "@/app/api/negocio/caja/turnos/[id]/entregas/route"
+import { POST as postRecuperacionTurno } from "@/app/api/negocio/caja/turnos/[id]/recuperacion/route"
 import { POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
 import { GET as getTurnoCajero, POST as postTurnoCajero } from "@/app/api/operativo/caja/[slug]/turno/route"
 import { POST as postVentaCajero } from "@/app/api/operativo/caja/[slug]/ventas/route"
@@ -118,6 +119,7 @@ const revisionesTurno = async (owner: string, id: string) => json(await getRevis
 const revisarTurno = async (owner: string, id: string, observacion: string | null, key = randomUUID()) => json(await postRevisionTurno(ownerReq(`/api/negocio/caja/turnos/${id}/revisiones`, owner, "POST", { observacion }, key), idCtx(id)))
 const entregasTurno = async (owner: string, id: string) => json(await getEntregasTurno(ownerReq(`/api/negocio/caja/turnos/${id}/entregas`, owner), idCtx(id)))
 const entregarTurno = async (owner: string, id: string, body: unknown, key = randomUUID()) => json(await postEntregaTurno(ownerReq(`/api/negocio/caja/turnos/${id}/entregas`, owner, "POST", body, key), idCtx(id)))
+const recuperarTurno = async (cookie: string, id: string, body: unknown, key: string | undefined = randomUUID()) => json(await postRecuperacionTurno(ownerReq(`/api/negocio/caja/turnos/${id}/recuperacion`, cookie, "POST", body, key), idCtx(id)))
 const turnoCajero = async (cookie: string, slug: string) => json(await getTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie), slugCtx(slug)))
 const abrirCajero = async (cookie: string, slug: string, body: unknown, key: string | undefined = randomUUID()) =>
   json(await postTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie, "POST", body, key), slugCtx(slug)))
@@ -1159,6 +1161,177 @@ describe("F10-B2.2-F — carry over physical cash remainder", () => {
     expect((await abrirCajero(next.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "5.00" })).status).toBe(201)
     expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(0)
     expect((await turnoCajero(previous.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toBeNull()
+  })
+})
+
+describe("F10-B2.2-G — owner administrative recovery of an abandoned shift", () => {
+  const ephemeralTest = isEphemeralIntegrationDb ? test : test.skip
+  const motivo = "El empleado se retiró sin cerrar el turno"
+
+  async function turnoConVentas(fondo: string, precio: number, ventas: number) {
+    const { negocio, owner } = await crearNegocio()
+    const producto = await crearProducto(negocio.id, precio)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const cashier = await crearCajero(negocio.id)
+    const opened = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: fondo })
+    expect(opened.status).toBe(201)
+    for (let i = 0; i < ventas; i++) {
+      expect((await venderCajero(cashier.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] })).status).toBe(201)
+    }
+    return { negocio, owner, producto, caja, cashier, turnoId: opened.body.turno.id as string }
+  }
+
+  ephemeralTest("main flow: recover with an explicit count, keep the responsible employee, then E custody and F carryover", async () => {
+    const { negocio, owner, producto, caja, cashier, turnoId } = await turnoConVentas("5000.00", 10000, 2)
+
+    // 5.1 — the owner sees the open shift with real activity only.
+    const before = (await listarCajas(owner)).body.cajas.find((item: { id: string }) => item.id === caja.id)
+    expect(before.turnoAbierto).toMatchObject({ id: turnoId, responsableTipo: "EMPLEADO", responsableNombre: cashier.empleado.nombre, fondoInicial: 5000, estado: "ABIERTO", cantidadVentas: 2 })
+    expect(before.turnoAbierto.ultimaVentaEn).toBeTruthy()
+
+    // Validation: nothing is closed by an incomplete or invalid request.
+    const base = { cajaFisicaId: caja.id, efectivoContado: "24000.00", motivo, confirmo: true }
+    expect((await recuperarTurno(owner, turnoId, { ...base, motivo: "   " })).body.code).toBe("MOTIVO_RECUPERACION_REQUERIDO")
+    expect((await recuperarTurno(owner, turnoId, { ...base, confirmo: undefined })).body.code).toBe("CONFIRMACION_RECUPERACION_REQUERIDA")
+    for (const efectivoContado of ["-1", "", "12.345", "abc", undefined]) {
+      const invalid = await recuperarTurno(owner, turnoId, { ...base, efectivoContado })
+      expect(invalid.status).toBe(400)
+      expect(invalid.body.code).toBe("EFECTIVO_CONTADO_INVALIDO")
+    }
+    expect((await recuperarTurno(owner, turnoId, base, "")).body.code).toBe("IDEMPOTENCY_KEY_REQUIRED")
+    expect((await recuperarTurno(owner, turnoId, { ...base, cajaFisicaId: "otra-caja" })).body.code).toBe("CAJA_NO_COINCIDE")
+    // Not an owner session (employee) → rejected; another business's owner → not found.
+    expect([401, 403]).toContain((await recuperarTurno(cashier.cookie, turnoId, base)).status)
+    const foreign = await crearNegocio()
+    expect((await recuperarTurno(foreign.owner, turnoId, base)).status).toBe(404)
+    expect((await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })).estado).toBe("ABIERTO")
+
+    const movementsBefore = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
+    const operationsBefore = await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })
+    const salesBefore = await db.venta.count({ where: { negocioId: negocio.id } })
+
+    const key = randomUUID()
+    const recovered = await recuperarTurno(owner, turnoId, base, key)
+    expect(recovered.status).toBe(201)
+    expect(recovered.body.turno).toMatchObject({ id: turnoId, estado: "CERRADO_DECLARADO", cierreOrigen: "RECUPERACION_ADMINISTRATIVA", responsableNombre: cashier.empleado.nombre, motivo, efectivoContado: 24000, efectivoEsperado: 25000, diferencia: -1000 })
+    const replay = await recuperarTurno(owner, turnoId, base, key)
+    expect(replay.status).toBe(200)
+    expect(replay.replayed).toBe(true)
+    expect(replay.body.turno).toMatchObject({ efectivoContado: 24000, efectivoEsperado: 25000, diferencia: -1000 })
+    expect((await recuperarTurno(owner, turnoId, { ...base, efectivoContado: "24000.01" }, key)).body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+    const again = await recuperarTurno(owner, turnoId, base)
+    expect(again.status).toBe(409)
+    expect(again.body.code).toBe("TURNO_NO_ABIERTO")
+
+    const row = await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })
+    expect(row).toMatchObject({ estado: "CERRADO_DECLARADO", responsableTipo: "EMPLEADO", responsableId: cashier.empleado.id, empleadoId: cashier.empleado.id, cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cierreActorTipo: "NEGOCIO", cierreActorId: negocio.id, cierreMotivo: motivo })
+    expect(row.efectivoContadoDecimal?.toFixed(2)).toBe("24000.00")
+    expect(row.efectivoEsperadoDecimal?.toFixed(2)).toBe("25000.00")
+    expect(await fails(db.turnoCaja.update({ where: { id: turnoId }, data: { cierreOrigen: "RESPONSABLE", cierreActorTipo: "EMPLEADO", cierreActorId: cashier.empleado.id, cierreMotivo: null } }))).toBe(true)
+    expect(await fails(db.turnoCaja.update({ where: { id: turnoId }, data: { cierreMotivo: "otro motivo" } }))).toBe(true)
+    expect(await db.auditLog.count({ where: { recursoId: turnoId, accion: "turno_caja.recuperado_administrativamente" } })).toBe(1)
+    // The recovery itself creates no sale, income or ledger movement; sales stay attributed.
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(movementsBefore)
+    expect(await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })).toBe(operationsBefore)
+    expect(await db.venta.count({ where: { negocioId: negocio.id } })).toBe(salesBefore)
+    expect(await db.venta.count({ where: { negocioId: negocio.id, turnoCajaId: turnoId } })).toBe(2)
+
+    // 6.5 — the employee: no shift, no private figures, cannot close or sell into it.
+    const employeeView = await turnoCajero(cashier.cookie, negocio.slug)
+    expect(employeeView.body.turno).toBeNull()
+    expect(employeeView.body.ultimoCierre).toMatchObject({ id: turnoId, cerradoPorAdministracion: true })
+    expect(JSON.stringify(employeeView.body)).not.toMatch(/esperado|diferencia|efectivoContado|24000|25000|motivo|se retiró/i)
+    const lateClose = await cerrarCajero(cashier.cookie, negocio.slug, turnoId, "25000.00")
+    expect(lateClose.status).toBe(409)
+    expect(lateClose.body.code).toBe("TURNO_NO_ABIERTO")
+    const lateSale = await venderCajero(cashier.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] })
+    expect(lateSale.status).toBe(201) // OPCIONAL: sells without a shift, never into the recovered one
+    expect(await db.venta.count({ where: { negocioId: negocio.id, turnoCajaId: turnoId } })).toBe(2)
+    expect((await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })).efectivoEsperadoDecimal?.toFixed(2)).toBe("25000.00")
+
+    // 5.6 — D history after a fresh read; the register is free again.
+    const history = (await turnosCerrados(owner)).body.turnos.find((item: { id: string }) => item.id === turnoId)
+    expect(history).toMatchObject({ cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cerradoPor: "Dueño (recuperación administrativa)", motivoRecuperacion: motivo, responsableNombre: cashier.empleado.nombre, fondoInicial: 5000, efectivoEsperado: 25000, efectivoContado: 24000, diferencia: -1000, resultado: "FALTANTE", estadoEntrega: "PENDIENTE_ENTREGA" })
+    expect((await detalle(owner, turnoId)).body).toMatchObject({ cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cierreMotivo: motivo, ventas: { cantidad: 2, totalEfectivo: 20000 } })
+    expect((await revisarTurno(owner, turnoId, "Faltante verificado tras la recuperación")).status).toBe(201)
+    const freed = (await listarCajas(owner)).body.cajas.find((item: { id: string }) => item.id === caja.id)
+    expect(freed.turnoAbierto).toBeNull()
+    expect(freed.fondoTransferible).toBeNull() // no automatic carryover from a recovery
+    expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: turnoId } })).toBe(0)
+
+    // 5.6/5.7 — E custody over the recovered shift, then F carryover to employee B.
+    const delivery = await entregarTurno(owner, turnoId, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "20000.00", fondoRemanente: "4000.00", destinoTipo: "DUENO", confirmar: true })
+    expect(delivery.status).toBe(201)
+    const employeeB = await crearCajero(negocio.id)
+    const offered = (await turnoCajero(employeeB.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id)
+    expect(offered).toMatchObject({ ocupada: false, fondoTransferible: { turnoOrigenId: turnoId, importe: "4000.00" } })
+    const carried = await abrirCajero(employeeB.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "4000.00", transferirDesdeTurnoCajaId: turnoId, confirmoRecepcionFondo: true })
+    expect(carried.status).toBe(201)
+    expect(carried.body.turno.fondoInicial).toBe(4000)
+    const transfer = await db.traspasoFondoTurnoCaja.findFirstOrThrow({ where: { turnoOrigenId: turnoId } })
+    expect(transfer).toMatchObject({ turnoDestinoId: carried.body.turno.id, recibidoPorId: employeeB.empleado.id, cajaFisicaId: caja.id })
+    expect(transfer.montoDecimal.toFixed(2)).toBe("4000.00")
+    const recoveredAfter = await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })
+    expect(recoveredAfter.efectivoContadoDecimal?.toFixed(2)).toBe("24000.00")
+    expect(recoveredAfter.cierreOrigen).toBe("RECUPERACION_ADMINISTRATIVA")
+  })
+
+  ephemeralTest("two concurrent recoveries (different keys) and a burst with one key close the shift exactly once", async () => {
+    const first = await turnoConVentas("100.00", 50, 1)
+    const body = { cajaFisicaId: first.caja.id, efectivoContado: "150.00", motivo, confirmo: true }
+    const racing = await Promise.all([recuperarTurno(first.owner, first.turnoId, body), recuperarTurno(first.owner, first.turnoId, { ...body, efectivoContado: "149.00" })])
+    expect(racing.filter((r) => r.status === 201)).toHaveLength(1)
+    const winner = racing.find((r) => r.status === 201)!
+    const loser = racing.find((r) => r.status !== 201)!
+    expect(loser.status).toBe(409)
+    expect(loser.body.code).toBe("TURNO_NO_ABIERTO")
+    const stored = await db.turnoCaja.findUniqueOrThrow({ where: { id: first.turnoId } })
+    expect(Number(stored.efectivoContadoDecimal?.toFixed(2))).toBe(winner.body.turno.efectivoContado)
+    expect(await db.auditLog.count({ where: { recursoId: first.turnoId, accion: "turno_caja.recuperado_administrativamente" } })).toBe(1)
+
+    const second = await turnoConVentas("0.00", 10, 0)
+    const key = randomUUID()
+    const burst = await Promise.all(Array.from({ length: 5 }, () => recuperarTurno(second.owner, second.turnoId, { cajaFisicaId: second.caja.id, efectivoContado: "0.00", motivo, confirmo: true }, key)))
+    expect(burst.every((r) => r.status === 200 || r.status === 201)).toBe(true)
+    expect(burst.filter((r) => !r.replayed)).toHaveLength(1)
+    expect(await db.auditLog.count({ where: { recursoId: second.turnoId, accion: "turno_caja.recuperado_administrativamente" } })).toBe(1)
+  })
+
+  ephemeralTest("a sale racing the recovery is either counted in the snapshot or never attributed to the recovered shift", async () => {
+    for (let round = 0; round < 3; round++) {
+      const { negocio, owner, producto, caja, cashier, turnoId } = await turnoConVentas("10.00", 7, 1)
+      const [sale, recovery] = await Promise.all([
+        venderCajero(cashier.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: producto.id, cantidad: 1 }] }),
+        recuperarTurno(owner, turnoId, { cajaFisicaId: caja.id, efectivoContado: "17.00", motivo, confirmo: true }),
+      ])
+      expect(recovery.status).toBe(201)
+      expect([201, 409]).toContain(sale.status)
+      const closed = await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })
+      const attributed = await db.venta.findMany({ where: { negocioId: negocio.id, turnoCajaId: turnoId }, select: { totalDecimal: true, createdAt: true } })
+      for (const venta of attributed) expect(venta.createdAt.getTime()).toBeLessThanOrEqual(closed.cerradoEn!.getTime())
+      const expected = attributed.reduce((sum, venta) => sum.plus(venta.totalDecimal!), D("10.00"))
+      expect(closed.efectivoEsperadoDecimal?.toFixed(2)).toBe(expected.toFixed(2))
+      expect(recovery.body.turno.efectivoEsperado).toBe(Number(expected.toFixed(2)))
+    }
+  })
+
+  ephemeralTest("the owner's own shift is closed normally, never recovered", async () => {
+    const { owner } = await crearNegocio()
+    const opened = await abrirOwner(owner, { fondoInicial: "0" })
+    expect(opened.status).toBe(201)
+    const attempt = await recuperarTurno(owner, opened.body.id, { cajaFisicaId: opened.body.caja.id, efectivoContado: "0.00", motivo, confirmo: true })
+    expect(attempt.status).toBe(409)
+    expect(attempt.body.code).toBe("TURNO_PROPIO_DEL_DUENO")
+    expect((await db.turnoCaja.findUniqueOrThrow({ where: { id: opened.body.id } })).estado).toBe("ABIERTO")
+    expect((await cerrarOwner(owner, opened.body.id, "0.00")).status).toBe(200)
+    expect(await db.turnoCaja.findUniqueOrThrow({ where: { id: opened.body.id } })).toMatchObject({ cierreOrigen: "RESPONSABLE", cierreActorTipo: "NEGOCIO", cierreMotivo: null })
+  })
+
+  ephemeralTest("a normal employee close is recorded as the responsible person's own close", async () => {
+    const { negocio, cashier, turnoId } = await turnoConVentas("1.00", 2, 0)
+    expect((await cerrarCajero(cashier.cookie, negocio.slug, turnoId, "1.00")).status).toBe(200)
+    expect(await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoId } })).toMatchObject({ cierreOrigen: "RESPONSABLE", cierreActorTipo: "EMPLEADO", cierreActorId: cashier.empleado.id, cierreMotivo: null })
+    expect((await turnoCajero(cashier.cookie, negocio.slug)).body.ultimoCierre).toMatchObject({ id: turnoId, cerradoPorAdministracion: false })
   })
 })
 

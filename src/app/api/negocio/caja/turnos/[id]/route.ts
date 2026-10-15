@@ -40,6 +40,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       responsableTipo: turno.responsableTipo,
       responsableNombre: turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño",
       estado: turno.estado,
+      cierreOrigen: turno.cierreOrigen,
+      cierreMotivo: turno.cierreMotivo,
       abiertoEn: turno.abiertoEn,
       cerradoEn: turno.cerradoEn,
       efectivo: efectivoEsperado ? {

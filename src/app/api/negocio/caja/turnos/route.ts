@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
         responsableTipo: t.responsableTipo,
         responsableNombre: t.responsableTipo === "EMPLEADO" ? (t.empleado?.nombre ?? "Empleado") : "Dueño",
         estado: t.estado,
+        cierreOrigen: t.cierreOrigen,
         abiertoEn: t.abiertoEn,
         fondoInicial: moneyToNumber(t.fondoInicialDecimal),
       })),

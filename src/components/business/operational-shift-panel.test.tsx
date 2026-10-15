@@ -17,6 +17,7 @@ let postResults: Array<"network" | "success" | "server-error" | "fund-taken" | "
 const openingKeys: Array<string | null> = []
 const openingBodies: Array<Record<string, unknown>> = []
 const closingKeys: Array<string | null> = []
+let closeRecoveredByOwner = false
 
 beforeEach(() => {
   enabled = false
@@ -26,6 +27,7 @@ beforeEach(() => {
   openingKeys.length = 0
   openingBodies.length = 0
   closingKeys.length = 0
+  closeRecoveredByOwner = false
   window.sessionStorage.clear()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -34,6 +36,7 @@ beforeEach(() => {
       if (body.action === "close") {
         closingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
         currentShift = null
+        if (closeRecoveredByOwner) return new Response(JSON.stringify({ ok: false, error: "El turno ya no está abierto.", code: "TURNO_NO_ABIERTO" }), { status: 409 })
         return new Response(JSON.stringify({ ok: true, turno: { id: "turno-1", estado: "CERRADO_DECLARADO", cerradoEn: new Date().toISOString() } }), { status: 200 })
       }
       openingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
@@ -58,6 +61,7 @@ beforeEach(() => {
         { id: "caja-2", nombre: "Caja secundaria", esPredeterminada: false, ocupada: true, fondoTransferible: null },
       ],
       turno: currentShift,
+      ultimoCierre: !currentShift && closeRecoveredByOwner ? { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, cerradoEn: new Date().toISOString(), cerradoPorAdministracion: true } : null,
     }), { status: 200 })
     throw new Error(`unexpected fetch ${url}`)
   }) as typeof fetch
@@ -200,6 +204,26 @@ describe("F10-B2.2-B — employee shift interface", () => {
     expect(openingBodies).toHaveLength(1)
     expect(openingBodies[0]).not.toHaveProperty("transferirDesdeTurnoCajaId")
     expect(openingBodies[0]).not.toHaveProperty("confirmoRecepcionFondo")
+    await act(async () => root.unmount())
+  })
+
+  test("a shift recovered by the owner cannot be closed again: the panel refreshes and explains it without amounts", async () => {
+    enabled = true
+    closeRecoveredByOwner = true
+    currentShift = { id: "turno-1", caja: { id: "caja-1", nombre: "Caja principal" }, abiertoEn: new Date().toISOString(), fondoInicial: 0 }
+    const root = await renderPanel()
+    await act(async () => ([...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Cerrar turno")) as HTMLButtonElement).click())
+    const input = document.querySelector("#efectivo-contado-turno") as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "15.25")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => ([...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Confirmar cierre")) as HTMLButtonElement).click())
+    await flush()
+    expect(document.body.textContent).toContain("Este turno ya fue cerrado. Actualizamos el estado de la caja.")
+    expect(document.body.textContent).toContain("cerrado por el responsable del negocio (recuperación administrativa)")
+    expect(document.body.textContent).not.toContain("Turno abierto")
+    expect(document.body.textContent).not.toMatch(/esperado|diferencia|15[.,]25/i)
     await act(async () => root.unmount())
   })
 

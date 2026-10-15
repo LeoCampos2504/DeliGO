@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 import { OwnerCajaRevisiones } from "@/components/business/owner-caja-revisiones"
+import { OwnerCajaRecuperacion } from "@/components/business/owner-caja-recuperacion"
 
-type Turno = { id: string; responsableTipo: "NEGOCIO" | "EMPLEADO"; responsableNombre: string; abiertoEn: string }
+type Turno = { id: string; responsableTipo: "NEGOCIO" | "EMPLEADO"; responsableNombre: string; abiertoEn: string; fondoInicial: number; cantidadVentas?: number; ultimaVentaEn?: string | null }
 export type CajaFisicaResumen = {
   id: string
   nombre: string
@@ -28,6 +29,7 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
   const [nombre, setNombre] = useState("")
   const [nombresEditados, setNombresEditados] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
   const [efectivoContado, setEfectivoContado] = useState<Record<string, string>>({})
   const [confirmingClose, setConfirmingClose] = useState<string | null>(null)
   const [fondosIniciales, setFondosIniciales] = useState<Record<string, string>>({})
@@ -129,6 +131,7 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
         <div><h3 className="text-base font-bold">Cajas y turnos</h3><p className="text-sm text-muted-foreground">Los turnos abiertos se muestran sin datos de recaudación.</p></div>
         <Button variant="ghost" size="icon" aria-label="Actualizar cajas y turnos" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw className="h-4 w-4" /></Button>
       </div>
+      {recoveryNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">{recoveryNotice}</p>}
       <div className="grid gap-3 md:grid-cols-2">
         {cajas.map((caja) => {
           const nombreActual = nombresEditados[caja.id] ?? caja.nombre
@@ -145,6 +148,7 @@ export function OwnerCajaTurnosPanel({ negocioId }: { negocioId: string }) {
                   {confirmingClose === caja.turnoAbierto.id ? <div className="grid grid-cols-2 gap-2"><Button type="button" variant="outline" disabled={close.isPending} onClick={() => setConfirmingClose(null)}>Volver</Button><Button type="button" disabled={close.isPending || !/^\d{1,10}(\.\d{1,2})?$/.test((efectivoContado[caja.turnoAbierto.id] ?? "").trim())} onClick={() => close.mutate({ turnoId: caja.turnoAbierto!.id, amount: efectivoContado[caja.turnoAbierto!.id].trim() })}>{close.isPending ? "Cerrando…" : "Confirmar cierre"}</Button></div> : <Button type="button" variant="outline" disabled={close.isPending} onClick={() => setConfirmingClose(caja.turnoAbierto!.id)}>Preparar cierre de tu turno</Button>}
                   <p className="text-xs text-muted-foreground">El cierre termina el turno y no muestra efectivo esperado ni diferencia.</p>
                 </div>}
+                {caja.turnoAbierto.responsableTipo === "EMPLEADO" && <OwnerCajaRecuperacion negocioId={negocioId} registerQueryKey={ownerRegisterQueryKey(negocioId)} caja={{ id: caja.id, nombre: caja.nombre }} turno={caja.turnoAbierto} onRecovered={setRecoveryNotice} />}
               </div>}
               {!ocupada && <div className="space-y-2 rounded-xl border p-3">
                 <p className="text-sm font-semibold">Abrir mi turno</p>

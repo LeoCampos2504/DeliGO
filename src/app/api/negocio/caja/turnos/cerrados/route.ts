@@ -4,6 +4,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
 import { clasificarDiferencia } from "@/lib/caja-turnos-revision"
+import { CIERRE_ORIGEN_RECUPERACION, CIERRE_ORIGEN_RESPONSABLE } from "@/lib/caja-turnos-service"
 
 export async function GET(req: NextRequest) {
   try {
@@ -33,6 +34,10 @@ export async function GET(req: NextRequest) {
         abiertoEn: turno.abiertoEn,
         cerradoEn: turno.cerradoEn,
         estado: "CERRADO_DECLARADO" as const,
+        // F10-B2.2-G: who really closed it. A recovery is the owner's count, not the employee's declaration.
+        cierreOrigen: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? CIERRE_ORIGEN_RECUPERACION : CIERRE_ORIGEN_RESPONSABLE,
+        cerradoPor: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? "Dueño (recuperación administrativa)" : (turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño"),
+        motivoRecuperacion: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? turno.cierreMotivo : null,
         fondoInicial: moneyToNumber(turno.fondoInicialDecimal),
         efectivoEsperado: moneyToNumber(turno.efectivoEsperadoDecimal),
         efectivoContado: moneyToNumber(turno.efectivoContadoDecimal),

@@ -5,7 +5,7 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure } from "@/lib/operativo-caja"
-import { abrirTurnoCaja, cerrarTurnoCaja, asegurarCajaPredeterminada, listarFondosRemanentesTransferibles, TURNO_ESTADO_ABIERTO, TURNO_ESTADO_CERRADO_DECLARADO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
+import { abrirTurnoCaja, cerrarTurnoCaja, CIERRE_ORIGEN_RECUPERACION, asegurarCajaPredeterminada, listarFondosRemanentesTransferibles, TURNO_ESTADO_ABIERTO, TURNO_ESTADO_CERRADO_DECLARADO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
 import { isControlledShiftUiEnabled } from "@/lib/f10-b2-2-b-shift-ui-gate"
 
 // ============================================
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       db.turnoCaja.findFirst({
         where: { negocioId: auth.negocio.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, responsableTipo: "EMPLEADO", responsableId: auth.empleado.id },
         orderBy: { cerradoEn: "desc" },
-        select: { id: true, cerradoEn: true, cajaFisica: { select: { id: true, nombre: true } } },
+        select: { id: true, cerradoEn: true, cierreOrigen: true, cajaFisica: { select: { id: true, nombre: true } } },
       }),
       db.negocio.findUnique({ where: { id: auth.negocio.id }, select: { cajaTurnosModo: true } }),
     ])
@@ -61,7 +61,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
           ? { id: propio.id, caja: propio.cajaFisica, abiertoEn: propio.abiertoEn, fondoInicial: moneyToNumber(propio.fondoInicialDecimal) }
           : null,
         ultimoCierre: !propio && ultimoCierre?.cerradoEn
-          ? { id: ultimoCierre.id, caja: ultimoCierre.cajaFisica, cerradoEn: ultimoCierre.cerradoEn }
+          // F10-B2.2-G: only WHO closed it (no count, expected cash, difference or reason).
+          ? { id: ultimoCierre.id, caja: ultimoCierre.cajaFisica, cerradoEn: ultimoCierre.cerradoEn, cerradoPorAdministracion: ultimoCierre.cierreOrigen === CIERRE_ORIGEN_RECUPERACION }
           : null,
       })
     )

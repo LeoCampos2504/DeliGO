@@ -14,6 +14,9 @@ type TurnoCerrado = {
   abiertoEn: string
   cerradoEn: string
   estado: "CERRADO_DECLARADO"
+  cierreOrigen?: "RESPONSABLE" | "RECUPERACION_ADMINISTRATIVA"
+  cerradoPor?: string
+  motivoRecuperacion?: string | null
   fondoInicial: number
   efectivoEsperado: number
   efectivoContado: number
@@ -28,7 +31,7 @@ type Revision = { id: string; actor: string; accion: string; observacion: string
 type CustodyEvent = { id: string; tipo: "ENTREGA_CONFIRMADA" | "RECTIFICACION"; estado: "CONFIRMADA"; actor: string; efectivoContado: number; efectivoEsperado: number; diferencia: number; efectivoEntregado: number; fondoRemanente: number; destinoTipo: "DUENO" | "RESGUARDO"; destinoNombre: string | null; confirmadoEn: string; observacion: string | null }
 
 const money = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" })
-const closedShiftsKey = (negocioId: string) => ["caja-turnos-cerrados", negocioId] as const
+export const closedShiftsKey = (negocioId: string) => ["caja-turnos-cerrados", negocioId] as const
 const reviewHistoryKey = (negocioId: string, turnoId: string) => ["caja-turno-revisiones", negocioId, turnoId] as const
 const custodyHistoryKey = (negocioId: string, turnoId: string) => ["caja-turno-entregas", negocioId, turnoId] as const
 
@@ -180,15 +183,18 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
         const open = selected === turno.id
         const note = notes[turno.id] ?? ""
         const requiresNote = turno.diferencia !== 0
+        const recuperado = turno.cierreOrigen === "RECUPERACION_ADMINISTRATIVA"
         return <article key={turno.id} className="space-y-3 rounded-xl border p-3 sm:p-4">
           <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-            <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{turno.caja.nombre}</h4><span className="rounded-full border px-2 py-1 text-xs font-medium">CERRADO_DECLARADO</span><ResultadoBadge resultado={turno.resultado} /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoRevision === "REVISADO" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{turno.estadoRevision === "REVISADO" ? "Revisado" : "Pendiente de revisión"}</span><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground"}`}>{turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "Entrega confirmada" : "Entrega pendiente"}</span></div><p className="text-sm text-muted-foreground">Abrió y cerró: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")} · Cierre {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p></div>
+            <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{turno.caja.nombre}</h4>{recuperado ? <span className="rounded-full bg-violet-100 px-2 py-1 text-xs font-semibold text-violet-900 dark:bg-violet-950 dark:text-violet-200">Cerrado por recuperación administrativa</span> : <span className="rounded-full border px-2 py-1 text-xs font-medium">CERRADO_DECLARADO</span>}<ResultadoBadge resultado={turno.resultado} /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoRevision === "REVISADO" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{turno.estadoRevision === "REVISADO" ? "Revisado" : "Pendiente de revisión"}</span><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground"}`}>{turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "Entrega confirmada" : "Entrega pendiente"}</span></div>{recuperado
+              ? <><p className="text-sm text-muted-foreground">Responsable original: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")}</p><p className="text-sm text-muted-foreground">Cierre realizado por: {turno.cerradoPor ?? "Dueño (recuperación administrativa)"} · Recuperado {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>{turno.motivoRecuperacion && <p className="text-sm">Motivo: {turno.motivoRecuperacion}</p>}</>
+              : <p className="text-sm text-muted-foreground">Abrió y cerró: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")} · Cierre {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>}</div>
             <Button type="button" variant="outline" size="sm" onClick={() => setSelected(open ? null : turno.id)}>{open ? "Ocultar detalle" : "Ver detalle"}</Button>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <Money label="Fondo inicial" value={turno.fondoInicial} />
             <Money label="Efectivo esperado" value={turno.efectivoEsperado} />
-            <Money label="Efectivo declarado" value={turno.efectivoContado} />
+            <Money label={recuperado ? "Contado por el dueño" : "Efectivo declarado"} value={turno.efectivoContado} />
             <Money label="Diferencia" value={turno.diferencia} emphasize />
           </div>
           {turno.entregaActual && <p className="rounded-lg bg-muted/40 p-2 text-sm">Entrega actual: {money.format(turno.entregaActual.efectivoEntregado)} entregado · {money.format(turno.entregaActual.fondoRemanente)} permanece en caja · {turno.entregaActual.destinoTipo === "DUENO" ? "Dueño" : turno.entregaActual.destinoNombre} · confirmó {turno.entregaActual.actor} el {new Date(turno.entregaActual.confirmadoEn).toLocaleString("es-AR")}</p>}
@@ -203,7 +209,7 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
               <p className="text-xs text-muted-foreground">La revisión deja un registro inmutable. No modifica el efectivo declarado ni crea ingresos o egresos.</p>
             </form>
             <div className="space-y-3 rounded-lg border p-3" aria-label="Entrega de efectivo y fondo remanente">
-              <div><h5 className="text-sm font-semibold">Entrega y fondo remanente</h5><p className="text-xs text-muted-foreground">Se divide el efectivo declarado ({money.format(turno.efectivoContado)}); no modifica la diferencia ni genera movimientos financieros.</p></div>
+              <div><h5 className="text-sm font-semibold">Entrega y fondo remanente</h5><p className="text-xs text-muted-foreground">Se divide el efectivo {recuperado ? "contado por el dueño" : "declarado"} ({money.format(turno.efectivoContado)}); no modifica la diferencia ni genera movimientos financieros.</p></div>
               <ol className="space-y-2">{custody.isLoading ? <li className="text-sm text-muted-foreground">Cargando historial de custodia…</li> : custody.isError ? <li role="alert" className="text-sm text-destructive">{custody.error.message}</li> : custody.data?.entregas.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.tipo === "RECTIFICACION" ? "Rectificación" : "Entrega confirmada"} · {new Date(item.confirmadoEn).toLocaleString("es-AR")}</p><p>{money.format(item.efectivoEntregado)} entregado · {money.format(item.fondoRemanente)} remanente · {item.destinoTipo === "DUENO" ? "Dueño" : item.destinoNombre}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol>
               {custodySuccess[turno.id] && <p role="status" className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{custodySuccess[turno.id]}</p>}
               {turno.estadoEntrega === "ENTREGA_CONFIRMADA" && <Button type="button" variant="outline" size="sm" onClick={() => {

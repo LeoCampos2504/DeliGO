@@ -8,7 +8,7 @@ import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 
 type Register = { id: string; nombre: string; esPredeterminada: boolean; ocupada: boolean; fondoTransferible: { turnoOrigenId: string; importe: string } | null }
 type Shift = { id: string; caja: { id: string; nombre: string }; abiertoEn: string; fondoInicial: number }
-type ClosedShift = { id: string; caja: { id: string; nombre: string }; cerradoEn: string }
+type ClosedShift = { id: string; caja: { id: string; nombre: string }; cerradoEn: string; cerradoPorAdministracion?: boolean }
 type State = {
   loading: boolean
   error: string | null
@@ -181,6 +181,14 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       if (response.status === 401 || response.status === 403) onAccessLost(response.status, json.estado)
       if (!response.ok || !json.ok) {
         if (response.status < 500) clearAttempt(closeScope, CLOSE_STORAGE_PREFIX)
+        if (response.status === 409 && json.code === "TURNO_NO_ABIERTO") {
+          // Closed elsewhere (e.g. recovered by the owner): show the real state.
+          setConfirmingClose(false)
+          setEfectivoContado("")
+          setMessage("Este turno ya fue cerrado. Actualizamos el estado de la caja.")
+          await refresh()
+          return
+        }
         throw new Error(json.error ?? "No pudimos cerrar el turno.")
       }
       clearAttempt(closeScope, CLOSE_STORAGE_PREFIX)
@@ -235,7 +243,7 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
 
       {!state.loading && !state.error && !state.turno && (
         <div className="mt-4 space-y-3">
-          {state.ultimoCierre && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"><p className="font-semibold">Último cierre declarado registrado</p><p>{state.ultimoCierre.caja.nombre} · {new Date(state.ultimoCierre.cerradoEn).toLocaleString("es-AR")}</p></div>}
+          {state.ultimoCierre && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"><p className="font-semibold">{state.ultimoCierre.cerradoPorAdministracion ? "Tu último turno fue cerrado por el responsable del negocio (recuperación administrativa)" : "Último cierre declarado registrado"}</p><p>{state.ultimoCierre.caja.nombre} · {new Date(state.ultimoCierre.cerradoEn).toLocaleString("es-AR")}</p></div>}
           <p className="text-sm font-semibold">Seleccioná una caja disponible para iniciar tu turno.</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {state.cajas.map((caja) => (

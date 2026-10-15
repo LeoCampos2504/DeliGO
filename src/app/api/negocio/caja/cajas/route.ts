@@ -36,6 +36,17 @@ export async function GET(req: NextRequest) {
       },
     })
     const porCaja = new Map(abiertos.map((t) => [t.cajaFisicaId, t]))
+    // F10-B2.2-G: the only reliable activity signal of an open shift is the
+    // sales DeliGO really recorded for it. No "last seen" is invented.
+    const actividad = abiertos.length
+      ? await db.venta.groupBy({
+          by: ["turnoCajaId"],
+          where: { negocioId: auth.negocioId, turnoCajaId: { in: abiertos.map((t) => t.id) } },
+          _max: { createdAt: true },
+          _count: { _all: true },
+        })
+      : []
+    const actividadPorTurno = new Map(actividad.map((a) => [a.turnoCajaId, a]))
     return NextResponse.json({
       modoTurnos: auth.cajaTurnosModo,
       traspasos: traspasos.map((traspaso) => ({
@@ -70,6 +81,9 @@ export async function GET(req: NextRequest) {
                 responsableNombre: t.responsableTipo === "EMPLEADO" ? (t.empleado?.nombre ?? "Empleado") : "Dueño",
                 abiertoEn: t.abiertoEn,
                 fondoInicial: moneyToNumber(t.fondoInicialDecimal),
+                estado: t.estado,
+                cantidadVentas: actividadPorTurno.get(t.id)?._count._all ?? 0,
+                ultimaVentaEn: actividadPorTurno.get(t.id)?._max.createdAt ?? null,
               }
             : null,
         }
