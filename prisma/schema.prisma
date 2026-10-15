@@ -748,9 +748,9 @@ model TraspasoFondoTurnoCaja {
   id                    String   @id @default(cuid())
   negocioId             String
   cajaFisicaId          String
-  turnoOrigenId         String   @unique
-  entregaOrigenId       String   @unique
-  turnoDestinoId        String   @unique
+  turnoOrigenId         String
+  entregaOrigenId       String
+  turnoDestinoId        String
   montoDecimal          Decimal  @db.Decimal(12, 2)
   recibidoPorTipo       String
   recibidoPorId         String
@@ -767,6 +767,9 @@ model TraspasoFondoTurnoCaja {
   entregaOrigen EntregaCustodiaTurnoCaja   @relation(fields: [entregaOrigenId, negocioId, cajaFisicaId, turnoOrigenId], references: [id, negocioId, cajaFisicaId, turnoCajaId], onDelete: Restrict)
 
   @@unique([negocioId, idempotencyKey])
+  @@unique([turnoOrigenId, negocioId, cajaFisicaId])
+  @@unique([entregaOrigenId, negocioId, cajaFisicaId, turnoOrigenId])
+  @@unique([turnoDestinoId, negocioId, cajaFisicaId])
   @@index([negocioId, cajaFisicaId, confirmadoEn])
   @@map("traspasos_fondo_turnos_caja")
 }

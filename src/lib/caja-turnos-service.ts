@@ -321,7 +321,7 @@ type TurnoConCaja = Prisma.TurnoCajaGetPayload<{ include: { cajaFisica: { select
 type TransferOpenResult = CajaResult<{ turno: TurnoConCaja; replayed: boolean }>
 
 async function replayTransferOpen(db: Pick<PrismaClient, "traspasoFondoTurnoCaja">, input: AbrirTurnoInput, existing: TurnoConCaja, sourceShiftId: string, idempotencyKey: string): Promise<TransferOpenResult> {
-  const transfer = await db.traspasoFondoTurnoCaja.findUnique({ where: { turnoDestinoId: existing.id } })
+  const transfer = await db.traspasoFondoTurnoCaja.findFirst({ where: { turnoDestinoId: existing.id, negocioId: input.negocioId, cajaFisicaId: existing.cajaFisicaId } })
   const responsible = actorResponsable(input.negocioId, input.actor)
   const requestedFund = parseFondoInicial(input.fondoInicial)
   const fingerprint = fingerprintAperturaTurno(input.negocioId, existing.cajaFisicaId, existing.fondoInicialDecimal, input.actor, sourceShiftId)
@@ -381,7 +381,7 @@ async function abrirTurnoConFondoTransferido(db: Db, input: AbrirTurnoInput, sou
       if (!origen || !entrega || entrega.estado !== "CONFIRMADA" || !entrega.fondoRemanenteDecimal.gt(0)) {
         return fail(409, "No hay un remanente confirmado para transferir desde ese turno.", "FONDO_REMANENTE_NO_DISPONIBLE")
       }
-      const alreadyTransferred = await tx.traspasoFondoTurnoCaja.findUnique({ where: { turnoOrigenId: sourceShiftId }, select: { id: true } })
+      const alreadyTransferred = await tx.traspasoFondoTurnoCaja.findFirst({ where: { turnoOrigenId: sourceShiftId, negocioId, cajaFisicaId }, select: { id: true } })
       if (alreadyTransferred) return fail(409, "Ese fondo ya fue recibido por otro turno.", "FONDO_REMANENTE_YA_TRANSFERIDO")
 
       const fondo = entrega.fondoRemanenteDecimal
@@ -415,7 +415,7 @@ async function abrirTurnoConFondoTransferido(db: Db, input: AbrirTurnoInput, sou
     if (!isUniqueViolation(error)) throw error
     const sameKey = await db.turnoCaja.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include })
     if (sameKey) return replayTransferOpen(db, input, sameKey, sourceShiftId, idempotencyKey)
-    const alreadyTransferred = await db.traspasoFondoTurnoCaja.findUnique({ where: { turnoOrigenId: sourceShiftId }, select: { id: true } })
+    const alreadyTransferred = await db.traspasoFondoTurnoCaja.findFirst({ where: { turnoOrigenId: sourceShiftId, negocioId, cajaFisicaId }, select: { id: true } })
     if (alreadyTransferred) return fail(409, "Ese fondo ya fue recibido por otro turno.", "FONDO_REMANENTE_YA_TRANSFERIDO")
     const occupied = await db.turnoCaja.findFirst({ where: { cajaFisicaId, estado: TURNO_ESTADO_ABIERTO }, select: { id: true } })
     if (occupied) return fail(409, "Esta caja ya tiene un turno abierto.", "CAJA_CON_TURNO_ABIERTO")

@@ -39,12 +39,12 @@ CREATE TABLE "traspasos_fondo_turnos_caja" (
   CONSTRAINT "traspasos_fondo_turnos_caja_state_check" CHECK ("estado" = 'CONFIRMADO')
 );
 
-CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_turnoOrigenId_key"
-  ON "traspasos_fondo_turnos_caja"("turnoOrigenId");
-CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_entregaOrigenId_key"
-  ON "traspasos_fondo_turnos_caja"("entregaOrigenId");
-CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_turnoDestinoId_key"
-  ON "traspasos_fondo_turnos_caja"("turnoDestinoId");
+CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_turnoOrigenId_negocioId_cajaFisicaId_key"
+  ON "traspasos_fondo_turnos_caja"("turnoOrigenId", "negocioId", "cajaFisicaId");
+CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_entregaOrigenId_negocioId_cajaFisicaId_turnoOrigenId_key"
+  ON "traspasos_fondo_turnos_caja"("entregaOrigenId", "negocioId", "cajaFisicaId", "turnoOrigenId");
+CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_turnoDestinoId_negocioId_cajaFisicaId_key"
+  ON "traspasos_fondo_turnos_caja"("turnoDestinoId", "negocioId", "cajaFisicaId");
 CREATE UNIQUE INDEX "traspasos_fondo_turnos_caja_negocioId_idempotencyKey_key"
   ON "traspasos_fondo_turnos_caja"("negocioId", "idempotencyKey");
 CREATE INDEX "traspasos_fondo_turnos_caja_negocioId_cajaFisicaId_confirmadoEn_idx"

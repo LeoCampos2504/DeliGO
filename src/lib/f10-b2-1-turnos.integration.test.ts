@@ -984,7 +984,7 @@ describe("F10-B2.2-F — carry over physical cash remainder", () => {
     expect(mismatchedReplay.status).toBe(409)
     expect(mismatchedReplay.body.code).toBe("IDEMPOTENCY_KEY_REUSED")
     expect(await db.traspasoFondoTurnoCaja.count({ where: { turnoOrigenId: sourceShiftId } })).toBe(1)
-    const savedTransfer = await db.traspasoFondoTurnoCaja.findUniqueOrThrow({ where: { turnoOrigenId: sourceShiftId } })
+    const savedTransfer = await db.traspasoFondoTurnoCaja.findFirstOrThrow({ where: { turnoOrigenId: sourceShiftId, negocioId: negocio.id, cajaFisicaId: caja.id } })
     expect(savedTransfer.montoDecimal.toFixed(2)).toBe("5000.00")
     expect(await fails(db.traspasoFondoTurnoCaja.update({ where: { id: savedTransfer.id }, data: { montoDecimal: D("1.00") } }))).toBe(true)
     expect(await fails(db.traspasoFondoTurnoCaja.delete({ where: { id: savedTransfer.id } }))).toBe(true)
