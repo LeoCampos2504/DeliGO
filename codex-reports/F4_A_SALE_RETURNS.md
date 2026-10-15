@@ -121,8 +121,9 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
   prueba previa de ventas concurrentes (`f10-b2-1-turnos.integration.test.ts:440`). Las tres últimas corrieron el mismo
   lote: son fallas intermitentes, no de esta corrección. La explicación Radix/DOM de la primera falla no está probada.
   Railway TESTING no desplegó nada.
-- **Pendiente:** autorización del operador para integrar en `testing-codex`, CI, Railway TESTING y una comprobación
-  manual de la campana.
+- **Integración:** fast-forward autorizado `testing-codex` `4af5f9d..d1856d5`; CI 38826220616 PASS; Railway TESTING
+  `a093df1e` SUCCESS sobre `d1856d5`, sin migraciones pendientes; smoke 401/400/403 esperados.
+- **Pendiente:** la comprobación manual de la campana del dueño. No certificada hasta la confirmación del operador.
 
 ## Prueba manual sugerida (TESTING)
 
