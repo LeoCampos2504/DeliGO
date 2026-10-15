@@ -6,7 +6,29 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F10-B2.2-G SHIFT RECOVERY DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-16, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-A SALE VOIDS AND PARTIAL RETURNS DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-15, Claude Code) ===
+
+CURRENT_TASK=F4-A_SALE_VOID_AND_PARTIAL_RETURN (roadmap block F4 DEVOLUCIONES Y ANULACIONES, first stage)
+CURRENT_TASK_STATUS=IMPLEMENTED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST
+RESULT=F4_A_DEPLOYED_TESTING; NOT YET MANUALLY CERTIFIED
+F10_B2_2_G_STATUS=DEPLOYED_TESTING (operator manual test still pending per previous block; G UI layout fix 7593e87 deployed)
+WORKTREE=C:\Leo Campos\Trabajo\deligo-f-carryover-fix (branch work/ventas-anulacion-devolucion from origin/testing-codex 7593e87); main checkout untouched
+COMMIT=d94b361caa70379b1bbf6a246772ce00d766d104 (fast-forward 7593e87..d94b361 on testing-codex)
+DESIGN=immutable compensation events (devoluciones_venta + devoluciones_venta_items); Venta/VentaItem/CobroVenta/VENTA_COBRO and closed shifts never edited; amount = charged line subtotal, proportional and cumulative (last unit closes exact); void after partials = only what is left; refund NO_CORRESPONDE|PENDIENTE|REALIZADO (EFECTIVO|TRANSFERENCIA|OTRO), pending->done once; only cash moves the ledger: DEVOLUCION_VENTA negative leg on the cash account of the register handing the money, attributed to the shift OPEN at that moment (employee: own shift; owner: chosen/sole open register; none + OPCIONAL -> efectivo_caja_sin_asignar; employee without shift in OBLIGATORIO -> 409 TURNO_REQUERIDO); transfer/other = declared, no bank claim; stock: explicit per-line decision, DEVOLUCION inventory movement, reservations untouched; Serializable + bounded retry, Idempotency-Key + fingerprint, sale row locked by no-op UPDATE, register FOR UPDATE; persistent in-app owner notice (Notificacion tipo caja_devolucion, same tx) for employee operations — NO push sent
+MIGRATION=20261017120000_f4_a_sale_returns (additive): 2 tables, CHECKs (tipo, motivo 1-500, actor, refund coherence: REALIZADO+EFECTIVO <=> ledger operation), trigger caps accumulated qty/amount per sold line (line row locked), events immutable except PENDIENTE->REALIZADO, trigger rejects DEVOLUCION_VENTA on a non-open shift
+API=owner GET /api/negocio/caja/ventas/historial · GET/POST /api/negocio/caja/ventas/[id]/devoluciones · POST /api/negocio/caja/devoluciones/[id]/reintegro · GET /api/negocio/caja/devoluciones; cashier GET /api/operativo/caja/[slug]/ventas/historial · GET/POST /api/operativo/caja/[slug]/ventas/[id]/devoluciones · POST /api/operativo/caja/[slug]/devoluciones/[id]/reintegro; GET /api/negocio/caja/ventas adds resumenHoy.totalDevuelto/totalNeto + devolucionesPorVenta (existing fields unchanged)
+UI=shared component caja-devoluciones.tsx: owner Caja -> Resumen (cards Devoluciones hoy / Neto hoy, badges, "Anular o devolver productos" in sale detail, past-sales search, operations history); cashier PWA section "Ventas anteriores: anular o devolver"; stacked full-width actions
+PRIVACY_DECISION=cashier now sees previous sales of their business (needed to return sales from other shifts, operator-approved decision); only lines, charged amounts and returns; never expected cash, differences, shift totals or ledger
+LOCAL_TESTS=caja-devoluciones.test.ts 12/0 · caja-devoluciones.test.tsx 6/0 · existing caja UI/unit 110/0 · static contracts 148 pass / 2 fail (same pre-existing local CRLF working-copy checks of B2.0/B2.1 migrations) · tsc 33 diagnostics = baseline, 0 new · eslint clean on touched files · git diff --check PASS · F4-A integration suite runs only on the ephemeral CI DB (no local PostgreSQL)
+CONTRACT_TESTS_UPDATED=f10-b0/b2-0/b2-1 single-writer allowlists now list exactly [caja-devoluciones-service, caja-venta-service]
+CI=GitHub Actions run 38801260653 on d94b361 = success (prisma validate, generate, migrate deploy on ephemeral PostgreSQL incl. F4-A, caja unit/UI/static + f10-b2-1 integration (C/D/E/F/G regressions) + new f4-a integration suite, Next build). Exact counts not captured (job log needs auth).
+RAILWAY_TESTING=DeliGO Copy deployment 3856ee17-e2c9-40a8-b7a6-fe304149a877 SUCCESS, commitHash d94b361caa70379b1bbf6a246772ce00d766d104; deploy log: 48 migrations, "Applying migration 20261017120000_f4_a_sale_returns", all applied, Ready; smoke: new owner/cashier routes 401 without session
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 unchanged)
+NOT_DONE=sale editing (owner, later stage), change calculator, internal consumption, non-return cash in/out, F10-B2.2-H, push notification for returns, dashboard statistics stay gross (net only in Caja Resumen)
+REPORT=codex-reports/F4_A_SALE_RETURNS.md
+NEXT_ACTION=operator manual test of F4-A in TESTING (3-product sale, close, next-day other employee returns one in cash, current expected cash, previous close intact, stock, owner notice, history; plus full void); on PASS record certification. G manual test also still open.
+
+=== HISTORICAL HANDOFF — F10-B2.2-G SHIFT RECOVERY DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-16, Claude Code) ===
 
 CURRENT_TASK=F10-B2.2-G_OWNER_ADMINISTRATIVE_SHIFT_RECOVERY
 CURRENT_TASK_STATUS=IMPLEMENTED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST

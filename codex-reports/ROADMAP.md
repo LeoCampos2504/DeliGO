@@ -251,6 +251,10 @@ F3  CONSULTA PRIVADA DE CUENTA CORRIENTE — el comercio crea la cuenta y entreg
     Sin autenticación por contraseña para estos clientes.
 F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devolución de dinero, ajuste de stock cuando
     corresponda, historial y trazabilidad (hoy no existe ningún camino de anulación de Venta).
+    → F4-A (2026-10-15): anulación completa y devolución parcial de ventas de Caja (dueño y cajero, motivo obligatorio,
+      reintegro pendiente/realizado, efectivo en el turno abierto, stock opcional, aviso persistente al dueño) =
+      DEPLOYED_TESTING, prueba manual pendiente (codex-reports/F4_A_SALE_RETURNS.md). Para etapas propias:
+      edición/corrección de ventas (sólo dueño), calculadora de vuelto, notificación push de devoluciones.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

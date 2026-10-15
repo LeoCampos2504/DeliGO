@@ -1,5 +1,14 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE — F4-A sale voids and partial returns (2026-10-15, Claude Code)
+
+```text
+F4_A_STATUS=DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST (employee or owner voids a sale or returns some units with mandatory reason; immutable compensation events; refund pending/done separate; cash refund lowers the expected cash of the shift open at that moment; closed shifts untouched; restock via DEVOLUCION movement; persistent owner notice, no push)
+COMMIT=d94b361 · MIGRATION=20261017120000_f4_a_sale_returns applied in TESTING (48) · CI run 38801260653 success · RAILWAY_TESTING=3856ee17-e2c9-40a8-b7a6-fe304149a877 SUCCESS commit match · PRODUCTION_TOUCHED=NO
+F10_B2_2_G_STATUS=DEPLOYED_TESTING, manual test pending · H not started
+NEXT_ACTION=operator manual test of F4-A (and G); see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
+```
+
 ## LATEST UPDATE — F10-B2.2-G owner shift recovery (2026-10-16, Claude Code)
 
 ```text
