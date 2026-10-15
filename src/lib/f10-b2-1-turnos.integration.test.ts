@@ -714,7 +714,9 @@ describe("F10-B2.2-C — blind declared close", () => {
     const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "0" })).body.turno
     const key = randomUUID()
     const attempts = await Promise.all(Array.from({ length: 6 }, () => cerrarCajero(cashier.cookie, negocio.slug, turno.id, "4.50", key)))
-    expect(attempts.every((attempt) => attempt.status === 200)).toBe(true)
+    expect(attempts.map((attempt) => ({ status: attempt.status, code: attempt.body.code ?? null }))).toEqual(
+      Array.from({ length: 6 }, () => ({ status: 200, code: null }))
+    )
     expect(attempts.filter((attempt) => !attempt.replayed)).toHaveLength(1)
     const row = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
     expect(row.estado).toBe("CERRADO_DECLARADO")
