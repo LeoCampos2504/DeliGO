@@ -1,5 +1,15 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE — F4-A owner bell fix (2026-10-15, Claude Code)
+
+```text
+F4_A_STATUS=DEPLOYED_TESTING; manual review 7/8 confirmed by operator; owner bell item FAILING until this fix is integrated and re-checked (not PASS)
+CAUSE=employee cookie deligo_operativo_session (path "/") made /api/notificaciones serve the employee feed to the owner's bell on a shared browser
+FIX=branch codex/f4-a-owner-bell-notification commit 0495d48 (feed named per bell, session of that feed validated, no fallback); not integrated, not deployed
+PRESERVE=local branch preserve/checkout-f10-docs-2026-10-15 commit 5c6651d (not pushed)
+NEXT_ACTION=operator authorization to integrate into testing-codex; see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
+```
+
 ## LATEST UPDATE — F4-A sale voids and partial returns (2026-10-15, Claude Code)
 
 ```text

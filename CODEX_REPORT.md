@@ -6,7 +6,21 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F4-A SALE VOIDS AND PARTIAL RETURNS DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-15, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-A OWNER BELL FIX ON TASK BRANCH; INTEGRATION AUTHORIZATION PENDING (2026-10-15, Claude Code) ===
+
+CURRENT_TASK=F4-A_FIX_OWNER_BELL_NOTICE (only failing item of the F4-A manual review: 7 of 8 checks confirmed by the operator; owner bell did not show the return notice)
+CURRENT_TASK_STATUS=FIXED_ON_TASK_BRANCH_NOT_INTEGRATED_NOT_DEPLOYED
+F4_A_STATUS=DEPLOYED_TESTING (d94b361) — manual review NOT PASS (owner bell item failing until this fix is integrated, deployed and re-checked)
+CHECKOUT=single canonical checkout C:\Leo Campos\Trabajo\deligo-main-limpio (no worktree); branch codex/f4-a-owner-bell-notification from origin/testing-codex 4af5f9d46bf57f742db3030bda6a4caac71fccdb
+PRESERVATION=local-only branch preserve/checkout-f10-docs-2026-10-15 commit 5c6651d (26 paths: 20 previously modified tracked files + 6 colliding untracked E/F copies; code equal to fabd111 except final line; 4 docs keep unique historical C/D/E and 2026-10-10 security text; E migration copy kept byte-exact incl. trailing blank line, operator-approved exception). NOT pushed. 329 other untracked files untouched.
+ROOT_CAUSE=deligo_operativo_session is set with path "/" (src/app/api/operativo/login/route.ts, google/callback) so on a browser shared by owner and employee it also reaches the owner panel; GET/PATCH /api/notificaciones chose the employee feed by the mere presence of that cookie (or returned 401 when it was stale), so the owner's caja_devolucion rows (userId=negocioId, userType=negocio — persisted correctly, CI-proven) never reached the owner's bell.
+FIX=0495d48: each bell names its feed (?feed=cuenta personal/owner, ?feed=operativo employee; notificationFeedFor in notification-center.tsx; query keys scoped by feed); route resolverFeed validates ONLY the cookie of the named feed, no fallback; no param (clients cached before the fix) → valid personal session wins, else operational; invalid feed → 400. DELETE unchanged. No migration, no push notifications, no change to returns/refunds/stock/amounts/closures.
+TESTS=local: notification-center.test.ts + caja-devoluciones unit/UI + proxy 103/0 · new real-DB regression in f4-a-devoluciones.integration.test.ts (both cookies per feed, no-param legacy, stale employee cookie, no fallback 401, other business, invalid feed 400, mark-read isolation) runs only on the ephemeral CI DB (no local PostgreSQL) — NOT yet executed; CI runs on push to testing-codex
+GATES=eslint clean on touched files · git diff --check clean · tsc: 164 diagnostics in this checkout, all from the stale generated Prisma client (not regenerated because prisma CLI/next build would load the checkout .env, forbidden by SECRET_READ_POLICY); 0 in the changed files/lines · local build NOT run for the same reason → build gate = CI on integration
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0)
+NEXT_ACTION=operator authorization to integrate codex/f4-a-owner-bell-notification into testing-codex (fast-forward) → CI + Railway TESTING verification → one manual check: owner bell shows the employee's return notice.
+
+=== HISTORICAL HANDOFF — F4-A SALE VOIDS AND PARTIAL RETURNS DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-15, Claude Code) ===
 
 CURRENT_TASK=F4-A_SALE_VOID_AND_PARTIAL_RETURN (roadmap block F4 DEVOLUCIONES Y ANULACIONES, first stage)
 CURRENT_TASK_STATUS=IMPLEMENTED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST

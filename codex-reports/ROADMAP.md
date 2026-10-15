@@ -255,6 +255,9 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       reintegro pendiente/realizado, efectivo en el turno abierto, stock opcional, aviso persistente al dueño) =
       DEPLOYED_TESTING, prueba manual pendiente (codex-reports/F4_A_SALE_RETURNS.md). Para etapas propias:
       edición/corrección de ventas (sólo dueño), calculadora de vuelto, notificación push de devoluciones.
+    → F4-A revisión manual (2026-10-15): 7/8 confirmadas; falla el aviso en la campana del dueño (cookie operativa
+      con path "/" hacía que /api/notificaciones sirviera el feed del empleado). Corrección en la rama
+      codex/f4-a-owner-bell-notification (0495d48), pendiente de autorización para integrar. F4-A NO certificada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

@@ -99,6 +99,25 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
   `20261017120000_f4_a_sale_returns` aplicada (48 migraciones), Ready; rutas nuevas responden 401 sin sesión.
 - Production y `main` sin cambios. **No certificado:** pendiente la prueba manual del operador.
 
+## Revisión manual y corrección de la campana del dueño (2026-10-15)
+
+- **Revisión del operador:** 7 de 8 comprobaciones confirmadas. Falla: el aviso persistente no aparece en la campana
+  del dueño. F4-A **no** está certificada.
+- **Causa (evidencia de código):** la cookie `deligo_operativo_session` se crea con `path: "/"`
+  (`src/app/api/operativo/login/route.ts`, callback de Google), así que en un navegador donde también hay sesión de
+  empleado llega al panel del dueño. `GET`/`PATCH /api/notificaciones` elegían el feed del empleado por la sola
+  presencia de esa cookie (o devolvían 401 si estaba vencida). La fila `caja_devolucion` del dueño
+  (`userId = negocioId`, `userType = "negocio"`) se guarda bien —ya lo probaba la integración F4-A en CI—, pero nunca
+  llegaba a su campana.
+- **Corrección** (rama `codex/f4-a-owner-bell-notification`, commit `0495d48`, **sin integrar ni desplegar**): cada
+  campana declara su feed (`?feed=cuenta` dueño/personal, `?feed=operativo` empleado); el servidor valida sólo la
+  cookie de ese feed, sin caer en la otra; sin parámetro (clientes anteriores) gana la sesión personal válida. Sin
+  migración, sin push y sin cambios en devoluciones, reintegros, stock, importes ni cierres.
+- **Pruebas:** nueva regresión real-DB en `f4-a-devoluciones.integration.test.ts` (ambas cookies, cookie vencida, sin
+  fallback, otro negocio, marcar leído aislado) — corre sólo en CI; locales 103/0.
+- **Pendiente:** autorización del operador para integrar en `testing-codex`, CI, Railway TESTING y una comprobación
+  manual de la campana.
+
 ## Prueba manual sugerida (TESTING)
 
 1. Empleado A abre turno, vende 3 productos (por ejemplo 2 gaseosas y 1 yerba con stock controlado) en efectivo y
