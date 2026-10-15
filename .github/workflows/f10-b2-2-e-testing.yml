@@ -1,0 +1,44 @@
+name: F10-B2.2-E TESTING validation
+
+on:
+  push:
+    branches:
+      - testing-codex
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: deligo_test
+          POSTGRES_PASSWORD: deligo_test
+          POSTGRES_DB: deligo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U deligo_test -d deligo_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://deligo_test:deligo_test@127.0.0.1:5432/deligo_test?schema=public
+      DELIGO_TEST_DATABASE_URL: postgresql://deligo_test:deligo_test@127.0.0.1:5432/deligo_test?schema=public
+      DELIGO_ENVIRONMENT: TESTING
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.22
+      - run: bun --no-env-file install --frozen-lockfile
+      - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
+      - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
+      - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
+      - run: bun --no-env-file test src/lib/caja-turnos-entrega.test.ts src/components/business/owner-caja-revisiones.test.tsx src/lib/f10-b2-1-turnos.integration.test.ts
+      - run: bun --no-env-file run build
+

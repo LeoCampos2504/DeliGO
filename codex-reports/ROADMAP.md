@@ -7422,3 +7422,8 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 ```
 
 ---
+
+
+## ACTUALIZACIÓN VIGENTE — F10-B2.2-E (2026-10-14)
+
+D: el operador confirmó deployment manual en TESTING, commit `00e097c`, 43 migraciones aplicadas y 36/36 pruebas locales; la integración PostgreSQL automatizada de C/D sigue pendiente. E: implementación local de custodia física en `prisma/migrations/20261014150000_f10_b2_2_e_cash_custody`; registra entregado + remanente contra el contado inmutable, con historial append-only, idempotencia y endpoints/UI exclusivos del dueño. No crea movimientos financieros. Prisma validate/generate y suites aún no ejecutados en esta sesión porque el host rechazó la ejecución; `.github/workflows/f10-b2-2-e-testing.yml` prepara validación con PostgreSQL efímero sólo al publicar en `testing-codex`. Migración E, commit, push y deployment Railway pendientes. Production, `main` y `32` no se tocaron; F/G/H no iniciadas; modo `OPCIONAL`.

@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
         cajaFisica: { select: { id: true, nombre: true } },
         empleado: { select: { nombre: true } },
         revisionesAdministrativas: { orderBy: { createdAt: "desc" }, take: 1 },
+        entregasCustodia: { orderBy: { secuencia: "desc" }, take: 1 },
       },
       orderBy: { cerradoEn: "desc" },
       take: 100,
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
       if (!turno.cerradoEn || !turno.efectivoContadoDecimal || !turno.efectivoEsperadoDecimal) return []
       const diferencia = turno.efectivoContadoDecimal.minus(turno.efectivoEsperadoDecimal)
       const revision = turno.revisionesAdministrativas[0] ?? null
+      const entrega = turno.entregasCustodia[0] ?? null
       return [{
         id: turno.id,
         caja: turno.cajaFisica,
@@ -34,10 +36,22 @@ export async function GET(req: NextRequest) {
         fondoInicial: moneyToNumber(turno.fondoInicialDecimal),
         efectivoEsperado: moneyToNumber(turno.efectivoEsperadoDecimal),
         efectivoContado: moneyToNumber(turno.efectivoContadoDecimal),
+        efectivoContadoExacto: turno.efectivoContadoDecimal.toFixed(2),
         diferencia: moneyToNumber(diferencia),
         resultado: clasificarDiferencia(diferencia),
         estadoRevision: revision ? "REVISADO" as const : "PENDIENTE_REVISION" as const,
         ultimaRevisionEn: revision?.createdAt ?? null,
+        estadoEntrega: entrega ? "ENTREGA_CONFIRMADA" as const : "PENDIENTE_ENTREGA" as const,
+        entregaActual: entrega ? {
+          tipo: entrega.tipo,
+          efectivoEntregado: moneyToNumber(entrega.efectivoEntregadoDecimal),
+          fondoRemanente: moneyToNumber(entrega.fondoRemanenteDecimal),
+          destinoTipo: entrega.destinoTipo,
+          destinoNombre: entrega.destinoNombre,
+          actor: "Dueño",
+          confirmadoEn: entrega.confirmadoEn,
+          observacion: entrega.observacion,
+        } : null,
       }]
     }) })
   } catch (error) {
@@ -45,3 +59,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Error al obtener los turnos cerrados" }, { status: 500 })
   }
 }
+

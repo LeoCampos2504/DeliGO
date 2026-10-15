@@ -392,3 +392,8 @@ fue tocada. F10-B2.2-C permanece sin iniciar. Consultar el handoff vigente para
 detalles y cualquier deployment documental posterior.
 
 **Vuelto en productos:** `VUELTO_EN_PRODUCTOS=PLANNED_NOT_STARTED`; no pertenece al alcance de B2.2. El vuelto automático puede evaluarse como mejora UX separada del mecanismo de entrega en productos. La extensión futura debe distinguir precio comercial, importe entregado, vuelto calculado, devolución en efectivo, equivalente de productos y efectivo retenido. No inventar ingreso ni inventario; consentimiento del cliente y revisión de normas de protección al consumidor antes de publicación. Ubicación recomendada: extensión posterior al cierre de F10-B2.2, en Caja F10-B, sin asignar identificador que colisione con C/D/E.
+
+
+## F10-B2.2-E — continuidad (2026-10-14)
+
+E añade registro administrativo, append-only e idempotente de entrega física del efectivo declarado y fondo remanente. La suma se valida con Prisma Decimal en servidor; diferencias D y cierres originales quedan intactos y no se crean operaciones financieras. Migración `20261014150000_f10_b2_2_e_cash_custody` pendiente de TESTING. La validación se prepara en `.github/workflows/f10-b2-2-e-testing.yml` con PostgreSQL efímero; todavía no ejecutada. D fue confirmado por el operador como desplegado manualmente en TESTING (`00e097c`, 43 migraciones, 36/36 pruebas locales); integración automatizada C/D pendiente. E aún sin commit/push/deployment.

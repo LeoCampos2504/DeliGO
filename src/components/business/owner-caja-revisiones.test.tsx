@@ -13,10 +13,12 @@ const { OwnerCajaRevisiones } = await import("./owner-caja-revisiones")
 const originalFetch = globalThis.fetch
 const reviewKeys: Array<string | null> = []
 let submittedNote = ""
+let submittedCustody: Record<string, unknown> | null = null
 
 beforeEach(() => {
   reviewKeys.length = 0
   submittedNote = ""
+  submittedCustody = null
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith("/turnos/cerrados")) return new Response(JSON.stringify({ turnos: [{
@@ -24,6 +26,7 @@ beforeEach(() => {
       abiertoEn: "2026-10-13T12:00:00.000Z", cerradoEn: "2026-10-13T18:00:00.000Z", estado: "CERRADO_DECLARADO",
       fondoInicial: 10, efectivoEsperado: 30, efectivoContado: 29.99, diferencia: -0.01,
       resultado: "FALTANTE", estadoRevision: "PENDIENTE_REVISION",
+      efectivoContadoExacto: "29.99", estadoEntrega: "PENDIENTE_ENTREGA", entregaActual: null,
     }] }), { status: 200 })
     if (url.endsWith("/revisiones") && init?.method === "POST") {
       reviewKeys.push(new Headers(init.headers).get("Idempotency-Key"))
@@ -31,6 +34,11 @@ beforeEach(() => {
       return new Response(JSON.stringify({ replayed: false, revision: { id: "revision-1" } }), { status: 201 })
     }
     if (url.endsWith("/revisiones")) return new Response(JSON.stringify({ revisiones: [] }), { status: 200 })
+    if (url.endsWith("/entregas") && init?.method === "POST") {
+      submittedCustody = JSON.parse(String(init.body)) as Record<string, unknown>
+      return new Response(JSON.stringify({ replayed: false, entrega: { id: "custody-1" } }), { status: 201 })
+    }
+    if (url.endsWith("/entregas")) return new Response(JSON.stringify({ entregas: [] }), { status: 200 })
     throw new Error(`unexpected fetch ${url}`)
   }) as typeof fetch
 })
@@ -75,3 +83,36 @@ describe("F10-B2.2-D — owner review interface", () => {
     await act(async () => root.unmount())
   })
 })
+
+describe("F10-B2.2-E — owner cash custody interface", () => {
+  test("shows pending disposition, suggests the exact remainder, and requires explicit confirmation", async () => {
+    const root = await renderPanel()
+    expect(document.body.textContent).toContain("Entrega pendiente")
+    const details = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Ver detalle")) as HTMLButtonElement
+    await act(async () => details.click())
+    await flush()
+    const deliveredInput = document.querySelector('input[aria-label="Importe entregado turno-d-1"]') as HTMLInputElement
+    expect(deliveredInput.value).toBe("29.99")
+    const remainder = document.querySelector('input[aria-label="Fondo remanente turno-d-1"]') as HTMLInputElement
+    expect(remainder.value).toBe("0.00")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(deliveredInput, "25.00")
+      deliveredInput.dispatchEvent(new Event("input", { bubbles: true }))
+      deliveredInput.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flush()
+    expect(remainder.value).toBe("4.99")
+    const custodyForm = [...document.querySelectorAll("form")].find((form) => form.textContent?.includes("Confirmo que registré")) as HTMLFormElement
+    const submit = custodyForm.querySelector('button[type="submit"]') as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    const checkbox = custodyForm.querySelector('input[type="checkbox"]') as HTMLInputElement
+    await act(async () => { checkbox.click() })
+    await flush()
+    expect(submit.disabled).toBe(false)
+    await act(async () => submit.click())
+    await flush()
+    expect(submittedCustody).toMatchObject({ tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "25.00", fondoRemanente: "4.99", destinoTipo: "DUENO", confirmar: true })
+    await act(async () => root.unmount())
+  })
+})
+

@@ -19,6 +19,7 @@ import { GET as getTurnosOwner, POST as postTurnoOwner } from "@/app/api/negocio
 import { GET as getTurnoDetalle, POST as postCierreTurnoOwner } from "@/app/api/negocio/caja/turnos/[id]/route"
 import { GET as getTurnosCerrados } from "@/app/api/negocio/caja/turnos/cerrados/route"
 import { GET as getRevisionesTurno, POST as postRevisionTurno } from "@/app/api/negocio/caja/turnos/[id]/revisiones/route"
+import { GET as getEntregasTurno, POST as postEntregaTurno } from "@/app/api/negocio/caja/turnos/[id]/entregas/route"
 import { POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
 import { GET as getTurnoCajero, POST as postTurnoCajero } from "@/app/api/operativo/caja/[slug]/turno/route"
 import { POST as postVentaCajero } from "@/app/api/operativo/caja/[slug]/ventas/route"
@@ -112,6 +113,8 @@ const detalle = async (owner: string, id: string) => json(await getTurnoDetalle(
 const turnosCerrados = async (owner: string) => json(await getTurnosCerrados(ownerReq("/api/negocio/caja/turnos/cerrados", owner)))
 const revisionesTurno = async (owner: string, id: string) => json(await getRevisionesTurno(ownerReq(`/api/negocio/caja/turnos/${id}/revisiones`, owner), idCtx(id)))
 const revisarTurno = async (owner: string, id: string, observacion: string | null, key = randomUUID()) => json(await postRevisionTurno(ownerReq(`/api/negocio/caja/turnos/${id}/revisiones`, owner, "POST", { observacion }, key), idCtx(id)))
+const entregasTurno = async (owner: string, id: string) => json(await getEntregasTurno(ownerReq(`/api/negocio/caja/turnos/${id}/entregas`, owner), idCtx(id)))
+const entregarTurno = async (owner: string, id: string, body: unknown, key = randomUUID()) => json(await postEntregaTurno(ownerReq(`/api/negocio/caja/turnos/${id}/entregas`, owner, "POST", body, key), idCtx(id)))
 const turnoCajero = async (cookie: string, slug: string) => json(await getTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie), slugCtx(slug)))
 const abrirCajero = async (cookie: string, slug: string, body: unknown, key: string | undefined = randomUUID()) =>
   json(await postTurnoCajero(ownerReq(`/api/operativo/caja/${slug}/turno`, cookie, "POST", body, key), slugCtx(slug)))
@@ -142,6 +145,7 @@ afterAll(async () => {
   await db.pedido.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.movimientoInventario.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.revisionTurnoCaja.deleteMany({ where: { negocioId: { in: negocios } } })
+  await db.entregaCustodiaTurnoCaja.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.operacionFinanciera.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.cuentaFinanciera.deleteMany({ where: { negocioId: { in: negocios } } })
   await db.ventaItem.deleteMany({ where: { venta: { negocioId: { in: negocios } } } })
@@ -820,3 +824,91 @@ describe("F10-B2.2-D — owner review of closed shifts", () => {
     expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(before)
   })
 })
+
+describe("F10-B2.2-E — owner cash custody", () => {
+  test("partial handover preserves declaration and review, is idempotent, owner-only, and rectifies append-only", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    const otherBusiness = await crearNegocio()
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const product = await crearProducto(negocio.id, 0.1)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "0.10" })).body.turno
+    await venderOwner(owner, { metodoPago: "EFECTIVO", cajaFisicaId: caja.id, items: [{ productoId: product.id, cantidad: 1 }] })
+    const closed = await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "0.19")
+    expect(closed.status).toBe(200)
+    expect((await revisarTurno(owner, turno.id, "Conteo de prueba verificado")).status).toBe(201)
+    expect((await turnosCerrados(owner)).body.turnos.find((item: { id: string }) => item.id === turno.id).estadoEntrega).toBe("PENDIENTE_ENTREGA")
+    expect((await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "0.09" })).status).toBe(201)
+
+    const beforeMovements = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
+    const body = { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "0.15", fondoRemanente: "0.04", destinoTipo: "RESGUARDO", destinoNombre: "Caja fuerte de prueba", observacion: "Entrega de prueba", confirmar: true }
+    const cashierAttempt = await entregarTurno(cashier.cookie, turno.id, body)
+    expect([401, 403]).toContain(cashierAttempt.status)
+    expect((await entregarTurno(otherBusiness.owner, turno.id, body)).status).toBe(404)
+    expect((await entregarTurno(owner, turno.id, { ...body, efectivoEntregado: "0.15", fondoRemanente: "0.03" })).body.code).toBe("SUMA_NO_COINCIDE")
+    expect((await entregarTurno(owner, turno.id, { ...body, efectivoEntregado: "-0.01" })).status).toBe(400)
+    expect((await entregarTurno(owner, turno.id, { ...body, confirmar: false })).body.code).toBe("CONFIRMACION_REQUERIDA")
+
+    const key = randomUUID()
+    const simultaneous = await Promise.all(Array.from({ length: 4 }, () => entregarTurno(owner, turno.id, body, key)))
+    expect(simultaneous.every((item) => item.status === 200 || item.status === 201)).toBe(true)
+    expect(simultaneous.filter((item) => item.status === 201)).toHaveLength(1)
+    const first = simultaneous.find((item) => item.status === 201)!
+    expect(first.body.entrega).toMatchObject({ efectivoContado: 0.19, efectivoEntregado: 0.15, fondoRemanente: 0.04, destinoTipo: "RESGUARDO", destinoNombre: "Caja fuerte de prueba" })
+    expect(simultaneous.filter((item) => item.status === 200 && item.replayed)).toHaveLength(3)
+    expect((await entregarTurno(owner, turno.id, body)).body.code).toBe("ENTREGA_YA_CONFIRMADA")
+    expect((await entregarTurno(owner, turno.id, { ...body, efectivoEntregado: "0.14", fondoRemanente: "0.05" }, key)).body.code).toBe("IDEMPOTENCY_KEY_REUSED")
+
+    const correction = await entregarTurno(owner, turno.id, { ...body, tipo: "RECTIFICACION", efectivoEntregado: "0.10", fondoRemanente: "0.09", observacion: "Corrección auditada" })
+    expect(correction.status).toBe(201)
+    const history = await entregasTurno(owner, turno.id)
+    expect(history.status).toBe(200)
+    expect(history.body.entregas).toHaveLength(2)
+    expect(history.body.entregas.map((event: { tipo: string }) => event.tipo)).toEqual(["ENTREGA_CONFIRMADA", "RECTIFICACION"])
+    expect(history.body.entregas[0]).toMatchObject({ efectivoContado: 0.19, efectivoEntregado: 0.15, fondoRemanente: 0.04 })
+    expect(history.body.entregas[1]).toMatchObject({ efectivoContado: 0.19, efectivoEsperado: 0.2, diferencia: -0.01, efectivoEntregado: 0.1, fondoRemanente: 0.09 })
+    expect(await fails(db.entregaCustodiaTurnoCaja.update({ where: { id: first.body.entrega.id }, data: { observacion: "alteración" } }))).toBe(true)
+    expect((await entregasTurno(otherBusiness.owner, turno.id)).status).toBe(404)
+    expect([401, 403]).toContain((await entregasTurno(cashier.cookie, turno.id)).status)
+    const saved = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
+    expect(saved.efectivoContadoDecimal?.toFixed(2)).toBe("0.19")
+    expect(saved.efectivoEsperadoDecimal?.toFixed(2)).toBe("0.20")
+    expect(await db.revisionTurnoCaja.count({ where: { turnoCajaId: turno.id } })).toBe(1)
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(beforeMovements)
+    expect((await turnosCerrados(owner)).body.turnos.find((item: { id: string }) => item.id === turno.id).estadoEntrega).toBe("ENTREGA_CONFIRMADA")
+    const cashierJson = JSON.stringify((await turnoCajero(cashier.cookie, negocio.slug)).body)
+    expect(cashierJson).not.toMatch(/efectivoEsperado|diferencia|efectivoEntregado|fondoRemanente|Caja fuerte de prueba/i)
+  })
+
+  test("supports all-cash-retained, full handover, and zero-cash handovers with exact decimals", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    const caja = (await listarCajas(owner)).body.cajas[0]
+    const closeDeclared = async (count: string) => {
+      const opened = await abrirCajero(cashier.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "0" })
+      expect(opened.status).toBe(201)
+      expect((await cerrarCajero(cashier.cookie, negocio.slug, opened.body.turno.id, count)).status).toBe(200)
+      return opened.body.turno.id as string
+    }
+    const retained = await closeDeclared("12.34")
+    const zeroDelivery = await entregarTurno(owner, retained, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "0.00", fondoRemanente: "12.34", destinoTipo: "DUENO", confirmar: true })
+    expect(zeroDelivery.status).toBe(201)
+    expect(zeroDelivery.body.entrega).toMatchObject({ efectivoEntregado: 0, fondoRemanente: 12.34 })
+    const allHanded = await closeDeclared("8.90")
+    const fullDelivery = await entregarTurno(owner, allHanded, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "8.90", fondoRemanente: "0.00", destinoTipo: "DUENO", confirmar: true })
+    expect(fullDelivery.status).toBe(201)
+    expect(fullDelivery.body.entrega).toMatchObject({ efectivoEntregado: 8.9, fondoRemanente: 0 })
+    const handed = await closeDeclared("0.00")
+    const emptyDelivery = await entregarTurno(owner, handed, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "0.00", fondoRemanente: "0.00", destinoTipo: "DUENO", confirmar: true })
+    expect(emptyDelivery.status).toBe(201)
+    expect(emptyDelivery.body.entrega).toMatchObject({ efectivoEntregado: 0, fondoRemanente: 0 })
+    const raced = await closeDeclared("1.00")
+    const contenders = await Promise.all([
+      entregarTurno(owner, raced, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "0.40", fondoRemanente: "0.60", destinoTipo: "DUENO", confirmar: true }, randomUUID()),
+      entregarTurno(owner, raced, { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: "0.30", fondoRemanente: "0.70", destinoTipo: "DUENO", confirmar: true }, randomUUID()),
+    ])
+    expect(contenders.filter((item) => item.status === 201)).toHaveLength(1)
+    expect(contenders.filter((item) => item.status === 409)).toHaveLength(1)
+  })
+})
+

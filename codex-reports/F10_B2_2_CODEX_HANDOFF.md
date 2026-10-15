@@ -378,3 +378,8 @@ updated locally. The `32` path and unrelated untracked files were not read,
 staged, or changed.
 
 # DeliGO — continuidad Codex y preparación F10-B2.2
+
+
+## F10-B2.2-E — checkpoint 2026-10-14
+
+El operador confirmó D desplegado manualmente en TESTING (`00e097c`, 43 migraciones, 36/36 pruebas locales); las integraciones automáticas PostgreSQL de C/D siguen pendientes. E está implementado en el workspace: tabla aditiva `entregas_custodia_turnos_caja`, migración `20261014150000_f10_b2_2_e_cash_custody`, eventos confirmados inmutables y rectificaciones con secuencia, validación Decimal de `contado = entregado + remanente`, autorización del dueño, historial y panel administrativo. No altera declaración D ni ledger financiero. El host rechazó Prisma validate/generate en esta sesión; pruebas unitarias/UI/integración y build quedan pendientes de GitHub Actions con una base PostgreSQL efímera. El workflow sólo corre en push a `testing-codex`; aún no se publicó ni ejecutó. No se aplicó migración a Railway TESTING; commit, push y deployment pendientes. Production, `main`, credenciales y `32` no se tocaron. F10-B2.2-F/G/H no iniciadas.

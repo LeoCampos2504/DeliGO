@@ -622,6 +622,7 @@ model CajaFisica {
 
   negocio Negocio            @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   turnos  TurnoCaja[]
+  entregasCustodia EntregaCustodiaTurnoCaja[]
   cuentas CuentaFinanciera[]
 
   @@unique([id, negocioId])
@@ -663,6 +664,7 @@ model TurnoCaja {
   ventas      Venta[]
   operaciones OperacionFinanciera[]
   revisionesAdministrativas RevisionTurnoCaja[]
+  entregasCustodia EntregaCustodiaTurnoCaja[]
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, cierreIdempotencyKey])
@@ -695,6 +697,42 @@ model RevisionTurnoCaja {
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, turnoCajaId, createdAt])
   @@map("revisiones_turnos_caja")
+}
+
+// F10-B2.2-E — immutable custody events. A later correction is a new event;
+// the original employee declaration and the D expected-cash snapshot remain untouched.
+model EntregaCustodiaTurnoCaja {
+  id                       String   @id @default(cuid())
+  negocioId                String
+  cajaFisicaId             String
+  turnoCajaId              String
+  responsableTipo          String
+  responsableId            String
+  empleadoId               String?
+  efectivoContadoDecimal   Decimal  @db.Decimal(12, 2)
+  efectivoEsperadoDecimal  Decimal  @db.Decimal(12, 2)
+  diferenciaDecimal        Decimal  @db.Decimal(13, 2)
+  efectivoEntregadoDecimal Decimal  @db.Decimal(12, 2)
+  fondoRemanenteDecimal    Decimal  @db.Decimal(12, 2)
+  destinoTipo              String
+  destinoNombre            String?
+  actorId                  String
+  confirmadoEn             DateTime @default(now())
+  observacion              String?
+  tipo                     String
+  secuencia                Int
+  estado                   String   @default("CONFIRMADA")
+  idempotencyKey           String
+  idempotencyFingerprint   String
+  createdAt                DateTime @default(now())
+
+  turno TurnoCaja @relation(fields: [turnoCajaId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  caja  CajaFisica @relation(fields: [cajaFisicaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([negocioId, turnoCajaId, secuencia])
+  @@index([negocioId, turnoCajaId, secuencia])
+  @@map("entregas_custodia_turnos_caja")
 }
 
 model MovimientoFinanciero {
@@ -1869,3 +1907,4 @@ model DestacadoSolicitud {
   @@index([negocioId])
   @@map("destacado_solicitudes")
 }
+
