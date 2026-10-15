@@ -28,6 +28,7 @@ import { registrarVentaCaja } from "@/lib/caja-venta-service"
 setDefaultTimeout(240_000)
 
 const testDatabaseUrl = process.env.DELIGO_TEST_DATABASE_URL
+const isEphemeralIntegrationDb = process.env.DELIGO_EPHEMERAL_TEST_DB === "1"
 if (!testDatabaseUrl || process.env.DATABASE_URL !== testDatabaseUrl) {
   throw new Error("Este test de integración requiere DELIGO_TEST_DATABASE_URL y DATABASE_URL apuntando a la misma base TESTING.")
 }
@@ -136,6 +137,10 @@ async function saldoCuenta(cuentaId: string | undefined) {
 }
 
 afterAll(async () => {
+  if (isEphemeralIntegrationDb) {
+    await db.$disconnect()
+    return
+  }
   for (const t of ownerTokens) await deleteSession(t)
   await db.sesion.deleteMany({ where: { userId: { in: cuentas } } })
   const empleados = await db.empleado.findMany({ where: { negocioId: { in: negocios } }, select: { id: true } })
@@ -826,7 +831,9 @@ describe("F10-B2.2-D — owner review of closed shifts", () => {
 })
 
 describe("F10-B2.2-E — owner cash custody", () => {
-  test("partial handover preserves declaration and review, is idempotent, owner-only, and rectifies append-only", async () => {
+  const ephemeralTest = isEphemeralIntegrationDb ? test : test.skip
+
+  ephemeralTest("partial handover preserves declaration and review, is idempotent, owner-only, and rectifies append-only", async () => {
     const { negocio, owner } = await crearNegocio()
     const cashier = await crearCajero(negocio.id)
     const otherBusiness = await crearNegocio()
@@ -868,6 +875,8 @@ describe("F10-B2.2-E — owner cash custody", () => {
     expect(history.body.entregas[0]).toMatchObject({ efectivoContado: 0.19, efectivoEntregado: 0.15, fondoRemanente: 0.04 })
     expect(history.body.entregas[1]).toMatchObject({ efectivoContado: 0.19, efectivoEsperado: 0.2, diferencia: -0.01, efectivoEntregado: 0.1, fondoRemanente: 0.09 })
     expect(await fails(db.entregaCustodiaTurnoCaja.update({ where: { id: first.body.entrega.id }, data: { observacion: "alteración" } }))).toBe(true)
+    expect(await fails(db.entregaCustodiaTurnoCaja.delete({ where: { id: first.body.entrega.id } }))).toBe(true)
+    expect(await fails(db.entregaCustodiaTurnoCaja.delete({ where: { id: correction.body.entrega.id } }))).toBe(true)
     expect((await entregasTurno(otherBusiness.owner, turno.id)).status).toBe(404)
     expect([401, 403]).toContain((await entregasTurno(cashier.cookie, turno.id)).status)
     const saved = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.id } })
@@ -880,7 +889,28 @@ describe("F10-B2.2-E — owner cash custody", () => {
     expect(cashierJson).not.toMatch(/efectivoEsperado|diferencia|efectivoEntregado|fondoRemanente|Caja fuerte de prueba/i)
   })
 
-  test("supports all-cash-retained, full handover, and zero-cash handovers with exact decimals", async () => {
+  ephemeralTest("custody history blocks deleting its shift and business", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cashier = await crearCajero(negocio.id)
+    await listarCajas(owner)
+    const turno = (await abrirCajero(cashier.cookie, negocio.slug, { fondoInicial: "0.00" })).body.turno
+    expect((await cerrarCajero(cashier.cookie, negocio.slug, turno.id, "0.00")).status).toBe(200)
+    const delivery = await entregarTurno(owner, turno.id, {
+      tipo: "ENTREGA_CONFIRMADA",
+      efectivoEntregado: "0.00",
+      fondoRemanente: "0.00",
+      destinoTipo: "DUENO",
+      confirmar: true,
+    })
+    expect(delivery.status).toBe(201)
+    expect(await fails(db.turnoCaja.delete({ where: { id: turno.id } }))).toBe(true)
+    expect(await fails(db.negocio.delete({ where: { id: negocio.id } }))).toBe(true)
+    expect(await db.entregaCustodiaTurnoCaja.count({ where: { turnoCajaId: turno.id } })).toBe(1)
+    expect(await db.turnoCaja.count({ where: { id: turno.id } })).toBe(1)
+    expect(await db.negocio.count({ where: { id: negocio.id } })).toBe(1)
+  })
+
+  ephemeralTest("supports all-cash-retained, full handover, and zero-cash handovers with exact decimals", async () => {
     const { negocio, owner } = await crearNegocio()
     const cashier = await crearCajero(negocio.id)
     const caja = (await listarCajas(owner)).body.cajas[0]

@@ -726,7 +726,7 @@ model EntregaCustodiaTurnoCaja {
   idempotencyFingerprint   String
   createdAt                DateTime @default(now())
 
-  turno TurnoCaja @relation(fields: [turnoCajaId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  turno TurnoCaja @relation(fields: [turnoCajaId, negocioId], references: [id, negocioId], onDelete: Restrict)
   caja  CajaFisica @relation(fields: [cajaFisicaId, negocioId], references: [id, negocioId], onDelete: NoAction)
 
   @@unique([negocioId, idempotencyKey])

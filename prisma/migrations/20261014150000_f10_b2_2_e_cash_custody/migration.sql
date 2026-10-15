@@ -24,7 +24,7 @@ CREATE TABLE "entregas_custodia_turnos_caja" (
   "idempotencyFingerprint" TEXT NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "entregas_custodia_turnos_caja_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "entregas_custodia_turnos_caja_turnoCajaId_negocioId_fkey" FOREIGN KEY ("turnoCajaId", "negocioId") REFERENCES "turnos_caja"("id", "negocioId") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "entregas_custodia_turnos_caja_turnoCajaId_negocioId_fkey" FOREIGN KEY ("turnoCajaId", "negocioId") REFERENCES "turnos_caja"("id", "negocioId") ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT "entregas_custodia_turnos_caja_cajaFisicaId_negocioId_fkey" FOREIGN KEY ("cajaFisicaId", "negocioId") REFERENCES "cajas_fisicas"("id", "negocioId") ON DELETE NO ACTION ON UPDATE CASCADE,
   CONSTRAINT "entregas_custodia_turnos_caja_amounts_check" CHECK ("efectivoContadoDecimal" >= 0 AND "efectivoEntregadoDecimal" >= 0 AND "fondoRemanenteDecimal" >= 0 AND "efectivoContadoDecimal" = "efectivoEntregadoDecimal" + "fondoRemanenteDecimal"),
   CONSTRAINT "entregas_custodia_turnos_caja_difference_check" CHECK ("diferenciaDecimal" = "efectivoContadoDecimal" - "efectivoEsperadoDecimal"),
@@ -40,7 +40,7 @@ CREATE INDEX "entregas_custodia_turnos_caja_negocioId_turnoCajaId_secuencia_idx"
 CREATE FUNCTION "validate_custody_turno_caja_event"() RETURNS trigger AS $$
 DECLARE turno "turnos_caja"%ROWTYPE;
 BEGIN
-  IF TG_OP = 'UPDATE' THEN RAISE EXCEPTION 'cash custody events are immutable'; END IF;
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN RAISE EXCEPTION 'cash custody events are immutable'; END IF;
   SELECT * INTO turno FROM "turnos_caja" WHERE "id" = NEW."turnoCajaId" AND "negocioId" = NEW."negocioId" FOR KEY SHARE;
   IF NOT FOUND OR turno."estado" <> 'CERRADO_DECLARADO' OR turno."cerradoEn" IS NULL OR turno."efectivoContadoDecimal" IS NULL OR turno."efectivoEsperadoDecimal" IS NULL THEN RAISE EXCEPTION 'custody requires a declared closed shift'; END IF;
   IF NEW."cajaFisicaId" <> turno."cajaFisicaId" OR NEW."responsableTipo" <> turno."responsableTipo" OR NEW."responsableId" <> turno."responsableId" OR NEW."empleadoId" IS DISTINCT FROM turno."empleadoId" OR NEW."efectivoContadoDecimal" <> turno."efectivoContadoDecimal" OR NEW."efectivoEsperadoDecimal" <> turno."efectivoEsperadoDecimal" OR NEW."diferenciaDecimal" <> turno."efectivoContadoDecimal" - turno."efectivoEsperadoDecimal" OR NEW."actorId" <> NEW."negocioId" OR NEW."estado" <> 'CONFIRMADA' THEN RAISE EXCEPTION 'custody event does not match its authoritative shift snapshot'; END IF;
@@ -50,6 +50,6 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER "entregas_custodia_turnos_caja_validate_trigger" BEFORE INSERT OR UPDATE ON "entregas_custodia_turnos_caja" FOR EACH ROW EXECUTE FUNCTION "validate_custody_turno_caja_event"();
+CREATE TRIGGER "entregas_custodia_turnos_caja_validate_trigger" BEFORE INSERT OR UPDATE OR DELETE ON "entregas_custodia_turnos_caja" FOR EACH ROW EXECUTE FUNCTION "validate_custody_turno_caja_event"();
 
 
