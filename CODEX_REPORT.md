@@ -6,7 +6,26 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F10-B2.2-F CARRYOVER OPENING FIX DEPLOYED TO TESTING; MANUAL RECHECK PENDING (2026-10-15, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F10-B2.2-G SHIFT RECOVERY DEPLOYED TO TESTING; OPERATOR MANUAL TEST PENDING (2026-10-16, Claude Code) ===
+
+CURRENT_TASK=F10-B2.2-G_OWNER_ADMINISTRATIVE_SHIFT_RECOVERY
+CURRENT_TASK_STATUS=IMPLEMENTED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST
+RESULT=F10_B2_2_G_DEPLOYED_TESTING; NOT YET MANUALLY CERTIFIED
+F10_B2_2_F_STATUS=MANUALLY_VALIDATED_BY_OPERATOR_IN_TESTING (Paola Vinal: $2.000 declared, $500 delivered, $1.500 carried; next shift expected $3.500, declared $3.500, difference $0 — operator screenshots, 2026-10-15)
+WORKTREE=C:\Leo Campos\Trabajo\deligo-f-carryover-fix (branch work/f10-b2-2-g-shift-recovery from origin/testing-codex ba190e1); main checkout untouched
+COMMIT=abeddeefe4cb181c1c6576bc81fa2bacec07da1f (fast-forward ba190e1..abeddee on testing-codex)
+DESIGN=one shared close transaction (cerrarTurnoCore) for C blind close and G recovery: register FOR UPDATE + turnoLockRevision bump + Serializable with bounded retries (P2034, P2010/40001) + exact expected-cash snapshot. Terminal state unchanged (CERRADO_DECLARADO) so D/E/F work unchanged. New owner-only POST /api/negocio/caja/turnos/[id]/recuperacion (owner session, Idempotency-Key, explicit count, mandatory reason, confirmo:true, expected cajaFisicaId). Responsible employee kept; real closer recorded separately.
+MIGRATION=20261016120000_f10_b2_2_g_shift_recovery (additive): turnos_caja.cierreOrigen (RESPONSABLE|RECUPERACION_ADMINISTRATIVA), cierreActorTipo, cierreActorId, cierreMotivo; backfill of all historical closes as RESPONSABLE; CHECK turnos_caja_cierre_origen_check; trigger turnos_caja_cierre_origen_trigger (immutability after close + rolling-deploy default); index (negocioId, cierreOrigen). No applied migration edited; _prisma_migrations untouched.
+UI=owner cash panel: per open employee shift → responsable, apertura, fondo, tiempo abierto, real activity (sales count + last sale), "Recuperar turno" form (count, reason, confirmation, warning), unequivocal success notice + refresh; D history badge "Cerrado por recuperación administrativa", responsable original, "Cierre realizado por: Dueño (recuperación administrativa)", motivo, "Contado por el dueño"; employee panel shows only that the owner closed it and refreshes on 409.
+LOCAL_TESTS=owner-caja-recuperacion.test.tsx 5/0 · operational-shift-panel + owner-caja-revisiones + recuperacion 18/0 · F10 static contracts + caja unit 90 pass / 2 fail (both = pre-existing local CRLF working-copy check of B2.0/B2.1 migrations under core.autocrlf=true; index is LF; not related) · tsc 0 diagnostics in caja files · git diff --check PASS
+CI=GitHub Actions run 38790999199 on abeddee = success (prisma validate, generate, migrate deploy on ephemeral PostgreSQL incl. G, caja unit/UI/integration tests incl. new G block and C/D/E/F regressions, Next build). Exact counts not captured (job log needs auth).
+RAILWAY_TESTING=DeliGO Copy deployment e201cb44-97d1-4b7d-a54f-98cb40e1e4b9 SUCCESS, commitHash abeddeefe4cb181c1c6576bc81fa2bacec07da1f; deploy log: 47 migrations, "Applying migration 20261016120000_f10_b2_2_g_shift_recovery", all applied, Ready
+PRODUCTION_TOUCHED=NO (origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 unchanged)
+NOT_CHANGED=mode OPCIONAL, TESTING shift-UI env gate + allowlist, F10-B2.2-H not started, "Pendiente de vinculación" not touched, no automatic/time-based recovery
+REPORT=codex-reports/F10_B2_2_G_SHIFT_RECOVERY.md
+NEXT_ACTION=operator manual test of G in TESTING (recover an employee's open shift, then E delivery and F carryover); on PASS record F10-B2.2-G certification. Do not start H before that.
+
+=== HISTORICAL HANDOFF — F10-B2.2-F CARRYOVER OPENING FIX DEPLOYED TO TESTING; MANUAL RECHECK PENDING (2026-10-15, Claude Code) ===
 
 CURRENT_TASK=F10-B2.2-F_FIX_OPEN_SHIFT_WITH_TRANSFERRED_FUND
 CURRENT_TASK_STATUS=FIXED_DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_RECHECK

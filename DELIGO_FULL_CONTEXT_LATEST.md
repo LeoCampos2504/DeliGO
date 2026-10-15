@@ -1,5 +1,14 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE — F10-B2.2-G owner shift recovery (2026-10-16, Claude Code)
+
+```text
+F10_B2_2_F_STATUS=MANUALLY_VALIDATED_BY_OPERATOR_IN_TESTING (Paola Vinal $1.500 carryover, next shift difference $0)
+F10_B2_2_G_STATUS=DEPLOYED_TESTING_AWAITING_OPERATOR_MANUAL_TEST (owner recovers an employee open shift: explicit count + reason + confirmation; shared C close transaction; CERRADO_DECLARADO kept; cierreOrigen/cierreActor*/cierreMotivo recorded)
+COMMIT=abeddee · MIGRATION=20261016120000_f10_b2_2_g_shift_recovery applied in TESTING · CI run 38790999199 success · RAILWAY_TESTING=e201cb44-97d1-4b7d-a54f-98cb40e1e4b9 SUCCESS commit match · PRODUCTION_TOUCHED=NO
+NEXT_ACTION=operator manual test of G; H not started; see CODEX_REPORT.md top block and codex-reports/F10_B2_2_G_SHIFT_RECOVERY.md
+```
+
 ## LATEST UPDATE — F10-B2.2-F carryover opening fix (2026-10-15, Claude Code)
 
 ```text
