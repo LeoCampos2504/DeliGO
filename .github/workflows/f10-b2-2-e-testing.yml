@@ -43,6 +43,6 @@ jobs:
       - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
-      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts src/components/shared/notification-center.test.ts
+      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts
       - run: bun --no-env-file run build
 
