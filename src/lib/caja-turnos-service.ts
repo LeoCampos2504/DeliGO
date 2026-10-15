@@ -53,7 +53,12 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 function isSerializationConflict(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  if (error.code === "P2034") return true
+  // Raw PostgreSQL serialization failures from SELECT ... FOR UPDATE are
+  // surfaced as P2010. Retry only the exact SQLSTATE 40001, not other raw SQL
+  // errors that may represent permanent failures.
+  return error.code === "P2010" && typeof error.meta?.code === "string" && error.meta.code === "40001"
 }
 
 async function withSerializableRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
