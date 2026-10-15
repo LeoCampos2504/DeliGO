@@ -353,6 +353,18 @@ function fingerprintCierre(negocioId: string, turnoCajaId: string, efectivoConta
   return createHash("sha256").update(`${negocioId}\n${turnoCajaId}\n${efectivoContado.toFixed(2)}\n${actor.tipo}:${actorId}`).digest("hex")
 }
 
+async function resolverCierreConcurrente(db: Db, input: CerrarTurnoInput, idempotencyKey: string, fingerprint: string): Promise<CerrarTurnoResult | null> {
+  const sameKey = await db.turnoCaja.findUnique({
+    where: { negocioId_cierreIdempotencyKey: { negocioId: input.negocioId, cierreIdempotencyKey: idempotencyKey } },
+    select: { id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true, efectivoContadoDecimal: true, cierreIdempotencyFingerprint: true },
+  })
+  if (!sameKey) return null
+  if (!actorPuedeCerrar(input.negocioId, input.actor, sameKey) || sameKey.id !== input.turnoCajaId || sameKey.cierreIdempotencyFingerprint !== fingerprint || !sameKey.cerradoEn || !sameKey.efectivoContadoDecimal) {
+    return fail(409, "Este intento de cierre ya se usó con otros datos.", "IDEMPOTENCY_KEY_REUSED")
+  }
+  return { ok: true, value: { turno: { id: sameKey.id, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: sameKey.cerradoEn, efectivoContadoDecimal: sameKey.efectivoContadoDecimal }, replayed: true } }
+}
+
 /**
  * Closes the responsible actor's own shift as a terminal declaration only.
  * The physical-register lock is shared with the sale engine, and this
@@ -376,7 +388,9 @@ export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<
     if (!employee || resolveAreaOperativaEfectiva(employee) !== "caja") return fail(403, "Acceso denegado")
   }
 
-  const result = await withSerializableRetry<CerrarTurnoResult>(db, async (tx): Promise<CerrarTurnoResult> => {
+  let result: CerrarTurnoResult
+  try {
+    result = await withSerializableRetry<CerrarTurnoResult>(db, async (tx): Promise<CerrarTurnoResult> => {
     const sameKey = await tx.turnoCaja.findUnique({
       where: { negocioId_cierreIdempotencyKey: { negocioId, cierreIdempotencyKey: idempotencyKey } },
       select: { id: true, responsableTipo: true, responsableId: true, estado: true, cerradoEn: true, efectivoContadoDecimal: true, cierreIdempotencyFingerprint: true },
@@ -428,6 +442,17 @@ export async function cerrarTurnoCaja(db: Db, input: CerrarTurnoInput): Promise<
       ok: true as const,
       value: { turno: { id: turnoCajaId, estado: TURNO_ESTADO_CERRADO_DECLARADO, cerradoEn: closedAt, efectivoContadoDecimal: count.value }, replayed: false },
     }
-  })
+    })
+  } catch (error) {
+    if (isSerializationConflict(error) || isUniqueViolation(error)) {
+      const concurrent = await resolverCierreConcurrente(db, input, idempotencyKey, fingerprint)
+      if (concurrent) return concurrent
+    }
+    throw error
+  }
+  if (!result.ok && result.code === "TURNO_NO_ABIERTO") {
+    const concurrent = await resolverCierreConcurrente(db, input, idempotencyKey, fingerprint)
+    if (concurrent) return concurrent
+  }
   return result
 }
