@@ -633,7 +633,7 @@ describe("F10-B2.1 — access and blind-close safety", () => {
     for (const leak of ["esperado", "ingresos", "salidas", "diferencia", "saldo", "totalEfectivo", "2011"]) expect(text).not.toContain(leak)
     const other = await turnoCajero(c2.cookie, negocio.slug)
     expect(other.body.turno).toBeNull()
-    expect(other.body.cajas[0]).toEqual({ id: t1.caja.id, nombre: "Caja principal", esPredeterminada: true, ocupada: true })
+    expect(other.body.cajas[0]).toEqual({ id: t1.caja.id, nombre: "Caja principal", esPredeterminada: true, ocupada: true, fondoTransferible: null })
     expect(JSON.stringify(other.body)).not.toContain(c1.empleado.id)
     expect(JSON.stringify(other.body)).not.toContain("777")
     for (const res of [
@@ -1009,7 +1009,8 @@ describe("F10-B2.2-F — carry over physical cash remainder", () => {
     expect(noDelivery.status).toBe(201)
     expect((await cerrarCajero(cashier.cookie, negocio.slug, noDelivery.body.turno.id, "0.00")).status).toBe(200)
     expect((await turnoCajero(receiver.cookie, negocio.slug)).body.cajas.find((item: { id: string }) => item.id === caja.id).fondoTransferible).toBeNull()
-    const foreignAttempt = await abrirCajero(other.owner, other.negocio.slug, { cajaFisicaId: (await listarCajas(other.owner)).body.cajas[0].id, fondoInicial: "10.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true })
+    const foreignCashier = await crearCajero(other.negocio.id)
+    const foreignAttempt = await abrirCajero(foreignCashier.cookie, other.negocio.slug, { cajaFisicaId: (await listarCajas(other.owner)).body.cajas[0].id, fondoInicial: "10.00", transferirDesdeTurnoCajaId: sourceShiftId, confirmoRecepcionFondo: true })
     expect(foreignAttempt.status).toBe(409)
 
     const { negocio: registerBusiness, owner: registerOwner } = await crearNegocio()

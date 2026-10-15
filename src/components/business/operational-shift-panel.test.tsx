@@ -105,12 +105,14 @@ describe("F10-B2.2-B — employee shift interface", () => {
     const registerButton = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Caja principal")) as HTMLButtonElement
     await act(async () => registerButton.click())
     const checks = [...document.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    expect(checks).toHaveLength(2)
+    expect(checks).toHaveLength(1)
     expect(document.body.textContent).toContain("5.000,00")
     await act(async () => checks[0].click())
+    const confirmedChecks = [...document.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
+    expect(confirmedChecks).toHaveLength(2)
     const submitBeforeConfirmation = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
     expect(submitBeforeConfirmation.disabled).toBe(true)
-    await act(async () => checks[1].click())
+    await act(async () => confirmedChecks[1].click())
     const submit = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Abrir turno con fondo transferido")) as HTMLButtonElement
     expect(submit.disabled).toBe(false)
     await act(async () => submit.click())

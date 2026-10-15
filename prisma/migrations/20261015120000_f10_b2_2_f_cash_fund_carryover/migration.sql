@@ -71,6 +71,8 @@ BEGIN
     FOR KEY SHARE;
   IF NOT FOUND OR destino."cajaFisicaId" <> NEW."cajaFisicaId"
      OR destino."estado" <> 'ABIERTO'
+     OR destino."abiertoEn" < origen."abiertoEn"
+     OR (destino."abiertoEn" = origen."abiertoEn" AND destino."id" <= origen."id")
      OR destino."fondoInicialDecimal" <> NEW."montoDecimal"
      OR destino."responsableTipo" <> NEW."recibidoPorTipo"
      OR destino."responsableId" <> NEW."recibidoPorId"
@@ -97,6 +99,7 @@ BEGIN
     SELECT 1 FROM "turnos_caja" newer
     WHERE newer."negocioId" = origen."negocioId"
       AND newer."cajaFisicaId" = origen."cajaFisicaId"
+      AND newer."id" <> NEW."turnoDestinoId"
       AND (newer."abiertoEn" > origen."abiertoEn"
         OR (newer."abiertoEn" = origen."abiertoEn" AND newer."id" > origen."id"))
   ) THEN
