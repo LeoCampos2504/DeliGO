@@ -7,6 +7,8 @@ on:
       # CI-only run for the F4-A owner-bell fix before integration (no deploy step here;
       # Railway TESTING deploys only from testing-codex).
       - codex/f4-a-owner-bell-notification
+      # CI-only run for F4-B (owner sale corrections) before integration; no deploy step.
+      - codex/f4-b-owner-sale-corrections
 
 permissions:
   contents: read
@@ -43,7 +45,16 @@ jobs:
       - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
-      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts
+      # F4-B: next build ignores type errors, so typecheck the files this stage
+      # touches against the freshly generated client (repo-wide baseline unchanged).
+      - name: Typecheck F4-B files
+        run: |
+          bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab)" tsc-output.txt; then
+            echo "TypeScript errors in F4-B files"; exit 1
+          fi
+          echo "F4-B files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+      - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts src/lib/caja-correcciones.test.ts src/components/business/caja-correcciones.test.tsx src/lib/f4-b-correcciones.integration.test.ts
       # Separate process: this file imports the bell (Radix) without a DOM and must not share
       # the module cache with the happy-dom UI suites above (F4-A owner-bell fix).
       - run: bun --no-env-file test src/components/shared/notification-center.test.ts

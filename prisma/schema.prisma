@@ -194,6 +194,7 @@ model Negocio {
   cajasFisicas           CajaFisica[] // F10-B2.1
   turnosCaja             TurnoCaja[] // F10-B2.1
   devolucionesVenta      DevolucionVenta[] // F4-A
+  correccionesVenta      CorreccionVenta[] // F4-B
   traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
 
   // Plan
@@ -397,7 +398,8 @@ model MovimientoInventario {
   stockAntes         Float
   stockDespues       Float
   motivo             String?
-  ventaId            String? // presente cuando tipo = VENTA o DEVOLUCION (F4-A: reingreso de unidades devueltas)
+  ventaId            String? // presente cuando tipo = VENTA, DEVOLUCION (F4-A) o CORRECCION_* (F4-B)
+  correccionVentaId  String? // F4-B: presente únicamente cuando tipo = CORRECCION_ENTRADA | CORRECCION_SALIDA
   pedidoId           String? // P2-T56-R3A-I1: presente únicamente cuando tipo = PEDIDO (ningún runtime lo escribe todavía)
   createdAt          DateTime @default(now())
 
@@ -407,11 +409,13 @@ model MovimientoInventario {
   venta            Venta?            @relation(fields: [ventaId], references: [id], onDelete: SetNull)
   pedido           Pedido?           @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
   devolucionItem   DevolucionVentaItem?
+  correccionVenta  CorreccionVenta?  @relation(fields: [correccionVentaId], references: [id], onDelete: SetNull)
 
   @@index([negocioId, productoId, createdAt])
   @@index([productoVarianteId])
   @@index([ventaId])
   @@index([pedidoId])
+  @@index([correccionVentaId])
   @@map("movimientos_inventario")
 }
 
@@ -502,6 +506,8 @@ model Venta {
   cobros      CobroVenta[]
   // F4-A: compensaciones auditables; la venta nunca se edita
   devoluciones DevolucionVenta[]
+  // F4-B: correcciones administrativas del dueño (eventos; la venta nunca se edita)
+  correcciones CorreccionVenta[]
 
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
@@ -830,6 +836,7 @@ model VentaItem {
   producto         Producto?         @relation(fields: [productoId], references: [id], onDelete: SetNull)
   productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
   devoluciones     DevolucionVentaItem[] // F4-A
+  correcciones     CorreccionVentaLinea[] // F4-B
 
   @@map("venta_items")
 }
@@ -908,6 +915,74 @@ model DevolucionVentaItem {
   @@index([ventaItemId])
   @@index([devolucionId])
   @@map("devoluciones_venta_items")
+}
+
+// ============================================
+// F4-B — Corrección administrativa de ventas de Caja (sólo dueño)
+// ============================================
+// Evento compensatorio e inmutable: la Venta, sus VentaItem, su CobroVenta, su
+// operación financiera, su actor, su fecha, su turno y los cierres NUNCA se
+// modifican. Cada corrección guarda el estado completo de TODAS las líneas de la
+// venta antes y después (secuencia 1, 2, …); el estado vigente de la venta es el
+// de la última corrección. Cada línea conserva su VentaItem y el precio unitario
+// efectivamente cobrado (decisión del operador: el reemplazo hereda ese precio;
+// nunca el precio actual del catálogo). El total corregido debe ser EXACTAMENTE
+// el total cobrado: F4-B no mueve dinero ni cambia el medio de pago. El stock se
+// ajusta con movimientos CORRECCION_ENTRADA / CORRECCION_SALIDA. No se corrigen
+// ventas con devoluciones/anulaciones (F4-A). Invariantes en SQL (migración
+// 20261018120000).
+model CorreccionVenta {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  ventaId                String
+  secuencia              Int
+  motivo                 String
+  actorTipo              String // siempre NEGOCIO (dueño, derivado de la sesión)
+  actorId                String
+  totalDecimal           Decimal  @db.Decimal(12, 2) // = total cobrado de la venta
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  venta       Venta                  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  lineas      CorreccionVentaLinea[]
+  movimientos MovimientoInventario[]
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([ventaId, secuencia])
+  @@index([negocioId, createdAt])
+  @@map("correcciones_venta")
+}
+
+model CorreccionVentaLinea {
+  id                         String   @id @default(cuid())
+  correccionId               String
+  negocioId                  String
+  ventaId                    String
+  ventaItemId                String
+  // Estado vigente ANTES de esta corrección (snapshot, sin FK a Producto).
+  antesProductoId            String?
+  antesProductoVarianteId    String?
+  antesNombre                String
+  antesVarianteNombre        String?
+  antesCantidad              Float
+  // Estado DESPUÉS (snapshot del producto realmente entregado).
+  productoId                 String?
+  productoVarianteId         String?
+  nombre                     String
+  varianteNombre             String?
+  cantidad                   Float
+  precio                     Float // = VentaItem.precio (precio efectivamente cobrado; no editable)
+  subtotalDecimal            Decimal  @db.Decimal(12, 2)
+  createdAt                  DateTime @default(now())
+
+  correccion CorreccionVenta @relation(fields: [correccionId], references: [id], onDelete: Cascade)
+  ventaItem  VentaItem       @relation(fields: [ventaItemId], references: [id], onDelete: Cascade)
+
+  @@unique([correccionId, ventaItemId])
+  @@index([ventaItemId])
+  @@map("correcciones_venta_lineas")
 }
 
 model ProductoAgregado {

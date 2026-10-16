@@ -151,6 +151,9 @@ function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoint
     queryScope: ["negocio-caja-devoluciones", negocioId],
     invalidateAlso: [["negocio-caja-ventas-hoy", negocioId], ownerRegisterQueryKey(negocioId), ["negocio-caja-productos", negocioId]],
     ownerRegistersUrl: "/api/negocio/caja/cajas",
+    // F4-B: owner-only correction of a sale (product / variant / quantity, same total).
+    correccionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/correcciones`,
+    productosUrl: "/api/negocio/productos",
   }
 }
 

@@ -33,6 +33,7 @@ import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO, type CajaActor } fr
 import { CUENTA_EFECTIVO_CAJA_FISICA_PREFIX, CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } from "@/lib/caja-venta-service"
 import { isStockSerializationConflict, leerDisponibilidadStock } from "@/lib/stock-lifecycle"
 import { resolveNextStock } from "@/lib/inventario"
+import { lineaVigente, nombreLinea, ULTIMA_CORRECCION_INCLUDE } from "@/lib/caja-venta-vigente"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -190,7 +191,7 @@ export function importeDevolucionLinea(params: {
 
 const TX_OPTIONS = { maxWait: 5_000, timeout: 15_000 } as const
 
-async function runSerializable<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export async function runSerializable<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await db.$transaction(fn, { ...TX_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
@@ -357,7 +358,20 @@ export function textoNotificacionDevolucion(params: {
 // ---------------------------------------------------------------------------
 
 const DEVOLUCION_INCLUDE = {
-  items: { include: { ventaItem: { select: { nombre: true, varianteNombre: true } } }, orderBy: { createdAt: "asc" } },
+  items: {
+    include: {
+      ventaItem: {
+        select: {
+          nombre: true,
+          varianteNombre: true,
+          // F4-B: a return always happens after any correction of its sale, so
+          // the returned product is the one of the latest correction, if any.
+          correcciones: { orderBy: { correccion: { secuencia: "desc" } }, take: 1, select: { nombre: true, varianteNombre: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.DevolucionVentaInclude
 export type DevolucionConItems = Prisma.DevolucionVentaGetPayload<{ include: typeof DEVOLUCION_INCLUDE }>
 
@@ -404,13 +418,20 @@ export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucio
 
       const venta = await tx.venta.findFirstOrThrow({
         where: { id: ventaId, negocioId },
-        include: { items: { include: { devoluciones: { select: { cantidad: true, importeDecimal: true } } } } },
+        include: {
+          items: { include: { devoluciones: { select: { cantidad: true, importeDecimal: true } } } },
+          correcciones: ULTIMA_CORRECCION_INCLUDE,
+        },
       })
-      const estadoItems = new Map(venta.items.map((item) => {
+      // F4-B: quantities, amounts, product (stock key) and names come from the
+      // CURRENT line — the original VentaItem when the sale was never corrected.
+      const ultimaCorreccion = venta.correcciones[0]?.lineas
+      const estadoItems = new Map(venta.items.map((original) => {
+        const item = lineaVigente(original, ultimaCorreccion)
         const vendida = D(item.cantidad)
-        const devuelta = item.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
-        const importeDevuelto = item.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
-        return [item.id, { item, vendida, devuelta, importeDevuelto, restante: vendida.minus(devuelta), subtotal: storedMoney(item.subtotalDecimal, item.subtotal) }]
+        const devuelta = original.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
+        const importeDevuelto = original.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
+        return [original.id, { item, vendida, devuelta, importeDevuelto, restante: vendida.minus(devuelta), subtotal: item.subtotal }]
       }))
       const decision = new Map(solicitud.lineas.map((l) => [l.ventaItemId, l]))
 
@@ -692,6 +713,8 @@ export type EstadoDevolucionVenta = "VIGENTE" | "DEVOLUCION_PARCIAL" | "ANULADA"
 const VENTA_HISTORIAL_INCLUDE = {
   items: { include: { devoluciones: { select: { cantidad: true, importeDecimal: true } } } },
   devoluciones: { include: DEVOLUCION_INCLUDE, orderBy: { createdAt: "asc" } },
+  // F4-B: every owner correction (immutable), oldest first.
+  correcciones: { orderBy: { secuencia: "asc" }, include: { lineas: true } },
 } satisfies Prisma.VentaInclude
 type VentaHistorialRow = Prisma.VentaGetPayload<{ include: typeof VENTA_HISTORIAL_INCLUDE }>
 
@@ -705,17 +728,23 @@ export function ventaConDevolucionesParaRespuesta(
   vista: { tipo: "NEGOCIO"; nombres: Map<string, string> } | { tipo: "EMPLEADO"; empleadoId: string }
 ) {
   const total = storedMoney(venta.totalDecimal, venta.total)
-  const items = venta.items.map((item) => {
+  const ultimaCorreccion = venta.correcciones.at(-1)?.lineas
+  const items = venta.items.map((original) => {
+    // F4-B: the current line (original row when never corrected).
+    const item = lineaVigente(original, ultimaCorreccion)
     const vendida = D(item.cantidad)
-    const devuelta = item.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
-    const importeDevuelto = item.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
+    const devuelta = original.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
+    const importeDevuelto = original.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
     return {
-      id: item.id,
+      id: original.id,
+      productoId: item.productoId,
+      productoVarianteId: item.productoVarianteId,
       nombre: item.nombre,
       varianteNombre: item.varianteNombre,
       precio: item.precio,
       cantidad: item.cantidad,
-      subtotal: moneyToNumber(storedMoney(item.subtotalDecimal, item.subtotal)),
+      subtotal: moneyToNumber(item.subtotal),
+      corregida: item.corregida,
       cantidadDevuelta: devuelta.toNumber(),
       cantidadRestante: vendida.minus(devuelta).toNumber(),
       importeDevuelto: moneyToNumber(importeDevuelto),
@@ -737,8 +766,12 @@ export function ventaConDevolucionesParaRespuesta(
     totalDevuelto: moneyToNumber(totalDevuelto),
     totalNeto: moneyToNumber(total.minus(totalDevuelto)),
     estadoDevolucion: estado,
+    corregida: venta.correcciones.length > 0,
+    correccionSecuencia: venta.correcciones.at(-1)?.secuencia ?? 0,
     items,
     devoluciones: venta.devoluciones.map((d) => devolucionParaRespuesta(d, vista)),
+    // F4-B: correction history is owner data (who corrected what and why).
+    correcciones: vista.tipo === "NEGOCIO" ? venta.correcciones.map((c) => correccionParaRespuesta(c)) : [],
   }
 }
 
@@ -768,11 +801,38 @@ export function devolucionParaRespuesta(
     reintegroDescripcion: describirReintegro(d.reintegroEstado as ReintegroEstado, d.reintegroMedio),
     items: d.items.map((item) => ({
       ventaItemId: item.ventaItemId,
-      nombre: item.ventaItem.varianteNombre ? `${item.ventaItem.nombre} — ${item.ventaItem.varianteNombre}` : item.ventaItem.nombre,
+      nombre: nombreLinea(item.ventaItem.correcciones[0] ?? item.ventaItem),
       cantidad: item.cantidad,
       importe: moneyToNumber(item.importeDecimal),
       stockResultado: item.stockResultado,
     })),
+  }
+}
+
+/** F4-B — one correction as shown to the owner: only the lines that changed, before → after. */
+export function correccionParaRespuesta(c: {
+  id: string
+  secuencia: number
+  motivo: string
+  createdAt: Date
+  totalDecimal: Prisma.Decimal
+  lineas: Array<{ ventaItemId: string; antesNombre: string; antesVarianteNombre: string | null; antesCantidad: number; antesProductoId: string | null; antesProductoVarianteId: string | null; nombre: string; varianteNombre: string | null; cantidad: number; productoId: string | null; productoVarianteId: string | null; precio: number }>
+}) {
+  return {
+    id: c.id,
+    secuencia: c.secuencia,
+    motivo: c.motivo,
+    createdAt: c.createdAt,
+    registradaPor: "Dueño",
+    total: moneyToNumber(c.totalDecimal),
+    cambios: c.lineas
+      .filter((l) => l.antesProductoId !== l.productoId || l.antesProductoVarianteId !== l.productoVarianteId || l.antesCantidad !== l.cantidad)
+      .map((l) => ({
+        ventaItemId: l.ventaItemId,
+        precio: l.precio,
+        antes: { nombre: nombreLinea({ nombre: l.antesNombre, varianteNombre: l.antesVarianteNombre }), cantidad: l.antesCantidad },
+        despues: { nombre: nombreLinea(l), cantidad: l.cantidad },
+      })),
   }
 }
 
