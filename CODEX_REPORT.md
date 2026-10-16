@@ -23,7 +23,8 @@ LOCAL_GATES=eslint clean on touched files · git diff --check clean · local sui
 PROCESS_NOTE=prisma validate / migrate diff were run once in this checkout before deciding to stop using the Prisma CLI here; output showed no .env load and "DATABASE_URL not found"
 CONTRACT_UPDATE=f10-b2-0 money-writer allowlist now lists [caja-correcciones-service, caja-devoluciones-service, caja-venta-service]
 PRODUCTION_TOUCHED=NO · main 42ca500 unchanged · testing-codex d1856d5 unchanged
-NEXT_ACTION=CI on the task branch, then operator review; do not integrate/deploy without explicit authorization
+CI_TASK_BRANCH=run 38840012709 on 36c4e9f FAIL only in two file-list assertions that depended on directory order (Linux vs Windows) → made order-independent (f5429af); run 38840251016 on f5429af SUCCESS: migrate deploy (incl. 20261018120000) on ephemeral PostgreSQL, Typecheck F4-B files clean with the fresh client, batch incl. F4-A + F4-B real-DB suites, isolated bell step, build. Railway TESTING untouched (latest a093df1e on d1856d5).
+NEXT_ACTION=operator review of the F4-B branch; do not integrate/deploy without explicit authorization
 
 === HISTORICAL HANDOFF — F4-A OWNER BELL FIX ON TASK BRANCH; INTEGRATION AUTHORIZATION PENDING (2026-10-15, Claude Code) ===
 

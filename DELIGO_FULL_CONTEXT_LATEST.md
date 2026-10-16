@@ -5,7 +5,8 @@
 ```text
 F4_A_STATUS=CLOSED_TESTING_CERTIFIED (operator manual review 8/8 PASS; testing-codex d1856d5; Railway TESTING a093df1e)
 F4_B_STATUS=IN_PROGRESS on codex/f4-b-owner-sale-corrections (owner-only sale correction; replacement inherits the charged unit price; exact charged total; no money movement; refused after returns; migration 20261018120000 not applied anywhere persistent)
-NEXT_ACTION=CI on the branch, operator review; see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
+CI_F4_B=run 38840251016 success on f5429af (migration, F4-B typecheck, real-DB suites, build)
+NEXT_ACTION=operator review of the F4-B branch; see CODEX_REPORT.md top block
 ```
 
 ## PREVIOUS UPDATE (historical) — F4-A owner bell fix (2026-10-15, Claude Code)
