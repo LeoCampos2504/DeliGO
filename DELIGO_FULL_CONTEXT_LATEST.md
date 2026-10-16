@@ -1,6 +1,14 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-A owner bell fix (2026-10-15, Claude Code)
+## LATEST UPDATE — F4-A certified, F4-B in progress (2026-10-15, Claude Code)
+
+```text
+F4_A_STATUS=CLOSED_TESTING_CERTIFIED (operator manual review 8/8 PASS; testing-codex d1856d5; Railway TESTING a093df1e)
+F4_B_STATUS=IN_PROGRESS on codex/f4-b-owner-sale-corrections (owner-only sale correction; replacement inherits the charged unit price; exact charged total; no money movement; refused after returns; migration 20261018120000 not applied anywhere persistent)
+NEXT_ACTION=CI on the branch, operator review; see CODEX_REPORT.md top block and codex-reports/F4_A_SALE_RETURNS.md
+```
+
+## PREVIOUS UPDATE (historical) — F4-A owner bell fix (2026-10-15, Claude Code)
 
 ```text
 F4_A_STATUS=DEPLOYED_TESTING; manual review 7/8 confirmed by operator; owner bell item FAILING until this fix is integrated and re-checked (not PASS)

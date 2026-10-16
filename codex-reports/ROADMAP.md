@@ -259,6 +259,11 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       con path "/" hacía que /api/notificaciones sirviera el feed del empleado). Corrección en la rama
       codex/f4-a-owner-bell-notification (0495d48); CI de la rama con resultados intermitentes en pruebas ajenas
       (ver CODEX_REPORT.md); pendiente de autorización para integrar. F4-A NO certificada.
+    → F4-A CERTIFICADA EN TESTING (2026-10-15): revisión manual del operador 8/8 PASS (incluida la campana del dueño
+      tras la corrección d1856d5). CLOSED_TESTING_CERTIFIED. Production sin cambios.
+    → F4-B (en curso, rama codex/f4-b-owner-sale-corrections): corrección administrativa de ventas sólo por el dueño;
+      producto/variante/cantidad; el reemplazo hereda el precio cobrado; total cobrado exacto; sin mover dinero ni cambiar
+      el medio de pago; no aplica a ventas con devoluciones/anulaciones; sin integrar ni desplegar.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

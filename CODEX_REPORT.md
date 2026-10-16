@@ -6,7 +6,26 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F4-A OWNER BELL FIX ON TASK BRANCH; INTEGRATION AUTHORIZATION PENDING (2026-10-15, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-B OWNER SALE CORRECTIONS ON TASK BRANCH (IN PROGRESS); F4-A CLOSED_TESTING_CERTIFIED (2026-10-15, Claude Code) ===
+
+F4_A_STATUS=CLOSED_TESTING_CERTIFIED — operator manual review 8/8 PASS (owner bell recheck confirmed after the fix). Deployed state: testing-codex d1856d5 (F4-A d94b361 + owner-bell fix 0495d48), CI 38826220616 success, Railway TESTING DeliGO Copy a093df1e SUCCESS on d1856d5, 48 migrations, no pending. Production NOT touched.
+F4_A_DOC_NOTE=commit 7fa6208 (post-integration doc wording) stays on codex/f4-a-owner-bell-notification only; superseded by this block.
+CURRENT_TASK=F4-B_OWNER_SALE_CORRECTIONS (roadmap F4, second stage: "edición/corrección de ventas (sólo dueño)"; name F4-B pending operator confirmation)
+CURRENT_TASK_STATUS=IN_PROGRESS_ON_TASK_BRANCH_NOT_INTEGRATED_NOT_DEPLOYED
+BRANCH=codex/f4-b-owner-sale-corrections from origin/testing-codex d1856d5 (single canonical checkout, no worktree; upstream unset)
+APPROVED_SCOPE=owner only, mandatory reason + confirmation; immutable compensating event (sale, lines, cobro, actor, date, shift and closures never modified); product / variant / quantity per line; corrected total must equal the charged total exactly; no payment-method change and no money movement; refused on sales with returns/voids; allowed on old sales and closed shifts; stock adjusted with compensating movements honoring order reservations; no cashier route.
+PRICE_DECISION=operator 2026-10-15, option A: a replacement product/variant inherits the unit price actually charged on that line (never the current catalog price; price not editable); any change of the total is refused before saving; history keeps both products.
+DESIGN=correcciones_venta (event: secuencia, motivo, actor NEGOCIO=negocioId, total = charged total, idempotency) + correcciones_venta_lineas (state of EVERY line before/after, precio = VentaItem.precio); current state = latest correction (src/lib/caja-venta-vigente.ts); stock CORRECCION_ENTRADA / CORRECCION_SALIDA net per product/variant vs physical − active reservations, linked by movimientos_inventario.correccionVentaId; same sale-row lock as F4-A + Serializable retries + expected sequence (stale view → 409 VENTA_MODIFICADA) + Idempotency-Key/fingerprint.
+F4A_COORDINATION=after a correction, F4-A returns use the CURRENT line (quantity cap, charged amount, restocked product, names); uncorrected sales behave exactly as approved F4-A. The F4-A line guard is replaced by CREATE OR REPLACE in the new migration (applied F4-A migration not edited).
+MIGRATION=20261018120000_f4_b_sale_corrections (additive): 2 tables, nullable movimientos_inventario.correccionVentaId, CHECKs (owner actor, motivo 1–500, quantities ≥ 0), triggers (same business, total = charged total, no correction on sales with returns, immutable events/lines, line price = charged price, deferred check: one line per sale line and exact total), CREATE OR REPLACE guard_devolucion_venta_item (current-line caps). NOT applied to Railway or any persistent DB.
+API_UI=POST /api/negocio/caja/ventas/[id]/correcciones (owner only, Idempotency-Key); history in the existing owner sale detail; UI in the shared sale dialog (Caja → Resumen) only when the owner host passes the correction endpoint — the cashier PWA has no correction UI or route.
+LOCAL_GATES=eslint clean on touched files · git diff --check clean · local suites 120/0 (F4-B unit/static 9, F4-B UI 6, F4-A unit/UI, F10 contracts, bell) · local tsc cannot validate new models (stale generated client; prisma CLI not run again here because of the checkout .env) → CI step "Typecheck F4-B files" with a fresh client is the type gate · real-DB suite src/lib/f4-b-correcciones.integration.test.ts runs only in CI
+PROCESS_NOTE=prisma validate / migrate diff were run once in this checkout before deciding to stop using the Prisma CLI here; output showed no .env load and "DATABASE_URL not found"
+CONTRACT_UPDATE=f10-b2-0 money-writer allowlist now lists [caja-correcciones-service, caja-devoluciones-service, caja-venta-service]
+PRODUCTION_TOUCHED=NO · main 42ca500 unchanged · testing-codex d1856d5 unchanged
+NEXT_ACTION=CI on the task branch, then operator review; do not integrate/deploy without explicit authorization
+
+=== HISTORICAL HANDOFF — F4-A OWNER BELL FIX ON TASK BRANCH; INTEGRATION AUTHORIZATION PENDING (2026-10-15, Claude Code) ===
 
 CURRENT_TASK=F4-A_FIX_OWNER_BELL_NOTICE (only failing item of the F4-A manual review: 7 of 8 checks confirmed by the operator; owner bell did not show the return notice)
 CURRENT_TASK_STATUS=FIXED_ON_TASK_BRANCH_NOT_INTEGRATED_NOT_DEPLOYED

@@ -124,6 +124,18 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - **Pendiente:** autorización del operador para integrar en `testing-codex`, CI, Railway TESTING y una comprobación
   manual de la campana.
 
+## Certificación (2026-10-15)
+
+- El operador confirmó la nueva comprobación de la campana: **8/8 comprobaciones manuales PASS**.
+- **Estado: CLOSED_TESTING_CERTIFIED** en TESTING (`testing-codex` `d1856d5`, Railway `a093df1e`). Production sin cambios.
+
+## F4-B — corrección administrativa de ventas (en curso)
+
+Etapa siguiente de F4, en la rama `codex/f4-b-owner-sale-corrections` (sin integrar ni desplegar). Interacción con
+F4-A: después de una corrección, las devoluciones usan la línea vigente (cantidad, importe cobrado y producto que se
+reingresa); en ventas sin corrección F4-A se comporta exactamente igual. Una venta con devoluciones no se puede
+corregir. Detalle y estado vigente: bloque superior de `CODEX_REPORT.md`.
+
 ## Prueba manual sugerida (TESTING)
 
 1. Empleado A abre turno, vende 3 productos (por ejemplo 2 gaseosas y 1 yerba con stock controlado) en efectivo y
