@@ -30,7 +30,8 @@ describe("F10-B2.0 — single writer of the exact money columns", () => {
     const writers = productive.filter(({ src }) => /\b(totalDecimal|subtotalDecimal|importeDecimal):(?!\s*true\b)/.test(src)).map(({ path }) => path)
     // F4-A: returns write their own exact amounts (never the sale's columns).
     // F4-B: owner corrections write their own exact line/total snapshots.
-    expect(writers).toEqual([CORRECCIONES, DEVOLUCIONES, ENGINE])
+    // Order-independent: directory scan order differs between Windows and Linux CI.
+    expect([...writers].sort()).toEqual([CORRECCIONES, DEVOLUCIONES, ENGINE].sort())
   })
 
   test("the engine dual-writes every money row from ONE exact computation", () => {

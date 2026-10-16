@@ -105,7 +105,7 @@ describe("F4-B — static contract", () => {
     expect(route).not.toMatch(/body\.(negocioId|actor|empleadoId)/)
     expect(route).not.toMatch(/export async function (GET|PATCH|PUT|DELETE)/)
     const productive = walk("src")
-    expect(productive.filter((path) => /registrarCorreccionVenta\(/.test(read(path)))).toEqual(["src/app/api/negocio/caja/ventas/[id]/correcciones/route.ts", "src/lib/caja-correcciones-service.ts"])
+    expect(productive.filter((path) => /registrarCorreccionVenta\(/.test(read(path))).sort()).toEqual(["src/app/api/negocio/caja/ventas/[id]/correcciones/route.ts", "src/lib/caja-correcciones-service.ts"].sort())
     expect(productive.filter((path) => path.startsWith("src/app/api/operativo/") && /caja-correcciones|registrarCorreccion|\/correcciones/.test(read(path)))).toEqual([])
     expect(read("src/app/operaciones/mi-panel/[slug]/caja/page.tsx")).not.toMatch(/correccionUrl|correcciones/)
   })
