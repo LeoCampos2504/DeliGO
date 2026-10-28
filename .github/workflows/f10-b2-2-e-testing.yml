@@ -50,7 +50,7 @@ jobs:
       - name: Typecheck F4-B files
         run: |
           bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
-          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab)" tsc-output.txt; then
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab)" tsc-output.txt; then
             echo "TypeScript errors in F4-B files"; exit 1
           fi
           echo "F4-B files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
@@ -58,5 +58,7 @@ jobs:
       # Separate process: this file imports the bell (Radix) without a DOM and must not share
       # the module cache with the happy-dom UI suites above (F4-A owner-bell fix).
       - run: bun --no-env-file test src/components/shared/notification-center.test.ts
+      # F4-B P2-A: real CajaTab with process-wide module mocks (sonner, scanner) → own process.
+      - run: bun --no-env-file test src/components/business/caja-tab.correcciones.test.tsx
       - run: bun --no-env-file run build
 

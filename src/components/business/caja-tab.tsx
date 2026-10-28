@@ -50,6 +50,7 @@ import { primeScanAudio } from "@/lib/scan-feedback"
 import { BarcodeScanner, type ScanFeedback } from "@/components/business/barcode-scanner"
 import {
   CajaVentasHistorial,
+  CorregidaBadge,
   EstadoDevolucionBadge,
   OwnerDevolucionesHistorial,
   VentaDevolucionesDialog,
@@ -1054,7 +1055,13 @@ function ResumenView({ negocioId }: { negocioId: string }) {
   const [detailSale, setDetailSale] = useState<VentaResumen | null>(null)
   const [gestionVentaId, setGestionVentaId] = useState<string | null>(null)
   const devolucionesEndpoints = useMemo(() => ownerDevolucionesEndpoints(negocioId), [negocioId])
-  const { data, isLoading } = useQuery<{ ventasHoy: VentaResumen[]; resumenHoy: Record<string, number>; devolucionesPorVenta?: Record<string, { totalDevuelto: number; estadoDevolucion: EstadoDevolucionVenta }> }>({
+  const { data, isLoading } = useQuery<{
+    ventasHoy: VentaResumen[]
+    resumenHoy: Record<string, number>
+    devolucionesPorVenta?: Record<string, { totalDevuelto: number; estadoDevolucion: EstadoDevolucionVenta }>
+    // F4-B: current lines of owner-corrected sales (absent = never corrected).
+    correccionesPorVenta?: Record<string, { secuencia: number; items: VentaItemSnapshot[] }>
+  }>({
     queryKey: ["negocio-caja-ventas-hoy", negocioId],
     queryFn: async () => {
       const res = await fetch("/api/negocio/caja/ventas")
@@ -1068,6 +1075,12 @@ function ResumenView({ negocioId }: { negocioId: string }) {
 
   const resumen = data?.resumenHoy
   const ventas = data?.ventasHoy ?? []
+  // F4-B: a corrected sale is shown with its CURRENT lines; the original rows
+  // and the corrections stay in the sale history (Anular o devolver / Ver historial).
+  const conLineasVigentes = (venta: VentaResumen): VentaResumen => {
+    const vigentes = data?.correccionesPorVenta?.[venta.id]
+    return vigentes ? { ...venta, items: vigentes.items.filter((item) => item.cantidad > 0) } : venta
+  }
 
   return (
     <div className="space-y-3">
@@ -1092,7 +1105,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
                 count — never line count, method, time); tap for the full
                 per-line breakdown instead of pre-expanding every sale. */}
             {ventas.map((v) => {
-              const unidades = totalUnidadesVenta(v.items)
+              const unidades = totalUnidadesVenta(conLineasVigentes(v).items)
               return (
                 <button
                   key={v.id}
@@ -1100,7 +1113,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
                   className="flex w-full items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-left hover:bg-muted/40"
                 >
                   <div className="min-w-0">
-                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{formatPrice(v.total)}{data?.devolucionesPorVenta?.[v.id] && <EstadoDevolucionBadge estado={data.devolucionesPorVenta[v.id].estadoDevolucion} />}</p>
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{formatPrice(v.total)}{data?.devolucionesPorVenta?.[v.id] && <EstadoDevolucionBadge estado={data.devolucionesPorVenta[v.id].estadoDevolucion} />}{data?.correccionesPorVenta?.[v.id] && <CorregidaBadge />}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{formatUnidadesVenta(unidades)} · {v.metodoPago}</p>
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
@@ -1112,7 +1125,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
       </div>
 
       {detailSale && (
-        <VentaDetailDialog venta={detailSale} onClose={() => setDetailSale(null)} onGestionar={() => { setGestionVentaId(detailSale.id); setDetailSale(null) }} />
+        <VentaDetailDialog venta={conLineasVigentes(detailSale)} corregida={Boolean(data?.correccionesPorVenta?.[detailSale.id])} onClose={() => setDetailSale(null)} onGestionar={() => { setGestionVentaId(detailSale.id); setDetailSale(null) }} />
       )}
       {gestionVentaId && <VentaDevolucionesDialog ventaId={gestionVentaId} endpoints={devolucionesEndpoints} onClose={() => setGestionVentaId(null)} />}
 
@@ -1129,15 +1142,16 @@ function ResumenView({ negocioId }: { negocioId: string }) {
 // P2-T56-R2A section 8: per-line breakdown from VentaItem's own snapshot
 // fields — never recomputed from the live Producto (section 11), so a
 // price/name change tomorrow never rewrites yesterday's sale.
-function VentaDetailDialog({ venta, onClose, onGestionar }: { venta: VentaResumen; onClose: () => void; onGestionar: () => void }) {
+function VentaDetailDialog({ venta, corregida = false, onClose, onGestionar }: { venta: VentaResumen; corregida?: boolean; onClose: () => void; onGestionar: () => void }) {
   const unidades = totalUnidadesVenta(venta.items)
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Detalle de venta</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-center gap-2">Detalle de venta{corregida && <CorregidaBadge />}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {corregida && <p className="break-words rounded-lg bg-sky-50 p-2 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">Venta corregida por el dueño: se muestran los productos vigentes. La venta original y cada corrección están en «Ver historial, anular o devolver».</p>}
           <div className="max-h-[50vh] space-y-2.5 overflow-y-auto">
             {venta.items.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
@@ -1159,7 +1173,7 @@ function VentaDetailDialog({ venta, onClose, onGestionar }: { venta: VentaResume
             <p className="text-xs text-muted-foreground">Hora: {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
           </div>
           {/* F4-A: void / partial return of this sale (current returned state is loaded fresh). */}
-          <Button variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={onGestionar}>Anular o devolver productos</Button>
+          <Button variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={onGestionar}>{corregida ? "Ver historial, anular o devolver" : "Anular o devolver productos"}</Button>
           <Button variant="secondary" className="w-full rounded-xl" onClick={onClose}>Cerrar</Button>
         </div>
       </DialogContent>

@@ -8,6 +8,7 @@ import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
 import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
+import { lineaVigente } from "@/lib/caja-venta-vigente"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"). Scoped strictly to the authenticated negocio's own day
@@ -72,7 +73,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta })
+    // F4-B: current lines of the listed sales that were corrected by the owner
+    // (one query; never-corrected sales are absent and keep their own rows).
+    // The sale objects above stay the original, unmodified records.
+    const correccionesDeVentas = ventasHoy.length
+      ? await db.correccionVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, orderBy: { secuencia: "desc" }, include: { lineas: true } })
+      : []
+    const correccionesPorVenta: Record<string, { secuencia: number; items: Array<{ id: string; productoId: string | null; nombre: string; varianteNombre: string | null; precio: number; cantidad: number; subtotal: number }> }> = {}
+    for (const venta of ventasHoy) {
+      const ultima = correccionesDeVentas.find((c) => c.ventaId === venta.id)
+      if (!ultima) continue
+      correccionesPorVenta[venta.id] = {
+        secuencia: ultima.secuencia,
+        items: venta.items.map((item) => {
+          const linea = lineaVigente(item, ultima.lineas)
+          return { id: item.id, productoId: linea.productoId, nombre: linea.nombre, varianteNombre: linea.varianteNombre, precio: linea.precio, cantidad: linea.cantidad, subtotal: moneyToNumber(linea.subtotal) }
+        }),
+      }
+    }
+
+    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta, correccionesPorVenta })
   } catch (error) {
     console.error("Error listing ventas de caja:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener las ventas" }, { status: 500 })

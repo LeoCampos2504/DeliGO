@@ -15,13 +15,15 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { createOperationalSession, createSession, OPERATIONAL_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { GET as getCajas } from "@/app/api/negocio/caja/cajas/route"
-import { POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
+import { GET as getVentasHoy, POST as postVentaOwner } from "@/app/api/negocio/caja/ventas/route"
 import { POST as postTurnoCajero } from "@/app/api/operativo/caja/[slug]/turno/route"
 import { POST as postVentaCajero } from "@/app/api/operativo/caja/[slug]/ventas/route"
 import { GET as getDetalleCajero, POST as postDevolucionCajero } from "@/app/api/operativo/caja/[slug]/ventas/[id]/devoluciones/route"
 import { GET as getDetalleOwner } from "@/app/api/negocio/caja/ventas/[id]/devoluciones/route"
 import * as correccionModule from "@/app/api/negocio/caja/ventas/[id]/correcciones/route"
 import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
+import { isStockSerializationConflict, leerDisponibilidadStock, liberarReservasPedido, reservarStockPedido, runStockSerializable } from "@/lib/stock-lifecycle"
+import { stockKey } from "@/lib/stock-authority"
 
 setDefaultTimeout(240_000)
 
@@ -348,6 +350,199 @@ describe("F4-B — rules, permissions, stock and concurrency", () => {
       expect(corr.body.code).toBe("VENTA_CON_DEVOLUCIONES")
       expect(corrRow).toBeNull()
       expect(dev.body.devolucion.items[0].nombre).toBe("X")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P2-A (review 2026-10-28) — the owner's daily list carries the CURRENT lines of
+// corrected sales; the sale objects stay the original records.
+// ---------------------------------------------------------------------------
+describe("F4-B P2-A — owner recent sales expose current lines of corrected sales", () => {
+  ephemeralTest("GET /api/negocio/caja/ventas: correccionesPorVenta only for corrected sales; totals and sale rows unchanged", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000)
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2200)
+    const yerba = await crearProducto(negocio.id, "Yerba", 5000)
+    const corregida = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: yerba.id, cantidad: 1 }] })
+    const intacta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: yerba.id, cantidad: 1 }] })
+    const antes = await json(await getVentasHoy(req("/api/negocio/caja/ventas", owner)))
+    expect(antes.body.correccionesPorVenta).toEqual({})
+
+    const res = await corregir(owner, corregida.body.id, correccion([
+      { ventaItemId: itemDe(corregida.body, cola.id), productoId: lima.id, cantidad: 2 },
+      { ventaItemId: itemDe(corregida.body, yerba.id), productoId: yerba.id, cantidad: 1 },
+    ]))
+    expect(res.status).toBe(201)
+
+    const despues = await json(await getVentasHoy(req("/api/negocio/caja/ventas", owner)))
+    expect(despues.status).toBe(200)
+    expect(Object.keys(despues.body.correccionesPorVenta)).toEqual([corregida.body.id])
+    expect(despues.body.correccionesPorVenta[corregida.body.id]).toEqual({
+      secuencia: 1,
+      items: [
+        { id: itemDe(corregida.body, cola.id), productoId: lima.id, nombre: "Gaseosa Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotal: 4000 },
+        { id: itemDe(corregida.body, yerba.id), productoId: yerba.id, nombre: "Yerba", varianteNombre: null, precio: 5000, cantidad: 1, subtotal: 5000 },
+      ],
+    })
+    // The sale records themselves (and the daily totals) are unchanged.
+    expect(despues.body.ventasHoy).toEqual(antes.body.ventasHoy)
+    expect(despues.body.resumenHoy).toEqual(antes.body.resumenHoy)
+    expect(despues.body.ventasHoy.find((v: { id: string }) => v.id === corregida.body.id).items.map((i: { nombre: string }) => i.nombre).sort()).toEqual(["Gaseosa Cola", "Yerba"])
+    expect(despues.body.correccionesPorVenta[intacta.body.id]).toBeUndefined()
+    // Another business never sees it.
+    const otro = await crearNegocio()
+    expect((await json(await getVentasHoy(req("/api/negocio/caja/ventas", otro.owner)))).body.correccionesPorVenta).toEqual({})
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P2-B (review 2026-10-28) — corrections against ACTIVE order reservations.
+// Reservations are created with the existing authorities: availability read by
+// leerDisponibilidadStock and the ACTIVA row written by reservarStockPedido in a
+// Serializable transaction (runStockSerializable) — no parallel implementation,
+// and the platform reservation mode is not switched (other suites share the DB).
+// ---------------------------------------------------------------------------
+class ReservaRechazada extends Error {}
+
+async function reservar(negocio: { id: string; slug: string }, productoId: string, productoVarianteId: string | null, cantidad: number) {
+  const pedido = await db.pedido.create({
+    data: { negocioId: negocio.id, negocioSlug: negocio.slug, negocioNombre: "N", clienteNombre: "C", metodoEntrega: "retiro", estado: "recibido", total: 100, totalProductos: 100, idempotencyKey: `test-f4b-${randomUUID()}` },
+  })
+  const item = await db.pedidoItem.create({ data: { pedidoId: pedido.id, productoId, productoVarianteId, nombre: "R", precio: 100, cantidad } })
+  // Like a real order creator: Serializable, re-run on serialization conflicts.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const count = await runStockSerializable(db, async (tx) => {
+        const key = { productoId, productoVarianteId }
+        const disponibilidad = await leerDisponibilidadStock(tx, { negocioId: negocio.id, key })
+        if (!disponibilidad || cantidad > disponibilidad.available) throw new ReservaRechazada("sin disponible")
+        return reservarStockPedido(tx, {
+          negocioId: negocio.id,
+          pedidoId: pedido.id,
+          lines: [{ pedidoItemId: item.id, productoId, productoVarianteId, cantidad, controlStock: true }],
+          plan: { reservar: true, mode: "ON", reservedKeys: new Set([stockKey(productoId, productoVarianteId)]) },
+        })
+      })
+      return { count, pedidoId: pedido.id }
+    } catch (error) {
+      if (!isStockSerializationConflict(error) || attempt >= 8) throw error
+    }
+  }
+}
+
+async function liberar(negocioId: string, pedidoId: string) {
+  return db.$transaction((tx) => liberarReservasPedido(tx, { negocioId, pedidoId, motivo: "CANCELADO_VENDEDOR" }))
+}
+
+async function reservasActivas(negocioId: string, productoId: string, productoVarianteId: string | null = null) {
+  const rows = await db.reservaStock.findMany({ where: { negocioId, productoId, productoVarianteId, estado: "ACTIVA" }, select: { cantidad: true } })
+  return rows.reduce((acc, r) => acc + r.cantidad, 0)
+}
+
+describe("F4-B P2-B — corrections respect active order reservations", () => {
+  ephemeralTest("product: exceeding (physical − reserved) is refused and writes nothing; within it, exact compensating movements once", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000, { controlStock: true, stockCantidad: 10 })
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 5 })
+    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }] })
+    expect(venta.status).toBe(201)
+    const item = itemDe(venta.body, cola.id)
+    expect((await reservar(negocio, lima.id, null, 4)).count).toBe(1) // physical 5, reserved 4 → available 1
+
+    const ventaAntes = await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })
+    const rechazo = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }]))
+    expect(rechazo.status).toBe(409)
+    expect(rechazo.body.code).toBe("STOCK_INSUFICIENTE")
+    expect(rechazo.body.error).toContain("reservadas para pedidos")
+    expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(0)
+    expect(await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })).toEqual(ventaAntes)
+    expect(await stockDe(lima.id)).toBe(5)
+    expect(await stockDe(cola.id)).toBe(8)
+    expect(await reservasActivas(negocio.id, lima.id)).toBe(4)
+    expect(await db.movimientoInventario.count({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } } })).toBe(0)
+
+    // Second product with enough available stock next to its reservation.
+    const naranja = await crearProducto(negocio.id, "Gaseosa Naranja", 2000, { controlStock: true, stockCantidad: 5 })
+    expect((await reservar(negocio, naranja.id, null, 3)).count).toBe(1) // available 2
+    const key = randomUUID()
+    const ok = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: naranja.id, cantidad: 2 }]), key)
+    expect(ok.status).toBe(201)
+    expect(await stockDe(naranja.id)).toBe(3)
+    expect(await stockDe(cola.id)).toBe(10)
+    expect(await reservasActivas(negocio.id, naranja.id)).toBe(3) // reservation untouched
+    expect(await reservasActivas(negocio.id, lima.id)).toBe(4)
+    const movs = await db.movimientoInventario.findMany({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } }, orderBy: { tipo: "asc" } })
+    expect(movs.map((m) => [m.tipo, m.productoId, m.cantidad, m.stockAntes, m.stockDespues])).toEqual([
+      ["CORRECCION_ENTRADA", cola.id, 2, 8, 10],
+      ["CORRECCION_SALIDA", naranja.id, 2, 5, 3],
+    ])
+    // Retries never duplicate the movements.
+    const replay = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: naranja.id, cantidad: 2 }]), key)
+    expect(replay.status).toBe(200)
+    expect(await db.movimientoInventario.count({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } } })).toBe(2)
+    expect(await stockDe(naranja.id)).toBe(3)
+  })
+
+  ephemeralTest("variant with stock control: same rules against the variant's reservations", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const base = await crearProducto(negocio.id, "Alfajor", 1000, { controlStock: true, stockCantidad: 10 })
+    const remera = await crearProducto(negocio.id, "Remera", 3000)
+    const roja = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Roja", precio: 3000, controlStock: true, stockCantidad: 4 } })
+    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: base.id, cantidad: 2 }] })
+    const item = itemDe(venta.body, base.id)
+    const primera = await reservar(negocio, remera.id, roja.id, 3) // variant: physical 4, reserved 3 → available 1
+    expect(primera.count).toBe(1)
+
+    const rechazo = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: remera.id, varianteId: roja.id, cantidad: 2 }]))
+    expect(rechazo.status).toBe(409)
+    expect(rechazo.body.code).toBe("STOCK_INSUFICIENTE")
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } })).stockCantidad).toBe(4)
+    expect(await reservasActivas(negocio.id, remera.id, roja.id)).toBe(3)
+    expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(0)
+
+    // The order is cancelled (existing release authority) and a smaller one reserves 2 → available 2.
+    expect(await liberar(negocio.id, primera.pedidoId)).toBe(1)
+    expect((await reservar(negocio, remera.id, roja.id, 2)).count).toBe(1) // physical 4, reserved 2 → available 2
+    const ok = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: remera.id, varianteId: roja.id, cantidad: 2 }]))
+    expect(ok.status).toBe(201)
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } })).stockCantidad).toBe(2)
+    expect(await reservasActivas(negocio.id, remera.id, roja.id)).toBe(2)
+    expect(await stockDe(base.id)).toBe(10)
+    const movs = await db.movimientoInventario.findMany({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } }, orderBy: { tipo: "asc" } })
+    expect(movs.map((m) => [m.tipo, m.productoId, m.productoVarianteId, m.cantidad])).toEqual([
+      ["CORRECCION_ENTRADA", base.id, null, 2],
+      ["CORRECCION_SALIDA", remera.id, roja.id, 2],
+    ])
+  })
+
+  ephemeralTest("a correction and a reservation racing for the same units never commit both", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000, { controlStock: true, stockCantidad: 10 })
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 2 })
+    let pedidoAnterior: string | null = null
+    for (let ronda = 0; ronda < 3; ronda++) {
+      // Reset between rounds: restore 2 units and cancel the previous round's order (if it reserved).
+      await db.producto.update({ where: { id: lima.id }, data: { stockCantidad: 2 } })
+      if (pedidoAnterior) await liberar(negocio.id, pedidoAnterior)
+      pedidoAnterior = null
+      const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }] })
+      const item = itemDe(venta.body, cola.id)
+      const [corr, reserva] = await Promise.all([
+        corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }])),
+        reservar(negocio, lima.id, null, 2).then((r) => { pedidoAnterior = r.pedidoId; return "ok" as const }, (error) => (error instanceof ReservaRechazada ? "rechazada" as const : Promise.reject(error))),
+      ])
+      const fisico = await stockDe(lima.id)
+      const reservado = await reservasActivas(negocio.id, lima.id)
+      // Never both: the two units are either moved by the correction or reserved for the order.
+      expect([corr.status === 201, reserva === "ok"].filter(Boolean)).toHaveLength(1)
+      expect(fisico - reservado).toBeGreaterThanOrEqual(0)
+      if (corr.status === 201) {
+        expect([fisico, reservado]).toEqual([0, 0])
+      } else {
+        expect(corr.body.code).toBe("STOCK_INSUFICIENTE")
+        expect([fisico, reservado]).toEqual([2, 2])
+      }
     }
   })
 })

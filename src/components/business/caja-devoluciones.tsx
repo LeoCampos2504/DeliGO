@@ -329,7 +329,7 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
   )
 }
 
-function CorregidaBadge() {
+export function CorregidaBadge() {
   return <span className="inline-flex shrink-0 items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-900 dark:bg-sky-950/50 dark:text-sky-200">Corregida</span>
 }
 
