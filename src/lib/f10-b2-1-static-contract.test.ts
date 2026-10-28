@@ -86,7 +86,7 @@ describe("F10-B2.1 — attribution is decided by the server", () => {
     expect(src).toContain("if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {")
     expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(2) // Venta + OperacionFinanciera
     // F4-A: a cash refund is attributed to the open shift that hands the money back.
-    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path)).toEqual([DEVOLUCIONES, ENGINE])
+    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path).sort()).toEqual([DEVOLUCIONES, ENGINE].sort())
   })
 
   test("still ONE sales engine", () => {

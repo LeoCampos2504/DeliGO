@@ -24,7 +24,8 @@ const MIGRATION = "prisma/migrations/20261009120000_f10_b0_sales_idempotency_pay
 
 describe("F10-B0 — one sales engine", () => {
   test("only the shared engine creates Venta, CobroVenta and financial operations/movements", () => {
-    const writers = (re: RegExp) => productive.filter(({ src }) => re.test(src)).map(({ path }) => path)
+    // Sorted: directory scan order differs between Windows and Linux CI (same exact set).
+    const writers = (re: RegExp) => productive.filter(({ src }) => re.test(src)).map(({ path }) => path).sort()
     expect(writers(/\b(?:tx|db)\.venta\.create\(/)).toEqual([ENGINE])
     expect(writers(/\.cobroVenta\.(create|createMany|update|upsert)\(/)).toEqual([ENGINE])
     // F4-A: the sale-return service is the only other ledger writer (DEVOLUCION_VENTA cash refunds).
