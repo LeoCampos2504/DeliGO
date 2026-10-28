@@ -129,12 +129,49 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - El operador confirmó la nueva comprobación de la campana: **8/8 comprobaciones manuales PASS**.
 - **Estado: CLOSED_TESTING_CERTIFIED** en TESTING (`testing-codex` `d1856d5`, Railway `a093df1e`). Production sin cambios.
 
-## F4-B — corrección administrativa de ventas (en curso)
+## F4-B — corrección administrativa de ventas (lista para revisión de integración)
 
-Etapa siguiente de F4, en la rama `codex/f4-b-owner-sale-corrections` (sin integrar ni desplegar). Interacción con
-F4-A: después de una corrección, las devoluciones usan la línea vigente (cantidad, importe cobrado y producto que se
-reingresa); en ventas sin corrección F4-A se comporta exactamente igual. Una venta con devoluciones no se puede
-corregir. Detalle y estado vigente: bloque superior de `CODEX_REPORT.md`.
+Etapa siguiente de F4 (numeración provisional), en la rama `codex/f4-b-owner-sale-corrections`: **sin integrar, sin
+desplegar y sin certificar**. Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
+(cantidad, importe cobrado y producto que se reingresa); en ventas sin corrección F4-A se comporta exactamente igual.
+Una venta con devoluciones no se puede corregir. Detalle y estado vigente: bloque superior de `CODEX_REPORT.md`.
+
+Auditoría READ-ONLY (2026-10-28): sin P0/P1. Los dos P2 se resolvieron y están cubiertos por CI 40790603314:
+- **P2-A:** «Ventas recientes» del Resumen del dueño muestra los productos vigentes de una venta corregida, con la
+  insignia «Corregida» y acceso al historial (venta original + correcciones). Las ventas sin corrección no cambian.
+- **P2-B:** pruebas con PostgreSQL real de correcciones con reservas de pedidos activas (producto y variante): se
+  rechaza lo que supera el disponible sin escribir nada; dentro del disponible, movimientos exactos y sin duplicar;
+  una corrección y una reserva simultáneas nunca comprometen las mismas unidades.
+
+### Prueba manual F4-B (cuando esté desplegada en TESTING)
+
+Ejemplo de referencia (corregido):
+
+| | Venta original | Corrección |
+|---|---|---|
+| Línea 1 | 2 × Gaseosa Cola a $2.000 = $4.000 | 2 × Gaseosa Lima, conservando $2.000 por unidad cobrado = $4.000 |
+| Línea 2 | 1 × Yerba a $5.000 = $5.000 | 1 × Yerba (sin cambios) = $5.000 |
+| Total | **$9.000 cobrado** | **$9.000 corregido** |
+
+1. **Sustitución con el mismo total:** vender el ejemplo; Caja → Resumen → «Ventas recientes» (o «Buscar ventas
+   anteriores») → abrir la venta → «Ver historial, anular o devolver» / «Corregir venta» → Cola → Lima, motivo,
+   confirmar. Esperado: «Venta corregida», total $9.000, insignia «Corregida»; el detalle rápido muestra Lima y el
+   historial «2 × Gaseosa Cola → 2 × Gaseosa Lima ($2.000 c/u, precio cobrado)», aunque Lima tenga otro precio en el
+   catálogo.
+2. **Turno cerrado:** repetir con una venta de un turno ya cerrado. Esperado: se corrige; el esperado y la diferencia
+   del turno en «Cajas y turnos» no cambian.
+3. **Total distinto:** subir una cantidad sin compensar. Esperado: botón deshabilitado y aviso; no se guarda nada.
+4. **Inventario:** tras el paso 1, Cola +2 y Lima −2 con movimientos `CORRECCION_ENTRADA` / `CORRECCION_SALIDA`.
+5. **Stock insuficiente / reservado:** elegir un reemplazo sin suficiente disponible (o con unidades reservadas para
+   pedidos). Esperado: error claro; stock y reservas sin cambios.
+6. **Venta con devolución:** devolver parcialmente una venta e intentar corregirla. Esperado: «Corregir venta» no
+   aparece; ninguna corrección creada.
+7. **Corregir y después devolver:** devolver 1 Lima con «vuelve al stock». Esperado: la devolución es de Lima por
+   $2.000; sube el stock de Lima, no el de Cola.
+8. **Empleado:** en la PWA de caja abrir la venta. Esperado: sin acción de corregir ni historial de correcciones;
+   ve las líneas vigentes.
+9. **Historial y reintentos:** doble clic en «Confirmar corrección» o reintento tras un error de red. Esperado: una
+   sola corrección en el historial y un solo movimiento por producto.
 
 ## Prueba manual sugerida (TESTING)
 
