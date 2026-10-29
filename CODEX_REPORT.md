@@ -6,12 +6,12 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F4-B OWNER SALE CORRECTIONS READY FOR INTEGRATION REVIEW (NOT INTEGRATED); F4-A CLOSED_TESTING_CERTIFIED (2026-10-28, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-B DEPLOYED TO TESTING, AWAITING_TESTING_MANUAL_CERTIFICATION; F4-A CLOSED_TESTING_CERTIFIED (2026-10-28, Claude Code) ===
 
 F4_A_STATUS=CLOSED_TESTING_CERTIFIED — operator manual review 8/8 PASS (owner bell recheck confirmed after the fix). Deployed state: testing-codex d1856d5 (F4-A d94b361 + owner-bell fix 0495d48), CI 38826220616 success, Railway TESTING DeliGO Copy a093df1e SUCCESS on d1856d5, 48 migrations, no pending. Production NOT touched.
 F4_A_DOC_NOTE=commit 7fa6208 (post-integration doc wording) stays on codex/f4-a-owner-bell-notification only; superseded by this block.
 CURRENT_TASK=F4-B_OWNER_SALE_CORRECTIONS (roadmap F4, second stage: "edición/corrección de ventas (sólo dueño)"; name F4-B PROVISIONAL until operator confirmation)
-CURRENT_TASK_STATUS=IMPLEMENTED_ON_TASK_BRANCH_READY_FOR_INTEGRATION_REVIEW_NOT_INTEGRATED_NOT_DEPLOYED_NOT_CERTIFIED
+CURRENT_TASK_STATUS=AWAITING_TESTING_MANUAL_CERTIFICATION (integrated and deployed to TESTING; NOT certified)
 BRANCH=codex/f4-b-owner-sale-corrections from origin/testing-codex d1856d5 (single canonical checkout, no worktree; upstream unset)
 APPROVED_SCOPE=owner only, mandatory reason + confirmation; immutable compensating event (sale, lines, cobro, actor, date, shift and closures never modified); product / variant / quantity per line; corrected total must equal the charged total exactly; no payment-method change and no money movement; refused on sales with returns/voids; allowed on old sales and closed shifts; stock adjusted with compensating movements honoring order reservations; no cashier route.
 PRICE_DECISION=operator 2026-10-15, option A: a replacement product/variant inherits the unit price actually charged on that line (never the current catalog price; price not editable); any change of the total is refused before saving; history keeps both products.
@@ -29,7 +29,12 @@ P2_A_RESOLVED=owner Resumen «Ventas recientes» showed original lines of correc
 P2_B_RESOLVED=real PostgreSQL tests of corrections against ACTIVE order reservations (product and stock-controlled variant): exceeding physical − reserved → 409 STOCK_INSUFICIENTE with no write to sale, corrections, stock or reservations; within availability → exact CORRECCION_ENTRADA/SALIDA once (replay adds none), reservations untouched; correction vs reservation race (3 rounds) never commits both. Reservations created/released with the existing authorities (leerDisponibilidadStock + reservarStockPedido in runStockSerializable; liberarReservasPedido); platform reservation mode not switched.
 CONTRACT_TEST_NOTE=f10-b0 / f10-b2-1 writer-list assertions made order-independent (same exact sets; Linux directory order changed with the new files — run 40790299813 failed only there).
 CI_FINAL_CODE=run 40790603314 on 9f6b79b SUCCESS (migrate deploy incl. 20261018120000, Typecheck F4-B files incl. owner sales route, main batch incl. F4-A/F4-B real-DB, isolated bell step, isolated CajaTab P2-A step, build). Final-SHA run for the docs commit: see report to the operator.
-NEXT_ACTION=operator integration review of codex/f4-b-owner-sale-corrections; do not integrate/deploy without explicit authorization; F4-B is NOT certified (manual test after a TESTING deploy).
+INTEGRATION=operator-authorized fast-forward testing-codex d1856d5..eb0699c (push eb0699c:refs/heads/testing-codex, no force); main 42ca500 unchanged; Production not touched
+RAILWAY_ACCESS=CLI session had expired; restored by the operator via `railway login --browserless` (2026-10-28); whoami/status → project amiable-rejoicing, environment TESTING; deployments come from branch testing-codex (repo LeoCampos2504/DeliGO). Railway connector NOT used (CLAUDE.md). Note: two redeploys of d1856d5 happened on 2026-10-23 (93a610cc SUCCESS, abdb89ba REMOVED), not from this session.
+RAILWAY_TESTING=DeliGO Copy deployment fcfe1478-0eca-44ad-b01a-ef08580f50df SUCCESS, branch testing-codex, commitHash eb0699cfaae0c3fa65fecb82d24eb43da43c9910; deploy log: 49 migrations found, "Applying migration 20261018120000_f4_b_sale_corrections", all applied, Ready, no errors
+SMOKE=without session: GET caja ventas / historial / venta detail / devoluciones / operativo historial / notificaciones 401; POST correcciones (with and without origin) 401; POST devoluciones 401; / 307
+CI_TESTING_CODEX=run 40793993999 on eb0699c FAILURE only in the pre-existing intermittent f10-b2-1-turnos.integration.test.ts:440 (3 concurrent sales, one 409 after Serializable retries; already seen in run 38825378154, not touched by F4-B); the identical SHA passed on the branch (40790943235). Build step skipped in that run; branch run 40790943235 built eb0699c successfully.
+NEXT_ACTION=operator manual certification of F4-B in TESTING (9-step checklist in codex-reports/F4_A_SALE_RETURNS.md); do not mark certified before the operator confirms. Separate follow-up worth considering: stabilize the intermittent concurrent-sales test.
 
 === HISTORICAL HANDOFF — F4-A OWNER BELL FIX ON TASK BRANCH; INTEGRATION AUTHORIZATION PENDING (2026-10-15, Claude Code) ===
 

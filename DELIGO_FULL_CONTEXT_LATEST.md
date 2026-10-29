@@ -1,12 +1,12 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-A certified, F4-B ready for integration review (2026-10-28, Claude Code)
+## LATEST UPDATE — F4-A certified, F4-B deployed to TESTING awaiting manual certification (2026-10-28, Claude Code)
 
 ```text
 F4_A_STATUS=CLOSED_TESTING_CERTIFIED (operator manual review 8/8 PASS; testing-codex d1856d5; Railway TESTING a093df1e)
-F4_B_STATUS=IMPLEMENTED on codex/f4-b-owner-sale-corrections, READY_FOR_INTEGRATION_REVIEW, not integrated/deployed/certified; name F4-B provisional. Audit P2-A (recent sales show current lines) and P2-B (real-DB tests with active reservations) RESOLVED
+F4_B_STATUS=AWAITING_TESTING_MANUAL_CERTIFICATION — integrated (testing-codex eb0699c, fast-forward) and deployed (Railway TESTING fcfe1478 SUCCESS, migration 20261018120000 applied); not certified; name F4-B provisional
 CI_F4_B=run 40790603314 success on 9f6b79b (migration, F4-B typecheck, real-DB suites incl. reservations, isolated UI steps, build)
-NEXT_ACTION=operator review of the F4-B branch; see CODEX_REPORT.md top block
+NEXT_ACTION=operator manual certification of F4-B (checklist in codex-reports/F4_A_SALE_RETURNS.md); see CODEX_REPORT.md top block
 ```
 
 ## PREVIOUS UPDATE (historical) — F4-A owner bell fix (2026-10-15, Claude Code)

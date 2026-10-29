@@ -261,8 +261,8 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       (ver CODEX_REPORT.md); pendiente de autorización para integrar. F4-A NO certificada.
     → F4-A CERTIFICADA EN TESTING (2026-10-15): revisión manual del operador 8/8 PASS (incluida la campana del dueño
       tras la corrección d1856d5). CLOSED_TESTING_CERTIFIED. Production sin cambios.
-    → F4-B (numeración provisional; rama codex/f4-b-owner-sale-corrections, implementada y lista para revisión de
-      integración; P2 de la auditoría resueltos con CI 40790603314): corrección administrativa de ventas sólo por el dueño;
+    → F4-B (numeración provisional; integrada en testing-codex eb0699c y desplegada en TESTING fcfe1478, migración
+      aplicada; AWAITING_TESTING_MANUAL_CERTIFICATION): corrección administrativa de ventas sólo por el dueño;
       producto/variante/cantidad; el reemplazo hereda el precio cobrado; total cobrado exacto; sin mover dinero ni cambiar
       el medio de pago; no aplica a ventas con devoluciones/anulaciones; sin integrar ni desplegar.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.

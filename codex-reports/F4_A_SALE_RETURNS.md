@@ -129,10 +129,11 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - El operador confirmó la nueva comprobación de la campana: **8/8 comprobaciones manuales PASS**.
 - **Estado: CLOSED_TESTING_CERTIFIED** en TESTING (`testing-codex` `d1856d5`, Railway `a093df1e`). Production sin cambios.
 
-## F4-B — corrección administrativa de ventas (lista para revisión de integración)
+## F4-B — corrección administrativa de ventas (en TESTING, esperando certificación manual)
 
-Etapa siguiente de F4 (numeración provisional), en la rama `codex/f4-b-owner-sale-corrections`: **sin integrar, sin
-desplegar y sin certificar**. Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
+Etapa siguiente de F4 (numeración provisional). **Integrada** (fast-forward `testing-codex` `d1856d5..eb0699c`) y
+**desplegada en TESTING** (Railway `fcfe1478`, migración `20261018120000_f4_b_sale_corrections` aplicada).
+Estado: **AWAITING_TESTING_MANUAL_CERTIFICATION** — no certificada. Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
 (cantidad, importe cobrado y producto que se reingresa); en ventas sin corrección F4-A se comporta exactamente igual.
 Una venta con devoluciones no se puede corregir. Detalle y estado vigente: bloque superior de `CODEX_REPORT.md`.
 
