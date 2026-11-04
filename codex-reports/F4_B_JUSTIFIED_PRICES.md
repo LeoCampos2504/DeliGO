@@ -10,9 +10,10 @@ la certificación manual quedó PAUSADA** por el operador hasta resolver esta in
 $2.000 (precio heredado) y una devolución F4-A posterior reintegró un Redmi por $2.000. El operador revirtió la
 aprobación anterior («el reemplazo hereda el precio cobrado», 2026-10-15 / 2026-11-04).
 
-Regla nueva del operador: nunca asignar en silencio a un producto de reemplazo un precio que no le corresponde.
-Se mantienen dos invariantes: total corregido = total cobrado, y cada producto valorizado a un precio comercialmente
-justificable. Un cambio real de productos (con diferencia de dinero) corresponde a **F4-C** (no iniciado).
+Regla del operador: nunca asignar en silencio a un producto de reemplazo un precio que no le corresponde. Se mantienen
+dos invariantes: total corregido = total cobrado, y cada producto valorizado a un precio comercialmente justificable.
+Los cambios comerciales reales (diferencias de dinero) y las combinaciones de productos corresponden a **F4-C** (no
+iniciado).
 
 ## Causa técnica precisa
 
@@ -22,74 +23,102 @@ justificable. Un cambio real de productos (con diferencia de dinero) corresponde
 - F4-A calcula el reintegro desde el subtotal de la línea vigente (`lineaVigente`), así que heredó el precio ajeno.
 - No existe historial de precios de catálogo: el PATCH de productos no deja auditoría de precio y la auditoría de
   variantes sólo lista claves cambiadas. Caja cobra el precio de lista (sin promociones ni descuentos), y
-  `VentaItem.precio` es el único precio histórico confiable — **sólo para los productos que figuran en esa venta**.
+  `VentaItem.precio` es el único precio histórico confiable — sólo para los productos que figuran en esa venta.
 
-## Regla implementada (segura con los datos existentes)
+## Decisiones del operador aplicadas
+
+1. 2026-11-04 (primera ronda): regla por la misma venta (`MISMO_PRODUCTO`, `MISMA_VENTA`).
+2. 2026-11-04 (segunda ronda): **se admiten productos que no estaban en la venta cuando su precio de catálogo ACTUAL
+   coincide exactamente con el precio unitario cobrado** (`PRECIO_CATALOGO_ACTUAL`), con 8 condiciones: precio
+   exacto, total idéntico, producto/variante del negocio habilitado, stock y reservas sin movimientos duplicados,
+   historial con criterio + precio consultado + momento de la comprobación, no afirmar que el precio actual demuestra
+   el histórico, motivo/identidad del dueño/auditoría obligatorios, devoluciones posteriores por lo cobrado.
+
+## Regla implementada
 
 Una línea corregida conserva el precio cobrado de su línea original y sólo puede nombrar:
 
-| Criterio | Significado |
-|---|---|
-| `MISMO_PRODUCTO` | el mismo producto/variante de esa línea (cambio de cantidad) |
-| `MISMA_VENTA` | un producto/variante de **otra línea original de la misma venta** cobrado exactamente a ese precio |
+| Criterio | Significado | Evidencia guardada |
+|---|---|---|
+| `MISMO_PRODUCTO` | el mismo producto/variante de esa línea (cambio de cantidad) | — |
+| `MISMA_VENTA` | un producto/variante de **otra línea original de la misma venta** cobrado exactamente a ese precio | — |
+| `PRECIO_CATALOGO_ACTUAL` | un producto/variante **de este negocio, habilitado para Caja** (producto no eliminado; variante activa; si el producto tiene variantes activas, hay que elegir una) cuyo **precio de catálogo actual es exactamente** el cobrado | `precioCatalogoConsultado`, `precioCatalogoConsultadoEn` |
 
-Todo lo demás → **409 `PRECIO_NO_JUSTIFICADO`**, sin escribir nada. Ejemplos del operador:
+Todo lo demás → **409 `PRECIO_NO_JUSTIFICADO`** (o 400 `PRODUCTO_CORRECCION_INVALIDO` si el producto no es del
+negocio o no está habilitado), sin escribir nada. Igualdad exacta: $2.000,01 no es $2.000.
 
-- 1 Saphirus $2.000 → 1 producto de $2.000 **de la misma venta**: permitido (`MISMA_VENTA`).
-- 1 Saphirus $2.000 → 1 Redmi $1.000: rechazado (sale de la regla y además el total cambiaría si se tomara su precio).
-- 1 Saphirus → 2 Redmi de $1.000: **no implementado** (ver «Decisiones pendientes»).
-- Un producto con el mismo precio de catálogo que **no** está en la venta: rechazado (precio actual ≠ precio histórico).
+- **Lo que prueba y lo que no:** `PRECIO_CATALOGO_ACTUAL` registra una coincidencia comprobada **en el momento de la
+  corrección**. El historial, la auditoría y la UI lo dicen así («coincidencia en ese momento, no prueba el precio al
+  vender»); nunca se presenta como el precio histórico.
+- **Evidencia trasladada:** si una línea ya justificada por catálogo no cambia de producto en una corrección
+  posterior, conserva el precio consultado y la fecha originales (no se re-fecha ni se re-verifica contra un precio
+  nuevo). Un cambio de producto en esa línea vuelve a verificarse contra el catálogo de ese momento.
+- **Aplicación en tres capas:** servicio (`criterioPrecioLinea` + lectura del catálogo en la misma transacción
+  Serializable), SQL (trigger `guard_correccion_venta_linea` reemplazado con `CREATE OR REPLACE`: decide el criterio,
+  lee el precio de catálogo del negocio y lo guarda; un criterio enviado desde afuera se sobrescribe; un CHECK exige
+  evidencia completa sólo para `PRECIO_CATALOGO_ACTUAL` y precio consultado = precio cobrado) y UI.
 
-Aplicación en tres capas: servicio (`criterioPrecioLinea`), SQL (trigger reemplazado con `CREATE OR REPLACE`, guarda el
-criterio en la fila) y UI (el selector sólo ofrece opciones justificadas; ya no carga el catálogo).
+Ejemplos del operador:
+
+- 1 Saphirus $2.000 → 1 producto de $2.000 (de la venta o con catálogo actual $2.000): permitido.
+- 1 Saphirus $2.000 → 1 Redmi $1.000: rechazado.
+- 1 Saphirus → 2 Redmi de $1.000: rechazado (combinación; F4-C).
 
 ## Cambios
 
-- Migración aditiva `20261105120000_f4_b_justified_replacement_prices`: columna nullable
-  `correcciones_venta_lineas.criterioPrecio` + CHECK (`MISMO_PRODUCTO` / `MISMA_VENTA`) + `CREATE OR REPLACE` de
-  `guard_correccion_venta_linea`. No edita migraciones aplicadas, no modifica filas existentes.
-- `src/lib/caja-correcciones-service.ts`: `criterioPrecioLinea`, rechazo `PRECIO_NO_JUSTIFICADO` (mensaje específico
-  para líneas heredadas de la regla anterior), mapeo del error SQL, criterio persistido por línea.
-- `src/lib/caja-venta-vigente.ts`: `precioHeredado` (línea corregida con otro producto y criterio NULL).
-- `src/lib/caja-devoluciones-service.ts`: el detalle expone `precioHeredado`, la línea `original` y `criterioPrecio`
-  en el historial.
-- `src/components/business/caja-devoluciones.tsx` / `caja-tab.tsx`: opciones justificadas por línea, aviso
-  «precio heredado» en el detalle y en el historial; sin consulta al catálogo.
-- Pruebas: `caja-correcciones.test.ts` (11), `caja-correcciones.test.tsx` (8), integración real
-  `f4-b-correcciones.integration.test.ts` (9 escenarios). CI habilitado para la rama (sin paso de deploy): run 41874744637 on 242eac9 SUCCESS (migrate deploy incl. 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites, isolated bell and CajaTab steps, build).
+- Migración aditiva `20261105120000_f4_b_justified_replacement_prices` (sólo en esta rama; **nunca aplicada a una
+  base persistente**, por eso se amplió en lugar de crear otra): columnas nullable `criterioPrecio`,
+  `precioCatalogoConsultado` (DOUBLE PRECISION, mismo tipo que `precio`) y `precioCatalogoConsultadoEn`
+  (TIMESTAMP(3)), CHECK y `CREATE OR REPLACE` de `guard_correccion_venta_linea`. No edita migraciones aplicadas
+  (`20261018120000` intacta) y no modifica filas existentes.
+- `src/lib/caja-correcciones-service.ts`: criterio por línea (venta → evidencia previa → catálogo actual), lectura
+  del producto acotada al negocio y habilitada para Caja; el precio actual se usa sólo para comparar y como evidencia.
+- `src/lib/caja-venta-vigente.ts`: `precioHeredado` y `criterioPrecio` de la línea vigente.
+- `src/lib/caja-devoluciones-service.ts`: el historial y la auditoría (`venta.corregida`) incluyen `criterioPrecio` y
+  `verificacionCatalogo { precio, consultadoEn }`.
+- `src/components/business/caja-devoluciones.tsx` / `caja-tab.tsx`: el formulario del dueño vuelve a leer su catálogo
+  (`/api/negocio/productos`) sólo para ofrecer coincidencias exactas («(catálogo actual $X)»), con aviso explícito
+  de que no demuestra el precio de la venta; si el catálogo no carga, sólo ofrece productos de la venta. El historial
+  muestra el precio consultado y la fecha.
+- Pruebas: `caja-correcciones.test.ts` (11), `caja-correcciones.test.tsx` (10), integración real
+  `f4-b-correcciones.integration.test.ts` (10 escenarios). CI: run 41904934465 on 687b972 SUCCESS (migrate deploy incl. extended 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites with the catalog-criterion scenario, isolated bell and CajaTab steps, build); earlier runs 41874744637 (242eac9) and 41875315605 (4ac3ccc) SUCCESS.
+
+## Pruebas que cubren las condiciones
+
+- Mismo precio (venta y catálogo); más barato, más caro (incluso 1 centavo) y combinaciones rechazados.
+- Variantes: activa aceptada por catálogo; inactiva, sin elegir variante o de otro precio rechazadas.
+- Producto eliminado o de otro negocio rechazado; precio de catálogo cambiado después de la venta.
+- Evidencia guardada (precio + momento) en fila, respuesta, replay y auditoría; evidencia trasladada sin re-fechar.
+- Devolución F4-A posterior: reintegra lo cobrado ($2.000) aunque el catálogo ya diga $2.600.
+- Stock y reservas (producto y variante, carreras), idempotencia y concurrencia, permisos (sólo dueño), cierres de
+  turno intactos, compatibilidad con correcciones de la regla anterior, defensa SQL (criterio forzado por el guard).
+- Sin promociones ni descuentos en Caja: no hay caso que probar.
 
 ## Compatibilidad con F4-A y con el historial
 
 - Correcciones ya registradas con la regla anterior: **inmutables, no se reescriben**. Quedan con `criterioPrecio`
   NULL; la vista del dueño las marca «precio heredado (regla anterior)».
-- F4-A no cambia de comportamiento: sobre esas líneas sigue reintegrando lo efectivamente cobrado (p. ej. $2.000).
-  Es dinero real cobrado, por eso no se recalcula.
-- Para volver a corregir una venta con una línea heredada, esa línea debe pasar a un producto justificado (p. ej.
-  volver al original): si se intenta mantenerla, 409 con mensaje explícito.
-- Ventas nunca corregidas y correcciones justificadas: idénticas a F4-B/F4-A aprobadas.
+- F4-A no cambia de comportamiento: reintegra lo efectivamente cobrado en todas las líneas.
+- Para volver a corregir una venta con una línea heredada, esa línea debe pasar a un producto justificado (original,
+  de la venta al mismo precio o con catálogo actual idéntico); si se mantiene, 409 con mensaje explícito.
 
-## Decisiones pendientes del operador (no implementadas)
+## Pendiente / límites
 
-1. **Productos que no estaban en la venta.** No hay precio histórico confiable. Opciones: (a) no permitirlo nunca en
-   F4-B y derivarlo a F4-C *(recomendado)*; (b) admitirlo si el precio de catálogo actual coincide, con aviso y tal vez
-   límite de antigüedad (riesgo: el precio pudo cambiar y volver); (c) agregar desde ahora un historial de precios
-   (auditoría de PATCH de productos/variantes) y habilitarlo sólo para ventas posteriores a su activación.
-2. **Combinaciones / división de líneas (1 Saphirus → 2 Redmi).** El esquema actual tiene una línea corregida por
-   línea original (único `(correccionId, ventaItemId)` + verificación diferida «líneas = ítems») y F4-A limita las
-   devoluciones por `ventaItemId`. Requiere rediseño (líneas hijas con precio propio, topes F4-A por línea hija) y
-   un precio histórico confiable del producto nuevo → mismo problema que el punto 1. Propuesta: tratarlo en F4-C.
-3. **Líneas heredadas existentes en TESTING.** ¿F4-A debe bloquear o advertir antes de devolver sobre ellas? Hoy
-   sólo advierte (y reintegra lo cobrado).
+- Combinaciones 1→N y cambios con diferencia de dinero: F4-C (requiere rediseño de líneas y de topes F4-A).
+- ¿F4-A debe bloquear devoluciones sobre líneas heredadas de la regla anterior? Hoy sólo advierte.
+- No hay historial de precios: la coincidencia se comprueba sólo contra el precio vigente al corregir.
 
 ## Retest recomendado en TESTING (sólo tras autorización de integración y deploy)
 
-Venta: 2 × Gaseosa Cola $2.000 + 1 × Gaseosa Lima $2.000 + 1 × Yerba $5.000 = $11.000.
+Venta: 2 × Gaseosa Cola $2.000 + 1 × Gaseosa Lima $2.000 + 1 × Yerba $5.000 = $11.000. Tener en el catálogo un
+producto fuera de la venta a $2.000 (p. ej. Naranja) y Redmi a $1.000.
 
-1. Corregir Cola → Redmi ($1.000): no aparece como opción; por API, 409 `PRECIO_NO_JUSTIFICADO`.
-2. Corregir Cola → producto de $2.000 que no está en la venta: no aparece como opción.
-3. Corregir Cola → Lima (2 u.): se acepta; total $11.000; historial «2 × Gaseosa Cola → 2 × Gaseosa Lima ($2.000 c/u,
-   precio cobrado)»; stock Cola +2 / Lima −2.
-4. Devolver 1 Lima de esa línea: reintegro $2.000, reingresa Lima.
-5. Venta corregida con la regla anterior (p. ej. la de Saphirus → Redmi): el detalle muestra «Precio heredado…»; el
-   formulario exige elegir un producto justificado para esa línea.
-6. Pasos 2–9 del checklist F4-B en `F4_A_SALE_RETURNS.md` con el ejemplo nuevo.
+1. Cola → Redmi ($1.000): no aparece; por API 409 `PRECIO_NO_JUSTIFICADO`.
+2. Cola → Naranja: aparece como «Naranja (catálogo actual $2.000)» con el aviso; se acepta; el historial muestra
+   «precio de catálogo al corregir: $2.000 (comprobado …); coincidencia en ese momento, no prueba el precio al vender».
+3. Cambiar después el precio de Naranja y corregir otra línea: Naranja conserva la evidencia original.
+4. Devolver 1 Naranja: reintegro $2.000 (lo cobrado), reingresa Naranja.
+5. Cola → Lima (de la venta): se acepta como antes.
+6. Venta corregida con la regla anterior (Saphirus → Redmi): aviso «Precio heredado…»; el formulario exige un
+   producto justificado.
+7. Pasos 2–9 del checklist F4-B en `F4_A_SALE_RETURNS.md`.

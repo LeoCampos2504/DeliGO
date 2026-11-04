@@ -267,9 +267,10 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       el medio de pago; no aplica a ventas con devoluciones/anulaciones; sin integrar ni desplegar.
     → F4-B (2026-11-04): integrada y desplegada en TESTING (eb0699c); la certificación manual quedó PAUSADA por un
       caso real (Saphirus $2.000 → Redmi $1.000 registrado a $2.000). El operador revirtió la regla del precio heredado.
-      Corrección en la rama codex/f4-b-justified-prices (sin integrar): el reemplazo sólo puede ser el mismo producto u
-      otro de la misma venta cobrado al mismo precio. Productos fuera de la venta y combinaciones 1→N: decisión
-      pendiente (propuesta: F4-C). Ver codex-reports/F4_B_JUSTIFIED_PRICES.md.
+      Corrección en la rama codex/f4-b-justified-prices (sin integrar): el reemplazo sólo puede ser el mismo producto,
+      otro de la misma venta cobrado al mismo precio, o un producto/variante habilitado cuyo precio de catálogo ACTUAL
+      sea exactamente el cobrado (se guarda el precio consultado y el momento; no prueba el precio histórico).
+      Combinaciones 1→N y diferencias de dinero: F4-C. Ver codex-reports/F4_B_JUSTIFIED_PRICES.md.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).
