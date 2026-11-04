@@ -1,8 +1,11 @@
 # F4-B — Precios justificados en sustituciones (2026-11-04, Claude Code)
 
-Estado: **IMPLEMENTADO EN RAMA TÉCNICA, SIN INTEGRAR** (`codex/f4-b-justified-prices`, base `testing-codex`
-`eb0699c`). Sin deploy, sin Production, sin migraciones aplicadas a bases persistentes. **F4-B sigue sin certificar:
-la certificación manual quedó PAUSADA** por el operador hasta resolver esta inconsistencia.
+Estado (2026-11-04): **INTEGRADO en `testing-codex` `2bc0a93`** (fast-forward desde `eb0699c`, autorizado por el
+operador; CI 41907431414 SUCCESS). **El deploy en Railway TESTING falló en la etapa de build** (deployment
+`b17858a2`: error de Turbopack con la fuente Google «Nunito» de `src/app/layout.tsx`, archivo sin cambios respecto de
+`eb0699c`; el mismo SHA compila en CI → causa ambiental). TESTING sigue sirviendo `eb0699c` (deployment `81b6735a`) y
+la migración `20261105120000` **no se aplicó**. Production sin cambios. **F4-B: AWAITING_TESTING_MANUAL_CERTIFICATION
+(pausada), no certificada.**
 
 ## Caso que originó la tarea (certificación manual en TESTING)
 

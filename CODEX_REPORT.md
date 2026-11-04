@@ -6,11 +6,11 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F4-B MANUAL CERTIFICATION PAUSED; JUSTIFIED-PRICES FIX ON TECHNICAL BRANCH (NOT INTEGRATED) (2026-11-04, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-B JUSTIFIED PRICES INTEGRATED IN testing-codex 2bc0a93; RAILWAY TESTING BUILD FAILED (fonts), TESTING STILL ON eb0699c; F4-B AWAITING_TESTING_MANUAL_CERTIFICATION (2026-11-04, Claude Code) ===
 
 CURRENT_TASK=F4-B_JUSTIFIED_REPLACEMENT_PRICES (fix of the price inconsistency found in F4-B manual certification)
-CURRENT_TASK_STATUS=IMPLEMENTED_ON_TECHNICAL_BRANCH_NOT_INTEGRATED_NOT_DEPLOYED; awaiting operator authorization
-F4_B_STATUS=deployed to TESTING (testing-codex eb0699c, Railway fcfe1478, migration 20261018120000 applied) — MANUAL CERTIFICATION PAUSED by the operator; NOT certified
+CURRENT_TASK_STATUS=INTEGRATED_IN_testing-codex_2bc0a93_CI_PASS; RAILWAY_TESTING_DEPLOY_FAILED_AT_BUILD (environmental font error); not deployed; awaiting operator decision
+F4_B_STATUS=AWAITING_TESTING_MANUAL_CERTIFICATION (paused) — NOT certified. testing-codex 2bc0a93 contains the justified-prices fix, but Railway TESTING still serves eb0699c (deployment 81b6735a); migration 20261018120000 applied, 20261105120000 NOT applied
 TRIGGER_CASE=2 Saphirus charged $2.000 corrected to 2 Redmi (catalog $1.000): F4-B kept $2.000 for Redmi and F4-A later refunded one Redmi for $2.000
 PRICE_RULE_REVERSED=the earlier approval «replacement inherits the charged price» (2026-10-15, reconfirmed 2026-11-04 in docs commit 6cb3d92) is REVERSED by the operator (2026-11-04)
 ROOT_CAUSE=correction line price forced to VentaItem.precio of the original line (service + guard_correccion_venta_linea) regardless of the product named; F4-A refunds from the current-line subtotal; no catalog price history exists (product PATCH has no price audit; variant audit lists keys only)
@@ -20,11 +20,16 @@ MIGRATION=20261105120000_f4_b_justified_replacement_prices (additive; only on th
 COMPATIBILITY=earlier-rule corrections untouched, flagged «precio heredado (regla anterior)»; F4-A refunds the charged amount on every line (incl. catalog-justified ones even after a catalog price change); a new correction must first give an earlier-rule line a justified product
 LOCAL_GATES=eslint clean on touched files · git diff --check clean · local suites 153/0 (13 files) · real-DB suite runs only in CI
 CI_TECHNICAL_BRANCH=run 41904934465 on 687b972 SUCCESS (migrate deploy incl. extended 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites with the catalog-criterion scenario, isolated bell and CajaTab steps, build); earlier runs 41874744637 (242eac9) and 41875315605 (4ac3ccc) SUCCESS
+INTEGRATION=operator-authorized fast-forward testing-codex eb0699c..2bc0a93 (push 2bc0a93:refs/heads/testing-codex, no force; commits 242eac9, 4ac3ccc, 687b972, 2bc0a93; docs commits 3613091 / 6cb3d92 NOT included, preserved on their branches); main 42ca500 unchanged
+CI_TESTING_CODEX=run 41907431414 on 2bc0a93 SUCCESS (migrate deploy on ephemeral PostgreSQL, Typecheck F4-B files, main batch incl. F4-A/F4-B real-DB, isolated steps, build); task-branch final run 41905317121 on 2bc0a93 SUCCESS
+RAILWAY_TESTING_DEPLOY=BLOCKED — DeliGO Copy deployment b17858a2-a547-496c-b26b-9fe7bd9ee6e4 on 2bc0a93 FAILED in the BUILD phase: Turbopack next/font/google error for Nunito imported by src/app/layout.tsx («Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'», «next/font/google queries have exactly one entry», 35 errors). layout.tsx / package.json / bun.lock identical to eb0699c, which built on Railway (81b6735a, 2026-10-31) and the same SHA built in CI → environmental (Railway build / Google Fonts response), not the F4-B change. Not retried (operator decision).
+RAILWAY_TESTING_SERVING=81b6735a-9851-4d85-99aa-6dbd7a19698a SUCCESS on eb0699c (redeploy of 2026-10-31, not from this session; fcfe1478 now REMOVED); smoke: / 307, GET /api/negocio/caja/ventas without session 401
+MIGRATION_20261105120000=NOT applied to the TESTING database (build failed before the deploy/migrate phase); TESTING runs the previous F4-B code (inherited-price rule)
 PENDING_DECISIONS=(1) combinations 1→N and real exchanges with money differences → F4-C (operator); (2) whether F4-A should block returns on earlier-rule inherited lines (today: warning only); products outside the sale RESOLVED by the operator (current catalog price, exact match)
 DOCS_MERGE_NOTE=the top blocks here, in DELIGO_FULL_CONTEXT_LATEST.md, codex-reports/F4_A_SALE_RETURNS.md and the ROADMAP F4-B line overlap with 3613091/6cb3d92; when those are merged, keep this block's state (price rule reversed, certification paused) and keep the F4-C plan from 6cb3d92
 REPORT=codex-reports/F4_B_JUSTIFIED_PRICES.md
-PRODUCTION_TOUCHED=NO · main 42ca500 unchanged · testing-codex eb0699c unchanged · Railway not touched
-NEXT_ACTION=operator review of codex/f4-b-justified-prices and the pending decisions; integration/deploy only with explicit authorization; then TESTING retest (report) and resume F4-B manual certification
+PRODUCTION_TOUCHED=NO · main 42ca500 unchanged · Production and its database not touched · Railway: TESTING only (CLI linked to project amiable-rejoicing / environment TESTING); Railway connector NOT used
+NEXT_ACTION=operator decides how to handle the failed TESTING build (e.g. authorize one redeploy of 2bc0a93 to rule out a transient Google Fonts fetch; if it fails again, a separate font-build fix task). After a SUCCESS deploy: verify migration 20261105120000 applied + logs, then the TESTING retest in codex-reports/F4_B_JUSTIFIED_PRICES.md and resume F4-B manual certification. Do not mark F4-B certified.
 
 === HISTORICAL HANDOFF — F4-B OWNER SALE CORRECTIONS READY FOR INTEGRATION REVIEW (NOT INTEGRATED); F4-A CLOSED_TESTING_CERTIFIED (2026-10-28, Claude Code) ===
 

@@ -1,15 +1,17 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-B manual certification paused; justified-prices fix on technical branch (2026-11-04, Claude Code)
+## LATEST UPDATE — F4-B justified prices integrated (testing-codex 2bc0a93); Railway TESTING build failed, TESTING still on eb0699c (2026-11-04, Claude Code)
 
 ```text
-F4_B_STATUS=deployed to TESTING (testing-codex eb0699c, Railway fcfe1478) — MANUAL CERTIFICATION PAUSED; NOT certified
+F4_B_STATUS=AWAITING_TESTING_MANUAL_CERTIFICATION (paused); NOT certified
 PRICE_RULE=«replacement inherits the charged price» REVERSED by the operator (2026-11-04)
 FIX=codex/f4-b-justified-prices (242eac9 + 687b972, base eb0699c): replacement only with its own product, another product of the same sale at the same charged price, or an enabled product/variant whose CURRENT catalog price equals the charged price exactly (evidence stored; not proof of the historical price); 409 PRECIO_NO_JUSTIFICADO otherwise; additive migration 20261105120000 not applied anywhere persistent
 CI=run 41904934465 on 687b972 SUCCESS (migrate deploy incl. extended 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites with the catalog-criterion scenario, isolated bell and CajaTab steps, build); earlier runs 41874744637 (242eac9) and 41875315605 (4ac3ccc) SUCCESS
+INTEGRATION=testing-codex fast-forward eb0699c..2bc0a93 (no force); CI 41907431414 SUCCESS; main 42ca500 unchanged
+RAILWAY_TESTING=deployment b17858a2 on 2bc0a93 FAILED at build (next/font/google Nunito, environmental; same code builds in CI); TESTING still serves 81b6735a on eb0699c; migration 20261105120000 NOT applied
 PENDING_DECISIONS=combinations 1→N / money differences → F4-C; F4-A on earlier-rule lines (codex-reports/F4_B_JUSTIFIED_PRICES.md)
 F4_C_STATUS=PLANNED_NOT_STARTED (plan only on local branch codex/f4-c-roadmap-plan 6cb3d92)
-NEXT_ACTION=operator review; no integration/deploy without explicit authorization; see CODEX_REPORT.md top block
+NEXT_ACTION=operator decision on the failed TESTING build (redeploy 2bc0a93 or font-build fix task); see CODEX_REPORT.md top block
 ```
 
 ## PREVIOUS UPDATE (historical) — F4-A certified, F4-B ready for integration review (2026-10-28, Claude Code)
