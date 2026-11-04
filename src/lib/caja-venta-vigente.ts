@@ -26,6 +26,12 @@ export interface LineaVigente {
    * earlier inherited-price rule. Kept as immutable history; flagged in views.
    */
   precioHeredado: boolean
+  /**
+   * Justification recorded for the current line (MISMO_PRODUCTO | MISMA_VENTA |
+   * PRECIO_CATALOGO_ACTUAL); null for an uncorrected line (its own product) or an
+   * earlier-rule line.
+   */
+  criterioPrecio: string | null
 }
 
 /** Prisma include for the latest correction of a sale (enough to resolve current lines). */
@@ -54,6 +60,7 @@ export function lineaVigente(item: ItemRow, ultima: ReadonlyArray<LineaRow> | nu
       subtotal: corregida.subtotalDecimal,
       corregida: true,
       precioHeredado: !corregida.criterioPrecio && (corregida.productoId !== item.productoId || corregida.productoVarianteId !== item.productoVarianteId),
+      criterioPrecio: corregida.criterioPrecio ?? null,
     }
   }
   return {
@@ -67,6 +74,7 @@ export function lineaVigente(item: ItemRow, ultima: ReadonlyArray<LineaRow> | nu
     subtotal: storedMoney(item.subtotalDecimal, item.subtotal),
     corregida: false,
     precioHeredado: false,
+    criterioPrecio: null,
   }
 }
 

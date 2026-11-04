@@ -35,6 +35,8 @@ export interface CajaDevolucionesEndpoints {
   ownerRegistersUrl?: string
   /** F4-B, owner only: POST a correction of one sale. Absent for the cashier (no correction UI at all). */
   correccionUrl?: (ventaId: string) => string
+  /** F4-B, owner only: the owner's catalog, to offer products whose CURRENT price equals the charged price. */
+  productosUrl?: string
 }
 
 export type EstadoDevolucionVenta = "VIGENTE" | "DEVOLUCION_PARCIAL" | "ANULADA" | "DEVUELTA_TOTAL"
@@ -46,6 +48,8 @@ export interface VentaDevolucionItem {
   corregida?: boolean
   /** F4-B (2026-11-05): earlier-rule correction that named another product at this line's charged price. */
   precioHeredado?: boolean
+  /** Justification recorded for the current line (null: own product, or earlier rule). */
+  criterioPrecio?: string | null
   /** Original sale line (source of the replacements justified at this charged price). */
   original?: { productoId: string | null; productoVarianteId: string | null; nombre: string; varianteNombre: string | null }
   nombre: string
@@ -100,7 +104,7 @@ export interface CorreccionRegistrada {
   createdAt: string
   registradaPor: string
   total: number
-  cambios: Array<{ ventaItemId: string; precio: number; criterioPrecio?: string | null; antes: { nombre: string; cantidad: number }; despues: { nombre: string; cantidad: number } }>
+  cambios: Array<{ ventaItemId: string; precio: number; criterioPrecio?: string | null; verificacionCatalogo?: { precio: number; consultadoEn: string } | null; antes: { nombre: string; cantidad: number }; despues: { nombre: string; cantidad: number } }>
 }
 
 type Medio = "EFECTIVO" | "TRANSFERENCIA" | "OTRO"
@@ -345,7 +349,7 @@ function CorreccionCard({ correccion }: { correccion: CorreccionRegistrada }) {
       </p>
       {correccion.cambios.map((cambio) => (
         <p key={cambio.ventaItemId} className="break-words">
-          {cambio.antes.cantidad} × {cambio.antes.nombre} → {cambio.despues.cantidad} × {cambio.despues.nombre} ({formatPrice(cambio.precio)} c/u, precio cobrado){!cambio.criterioPrecio && cambio.antes.nombre !== cambio.despues.nombre ? " · precio heredado (regla anterior)" : ""}
+          {cambio.antes.cantidad} × {cambio.antes.nombre} → {cambio.despues.cantidad} × {cambio.despues.nombre} ({formatPrice(cambio.precio)} c/u, precio cobrado){!cambio.criterioPrecio && cambio.antes.nombre !== cambio.despues.nombre ? " · precio heredado (regla anterior)" : ""}{cambio.verificacionCatalogo ? ` · precio de catálogo al corregir: ${formatPrice(cambio.verificacionCatalogo.precio)} (comprobado ${new Date(cambio.verificacionCatalogo.consultadoEn).toLocaleString("es-AR")}); coincidencia en ese momento, no prueba el precio al vender` : ""}
         </p>
       ))}
       <p className="break-words text-muted-foreground">Motivo: {correccion.motivo} · Registró: {correccion.registradaPor}</p>
@@ -662,18 +666,57 @@ export function claveProducto(productoId: string | null | undefined, varianteId:
   return `${productoId ?? ""}|${varianteId ?? ""}`
 }
 
+/** A sellable catalog entry (product without active variants, or one active variant) with its CURRENT price. */
+export interface EntradaCatalogo { key: string; nombre: string; varianteNombre: string | null; precio: number }
+
+export interface ProductoCatalogoCorreccion {
+  id: string
+  nombre: string
+  precio: number
+  eliminado?: boolean
+  variantes?: Array<{ id: string; nombre: string; precio: number; activo?: boolean }>
+}
+
+/** Owner catalog → entries enabled for Caja (not deleted; active variants only, like a Caja sale). */
+export function entradasCatalogo(productos: ReadonlyArray<ProductoCatalogoCorreccion>): EntradaCatalogo[] {
+  const entradas: EntradaCatalogo[] = []
+  for (const p of productos) {
+    if (p.eliminado) continue
+    const activas = (p.variantes ?? []).filter((v) => v.activo !== false)
+    if (activas.length > 0) {
+      for (const v of activas) entradas.push({ key: claveProducto(p.id, v.id), nombre: p.nombre, varianteNombre: v.nombre, precio: v.precio })
+    } else {
+      entradas.push({ key: claveProducto(p.id, null), nombre: p.nombre, varianteNombre: null, precio: p.precio })
+    }
+  }
+  return entradas.sort((a, b) => nombreItem(a).localeCompare(nombreItem(b), "es"))
+}
+
+export type FuenteOpcion = "VENTA" | "CATALOGO" | "VERIFICADO"
+
 /**
- * F4-B (2026-11-05) — products a line may name at ITS charged price: its own
- * original product, or another original product of the same sale charged at
- * exactly that unit price (same rule the server and SQL enforce).
+ * F4-B — products a line may name at ITS charged price (same rule the server and
+ * SQL enforce): its own original product; another original product of the same
+ * sale charged at exactly that unit price; a product/variant whose CURRENT
+ * catalog price equals the charged price exactly (operator decision 2026-11-04);
+ * or the line's current product when an earlier correction already verified it
+ * against the catalog. The server re-checks everything.
  */
-export function opcionesCorreccion(items: ReadonlyArray<VentaDevolucionItem>, item: VentaDevolucionItem) {
-  const vistas = new Map<string, { key: string; etiqueta: string }>()
+export function opcionesCorreccion(items: ReadonlyArray<VentaDevolucionItem>, item: VentaDevolucionItem, catalogo: ReadonlyArray<EntradaCatalogo> = []) {
+  const vistas = new Map<string, { key: string; etiqueta: string; fuente: FuenteOpcion }>()
   const fuentes = [item, ...items.filter((otro) => otro.id !== item.id && otro.precio === item.precio)]
   for (const fuente of fuentes) {
     const original = fuente.original ?? { productoId: fuente.productoId ?? null, productoVarianteId: fuente.productoVarianteId ?? null, nombre: fuente.nombre, varianteNombre: fuente.varianteNombre }
     const key = claveProducto(original.productoId, original.productoVarianteId)
-    if (!vistas.has(key)) vistas.set(key, { key, etiqueta: nombreItem(original) })
+    if (!vistas.has(key)) vistas.set(key, { key, etiqueta: nombreItem(original), fuente: "VENTA" })
+  }
+  if (item.criterioPrecio === "PRECIO_CATALOGO_ACTUAL") {
+    const key = claveProducto(item.productoId, item.productoVarianteId)
+    if (!vistas.has(key)) vistas.set(key, { key, etiqueta: `${nombreItem(item)} (verificado con el catálogo al corregir)`, fuente: "VERIFICADO" })
+  }
+  for (const entrada of catalogo) {
+    if (entrada.precio !== item.precio || vistas.has(entrada.key)) continue
+    vistas.set(entrada.key, { key: entrada.key, etiqueta: `${nombreItem(entrada)} (catálogo actual ${formatPrice(entrada.precio)})`, fuente: "CATALOGO" })
   }
   return [...vistas.values()]
 }
@@ -702,6 +745,17 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
   const post = useIdempotentPost()
   const invalidate = useInvalidate(endpoints)
   const itemPorId = new Map(venta.items.map((item) => [item.id, item]))
+  const catalogoQuery = useQuery<EntradaCatalogo[]>({
+    queryKey: [...endpoints.queryScope, "catalogo-correccion"],
+    enabled: Boolean(endpoints.productosUrl),
+    queryFn: async () => {
+      const response = await fetch(endpoints.productosUrl!, { cache: "no-store" })
+      const json = await response.json().catch(() => [])
+      if (!response.ok) throw new Error("No se pudo cargar el catálogo.")
+      return entradasCatalogo(Array.isArray(json) ? json : (json.productos ?? []))
+    },
+  })
+  const catalogo = catalogoQuery.data ?? []
 
   const corregido = Math.round(lineas.reduce((acc, l) => acc + subtotalCorreccion(itemPorId.get(l.ventaItemId)!.precio, l.cantidad), 0) * 100) / 100
   const totalOk = Math.abs(corregido - venta.total) < 0.005
@@ -709,7 +763,7 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
     const item = itemPorId.get(l.ventaItemId)!
     return l.productoId !== (item.productoId ?? "") || l.varianteId !== (item.productoVarianteId ?? "") || l.cantidad !== item.cantidad
   })
-  const faltaJustificar = lineas.some((l) => !opcionesCorreccion(venta.items, itemPorId.get(l.ventaItemId)!).some((o) => o.key === claveProducto(l.productoId, l.varianteId)))
+  const faltaJustificar = lineas.some((l) => !opcionesCorreccion(venta.items, itemPorId.get(l.ventaItemId)!, catalogo).some((o) => o.key === claveProducto(l.productoId, l.varianteId)))
   const listo = hayCambios && totalOk && !faltaJustificar && motivo.trim().length > 0 && confirmo
 
   const mutation = useMutation({
@@ -740,14 +794,16 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
       onSubmit={(event) => { event.preventDefault(); if (!listo || inFlight.current) return; inFlight.current = true; mutation.mutate() }}
     >
       <p className="break-words text-sm text-muted-foreground">
-        Corregí un error de carga: el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y sólo puede tomar un producto de esta venta cobrado a ese mismo precio. El total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero. Un cambio real de productos con diferencia de precio no es una corrección.
+        Corregí un error de carga: el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y sólo puede tomar un producto justificado a ese precio: otro de esta venta cobrado igual, o uno cuyo precio de catálogo actual sea exactamente el cobrado. El total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero. Un cambio real de productos con diferencia de precio, o una combinación de productos, no es una corrección.
       </p>
+      {catalogoQuery.isError && <p role="alert" className="break-words text-sm text-destructive">No se pudo cargar el catálogo: sólo se ofrecen productos de esta venta.</p>}
       <div className="space-y-2">
         {lineas.map((linea) => {
           const item = itemPorId.get(linea.ventaItemId)!
-          const opciones = opcionesCorreccion(venta.items, item)
+          const opciones = opcionesCorreccion(venta.items, item, catalogo)
           const actual = claveProducto(linea.productoId, linea.varianteId)
-          const justificada = opciones.some((o) => o.key === actual)
+          const elegida = opciones.find((o) => o.key === actual)
+          const justificada = Boolean(elegida)
           return (
             <div key={linea.ventaItemId} className="min-w-0 space-y-2 rounded-xl border p-2" data-testid="correccion-linea">
               <p className="break-words text-xs text-muted-foreground">Registrado: {item.cantidad} × {nombreItem(item)} · {formatPrice(item.precio)} c/u cobrado</p>
@@ -764,8 +820,9 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
                   {opciones.map((o) => <option key={o.key} value={o.key}>{o.etiqueta}</option>)}
                 </select>
               </label>
-              {!justificada && <p role="alert" className="break-words text-xs text-destructive">Esta línea quedó con un producto que no corresponde a su precio cobrado (regla anterior). Elegí un producto de esta venta cobrado a {formatPrice(item.precio)}.</p>}
-              {opciones.length === 1 && justificada && <p className="break-words text-xs text-muted-foreground">Sólo se puede corregir la cantidad: ningún otro producto de esta venta se cobró a {formatPrice(item.precio)}.</p>}
+              {!justificada && <p role="alert" className="break-words text-xs text-destructive">Esta línea quedó con un producto que no corresponde a su precio cobrado (regla anterior). Elegí un producto de esta venta cobrado a {formatPrice(item.precio)} o uno cuyo precio de catálogo actual sea {formatPrice(item.precio)}.</p>}
+              {elegida?.fuente === "CATALOGO" && <p className="break-words text-xs text-amber-700 dark:text-amber-300">Su precio de catálogo actual coincide con el cobrado ({formatPrice(item.precio)}). Se registrará el precio consultado y el momento de la comprobación; esto no demuestra el precio que tenía al momento de la venta.</p>}
+              {opciones.length === 1 && justificada && !catalogoQuery.isLoading && <p className="break-words text-xs text-muted-foreground">Sólo se puede corregir la cantidad: ningún otro producto de esta venta ni del catálogo tiene hoy el precio {formatPrice(item.precio)}.</p>}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl" aria-label={`Restar una unidad (${nombreItem(item)})`} disabled={pending || linea.cantidad <= 0} onClick={() => set(linea.ventaItemId, { cantidad: Math.max(0, linea.cantidad - 1) })}><Minus className="h-4 w-4" /></Button>
                 <span className="min-w-10 text-center text-sm font-semibold" aria-label={`Cantidad corregida (${nombreItem(item)})`}>{linea.cantidad}</span>

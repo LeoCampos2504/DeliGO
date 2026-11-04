@@ -80,15 +80,17 @@ describe("F4-B — fingerprint, current lines and SQL guard mapping", () => {
 
   test("a never-corrected line IS the original row; a corrected line keeps the charged price", () => {
     const item = { id: "i1", productoId: "p-cola", productoVarianteId: null, nombre: "Cola", varianteNombre: null, precio: 2000, cantidad: 2, subtotal: 4000, subtotalDecimal: new Prisma.Decimal("4000.00") }
-    expect(lineaVigente(item, null)).toMatchObject({ productoId: "p-cola", nombre: "Cola", cantidad: 2, precio: 2000, corregida: false })
+    expect(lineaVigente(item, null)).toMatchObject({ productoId: "p-cola", nombre: "Cola", cantidad: 2, precio: 2000, corregida: false, criterioPrecio: null })
     const corregida = lineaVigente(item, [{ ventaItemId: "i1", productoId: "p-lima", productoVarianteId: null, nombre: "Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotalDecimal: new Prisma.Decimal("4000.00") }])
     expect(corregida).toMatchObject({ productoId: "p-lima", nombre: "Lima", cantidad: 2, precio: 2000, corregida: true, precioHeredado: true })
     // A line recorded with a price justification is not flagged.
     expect(lineaVigente(item, [{ ventaItemId: "i1", productoId: "p-lima", productoVarianteId: null, nombre: "Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotalDecimal: new Prisma.Decimal("4000.00"), criterioPrecio: "MISMA_VENTA" }]).precioHeredado).toBe(false)
+    // Catalog-justified line: not flagged, and its criterion is exposed to the form.
+    expect(lineaVigente(item, [{ ventaItemId: "i1", productoId: "p-otro", productoVarianteId: null, nombre: "Otro", varianteNombre: null, precio: 2000, cantidad: 2, subtotalDecimal: new Prisma.Decimal("4000.00"), criterioPrecio: "PRECIO_CATALOGO_ACTUAL" }])).toMatchObject({ precioHeredado: false, criterioPrecio: "PRECIO_CATALOGO_ACTUAL" })
     expect(corregida.subtotal.toFixed(2)).toBe("4000.00")
   })
 
-  test("price rule (2026-11-05): own product, or another product of the same sale at the same charged price — nothing else", () => {
+  test("sale-based price justification: own product, or another product of the same sale at the same charged price (else the catalog is checked)", () => {
     const originales = [
       { productoId: "p-saphirus", productoVarianteId: null, precio: 2000 },
       { productoId: "p-otro2000", productoVarianteId: null, precio: 2000 },
@@ -101,7 +103,7 @@ describe("F4-B — fingerprint, current lines and SQL guard mapping", () => {
     expect(criterioPrecioLinea(originales, saphirus, "p-otro2000", null)).toBe("MISMA_VENTA") // same price in the sale
     expect(criterioPrecioLinea(originales, saphirus, "p-redmi", null)).toBeNull() // cheaper: $1.000 unjustified
     expect(criterioPrecioLinea(originales, originales[2], "p-saphirus", null)).toBeNull() // more expensive
-    expect(criterioPrecioLinea(originales, saphirus, "p-fuera-de-la-venta", null)).toBeNull() // no historical price
+    expect(criterioPrecioLinea(originales, saphirus, "p-fuera-de-la-venta", null)).toBeNull() // not in the sale → service checks its current catalog price
     expect(criterioPrecioLinea(originales, originales[3], "p-remera", "v-azul")).toBe("MISMA_VENTA") // variants
     expect(criterioPrecioLinea(originales, originales[3], "p-remera", null)).toBeNull() // variant key matters
   })
@@ -136,7 +138,15 @@ describe("F4-B — static contract", () => {
     expect(src).not.toMatch(/\.(venta|ventaItem|cobroVenta|turnoCaja|operacionFinanciera|movimientoFinanciero|devolucionVenta)\.(create|update|updateMany|upsert|delete|deleteMany)\(/)
     expect(src).toContain('actorTipo: "NEGOCIO"')
     expect(src).toContain("precio: l.vigente.precio")
-    expect(src).not.toMatch(/producto\.precio|variante\.precio|select: \{[^}]*precio/)
+    // The current catalog price is read ONLY to check the PRECIO_CATALOGO_ACTUAL
+    // criterion (exact equality with the charged price) and stored as evidence;
+    // the line always keeps the price actually charged.
+    expect(src).toContain("if (precioActual !== item.precio) return noJustificado(precioActual)")
+    expect(src.match(/precio: precioActual/g)).toEqual(["precio: precioActual"])
+    expect(src).toContain("catalogo = { precio: precioActual, consultadoEn: verificadoEn }")
+    expect(src).not.toMatch(/precio: (producto|variante)\.precio/)
+    expect(src).toContain("precioCatalogoConsultado: l.catalogo?.precio ?? null")
+    expect(src).toContain("precioCatalogoConsultadoEn: l.catalogo?.consultadoEn ?? null")
   })
 
   test("migration is additive and keeps the applied F4-A migration untouched", () => {
@@ -157,6 +167,13 @@ describe("F4-B — static contract", () => {
     expect(sql).toContain('ALTER TABLE "correcciones_venta_lineas" ADD COLUMN "criterioPrecio" TEXT;')
     expect(sql).toContain('CREATE OR REPLACE FUNCTION "guard_correccion_venta_linea"()')
     expect(sql).toContain("sale correction replacement price is not justified")
+    expect(sql).toContain('ALTER TABLE "correcciones_venta_lineas" ADD COLUMN "precioCatalogoConsultado" DOUBLE PRECISION;')
+    expect(sql).toContain('ALTER TABLE "correcciones_venta_lineas" ADD COLUMN "precioCatalogoConsultadoEn" TIMESTAMP(3);')
+    for (const criterio of ["'MISMO_PRODUCTO'", "'MISMA_VENTA'", "'PRECIO_CATALOGO_ACTUAL'"]) expect(sql).toContain(criterio)
+    // Catalog criterion: same business, product not deleted, active variant, exact price.
+    expect(sql).toContain('p."negocioId" = NEW."negocioId" AND p."eliminado" = false')
+    expect(sql).toContain('pv."activo" = true')
+    expect(sql).toContain('precio_actual IS NULL OR precio_actual <> NEW."precio"')
     expect(sql).not.toMatch(/\bDROP\b|\bUPDATE\s+"|\bDELETE\s+FROM\b|ALTER TABLE "(ventas_caja|venta_items|correcciones_venta|devoluciones_venta|devoluciones_venta_items)"/)
     expect(read("prisma/migrations/20261018120000_f4_b_sale_corrections/migration.sql")).not.toContain("criterioPrecio")
   })

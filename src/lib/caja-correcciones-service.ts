@@ -20,10 +20,15 @@
 // Price rule revised by the operator (2026-11-05): a line keeps the unit price
 // actually charged, and the product it names must be JUSTIFIED at that price —
 // the same product/variant of the original line, or one that appears in
-// another original line of the same sale at exactly that price. A replacement
-// never silently takes another product's price, and the current catalog price
-// is never used (historical catalog prices are not recorded). Real exchanges
-// with money differences belong to F4-C. Also enforced in SQL.
+// another original line of the same sale at exactly that price, or (operator
+// decision 2026-11-04) a product/variant of this business enabled for Caja
+// whose CURRENT catalog price equals the charged price exactly. For the latter
+// the catalog price consulted and the moment of the check are stored with the
+// line: a coincidence at correction time, never presented as proof of the
+// price at sale time (historical catalog prices are not recorded). An unchanged
+// line keeps the evidence of the previous correction. A replacement never
+// silently takes another product's price. Real exchanges with money differences
+// and combinations belong to F4-C. Also enforced in SQL.
 // Concurrency: the same sale-row lock as F4-A (no-op UPDATE) + Serializable
 // retries; an expected sequence number rejects edits made on a stale view;
 // Idempotency-Key + content fingerprint makes retries safe.
@@ -43,12 +48,13 @@ type Tx = Prisma.TransactionClient
 export const MOVIMIENTO_TIPO_CORRECCION_ENTRADA = "CORRECCION_ENTRADA"
 export const MOVIMIENTO_TIPO_CORRECCION_SALIDA = "CORRECCION_SALIDA"
 export const CORRECCION_LINEAS_MAX = 200
-export type CriterioPrecio = "MISMO_PRODUCTO" | "MISMA_VENTA"
+export type CriterioPrecio = "MISMO_PRODUCTO" | "MISMA_VENTA" | "PRECIO_CATALOGO_ACTUAL"
 
 /**
- * Why a product may be recorded on a sale line at the price charged on that
- * line: it is the line's own product, or it appears in another original line of
- * the same sale at exactly that unit price. null = not justified (refused).
+ * Sale-based justification of a product on a sale line at the price charged on
+ * that line: it is the line's own product, or it appears in another original
+ * line of the same sale at exactly that unit price. null = the sale alone does
+ * not justify it (the service then checks the current catalog price).
  */
 export function criterioPrecioLinea(
   originales: ReadonlyArray<{ productoId: string | null; productoVarianteId: string | null; precio: number }>,
@@ -183,6 +189,8 @@ type LineaNueva = {
   subtotal: Prisma.Decimal
   cambia: boolean
   criterioPrecio: CriterioPrecio
+  /** PRECIO_CATALOGO_ACTUAL only: catalog price consulted and when it was checked. */
+  catalogo: { precio: number; consultadoEn: Date } | null
 }
 
 async function replayCorreccion(reader: Pick<Tx, "correccionVenta">, negocioId: string, key: string, fingerprint: string) {
@@ -227,38 +235,57 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
       }
 
       const ultima = venta.correcciones[0]?.lineas
+      // One check moment per attempt for the catalog criterion.
+      const verificadoEn = new Date()
       const nuevas: LineaNueva[] = []
       for (const item of venta.items) {
         const vigente = lineaVigente(item, ultima)
         const pedida = pedidas.get(item.id)!
         const igual = pedida.productoId === vigente.productoId && pedida.varianteId === vigente.productoVarianteId
-        const criterioPrecio = criterioPrecioLinea(venta.items, item, pedida.productoId, pedida.varianteId)
-        if (!criterioPrecio) {
-          return fail(409, igual
-            ? `"${nombreLinea(vigente)}" quedó registrado con el precio cobrado de "${nombreLinea(item)}" (${money(D(item.precio))}) por la regla anterior. Para volver a corregir esta venta, esa línea debe tener un producto de la venta con ese mismo precio.`
-            : `El producto elegido no puede registrarse al precio cobrado de "${nombreLinea(item)}" (${money(D(item.precio))}): sólo se admite el mismo producto u otro de esta venta cobrado al mismo precio. Un cambio real de productos con diferencia de dinero no es una corrección.`,
-          "PRECIO_NO_JUSTIFICADO")
+        const cobradoLinea = money(D(item.precio))
+        const noJustificado = (precioActual: number | null) => fail(409, igual
+          ? `"${nombreLinea(vigente)}" quedó registrado con el precio cobrado de "${nombreLinea(item)}" (${cobradoLinea}) por la regla anterior. Para volver a corregir esta venta, esa línea debe tener un producto justificado a ese precio: el original, otro de la venta cobrado igual o uno cuyo precio de catálogo actual sea exactamente ${cobradoLinea}.`
+          : `El producto elegido no puede registrarse al precio cobrado de "${nombreLinea(item)}" (${cobradoLinea})${precioActual !== null ? `: su precio de catálogo actual es ${money(D(precioActual))}` : ""}. Sólo se admite el mismo producto, otro de esta venta cobrado al mismo precio o uno cuyo precio de catálogo actual sea exactamente ${cobradoLinea}. Un cambio real de productos con diferencia de dinero no es una corrección.`,
+        "PRECIO_NO_JUSTIFICADO")
+
+        let criterioPrecio: CriterioPrecio | null = criterioPrecioLinea(venta.items, item, pedida.productoId, pedida.varianteId)
+        let catalogo: { precio: number; consultadoEn: Date } | null = null
+        // An unchanged line already justified by the catalog keeps that evidence
+        // (the price consulted and when), never re-checked against a newer price.
+        const previa = ultima?.find((l) => l.ventaItemId === item.id)
+        if (!criterioPrecio && igual && previa?.criterioPrecio === "PRECIO_CATALOGO_ACTUAL" && previa.precioCatalogoConsultado !== null && previa.precioCatalogoConsultadoEn) {
+          criterioPrecio = "PRECIO_CATALOGO_ACTUAL"
+          catalogo = { precio: previa.precioCatalogoConsultado, consultadoEn: previa.precioCatalogoConsultadoEn }
         }
         let nombre = vigente.nombre
         let varianteNombre = vigente.varianteNombre
-        if (!igual) {
-          if (pedida.productoId === null) return fail(400, "Elegí el producto de cada línea.", "PRODUCTO_CORRECCION_INVALIDO")
-          // Tenant-scoped, live product read only for a CHANGED product/variant
-          // (never for its price: the line keeps the price actually charged).
+        if (!igual || !criterioPrecio) {
+          if (pedida.productoId === null) return criterioPrecio ? fail(400, "Elegí el producto de cada línea.", "PRODUCTO_CORRECCION_INVALIDO") : noJustificado(null)
+          // Tenant-scoped live read of a CHANGED (or not yet justified) product:
+          // it must belong to this business and be enabled for Caja (not deleted,
+          // active variant). Its current price is used ONLY to check the catalog
+          // criterion — the line always keeps the price actually charged.
           const producto = await tx.producto.findFirst({
             where: { id: pedida.productoId, negocioId, eliminado: false },
-            select: { id: true, nombre: true, variantes: { where: { activo: true }, select: { id: true, nombre: true } } },
+            select: { id: true, nombre: true, precio: true, variantes: { where: { activo: true }, select: { id: true, nombre: true, precio: true } } },
           })
-          if (!producto) return fail(400, "Uno de los productos elegidos no existe en tu catálogo.", "PRODUCTO_CORRECCION_INVALIDO")
+          if (!producto) return igual ? noJustificado(null) : fail(400, "Uno de los productos elegidos no existe en tu catálogo o no está habilitado.", "PRODUCTO_CORRECCION_INVALIDO")
+          let precioActual = producto.precio
           if (producto.variantes.length > 0) {
             const variante = producto.variantes.find((v) => v.id === pedida.varianteId)
-            if (!variante) return fail(400, `Elegí una variante activa de "${producto.nombre}".`, "PRODUCTO_CORRECCION_INVALIDO")
-            varianteNombre = variante.nombre
+            if (!variante) return igual ? noJustificado(null) : fail(400, `Elegí una variante activa de "${producto.nombre}".`, "PRODUCTO_CORRECCION_INVALIDO")
+            if (!igual) varianteNombre = variante.nombre
+            precioActual = variante.precio
           } else {
-            if (pedida.varianteId !== null) return fail(400, `"${producto.nombre}" no tiene variantes.`, "PRODUCTO_CORRECCION_INVALIDO")
-            varianteNombre = null
+            if (pedida.varianteId !== null) return igual ? noJustificado(null) : fail(400, `"${producto.nombre}" no tiene variantes.`, "PRODUCTO_CORRECCION_INVALIDO")
+            if (!igual) varianteNombre = null
           }
-          nombre = producto.nombre
+          if (!igual) nombre = producto.nombre
+          if (!criterioPrecio) {
+            if (precioActual !== item.precio) return noJustificado(precioActual)
+            criterioPrecio = "PRECIO_CATALOGO_ACTUAL"
+            catalogo = { precio: precioActual, consultadoEn: verificadoEn }
+          }
         }
         let subtotal: Prisma.Decimal
         try {
@@ -276,6 +303,7 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
           subtotal,
           cambia: !igual || !pedida.cantidad.equals(D(vigente.cantidad)),
           criterioPrecio,
+          catalogo,
         })
       }
 
@@ -345,6 +373,8 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
               precio: l.vigente.precio,
               subtotalDecimal: l.subtotal,
               criterioPrecio: l.criterioPrecio,
+              precioCatalogoConsultado: l.catalogo?.precio ?? null,
+              precioCatalogoConsultadoEn: l.catalogo?.consultadoEn ?? null,
             })),
           },
         },

@@ -9,11 +9,13 @@ afterAll(() => GlobalRegistrator.unregister())
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
-const { VentaDevolucionesDialog, subtotalCorreccion, opcionesCorreccion } = await import("./caja-devoluciones")
+const { VentaDevolucionesDialog, subtotalCorreccion, opcionesCorreccion, entradasCatalogo } = await import("./caja-devoluciones")
+const { formatPrice } = await import("@/lib/utils")
 
-// F4-B (price rule revised 2026-11-05): a line may only name its own product or
-// another product of the SAME sale charged at exactly the same unit price; the
-// catalog is never consulted for prices.
+// F4-B (price rule revised 2026-11-05, operator decision 2026-11-04): a line may
+// name its own product, another product of the SAME sale charged at exactly the
+// same unit price, or a product/variant enabled in the catalog whose CURRENT
+// price equals the charged price exactly (shown as a coincidence, not as proof).
 const originalFetch = globalThis.fetch
 const linea = (id: string, productoId: string, nombre: string, precio: number, cantidad: number, extra: Record<string, unknown> = {}) => ({
   id, productoId, productoVarianteId: null, nombre, varianteNombre: null, precio, cantidad, subtotal: precio * cantidad,
@@ -44,12 +46,24 @@ let venta = baseVenta
 let posts: Array<{ url: string; key: string | null; body: Record<string, unknown> }> = []
 let responses: Array<{ status: number; body: Record<string, unknown> }> = []
 let fetchedUrls: string[] = []
+let catalogoStatus = 200
+const catalogo = [
+  { id: "p-cola", nombre: "Gaseosa Cola", precio: 2000, variantes: [] },
+  { id: "p-lima", nombre: "Gaseosa Lima", precio: 2500, variantes: [] }, // catalog changed after the sale
+  { id: "p-yerba", nombre: "Yerba", precio: 5000, variantes: [] },
+  { id: "p-naranja", nombre: "Gaseosa Naranja", precio: 2000, variantes: [] }, // not in the sale, same price
+  { id: "p-redmi", nombre: "Redmi", precio: 1000, variantes: [] }, // cheaper: never offered
+  { id: "p-borrado", nombre: "Borrado", precio: 2000, eliminado: true, variantes: [] },
+  { id: "p-mate", nombre: "Mate", precio: 5000, variantes: [] },
+  { id: "p-remera", nombre: "Remera", precio: 9999, variantes: [{ id: "v-roja", nombre: "Roja", precio: 2000, activo: true }, { id: "v-azul", nombre: "Azul", precio: 2000, activo: false }] },
+]
 
 beforeEach(() => {
   venta = baseVenta
   posts = []
   responses = []
   fetchedUrls = []
+  catalogoStatus = 200
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     fetchedUrls.push(url)
@@ -59,6 +73,7 @@ beforeEach(() => {
       const next = responses.shift() ?? { status: 201, body: { ok: true, venta } }
       return new Response(JSON.stringify(next.body), { status: next.status })
     }
+    if (url.includes("/x/productos")) return new Response(JSON.stringify(catalogoStatus === 200 ? catalogo : { error: "x" }), { status: catalogoStatus })
     return new Response(JSON.stringify({ ok: true, venta }), { status: 200 })
   }) as typeof fetch
 })
@@ -70,6 +85,7 @@ const ownerEndpoints = {
   reintegroUrl: (id: string) => `/x/devoluciones/${id}/reintegro`,
   queryScope: ["test-correcciones"],
   correccionUrl: (id: string) => `/x/ventas/${id}/correcciones`,
+  productosUrl: "/x/productos",
 }
 const cashierEndpoints = { historialUrl: "/x/historial", ventaUrl: ownerEndpoints.ventaUrl, reintegroUrl: ownerEndpoints.reintegroUrl, queryScope: ["test-cajero"] }
 
@@ -136,15 +152,56 @@ describe("F4-B — owner correction form (justified prices)", () => {
     await act(async () => root.unmount())
   })
 
-  test("each line only offers products of the same sale charged at its price; the catalog is never fetched", async () => {
+  test("each line offers same-sale products at its price and catalog products whose CURRENT price is exactly the charged one", async () => {
     const root = await render()
     await openForm()
-    expect(text()).toContain("sólo puede tomar un producto de esta venta cobrado a ese mismo precio")
+    await waitFor(() => optionsOf(selectFor("Gaseosa Cola")).length > 2)
+    expect(text()).toContain("uno cuyo precio de catálogo actual sea exactamente el cobrado")
+    const cat = (nombre: string, precio: number) => `${nombre} (catálogo actual ${formatPrice(precio)})`
+    // Lima stays offered from the sale ($2.000 charged) although its catalog price is now $2.500;
+    // Redmi ($1.000), the deleted product and the inactive variant are never offered.
+    expect(optionsOf(selectFor("Gaseosa Cola"))).toEqual(["Gaseosa Cola", "Gaseosa Lima", cat("Gaseosa Naranja", 2000), cat("Remera — Roja", 2000)])
+    expect(optionsOf(selectFor("Gaseosa Lima"))).toEqual(["Gaseosa Lima", "Gaseosa Cola", cat("Gaseosa Naranja", 2000), cat("Remera — Roja", 2000)])
+    expect(optionsOf(selectFor("Yerba"))).toEqual(["Yerba", cat("Mate", 5000)])
+    expect(text()).not.toContain("Sólo se puede corregir la cantidad")
+    // Choosing a catalog match says plainly what it proves and what it does not.
+    await choose(selectFor("Gaseosa Cola"), "p-naranja|")
+    expect(text()).toContain("Su precio de catálogo actual coincide con el cobrado")
+    expect(text()).toContain("no demuestra el precio que tenía al momento de la venta")
+    await confirmar()
+    await click(button("Confirmar corrección"))
+    await waitFor(() => text().includes("Venta corregida"))
+    expect(posts[0].body.lineas).toEqual([
+      { ventaItemId: "item-cola", productoId: "p-naranja", varianteId: null, cantidad: 2 },
+      { ventaItemId: "item-lima", productoId: "p-lima", varianteId: null, cantidad: 1 },
+      { ventaItemId: "item-yerba", productoId: "p-yerba", varianteId: null, cantidad: 1 },
+    ])
+    await act(async () => root.unmount())
+  })
+
+  test("if the catalog cannot be loaded only same-sale products are offered", async () => {
+    catalogoStatus = 500
+    const root = await render()
+    await openForm()
+    await waitFor(() => text().includes("No se pudo cargar el catálogo"))
     expect(optionsOf(selectFor("Gaseosa Cola"))).toEqual(["Gaseosa Cola", "Gaseosa Lima"])
-    expect(optionsOf(selectFor("Gaseosa Lima"))).toEqual(["Gaseosa Lima", "Gaseosa Cola"])
-    expect(optionsOf(selectFor("Yerba"))).toEqual(["Yerba"]) // $5.000: nothing else in the sale at that price
+    expect(optionsOf(selectFor("Yerba"))).toEqual(["Yerba"])
     expect(text()).toContain("Sólo se puede corregir la cantidad")
-    expect(fetchedUrls.some((url) => url.includes("productos"))).toBe(false)
+    await act(async () => root.unmount())
+  })
+
+  test("the history shows the catalog price consulted and when, as a coincidence — never as proof", async () => {
+    venta = {
+      ...baseVenta,
+      corregida: true,
+      correccionSecuencia: 1,
+      correcciones: [{ id: "c1", secuencia: 1, motivo: "m", createdAt: "2026-11-04T12:00:00.000Z", registradaPor: "Dueño", total: 11000, cambios: [{ ventaItemId: "item-cola", precio: 2000, criterioPrecio: "PRECIO_CATALOGO_ACTUAL", verificacionCatalogo: { precio: 2000, consultadoEn: "2026-11-04T12:00:00.000Z" }, antes: { nombre: "Gaseosa Cola", cantidad: 2 }, despues: { nombre: "Gaseosa Naranja", cantidad: 2 } }] }],
+    } as unknown as typeof baseVenta
+    const root = await render()
+    await waitFor(() => text().includes("Corrección 1"))
+    expect(text()).toContain(`precio de catálogo al corregir: ${formatPrice(2000)}`)
+    expect(text()).toContain("coincidencia en ese momento, no prueba el precio al vender")
+    expect(text()).not.toContain("precio heredado (regla anterior)")
     await act(async () => root.unmount())
   })
 
@@ -205,7 +262,9 @@ describe("F4-B — owner correction form (justified prices)", () => {
     const root = await render()
     expect(text()).toContain("Precio heredado de Gaseosa Cola")
     await openForm()
-    expect(optionsOf(selectFor("Redmi"))).toEqual(["Redmi (precio heredado: elegí otro)", "Gaseosa Cola", "Gaseosa Lima"])
+    await waitFor(() => optionsOf(selectFor("Redmi")).length > 3)
+    // Redmi's own catalog price ($1.000) does not justify it at $2.000.
+    expect(optionsOf(selectFor("Redmi"))).toEqual(["Redmi (precio heredado: elegí otro)", "Gaseosa Cola", "Gaseosa Lima", `Gaseosa Naranja (catálogo actual ${formatPrice(2000)})`, `Remera — Roja (catálogo actual ${formatPrice(2000)})`])
     expect(text()).toContain("no corresponde a su precio cobrado")
     await click(button("Restar una unidad (Gaseosa Lima)"))
     await click(button("Sumar una unidad (Redmi)"))
@@ -244,11 +303,21 @@ describe("F4-B — owner correction form (justified prices)", () => {
     await act(async () => root.unmount())
   })
 
-  test("pure helpers: preview = charged price × quantity; options follow the same-sale same-price rule", () => {
+  test("pure helpers: preview = charged price × quantity; options follow the justified-price rule", () => {
     expect(subtotalCorreccion(2000, 2)).toBe(4000)
     expect(subtotalCorreccion(3.33, 3)).toBe(9.99)
     const items = baseVenta.items as Parameters<typeof opcionesCorreccion>[0]
     expect(opcionesCorreccion(items, items[2]).map((o) => o.etiqueta)).toEqual(["Yerba"])
     expect(opcionesCorreccion(items, items[0]).map((o) => o.key)).toEqual(["p-cola|", "p-lima|"])
+    // Catalog entries: deleted products and inactive variants excluded; a product with active variants only by variant.
+    const entradas = entradasCatalogo(catalogo)
+    expect(entradas.map((e) => e.key)).toEqual(["p-cola|", "p-lima|", "p-naranja|", "p-mate|", "p-redmi|", "p-remera|v-roja", "p-yerba|"])
+    const conCatalogo = opcionesCorreccion(items, items[0], entradas)
+    expect(conCatalogo.map((o) => [o.key, o.fuente])).toEqual([["p-cola|", "VENTA"], ["p-lima|", "VENTA"], ["p-naranja|", "CATALOGO"], ["p-remera|v-roja", "CATALOGO"]])
+    // Exact equality only: $1.999,99 is not $2.000.
+    expect(opcionesCorreccion(items, items[0], [{ key: "p-x|", nombre: "X", varianteNombre: null, precio: 1999.99 }]).map((o) => o.key)).toEqual(["p-cola|", "p-lima|"])
+    // A line already verified against the catalog by an earlier correction stays valid even if the price changed since.
+    const verificada = { ...items[0], productoId: "p-naranja", nombre: "Gaseosa Naranja", corregida: true, criterioPrecio: "PRECIO_CATALOGO_ACTUAL" }
+    expect(opcionesCorreccion(items, verificada, []).map((o) => [o.key, o.fuente])).toEqual([["p-cola|", "VENTA"], ["p-lima|", "VENTA"], ["p-naranja|", "VERIFICADO"]])
   })
 })

@@ -153,8 +153,10 @@ function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoint
     invalidateAlso: [["negocio-caja-ventas-hoy", negocioId], ownerRegisterQueryKey(negocioId), ["negocio-caja-productos", negocioId]],
     ownerRegistersUrl: "/api/negocio/caja/cajas",
     // F4-B: owner-only correction of a sale (product / variant / quantity, same total,
-    // replacement only at a price justified within the same sale).
+    // replacement only at a justified price: same sale, or current catalog price
+    // exactly equal to the charged one).
     correccionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/correcciones`,
+    productosUrl: "/api/negocio/productos",
   }
 }
 
