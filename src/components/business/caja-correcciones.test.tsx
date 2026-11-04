@@ -9,49 +9,56 @@ afterAll(() => GlobalRegistrator.unregister())
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
-const { VentaDevolucionesDialog, subtotalCorreccion } = await import("./caja-devoluciones")
+const { VentaDevolucionesDialog, subtotalCorreccion, opcionesCorreccion } = await import("./caja-devoluciones")
 
+// F4-B (price rule revised 2026-11-05): a line may only name its own product or
+// another product of the SAME sale charged at exactly the same unit price; the
+// catalog is never consulted for prices.
 const originalFetch = globalThis.fetch
+const linea = (id: string, productoId: string, nombre: string, precio: number, cantidad: number, extra: Record<string, unknown> = {}) => ({
+  id, productoId, productoVarianteId: null, nombre, varianteNombre: null, precio, cantidad, subtotal: precio * cantidad,
+  cantidadDevuelta: 0, cantidadRestante: cantidad, importeDevuelto: 0,
+  original: { productoId, productoVarianteId: null, nombre, varianteNombre: null },
+  ...extra,
+})
 const baseVenta = {
   id: "venta-1",
   referencia: "venta-1",
   createdAt: "2026-10-14T15:00:00.000Z",
   metodoPago: "EFECTIVO",
-  total: 9000,
+  total: 11000,
   totalDevuelto: 0,
-  totalNeto: 9000,
+  totalNeto: 11000,
   estadoDevolucion: "VIGENTE",
   corregida: false,
   correccionSecuencia: 0,
   correcciones: [],
   items: [
-    { id: "item-cola", productoId: "p-cola", productoVarianteId: null, nombre: "Gaseosa Cola", varianteNombre: null, precio: 2000, cantidad: 2, subtotal: 4000, cantidadDevuelta: 0, cantidadRestante: 2, importeDevuelto: 0 },
-    { id: "item-yerba", productoId: "p-yerba", productoVarianteId: null, nombre: "Yerba", varianteNombre: null, precio: 5000, cantidad: 1, subtotal: 5000, cantidadDevuelta: 0, cantidadRestante: 1, importeDevuelto: 0 },
+    linea("item-cola", "p-cola", "Gaseosa Cola", 2000, 2),
+    linea("item-lima", "p-lima", "Gaseosa Lima", 2000, 1),
+    linea("item-yerba", "p-yerba", "Yerba", 5000, 1),
   ],
   devoluciones: [] as unknown[],
 }
-const catalogo = [
-  { id: "p-cola", nombre: "Gaseosa Cola", variantes: [] },
-  { id: "p-lima", nombre: "Gaseosa Lima", precio: 2200, variantes: [] },
-  { id: "p-yerba", nombre: "Yerba", variantes: [] },
-]
 let venta = baseVenta
 let posts: Array<{ url: string; key: string | null; body: Record<string, unknown> }> = []
 let responses: Array<{ status: number; body: Record<string, unknown> }> = []
+let fetchedUrls: string[] = []
 
 beforeEach(() => {
   venta = baseVenta
   posts = []
   responses = []
+  fetchedUrls = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    fetchedUrls.push(url)
     if (init?.method === "POST") {
       posts.push({ url, key: new Headers(init.headers).get("Idempotency-Key"), body: JSON.parse(String(init.body)) })
       await new Promise((resolve) => setTimeout(resolve, 10))
       const next = responses.shift() ?? { status: 201, body: { ok: true, venta } }
       return new Response(JSON.stringify(next.body), { status: next.status })
     }
-    if (url === "/owner/productos") return new Response(JSON.stringify(catalogo), { status: 200 })
     return new Response(JSON.stringify({ ok: true, venta }), { status: 200 })
   }) as typeof fetch
 })
@@ -63,7 +70,6 @@ const ownerEndpoints = {
   reintegroUrl: (id: string) => `/x/devoluciones/${id}/reintegro`,
   queryScope: ["test-correcciones"],
   correccionUrl: (id: string) => `/x/ventas/${id}/correcciones`,
-  productosUrl: "/owner/productos",
 }
 const cashierEndpoints = { historialUrl: "/x/historial", ventaUrl: ownerEndpoints.ventaUrl, reintegroUrl: ownerEndpoints.reintegroUrl, queryScope: ["test-cajero"] }
 
@@ -87,7 +93,10 @@ async function render(endpoints: Record<string, unknown> = ownerEndpoints) {
   await waitFor(() => (document.body.textContent ?? "").includes("Total original"))
   return root
 }
-const button = (text: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === text || b.getAttribute("aria-label") === text) as HTMLButtonElement | undefined
+const text = () => document.body.textContent ?? ""
+const button = (label: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label || b.getAttribute("aria-label") === label) as HTMLButtonElement | undefined
+const selectFor = (nombre: string) => document.querySelector(`select[aria-label="Producto entregado en lugar de ${nombre}"]`) as HTMLSelectElement
+const optionsOf = (select: HTMLSelectElement) => [...select.querySelectorAll("option")].map((o) => o.textContent)
 async function click(el: Element | undefined) { await act(async () => { (el as HTMLElement).click() }) }
 async function choose(select: HTMLSelectElement, value: string) {
   await act(async () => {
@@ -103,16 +112,14 @@ async function type(input: HTMLInputElement, value: string) {
 }
 async function openForm() {
   await click(button("Corregir venta"))
-  await waitFor(() => document.querySelectorAll("select").length >= 2 && [...document.querySelectorAll("option")].some((o) => o.textContent === "Gaseosa Lima"))
+  await waitFor(() => document.querySelectorAll('form[aria-label="Corregir venta"] select').length === 3)
 }
-async function fillSwap() {
-  await openForm()
-  await choose(document.querySelector('select[aria-label="Producto entregado en lugar de Gaseosa Cola"]') as HTMLSelectElement, "p-lima")
-  await type(document.querySelector("#correccion-motivo-venta-1") as HTMLInputElement, "Se escaneó el sabor equivocado")
+async function confirmar(motivo = "Se escaneó el sabor equivocado") {
+  await type(document.querySelector("#correccion-motivo-venta-1") as HTMLInputElement, motivo)
   await click(document.querySelector('form[aria-label="Corregir venta"] input[type="checkbox"]') as HTMLInputElement)
 }
 
-describe("F4-B — owner correction form", () => {
+describe("F4-B — owner correction form (justified prices)", () => {
   test("only the owner host shows «Corregir venta»; never the cashier, never after returns", async () => {
     let root = await render(cashierEndpoints)
     expect(button("Corregir venta")).toBeUndefined()
@@ -129,20 +136,32 @@ describe("F4-B — owner correction form", () => {
     await act(async () => root.unmount())
   })
 
-  test("a product swap keeps the charged price and total; a quantity change that alters the total is blocked", async () => {
+  test("each line only offers products of the same sale charged at its price; the catalog is never fetched", async () => {
     const root = await render()
     await openForm()
-    expect(document.body.textContent).toContain("Cada línea conserva el precio que se cobró")
-    await type(document.querySelector("#correccion-motivo-venta-1") as HTMLInputElement, "Motivo")
-    await click(document.querySelector('form[aria-label="Corregir venta"] input[type="checkbox"]') as HTMLInputElement)
+    expect(text()).toContain("sólo puede tomar un producto de esta venta cobrado a ese mismo precio")
+    expect(optionsOf(selectFor("Gaseosa Cola"))).toEqual(["Gaseosa Cola", "Gaseosa Lima"])
+    expect(optionsOf(selectFor("Gaseosa Lima"))).toEqual(["Gaseosa Lima", "Gaseosa Cola"])
+    expect(optionsOf(selectFor("Yerba"))).toEqual(["Yerba"]) // $5.000: nothing else in the sale at that price
+    expect(text()).toContain("Sólo se puede corregir la cantidad")
+    expect(fetchedUrls.some((url) => url.includes("productos"))).toBe(false)
+    await act(async () => root.unmount())
+  })
+
+  test("swap to a same-price product of the sale keeps the total; a quantity change that alters it is blocked", async () => {
+    const root = await render()
+    await openForm()
+    await confirmar("Motivo")
     expect(button("Confirmar corrección")!.disabled).toBe(true) // no changes yet
-    await choose(document.querySelector('select[aria-label="Producto entregado en lugar de Gaseosa Cola"]') as HTMLSelectElement, "p-lima")
+    await choose(selectFor("Gaseosa Cola"), "p-lima|")
     expect(button("Confirmar corrección")!.disabled).toBe(false)
-    expect(document.body.textContent).not.toContain("2.200") // never the catalog price
     await click(button("Sumar una unidad (Gaseosa Cola)"))
-    expect(document.body.textContent).toContain("El total corregido debe ser igual al cobrado")
+    expect(text()).toContain("El total corregido debe ser igual al cobrado")
     expect(button("Confirmar corrección")!.disabled).toBe(true)
+    // Redistribution at the charged prices keeps the total: 1 Cola-line + 2 Lima-line = $6.000 again.
     await click(button("Restar una unidad (Gaseosa Cola)"))
+    await click(button("Restar una unidad (Gaseosa Cola)"))
+    await click(button("Sumar una unidad (Gaseosa Lima)"))
     expect(button("Confirmar corrección")!.disabled).toBe(false)
     expect(posts).toHaveLength(0)
     await act(async () => root.unmount())
@@ -150,10 +169,12 @@ describe("F4-B — owner correction form", () => {
 
   test("double click sends ONE request with product/variant/quantity only; success is explicit", async () => {
     const root = await render()
-    await fillSwap()
+    await openForm()
+    await choose(selectFor("Gaseosa Cola"), "p-lima|")
+    await confirmar()
     const submit = button("Confirmar corrección")!
     await act(async () => { submit.click(); submit.click() })
-    await waitFor(() => (document.body.textContent ?? "").includes("Venta corregida"))
+    await waitFor(() => text().includes("Venta corregida"))
     expect(posts).toHaveLength(1)
     expect(posts[0].url).toBe("/x/ventas/venta-1/correcciones")
     expect(posts[0].key).toBeTruthy()
@@ -163,22 +184,52 @@ describe("F4-B — owner correction form", () => {
       secuenciaEsperada: 0,
       lineas: [
         { ventaItemId: "item-cola", productoId: "p-lima", varianteId: null, cantidad: 2 },
+        { ventaItemId: "item-lima", productoId: "p-lima", varianteId: null, cantidad: 1 },
         { ventaItemId: "item-yerba", productoId: "p-yerba", varianteId: null, cantidad: 1 },
       ],
     })
     await act(async () => root.unmount())
   })
 
+  test("a line inherited from the earlier rule is flagged and must be fixed before saving", async () => {
+    venta = {
+      ...baseVenta,
+      corregida: true,
+      correccionSecuencia: 1,
+      items: [
+        linea("item-cola", "p-redmi", "Redmi", 2000, 2, { corregida: true, precioHeredado: true, original: { productoId: "p-cola", productoVarianteId: null, nombre: "Gaseosa Cola", varianteNombre: null } }),
+        linea("item-lima", "p-lima", "Gaseosa Lima", 2000, 1),
+        linea("item-yerba", "p-yerba", "Yerba", 5000, 1),
+      ],
+    }
+    const root = await render()
+    expect(text()).toContain("Precio heredado de Gaseosa Cola")
+    await openForm()
+    expect(optionsOf(selectFor("Redmi"))).toEqual(["Redmi (precio heredado: elegí otro)", "Gaseosa Cola", "Gaseosa Lima"])
+    expect(text()).toContain("no corresponde a su precio cobrado")
+    await click(button("Restar una unidad (Gaseosa Lima)"))
+    await click(button("Sumar una unidad (Redmi)"))
+    await click(button("Restar una unidad (Redmi)"))
+    await click(button("Sumar una unidad (Gaseosa Lima)"))
+    await confirmar()
+    expect(button("Confirmar corrección")!.disabled).toBe(true) // still names Redmi at Cola's price
+    await choose(selectFor("Redmi"), "p-cola|")
+    expect(button("Confirmar corrección")!.disabled).toBe(false)
+    await act(async () => root.unmount())
+  })
+
   test("a server error keeps the form and the retry reuses the same key", async () => {
     responses = [{ status: 500, body: { ok: false, error: "internal" } }]
     const root = await render()
-    await fillSwap()
+    await openForm()
+    await choose(selectFor("Gaseosa Cola"), "p-lima|")
+    await confirmar()
     await click(button("Confirmar corrección"))
-    await waitFor(() => (document.body.textContent ?? "").includes("Podés reintentar sin duplicarla"))
-    expect(document.body.textContent).not.toContain("internal")
+    await waitFor(() => text().includes("Podés reintentar sin duplicarla"))
+    expect(text()).not.toContain("internal")
     expect((document.querySelector("#correccion-motivo-venta-1") as HTMLInputElement).value).toBe("Se escaneó el sabor equivocado")
     await click(button("Confirmar corrección"))
-    await waitFor(() => (document.body.textContent ?? "").includes("Venta corregida"))
+    await waitFor(() => text().includes("Venta corregida"))
     expect(posts).toHaveLength(2)
     expect(posts[1].key).toBe(posts[0].key)
     await act(async () => root.unmount())
@@ -193,8 +244,11 @@ describe("F4-B — owner correction form", () => {
     await act(async () => root.unmount())
   })
 
-  test("preview uses the charged price × quantity (same rule as the server)", () => {
+  test("pure helpers: preview = charged price × quantity; options follow the same-sale same-price rule", () => {
     expect(subtotalCorreccion(2000, 2)).toBe(4000)
     expect(subtotalCorreccion(3.33, 3)).toBe(9.99)
+    const items = baseVenta.items as Parameters<typeof opcionesCorreccion>[0]
+    expect(opcionesCorreccion(items, items[2]).map((o) => o.etiqueta)).toEqual(["Yerba"])
+    expect(opcionesCorreccion(items, items[0]).map((o) => o.key)).toEqual(["p-cola|", "p-lima|"])
   })
 })

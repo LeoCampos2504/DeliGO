@@ -745,6 +745,10 @@ export function ventaConDevolucionesParaRespuesta(
       cantidad: item.cantidad,
       subtotal: moneyToNumber(item.subtotal),
       corregida: item.corregida,
+      // F4-B (2026-11-05): original sale line (justification source of the
+      // allowed replacements) and the earlier-rule inherited-price flag.
+      precioHeredado: item.precioHeredado,
+      original: { productoId: original.productoId, productoVarianteId: original.productoVarianteId, nombre: original.nombre, varianteNombre: original.varianteNombre },
       cantidadDevuelta: devuelta.toNumber(),
       cantidadRestante: vendida.minus(devuelta).toNumber(),
       importeDevuelto: moneyToNumber(importeDevuelto),
@@ -816,7 +820,7 @@ export function correccionParaRespuesta(c: {
   motivo: string
   createdAt: Date
   totalDecimal: Prisma.Decimal
-  lineas: Array<{ ventaItemId: string; antesNombre: string; antesVarianteNombre: string | null; antesCantidad: number; antesProductoId: string | null; antesProductoVarianteId: string | null; nombre: string; varianteNombre: string | null; cantidad: number; productoId: string | null; productoVarianteId: string | null; precio: number }>
+  lineas: Array<{ ventaItemId: string; antesNombre: string; antesVarianteNombre: string | null; antesCantidad: number; antesProductoId: string | null; antesProductoVarianteId: string | null; nombre: string; varianteNombre: string | null; cantidad: number; productoId: string | null; productoVarianteId: string | null; precio: number; criterioPrecio?: string | null }>
 }) {
   return {
     id: c.id,
@@ -830,6 +834,7 @@ export function correccionParaRespuesta(c: {
       .map((l) => ({
         ventaItemId: l.ventaItemId,
         precio: l.precio,
+        criterioPrecio: l.criterioPrecio ?? null,
         antes: { nombre: nombreLinea({ nombre: l.antesNombre, varianteNombre: l.antesVarianteNombre }), cantidad: l.antesCantidad },
         despues: { nombre: nombreLinea(l), cantidad: l.cantidad },
       })),

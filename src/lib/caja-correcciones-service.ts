@@ -17,6 +17,13 @@
 //   - stock is adjusted with CORRECCION_ENTRADA / CORRECCION_SALIDA movements
 //     per product/variant (net per key), validated against physical stock minus
 //     active order reservations like a Caja sale.
+// Price rule revised by the operator (2026-11-05): a line keeps the unit price
+// actually charged, and the product it names must be JUSTIFIED at that price —
+// the same product/variant of the original line, or one that appears in
+// another original line of the same sale at exactly that price. A replacement
+// never silently takes another product's price, and the current catalog price
+// is never used (historical catalog prices are not recorded). Real exchanges
+// with money differences belong to F4-C. Also enforced in SQL.
 // Concurrency: the same sale-row lock as F4-A (no-op UPDATE) + Serializable
 // retries; an expected sequence number rejects edits made on a stale view;
 // Idempotency-Key + content fingerprint makes retries safe.
@@ -36,6 +43,22 @@ type Tx = Prisma.TransactionClient
 export const MOVIMIENTO_TIPO_CORRECCION_ENTRADA = "CORRECCION_ENTRADA"
 export const MOVIMIENTO_TIPO_CORRECCION_SALIDA = "CORRECCION_SALIDA"
 export const CORRECCION_LINEAS_MAX = 200
+export type CriterioPrecio = "MISMO_PRODUCTO" | "MISMA_VENTA"
+
+/**
+ * Why a product may be recorded on a sale line at the price charged on that
+ * line: it is the line's own product, or it appears in another original line of
+ * the same sale at exactly that unit price. null = not justified (refused).
+ */
+export function criterioPrecioLinea(
+  originales: ReadonlyArray<{ productoId: string | null; productoVarianteId: string | null; precio: number }>,
+  linea: { productoId: string | null; productoVarianteId: string | null; precio: number },
+  productoId: string | null,
+  varianteId: string | null
+): CriterioPrecio | null {
+  if (productoId === linea.productoId && varianteId === linea.productoVarianteId) return "MISMO_PRODUCTO"
+  return originales.some((o) => o.productoId === productoId && o.productoVarianteId === varianteId && o.precio === linea.precio) ? "MISMA_VENTA" : null
+}
 
 export type CorreccionResult<T> =
   | { ok: true; value: T }
@@ -119,6 +142,9 @@ export function mapCorreccionDbError(error: unknown): { status: 409; error: stri
   if (text.includes("sale correction is not allowed on a sale with returns")) {
     return { status: 409, error: "No se pueden corregir ventas con devoluciones o anulaciones.", code: "VENTA_CON_DEVOLUCIONES" }
   }
+  if (text.includes("sale correction replacement price is not justified")) {
+    return { status: 409, error: "El producto elegido no está justificado al precio cobrado de esa línea.", code: "PRECIO_NO_JUSTIFICADO" }
+  }
   if (text.includes("sale correction must keep the charged unit price")) {
     return { status: 409, error: "La corrección debe conservar el precio cobrado de cada línea.", code: "PRECIO_CORRECCION_INVALIDO" }
   }
@@ -156,6 +182,7 @@ type LineaNueva = {
   cantidad: Prisma.Decimal
   subtotal: Prisma.Decimal
   cambia: boolean
+  criterioPrecio: CriterioPrecio
 }
 
 async function replayCorreccion(reader: Pick<Tx, "correccionVenta">, negocioId: string, key: string, fingerprint: string) {
@@ -205,6 +232,13 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
         const vigente = lineaVigente(item, ultima)
         const pedida = pedidas.get(item.id)!
         const igual = pedida.productoId === vigente.productoId && pedida.varianteId === vigente.productoVarianteId
+        const criterioPrecio = criterioPrecioLinea(venta.items, item, pedida.productoId, pedida.varianteId)
+        if (!criterioPrecio) {
+          return fail(409, igual
+            ? `"${nombreLinea(vigente)}" quedó registrado con el precio cobrado de "${nombreLinea(item)}" (${money(D(item.precio))}) por la regla anterior. Para volver a corregir esta venta, esa línea debe tener un producto de la venta con ese mismo precio.`
+            : `El producto elegido no puede registrarse al precio cobrado de "${nombreLinea(item)}" (${money(D(item.precio))}): sólo se admite el mismo producto u otro de esta venta cobrado al mismo precio. Un cambio real de productos con diferencia de dinero no es una corrección.`,
+          "PRECIO_NO_JUSTIFICADO")
+        }
         let nombre = vigente.nombre
         let varianteNombre = vigente.varianteNombre
         if (!igual) {
@@ -241,6 +275,7 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
           cantidad: pedida.cantidad,
           subtotal,
           cambia: !igual || !pedida.cantidad.equals(D(vigente.cantidad)),
+          criterioPrecio,
         })
       }
 
@@ -309,6 +344,7 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
               cantidad: l.cantidad.toNumber(),
               precio: l.vigente.precio,
               subtotalDecimal: l.subtotal,
+              criterioPrecio: l.criterioPrecio,
             })),
           },
         },

@@ -9,6 +9,8 @@ on:
       - codex/f4-a-owner-bell-notification
       # CI-only run for F4-B (owner sale corrections) before integration; no deploy step.
       - codex/f4-b-owner-sale-corrections
+      # CI-only run for the F4-B justified-replacement-prices fix before integration; no deploy step.
+      - codex/f4-b-justified-prices
 
 permissions:
   contents: read

@@ -975,6 +975,11 @@ model CorreccionVentaLinea {
   cantidad                   Float
   precio                     Float // = VentaItem.precio (precio efectivamente cobrado; no editable)
   subtotalDecimal            Decimal  @db.Decimal(12, 2)
+  // F4-B (2026-11-05): why the named product is valid at that charged price —
+  // MISMO_PRODUCTO (same product/variant as the original line) | MISMA_VENTA
+  // (it appears in another original line of the same sale at that price).
+  // NULL = line recorded under the earlier inherited-price rule (history).
+  criterioPrecio             String?
   createdAt                  DateTime @default(now())
 
   correccion CorreccionVenta @relation(fields: [correccionId], references: [id], onDelete: Cascade)

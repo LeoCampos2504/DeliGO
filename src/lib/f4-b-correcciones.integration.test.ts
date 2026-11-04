@@ -125,64 +125,86 @@ const stockDe = async (productoId: string) => (await db.producto.findUniqueOrThr
 const correccion = (lineas: Array<{ ventaItemId: string; productoId: string | null; varianteId?: string | null; cantidad: number }>, secuenciaEsperada = 0, motivo = "Se escaneó el sabor equivocado") =>
   ({ motivo, confirmo: true, secuenciaEsperada, lineas: lineas.map((l) => ({ varianteId: null, ...l })) })
 
-describe("F4-B — owner corrects a sale of a closed shift: same total, stock moved, history kept", () => {
-  ephemeralTest("main flow, replay, stale view, then F4-A returns follow the corrected product", async () => {
+// Price rule revised by the operator (2026-11-05): a corrected line keeps the
+// unit price actually charged and may only name its own product or another
+// product of the SAME sale charged at exactly that price (no historical catalog
+// prices exist). Real exchanges with money differences belong to F4-C.
+const UNJUSTIFIED = "PRECIO_NO_JUSTIFICADO"
+
+describe("F4-B — owner corrects a sale of a closed shift: justified prices, same total, stock moved, history kept", () => {
+  ephemeralTest("main flow: unjustified replacements refused; same-sale same-price replacement accepted; replay, stale view, F4-A after it", async () => {
     const { negocio, owner } = await crearNegocio()
     const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000, { controlStock: true, stockCantidad: 10 })
-    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2200, { controlStock: true, stockCantidad: 10 })
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 10 })
     const yerba = await crearProducto(negocio.id, "Yerba", 5000, { controlStock: true, stockCantidad: 5 })
+    const naranja = await crearProducto(negocio.id, "Gaseosa Naranja", 2000, { controlStock: true, stockCantidad: 10 }) // not in the sale
+    const redmi = await crearProducto(negocio.id, "Redmi", 1000, { controlStock: true, stockCantidad: 10 }) // not in the sale, cheaper
     const caja = (await listarCajas(owner)).body.cajas[0]
     const ana = await crearCajero(negocio.id, "Ana")
 
     const turno = await abrirCajero(ana.cookie, negocio.slug, { cajaFisicaId: caja.id, fondoInicial: "1000.00" })
     expect(turno.status).toBe(201)
-    const venta = await venderCajero(ana.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: yerba.id, cantidad: 1 }] })
+    const venta = await venderCajero(ana.cookie, negocio.slug, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: lima.id, cantidad: 1 }, { productoId: yerba.id, cantidad: 1 }] })
     expect(venta.status).toBe(201)
-    expect(venta.body.total).toBe(9000)
-    expect((await cerrarCajero(ana.cookie, negocio.slug, turno.body.turno.id, "10000.00")).status).toBe(200)
-    // An old sale: corrections are allowed days later.
-    await db.venta.update({ where: { id: venta.body.id }, data: { createdAt: new Date(Date.now() - 10 * 86_400_000) } })
+    expect(venta.body.total).toBe(11000)
+    expect((await cerrarCajero(ana.cookie, negocio.slug, turno.body.turno.id, "12000.00")).status).toBe(200)
+    // The catalog price changes after the sale: the same-sale charged price still justifies.
+    await db.producto.update({ where: { id: lima.id }, data: { precio: 2500 } })
     const turnoAntes = await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.body.turno.id } })
     const ventaAntes = await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })
     const opsAntes = await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })
     const legsAntes = await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })
 
     const colaItem = itemDe(venta.body, cola.id)
+    const limaItem = itemDe(venta.body, lima.id)
     const yerbaItem = itemDe(venta.body, yerba.id)
-    const swap = correccion([{ ventaItemId: colaItem, productoId: lima.id, cantidad: 2 }, { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 }])
+    const lineas = (colaProducto: string, colaCantidad: number, limaCantidad = 1) => [
+      { ventaItemId: colaItem, productoId: colaProducto, cantidad: colaCantidad },
+      { ventaItemId: limaItem, productoId: lima.id, cantidad: limaCantidad },
+      { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 },
+    ]
+    const swap = correccion(lineas(lima.id, 2))
 
     // Validation never writes.
     expect((await corregir(owner, venta.body.id, { ...swap, motivo: " " })).body.code).toBe("MOTIVO_CORRECCION_REQUERIDO")
     expect((await corregir(owner, venta.body.id, { ...swap, confirmo: false })).body.code).toBe("CONFIRMACION_CORRECCION_REQUERIDA")
     expect((await corregir(owner, venta.body.id, swap, "")).body.code).toBe("IDEMPOTENCY_KEY_REQUIRED")
     expect((await corregir(owner, venta.body.id, { ...swap, lineas: [swap.lineas[0]] })).body.code).toBe("LINEAS_CORRECCION_INVALIDAS")
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: colaItem, productoId: cola.id, cantidad: 2 }, { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 }]))).body.code).toBe("CORRECCION_SIN_CAMBIOS")
+    expect((await corregir(owner, venta.body.id, correccion(lineas(cola.id, 2)))).body.code).toBe("CORRECCION_SIN_CAMBIOS")
     // A quantity change that alters the charged total is refused before writing.
-    const mas = await corregir(owner, venta.body.id, correccion([{ ventaItemId: colaItem, productoId: cola.id, cantidad: 3 }, { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 }]))
+    const mas = await corregir(owner, venta.body.id, correccion(lineas(cola.id, 3)))
     expect(mas.status).toBe(409)
     expect(mas.body.code).toBe("TOTAL_CORRECCION_DISTINTO")
+
+    // The reported bug: a replacement may NOT silently take another product's price.
+    const redmiAlPrecioDeCola = await corregir(owner, venta.body.id, correccion(lineas(redmi.id, 2))) // same total, Redmi at $2.000
+    expect(redmiAlPrecioDeCola.status).toBe(409)
+    expect(redmiAlPrecioDeCola.body.code).toBe(UNJUSTIFIED)
+    expect((await corregir(owner, venta.body.id, correccion(lineas(redmi.id, 4)))).body.code).toBe(UNJUSTIFIED) // 2 Saphirus → 4 Redmi: a combination, not supported
+    expect((await corregir(owner, venta.body.id, correccion(lineas(naranja.id, 2)))).body.code).toBe(UNJUSTIFIED) // same catalog price, not in the sale
+    expect((await corregir(owner, venta.body.id, correccion(lineas(yerba.id, 2)))).body.code).toBe(UNJUSTIFIED) // in the sale, other price
     expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(0)
     expect(await stockDe(cola.id)).toBe(8)
+    expect(await stockDe(redmi.id)).toBe(10)
 
-    // The correction: Cola → Lima at the price actually charged ($2.000, not Lima's $2.200).
+    // Accepted: Cola → Lima, justified by Lima's own line in THIS sale at $2.000 (catalog now $2.500).
     const key = randomUUID()
     const res = await corregir(owner, venta.body.id, { ...swap, precio: 1, total: 1 }, key)
     expect(res.status).toBe(201)
-    expect(res.body.correccion).toMatchObject({ secuencia: 1, motivo: "Se escaneó el sabor equivocado", registradaPor: "Dueño", total: 9000 })
-    expect(res.body.correccion.cambios).toEqual([{ ventaItemId: colaItem, precio: 2000, antes: { nombre: "Gaseosa Cola", cantidad: 2 }, despues: { nombre: "Gaseosa Lima", cantidad: 2 } }])
-    expect(res.body.venta).toMatchObject({ total: 9000, corregida: true, correccionSecuencia: 1 })
-    expect(res.body.venta.items.find((i: { id: string }) => i.id === colaItem)).toMatchObject({ productoId: lima.id, nombre: "Gaseosa Lima", precio: 2000, cantidad: 2, subtotal: 4000, corregida: true })
+    expect(res.body.correccion).toMatchObject({ secuencia: 1, motivo: "Se escaneó el sabor equivocado", registradaPor: "Dueño", total: 11000 })
+    expect(res.body.correccion.cambios).toEqual([{ ventaItemId: colaItem, precio: 2000, criterioPrecio: "MISMA_VENTA", antes: { nombre: "Gaseosa Cola", cantidad: 2 }, despues: { nombre: "Gaseosa Lima", cantidad: 2 } }])
+    expect(res.body.venta).toMatchObject({ total: 11000, corregida: true, correccionSecuencia: 1 })
+    expect(res.body.venta.items.find((i: { id: string }) => i.id === colaItem)).toMatchObject({ productoId: lima.id, nombre: "Gaseosa Lima", precio: 2000, cantidad: 2, subtotal: 4000, corregida: true, precioHeredado: false })
 
     // Nothing original changed: sale, lines, cobro, ledger, shift closure.
-    const ventaDespues = await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })
-    expect(ventaDespues).toEqual(ventaAntes)
+    expect(await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })).toEqual(ventaAntes)
     expect(await db.operacionFinanciera.count({ where: { negocioId: negocio.id } })).toBe(opsAntes)
     expect(await db.movimientoFinanciero.count({ where: { negocioId: negocio.id } })).toBe(legsAntes)
     expect(await db.turnoCaja.findUniqueOrThrow({ where: { id: turno.body.turno.id } })).toEqual(turnoAntes)
-    expect((await calcularSnapshotEfectivoTurno(db, negocio.id, turno.body.turno.id))!.esperado.toFixed(2)).toBe("10000.00")
+    expect((await calcularSnapshotEfectivoTurno(db, negocio.id, turno.body.turno.id))!.esperado.toFixed(2)).toBe("12000.00")
     // Stock: Cola back, Lima out — one compensating movement each, linked to the correction.
     expect(await stockDe(cola.id)).toBe(10)
-    expect(await stockDe(lima.id)).toBe(8)
+    expect(await stockDe(lima.id)).toBe(7)
     expect(await stockDe(yerba.id)).toBe(4)
     const movs = await db.movimientoInventario.findMany({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } }, orderBy: { tipo: "asc" } })
     expect(movs.map((m) => [m.tipo, m.productoId, m.cantidad, m.ventaId])).toEqual([
@@ -192,8 +214,9 @@ describe("F4-B — owner corrects a sale of a closed shift: same total, stock mo
     const fila = await db.correccionVenta.findUniqueOrThrow({ where: { id: res.body.correccion.id }, include: { lineas: true } })
     expect(movs.every((m) => m.correccionVentaId === fila.id)).toBe(true)
     expect(fila).toMatchObject({ actorTipo: "NEGOCIO", actorId: negocio.id, secuencia: 1 })
-    expect(fila.totalDecimal.toFixed(2)).toBe("9000.00")
-    expect(fila.lineas.find((l) => l.ventaItemId === colaItem)).toMatchObject({ antesProductoId: cola.id, antesNombre: "Gaseosa Cola", antesCantidad: 2, productoId: lima.id, nombre: "Gaseosa Lima", cantidad: 2, precio: 2000 })
+    expect(fila.totalDecimal.toFixed(2)).toBe("11000.00")
+    expect(fila.lineas.find((l) => l.ventaItemId === colaItem)).toMatchObject({ antesProductoId: cola.id, antesNombre: "Gaseosa Cola", antesCantidad: 2, productoId: lima.id, nombre: "Gaseosa Lima", cantidad: 2, precio: 2000, criterioPrecio: "MISMA_VENTA" })
+    expect(fila.lineas.find((l) => l.ventaItemId === yerbaItem)).toMatchObject({ criterioPrecio: "MISMO_PRODUCTO" })
     expect(await db.auditLog.count({ where: { recursoId: venta.body.id, accion: "venta.corregida" } })).toBe(1)
 
     // Replay / reused key / stale view.
@@ -201,9 +224,9 @@ describe("F4-B — owner corrects a sale of a closed shift: same total, stock mo
     expect(replay.status).toBe(200)
     expect(replay.replayed).toBe(true)
     expect((await corregir(owner, venta.body.id, { ...swap, motivo: "Otro" }, key)).body.code).toBe("IDEMPOTENCY_KEY_REUSED")
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: colaItem, productoId: cola.id, cantidad: 2 }, { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 }], 0))).body.code).toBe("VENTA_MODIFICADA")
+    expect((await corregir(owner, venta.body.id, correccion(lineas(cola.id, 2), 0))).body.code).toBe("VENTA_MODIFICADA")
     expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(1)
-    expect(await stockDe(lima.id)).toBe(8)
+    expect(await stockDe(lima.id)).toBe(7)
 
     // Views: the owner sees the history; the cashier sees the corrected lines but no history.
     expect((await detalleOwner(owner, venta.body.id)).body.venta.correcciones).toHaveLength(1)
@@ -211,79 +234,84 @@ describe("F4-B — owner corrects a sale of a closed shift: same total, stock mo
     expect(vistaCajero.body.venta.correcciones).toEqual([])
     expect(vistaCajero.body.venta.items.find((i: { id: string }) => i.id === colaItem).nombre).toBe("Gaseosa Lima")
 
-    // F4-A after a correction: the return restocks Lima (the product that left), at the charged price.
+    // F4-A after a correction: the return restocks Lima at the price justified for Lima ($2.000).
     const dev = await devolverCajero(ana.cookie, negocio.slug, venta.body.id, { tipo: "DEVOLUCION_PARCIAL", motivo: "No le gustó", confirmo: true, reintegro: { modo: "PENDIENTE" }, items: [{ ventaItemId: colaItem, cantidad: 1, reingresaStock: true }] })
     expect(dev.status).toBe(201)
     expect(dev.body.devolucion).toMatchObject({ importe: 2000 })
     expect(dev.body.devolucion.items[0]).toMatchObject({ nombre: "Gaseosa Lima", stockResultado: "REINGRESADO" })
-    expect(await stockDe(lima.id)).toBe(9)
+    expect(await stockDe(lima.id)).toBe(8)
     expect(await stockDe(cola.id)).toBe(10)
     // Once it has returns, the sale can no longer be corrected.
-    const tarde = await corregir(owner, venta.body.id, correccion([{ ventaItemId: colaItem, productoId: cola.id, cantidad: 2 }, { ventaItemId: yerbaItem, productoId: yerba.id, cantidad: 1 }], 1))
+    const tarde = await corregir(owner, venta.body.id, correccion(lineas(cola.id, 2), 1))
     expect(tarde.status).toBe(409)
     expect(tarde.body.code).toBe("VENTA_CON_DEVOLUCIONES")
     // F4-A cap still holds on the corrected line (1 left of 2).
     expect((await devolverCajero(ana.cookie, negocio.slug, venta.body.id, { tipo: "DEVOLUCION_PARCIAL", motivo: "m", confirmo: true, reintegro: { modo: "PENDIENTE" }, items: [{ ventaItemId: colaItem, cantidad: 2, reingresaStock: false }] })).body.code).toBe("CANTIDAD_DEVOLUCION_EXCEDIDA")
 
-    // DB invariants: immutable history, exact total and charged price.
+    // DB invariants: immutable history.
     expect(await fails(db.correccionVenta.update({ where: { id: fila.id }, data: { motivo: "cambiado" } }))).toBe(true)
     expect(await fails(db.correccionVentaLinea.updateMany({ where: { correccionId: fila.id }, data: { cantidad: 5 } }))).toBe(true)
   })
 })
 
 describe("F4-B — rules, permissions, stock and concurrency", () => {
-  ephemeralTest("redistribution with the charged prices; variants; invalid products; stock limit", async () => {
+  ephemeralTest("redistribution at the charged prices; variants; deleted/inactive justified products; stock limit", async () => {
     const { negocio, owner } = await crearNegocio()
     const a = await crearProducto(negocio.id, "Alfajor", 1000, { controlStock: true, stockCantidad: 10 })
     const b = await crearProducto(negocio.id, "Budín", 2000, { controlStock: true, stockCantidad: 10 })
-    const conVariantes = await crearProducto(negocio.id, "Remera", 3000)
-    const roja = await db.productoVariante.create({ data: { productoId: conVariantes.id, nombre: "Roja", precio: 9999, controlStock: true, stockCantidad: 1 } })
-    const azul = await db.productoVariante.create({ data: { productoId: conVariantes.id, nombre: "Azul", precio: 3000, activo: false } })
-    const escaso = await crearProducto(negocio.id, "Escaso", 500, { controlStock: true, stockCantidad: 1 })
     const venta = await venderOwner(owner, { metodoPago: "TRANSFERENCIA", items: [{ productoId: a.id, cantidad: 2 }, { productoId: b.id, cantidad: 1 }] })
     expect(venta.status).toBe(201)
     const ai = itemDe(venta.body, a.id)
     const bi = itemDe(venta.body, b.id)
 
-    // Product of another business / inactive or missing variant / variant on a product without variants.
+    // A product of another business / a product not in the sale is never justified.
     const otro = await crearNegocio()
     const ajeno = await crearProducto(otro.negocio.id, "Ajeno", 1000)
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: ajeno.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))).body.code).toBe("PRODUCTO_CORRECCION_INVALIDO")
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: conVariantes.id, varianteId: azul.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))).body.code).toBe("PRODUCTO_CORRECCION_INVALIDO")
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: conVariantes.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))).body.code).toBe("PRODUCTO_CORRECCION_INVALIDO")
-    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, varianteId: roja.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))).body.code).toBe("PRODUCTO_CORRECCION_INVALIDO")
-    // Not enough stock of the replacement → refused, nothing written.
-    const sinStock = await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: escaso.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))
+    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: ajeno.id, cantidad: 2 }, { ventaItemId: bi, productoId: b.id, cantidad: 1 }]))).body.code).toBe(UNJUSTIFIED)
+    // Alfajor ($1.000) cannot be recorded on the Budín line ($2.000) and vice versa.
+    expect((await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, cantidad: 2 }, { ventaItemId: bi, productoId: a.id, cantidad: 1 }]))).body.code).toBe(UNJUSTIFIED)
+    // Not enough stock for a redistribution → refused, nothing written.
+    await db.producto.update({ where: { id: b.id }, data: { stockCantidad: 0 } })
+    const sinStock = await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, cantidad: 0 }, { ventaItemId: bi, productoId: b.id, cantidad: 2 }]))
     expect(sinStock.status).toBe(409)
     expect(sinStock.body.code).toBe("STOCK_INSUFICIENTE")
-    // Variant: 1 unit of a variant in stock, price $9.999 in the catalog → the line keeps $1.000 charged.
-    // Redistribution: 2×A($1000) + 1×B($2000) = $4000 → 0×A + 2×B = $4000 (charged prices).
+    await db.producto.update({ where: { id: b.id }, data: { stockCantidad: 9 } })
+    // Redistribution: 2×A($1000) + 1×B($2000) = $4000 → 0×A + 2×B = $4000 (each at its own charged price).
     const ok = await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, cantidad: 0 }, { ventaItemId: bi, productoId: b.id, cantidad: 2 }]))
     expect(ok.status).toBe(201)
     expect(ok.body.venta.total).toBe(4000)
     expect(await stockDe(a.id)).toBe(10)
     expect(await stockDe(b.id)).toBe(8)
-    expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(1)
-    // A second correction builds on the first (sequence 1 → 2), swapping B for the red variant is not
-    // possible at $2.000 × 2 with only 1 in stock; one unit each keeps $4.000? no: 1×B + 1×Roja($2000 charged) = $4000.
-    const variante = await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, cantidad: 0 }, { ventaItemId: bi, productoId: conVariantes.id, varianteId: roja.id, cantidad: 2 }], 1))
-    expect(variante.body.code).toBe("STOCK_INSUFICIENTE")
-    expect(await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } }).then((v) => v.stockCantidad)).toBe(1)
-    const b2 = await corregir(owner, venta.body.id, correccion([{ ventaItemId: ai, productoId: a.id, cantidad: 2 }, { ventaItemId: bi, productoId: conVariantes.id, varianteId: roja.id, cantidad: 1 }], 1))
-    expect(b2.status).toBe(201)
-    expect(b2.body.venta.items.find((i: { id: string }) => i.id === bi)).toMatchObject({ nombre: "Remera", varianteNombre: "Roja", precio: 2000, cantidad: 1, subtotal: 2000 })
-    expect(await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } }).then((v) => v.stockCantidad)).toBe(0)
-    expect(await stockDe(b.id)).toBe(10)
-    expect(await stockDe(a.id)).toBe(8)
-    // The payment method and cobro never change.
     expect((await db.venta.findUniqueOrThrow({ where: { id: venta.body.id } })).metodoPago).toBe("TRANSFERENCIA")
     expect(await db.cobroVenta.count({ where: { ventaId: venta.body.id } })).toBe(1)
+
+    // Variants: two variants of the same product sold at the same price justify each other.
+    const remera = await crearProducto(negocio.id, "Remera", 3000)
+    const roja = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Roja", precio: 3000, controlStock: true, stockCantidad: 5 } })
+    const azul = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Azul", precio: 3000, controlStock: true, stockCantidad: 5 } })
+    const verde = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Verde", precio: 3000, controlStock: true, stockCantidad: 5 } })
+    const v2 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: remera.id, varianteId: roja.id, cantidad: 1 }, { productoId: remera.id, varianteId: azul.id, cantidad: 1 }] })
+    expect(v2.status).toBe(201)
+    const rojaItem = v2.body.items.find((i: { productoVarianteId?: string | null }) => i.productoVarianteId === roja.id).id
+    const azulItem = v2.body.items.find((i: { productoVarianteId?: string | null }) => i.productoVarianteId === azul.id).id
+    // Verde has the same catalog price but was not in the sale → refused.
+    expect((await corregir(owner, v2.body.id, correccion([{ ventaItemId: rojaItem, productoId: remera.id, varianteId: verde.id, cantidad: 1 }, { ventaItemId: azulItem, productoId: remera.id, varianteId: azul.id, cantidad: 1 }]))).body.code).toBe(UNJUSTIFIED)
+    // A justified variant that was later deactivated cannot be used.
+    await db.productoVariante.update({ where: { id: azul.id }, data: { activo: false } })
+    expect((await corregir(owner, v2.body.id, correccion([{ ventaItemId: rojaItem, productoId: remera.id, varianteId: azul.id, cantidad: 1 }, { ventaItemId: azulItem, productoId: remera.id, varianteId: azul.id, cantidad: 1 }]))).body.code).toBe("PRODUCTO_CORRECCION_INVALIDO")
+    await db.productoVariante.update({ where: { id: azul.id }, data: { activo: true } })
+    const varOk = await corregir(owner, v2.body.id, correccion([{ ventaItemId: rojaItem, productoId: remera.id, varianteId: azul.id, cantidad: 1 }, { ventaItemId: azulItem, productoId: remera.id, varianteId: azul.id, cantidad: 1 }]))
+    expect(varOk.status).toBe(201)
+    expect(varOk.body.venta.items.find((i: { id: string }) => i.id === rojaItem)).toMatchObject({ nombre: "Remera", varianteNombre: "Azul", precio: 3000, cantidad: 1, subtotal: 3000 })
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } })).stockCantidad).toBe(5)
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: azul.id } })).stockCantidad).toBe(3)
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: verde.id } })).stockCantidad).toBe(5)
   })
 
-  ephemeralTest("owner only: employee session, other business, no cashier route; SQL keeps total and price", async () => {
+  ephemeralTest("owner only: employee session, other business, no cashier route; SQL keeps total, price and justification", async () => {
     const { negocio, owner } = await crearNegocio()
     const p = await crearProducto(negocio.id, "Libro", 7000)
-    const q = await crearProducto(negocio.id, "Cuaderno", 9000)
+    const q = await crearProducto(negocio.id, "Cuaderno", 7000)
     const cajero = await crearCajero(negocio.id)
     const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: p.id, cantidad: 1 }] })
     const item = itemDe(venta.body, p.id)
@@ -297,13 +325,15 @@ describe("F4-B — rules, permissions, stock and concurrency", () => {
     expect(Object.keys(correccionModule).sort()).toEqual(["POST"])
     expect(existsSync(join(process.cwd(), "src/app/api/operativo/caja/[slug]/ventas/[id]/correcciones"))).toBe(false)
 
-    // SQL guards (defense in depth): wrong total, employee actor, wrong price.
+    // SQL guards (defense in depth): wrong total, employee actor, wrong price, unjustified product.
     expect(await fails(db.correccionVenta.create({ data: { negocioId: negocio.id, ventaId: venta.body.id, secuencia: 1, motivo: "m", actorTipo: "NEGOCIO", actorId: negocio.id, totalDecimal: D("6999.99"), idempotencyKey: randomUUID(), idempotencyFingerprint: "x" } }))).toBe(true)
     expect(await fails(db.correccionVenta.create({ data: { negocioId: negocio.id, ventaId: venta.body.id, secuencia: 1, motivo: "m", actorTipo: "EMPLEADO", actorId: cajero.empleado.id, totalDecimal: D("7000"), idempotencyKey: randomUUID(), idempotencyFingerprint: "x" } }))).toBe(true)
-    expect(await fails(db.correccionVenta.create({ data: {
+    const conLinea = (linea: Record<string, unknown>) => db.correccionVenta.create({ data: {
       negocioId: negocio.id, ventaId: venta.body.id, secuencia: 1, motivo: "m", actorTipo: "NEGOCIO", actorId: negocio.id, totalDecimal: D("7000"), idempotencyKey: randomUUID(), idempotencyFingerprint: "x",
-      lineas: { create: [{ negocioId: negocio.id, ventaId: venta.body.id, ventaItemId: item, antesNombre: "Libro", antesCantidad: 1, nombre: "Cuaderno", productoId: q.id, cantidad: 1, precio: 9000, subtotalDecimal: D("7000") }] },
-    } }))).toBe(true)
+      lineas: { create: [{ negocioId: negocio.id, ventaId: venta.body.id, ventaItemId: item, antesNombre: "Libro", antesCantidad: 1, nombre: "Cuaderno", productoId: q.id, cantidad: 1, precio: 7000, subtotalDecimal: D("7000"), ...linea }] },
+    } })
+    expect(await fails(conLinea({ precio: 9000 }))).toBe(true) // not the charged price
+    expect(await fails(conLinea({}))).toBe(true) // Cuaderno at Libro's price: same catalog price, but not in the sale
     expect(await db.correccionVenta.count({ where: { ventaId: venta.body.id } })).toBe(0)
   })
 
@@ -312,32 +342,34 @@ describe("F4-B — rules, permissions, stock and concurrency", () => {
     const x = await crearProducto(negocio.id, "X", 1500, { controlStock: true, stockCantidad: 10 })
     const y = await crearProducto(negocio.id, "Y", 1500, { controlStock: true, stockCantidad: 10 })
     const cajero = await crearCajero(negocio.id)
-    const v1 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: x.id, cantidad: 2 }] })
-    const i1 = itemDe(v1.body, x.id)
+    const venderXY = (cantidadX: number) => venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: x.id, cantidad: cantidadX }, { productoId: y.id, cantidad: 1 }] })
+    const xEnY = (venta: { items: Array<{ id: string; productoId: string | null }> }, cantidad: number, secuencia = 0, motivo?: string) =>
+      correccion([{ ventaItemId: itemDe(venta, x.id), productoId: y.id, cantidad }, { ventaItemId: itemDe(venta, y.id), productoId: y.id, cantidad: 1 }], secuencia, motivo)
+
+    const v1 = await venderXY(2)
     const race = await Promise.all([
-      corregir(owner, v1.body.id, correccion([{ ventaItemId: i1, productoId: y.id, cantidad: 2 }])),
-      corregir(owner, v1.body.id, correccion([{ ventaItemId: i1, productoId: y.id, cantidad: 2 }], 0, "Otro motivo")),
+      corregir(owner, v1.body.id, xEnY(v1.body, 2)),
+      corregir(owner, v1.body.id, xEnY(v1.body, 2, 0, "Otro motivo")),
     ])
     expect(race.map((r) => r.status).sort()).toEqual([201, 409])
     expect(race.find((r) => r.status === 409)!.body.code).toBe("VENTA_MODIFICADA")
     expect(await db.correccionVenta.count({ where: { ventaId: v1.body.id } })).toBe(1)
     expect(await stockDe(x.id)).toBe(10)
-    expect(await stockDe(y.id)).toBe(8)
+    expect(await stockDe(y.id)).toBe(7)
 
     // Burst with the same key → a single correction.
-    const v2 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: x.id, cantidad: 1 }] })
-    const i2 = itemDe(v2.body, x.id)
+    const v2 = await venderXY(1)
     const key = randomUUID()
-    const burst = await Promise.all(Array.from({ length: 4 }, () => corregir(owner, v2.body.id, correccion([{ ventaItemId: i2, productoId: y.id, cantidad: 1 }]), key)))
+    const burst = await Promise.all(Array.from({ length: 4 }, () => corregir(owner, v2.body.id, xEnY(v2.body, 1), key)))
     expect(burst.every((r) => r.status === 201 || r.status === 200)).toBe(true)
     expect(await db.correccionVenta.count({ where: { ventaId: v2.body.id } })).toBe(1)
 
     // Correction vs return on the same sale at the same time: either the correction
     // happened first (then the return applies to it), or the return won and the correction is refused.
-    const v3 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: x.id, cantidad: 2 }] })
+    const v3 = await venderXY(2)
     const i3 = itemDe(v3.body, x.id)
     const [corr, dev] = await Promise.all([
-      corregir(owner, v3.body.id, correccion([{ ventaItemId: i3, productoId: y.id, cantidad: 2 }])),
+      corregir(owner, v3.body.id, xEnY(v3.body, 2)),
       devolverCajero(cajero.cookie, negocio.slug, v3.body.id, { tipo: "DEVOLUCION_PARCIAL", motivo: "m", confirmo: true, reintegro: { modo: "PENDIENTE" }, items: [{ ventaItemId: i3, cantidad: 1, reingresaStock: true }] }),
     ])
     expect(dev.status).toBe(201)
@@ -355,6 +387,76 @@ describe("F4-B — rules, permissions, stock and concurrency", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Compatibility (2026-11-05): corrections recorded under the EARLIER rule (a
+// replacement inherited another product's charged price) stay as immutable
+// history. They are flagged; F4-A keeps refunding what was actually charged;
+// a new correction must first give that line a justified product.
+// ---------------------------------------------------------------------------
+async function correccionReglaAnterior(params: { negocioId: string; ventaId: string; ventaItemId: string; antes: { id: string; nombre: string }; despues: { id: string; nombre: string }; precio: number; cantidad: number; total: number; otras: Array<{ ventaItemId: string; productoId: string; nombre: string; precio: number; cantidad: number }> }) {
+  // Fixture: only possible with triggers bypassed for this transaction (the
+  // current guard refuses such lines); mirrors rows written before 2026-11-05.
+  return db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+    return tx.correccionVenta.create({
+      data: {
+        negocioId: params.negocioId, ventaId: params.ventaId, secuencia: 1, motivo: "Regla anterior", actorTipo: "NEGOCIO", actorId: params.negocioId,
+        totalDecimal: D(String(params.total)), idempotencyKey: randomUUID(), idempotencyFingerprint: "legacy",
+        lineas: {
+          create: [
+            { negocioId: params.negocioId, ventaId: params.ventaId, ventaItemId: params.ventaItemId, antesProductoId: params.antes.id, antesNombre: params.antes.nombre, antesCantidad: params.cantidad, productoId: params.despues.id, nombre: params.despues.nombre, cantidad: params.cantidad, precio: params.precio, subtotalDecimal: D(String(params.precio * params.cantidad)) },
+            ...params.otras.map((o) => ({ negocioId: params.negocioId, ventaId: params.ventaId, ventaItemId: o.ventaItemId, antesProductoId: o.productoId, antesNombre: o.nombre, antesCantidad: o.cantidad, productoId: o.productoId, nombre: o.nombre, cantidad: o.cantidad, precio: o.precio, subtotalDecimal: D(String(o.precio * o.cantidad)) })),
+          ],
+        },
+      },
+    })
+  })
+}
+
+describe("F4-B — compatibility with corrections recorded under the earlier inherited-price rule", () => {
+  ephemeralTest("flagged in views, F4-A refunds the charged price, and the line must be justified before any new correction", async () => {
+    const { negocio, owner } = await crearNegocio()
+    const saphirus = await crearProducto(negocio.id, "Saphirus", 2000, { controlStock: true, stockCantidad: 10 })
+    const redmi = await crearProducto(negocio.id, "Redmi", 1000, { controlStock: true, stockCantidad: 10 })
+    const yerba = await crearProducto(negocio.id, "Yerba", 5000)
+    const cajero = await crearCajero(negocio.id)
+
+    // Sale A: 2 Saphirus + 1 Yerba, corrected under the earlier rule to 2 Redmi at $2.000.
+    const a = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: saphirus.id, cantidad: 2 }, { productoId: yerba.id, cantidad: 1 }] })
+    const aSaph = itemDe(a.body, saphirus.id)
+    const aYerba = itemDe(a.body, yerba.id)
+    await correccionReglaAnterior({ negocioId: negocio.id, ventaId: a.body.id, ventaItemId: aSaph, antes: { id: saphirus.id, nombre: "Saphirus" }, despues: { id: redmi.id, nombre: "Redmi" }, precio: 2000, cantidad: 2, total: 9000, otras: [{ ventaItemId: aYerba, productoId: yerba.id, nombre: "Yerba", precio: 5000, cantidad: 1 }] })
+    const vista = (await detalleOwner(owner, a.body.id)).body.venta
+    expect(vista.items.find((i: { id: string }) => i.id === aSaph)).toMatchObject({ nombre: "Redmi", precio: 2000, precioHeredado: true, original: { productoId: saphirus.id, nombre: "Saphirus" } })
+    expect(vista.correcciones[0].cambios[0]).toMatchObject({ criterioPrecio: null, antes: { nombre: "Saphirus" }, despues: { nombre: "Redmi" } })
+    expect(await db.correccionVentaLinea.count({ where: { ventaId: a.body.id, criterioPrecio: null } })).toBe(2) // history untouched
+
+    // Any new correction must first give that line a justified product.
+    const mantiene = await corregir(owner, a.body.id, correccion([{ ventaItemId: aSaph, productoId: redmi.id, cantidad: 2 }, { ventaItemId: aYerba, productoId: yerba.id, cantidad: 1 }], 1, "Otro ajuste"))
+    expect(mantiene.status).toBe(409)
+    expect(mantiene.body.code).toBe(UNJUSTIFIED)
+    expect(mantiene.body.error).toContain("por la regla anterior")
+    expect(await db.correccionVenta.count({ where: { ventaId: a.body.id } })).toBe(1)
+    // Reverting it to the original product is justified (stock moves back: +2 Redmi, −2 Saphirus).
+    const saphAntes = await stockDe(saphirus.id)
+    const redmiAntes = await stockDe(redmi.id)
+    const revertir = await corregir(owner, a.body.id, correccion([{ ventaItemId: aSaph, productoId: saphirus.id, cantidad: 2 }, { ventaItemId: aYerba, productoId: yerba.id, cantidad: 1 }], 1, "Precio heredado de la regla anterior"))
+    expect(revertir.status).toBe(201)
+    expect(revertir.body.venta.items.find((i: { id: string }) => i.id === aSaph)).toMatchObject({ nombre: "Saphirus", precioHeredado: false })
+    expect(await stockDe(saphirus.id)).toBe(saphAntes - 2)
+    expect(await stockDe(redmi.id)).toBe(redmiAntes + 2)
+
+    // Sale B: same earlier-rule correction, then an F4-A return — still refunds what was charged ($2.000).
+    const b = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: saphirus.id, cantidad: 2 }] })
+    const bSaph = itemDe(b.body, saphirus.id)
+    await correccionReglaAnterior({ negocioId: negocio.id, ventaId: b.body.id, ventaItemId: bSaph, antes: { id: saphirus.id, nombre: "Saphirus" }, despues: { id: redmi.id, nombre: "Redmi" }, precio: 2000, cantidad: 2, total: 4000, otras: [] })
+    const dev = await devolverCajero(cajero.cookie, negocio.slug, b.body.id, { tipo: "DEVOLUCION_PARCIAL", motivo: "m", confirmo: true, reintegro: { modo: "PENDIENTE" }, items: [{ ventaItemId: bSaph, cantidad: 1, reingresaStock: false }] })
+    expect(dev.status).toBe(201)
+    expect(dev.body.devolucion).toMatchObject({ importe: 2000 })
+    expect(dev.body.venta.items.find((i: { id: string }) => i.id === bSaph)).toMatchObject({ precioHeredado: true })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // P2-A (review 2026-10-28) — the owner's daily list carries the CURRENT lines of
 // corrected sales; the sale objects stay the original records.
 // ---------------------------------------------------------------------------
@@ -362,15 +464,16 @@ describe("F4-B P2-A — owner recent sales expose current lines of corrected sal
   ephemeralTest("GET /api/negocio/caja/ventas: correccionesPorVenta only for corrected sales; totals and sale rows unchanged", async () => {
     const { negocio, owner } = await crearNegocio()
     const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000)
-    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2200)
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000)
     const yerba = await crearProducto(negocio.id, "Yerba", 5000)
-    const corregida = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: yerba.id, cantidad: 1 }] })
+    const corregida = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: lima.id, cantidad: 1 }, { productoId: yerba.id, cantidad: 1 }] })
     const intacta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: yerba.id, cantidad: 1 }] })
     const antes = await json(await getVentasHoy(req("/api/negocio/caja/ventas", owner)))
     expect(antes.body.correccionesPorVenta).toEqual({})
 
     const res = await corregir(owner, corregida.body.id, correccion([
       { ventaItemId: itemDe(corregida.body, cola.id), productoId: lima.id, cantidad: 2 },
+      { ventaItemId: itemDe(corregida.body, lima.id), productoId: lima.id, cantidad: 1 },
       { ventaItemId: itemDe(corregida.body, yerba.id), productoId: yerba.id, cantidad: 1 },
     ]))
     expect(res.status).toBe(201)
@@ -378,17 +481,14 @@ describe("F4-B P2-A — owner recent sales expose current lines of corrected sal
     const despues = await json(await getVentasHoy(req("/api/negocio/caja/ventas", owner)))
     expect(despues.status).toBe(200)
     expect(Object.keys(despues.body.correccionesPorVenta)).toEqual([corregida.body.id])
-    expect(despues.body.correccionesPorVenta[corregida.body.id]).toEqual({
-      secuencia: 1,
-      items: [
-        { id: itemDe(corregida.body, cola.id), productoId: lima.id, nombre: "Gaseosa Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotal: 4000 },
-        { id: itemDe(corregida.body, yerba.id), productoId: yerba.id, nombre: "Yerba", varianteNombre: null, precio: 5000, cantidad: 1, subtotal: 5000 },
-      ],
-    })
+    const items = despues.body.correccionesPorVenta[corregida.body.id].items as Array<{ id: string; nombre: string; precio: number; cantidad: number; subtotal: number }>
+    expect(despues.body.correccionesPorVenta[corregida.body.id].secuencia).toBe(1)
+    expect(items.find((i) => i.id === itemDe(corregida.body, cola.id))).toMatchObject({ nombre: "Gaseosa Lima", precio: 2000, cantidad: 2, subtotal: 4000 })
+    expect(items.find((i) => i.id === itemDe(corregida.body, yerba.id))).toMatchObject({ nombre: "Yerba", precio: 5000, cantidad: 1, subtotal: 5000 })
     // The sale records themselves (and the daily totals) are unchanged.
     expect(despues.body.ventasHoy).toEqual(antes.body.ventasHoy)
     expect(despues.body.resumenHoy).toEqual(antes.body.resumenHoy)
-    expect(despues.body.ventasHoy.find((v: { id: string }) => v.id === corregida.body.id).items.map((i: { nombre: string }) => i.nombre).sort()).toEqual(["Gaseosa Cola", "Yerba"])
+    expect(despues.body.ventasHoy.find((v: { id: string }) => v.id === corregida.body.id).items.map((i: { nombre: string }) => i.nombre).sort()).toEqual(["Gaseosa Cola", "Gaseosa Lima", "Yerba"])
     expect(despues.body.correccionesPorVenta[intacta.body.id]).toBeUndefined()
     // Another business never sees it.
     const otro = await crearNegocio()
@@ -402,6 +502,7 @@ describe("F4-B P2-A — owner recent sales expose current lines of corrected sal
 // leerDisponibilidadStock and the ACTIVA row written by reservarStockPedido in a
 // Serializable transaction (runStockSerializable) — no parallel implementation,
 // and the platform reservation mode is not switched (other suites share the DB).
+// Under the 2026-11-05 price rule the replacement is always a product of the sale.
 // ---------------------------------------------------------------------------
 class ReservaRechazada extends Error {}
 
@@ -444,14 +545,15 @@ describe("F4-B P2-B — corrections respect active order reservations", () => {
   ephemeralTest("product: exceeding (physical − reserved) is refused and writes nothing; within it, exact compensating movements once", async () => {
     const { negocio, owner } = await crearNegocio()
     const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000, { controlStock: true, stockCantidad: 10 })
-    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 5 })
-    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }] })
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 6 })
+    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: lima.id, cantidad: 1 }] })
     expect(venta.status).toBe(201)
     const item = itemDe(venta.body, cola.id)
+    const limaItem = itemDe(venta.body, lima.id)
     expect((await reservar(negocio, lima.id, null, 4)).count).toBe(1) // physical 5, reserved 4 → available 1
 
     const ventaAntes = await db.venta.findUniqueOrThrow({ where: { id: venta.body.id }, include: { items: true, cobros: true } })
-    const rechazo = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }]))
+    const rechazo = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }, { ventaItemId: limaItem, productoId: lima.id, cantidad: 1 }]))
     expect(rechazo.status).toBe(409)
     expect(rechazo.body.code).toBe("STOCK_INSUFICIENTE")
     expect(rechazo.body.error).toContain("reservadas para pedidos")
@@ -462,23 +564,28 @@ describe("F4-B P2-B — corrections respect active order reservations", () => {
     expect(await reservasActivas(negocio.id, lima.id)).toBe(4)
     expect(await db.movimientoInventario.count({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } } })).toBe(0)
 
-    // Second product with enough available stock next to its reservation.
-    const naranja = await crearProducto(negocio.id, "Gaseosa Naranja", 2000, { controlStock: true, stockCantidad: 5 })
-    expect((await reservar(negocio, naranja.id, null, 3)).count).toBe(1) // available 2
+    // Second sale whose same-price product has enough available stock next to its reservation.
+    const naranja = await crearProducto(negocio.id, "Gaseosa Naranja", 2000, { controlStock: true, stockCantidad: 6 })
+    const venta2 = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: naranja.id, cantidad: 1 }] })
+    expect(venta2.status).toBe(201)
+    const item2 = itemDe(venta2.body, cola.id)
+    const naranjaItem = itemDe(venta2.body, naranja.id)
+    expect((await reservar(negocio, naranja.id, null, 3)).count).toBe(1) // physical 5, reserved 3 → available 2
+    const body2 = correccion([{ ventaItemId: item2, productoId: naranja.id, cantidad: 2 }, { ventaItemId: naranjaItem, productoId: naranja.id, cantidad: 1 }])
     const key = randomUUID()
-    const ok = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: naranja.id, cantidad: 2 }]), key)
+    const ok = await corregir(owner, venta2.body.id, body2, key)
     expect(ok.status).toBe(201)
     expect(await stockDe(naranja.id)).toBe(3)
-    expect(await stockDe(cola.id)).toBe(10)
+    expect(await stockDe(cola.id)).toBe(8)
     expect(await reservasActivas(negocio.id, naranja.id)).toBe(3) // reservation untouched
     expect(await reservasActivas(negocio.id, lima.id)).toBe(4)
     const movs = await db.movimientoInventario.findMany({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } }, orderBy: { tipo: "asc" } })
     expect(movs.map((m) => [m.tipo, m.productoId, m.cantidad, m.stockAntes, m.stockDespues])).toEqual([
-      ["CORRECCION_ENTRADA", cola.id, 2, 8, 10],
+      ["CORRECCION_ENTRADA", cola.id, 2, 6, 8],
       ["CORRECCION_SALIDA", naranja.id, 2, 5, 3],
     ])
     // Retries never duplicate the movements.
-    const replay = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: naranja.id, cantidad: 2 }]), key)
+    const replay = await corregir(owner, venta2.body.id, body2, key)
     expect(replay.status).toBe(200)
     expect(await db.movimientoInventario.count({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } } })).toBe(2)
     expect(await stockDe(naranja.id)).toBe(3)
@@ -486,15 +593,18 @@ describe("F4-B P2-B — corrections respect active order reservations", () => {
 
   ephemeralTest("variant with stock control: same rules against the variant's reservations", async () => {
     const { negocio, owner } = await crearNegocio()
-    const base = await crearProducto(negocio.id, "Alfajor", 1000, { controlStock: true, stockCantidad: 10 })
     const remera = await crearProducto(negocio.id, "Remera", 3000)
-    const roja = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Roja", precio: 3000, controlStock: true, stockCantidad: 4 } })
-    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: base.id, cantidad: 2 }] })
-    const item = itemDe(venta.body, base.id)
+    const azul = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Azul", precio: 3000, controlStock: true, stockCantidad: 10 } })
+    const roja = await db.productoVariante.create({ data: { productoId: remera.id, nombre: "Roja", precio: 3000, controlStock: true, stockCantidad: 5 } })
+    const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: remera.id, varianteId: azul.id, cantidad: 2 }, { productoId: remera.id, varianteId: roja.id, cantidad: 1 }] })
+    expect(venta.status).toBe(201)
+    const azulItem = venta.body.items.find((i: { productoVarianteId?: string | null }) => i.productoVarianteId === azul.id).id
+    const rojaItem = venta.body.items.find((i: { productoVarianteId?: string | null }) => i.productoVarianteId === roja.id).id
+    const body = correccion([{ ventaItemId: azulItem, productoId: remera.id, varianteId: roja.id, cantidad: 2 }, { ventaItemId: rojaItem, productoId: remera.id, varianteId: roja.id, cantidad: 1 }])
     const primera = await reservar(negocio, remera.id, roja.id, 3) // variant: physical 4, reserved 3 → available 1
     expect(primera.count).toBe(1)
 
-    const rechazo = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: remera.id, varianteId: roja.id, cantidad: 2 }]))
+    const rechazo = await corregir(owner, venta.body.id, body)
     expect(rechazo.status).toBe(409)
     expect(rechazo.body.code).toBe("STOCK_INSUFICIENTE")
     expect((await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } })).stockCantidad).toBe(4)
@@ -504,14 +614,14 @@ describe("F4-B P2-B — corrections respect active order reservations", () => {
     // The order is cancelled (existing release authority) and a smaller one reserves 2 → available 2.
     expect(await liberar(negocio.id, primera.pedidoId)).toBe(1)
     expect((await reservar(negocio, remera.id, roja.id, 2)).count).toBe(1) // physical 4, reserved 2 → available 2
-    const ok = await corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: remera.id, varianteId: roja.id, cantidad: 2 }]))
+    const ok = await corregir(owner, venta.body.id, body)
     expect(ok.status).toBe(201)
     expect((await db.productoVariante.findUniqueOrThrow({ where: { id: roja.id } })).stockCantidad).toBe(2)
+    expect((await db.productoVariante.findUniqueOrThrow({ where: { id: azul.id } })).stockCantidad).toBe(10)
     expect(await reservasActivas(negocio.id, remera.id, roja.id)).toBe(2)
-    expect(await stockDe(base.id)).toBe(10)
     const movs = await db.movimientoInventario.findMany({ where: { negocioId: negocio.id, tipo: { startsWith: "CORRECCION" } }, orderBy: { tipo: "asc" } })
     expect(movs.map((m) => [m.tipo, m.productoId, m.productoVarianteId, m.cantidad])).toEqual([
-      ["CORRECCION_ENTRADA", base.id, null, 2],
+      ["CORRECCION_ENTRADA", remera.id, azul.id, 2],
       ["CORRECCION_SALIDA", remera.id, roja.id, 2],
     ])
   })
@@ -519,17 +629,21 @@ describe("F4-B P2-B — corrections respect active order reservations", () => {
   ephemeralTest("a correction and a reservation racing for the same units never commit both", async () => {
     const { negocio, owner } = await crearNegocio()
     const cola = await crearProducto(negocio.id, "Gaseosa Cola", 2000, { controlStock: true, stockCantidad: 10 })
-    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 2 })
+    const lima = await crearProducto(negocio.id, "Gaseosa Lima", 2000, { controlStock: true, stockCantidad: 3 })
     let pedidoAnterior: string | null = null
     for (let ronda = 0; ronda < 3; ronda++) {
-      // Reset between rounds: restore 2 units and cancel the previous round's order (if it reserved).
-      await db.producto.update({ where: { id: lima.id }, data: { stockCantidad: 2 } })
+      // Reset between rounds: cancel the previous round's order (if it reserved) and
+      // restore 3 units; the sale takes 1, leaving 2 to fight over.
       if (pedidoAnterior) await liberar(negocio.id, pedidoAnterior)
       pedidoAnterior = null
-      const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }] })
+      await db.producto.update({ where: { id: lima.id }, data: { stockCantidad: 3 } })
+      await db.producto.update({ where: { id: cola.id }, data: { stockCantidad: 10 } })
+      const venta = await venderOwner(owner, { metodoPago: "EFECTIVO", items: [{ productoId: cola.id, cantidad: 2 }, { productoId: lima.id, cantidad: 1 }] })
+      expect(venta.status).toBe(201)
       const item = itemDe(venta.body, cola.id)
+      const limaItem = itemDe(venta.body, lima.id)
       const [corr, reserva] = await Promise.all([
-        corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }])),
+        corregir(owner, venta.body.id, correccion([{ ventaItemId: item, productoId: lima.id, cantidad: 2 }, { ventaItemId: limaItem, productoId: lima.id, cantidad: 1 }])),
         reservar(negocio, lima.id, null, 2).then((r) => { pedidoAnterior = r.pedidoId; return "ok" as const }, (error) => (error instanceof ReservaRechazada ? "rechazada" as const : Promise.reject(error))),
       ])
       const fisico = await stockDe(lima.id)

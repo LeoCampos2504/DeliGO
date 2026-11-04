@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { Prisma } from "@prisma/client"
-import { fingerprintCorreccion, mapCorreccionDbError, parseCorreccionBody, type CorreccionSolicitud } from "@/lib/caja-correcciones-service"
+import { criterioPrecioLinea, fingerprintCorreccion, mapCorreccionDbError, parseCorreccionBody, type CorreccionSolicitud } from "@/lib/caja-correcciones-service"
 import { lineaVigente } from "@/lib/caja-venta-vigente"
 
 const root = process.cwd()
@@ -82,8 +82,28 @@ describe("F4-B — fingerprint, current lines and SQL guard mapping", () => {
     const item = { id: "i1", productoId: "p-cola", productoVarianteId: null, nombre: "Cola", varianteNombre: null, precio: 2000, cantidad: 2, subtotal: 4000, subtotalDecimal: new Prisma.Decimal("4000.00") }
     expect(lineaVigente(item, null)).toMatchObject({ productoId: "p-cola", nombre: "Cola", cantidad: 2, precio: 2000, corregida: false })
     const corregida = lineaVigente(item, [{ ventaItemId: "i1", productoId: "p-lima", productoVarianteId: null, nombre: "Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotalDecimal: new Prisma.Decimal("4000.00") }])
-    expect(corregida).toMatchObject({ productoId: "p-lima", nombre: "Lima", cantidad: 2, precio: 2000, corregida: true })
+    expect(corregida).toMatchObject({ productoId: "p-lima", nombre: "Lima", cantidad: 2, precio: 2000, corregida: true, precioHeredado: true })
+    // A line recorded with a price justification is not flagged.
+    expect(lineaVigente(item, [{ ventaItemId: "i1", productoId: "p-lima", productoVarianteId: null, nombre: "Lima", varianteNombre: null, precio: 2000, cantidad: 2, subtotalDecimal: new Prisma.Decimal("4000.00"), criterioPrecio: "MISMA_VENTA" }]).precioHeredado).toBe(false)
     expect(corregida.subtotal.toFixed(2)).toBe("4000.00")
+  })
+
+  test("price rule (2026-11-05): own product, or another product of the same sale at the same charged price — nothing else", () => {
+    const originales = [
+      { productoId: "p-saphirus", productoVarianteId: null, precio: 2000 },
+      { productoId: "p-otro2000", productoVarianteId: null, precio: 2000 },
+      { productoId: "p-redmi", productoVarianteId: null, precio: 1000 },
+      { productoId: "p-remera", productoVarianteId: "v-roja", precio: 3000 },
+      { productoId: "p-remera", productoVarianteId: "v-azul", precio: 3000 },
+    ]
+    const saphirus = originales[0]
+    expect(criterioPrecioLinea(originales, saphirus, "p-saphirus", null)).toBe("MISMO_PRODUCTO")
+    expect(criterioPrecioLinea(originales, saphirus, "p-otro2000", null)).toBe("MISMA_VENTA") // same price in the sale
+    expect(criterioPrecioLinea(originales, saphirus, "p-redmi", null)).toBeNull() // cheaper: $1.000 unjustified
+    expect(criterioPrecioLinea(originales, originales[2], "p-saphirus", null)).toBeNull() // more expensive
+    expect(criterioPrecioLinea(originales, saphirus, "p-fuera-de-la-venta", null)).toBeNull() // no historical price
+    expect(criterioPrecioLinea(originales, originales[3], "p-remera", "v-azul")).toBe("MISMA_VENTA") // variants
+    expect(criterioPrecioLinea(originales, originales[3], "p-remera", null)).toBeNull() // variant key matters
   })
 
   test("SQL guard failures become controlled conflicts", () => {
@@ -91,6 +111,7 @@ describe("F4-B — fingerprint, current lines and SQL guard mapping", () => {
     expect(mapCorreccionDbError(new Error("sale correction lines must cover the sale and keep its total"))?.code).toBe("TOTAL_CORRECCION_DISTINTO")
     expect(mapCorreccionDbError(new Error("sale correction is not allowed on a sale with returns"))?.code).toBe("VENTA_CON_DEVOLUCIONES")
     expect(mapCorreccionDbError(new Error("sale correction must keep the charged unit price"))?.code).toBe("PRECIO_CORRECCION_INVALIDO")
+    expect(mapCorreccionDbError(new Error("sale correction replacement price is not justified"))?.code).toBe("PRECIO_NO_JUSTIFICADO")
     expect(mapCorreccionDbError(new Error("other"))).toBeNull()
   })
 })
@@ -129,5 +150,14 @@ describe("F4-B — static contract", () => {
     }
     expect(sql).toContain('CREATE OR REPLACE FUNCTION "guard_devolucion_venta_item"()')
     expect(read("prisma/migrations/20261017120000_f4_a_sale_returns/migration.sql")).not.toContain("correcciones_venta")
+  })
+
+  test("price-justification migration is additive and never rewrites existing corrections", () => {
+    const sql = read("prisma/migrations/20261105120000_f4_b_justified_replacement_prices/migration.sql")
+    expect(sql).toContain('ALTER TABLE "correcciones_venta_lineas" ADD COLUMN "criterioPrecio" TEXT;')
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION "guard_correccion_venta_linea"()')
+    expect(sql).toContain("sale correction replacement price is not justified")
+    expect(sql).not.toMatch(/\bDROP\b|\bUPDATE\s+"|\bDELETE\s+FROM\b|ALTER TABLE "(ventas_caja|venta_items|correcciones_venta|devoluciones_venta|devoluciones_venta_items)"/)
+    expect(read("prisma/migrations/20261018120000_f4_b_sale_corrections/migration.sql")).not.toContain("criterioPrecio")
   })
 })

@@ -20,6 +20,12 @@ export interface LineaVigente {
   cantidad: number
   subtotal: Prisma.Decimal
   corregida: boolean
+  /**
+   * F4-B (2026-11-05): the line names another product than its original row
+   * without a recorded price justification — a correction made under the
+   * earlier inherited-price rule. Kept as immutable history; flagged in views.
+   */
+  precioHeredado: boolean
 }
 
 /** Prisma include for the latest correction of a sale (enough to resolve current lines). */
@@ -30,7 +36,9 @@ export const ULTIMA_CORRECCION_INCLUDE = {
 } satisfies Prisma.Venta$correccionesArgs
 
 type ItemRow = Pick<VentaItem, "id" | "productoId" | "productoVarianteId" | "nombre" | "varianteNombre" | "precio" | "cantidad" | "subtotal" | "subtotalDecimal">
-type LineaRow = Pick<CorreccionVentaLinea, "ventaItemId" | "productoId" | "productoVarianteId" | "nombre" | "varianteNombre" | "precio" | "cantidad" | "subtotalDecimal">
+type LineaRow = Pick<CorreccionVentaLinea, "ventaItemId" | "productoId" | "productoVarianteId" | "nombre" | "varianteNombre" | "precio" | "cantidad" | "subtotalDecimal"> & {
+  criterioPrecio?: string | null
+}
 
 export function lineaVigente(item: ItemRow, ultima: ReadonlyArray<LineaRow> | null | undefined): LineaVigente {
   const corregida = ultima?.find((linea) => linea.ventaItemId === item.id)
@@ -45,6 +53,7 @@ export function lineaVigente(item: ItemRow, ultima: ReadonlyArray<LineaRow> | nu
       cantidad: corregida.cantidad,
       subtotal: corregida.subtotalDecimal,
       corregida: true,
+      precioHeredado: !corregida.criterioPrecio && (corregida.productoId !== item.productoId || corregida.productoVarianteId !== item.productoVarianteId),
     }
   }
   return {
@@ -57,6 +66,7 @@ export function lineaVigente(item: ItemRow, ultima: ReadonlyArray<LineaRow> | nu
     cantidad: item.cantidad,
     subtotal: storedMoney(item.subtotalDecimal, item.subtotal),
     corregida: false,
+    precioHeredado: false,
   }
 }
 

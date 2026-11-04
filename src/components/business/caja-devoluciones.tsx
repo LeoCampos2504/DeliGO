@@ -35,8 +35,6 @@ export interface CajaDevolucionesEndpoints {
   ownerRegistersUrl?: string
   /** F4-B, owner only: POST a correction of one sale. Absent for the cashier (no correction UI at all). */
   correccionUrl?: (ventaId: string) => string
-  /** F4-B, owner only: the owner's catalog, to pick the product actually delivered. */
-  productosUrl?: string
 }
 
 export type EstadoDevolucionVenta = "VIGENTE" | "DEVOLUCION_PARCIAL" | "ANULADA" | "DEVUELTA_TOTAL"
@@ -46,6 +44,10 @@ export interface VentaDevolucionItem {
   productoId?: string | null
   productoVarianteId?: string | null
   corregida?: boolean
+  /** F4-B (2026-11-05): earlier-rule correction that named another product at this line's charged price. */
+  precioHeredado?: boolean
+  /** Original sale line (source of the replacements justified at this charged price). */
+  original?: { productoId: string | null; productoVarianteId: string | null; nombre: string; varianteNombre: string | null }
   nombre: string
   varianteNombre: string | null
   precio: number
@@ -98,7 +100,7 @@ export interface CorreccionRegistrada {
   createdAt: string
   registradaPor: string
   total: number
-  cambios: Array<{ ventaItemId: string; precio: number; antes: { nombre: string; cantidad: number }; despues: { nombre: string; cantidad: number } }>
+  cambios: Array<{ ventaItemId: string; precio: number; criterioPrecio?: string | null; antes: { nombre: string; cantidad: number }; despues: { nombre: string; cantidad: number } }>
 }
 
 type Medio = "EFECTIVO" | "TRANSFERENCIA" | "OTRO"
@@ -272,6 +274,7 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
                         <p className="break-words font-medium">{nombreItem(item)}</p>
                         <p className="text-xs text-muted-foreground">{item.cantidad} × {formatPrice(item.precio)}</p>
                         {item.cantidadDevuelta > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">Devueltas: {item.cantidadDevuelta} ({formatPrice(item.importeDevuelto)})</p>}
+                        {item.precioHeredado && <p className="break-words text-xs font-medium text-amber-700 dark:text-amber-300">Precio heredado de {item.original ? nombreItem(item.original) : "otro producto"} (corrección con la regla anterior): no corresponde a este producto. Revisalo antes de devolver.</p>}
                       </div>
                       <span className="shrink-0 font-semibold">{formatPrice(item.subtotal)}</span>
                     </div>
@@ -342,7 +345,7 @@ function CorreccionCard({ correccion }: { correccion: CorreccionRegistrada }) {
       </p>
       {correccion.cambios.map((cambio) => (
         <p key={cambio.ventaItemId} className="break-words">
-          {cambio.antes.cantidad} × {cambio.antes.nombre} → {cambio.despues.cantidad} × {cambio.despues.nombre} ({formatPrice(cambio.precio)} c/u, precio cobrado)
+          {cambio.antes.cantidad} × {cambio.antes.nombre} → {cambio.despues.cantidad} × {cambio.despues.nombre} ({formatPrice(cambio.precio)} c/u, precio cobrado){!cambio.criterioPrecio && cambio.antes.nombre !== cambio.despues.nombre ? " · precio heredado (regla anterior)" : ""}
         </p>
       ))}
       <p className="break-words text-muted-foreground">Motivo: {correccion.motivo} · Registró: {correccion.registradaPor}</p>
@@ -652,14 +655,28 @@ export function DevolucionForm({ venta, tipo, endpoints, onCancel, onDone }: {
 // F4-B — owner correction form (product / variant / quantity; same total)
 // ---------------------------------------------------------------------------
 
-interface ProductoCatalogo {
-  id: string
-  nombre: string
-  eliminado?: boolean
-  variantes?: Array<{ id: string; nombre: string; activo?: boolean }>
+type LineaEditable = { ventaItemId: string; productoId: string; varianteId: string; cantidad: number }
+
+/** Product key as the server compares it (product + variant; "" = none). */
+export function claveProducto(productoId: string | null | undefined, varianteId: string | null | undefined): string {
+  return `${productoId ?? ""}|${varianteId ?? ""}`
 }
 
-type LineaEditable = { ventaItemId: string; productoId: string; varianteId: string; cantidad: number }
+/**
+ * F4-B (2026-11-05) — products a line may name at ITS charged price: its own
+ * original product, or another original product of the same sale charged at
+ * exactly that unit price (same rule the server and SQL enforce).
+ */
+export function opcionesCorreccion(items: ReadonlyArray<VentaDevolucionItem>, item: VentaDevolucionItem) {
+  const vistas = new Map<string, { key: string; etiqueta: string }>()
+  const fuentes = [item, ...items.filter((otro) => otro.id !== item.id && otro.precio === item.precio)]
+  for (const fuente of fuentes) {
+    const original = fuente.original ?? { productoId: fuente.productoId ?? null, productoVarianteId: fuente.productoVarianteId ?? null, nombre: fuente.nombre, varianteNombre: fuente.varianteNombre }
+    const key = claveProducto(original.productoId, original.productoVarianteId)
+    if (!vistas.has(key)) vistas.set(key, { key, etiqueta: nombreItem(original) })
+  }
+  return [...vistas.values()]
+}
 
 /** Display-only preview of the server's line rule (price actually charged × quantity). */
 export function subtotalCorreccion(precio: number, cantidad: number): number {
@@ -684,19 +701,6 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
   const inFlight = useRef(false)
   const post = useIdempotentPost()
   const invalidate = useInvalidate(endpoints)
-  const catalogo = useQuery<ProductoCatalogo[]>({
-    queryKey: [...endpoints.queryScope, "catalogo-correccion"],
-    enabled: Boolean(endpoints.productosUrl),
-    queryFn: async () => {
-      const response = await fetch(endpoints.productosUrl!, { cache: "no-store" })
-      const json = await response.json().catch(() => [])
-      if (!response.ok) throw new Error("No se pudo cargar el catálogo.")
-      const lista: ProductoCatalogo[] = Array.isArray(json) ? json : (json.productos ?? [])
-      return lista.filter((p) => !p.eliminado).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-    },
-  })
-  const productos = catalogo.data ?? []
-  const porId = new Map(productos.map((p) => [p.id, p]))
   const itemPorId = new Map(venta.items.map((item) => [item.id, item]))
 
   const corregido = Math.round(lineas.reduce((acc, l) => acc + subtotalCorreccion(itemPorId.get(l.ventaItemId)!.precio, l.cantidad), 0) * 100) / 100
@@ -705,9 +709,8 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
     const item = itemPorId.get(l.ventaItemId)!
     return l.productoId !== (item.productoId ?? "") || l.varianteId !== (item.productoVarianteId ?? "") || l.cantidad !== item.cantidad
   })
-  const variantesDe = (productoId: string) => (porId.get(productoId)?.variantes ?? []).filter((v) => v.activo !== false)
-  const faltaVariante = lineas.some((l) => l.productoId && variantesDe(l.productoId).length > 0 && !l.varianteId)
-  const listo = hayCambios && totalOk && !faltaVariante && motivo.trim().length > 0 && confirmo
+  const faltaJustificar = lineas.some((l) => !opcionesCorreccion(venta.items, itemPorId.get(l.ventaItemId)!).some((o) => o.key === claveProducto(l.productoId, l.varianteId)))
+  const listo = hayCambios && totalOk && !faltaJustificar && motivo.trim().length > 0 && confirmo
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -737,45 +740,32 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
       onSubmit={(event) => { event.preventDefault(); if (!listo || inFlight.current) return; inFlight.current = true; mutation.mutate() }}
     >
       <p className="break-words text-sm text-muted-foreground">
-        Corregí el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y el total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero.
+        Corregí un error de carga: el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y sólo puede tomar un producto de esta venta cobrado a ese mismo precio. El total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero. Un cambio real de productos con diferencia de precio no es una corrección.
       </p>
-      {catalogo.isError && <p role="alert" className="text-sm text-destructive">No se pudo cargar el catálogo.</p>}
       <div className="space-y-2">
         {lineas.map((linea) => {
           const item = itemPorId.get(linea.ventaItemId)!
-          const variantes = linea.productoId ? variantesDe(linea.productoId) : []
+          const opciones = opcionesCorreccion(venta.items, item)
+          const actual = claveProducto(linea.productoId, linea.varianteId)
+          const justificada = opciones.some((o) => o.key === actual)
           return (
             <div key={linea.ventaItemId} className="min-w-0 space-y-2 rounded-xl border p-2" data-testid="correccion-linea">
               <p className="break-words text-xs text-muted-foreground">Registrado: {item.cantidad} × {nombreItem(item)} · {formatPrice(item.precio)} c/u cobrado</p>
               <label className="block min-w-0 space-y-1 text-sm font-medium">
                 <span>Producto entregado</span>
                 <select
-                  value={linea.productoId}
-                  disabled={pending || catalogo.isLoading}
-                  onChange={(event) => set(linea.ventaItemId, { productoId: event.target.value, varianteId: "" })}
+                  value={actual}
+                  disabled={pending}
+                  onChange={(event) => { const [productoId, varianteId] = event.target.value.split("|"); set(linea.ventaItemId, { productoId, varianteId }) }}
                   className="h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm"
                   aria-label={`Producto entregado en lugar de ${nombreItem(item)}`}
                 >
-                  {!linea.productoId && <option value="">{item.productoId ? "Seleccioná un producto…" : `${nombreItem(item)} (ya no está en el catálogo)`}</option>}
-                  {item.productoId && !porId.has(item.productoId) && <option value={item.productoId}>{item.nombre}</option>}
-                  {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  {!justificada && <option value={actual}>{nombreItem(item)} (precio heredado: elegí otro)</option>}
+                  {opciones.map((o) => <option key={o.key} value={o.key}>{o.etiqueta}</option>)}
                 </select>
               </label>
-              {variantes.length > 0 && (
-                <label className="block min-w-0 space-y-1 text-sm font-medium">
-                  <span>Variante</span>
-                  <select
-                    value={linea.varianteId}
-                    disabled={pending}
-                    onChange={(event) => set(linea.ventaItemId, { varianteId: event.target.value })}
-                    className="h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm"
-                    aria-label={`Variante entregada en lugar de ${nombreItem(item)}`}
-                  >
-                    <option value="">Seleccioná una variante…</option>
-                    {variantes.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-                  </select>
-                </label>
-              )}
+              {!justificada && <p role="alert" className="break-words text-xs text-destructive">Esta línea quedó con un producto que no corresponde a su precio cobrado (regla anterior). Elegí un producto de esta venta cobrado a {formatPrice(item.precio)}.</p>}
+              {opciones.length === 1 && justificada && <p className="break-words text-xs text-muted-foreground">Sólo se puede corregir la cantidad: ningún otro producto de esta venta se cobró a {formatPrice(item.precio)}.</p>}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl" aria-label={`Restar una unidad (${nombreItem(item)})`} disabled={pending || linea.cantidad <= 0} onClick={() => set(linea.ventaItemId, { cantidad: Math.max(0, linea.cantidad - 1) })}><Minus className="h-4 w-4" /></Button>
                 <span className="min-w-10 text-center text-sm font-semibold" aria-label={`Cantidad corregida (${nombreItem(item)})`}>{linea.cantidad}</span>
