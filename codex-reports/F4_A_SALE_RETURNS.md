@@ -129,7 +129,13 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - El operador confirmó la nueva comprobación de la campana: **8/8 comprobaciones manuales PASS**.
 - **Estado: CLOSED_TESTING_CERTIFIED** en TESTING (`testing-codex` `d1856d5`, Railway `a093df1e`). Production sin cambios.
 
-## F4-B — corrección administrativa de ventas (lista para revisión de integración)
+## F4-B — corrección administrativa de ventas (certificación manual PAUSADA)
+
+**Actualización 2026-11-04:** F4-B está integrada y desplegada en TESTING (`eb0699c`), pero la certificación manual
+quedó **pausada**: el operador revirtió la regla «el reemplazo hereda el precio cobrado». La corrección (rama
+`codex/f4-b-justified-prices`, sin integrar) sólo admite el mismo producto u otro producto **de la misma venta**
+cobrado al mismo precio. Detalle, decisiones pendientes y retest: `codex-reports/F4_B_JUSTIFIED_PRICES.md`. El
+ejemplo y el checklist de abajo ya usan la regla nueva.
 
 Etapa siguiente de F4 (numeración provisional), en la rama `codex/f4-b-owner-sale-corrections`: **sin integrar, sin
 desplegar y sin certificar**. Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
@@ -149,15 +155,19 @@ Ejemplo de referencia (corregido):
 
 | | Venta original | Corrección |
 |---|---|---|
-| Línea 1 | 2 × Gaseosa Cola a $2.000 = $4.000 | 2 × Gaseosa Lima, conservando $2.000 por unidad cobrado = $4.000 |
-| Línea 2 | 1 × Yerba a $5.000 = $5.000 | 1 × Yerba (sin cambios) = $5.000 |
-| Total | **$9.000 cobrado** | **$9.000 corregido** |
+| Línea 1 | 2 × Gaseosa Cola a $2.000 = $4.000 | 2 × Gaseosa Lima a $2.000 (Lima también se cobró a $2.000 en esta venta) = $4.000 |
+| Línea 2 | 1 × Gaseosa Lima a $2.000 = $2.000 | 1 × Gaseosa Lima (sin cambios) = $2.000 |
+| Línea 3 | 1 × Yerba a $5.000 = $5.000 | 1 × Yerba (sin cambios) = $5.000 |
+| Total | **$11.000 cobrado** | **$11.000 corregido** |
+
+Regla vigente (2026-11-04): un producto que no está en la venta, o que se cobró a otro precio (p. ej. un Redmi de
+$1.000 en una línea de $2.000), **no** se ofrece y la API responde 409 `PRECIO_NO_JUSTIFICADO`.
 
 1. **Sustitución con el mismo total:** vender el ejemplo; Caja → Resumen → «Ventas recientes» (o «Buscar ventas
    anteriores») → abrir la venta → «Ver historial, anular o devolver» / «Corregir venta» → Cola → Lima, motivo,
-   confirmar. Esperado: «Venta corregida», total $9.000, insignia «Corregida»; el detalle rápido muestra Lima y el
-   historial «2 × Gaseosa Cola → 2 × Gaseosa Lima ($2.000 c/u, precio cobrado)», aunque Lima tenga otro precio en el
-   catálogo.
+   confirmar. Esperado: «Venta corregida», total $11.000, insignia «Corregida»; el detalle rápido muestra Lima y el
+   historial «2 × Gaseosa Cola → 2 × Gaseosa Lima ($2.000 c/u, precio cobrado)», aunque Lima tenga hoy otro precio en
+   el catálogo. En la línea de Cola sólo se ofrecen Cola y Lima (no Yerba ni productos fuera de la venta).
 2. **Turno cerrado:** repetir con una venta de un turno ya cerrado. Esperado: se corrige; el esperado y la diferencia
    del turno en «Cajas y turnos» no cambian.
 3. **Total distinto:** subir una cantidad sin compensar. Esperado: botón deshabilitado y aviso; no se guarda nada.

@@ -265,6 +265,11 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       integración; P2 de la auditoría resueltos con CI 40790603314): corrección administrativa de ventas sólo por el dueño;
       producto/variante/cantidad; el reemplazo hereda el precio cobrado; total cobrado exacto; sin mover dinero ni cambiar
       el medio de pago; no aplica a ventas con devoluciones/anulaciones; sin integrar ni desplegar.
+    → F4-B (2026-11-04): integrada y desplegada en TESTING (eb0699c); la certificación manual quedó PAUSADA por un
+      caso real (Saphirus $2.000 → Redmi $1.000 registrado a $2.000). El operador revirtió la regla del precio heredado.
+      Corrección en la rama codex/f4-b-justified-prices (sin integrar): el reemplazo sólo puede ser el mismo producto u
+      otro de la misma venta cobrado al mismo precio. Productos fuera de la venta y combinaciones 1→N: decisión
+      pendiente (propuesta: F4-C). Ver codex-reports/F4_B_JUSTIFIED_PRICES.md.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

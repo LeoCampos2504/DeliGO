@@ -6,7 +6,27 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST CURRENT HANDOFF — F4-B OWNER SALE CORRECTIONS READY FOR INTEGRATION REVIEW (NOT INTEGRATED); F4-A CLOSED_TESTING_CERTIFIED (2026-10-28, Claude Code) ===
+=== LATEST CURRENT HANDOFF — F4-B MANUAL CERTIFICATION PAUSED; JUSTIFIED-PRICES FIX ON TECHNICAL BRANCH (NOT INTEGRATED) (2026-11-04, Claude Code) ===
+
+CURRENT_TASK=F4-B_JUSTIFIED_REPLACEMENT_PRICES (fix of the price inconsistency found in F4-B manual certification)
+CURRENT_TASK_STATUS=IMPLEMENTED_ON_TECHNICAL_BRANCH_NOT_INTEGRATED_NOT_DEPLOYED; awaiting operator authorization
+F4_B_STATUS=deployed to TESTING (testing-codex eb0699c, Railway fcfe1478, migration 20261018120000 applied) — MANUAL CERTIFICATION PAUSED by the operator; NOT certified
+TRIGGER_CASE=2 Saphirus charged $2.000 corrected to 2 Redmi (catalog $1.000): F4-B kept $2.000 for Redmi and F4-A later refunded one Redmi for $2.000
+PRICE_RULE_REVERSED=the earlier approval «replacement inherits the charged price» (2026-10-15, reconfirmed 2026-11-04 in docs commit 6cb3d92) is REVERSED by the operator (2026-11-04)
+ROOT_CAUSE=correction line price forced to VentaItem.precio of the original line (service + guard_correccion_venta_linea) regardless of the product named; F4-A refunds from the current-line subtotal; no catalog price history exists (product PATCH has no price audit; variant audit lists keys only)
+NEW_RULE=a corrected line keeps the charged price and may name only MISMO_PRODUCTO (its own product/variant) or MISMA_VENTA (a product/variant of ANOTHER original line of the same sale charged at exactly that price); anything else → 409 PRECIO_NO_JUSTIFICADO, nothing written; enforced in service, SQL trigger and UI (UI no longer loads the catalog)
+BRANCH=codex/f4-b-justified-prices from testing-codex eb0699c (excludes docs commits 3613091 / 6cb3d92 on purpose); code commit 242eac9; pushed to origin for CI only
+MIGRATION=20261105120000_f4_b_justified_replacement_prices (additive): nullable correcciones_venta_lineas.criterioPrecio + CHECK + CREATE OR REPLACE guard_correccion_venta_linea; existing rows stay NULL (earlier-rule history, immutable). NOT applied to Railway or any persistent DB
+COMPATIBILITY=earlier-rule corrections untouched, flagged «precio heredado (regla anterior)»; F4-A keeps refunding the charged amount on them; a new correction must first give that line a justified product
+LOCAL_GATES=eslint clean on touched files · git diff --check clean · local suites 151/0 (13 files) · real-DB suite runs only in CI
+CI_TECHNICAL_BRANCH=run 41874744637 on 242eac9 SUCCESS (migrate deploy incl. 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites, isolated bell and CajaTab steps, build)
+PENDING_DECISIONS=(1) products not in the sale (no reliable historical price): never in F4-B → F4-C (recommended) / allow when current catalog equals charged price / add price history going forward; (2) combinations 1→N (e.g. 1 Saphirus → 2 Redmi): needs schema + F4-A redesign and a reliable price → propose F4-C; (3) whether F4-A should block returns on earlier-rule inherited lines (today: warning only)
+DOCS_MERGE_NOTE=the top blocks here, in DELIGO_FULL_CONTEXT_LATEST.md, codex-reports/F4_A_SALE_RETURNS.md and the ROADMAP F4-B line overlap with 3613091/6cb3d92; when those are merged, keep this block's state (price rule reversed, certification paused) and keep the F4-C plan from 6cb3d92
+REPORT=codex-reports/F4_B_JUSTIFIED_PRICES.md
+PRODUCTION_TOUCHED=NO · main 42ca500 unchanged · testing-codex eb0699c unchanged · Railway not touched
+NEXT_ACTION=operator review of codex/f4-b-justified-prices and the pending decisions; integration/deploy only with explicit authorization; then TESTING retest (report) and resume F4-B manual certification
+
+=== HISTORICAL HANDOFF — F4-B OWNER SALE CORRECTIONS READY FOR INTEGRATION REVIEW (NOT INTEGRATED); F4-A CLOSED_TESTING_CERTIFIED (2026-10-28, Claude Code) ===
 
 F4_A_STATUS=CLOSED_TESTING_CERTIFIED — operator manual review 8/8 PASS (owner bell recheck confirmed after the fix). Deployed state: testing-codex d1856d5 (F4-A d94b361 + owner-bell fix 0495d48), CI 38826220616 success, Railway TESTING DeliGO Copy a093df1e SUCCESS on d1856d5, 48 migrations, no pending. Production NOT touched.
 F4_A_DOC_NOTE=commit 7fa6208 (post-integration doc wording) stays on codex/f4-a-owner-bell-notification only; superseded by this block.

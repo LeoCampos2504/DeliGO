@@ -1,6 +1,18 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-A certified, F4-B ready for integration review (2026-10-28, Claude Code)
+## LATEST UPDATE — F4-B manual certification paused; justified-prices fix on technical branch (2026-11-04, Claude Code)
+
+```text
+F4_B_STATUS=deployed to TESTING (testing-codex eb0699c, Railway fcfe1478) — MANUAL CERTIFICATION PAUSED; NOT certified
+PRICE_RULE=«replacement inherits the charged price» REVERSED by the operator (2026-11-04)
+FIX=codex/f4-b-justified-prices (242eac9, base eb0699c): replacement only with its own product or another product of the same sale at the same charged price (409 PRECIO_NO_JUSTIFICADO otherwise); additive migration 20261105120000 not applied anywhere persistent
+CI=run 41874744637 on 242eac9 SUCCESS (migrate deploy incl. 20261105120000 on ephemeral PostgreSQL 16, Typecheck F4-B files clean, main batch incl. F4-A/F4-B real-DB suites, isolated bell and CajaTab steps, build)
+PENDING_DECISIONS=products not in the sale, 1→N combinations, F4-A on earlier-rule lines (codex-reports/F4_B_JUSTIFIED_PRICES.md)
+F4_C_STATUS=PLANNED_NOT_STARTED (plan only on local branch codex/f4-c-roadmap-plan 6cb3d92)
+NEXT_ACTION=operator review; no integration/deploy without explicit authorization; see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-A certified, F4-B ready for integration review (2026-10-28, Claude Code)
 
 ```text
 F4_A_STATUS=CLOSED_TESTING_CERTIFIED (operator manual review 8/8 PASS; testing-codex d1856d5; Railway TESTING a093df1e)
