@@ -1,6 +1,19 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-B justified prices integrated (testing-codex 2bc0a93); Railway TESTING build failed, TESTING still on eb0699c (2026-11-04, Claude Code)
+## LATEST UPDATE — F4-B certified in TESTING (functional); guest checkout, DeliGO Puntos and DeliGO Negocios model planned (2026-11-04, Claude Code)
+
+```text
+F4_B_STATUS=CLOSED_TESTING_CERTIFIED (functional; operator 11/11 manual checks in Railway TESTING; some verifications CI-only; NOT a Production authorization)
+F4_B_BUILD=testing-codex 2bc0a93 · CI 41907431414 · Railway TESTING 51e10854 SUCCESS · migration 20261105120000 applied once
+F4_B_OPEN_DECISION=F4-A block vs warn on earlier-rule inherited-price lines (today: warn)
+F4_C_STATUS=PLANNED_NOT_STARTED (docs 3613091 / 6cb3d92 kept apart, not merged)
+ROADMAP=CLIENTE-1 guest checkout PLANNED_NOT_STARTED · CLIENTE-2 DeliGO Puntos PLANNED_NOT_STARTED (reference = platform charge, never the product total; prize fund only from collected income after costs, net 50/50) · CLIENTE-3 raffles/rewards IDEA_FUTURE_NOT_AUTHORIZED (legal review required) — codex-reports/ROADMAP.md
+MONETIZATION=COMERCIAL-1 DeliGO Negocios PLANNED_NOT_STARTED — ONLY common businesses (restaurants keep their independent system); reference ARS 10.000/month (ARS 9.900 historical; 45-day trial PENDING_DECISION); online channel optional; ARS 100 per eligible pickup/delivery order discounts the fee up to ARS 10.000 whether collected by the business (A, owed to DeliGO) or directly by DeliGO (B, never billed again); table orders FREE (30/20/10 + ARS 25.000 cap historical, discarded); online fee in code: default 250, configured value not verified, not modified; open items PENDING_DECISION — ROADMAP «Modelo comercial DeliGO Negocios»
+DOCS=committed and pushed on codex/f4-b-justified-prices only (operator-authorized); NOT integrated into testing-codex or main; no deploy
+NEXT_ACTION=operator decides the next step; nothing starts automatically; see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-B justified prices integrated (testing-codex 2bc0a93); Railway TESTING build failed, TESTING still on eb0699c (2026-11-04, Claude Code)
 
 ```text
 F4_B_STATUS=AWAITING_TESTING_MANUAL_CERTIFICATION (paused); NOT certified

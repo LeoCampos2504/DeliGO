@@ -164,6 +164,201 @@ integración a testing-codex — sin relación con este cierre. T44 sigue
 pausada, T52 Fase 4 sigue diferida, T33/T37 siguen secuenciadas — sin
 cambios respecto del snapshot A1 anterior.
 
+## FUTURE BACKLOG — Plataforma de clientes (decisiones del operador, 2026-11-04)
+
+Funcionalidades de la plataforma para clientes finales, independientes de los módulos de negocios genéricos (F1–F11).
+Numeración provisional `CLIENTE-n`. **Ninguna está implementada ni autorizada para implementarse**; cada una necesita
+su propia auditoría, diseño y autorización.
+
+### CLIENTE-1 — Checkout sin cuenta obligatoria — PLANNED_NOT_STARTED
+
+Estado actual verificado (2026-11-04): los pedidos que no son de mesa exigen sesión de cliente
+(`src/app/api/pedidos/route.ts`: «Debés iniciar sesión para hacer un pedido»); los pedidos de mesa ya funcionan sin
+cuenta. Existen límites `orderAccount` / `orderIp` / `orderBusiness` e identidad de dispositivo derivada en el servidor.
+
+Decisiones del operador:
+- Un cliente puede realizar pedidos sin crear una cuenta; crear una cuenta es completamente opcional.
+- Se piden únicamente los datos necesarios para completar el pedido.
+- Los clientes registrados conservan identificación, historial y futuras recompensas.
+- Los invitados consultan el estado de su pedido con un mecanismo seguro, sin exponer pedidos ajenos.
+- Se conservan y revisan los controles antifraude, límites de solicitudes y prevención de pedidos falsos; las
+  restricciones por IP o dispositivo **no** son protección suficiente por sí solas.
+- No depende del desarrollo de DeliGO Puntos.
+
+Preguntas abiertas (para la auditoría previa): mecanismo de seguimiento del invitado (enlace firmado de un solo pedido,
+código + teléfono, vencimiento y revocación); verificación de contacto (p. ej. teléfono) y cuándo exigirla; qué
+controles adicionales reemplazan el límite por cuenta; vinculación opcional de pedidos de invitado a una cuenta creada
+después; efecto en chat del pedido, notificaciones, reseñas y pagos (Mercado Pago); retención de datos del invitado.
+
+### CLIENTE-2 — DeliGO Puntos (fidelización) — PLANNED_NOT_STARTED
+
+Decisiones del operador:
+- Programa centralizado, administrado por el SuperAdmin de DeliGO.
+- Los clientes registrados acumulan puntos por pedidos elegibles en cualquier restaurante de la plataforma.
+- La participación de los restaurantes en la acumulación **no es opcional**; colaborar ofreciendo premios o beneficios
+  **sí** puede serlo.
+- Los pedidos como invitado no generan puntos inicialmente.
+- Registro auditable de emisión, uso, ajustes y reversión de puntos (libro de movimientos inmutable).
+- Las reglas definitivas de acumulación, redondeo y elegibilidad se definen más adelante.
+
+Modelo económico (decisiones del operador 2026-11-04; la regla definitiva de emisión sigue pendiente):
+- Referencia para los puntos: el **cargo de plataforma**, es decir el cargo de servicio DeliGO de ARS 100 por pedido
+  online elegible de retiro o delivery (COMERCIAL-1). **Nunca** el importe total de los productos del pedido.
+- Los **pedidos de mesa son gratuitos**: no generan cargo y, en principio, tampoco puntos basados en cargos.
+- Los **puntos de fidelización** y el **fondo monetario de premios** son cosas distintas. Los puntos no son dinero ni
+  prueban que haya fondos disponibles.
+- El fondo de premios se financia **únicamente con ingresos realmente cobrados y disponibles**, después de descontar
+  los costos que correspondan (incluido el **costo operativo real** atribuible, con las simulaciones sobre Railway como
+  referencia).
+- Propuesta económica: el remanente neto disponible se divide **50 % para premios** y **50 % como beneficio de
+  DeliGO**, sujeto a impuestos y demás gastos reales.
+- La **bonificación mensual** de un comercio **no** es un ingreso adicional. El ingreso que DeliGO cobra de un comercio
+  común en un período es, como mucho, el mayor entre el abono y el total de cargos elegibles; los primeros pedidos
+  reemplazan abono en vez de sumar ingreso.
+- **No** se prometen premios ni se reservan fondos sobre la base de deudas que todavía no se cobraron (cargos
+  recaudados por el comercio y aún no liquidados).
+- La estimación de infraestructura es **experimental**
+  (`codex-reports/P2_T10_FULL_ORDER_CHAT_REALTIME_STRESS_SOAK_COST_SIMULATION_R1.md`, §W: orden de magnitud a partir
+  de un delta de uso a nivel de proyecto que mezcla Production y TESTING); **no** es un costo fijo garantizado.
+- Los parámetros monetarios (cargo de referencia, costo operativo, porcentajes) deben poder ajustarse **sin cambios
+  de código**.
+- Los sorteos siguen sujetos a una futura revisión legal especializada (CLIENTE-3).
+
+Preguntas abiertas: valor del punto; fuente del costo operativo por pedido y cada cuánto se actualiza; cómo se registra
+y concilia el fondo de premios; si los pedidos online de negocios comunes también generan puntos. La regla definitiva
+de **emisión, vencimiento y canje** de puntos y la **reversión** por pedidos cancelados o reintegrados quedan como
+PENDING_DECISION: ver «Decisiones pendientes» en «Modelo comercial DeliGO Negocios».
+
+### CLIENTE-3 — Sorteos y recompensas — IDEA_FUTURE_NOT_AUTHORIZED
+
+Registrado sólo como idea; **sin autorización de implementación**:
+- Posibilidad de canjear puntos por beneficios o recompensas.
+- Posibilidad futura de participar por premios mediante puntos, con un mecanismo transparente y auditable; la cantidad
+  de oportunidades podría depender de los puntos destinados, pero **no hay mecanismo aprobado**.
+- **Obligatorio antes de implementar cualquier sorteo:** revisión por un abogado especializado en promociones y juegos
+  de azar en Argentina y Jujuy, que defina autorización, modalidad permitida, participación gratuita cuando
+  corresponda, bases legales, tratamiento de los puntos y condiciones económicas.
+- No desarrollar ruletas, sorteos, probabilidades ponderadas ni canjes asociados al azar.
+
+## FUTURE BACKLOG — Modelo comercial DeliGO Negocios (decisiones del operador, 2026-11-04)
+
+Decisión comercial de diseño, tomada en dos rondas el 2026-11-04. **No** autoriza implementar nada: necesita su propia
+auditoría, diseño, revisión contable y legal, y autorización. Es una decisión documental: no se modificó código,
+configuración ni la tarifa configurada en ningún entorno.
+
+### Mapa de esquemas de cobro (no mezclar)
+
+Verificado en solo lectura el 2026-11-04, en documentos y código. No se consultó ninguna base de datos ni la
+configuración de Railway.
+
+| Esquema | Quién paga | Ámbito | Estado documental | Estado de implementación |
+|---|---|---|---|---|
+| **COMERCIAL-1**: abono DeliGO Negocios de ARS 10.000 mensuales con bonificación por pedidos online | Comercio común | Herramientas de gestión de **negocios comunes** (rubro genérico) | Abajo — PLANNED_NOT_STARTED; referencia comercial elegida | No implementado |
+| Cargo de servicio DeliGO por pedido online de retiro o delivery: ARS 100 | Cliente. Lo recauda el comercio (A) o lo cobra DeliGO directamente (B) | Pedidos online elegibles | **Valor de referencia** del modelo comercial (COMERCIAL-1, diseño en `PAYMENTS_MERCADOPAGO_DESIGN.md` §1.5, invariante en `DECISIONS_AND_INVARIANTS.md`) | Parcial: existe un cargo configurable (ver más abajo). El valor por defecto del esquema es 250. **El valor configurado en Railway no se verificó**: no se debe suponer que es 100 ni 250, y no se modifica. Mercado Pago no está integrado |
+| Sistema comercial de restaurantes | Según sus reglas vigentes | Restaurantes | Independiente. «Negocios genéricos» (2026-10-08) registra «comisión por pedidos según reglas vigentes». **No** se le extiende la mensualidad de COMERCIAL-1 | El cargo configurable y la deuda acumulada descritos más abajo |
+| **Pedidos de mesa: gratuitos** | — | Pedidos de mesa | Decisión 2026-11-04: sin cargo por pedido, sin bonificación del abono y, en principio, sin puntos basados en cargos | Coincide con el código actual: los pedidos de mesa ya no tienen cargo (`MESA_SERVICE_FEE_ENABLED = false`); no se tocó el código |
+| *Antecedente histórico:* ARS 100 por pedido de mesa | Comercio | Pedidos de mesa | Descartado en `TABLE_ORDER_MONETIZATION_AND_METRICS_MASTER_R1.md` §B. **No** es el cargo online de ARS 100 | Nunca implementado |
+| *Antecedente histórico:* tramos ARS 30 / 20 / 10 con tope de ARS 25.000 | Comercio | Pedidos de mesa | `TABLE_ORDER_MONETIZATION_AND_METRICS_MASTER_R1.md` (archivo sin seguimiento, que no se edita y conserva su estado interno `PROVISIONAL_INTERNAL_MODEL_NOT_ACTIVE_NOT_BILLED`). **Descartado para el modelo comercial futuro** el 2026-11-04 | Nunca implementado |
+| *Antecedente histórico:* ARS 9.900 por mes y prueba de 45 días | Comercio genérico | Herramientas de gestión | «Negocios genéricos» (2026-10-08), referencia exploratoria. Reemplazada como referencia por los ARS 10.000 de COMERCIAL-1. **La prueba de 45 días no está aprobada** (PENDING_DECISION) | No implementado |
+| Fondo de premios de DeliGO Puntos | — (sale del ingreso realmente cobrado) | CLIENTE-2 | Propuesta: 50 % premios / 50 % DeliGO sobre el remanente neto disponible | No implementado |
+
+Lo que ya existe en el código para el cargo online (sin cambios):
+- `ConfigPlataforma.tarifaServicio` lo configura el SuperAdmin. El esquema lo inicializa en 250; el valor configurado
+  en cada entorno no se consultó.
+- Al crear el pedido, el valor se copia a `Pedido.tarifaServicio` (los pedidos de mesa quedan en 0) y se suma al total.
+- Cuando se confirma la recepción, se suma a `Negocio.deudaTarifa`, que tiene un límite por negocio (`limiteDeuda`).
+- El SuperAdmin liquida la deuda **completa** desde `/api/superadmin/deuda/[id]/abonar`; no hay pagos parciales.
+- Es una deuda acumulada, no organizada por período. No hay abono, bonificación ni liquidación mensual.
+
+### COMERCIAL-1 — Modelo DeliGO Negocios para negocios comunes — PLANNED_NOT_STARTED
+
+Alcance: **sólo negocios comunes (rubro genérico)**. Los restaurantes mantienen su sistema comercial independiente y
+la mensualidad no se les extiende automáticamente.
+
+Decisiones del operador:
+- **Abono de referencia elegido: ARS 10.000 mensuales.** La propuesta anterior de ARS 9.900 queda como antecedente
+  histórico, no como tarifa vigente.
+- **Prueba gratuita de 45 días: no aprobada.** Queda como decisión pendiente y no se implementa.
+- El comercio puede usar **sólo las herramientas administrativas** (Caja, inventario, empleados, turnos y demás
+  funciones disponibles) por ARS 10.000 mensuales.
+- El canal de pedidos online es **opcional**. El comercio puede activar o desactivar los pedidos de retiro y delivery
+  sin perder sus herramientas administrativas.
+- **ARS 100 por pedido elegible de retiro o delivery** es el valor de referencia del cargo de servicio que paga el
+  cliente. Hoy el código parte de 250 por defecto y el valor configurado en Railway no se verificó; no se modifica la
+  tarifa configurada en ningún entorno.
+- Un pedido es elegible si es un **pedido válido** y su **cargo se cobró efectivamente**, ya sea porque lo recaudó el
+  comercio o porque lo cobró DeliGO directamente.
+- Cada pedido elegible **bonifica ARS 100** del abono, hasta un máximo de **ARS 10.000 por mes**. Con 100 pedidos
+  elegibles, el abono queda totalmente bonificado.
+- Los pedidos adicionales siguen generando ARS 100 para DeliGO. No hay descuentos negativos ni créditos automáticos
+  para los meses siguientes.
+- La bonificación **no** es un segundo ingreso.
+- Los pedidos de mesa no forman parte de este modelo: son gratuitos y no bonifican el abono.
+- **Todos los importes deben ser configurables** en el desarrollo futuro: abono, cargo y tope de bonificación.
+
+Dos orígenes del cargo, que no se mezclan:
+- **A. Cargo recaudado por el comercio.** El comercio lo cobra junto con el pedido y lo conserva hasta la liquidación
+  mensual. No tiene que reservarlo físicamente: puede usarlo y reponerlo con fondos propios. Se acumula como
+  **obligación del comercio a liquidar a DeliGO**.
+- **B. Cargo cobrado directamente por DeliGO** (por ejemplo, Mercado Pago Split según el diseño de pagos). La
+  plataforma ya lo recibió, así que **nunca** se le vuelve a exigir al comercio. Esto es coherente con el invariante
+  «MP Split nunca genera deuda».
+
+Los dos orígenes bonifican el abono, pero **sólo A** forma parte de la deuda del comercio por cargos pendientes.
+
+Liquidación mensual (fórmula propuesta):
+
+```text
+A = cargos de pedidos elegibles recaudados por el comercio      (obligación del comercio)
+B = cargos de pedidos elegibles cobrados directamente por DeliGO (ya recibidos; nunca se le cobran al comercio)
+bonificacion_del_abono      = min(ARS 10.000, A + B)
+abono_restante              = ARS 10.000 − bonificacion_del_abono
+total_a_liquidar_comercio   = abono_restante + A
+saldo_pendiente_comercio    = total_a_liquidar_comercio − pagos_efectuados
+ingreso_DeliGO_del_periodo  = abono_restante + A + B = max(ARS 10.000, A + B)   (sólo cuando se cobró de verdad)
+```
+
+La liquidación muestra por separado el abono restante, A, B y los pagos efectuados. El mismo dinero no se cuenta dos
+veces: B no entra en lo que debe el comercio, y la bonificación no es un ingreso.
+
+| Pedidos elegibles (A + B) | A | B | Abono restante | Total a liquidar por el comercio | Ingreso de DeliGO |
+|---:|---:|---:|---:|---:|---:|
+| 0 | ARS 0 | ARS 0 | ARS 10.000 | ARS 10.000 | ARS 10.000 |
+| 50 (50 + 0) | ARS 5.000 | ARS 0 | ARS 5.000 | ARS 10.000 | ARS 10.000 |
+| 100 (100 + 0) | ARS 10.000 | ARS 0 | ARS 0 | ARS 10.000 | ARS 10.000 |
+| 150 (150 + 0) | ARS 15.000 | ARS 0 | ARS 0 | ARS 15.000 | ARS 15.000 |
+| 50 (30 + 20) | ARS 3.000 | ARS 2.000 | ARS 5.000 | ARS 8.000 | ARS 10.000 |
+| 150 (100 + 50) | ARS 10.000 | ARS 5.000 | ARS 0 | ARS 10.000 | ARS 15.000 |
+
+Requisitos de la futura implementación:
+- Registrar A, B, la bonificación aplicada y los pagos efectuados.
+- Prever liquidaciones pendientes, comprobación de pagos y conciliación.
+- Una pantalla para el comercio con los pedidos elegibles, la bonificación acumulada, el abono restante, los cargos
+  recaudados para DeliGO, los cargos cobrados directamente por DeliGO y el total pendiente de liquidación.
+
+### Decisiones pendientes (PENDING_DECISION)
+
+No hay reglas definitivas para estos puntos. Las opciones son ilustrativas: ninguna está elegida.
+
+| Tema | Opciones posibles | Riesgos a considerar |
+|---|---|---|
+| Vencimientos, mora, pagos parciales y consecuencias del impago | Fecha fija de vencimiento con gracia de N días · aceptar pagos parciales imputados primero al abono o primero a los cargos A · avisos y luego ocultar el canal online (ya existe `limiteDeuda`) · limitar herramientas recién después de una mora prolongada | Bloquear herramientas de gestión interrumpe la operación diaria del comercio (F10 hoy no incluye bloqueo por falta de pago) · los cargos A son dinero de terceros retenido por el comercio · el orden de imputación cambia la deuda exigible · temas legales de cobranza |
+| Altas y bajas de comercios a mitad de mes | Prorrateo por días · primer mes gratis o completo · baja con liquidación final inmediata · ciclo por fecha de alta en lugar de mes calendario | Disputas por el prorrateo · bonificación parcial en meses incompletos · cargos A pendientes que quedan al dar de baja |
+| Tratamiento impositivo | Facturar el abono y los cargos como un único servicio · facturar por separado el abono y el cargo de servicio (A y B) · revisión con un contador antes de implementar | Error de encuadre fiscal (IVA, ingresos brutos, facturación electrónica) · ingresos que pertenecen a DeliGO pero cobra un tercero · facturas a quien no corresponde |
+| Prueba gratuita (45 días u otra) | Sin prueba · 45 días para herramientas de gestión · prueba sólo para comercios nuevos · prueba con la bonificación activa desde el primer día | Abuso con altas repetidas · ingresos postergados · expectativas comerciales difíciles de revertir |
+| Reversión de cargos por pedidos cancelados o reintegrados | Revertir A o B y su bonificación en el mismo período · ajustar en el período siguiente sin crear créditos negativos · no revertir después de cerrada la liquidación | Bonificar por pedidos que luego se anulan · reintegros con MP Split (B) frente a efectivo (A) · interacción con la deuda actual (`deudaTarifa` ya se revierte una vez en el código) · fraude con pedidos falsos |
+| Puntos: regla definitiva de emisión, vencimiento y canje | Emitir puntos proporcionales al cargo de plataforma cobrado · puntos fijos por pedido elegible · vencimiento por inactividad o fecha fija · canje sólo contra fondos ya reservados | Pasivo de puntos sin fondo cobrado · emitir sobre deuda no cobrada · cuestiones legales de promociones (CLIENTE-3) · reversión de puntos al cancelar pedidos |
+
+Otros puntos para la auditoría previa (no son decisiones comerciales): la transición desde la `deudaTarifa` acumulada y
+`limiteDeuda` al período mensual; verificar en solo lectura, con autorización, el valor configurado del cargo en cada
+entorno; y si ya existe un interruptor por negocio para recibir pedidos online separado de las herramientas (no se
+auditó).
+
+Hallazgo lateral (solo lectura, 2026-11-04, sin cambios): los Términos públicos (`src/components/shared/legal-content.tsx`)
+dicen que DeliGO «podrá aplicar» en el futuro una tarifa por pedidos de mesa con tramos progresivos y/o tope. No
+contradicen la gratuidad actual, pero quedan desalineados con la decisión de que los pedidos de mesa son gratuitos.
+Actualizar ese texto es una tarea aparte de código y revisión legal: PENDING_DECISION del operador.
+
 ## FUTURE BACKLOG — Negocios genéricos (aprobado por el operador, 2026-10-08) · R3A-I4 discovery
 
 Funcionalidades **aprobadas para después del bloque R3A**. No están autorizadas para implementarse ahora: cada una necesita su propia auditoría y autorización. Alcance: negocios con `rubro = "negocio"`, salvo que la fase diga otra cosa.
@@ -271,6 +466,10 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       otro de la misma venta cobrado al mismo precio, o un producto/variante habilitado cuyo precio de catálogo ACTUAL
       sea exactamente el cobrado (se guarda el precio consultado y el momento; no prueba el precio histórico).
       Combinaciones 1→N y diferencias de dinero: F4-C. Ver codex-reports/F4_B_JUSTIFIED_PRICES.md.
+    → F4-B CERTIFICADA EN TESTING (2026-11-04, funcional): revisión manual del operador 11/11 favorable sobre
+      testing-codex 2bc0a93 (Railway TESTING 51e10854, CI 41907431414, migración 20261105120000 aplicada).
+      CLOSED_TESTING_CERTIFIED; algunas verificaciones sólo por CI; no autoriza Production. Pendiente: ¿F4-A bloquea
+      devoluciones de líneas con precio heredado? (hoy advierte). F4-C sigue PLANNED_NOT_STARTED sin cambios de alcance.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).
@@ -328,7 +527,7 @@ R3A_RELATION=R3A CLOSED_TESTING_CERTIFIED_WITH_DOCUMENTED_LIMITATIONS, modo ON e
 
 **Segmento objetivo.** Almacenes pequeños, kioscos, minimercados familiares y comercios sencillos de mostrador. Muchos no tienen computadora en la Caja → experiencia **mobile-first** (PWA y navegador del teléfono) con soporte completo de escritorio.
 
-**Contexto comercial (no vinculante).** Restaurantes: comisión por pedidos según reglas vigentes. Ropa: catálogo gratuito en la etapa inicial para ampliar la oferta. Genéricos: idea preliminar de catálogo gratuito + abono mensual por las herramientas de gestión; referencia exploratoria ARS 9.900/mes y prueba de 45 días — **NO** son precios ni condiciones aprobadas. F10 **no** incluye suscripciones ni bloqueo por falta de pago.
+**Contexto comercial (no vinculante).** Restaurantes: comisión por pedidos según reglas vigentes. Ropa: catálogo gratuito en la etapa inicial para ampliar la oferta. Genéricos: idea preliminar de catálogo gratuito + abono mensual por las herramientas de gestión; referencia exploratoria ARS 9.900/mes y prueba de 45 días — **NO** son precios ni condiciones aprobadas. (Decisión del operador 2026-11-04 → «Modelo comercial DeliGO Negocios», COMERCIAL-1, sólo negocios comunes: la referencia comercial elegida es ARS 10.000/mes, bonificable por pedidos online; ARS 9.900 queda como antecedente histórico; la prueba de 45 días sigue sin aprobar (PENDING_DECISION). Los restaurantes mantienen su sistema independiente. Los pedidos de mesa son gratuitos.) F10 **no** incluye suscripciones ni bloqueo por falta de pago.
 
 **Línea de base existente (verificada READ-ONLY, 2026-10-08) — para no confundir lo existente con lo propuesto:**
 - Caja: `Venta` = negocioId, total, `metodoPago` único (EFECTIVO | TRANSFERENCIA | OTRO), cantidadItems, createdAt; **sin** referencia a empleado, turno, remitente ni pagos mixtos. `POST/GET /api/negocio/caja/ventas` sólo aceptan la sesión del negocio (un empleado no puede vender por Caja hoy). El checkout **no** tiene clave de idempotencia. Precio de servidor, aislamiento por negocio, transacción Serializable y validación R3A sí existen.
@@ -444,7 +643,7 @@ UBICACIÓN=relacionada con Caja e Inventario; afín a F10-C (movimientos autoriz
 11. Saldo inicial de cuentas y modelo de conciliación (manual) de Mercado Pago.
 12. Almacenamiento y privacidad de comprobantes/fotos.
 13. ~~Confirmar la numeración: Tickets F10→F11 y absorción de F7 por F10-B.~~ RESUELTA 2026-10-09 (confirmadas por el operador).
-14. Precios, abono y período de prueba (fuera de F10; referencia ARS 9.900/mes y 45 días sólo exploratoria).
+14. Precios, abono y período de prueba (fuera de F10; referencia ARS 9.900/mes y 45 días sólo exploratoria). → 2026-11-04: abono de referencia ARS 10.000/mes (COMERCIAL-1); ARS 9.900 es histórico; prueba de 45 días PENDING_DECISION.
 15. Consumo interno — modalidad de autorización de empleados: permiso permanente por empleado · autorización individual por retiro · límites configurables · combinaciones (registrada 2026-10-09; PENDIENTE del operador).
 16. Redondeo de línea con cantidades fraccionarias o precios con más de 2 decimales: F10-B2.0 conserva bit a bit la regla anterior (`Math.round(precio × cantidad × 100) / 100`), que en medios centavos verdaderos difiere en 1 centavo del HALF_UP exacto (p. ej. 0,29 × 0,5 → 0,14 vs 0,15); sin datos afectados; decidir antes de la venta por peso (F1) o de cuantizar precios (registrada 2026-10-09; PENDIENTE del operador).
 17. **RESUELTA por el operador (2026-10-09): Caja física compartida entre dueño y empleado autorizado.** La caja pertenece al negocio y la administra el dueño; un turno abierto tiene un único responsable operativo, pero puede admitir participantes autorizados. El dueño puede vender desde el panel del negocio en la misma caja/turno del empleado: la venta y su operación financiera se atribuyen a ese turno para el efectivo esperado, conservando `actorTipo=NEGOCIO` y el negocio como autor. Las ventas del empleado siguen `actorTipo=EMPLEADO` y el empleado de la sesión. No se abre un segundo turno simultáneo en esa caja. La selección de caja del dueño debe ser explícita cuando haya varias cajas; sin selección válida no se atribuye efectivo a una caja. Esta decisión sustituye las alternativas A/B/C documentadas inicialmente en F10-B2.1 §11; esas alternativas quedan sólo como historial, no como opciones vigentes. El dueño conserva sus capacidades administrativas y es quien conoce el esperado/diferencia; el cajero no los recibe. La política exacta para invitar, incorporar y revocar participantes queda como propuesta técnica previa a F10-B2.2, no como permiso implícito para cualquier empleado.

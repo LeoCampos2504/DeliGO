@@ -129,17 +129,24 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 - El operador confirmó la nueva comprobación de la campana: **8/8 comprobaciones manuales PASS**.
 - **Estado: CLOSED_TESTING_CERTIFIED** en TESTING (`testing-codex` `d1856d5`, Railway `a093df1e`). Production sin cambios.
 
-## F4-B — corrección administrativa de ventas (certificación manual PAUSADA)
+## F4-B — corrección administrativa de ventas (CLOSED_TESTING_CERTIFIED, funcional)
 
-**Actualización 2026-11-04:** F4-B está integrada y desplegada en TESTING (`eb0699c`), pero la certificación manual
+**Certificación 2026-11-04:** revisión manual del operador en Railway TESTING (`testing-codex` `2bc0a93`, deployment
+`51e10854`, CI `41907431414`): 11/11 comprobaciones favorables con la regla de precios justificados. Algunas
+verificaciones se sustentan sólo en CI. No autoriza Production. Sigue pendiente decidir si F4-A debe bloquear
+devoluciones de líneas con precio heredado (hoy advierte). Detalle: `codex-reports/F4_B_JUSTIFIED_PRICES.md`.
+
+**Antecedente (2026-11-04, superado por la certificación de arriba):** F4-B está integrada y desplegada en TESTING (`eb0699c`), pero la certificación manual
 quedó **pausada**: el operador revirtió la regla «el reemplazo hereda el precio cobrado». La corrección (rama
 `codex/f4-b-justified-prices`, sin integrar) sólo admite el mismo producto, otro producto **de la misma venta**
 cobrado al mismo precio, o un producto/variante habilitado cuyo **precio de catálogo actual** sea exactamente el
 cobrado (se registra el precio consultado y el momento; es una coincidencia al corregir, no prueba el precio histórico). Detalle, decisiones pendientes y retest: `codex-reports/F4_B_JUSTIFIED_PRICES.md`. El
 ejemplo y el checklist de abajo ya usan la regla nueva.
 
-Etapa siguiente de F4 (numeración provisional), en la rama `codex/f4-b-owner-sale-corrections`: **sin integrar, sin
-desplegar y sin certificar**. Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
+Etapa siguiente de F4 (numeración provisional). Estado vigente (2026-11-04): integrada en `testing-codex` `2bc0a93`,
+desplegada en Railway TESTING y **certificada funcionalmente sólo en TESTING** (no en Production). Antecedente: el
+texto anterior la describía en la rama `codex/f4-b-owner-sale-corrections` «sin integrar, sin desplegar y sin
+certificar». Interacción con F4-A: después de una corrección, las devoluciones usan la línea vigente
 (cantidad, importe cobrado y producto que se reingresa); en ventas sin corrección F4-A se comporta exactamente igual.
 Una venta con devoluciones no se puede corregir. Detalle y estado vigente: bloque superior de `CODEX_REPORT.md`.
 
@@ -150,7 +157,7 @@ Auditoría READ-ONLY (2026-10-28): sin P0/P1. Los dos P2 se resolvieron y están
   rechaza lo que supera el disponible sin escribir nada; dentro del disponible, movimientos exactos y sin duplicar;
   una corrección y una reserva simultáneas nunca comprometen las mismas unidades.
 
-### Prueba manual F4-B (cuando esté desplegada en TESTING)
+### Prueba manual F4-B (ejecutada en TESTING el 2026-11-04 — resultado en la certificación de arriba)
 
 Ejemplo de referencia (corregido):
 

@@ -1,5 +1,21 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## F4-B justified prices — testing-codex integration + Railway TESTING (2026-11-04)
+
+```text
+AUTHORIZATION=explicit operator authorization: fast-forward codex/f4-b-justified-prices into testing-codex and deploy Railway TESTING only; later exactly ONE redeploy of 2bc0a93
+INTEGRATION=git push origin 2bc0a93e8d509ad2223a4f618808ab66886c675f:refs/heads/testing-codex (fast-forward eb0699c..2bc0a93, no force, no merge commit)
+COMMITS_INTEGRATED=242eac9, 4ac3ccc, 687b972, 2bc0a93 (docs commits 3613091 / 6cb3d92 NOT included)
+CI_TESTING_CODEX=41907431414 SUCCESS on 2bc0a93 (task-branch run 41905317121 SUCCESS on the same SHA)
+RAILWAY_TESTING_DEPLOY_1=b17858a2-a547-496c-b26b-9fe7bd9ee6e4 FAILED at BUILD (Turbopack next/font/google Nunito, src/app/layout.tsx unchanged; transient)
+RAILWAY_TESTING_DEPLOY_2=51e10854-8686-45f4-8112-81d5fe528508 SUCCESS (single authorized redeploy, commitHash 2bc0a93e8d509ad2223a4f618808ab66886c675f exact match, branch testing-codex)
+MIGRATIONS=50 found; 20261105120000_f4_b_justified_replacement_prices applied once; «All migrations have been successfully applied»
+SMOKE=/ 307 · GET caja ventas / historial / notificaciones without session 401 · POST correcciones without session 401 · POST cashier devoluciones without session 403 (origin guard)
+LOGS=startup Ready, no errors / exceptions / Prisma codes in the deploy logs
+PREVIOUS_TESTING_DEPLOYMENT=81b6735a (eb0699c) served until replaced, now REMOVED
+PRODUCTION=NOT touched · main 42ca500 unchanged · Railway connector not used (CLI linked to amiable-rejoicing / TESTING)
+```
+
 ## P2 — PRODUCTION RC1 PROMOTION (2026-09-25)
 
 ```text

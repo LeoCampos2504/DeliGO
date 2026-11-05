@@ -1,11 +1,40 @@
 # F4-B — Precios justificados en sustituciones (2026-11-04, Claude Code)
 
-Estado (2026-11-04): **INTEGRADO en `testing-codex` `2bc0a93`** (fast-forward desde `eb0699c`, autorizado por el
-operador; CI 41907431414 SUCCESS). **El deploy en Railway TESTING falló en la etapa de build** (deployment
-`b17858a2`: error de Turbopack con la fuente Google «Nunito» de `src/app/layout.tsx`, archivo sin cambios respecto de
-`eb0699c`; el mismo SHA compila en CI → causa ambiental). TESTING sigue sirviendo `eb0699c` (deployment `81b6735a`) y
-la migración `20261105120000` **no se aplicó**. Production sin cambios. **F4-B: AWAITING_TESTING_MANUAL_CERTIFICATION
-(pausada), no certificada.**
+Estado: **CLOSED_TESTING_CERTIFIED (funcional, sólo TESTING)** — certificación manual del operador en Railway TESTING
+(2026-11-04): **11/11 comprobaciones funcionales favorables**. Algunas verificaciones complementarias se sustentan en
+CI y no se ejecutaron manualmente (ver abajo). **No es una autorización para Production.**
+
+Historial de este estado: integrado en `testing-codex` `2bc0a93` (fast-forward desde `eb0699c`, CI 41907431414
+SUCCESS); el primer build de Railway (`b17858a2`) falló por un error transitorio de `next/font/google` (Nunito) y el
+único redeploy autorizado (`51e10854`) terminó SUCCESS con la migración `20261105120000` aplicada una vez.
+
+## Certificación manual en TESTING (2026-11-04)
+
+| | |
+|---|---|
+| Rama / commit | `testing-codex` · `2bc0a93e8d509ad2223a4f618808ab66886c675f` |
+| Deployment | Railway TESTING `51e10854-8686-45f4-8112-81d5fe528508` (SUCCESS) |
+| CI | `41907431414` (SUCCESS) |
+| Migración | `20261105120000_f4_b_justified_replacement_prices` aplicada correctamente |
+
+Comprobaciones del operador (todas favorables):
+
+1. Rechazo de producto con precio diferente.
+2. Aceptación de producto nuevo con precio de catálogo coincidente.
+3. Persistencia del precio original después de modificar el catálogo.
+4. Devolución por el importe realmente cobrado, con actualización de inventario.
+5. Reemplazo por otro producto incluido en la venta.
+6. Visualización de correcciones anteriores con advertencia de precio heredado.
+7. Corrección de una venta de turno cerrado sin alterar sus importes.
+8. Rechazo por stock insuficiente.
+9. Ausencia de la opción de corrección para empleados.
+10. Bloqueo de correcciones cuando ya existen devoluciones.
+11. Prevención de duplicados ante doble clic, con stock final correcto.
+
+Sustentado sólo en CI (no ejecutado manualmente): reservas de pedidos activas (producto y variante) y carreras corrección/reserva, corrección/corrección y corrección/devolución; variantes inactivas, productos eliminados o de otro negocio; igualdad exacta al centavo; traslado de evidencia sin re-fechar en la fila SQL; criterio forzado por el guard SQL y CHECK; replay con la misma Idempotency-Key tras error del servidor; aislamiento entre negocios; tope F4-A sobre la línea corregida.
+
+**Decisión que sigue pendiente:** si F4-A debe **bloquear** las devoluciones de líneas antiguas con precio heredado
+(regla anterior). Hoy sólo advierte y reintegra lo efectivamente cobrado.
 
 ## Caso que originó la tarea (certificación manual en TESTING)
 
@@ -108,10 +137,11 @@ Ejemplos del operador:
 ## Pendiente / límites
 
 - Combinaciones 1→N y cambios con diferencia de dinero: F4-C (requiere rediseño de líneas y de topes F4-A).
-- ¿F4-A debe bloquear devoluciones sobre líneas heredadas de la regla anterior? Hoy sólo advierte.
+- **PENDIENTE (decisión del operador):** ¿F4-A debe bloquear devoluciones sobre líneas heredadas de la regla
+  anterior? Hoy sólo advierte.
 - No hay historial de precios: la coincidencia se comprueba sólo contra el precio vigente al corregir.
 
-## Retest recomendado en TESTING (sólo tras autorización de integración y deploy)
+## Retest en TESTING (ejecutado por el operador el 2026-11-04; ver «Certificación manual»)
 
 Venta: 2 × Gaseosa Cola $2.000 + 1 × Gaseosa Lima $2.000 + 1 × Yerba $5.000 = $11.000. Tener en el catálogo un
 producto fuera de la venta a $2.000 (p. ej. Naranja) y Redmi a $1.000.

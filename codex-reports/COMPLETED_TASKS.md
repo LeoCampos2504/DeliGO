@@ -1,5 +1,20 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## F4-B — OWNER SALE CORRECTIONS WITH JUSTIFIED PRICES — CLOSED_TESTING_CERTIFIED (2026-11-04, functional)
+
+```text
+F4_B_STATUS=CLOSED_TESTING_CERTIFIED (functional; TESTING only; NOT a Production authorization)
+F4_B_TESTED_COMMIT=2bc0a93e8d509ad2223a4f618808ab66886c675f (testing-codex)
+F4_B_CODE_COMMITS=F4-B base (integrated eb0699c) + 242eac9 (same-sale price rule) + 687b972 (current-catalog criterion)
+F4_B_RAILWAY_TESTING=51e10854-8686-45f4-8112-81d5fe528508 SUCCESS · migration 20261105120000_f4_b_justified_replacement_prices applied
+F4_B_CI=41907431414 SUCCESS
+F4_B_MANUAL_REVIEW=operator 11/11 functional checks PASS in Railway TESTING
+F4_B_CI_ONLY_VERIFICATIONS=reservas de pedidos activas (producto y variante) y carreras corrección/reserva, corrección/corrección y corrección/devolución; variantes inactivas, productos eliminados o de otro negocio; igualdad exacta al centavo; traslado de evidencia sin re-fechar en la fila SQL; criterio forzado por el guard SQL y CHECK; replay con la misma Idempotency-Key tras error del servidor; aislamiento entre negocios; tope F4-A sobre la línea corregida
+F4_B_OPEN_DECISION=F4-A block vs warn on earlier-rule inherited-price lines (PENDING)
+PRODUCTION_TOUCHED=NO
+REPORT=codex-reports/F4_B_JUSTIFIED_PRICES.md
+```
+
 ## P2-T38-R1 — PHYSICAL RECERTIFICATION CLOSEOUT — CLOSED_TESTING_CERTIFIED (2026-09-26)
 
 ```text

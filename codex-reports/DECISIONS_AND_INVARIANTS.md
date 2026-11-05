@@ -1,5 +1,29 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+
+## F4-B price rule, client-platform and business-monetization planning (operator decisions, 2026-11-04)
+
+```text
+F4_B_INHERITED_PRICE_RULE=REVERSED (a replacement no longer inherits another product's charged price)
+F4_B_PRICE_JUSTIFICATION=MISMO_PRODUCTO | MISMA_VENTA (same sale, exact charged price) | PRECIO_CATALOGO_ACTUAL (enabled product/variant of the business whose CURRENT catalog price equals the charged price exactly)
+F4_B_CATALOG_EVIDENCE=price consulted + check time stored per line; a coincidence at correction time, NEVER presented as proof of the historical price; unchanged lines carry their earlier evidence
+F4_B_INVARIANTS=corrected total = charged total · line price = charged price · owner only, mandatory reason, audit · stock vs physical − active reservations, no duplicate movements · F4-A refunds what was actually charged
+F4_B_COMBINATIONS_AND_MONEY_DIFFERENCES=F4-C (PLANNED_NOT_STARTED)
+F4_A_ON_INHERITED_LINES=PENDING_DECISION (today: warning only)
+CLIENTE_1_GUEST_CHECKOUT=PLANNED_NOT_STARTED · account optional · minimal data · secure guest tracking without exposing other orders · anti-fraud kept and reviewed; IP/device limits alone are not sufficient · independent of DeliGO Puntos
+CLIENTE_2_DELIGO_PUNTOS=PLANNED_NOT_STARTED · central, SuperAdmin-run · registered clients only (guest orders earn no points initially) · restaurant participation in accrual mandatory, prize collaboration optional · auditable ledger (issue/use/adjust/reverse) · points balance separate from money reserved for prizes · monetary parameters adjustable without code changes
+CLIENTE_2_ECONOMIC_MODEL=PROPOSED: prize fund financed ONLY from platform income actually collected and available, after the corresponding costs (real operating cost per order; experimental Railway estimate, not a fixed cost) → net available remainder 50% prizes / 50% DeliGO profit (before taxes and real expenses) · a business fee discount is NOT income · no prizes promised and no funds reserved on business debt not yet collected
+CLIENTE_2_POINTS_BASIS=final rule PENDING_DECISION; reference = platform charge (ARS 100 per eligible online pickup/delivery order), NEVER the order product total · table orders are free → no charge and initially no charge-based points · loyalty points ≠ prize fund money
+CLIENTE_3_RAFFLES_REWARDS=IDEA_FUTURE_NOT_AUTHORIZED · mandatory legal review (promotions and gambling, Argentina and Jujuy) before any raffle · no roulettes, raffles, weighted odds or chance-based redemptions
+COMERCIAL_1_DELIGO_NEGOCIOS=PLANNED_NOT_STARTED (commercial design decision, NOT an implementation authorization) · scope: ONLY common (generic) businesses; restaurants keep their independent commercial system, monthly fee NOT extended to them · chosen reference fee ARS 10.000/month (ARS 9.900 = historical antecedent, not a current tariff) · 45-day free trial NOT approved (PENDING_DECISION, not implemented) · management tools alone for ARS 10.000/month · online pickup/delivery channel optional (toggle without losing admin tools) · eligible = valid order whose charge was effectively collected · each eligible order discounts ARS 100, max ARS 10.000 per month · extra orders keep generating ARS 100, no negative discounts or carry-over credits · all amounts configurable
+COMERCIAL_1_SETTLEMENT=A = charges collected by the business (obligation to settle to DeliGO) · B = charges collected directly by DeliGO (already received, never billed to the business again) · both discount the fee; ONLY A forms the business pending-charges debt · discount = min(ARS 10.000, A+B) · remaining fee = ARS 10.000 − discount · total to settle by business = remaining fee + A; pending = that − payments made · DeliGO income = max(ARS 10.000, A+B) once actually collected · settlement shows remaining fee, A, B and payments separately · no money counted twice; the discount is not a second income
+MONETIZATION_SCHEMES_SEPARATE=COMERCIAL-1 ARS 10.000/month (common businesses only) ≠ online ARS 100 client charge (pickup/delivery; commercial reference value) ≠ restaurant commercial system (independent) ≠ table orders (FREE) · HISTORICAL only: ARS 100 per table order (rejected), table-order ARS 30/20/10 tiers + ARS 25.000 cap (discarded for the future model 2026-11-04; source doc untracked and not edited), generic-business ARS 9.900/month + 45-day trial (2026-10-08 exploratory) — map in codex-reports/ROADMAP.md «Modelo comercial DeliGO Negocios»
+TABLE_ORDERS_PRICING=FREE (operator decision 2026-11-04, documentation only): no per-order service charge, no fee discount, initially no charge-based points
+ONLINE_CHARGE_VALUE=ARS 100 per eligible pickup/delivery order = commercial reference; future implementation configurable; configured fee in any environment NOT modified
+MONETIZATION_PENDING_DECISIONS=due dates, late payment, partial payments and non-payment consequences · mid-month business joins/leaves · tax treatment · free-trial policy · reversal of charges on cancelled/refunded orders · final points issue/expiry/redemption rule — all PENDING_DECISION, options and risks in ROADMAP (none chosen)
+COMERCIAL_1_CODE_BASELINE=existing ConfigPlataforma.tarifaServicio (SuperAdmin-configurable, schema default 250; configured Railway value NOT verified — assume neither 100 nor 250; NOT to be modified) snapshot into Pedido.tarifaServicio (table orders 0, MESA_SERVICE_FEE_ENABLED=false) → Negocio.deudaTarifa on receipt confirmation, limiteDeuda, full settlement only via SuperAdmin; no monthly fee, discount or monthly period exists; no code changed by these decisions
+```
+
 ## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21; historical decisions)
 
 ```text
