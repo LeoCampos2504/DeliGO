@@ -925,8 +925,11 @@ model DevolucionVentaItem {
 // modifican. Cada corrección guarda el estado completo de TODAS las líneas de la
 // venta antes y después (secuencia 1, 2, …); el estado vigente de la venta es el
 // de la última corrección. Cada línea conserva su VentaItem y el precio unitario
-// efectivamente cobrado (decisión del operador: el reemplazo hereda ese precio;
-// nunca el precio actual del catálogo). El total corregido debe ser EXACTAMENTE
+// efectivamente cobrado (no editable). Desde 2026-11-05 el producto nombrado
+// debe justificar ese precio (CorreccionVentaLinea.criterioPrecio: MISMO_PRODUCTO,
+// MISMA_VENTA o PRECIO_CATALOGO_ACTUAL); la regla anterior «el reemplazo hereda
+// el precio cobrado» quedó revertida y sus líneas históricas (criterioPrecio
+// NULL) no se reescriben. El total corregido debe ser EXACTAMENTE
 // el total cobrado: F4-B no mueve dinero ni cambia el medio de pago. El stock se
 // ajusta con movimientos CORRECCION_ENTRADA / CORRECCION_SALIDA. No se corrigen
 // ventas con devoluciones/anulaciones (F4-A). Invariantes en SQL (migración

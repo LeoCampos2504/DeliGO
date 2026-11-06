@@ -12,6 +12,10 @@
 //     (planificarStockVentaCaja) BEFORE creating the Venta, then the single
 //     write path (registrarStockVentaCaja),
 //   - one Serializable transaction with the shared bounded P2034 retry.
+// F4-C1: the work done inside that transaction is exposed as
+// registrarVentaCajaEnTx so a future F4-C operation can run it together with
+// the return engine in ONE transaction; registrarVentaCaja keeps opening its
+// own transaction and behaves exactly as before.
 // Added by F10-B0, inside that same transaction (all-or-nothing):
 //   - idempotency (Idempotency-Key + content fingerprint, unique per negocio):
 //     exact replay returns the original sale, a reused key with different
@@ -213,282 +217,34 @@ const TURNO_NO_DISPONIBLE = {
   error: "Tu turno de Caja ya no está disponible. Actualizá la pantalla.",
 }
 
-export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
-  const { negocioId, actor, metodoPago, lines: requestedLines, idempotencyKey } = input
-  if (actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined && input.ownerCajaFisicaId !== null && !input.ownerCajaFisicaId.trim()) {
+/** Pure pre-check of a sale request (no database access). null = acceptable. */
+function rechazoEntradaVentaCaja(input: RegistrarVentaCajaInput): RegistrarVentaCajaResult | null {
+  if (input.actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined && input.ownerCajaFisicaId !== null && !input.ownerCajaFisicaId.trim()) {
     return { ok: false, status: 400, error: "Caja inválida" }
   }
-  const fingerprint = idempotencyKey ? fingerprintVentaCaja(negocioId, metodoPago, requestedLines, actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined) : null
+  return null
+}
+
+function fingerprintEntradaVentaCaja(input: RegistrarVentaCajaInput): string | null {
+  return input.idempotencyKey
+    ? fingerprintVentaCaja(input.negocioId, input.metodoPago, input.lines, input.actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined)
+    : null
+}
+
+/**
+ * Registers a Caja sale in its OWN Serializable transaction (the behaviour of
+ * both Caja routes): runStockSerializable + the in-transaction core below, and
+ * the concurrent-duplicate replay after a unique violation of the key.
+ */
+export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
+  const rechazo = rechazoEntradaVentaCaja(input)
+  if (rechazo) return rechazo
+  const { negocioId, actor, idempotencyKey } = input
+  const fingerprint = fingerprintEntradaVentaCaja(input)
 
   try {
     return await runStockSerializable(db, async (tx) => {
-      // F10-B0: exact replay / reused key — BEFORE any validation or side
-      // effect, so a retry of an already-committed sale never re-validates
-      // stock and never writes anything.
-      if (idempotencyKey) {
-        const existing = await tx.venta.findUnique({
-          where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } },
-          include: { items: true },
-        })
-        if (existing) return replayOrConflict(existing, fingerprint, actor, negocioId)
-      }
-
-      // Actor: derived from the session by the caller; an EMPLEADO must be an
-      // active employee of THIS negocio (defense in depth for F10-B1).
-      let actorId: string = negocioId
-      let empleadoId: string | null = null
-      if (actor.tipo === "EMPLEADO") {
-        const empleado = await tx.empleado.findFirst({
-          where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
-          select: { id: true },
-        })
-        if (!empleado) return { ok: false as const, status: 403 as const, error: "Acceso denegado" }
-        actorId = empleado.id
-        empleadoId = empleado.id
-      }
-      let turnoCajaId = input.turnoCajaId ?? null
-
-      // F10-B2.2-A: an owner is a permitted actor for the selected active
-      // physical register's open shift, even when an employee is responsible.
-      // Replay above deliberately precedes this live destination resolution.
-      let cajaFisicaIdDelTurno: string | null = null
-      if (actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined) {
-        const cajaIdSeleccionada = input.ownerCajaFisicaId
-        if (cajaIdSeleccionada) {
-          const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
-            SELECT "id", "activa" FROM "cajas_fisicas"
-            WHERE "id" = ${cajaIdSeleccionada} AND "negocioId" = ${negocioId}
-            FOR UPDATE`
-          const caja = cajaRows[0]
-          if (!caja) return { ok: false as const, status: 404 as const, error: "Caja no encontrada." }
-          if (!caja.activa) return { ok: false as const, status: 409 as const, code: "CAJA_INACTIVA", error: "La caja está desactivada." }
-          const turno = await tx.turnoCaja.findFirst({
-            where: { negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
-            select: { id: true, cajaFisicaId: true },
-          })
-          if (!turno) return TURNO_NO_DISPONIBLE
-          turnoCajaId = turno.id
-          cajaFisicaIdDelTurno = turno.cajaFisicaId
-        } else {
-          // Opening a shift locks its register row too. Lock all existing
-          // registers before counting so a concurrent opening cannot turn a
-          // previously unique automatic destination into an ambiguous one.
-          await tx.$queryRaw<Array<{ id: string }>>`
-            SELECT "id" FROM "cajas_fisicas"
-            WHERE "negocioId" = ${negocioId}
-            ORDER BY "id"
-            FOR UPDATE`
-          const abiertos = await tx.turnoCaja.findMany({
-            where: { negocioId, estado: TURNO_ESTADO_ABIERTO },
-            select: { id: true, cajaFisicaId: true },
-            take: 2,
-          })
-          if (abiertos.length > 1) {
-            return { ok: false as const, status: 409 as const, code: "CAJA_SELECCION_REQUERIDA", error: "Hay varias cajas abiertas. Seleccioná en cuál cobrar." }
-          }
-          if (abiertos.length === 1) {
-            const selected = abiertos[0]
-            const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
-              SELECT "id", "activa" FROM "cajas_fisicas"
-              WHERE "id" = ${selected.cajaFisicaId} AND "negocioId" = ${negocioId}
-              FOR UPDATE`
-            const caja = cajaRows[0]
-            if (!caja || !caja.activa) return TURNO_NO_DISPONIBLE
-            const turno = await tx.turnoCaja.findFirst({
-              where: { id: selected.id, negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
-              select: { id: true, cajaFisicaId: true },
-            })
-            if (!turno) return TURNO_NO_DISPONIBLE
-            turnoCajaId = turno.id
-            cajaFisicaIdDelTurno = turno.cajaFisicaId
-          }
-        }
-      }
-
-      if (turnoCajaId && !(actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined)) {
-        const turno = await tx.turnoCaja.findFirst({ where: { id: turnoCajaId, negocioId }, select: { cajaFisicaId: true } })
-        if (!turno) return TURNO_NO_DISPONIBLE
-        const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
-          SELECT "id", "activa" FROM "cajas_fisicas"
-          WHERE "id" = ${turno.cajaFisicaId} AND "negocioId" = ${negocioId}
-          FOR UPDATE`
-        if (!cajaRows[0]?.activa) return TURNO_NO_DISPONIBLE
-        cajaFisicaIdDelTurno = turno.cajaFisicaId
-      }
-
-      // Resolve/create the ledger account only after idempotency and shift
-      // authorization. Keep the account creation in the same transaction.
-      const cuentaEfectivoId = metodoPago !== "EFECTIVO"
-        ? null
-        : cajaFisicaIdDelTurno
-          ? await (async () => {
-              await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId: cajaFisicaIdDelTurno }], skipDuplicates: true })
-              const cuenta = await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, cajaFisicaId: cajaFisicaIdDelTurno }, select: { id: true } })
-              return cuenta.id
-            })()
-          : await (async () => {
-              await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR, tipo: "EFECTIVO", nombre: "Efectivo de Caja (sin caja física asignada)" }], skipDuplicates: true })
-              const cuenta = await tx.cuentaFinanciera.findUniqueOrThrow({ where: { negocioId_clave: { negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } }, select: { id: true } })
-              return cuenta.id
-            })()
-
-      // F10-B2.2-A: employees must remain the shift's responsible person.
-      // Owner is separately authorized for their selected/automatic register
-      // above, while its employee responsibility remains unchanged.
-      if (turnoCajaId) {
-        const ownerSharesEmployeeShift = actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined
-        const turno = await tx.turnoCaja.findFirst({
-          where: {
-            id: turnoCajaId,
-            negocioId,
-            estado: TURNO_ESTADO_ABIERTO,
-            cajaFisicaId: cajaFisicaIdDelTurno!,
-            ...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),
-          },
-          select: { id: true },
-        })
-        if (!turno) return TURNO_NO_DISPONIBLE
-      } else if (actor.tipo === "EMPLEADO") {
-        const negocio = await tx.negocio.findUnique({ where: { id: negocioId }, select: { cajaTurnosModo: true } })
-        if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {
-          return {
-            ok: false as const,
-            status: 409 as const,
-            code: TURNO_REQUERIDO_CODE,
-            error: "Para vender tenés que abrir un turno de Caja.",
-          }
-        }
-      }
-
-      // Tenant-scoped, authoritative product+variant read — a productoId
-      // that doesn't belong to this negocio (or is inactive) simply won't
-      // be in this map, and computeSaleFromAuthoritativeProducts rejects
-      // any requested line that isn't in it. Every active AND inactive
-      // variant is fetched (never trust "activo" from the client either) so
-      // an inactive variant is resolvable-but-rejectable below, not just
-      // silently missing.
-      const productos = await tx.producto.findMany({
-        where: { id: { in: requestedLines.map((l) => l.productoId) }, negocioId, eliminado: false },
-        include: { variantes: true },
-      })
-      const productsById = new Map(
-        productos.map((p) => [
-          p.id,
-          {
-            nombre: p.nombre,
-            precio: p.precio,
-            variantes: new Map(
-              p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: v.precio }])
-            ),
-          },
-        ])
-      )
-
-      const computed = computeSaleFromAuthoritativeProducts(requestedLines, productsById)
-      if (!computed.ok) {
-        return { ok: false as const, status: 400 as const, error: computed.error }
-      }
-
-      // F10-B2.0 — exact amounts: the single authority for every money column
-      // written below (Float = transport form of the same exact cents).
-      let importes: SaleAmountsExact
-      try {
-        importes = saleAmountsExact(computed.items)
-      } catch (error) {
-        if (error instanceof MoneyError) return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
-        throw error
-      }
-      if (!isMoneyInRange(importes.total) || !importes.subtotales.every((s) => isMoneyInRange(s))) {
-        return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
-      }
-      const totalExacto = importes.total
-
-      // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
-      // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
-      // = físico − reservas ACTIVA (Decisión B), leído en esta misma tx
-      // Serializable por la autoridad compartida. Lanza 409
-      // STOCK_RESERVED_FOR_ORDERS / STOCK_INSUFFICIENT antes de crear nada.
-      const productsByIdFull = new Map(productos.map((p) => [p.id, p]))
-      const variantesById = new Map(productos.flatMap((p) => p.variantes.map((v) => [v.id, v] as const)))
-      const stockLines: VentaCajaStockLine[] = computed.items.map((line) => {
-        const producto = productsByIdFull.get(line.productoId)!
-        const variante = line.varianteId ? variantesById.get(line.varianteId)! : null
-        return {
-          productoId: line.productoId,
-          productoVarianteId: line.varianteId ?? null,
-          cantidad: line.cantidad,
-          controlStock: variante ? variante.controlStock : producto.controlStock,
-          nombre: variante ? `${producto.nombre} — ${variante.nombre}` : producto.nombre,
-        }
-      })
-      const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })
-
-      const venta = await tx.venta.create({
-        data: {
-          negocioId,
-          total: moneyToNumber(totalExacto),
-          totalDecimal: totalExacto,
-          metodoPago,
-          cantidadItems: computed.cantidadItems,
-          idempotencyKey,
-          idempotencyFingerprint: fingerprint,
-          actorTipo: actor.tipo,
-          actorId,
-          empleadoId,
-          turnoCajaId,
-          items: {
-            create: computed.items.map((item, index) => ({
-              productoId: item.productoId,
-              productoVarianteId: item.varianteId ?? null,
-              nombre: item.nombre,
-              varianteNombre: item.varianteNombre ?? null,
-              precio: item.precio,
-              cantidad: item.cantidad,
-              subtotal: moneyToNumber(importes.subtotales[index]),
-              subtotalDecimal: importes.subtotales[index],
-            })),
-          },
-        },
-        include: { items: true },
-      })
-
-      // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
-      // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
-      await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })
-
-      // F10-B0 — exactly one cobro for the whole sale (single method in the UI).
-      const cobro = await tx.cobroVenta.create({
-        data: {
-          negocioId,
-          ventaId: venta.id,
-          metodo: metodoPago,
-          importe: moneyToNumber(totalExacto),
-          importeDecimal: totalExacto,
-          estadoConciliacion: estadoConciliacionInicial(metodoPago),
-        },
-        select: { id: true },
-      })
-
-      // F10-B0 — minimal ledger: only cash enters it (one operation, one leg).
-      // TRANSFERENCIA/OTRO: no financial movement (no MP account, no balance).
-      if (cuentaEfectivoId) {
-        await tx.operacionFinanciera.create({
-          data: {
-            negocioId,
-            tipo: TIPO_OPERACION_VENTA_COBRO,
-            cobroVentaId: cobro.id,
-            actorTipo: actor.tipo,
-            actorId,
-            turnoCajaId,
-            movimientos: {
-              create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: moneyToNumber(totalExacto), importeDecimal: totalExacto }],
-            },
-          },
-          select: { id: true },
-        })
-      }
-
-      return { ok: true as const, replayed: false, venta }
+      return registrarVentaCajaEnTx(tx, input)
     })
   } catch (error) {
     // A concurrent request with the same key committed first: return that
@@ -502,6 +258,294 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
     }
     throw error
   }
+}
+
+/**
+ * F4-C1 — the in-transaction core of the single sale engine: everything
+ * registrarVentaCaja does INSIDE its transaction, unchanged (idempotent
+ * replay, actor and shift validation, authoritative prices, exact amounts,
+ * stock against physical − ACTIVA reservations, Venta/VentaItem, stock write,
+ * one CobroVenta, the cash ledger leg). It must run inside a Serializable
+ * transaction opened by an existing runner. A refusal is RETURNED, never
+ * thrown: a caller composing it with another engine in the same transaction
+ * must turn it into a rollback (exigirResultadoOk, caja-transaccion-compartida).
+ * Stock errors still throw (StockLifecycleError) and roll everything back.
+ * Not here: the unique-violation replay of a concurrent duplicate, which needs
+ * a fresh read after the failed transaction (see registrarVentaCaja).
+ */
+export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
+  const rechazo = rechazoEntradaVentaCaja(input)
+  if (rechazo) return rechazo
+  const { negocioId, actor, metodoPago, lines: requestedLines, idempotencyKey } = input
+  const fingerprint = fingerprintEntradaVentaCaja(input)
+
+  // F10-B0: exact replay / reused key — BEFORE any validation or side
+  // effect, so a retry of an already-committed sale never re-validates
+  // stock and never writes anything.
+  if (idempotencyKey) {
+    const existing = await tx.venta.findUnique({
+      where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } },
+      include: { items: true },
+    })
+    if (existing) return replayOrConflict(existing, fingerprint, actor, negocioId)
+  }
+
+  // Actor: derived from the session by the caller; an EMPLEADO must be an
+  // active employee of THIS negocio (defense in depth for F10-B1).
+  let actorId: string = negocioId
+  let empleadoId: string | null = null
+  if (actor.tipo === "EMPLEADO") {
+    const empleado = await tx.empleado.findFirst({
+      where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
+      select: { id: true },
+    })
+    if (!empleado) return { ok: false as const, status: 403 as const, error: "Acceso denegado" }
+    actorId = empleado.id
+    empleadoId = empleado.id
+  }
+  let turnoCajaId = input.turnoCajaId ?? null
+
+  // F10-B2.2-A: an owner is a permitted actor for the selected active
+  // physical register's open shift, even when an employee is responsible.
+  // Replay above deliberately precedes this live destination resolution.
+  let cajaFisicaIdDelTurno: string | null = null
+  if (actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined) {
+    const cajaIdSeleccionada = input.ownerCajaFisicaId
+    if (cajaIdSeleccionada) {
+      const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+        SELECT "id", "activa" FROM "cajas_fisicas"
+        WHERE "id" = ${cajaIdSeleccionada} AND "negocioId" = ${negocioId}
+        FOR UPDATE`
+      const caja = cajaRows[0]
+      if (!caja) return { ok: false as const, status: 404 as const, error: "Caja no encontrada." }
+      if (!caja.activa) return { ok: false as const, status: 409 as const, code: "CAJA_INACTIVA", error: "La caja está desactivada." }
+      const turno = await tx.turnoCaja.findFirst({
+        where: { negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
+        select: { id: true, cajaFisicaId: true },
+      })
+      if (!turno) return TURNO_NO_DISPONIBLE
+      turnoCajaId = turno.id
+      cajaFisicaIdDelTurno = turno.cajaFisicaId
+    } else {
+      // Opening a shift locks its register row too. Lock all existing
+      // registers before counting so a concurrent opening cannot turn a
+      // previously unique automatic destination into an ambiguous one.
+      await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "cajas_fisicas"
+        WHERE "negocioId" = ${negocioId}
+        ORDER BY "id"
+        FOR UPDATE`
+      const abiertos = await tx.turnoCaja.findMany({
+        where: { negocioId, estado: TURNO_ESTADO_ABIERTO },
+        select: { id: true, cajaFisicaId: true },
+        take: 2,
+      })
+      if (abiertos.length > 1) {
+        return { ok: false as const, status: 409 as const, code: "CAJA_SELECCION_REQUERIDA", error: "Hay varias cajas abiertas. Seleccioná en cuál cobrar." }
+      }
+      if (abiertos.length === 1) {
+        const selected = abiertos[0]
+        const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+          SELECT "id", "activa" FROM "cajas_fisicas"
+          WHERE "id" = ${selected.cajaFisicaId} AND "negocioId" = ${negocioId}
+          FOR UPDATE`
+        const caja = cajaRows[0]
+        if (!caja || !caja.activa) return TURNO_NO_DISPONIBLE
+        const turno = await tx.turnoCaja.findFirst({
+          where: { id: selected.id, negocioId, cajaFisicaId: caja.id, estado: TURNO_ESTADO_ABIERTO },
+          select: { id: true, cajaFisicaId: true },
+        })
+        if (!turno) return TURNO_NO_DISPONIBLE
+        turnoCajaId = turno.id
+        cajaFisicaIdDelTurno = turno.cajaFisicaId
+      }
+    }
+  }
+
+  if (turnoCajaId && !(actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined)) {
+    const turno = await tx.turnoCaja.findFirst({ where: { id: turnoCajaId, negocioId }, select: { cajaFisicaId: true } })
+    if (!turno) return TURNO_NO_DISPONIBLE
+    const cajaRows = await tx.$queryRaw<Array<{ id: string; activa: boolean }>>`
+      SELECT "id", "activa" FROM "cajas_fisicas"
+      WHERE "id" = ${turno.cajaFisicaId} AND "negocioId" = ${negocioId}
+      FOR UPDATE`
+    if (!cajaRows[0]?.activa) return TURNO_NO_DISPONIBLE
+    cajaFisicaIdDelTurno = turno.cajaFisicaId
+  }
+
+  // Resolve/create the ledger account only after idempotency and shift
+  // authorization. Keep the account creation in the same transaction.
+  const cuentaEfectivoId = metodoPago !== "EFECTIVO"
+    ? null
+    : cajaFisicaIdDelTurno
+      ? await (async () => {
+          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId: cajaFisicaIdDelTurno }], skipDuplicates: true })
+          const cuenta = await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, cajaFisicaId: cajaFisicaIdDelTurno }, select: { id: true } })
+          return cuenta.id
+        })()
+      : await (async () => {
+          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR, tipo: "EFECTIVO", nombre: "Efectivo de Caja (sin caja física asignada)" }], skipDuplicates: true })
+          const cuenta = await tx.cuentaFinanciera.findUniqueOrThrow({ where: { negocioId_clave: { negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } }, select: { id: true } })
+          return cuenta.id
+        })()
+
+  // F10-B2.2-A: employees must remain the shift's responsible person.
+  // Owner is separately authorized for their selected/automatic register
+  // above, while its employee responsibility remains unchanged.
+  if (turnoCajaId) {
+    const ownerSharesEmployeeShift = actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined
+    const turno = await tx.turnoCaja.findFirst({
+      where: {
+        id: turnoCajaId,
+        negocioId,
+        estado: TURNO_ESTADO_ABIERTO,
+        cajaFisicaId: cajaFisicaIdDelTurno!,
+        ...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),
+      },
+      select: { id: true },
+    })
+    if (!turno) return TURNO_NO_DISPONIBLE
+  } else if (actor.tipo === "EMPLEADO") {
+    const negocio = await tx.negocio.findUnique({ where: { id: negocioId }, select: { cajaTurnosModo: true } })
+    if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {
+      return {
+        ok: false as const,
+        status: 409 as const,
+        code: TURNO_REQUERIDO_CODE,
+        error: "Para vender tenés que abrir un turno de Caja.",
+      }
+    }
+  }
+
+  // Tenant-scoped, authoritative product+variant read — a productoId
+  // that doesn't belong to this negocio (or is inactive) simply won't
+  // be in this map, and computeSaleFromAuthoritativeProducts rejects
+  // any requested line that isn't in it. Every active AND inactive
+  // variant is fetched (never trust "activo" from the client either) so
+  // an inactive variant is resolvable-but-rejectable below, not just
+  // silently missing.
+  const productos = await tx.producto.findMany({
+    where: { id: { in: requestedLines.map((l) => l.productoId) }, negocioId, eliminado: false },
+    include: { variantes: true },
+  })
+  const productsById = new Map(
+    productos.map((p) => [
+      p.id,
+      {
+        nombre: p.nombre,
+        precio: p.precio,
+        variantes: new Map(
+          p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: v.precio }])
+        ),
+      },
+    ])
+  )
+
+  const computed = computeSaleFromAuthoritativeProducts(requestedLines, productsById)
+  if (!computed.ok) {
+    return { ok: false as const, status: 400 as const, error: computed.error }
+  }
+
+  // F10-B2.0 — exact amounts: the single authority for every money column
+  // written below (Float = transport form of the same exact cents).
+  let importes: SaleAmountsExact
+  try {
+    importes = saleAmountsExact(computed.items)
+  } catch (error) {
+    if (error instanceof MoneyError) return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
+    throw error
+  }
+  if (!isMoneyInRange(importes.total) || !importes.subtotales.every((s) => isMoneyInRange(s))) {
+    return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
+  }
+  const totalExacto = importes.total
+
+  // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
+  // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
+  // = físico − reservas ACTIVA (Decisión B), leído en esta misma tx
+  // Serializable por la autoridad compartida. Lanza 409
+  // STOCK_RESERVED_FOR_ORDERS / STOCK_INSUFFICIENT antes de crear nada.
+  const productsByIdFull = new Map(productos.map((p) => [p.id, p]))
+  const variantesById = new Map(productos.flatMap((p) => p.variantes.map((v) => [v.id, v] as const)))
+  const stockLines: VentaCajaStockLine[] = computed.items.map((line) => {
+    const producto = productsByIdFull.get(line.productoId)!
+    const variante = line.varianteId ? variantesById.get(line.varianteId)! : null
+    return {
+      productoId: line.productoId,
+      productoVarianteId: line.varianteId ?? null,
+      cantidad: line.cantidad,
+      controlStock: variante ? variante.controlStock : producto.controlStock,
+      nombre: variante ? `${producto.nombre} — ${variante.nombre}` : producto.nombre,
+    }
+  })
+  const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })
+
+  const venta = await tx.venta.create({
+    data: {
+      negocioId,
+      total: moneyToNumber(totalExacto),
+      totalDecimal: totalExacto,
+      metodoPago,
+      cantidadItems: computed.cantidadItems,
+      idempotencyKey,
+      idempotencyFingerprint: fingerprint,
+      actorTipo: actor.tipo,
+      actorId,
+      empleadoId,
+      turnoCajaId,
+      items: {
+        create: computed.items.map((item, index) => ({
+          productoId: item.productoId,
+          productoVarianteId: item.varianteId ?? null,
+          nombre: item.nombre,
+          varianteNombre: item.varianteNombre ?? null,
+          precio: item.precio,
+          cantidad: item.cantidad,
+          subtotal: moneyToNumber(importes.subtotales[index]),
+          subtotalDecimal: importes.subtotales[index],
+        })),
+      },
+    },
+    include: { items: true },
+  })
+
+  // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
+  // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
+  await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })
+
+  // F10-B0 — exactly one cobro for the whole sale (single method in the UI).
+  const cobro = await tx.cobroVenta.create({
+    data: {
+      negocioId,
+      ventaId: venta.id,
+      metodo: metodoPago,
+      importe: moneyToNumber(totalExacto),
+      importeDecimal: totalExacto,
+      estadoConciliacion: estadoConciliacionInicial(metodoPago),
+    },
+    select: { id: true },
+  })
+
+  // F10-B0 — minimal ledger: only cash enters it (one operation, one leg).
+  // TRANSFERENCIA/OTRO: no financial movement (no MP account, no balance).
+  if (cuentaEfectivoId) {
+    await tx.operacionFinanciera.create({
+      data: {
+        negocioId,
+        tipo: TIPO_OPERACION_VENTA_COBRO,
+        cobroVentaId: cobro.id,
+        actorTipo: actor.tipo,
+        actorId,
+        turnoCajaId,
+        movimientos: {
+          create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: moneyToNumber(totalExacto), importeDecimal: totalExacto }],
+        },
+      },
+      select: { id: true },
+    })
+  }
+
+  return { ok: true as const, replayed: false, venta }
 }
 
 // ============================================

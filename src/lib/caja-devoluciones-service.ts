@@ -5,6 +5,11 @@
 // A return is an immutable compensation event; it never edits the original
 // Venta / VentaItem / CobroVenta / VENTA_COBRO operation, nor any closed shift.
 //
+// F4-C1: the work done inside that transaction is exposed as
+// registrarDevolucionVentaEnTx so a future F4-C operation can run it together
+// with the sale engine in ONE transaction; registrarDevolucionVenta keeps
+// opening its own transaction and behaves exactly as before.
+//
 // One Serializable transaction (bounded retry) does everything or nothing:
 //   - idempotency (Idempotency-Key + content fingerprint, same actor);
 //   - the sale row is locked with a no-op UPDATE, so a concurrent return of the
@@ -188,6 +193,13 @@ export function importeDevolucionLinea(params: {
 // ---------------------------------------------------------------------------
 // Serializable runner (bounded retry with backoff, like the shift services)
 // ---------------------------------------------------------------------------
+// F4-C1: the same transaction contract as runStockSerializable — Serializable,
+// maxWait 5 s / timeout 15 s (the same values as the stock authority's
+// constants, which the R3A I2-F3 contract reserves for that authority and
+// mesa) and the same serialization-conflict classifier.
+// Only the retry policy differs and is kept as it was: up to 8 attempts with a
+// short backoff (runStockSerializable: 3 attempts, no backoff). Either runner
+// can host the in-transaction cores of the sale and return engines.
 
 const TX_OPTIONS = { maxWait: 5_000, timeout: 15_000 } as const
 
@@ -396,192 +408,20 @@ async function replayDevolucion(db: Pick<Tx, "devolucionVenta">, negocioId: stri
   return fail(409, "Este intento ya se usó para otra operación. Volvé a intentarlo.", "IDEMPOTENCY_KEY_REUSED")
 }
 
-export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucionInput): Promise<DevolucionResult<{ devolucion: DevolucionConItems; replayed: boolean }>> {
+type ResultadoDevolucion = DevolucionResult<{ devolucion: DevolucionConItems; replayed: boolean }>
+
+/**
+ * Registers a return in its OWN Serializable transaction (the behaviour of the
+ * owner and cashier routes): runSerializable + the in-transaction core below,
+ * the concurrent-duplicate replay and the mapping of the SQL guard messages.
+ */
+export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucionInput): Promise<ResultadoDevolucion> {
   const { negocioId, actor, ventaId, solicitud, idempotencyKey } = input
   if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
   const fingerprint = fingerprintDevolucion(negocioId, ventaId, solicitud, actor)
   try {
     return await runSerializable(db, async (tx) => {
-      const replay = await replayDevolucion(tx, negocioId, idempotencyKey, fingerprint, actor)
-      if (replay) return replay
-
-      const actorResuelto = await resolverActor(tx, negocioId, actor)
-      if (!actorResuelto) return fail(403, "Acceso denegado")
-
-      // Lock the sale with a real (no-op) row version: a concurrent return of the
-      // same sale fails its own lock with 40001 and retries on fresh data.
-      const locked = await tx.$queryRaw<Array<{ id: string }>>`
-        UPDATE "ventas_caja" SET "cantidadItems" = "cantidadItems"
-        WHERE "id" = ${ventaId} AND "negocioId" = ${negocioId}
-        RETURNING "id"`
-      if (!locked[0]) return fail(404, "Venta no encontrada.")
-
-      const venta = await tx.venta.findFirstOrThrow({
-        where: { id: ventaId, negocioId },
-        include: {
-          items: { include: { devoluciones: { select: { cantidad: true, importeDecimal: true } } } },
-          correcciones: ULTIMA_CORRECCION_INCLUDE,
-        },
-      })
-      // F4-B: quantities, amounts, product (stock key) and names come from the
-      // CURRENT line — the original VentaItem when the sale was never corrected.
-      const ultimaCorreccion = venta.correcciones[0]?.lineas
-      const estadoItems = new Map(venta.items.map((original) => {
-        const item = lineaVigente(original, ultimaCorreccion)
-        const vendida = D(item.cantidad)
-        const devuelta = original.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
-        const importeDevuelto = original.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
-        return [original.id, { item, vendida, devuelta, importeDevuelto, restante: vendida.minus(devuelta), subtotal: item.subtotal }]
-      }))
-      const decision = new Map(solicitud.lineas.map((l) => [l.ventaItemId, l]))
-
-      const lineas: Array<{ ventaItemId: string; cantidad: Prisma.Decimal; importe: Prisma.Decimal; reingresaStock: boolean }> = []
-      if (solicitud.tipo === DEVOLUCION_TIPO_ANULACION) {
-        for (const linea of solicitud.lineas) {
-          if (!estadoItems.has(linea.ventaItemId)) return fail(400, "Ese producto no pertenece a esta venta.", "ITEMS_DEVOLUCION_INVALIDOS")
-        }
-        for (const [id, estado] of estadoItems) {
-          if (!estado.restante.gt(0)) continue
-          const elegido = decision.get(id)
-          if (!elegido) return fail(400, "Indicá si cada producto vuelve al stock.", "STOCK_DECISION_REQUERIDA")
-          lineas.push({ ventaItemId: id, cantidad: estado.restante, importe: estado.subtotal.minus(estado.importeDevuelto), reingresaStock: elegido.reingresaStock })
-        }
-        if (lineas.length === 0) return fail(409, "Esta venta ya fue anulada o devuelta por completo.", "VENTA_SIN_SALDO_DEVOLVIBLE")
-      } else {
-        for (const linea of solicitud.lineas) {
-          const estado = estadoItems.get(linea.ventaItemId)
-          if (!estado) return fail(400, "Ese producto no pertenece a esta venta.", "ITEMS_DEVOLUCION_INVALIDOS")
-          const cantidad = linea.cantidad!
-          if (cantidad.gt(estado.restante)) {
-            const nombre = estado.item.varianteNombre ? `${estado.item.nombre} — ${estado.item.varianteNombre}` : estado.item.nombre
-            return fail(409, estado.restante.gt(0)
-              ? `"${nombre}": sólo quedan ${estado.restante.toString()} sin devolver.`
-              : `"${nombre}" ya fue devuelto por completo.`, "CANTIDAD_DEVOLUCION_EXCEDIDA")
-          }
-          lineas.push({
-            ventaItemId: linea.ventaItemId,
-            cantidad,
-            importe: importeDevolucionLinea({ subtotal: estado.subtotal, vendida: estado.vendida, devueltaAntes: estado.devuelta, importeDevueltoAntes: estado.importeDevuelto, cantidad }),
-            reingresaStock: linea.reingresaStock,
-          })
-        }
-      }
-      const importeTotal = lineas.reduce((acc, l) => acc.plus(l.importe), new Prisma.Decimal(0))
-
-      // Money: a zero-value return has nothing to refund.
-      const reintegro: ReintegroSolicitud = importeTotal.isZero() ? { modo: "NO_CORRESPONDE" } : solicitud.reintegro
-      let operacionId: string | null = null
-      let turnoReintegroId: string | null = null
-      if (reintegro.modo === "REALIZADO" && reintegro.medio === "EFECTIVO") {
-        const destino = await resolverDestinoEfectivo(tx, negocioId, actorResuelto, actor.tipo === "NEGOCIO" ? solicitud.cajaFisicaId : null)
-        if (!destino.ok) return destino
-        operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, importeTotal)).id
-        turnoReintegroId = destino.value.turnoCajaId
-      }
-      const ahora = new Date()
-      const realizado = reintegro.modo === "REALIZADO"
-
-      const devolucion = await tx.devolucionVenta.create({
-        data: {
-          negocioId,
-          ventaId,
-          tipo: solicitud.tipo,
-          motivo: solicitud.motivo,
-          actorTipo: actorResuelto.tipo,
-          actorId: actorResuelto.actorId,
-          empleadoId: actorResuelto.empleadoId,
-          importeDecimal: importeTotal,
-          metodoPagoVenta: venta.metodoPago,
-          reintegroEstado: reintegro.modo,
-          reintegroMedio: realizado ? reintegro.medio : null,
-          reintegroRegistradoEn: realizado ? ahora : null,
-          reintegroActorTipo: realizado ? actorResuelto.tipo : null,
-          reintegroActorId: realizado ? actorResuelto.actorId : null,
-          reintegroOperacionId: operacionId,
-          reintegroTurnoCajaId: turnoReintegroId,
-          idempotencyKey,
-          idempotencyFingerprint: fingerprint,
-        },
-        select: { id: true },
-      })
-
-      for (const linea of lineas) {
-        const item = estadoItems.get(linea.ventaItemId)!.item
-        const cantidad = linea.cantidad.toNumber()
-        let stockResultado: StockResultado = "NO_REINGRESA"
-        let movimientoInventarioId: string | null = null
-        if (linea.reingresaStock) {
-          // A deleted product/variant cannot take units back (never the parent
-          // product in place of a deleted variant).
-          const varianteBorrada = item.varianteNombre !== null && item.productoVarianteId === null
-          const key = item.productoId && !varianteBorrada ? { productoId: item.productoId, productoVarianteId: item.productoVarianteId } : null
-          const disponibilidad = key ? await leerDisponibilidadStock(tx, { negocioId, key }) : null
-          if (!key || !disponibilidad) {
-            stockResultado = "PRODUCTO_NO_DISPONIBLE"
-          } else if (!disponibilidad.controlStock) {
-            stockResultado = "SIN_CONTROL_STOCK"
-          } else {
-            const next = resolveNextStock(disponibilidad.physical, "ENTRADA", cantidad)
-            if (!next.ok) throw new Error(next.error)
-            if (key.productoVarianteId) await tx.productoVariante.update({ where: { id: key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
-            else await tx.producto.update({ where: { id: key.productoId }, data: { stockCantidad: next.nextStock } })
-            const movimiento = await tx.movimientoInventario.create({
-              data: {
-                negocioId,
-                productoId: key.productoId,
-                productoVarianteId: key.productoVarianteId,
-                tipo: MOVIMIENTO_TIPO_DEVOLUCION,
-                cantidad,
-                stockAntes: disponibilidad.physical,
-                stockDespues: next.nextStock,
-                motivo: `${solicitud.tipo === DEVOLUCION_TIPO_ANULACION ? "Anulación" : "Devolución"} de venta #${referenciaVenta(ventaId)}`,
-                ventaId,
-              },
-              select: { id: true },
-            })
-            movimientoInventarioId = movimiento.id
-            stockResultado = "REINGRESADO"
-          }
-        }
-        await tx.devolucionVentaItem.create({
-          data: { devolucionId: devolucion.id, negocioId, ventaId, ventaItemId: linea.ventaItemId, cantidad, importeDecimal: linea.importe, stockResultado, movimientoInventarioId },
-        })
-      }
-
-      if (actorResuelto.tipo === "EMPLEADO") {
-        const lineasAviso = lineas.map((l) => {
-          const item = estadoItems.get(l.ventaItemId)!.item
-          return { nombre: item.varianteNombre ? `${item.nombre} — ${item.varianteNombre}` : item.nombre, cantidad: l.cantidad.toNumber() }
-        })
-        const texto = textoNotificacionDevolucion({ tipo: solicitud.tipo, empleadoNombre: actorResuelto.nombre, ventaId, importe: importeTotal, motivo: solicitud.motivo, reintegroEstado: reintegro.modo, reintegroMedio: realizado ? reintegro.medio : null, lineas: lineasAviso })
-        await tx.notificacion.create({
-          data: {
-            userId: negocioId,
-            userType: "negocio",
-            tipo: NOTIFICACION_TIPO_DEVOLUCION,
-            titulo: texto.titulo,
-            cuerpo: texto.cuerpo,
-            negocioId,
-            datos: JSON.stringify({
-              navigateTo: { negocio: "caja" },
-              devolucionId: devolucion.id,
-              ventaId,
-              ventaRef: referenciaVenta(ventaId),
-              tipo: solicitud.tipo,
-              empleadoNombre: actorResuelto.nombre,
-              importe: moneyToNumber(importeTotal),
-              motivo: solicitud.motivo,
-              reintegroEstado: reintegro.modo,
-              reintegroMedio: realizado ? reintegro.medio : null,
-              productos: lineasAviso,
-              fecha: ahora.toISOString(),
-            }),
-          },
-        })
-      }
-
-      const creada = await tx.devolucionVenta.findUniqueOrThrow({ where: { id: devolucion.id }, include: DEVOLUCION_INCLUDE })
-      return { ok: true as const, value: { devolucion: creada, replayed: false } }
+      return registrarDevolucionVentaEnTx(tx, input)
     })
   } catch (error) {
     if (isUniqueViolation(error, "idempotencyKey")) {
@@ -592,6 +432,204 @@ export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucio
     if (mapped) return fail(mapped.status, mapped.error, mapped.code)
     throw error
   }
+}
+
+/**
+ * F4-C1 — the in-transaction core of the single return writer: everything
+ * registrarDevolucionVenta does INSIDE its transaction, unchanged (idempotent
+ * replay, actor, sale-row lock, current lines, cumulative proportional
+ * amounts, refund state and cash leg in the open shift, per-line stock
+ * decision, owner notice). It must run inside a Serializable transaction
+ * opened by an existing runner. A refusal is RETURNED, never thrown: a caller
+ * composing it with another engine in the same transaction must turn it into a
+ * rollback (exigirResultadoOk, caja-transaccion-compartida). Not here: the
+ * unique-violation replay and the SQL guard mapping, which act on the error of
+ * the failed transaction (see registrarDevolucionVenta).
+ */
+export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevolucionInput): Promise<ResultadoDevolucion> {
+  const { negocioId, actor, ventaId, solicitud, idempotencyKey } = input
+  if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
+  const fingerprint = fingerprintDevolucion(negocioId, ventaId, solicitud, actor)
+  const replay = await replayDevolucion(tx, negocioId, idempotencyKey, fingerprint, actor)
+  if (replay) return replay
+
+  const actorResuelto = await resolverActor(tx, negocioId, actor)
+  if (!actorResuelto) return fail(403, "Acceso denegado")
+
+  // Lock the sale with a real (no-op) row version: a concurrent return of the
+  // same sale fails its own lock with 40001 and retries on fresh data.
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    UPDATE "ventas_caja" SET "cantidadItems" = "cantidadItems"
+    WHERE "id" = ${ventaId} AND "negocioId" = ${negocioId}
+    RETURNING "id"`
+  if (!locked[0]) return fail(404, "Venta no encontrada.")
+
+  const venta = await tx.venta.findFirstOrThrow({
+    where: { id: ventaId, negocioId },
+    include: {
+      items: { include: { devoluciones: { select: { cantidad: true, importeDecimal: true } } } },
+      correcciones: ULTIMA_CORRECCION_INCLUDE,
+    },
+  })
+  // F4-B: quantities, amounts, product (stock key) and names come from the
+  // CURRENT line — the original VentaItem when the sale was never corrected.
+  const ultimaCorreccion = venta.correcciones[0]?.lineas
+  const estadoItems = new Map(venta.items.map((original) => {
+    const item = lineaVigente(original, ultimaCorreccion)
+    const vendida = D(item.cantidad)
+    const devuelta = original.devoluciones.reduce((acc, d) => acc.plus(D(d.cantidad)), new Prisma.Decimal(0))
+    const importeDevuelto = original.devoluciones.reduce((acc, d) => acc.plus(d.importeDecimal), new Prisma.Decimal(0))
+    return [original.id, { item, vendida, devuelta, importeDevuelto, restante: vendida.minus(devuelta), subtotal: item.subtotal }]
+  }))
+  const decision = new Map(solicitud.lineas.map((l) => [l.ventaItemId, l]))
+
+  const lineas: Array<{ ventaItemId: string; cantidad: Prisma.Decimal; importe: Prisma.Decimal; reingresaStock: boolean }> = []
+  if (solicitud.tipo === DEVOLUCION_TIPO_ANULACION) {
+    for (const linea of solicitud.lineas) {
+      if (!estadoItems.has(linea.ventaItemId)) return fail(400, "Ese producto no pertenece a esta venta.", "ITEMS_DEVOLUCION_INVALIDOS")
+    }
+    for (const [id, estado] of estadoItems) {
+      if (!estado.restante.gt(0)) continue
+      const elegido = decision.get(id)
+      if (!elegido) return fail(400, "Indicá si cada producto vuelve al stock.", "STOCK_DECISION_REQUERIDA")
+      lineas.push({ ventaItemId: id, cantidad: estado.restante, importe: estado.subtotal.minus(estado.importeDevuelto), reingresaStock: elegido.reingresaStock })
+    }
+    if (lineas.length === 0) return fail(409, "Esta venta ya fue anulada o devuelta por completo.", "VENTA_SIN_SALDO_DEVOLVIBLE")
+  } else {
+    for (const linea of solicitud.lineas) {
+      const estado = estadoItems.get(linea.ventaItemId)
+      if (!estado) return fail(400, "Ese producto no pertenece a esta venta.", "ITEMS_DEVOLUCION_INVALIDOS")
+      const cantidad = linea.cantidad!
+      if (cantidad.gt(estado.restante)) {
+        const nombre = estado.item.varianteNombre ? `${estado.item.nombre} — ${estado.item.varianteNombre}` : estado.item.nombre
+        return fail(409, estado.restante.gt(0)
+          ? `"${nombre}": sólo quedan ${estado.restante.toString()} sin devolver.`
+          : `"${nombre}" ya fue devuelto por completo.`, "CANTIDAD_DEVOLUCION_EXCEDIDA")
+      }
+      lineas.push({
+        ventaItemId: linea.ventaItemId,
+        cantidad,
+        importe: importeDevolucionLinea({ subtotal: estado.subtotal, vendida: estado.vendida, devueltaAntes: estado.devuelta, importeDevueltoAntes: estado.importeDevuelto, cantidad }),
+        reingresaStock: linea.reingresaStock,
+      })
+    }
+  }
+  const importeTotal = lineas.reduce((acc, l) => acc.plus(l.importe), new Prisma.Decimal(0))
+
+  // Money: a zero-value return has nothing to refund.
+  const reintegro: ReintegroSolicitud = importeTotal.isZero() ? { modo: "NO_CORRESPONDE" } : solicitud.reintegro
+  let operacionId: string | null = null
+  let turnoReintegroId: string | null = null
+  if (reintegro.modo === "REALIZADO" && reintegro.medio === "EFECTIVO") {
+    const destino = await resolverDestinoEfectivo(tx, negocioId, actorResuelto, actor.tipo === "NEGOCIO" ? solicitud.cajaFisicaId : null)
+    if (!destino.ok) return destino
+    operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, importeTotal)).id
+    turnoReintegroId = destino.value.turnoCajaId
+  }
+  const ahora = new Date()
+  const realizado = reintegro.modo === "REALIZADO"
+
+  const devolucion = await tx.devolucionVenta.create({
+    data: {
+      negocioId,
+      ventaId,
+      tipo: solicitud.tipo,
+      motivo: solicitud.motivo,
+      actorTipo: actorResuelto.tipo,
+      actorId: actorResuelto.actorId,
+      empleadoId: actorResuelto.empleadoId,
+      importeDecimal: importeTotal,
+      metodoPagoVenta: venta.metodoPago,
+      reintegroEstado: reintegro.modo,
+      reintegroMedio: realizado ? reintegro.medio : null,
+      reintegroRegistradoEn: realizado ? ahora : null,
+      reintegroActorTipo: realizado ? actorResuelto.tipo : null,
+      reintegroActorId: realizado ? actorResuelto.actorId : null,
+      reintegroOperacionId: operacionId,
+      reintegroTurnoCajaId: turnoReintegroId,
+      idempotencyKey,
+      idempotencyFingerprint: fingerprint,
+    },
+    select: { id: true },
+  })
+
+  for (const linea of lineas) {
+    const item = estadoItems.get(linea.ventaItemId)!.item
+    const cantidad = linea.cantidad.toNumber()
+    let stockResultado: StockResultado = "NO_REINGRESA"
+    let movimientoInventarioId: string | null = null
+    if (linea.reingresaStock) {
+      // A deleted product/variant cannot take units back (never the parent
+      // product in place of a deleted variant).
+      const varianteBorrada = item.varianteNombre !== null && item.productoVarianteId === null
+      const key = item.productoId && !varianteBorrada ? { productoId: item.productoId, productoVarianteId: item.productoVarianteId } : null
+      const disponibilidad = key ? await leerDisponibilidadStock(tx, { negocioId, key }) : null
+      if (!key || !disponibilidad) {
+        stockResultado = "PRODUCTO_NO_DISPONIBLE"
+      } else if (!disponibilidad.controlStock) {
+        stockResultado = "SIN_CONTROL_STOCK"
+      } else {
+        const next = resolveNextStock(disponibilidad.physical, "ENTRADA", cantidad)
+        if (!next.ok) throw new Error(next.error)
+        if (key.productoVarianteId) await tx.productoVariante.update({ where: { id: key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
+        else await tx.producto.update({ where: { id: key.productoId }, data: { stockCantidad: next.nextStock } })
+        const movimiento = await tx.movimientoInventario.create({
+          data: {
+            negocioId,
+            productoId: key.productoId,
+            productoVarianteId: key.productoVarianteId,
+            tipo: MOVIMIENTO_TIPO_DEVOLUCION,
+            cantidad,
+            stockAntes: disponibilidad.physical,
+            stockDespues: next.nextStock,
+            motivo: `${solicitud.tipo === DEVOLUCION_TIPO_ANULACION ? "Anulación" : "Devolución"} de venta #${referenciaVenta(ventaId)}`,
+            ventaId,
+          },
+          select: { id: true },
+        })
+        movimientoInventarioId = movimiento.id
+        stockResultado = "REINGRESADO"
+      }
+    }
+    await tx.devolucionVentaItem.create({
+      data: { devolucionId: devolucion.id, negocioId, ventaId, ventaItemId: linea.ventaItemId, cantidad, importeDecimal: linea.importe, stockResultado, movimientoInventarioId },
+    })
+  }
+
+  if (actorResuelto.tipo === "EMPLEADO") {
+    const lineasAviso = lineas.map((l) => {
+      const item = estadoItems.get(l.ventaItemId)!.item
+      return { nombre: item.varianteNombre ? `${item.nombre} — ${item.varianteNombre}` : item.nombre, cantidad: l.cantidad.toNumber() }
+    })
+    const texto = textoNotificacionDevolucion({ tipo: solicitud.tipo, empleadoNombre: actorResuelto.nombre, ventaId, importe: importeTotal, motivo: solicitud.motivo, reintegroEstado: reintegro.modo, reintegroMedio: realizado ? reintegro.medio : null, lineas: lineasAviso })
+    await tx.notificacion.create({
+      data: {
+        userId: negocioId,
+        userType: "negocio",
+        tipo: NOTIFICACION_TIPO_DEVOLUCION,
+        titulo: texto.titulo,
+        cuerpo: texto.cuerpo,
+        negocioId,
+        datos: JSON.stringify({
+          navigateTo: { negocio: "caja" },
+          devolucionId: devolucion.id,
+          ventaId,
+          ventaRef: referenciaVenta(ventaId),
+          tipo: solicitud.tipo,
+          empleadoNombre: actorResuelto.nombre,
+          importe: moneyToNumber(importeTotal),
+          motivo: solicitud.motivo,
+          reintegroEstado: reintegro.modo,
+          reintegroMedio: realizado ? reintegro.medio : null,
+          productos: lineasAviso,
+          fecha: ahora.toISOString(),
+        }),
+      },
+    })
+  }
+
+  const creada = await tx.devolucionVenta.findUniqueOrThrow({ where: { id: devolucion.id }, include: DEVOLUCION_INCLUDE })
+  return { ok: true as const, value: { devolucion: creada, replayed: false } }
 }
 
 // ---------------------------------------------------------------------------

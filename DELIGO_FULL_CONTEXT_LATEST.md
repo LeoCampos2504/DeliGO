@@ -1,6 +1,17 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C design approved; F4-C0 docs committed and pushed on codex/f4-b-justified-prices (2026-11-06, Claude Code)
+## LATEST UPDATE — F4-C1 transactional engines committed and pushed on codex/f4-c1-transactional-engines; CI pending, not certified (2026-11-06, Claude Code)
+
+```text
+F4_C1_STATUS=COMMITTED_AND_PUSHED on codex/f4-c1-transactional-engines only (parent e2f8a0e); not integrated, no deploy; CI PENDING; NOT certified, NOT closed
+F4_C1_RECORD=local battery 514 → 526 passing tests · the 2 pre-existing failures are the same ones · the 6 new real-PostgreSQL tests passed in 4 runs · CI validation PENDING · sale vs return retry-policy difference PENDING operator decision before F4-C4 · F4-C1 NOT certified and NOT closed until sufficient CI validation
+F4_C1_CHANGE=registrarVentaCajaEnTx + registrarDevolucionVentaEnTx (unchanged in-transaction bodies) + caja-transaccion-compartida.ts (composed rollback helper); public engines, routes and API contracts unchanged; CorreccionVenta schema comment fixed; no migrations
+F4_C1_EVIDENCE=local ephemeral PostgreSQL 12: baseline 514/2 → after 526/2, identical pre-existing failures; new real-DB composition suite 6/6 (4 runs); CI not yet run on the branch
+F4_C_STATUS=DESIGN_APPROVED; C0 saved (e2f8a0e); C1 on branch; C2+ not started
+NEXT_ACTION=separate operator authorization to add the branch + new F4-C1 suites to CI; see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-C design approved; F4-C0 docs committed and pushed on codex/f4-b-justified-prices (2026-11-06, Claude Code)
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED (operator 2026-11-06); implementation NOT authorized; each stage C1…C6 needs its own authorization

@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 (documentación) guardada (commit y push autorizados 2026-11-06, rama codex/f4-b-justified-prices); F4-C1 NO iniciada ni autorizada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 guardada (commit y push autorizados 2026-11-06) sólo en la rama codex/f4-c1-transactional-engines; sin integrar; validación en CI PENDIENTE; NO certificada ni cerrada · F4-C2 NO iniciada ni autorizada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -236,6 +236,39 @@ completa de cambios sucesivos.
 | Posterior | Comprobantes (F11), alertas de operaciones inusuales, estadísticas avanzadas, pagos mixtos en D+ | — | fuera de F4-C esencial |
 
 Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación (garantía 4).
+
+### F4-C1 — resultado (2026-11-06; rama codex/f4-c1-transactional-engines; CI pendiente, no certificada)
+
+- `registrarVentaCajaEnTx` (`src/lib/caja-venta-service.ts`) y `registrarDevolucionVentaEnTx`
+  (`src/lib/caja-devoluciones-service.ts`): el trabajo que cada motor hacía DENTRO de su transacción, movido sin cambios
+  (diff sin espacios: sólo la extracción). `registrarVentaCaja` / `registrarDevolucionVenta` siguen abriendo su propia
+  transacción con el mismo runner, los mismos pre-chequeos, el mismo replay por violación de unicidad y el mismo mapeo
+  de errores SQL. Contratos de API sin cambios.
+- `src/lib/caja-transaccion-compartida.ts`: `exigirResultadoOk` convierte un rechazo de un núcleo en una excepción que
+  revierte TODA la transacción compuesta (nunca se reintenta: no es un conflicto de serialización);
+  `resolverAbortoCompartido` la vuelve a convertir en el rechazo original.
+- Autoridad transaccional: los dos runners existentes ya comparten aislamiento Serializable, maxWait 5 s / timeout 15 s
+  y el clasificador de conflictos (`isStockSerializationConflict`); difiere sólo la política de reintentos
+  (`runStockSerializable` 3 intentos sin espera; `runSerializable` 8 con espera corta) y **se conservó**. Unificarla
+  cambiaría el comportamiento bajo concurrencia → decisión del operador antes de C4 (qué runner usa el cambio).
+  Las constantes `STOCK_SERIALIZABLE_*` NO se reutilizan en devoluciones: el contrato R3A I2-F3 las reserva a la
+  autoridad de stock y a mesa.
+- Comentario obsoleto de `CorreccionVenta` en `prisma/schema.prisma` corregido (sólo comentario; sin migración).
+- Prueba de contrato `f10-b2-0-static-contract.test.ts`: tres aserciones de texto toleran sólo la indentación
+  (`\n[ \t]+`): siguen exigiendo las mismas dos líneas **consecutivas** de escritura doble; una línea en blanco
+  intermedia se rechaza. La garantía no se debilita.
+- Pruebas nuevas: `src/lib/f4-c1-transaccion-compartida.test.ts` (6) y
+  `src/lib/f4-c1-transaccion-compartida.integration.test.ts` (6, PostgreSQL real): confirmación conjunta, rechazo del
+  segundo o del primer motor con rollback total, reservas ACTIVA respetadas con rollback de la devolución,
+  re-ejecución idempotente sin escrituras, dos transacciones compuestas por la última unidad → una sola confirma.
+- Evidencia local (PostgreSQL 12 efímero en el scratchpad, 127.0.0.1:55432, todas las migraciones aplicadas; un
+  proceso bun por archivo): base `e2f8a0e` 514 pass / 2 fail; después 526 pass / 2 fail, **mismo conjunto de fallos**
+  (preexistentes, fuera del lote de CI: `f10-b2-0-money.integration` espera el JSON del resumen anterior a F4-A;
+  `p2-t56-r3a-i2-wiring` no lista a F4-A/F4-B como escritores de stock). La suite nueva pasó 4 de 4 ejecuciones.
+  **Validación en CI pendiente**: la rama no está en los disparadores del workflow y las suites nuevas no están en su
+  lote (agregarlas requiere una autorización aparte). F4-C1 **no** se declara certificada ni cerrada hasta entonces.
+- **Pendiente antes de F4-C4:** decidir la política de reintentos del cambio (ventas 3 intentos sin espera; devoluciones
+  8 con espera corta).
 
 ## 14. Fuera de alcance
 

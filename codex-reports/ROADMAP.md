@@ -479,6 +479,11 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       sin ingresos ni movimientos financieros; reportes por cobros corregidos ANTES de certificar. Reemplaza el plan
       6cb3d92 (no fusionado; su párrafo «el reemplazo hereda el precio cobrado» es obsoleto). Ver sección «F4-C» abajo y
       codex-reports/F4_C_SALE_EXCHANGES.md.
+    → F4-C1 (2026-11-06) = guardada y subida sólo en la rama codex/f4-c1-transactional-engines (base e2f8a0e), sin
+      integrar: núcleos en transacción de los motores de venta y devolución + helper de rollback compuesto, sin cambio
+      de comportamiento (batería local 514 → 526 aprobadas, mismos 2 fallos preexistentes; 6 pruebas nuevas con
+      PostgreSQL real, 4 ejecuciones). Validación en CI PENDIENTE: NO certificada ni cerrada. Política de reintentos
+      pendiente de decisión antes de F4-C4. F4-C2 no iniciada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

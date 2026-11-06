@@ -37,9 +37,10 @@ describe("F10-B2.0 — single writer of the exact money columns", () => {
   test("the engine dual-writes every money row from ONE exact computation", () => {
     const src = read(ENGINE)
     expect(src).toContain("importes = saleAmountsExact(computed.items)")
-    expect(src).toContain("total: moneyToNumber(totalExacto),\n          totalDecimal: totalExacto,")
-    expect(src).toContain("subtotal: moneyToNumber(importes.subtotales[index]),\n              subtotalDecimal: importes.subtotales[index],")
-    expect(src).toContain("importe: moneyToNumber(totalExacto),\n          importeDecimal: totalExacto,")
+    // F4-C1: indentation-tolerant only — still two CONSECUTIVE lines (the writes moved, unchanged, into registrarVentaCajaEnTx).
+    expect(src).toMatch(/total: moneyToNumber\(totalExacto\),\n[ \t]+totalDecimal: totalExacto,/)
+    expect(src).toMatch(/subtotal: moneyToNumber\(importes\.subtotales\[index\]\),\n[ \t]+subtotalDecimal: importes\.subtotales\[index\],/)
+    expect(src).toMatch(/importe: moneyToNumber\(totalExacto\),\n[ \t]+importeDecimal: totalExacto,/)
     expect(src).toContain("importe: moneyToNumber(totalExacto), importeDecimal: totalExacto")
     // the old float-derived values are no longer written
     expect(src).not.toMatch(/total:\s*computed\.total|subtotal:\s*item\.subtotal|importe:\s*venta\.total/)
