@@ -11,6 +11,8 @@ on:
       - codex/f4-b-owner-sale-corrections
       # CI-only run for the F4-B justified-replacement-prices fix before integration; no deploy step.
       - codex/f4-b-justified-prices
+      # CI-only run for F4-C1 (sale/return engines composable in one transaction) before integration; no deploy step.
+      - codex/f4-c1-transactional-engines
 
 permissions:
   contents: read
@@ -49,18 +51,23 @@ jobs:
       - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
       # F4-B: next build ignores type errors, so typecheck the files this stage
       # touches against the freshly generated client (repo-wide baseline unchanged).
-      - name: Typecheck F4-B files
+      # F4-C1: same check extended to the sale engine, the shared-transaction helper and its suites.
+      - name: Typecheck F4-B and F4-C1 files
         run: |
           bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
-          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab)" tsc-output.txt; then
-            echo "TypeScript errors in F4-B files"; exit 1
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida)" tsc-output.txt; then
+            echo "TypeScript errors in F4-B / F4-C1 files"; exit 1
           fi
-          echo "F4-B files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+          echo "F4-B and F4-C1 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
       - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts src/lib/caja-correcciones.test.ts src/components/business/caja-correcciones.test.tsx src/lib/f4-b-correcciones.integration.test.ts
       # Separate process: this file imports the bell (Radix) without a DOM and must not share
       # the module cache with the happy-dom UI suites above (F4-A owner-bell fix).
       - run: bun --no-env-file test src/components/shared/notification-center.test.ts
       # F4-B P2-A: real CajaTab with process-wide module mocks (sonner, scanner) → own process.
       - run: bun --no-env-file test src/components/business/caja-tab.correcciones.test.tsx
+      # F4-C1: sale + return engines composed in one Serializable transaction, each suite in its
+      # own process; the integration suite writes only to the ephemeral postgres:16 service above.
+      - run: bun --no-env-file test src/lib/f4-c1-transaccion-compartida.test.ts
+      - run: bun --no-env-file test src/lib/f4-c1-transaccion-compartida.integration.test.ts
       - run: bun --no-env-file run build
 
