@@ -79,8 +79,14 @@ describe("F10-B2.0 — owner JSON contract and exact summary", () => {
 
   test("the daily summary sums exact amounts, never floats", () => {
     const src = read(OWNER_ROUTE)
-    expect(src).toContain("addMoney(...ventasHoy.filter((v) => !metodo || v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total)))")
+    // F4-C2: the exact sums moved into the single cobro summary helper (money by
+    // method from CobroVenta, commercial total from the sales), still Decimal-only.
+    expect(src).toContain("const resumen = resumirCobrosCaja(")
     expect(src).not.toMatch(/reduce\(\(sum, v\) => sum \+ v\.total/)
+    const helper = read("src/lib/caja-resumen-cobros.ts")
+    expect(helper).toContain("ventasBrutas: addMoney(...ventas.map((v) => storedMoney(v.totalDecimal, v.total))),")
+    expect(helper).toContain("importe: storedMoney(c.importeDecimal, c.importe)")
+    expect(helper).not.toMatch(/reduce\(\(sum|\+ v\.total|\+ c\.importe/)
   })
 
   test("the cashier response stays an explicit allowlist (no Decimal columns)", () => {

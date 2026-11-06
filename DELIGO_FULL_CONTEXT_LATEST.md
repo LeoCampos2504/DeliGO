@@ -1,6 +1,16 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C1 TECHNICALLY_CLOSED_CI_PASS on codex/f4-c1-transactional-engines (CI 42277526005 attempt 2); not integrated, not deployed (2026-11-06, Claude Code)
+## LATEST UPDATE — F4-C2 cobro-based Caja summaries committed and pushed on codex/f4-c2-cobro-based-reports; CI pending, not certified (2026-11-06, Claude Code)
+
+```text
+F4_C2_STATUS=COMMITTED_AND_PUSHED on codex/f4-c2-cobro-based-reports only (parent 782efe6); not integrated, no deploy; CI PENDING (PostgreSQL 16); NOT certified, NOT technically closed
+F4_C2_CHANGE=owner daily summary + shift summary: money by method from CobroVenta (legacy sales without cobros read by metodoPago; non-money methods excluded); same JSON and same figures; F4-A refundable-amount rule prepared, not wired; no migrations
+F4_C2_EVIDENCE=local ephemeral PostgreSQL 12: 526/2 → 539/3 (same 2 pre-existing + known intermittent f10-b2-1-turnos:440, 4/5 on rerun); equivalence suites 12 unit + 3 real-DB green; limitation: inconsistent historical/manual cobro rows would change money by method; transfers = declared, never reconciled; CI not yet run on the branch
+F4_C1_STATUS=TECHNICALLY_CLOSED_CI_PASS on codex/f4-c1-transactional-engines (782efe6), unchanged
+NEXT_ACTION=separate operator authorization to add the F4-C2 branch + suites to CI; see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-C1 TECHNICALLY_CLOSED_CI_PASS on codex/f4-c1-transactional-engines (CI 42277526005 attempt 2); not integrated, not deployed (2026-11-06, Claude Code)
 
 ```text
 F4_C1_STATUS=TECHNICALLY_CLOSED_CI_PASS (operator-accepted; e64e63b code + 637574b workflow, branch codex/f4-c1-transactional-engines only); not integrated, no deploy; NOT certified in Railway TESTING nor Production

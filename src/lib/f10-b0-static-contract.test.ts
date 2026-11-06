@@ -51,13 +51,27 @@ describe("F10-B0 — one sales engine", () => {
     expect(engine).not.toMatch(/MERCADO_PAGO|mercadopago|saldo/i)
     expect(engine).toContain("estadoConciliacion: estadoConciliacionInicial(metodoPago)")
   })
-  test("statistics keep reading Venta (no double counting through cobros)", () => {
+  test("statistics: commercial volume from Venta, money by method from the real cobros (F4-C2), never counted twice", () => {
     const route = read(ROUTE)
-    // F10-B2.0: the summary now sums exact amounts, still per Venta.metodoPago
-    // (Venta.totalDecimal / legacy total), never through cobros.
-    expect(route).toContain("ventasHoy.filter((v) => !metodo || v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total))")
-    expect(route).toContain('totalEfectivo: sumar("EFECTIVO"),')
-    expect(route).not.toMatch(/cobroVenta|cobros/)
+    // F4-C2 (operator-authorized 2026-11-06): the money by method no longer
+    // groups Venta.total by Venta.metodoPago; it comes from CobroVenta through
+    // the single summary helper, which counts each cobro once for its own sale
+    // and reads a sale without cobros (pre-F10-B0) as one cobro of its
+    // metodoPago. The commercial total keeps summing the sales themselves.
+    expect(route).not.toMatch(/v\.metodoPago === metodo/)
+    expect(route).toContain("const resumen = resumirCobrosCaja(")
+    expect(route).toContain("cobros: cobrosPorVenta.get(v.id) ?? []")
+    expect(route).toContain("totalVendido: moneyToNumber(resumen.ventasBrutas),")
+    expect(route).toContain("totalEfectivo: moneyToNumber(resumen.cobradoPorMedio.EFECTIVO),")
+    // cobros are read in their own query: the sale objects (JSON contract) never carry them
+    expect(route).toMatch(/db\.cobroVenta\.findMany\(\{ where: \{ negocioId, ventaId: \{ in: ventasHoy\.map/)
+    expect(route).not.toMatch(/include: \{ items: true, cobros/)
+    const helper = read("src/lib/caja-resumen-cobros.ts")
+    expect(helper).toContain('export const MEDIOS_DINERO_CAJA = ["EFECTIVO", "TRANSFERENCIA", "OTRO"] as const')
+    expect(helper).toContain("if (venta.cobros && venta.cobros.length > 0) {")
+    expect(helper).toContain("return [{ metodo: venta.metodoPago, importe: storedMoney(venta.totalDecimal, venta.total), legacy: true }]")
+    expect(helper).toContain("else noDinero.push(cobro.importe)")
+    expect(helper).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/)
   })
   test("the Caja client sends an Idempotency-Key bound to the attempt", () => {
     const caja = read("src/components/business/caja-tab.tsx")

@@ -12,28 +12,36 @@
 //   fondo inicial (declared at opening, not a ledger movement)
 //   + cash legs of operations attributed to the shift on its register's cash
 //     account (sales today; signed, so future outflows enter as negatives)
+// F4-C2: the per-method sales summary below reads the real cobros (CobroVenta);
+// the expected cash keeps reading the ledger only.
 // Transfers / OTRO never touch cash, so they never enter this figure.
 // Only operations DeliGO really records are counted — nothing is invented.
 
 import type { Prisma, PrismaClient } from "@prisma/client"
-import { addMoney, storedMoney } from "@/lib/money"
 import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
+import { COBRO_RESUMEN_SELECT, resumirCobrosCaja } from "@/lib/caja-resumen-cobros"
 
 type Db = Pick<PrismaClient, "turnoCaja" | "cuentaFinanciera" | "movimientoFinanciero" | "venta">
 
 export const calcularEfectivoEsperadoTurno = calcularSnapshotEfectivoTurno
 
-/** Sales attributed to a shift, by method (exact). Transfers are DECLARADO, never verified credits. */
+/**
+ * Sales attributed to a shift, by method (exact). Transfers are DECLARADO, never verified credits.
+ * F4-C2: the money by method comes from the sales' real cobros (CobroVenta), with
+ * the pre-F10-B0 fallback (one cobro of Venta.metodoPago for its total) — identical
+ * to the former grouping for every sale written today. The expected cash and the
+ * frozen closing snapshot are NOT computed here (ledger, caja-turnos-snapshot.ts).
+ */
 export async function resumenVentasTurno(db: Db, negocioId: string, turnoId: string) {
   const ventas = await db.venta.findMany({
     where: { negocioId, turnoCajaId: turnoId },
-    select: { metodoPago: true, total: true, totalDecimal: true },
+    select: { metodoPago: true, total: true, totalDecimal: true, cobros: { select: COBRO_RESUMEN_SELECT } },
   })
-  const sumar = (metodo: string) => addMoney(...ventas.filter((v) => v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total)))
+  const resumen = resumirCobrosCaja(ventas)
   return {
     cantidadVentas: ventas.length,
-    totalEfectivo: sumar("EFECTIVO"),
-    totalTransferencia: sumar("TRANSFERENCIA"),
-    totalOtro: sumar("OTRO"),
+    totalEfectivo: resumen.cobradoPorMedio.EFECTIVO,
+    totalTransferencia: resumen.cobradoPorMedio.TRANSFERENCIA,
+    totalOtro: resumen.cobradoPorMedio.OTRO,
   }
 }

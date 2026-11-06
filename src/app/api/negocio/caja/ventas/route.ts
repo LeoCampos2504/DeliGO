@@ -9,9 +9,11 @@ import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
 import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
 import { lineaVigente } from "@/lib/caja-venta-vigente"
+import { agruparCobrosPorVenta, COBRO_RESUMEN_SELECT, resumirCobrosCaja } from "@/lib/caja-resumen-cobros"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
-// resumen simple"). Scoped strictly to the authenticated negocio's own day
+// resumen simple"; F4-C2: money by method read from the real cobros).
+// Scoped strictly to the authenticated negocio's own day
 // in its own timezone-agnostic sense (UTC calendar day is acceptable for an
 // MVP summary — no negocio-level timezone dependency exists for this yet).
 export async function GET(req: NextRequest) {
@@ -45,22 +47,29 @@ export async function GET(req: NextRequest) {
       ? await db.devolucionVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, select: { ventaId: true, tipo: true, importeDecimal: true } })
       : []
 
+    // F4-C2: the money by method comes from the cobros actually registered
+    // (CobroVenta), read in a separate query so the sale objects (JSON contract)
+    // stay unchanged. A sale without cobros (before F10-B0) is read as one cobro
+    // of its own metodoPago (src/lib/caja-resumen-cobros.ts). For every sale the
+    // engine writes today (one cobro = its total) the figures are identical to
+    // the former grouping of Venta.total by Venta.metodoPago.
     // F10-B2.0: exact sums (Decimal column, or the legacy Float quantized to
     // cents for a row written before the backfill); same numeric JSON shape.
-    const sumar = (metodo?: string) =>
-      moneyToNumber(
-        addMoney(...ventasHoy.filter((v) => !metodo || v.metodoPago === metodo).map((v) => storedMoney(v.totalDecimal, v.total)))
-      )
+    const cobrosHoy = ventasHoy.length
+      ? await db.cobroVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, select: { ventaId: true, ...COBRO_RESUMEN_SELECT } })
+      : []
+    const cobrosPorVenta = agruparCobrosPorVenta(cobrosHoy)
+    const resumen = resumirCobrosCaja(ventasHoy.map((v) => ({ ...v, cobros: cobrosPorVenta.get(v.id) ?? [] })))
+    const totalDevueltoHoy = addMoney(...devolucionesHoy.map((d) => d.importeDecimal))
     const resumenHoy = {
       cantidadVentas: ventasHoy.length,
-      totalVendido: sumar(),
-      totalEfectivo: sumar("EFECTIVO"),
-      totalTransferencia: sumar("TRANSFERENCIA"),
-      totalOtro: sumar("OTRO"),
-      totalDevuelto: moneyToNumber(addMoney(...devolucionesHoy.map((d) => d.importeDecimal))),
-      totalNeto: 0,
+      totalVendido: moneyToNumber(resumen.ventasBrutas),
+      totalEfectivo: moneyToNumber(resumen.cobradoPorMedio.EFECTIVO),
+      totalTransferencia: moneyToNumber(resumen.cobradoPorMedio.TRANSFERENCIA),
+      totalOtro: moneyToNumber(resumen.cobradoPorMedio.OTRO),
+      totalDevuelto: moneyToNumber(totalDevueltoHoy),
+      totalNeto: moneyToNumber(resumen.ventasBrutas.minus(totalDevueltoHoy)),
     }
-    resumenHoy.totalNeto = moneyToNumber(addMoney(...ventasHoy.map((v) => storedMoney(v.totalDecimal, v.total))).minus(addMoney(...devolucionesHoy.map((d) => d.importeDecimal))))
 
     const devolucionesPorVenta: Record<string, { totalDevuelto: number; estadoDevolucion: string }> = {}
     for (const venta of ventasHoy) {

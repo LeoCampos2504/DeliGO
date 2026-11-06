@@ -190,6 +190,24 @@ export function importeDevolucionLinea(params: {
   return importe.isNegative() ? new Prisma.Decimal(0) : importe
 }
 
+/**
+ * F4-C2 — money that a return can still hand back: the returned commercial
+ * amount minus the part compensated against new products in an F4-C exchange.
+ * Prepared for F4-C3, which adds the persisted compensated amount (migration)
+ * and wires this rule into the refund paths; until then nothing calls it and
+ * every return refunds its whole amount, exactly as today (compensated = 0).
+ */
+export function importeReintegrableDevolucion(params: {
+  importeDevuelto: Prisma.Decimal
+  importeCompensado?: Prisma.Decimal | null
+}): Prisma.Decimal {
+  const compensado = params.importeCompensado ?? new Prisma.Decimal(0)
+  if (compensado.isNegative() || compensado.gt(params.importeDevuelto)) {
+    throw new Error("El importe compensado debe estar entre 0 y el importe devuelto.")
+  }
+  return params.importeDevuelto.minus(compensado)
+}
+
 // ---------------------------------------------------------------------------
 // Serializable runner (bounded retry with backoff, like the shift services)
 // ---------------------------------------------------------------------------

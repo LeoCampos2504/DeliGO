@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 NO iniciada ni autorizada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 guardada (commit y push autorizados 2026-11-06) sólo en la rama codex/f4-c2-cobro-based-reports (base 782efe6); sin integrar; validación en CI (PostgreSQL 16) PENDIENTE; NO certificada ni cerrada técnicamente · F4-C3 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -280,6 +280,48 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
      anterior a F4-A) y la lista de escritores de `stockCantidad` de `p2-t56-r3a-i2-wiring` (no incluye a F4-A/F4-B).
   4. La integración en `testing-codex` y cualquier despliegue (Railway TESTING o Production) requieren autorizaciones
      independientes. F4-C1 **no** está certificada en Railway TESTING ni en Production.
+
+### F4-C2 — resultado (2026-11-06; rama codex/f4-c2-cobro-based-reports; CI pendiente, no certificada)
+
+- **Auditoría de lectores de `Venta.metodoPago`** (código productivo):
+  - *Agregaciones de dinero (adaptadas):* resumen diario del dueño (`src/app/api/negocio/caja/ventas/route.ts`) y
+    resumen por medio del turno (`resumenVentasTurno`, `src/lib/caja-turnos-admin.ts`, usado por
+    `GET /api/negocio/caja/turnos/[id]`).
+  - *Atributo mostrado de una venta (sin cambios; el valor `CAMBIO` de T1 se tratará en C5):* listas y detalle de
+    `caja-tab.tsx` y `caja-devoluciones.tsx`, `ventaParaCajero` (`operativo-caja.ts`), historial con devoluciones
+    (`caja-devoluciones-service.ts`), snapshot `DevolucionVenta.metodoPagoVenta`, registros de auditoría.
+  - *Escritura (motor único, sin cambios):* `caja-venta-service.ts`.
+  - *Fuera de Caja:* `analytics` / `dashboard` / mesas leen `Pedido.metodoPago`, no `Venta`.
+- `src/lib/caja-resumen-cobros.ts` (nuevo, sólo dueño): volumen comercial = Σ `Venta.total`; dinero por medio =
+  Σ `CobroVenta` de EFECTIVO / TRANSFERENCIA / OTRO; venta sin cobros (anterior a F10-B0) = un cobro de su
+  `metodoPago` por su total (misma lectura que `resolveCobrosVenta`, pero exacta); cobro de otro método (futuro
+  crédito interno) → `noDinero`, nunca suma a un medio. Cada cobro se cuenta una vez y sólo para su venta.
+- Resumen diario: los cobros se leen en una consulta aparte (`cobroVenta.findMany`), así los objetos de venta del JSON
+  no cambian; mismas claves y valores de `resumenHoy`. Resumen de turno: cobros por la relación, mismo resultado.
+  Efectivo esperado y cierres siguen saliendo del libro (sin cambios); los cierres congelados no se recalculan.
+- `importeReintegrableDevolucion` (F4-A, `caja-devoluciones-service.ts`): regla pura preparada (devuelto − compensado,
+  con validación de rango); **no se usa todavía** — C3 agrega la columna persistida y la conecta a los reintegros.
+- Contratos estáticos actualizados a propósito (autorizado): F10-B0 «statistics…» (antes prohibía leer cobros en la
+  ruta) y F10-B2.0 «daily summary sums exact amounts» (antes exigía la fórmula literal anterior); ahora exigen el
+  helper único, la consulta separada, la lectura exacta y la ausencia de escrituras en el helper.
+- Transferencias: el resumen suma el importe **declarado** (`CobroVenta` DECLARADO); no lee el estado de conciliación y
+  no presenta ninguna transferencia como conciliada o acreditada (la verificación llega con F10-D).
+- Pruebas nuevas: `src/lib/caja-resumen-cobros.test.ts` (12: equivalencia con la fórmula anterior, ventas antiguas,
+  fila sólo Float, barrido de 300 ventas, sin doble conteo, crédito futuro excluido, transferencia declarada nunca
+  presentada como conciliada, día vacío, importe reintegrable, cierre ciego) y `src/lib/f4-c2-resumen-cobros.integration.test.ts` (3, PostgreSQL real: efectivo / transferencia /
+  otro, ventas sin cobros, corrección F4-B, devolución F4-A pendiente, turno abierto y cerrado, segundo turno, venta
+  del dueño, cierre congelado intacto, día y turno vacíos, la cookie del cajero no accede a los resúmenes).
+- Evidencia local (PostgreSQL 12 efímero, un proceso por archivo): base `782efe6` 526 pass / 2 fail → después
+  539 pass / 3 fail. Los 2 fallos preexistentes son los mismos; el tercero es la prueba intermitente conocida
+  `f10-b2-1-turnos.integration.test.ts:440` (409 en ventas concurrentes, camino de escritura que F4-C2 no toca):
+  repetida 5 veces → 4 pass / 1 fail. **Validación en CI con PostgreSQL 16 pendiente** (requiere autorización aparte
+  para el workflow); F4-C2 no se declara certificada ni cerrada técnicamente hasta entonces.
+- **Limitación:** las cifras de dinero suponen un cobro = su total para las ventas actuales (invariante del motor, sin
+  restricción en la base). Una fila de cobro inconsistente —histórica o insertada a mano— cambiaría el dinero por
+  medio (no el total comercial). Antes de integrar conviene una consulta de control de sólo lectura en TESTING.
+- **Contratos estáticos:** F10-B2.0 se conserva y amplía (sumas exactas también dentro del helper). F10-B0 reemplaza
+  por diseño su aserción literal «la ruta nunca lee cobros»; su garantía de fondo —no contar dos veces— se conserva y
+  refuerza (helper único, cobros agrupados por su venta, consulta separada fuera del JSON, helper sin escrituras).
 
 ## 14. Fuera de alcance
 
