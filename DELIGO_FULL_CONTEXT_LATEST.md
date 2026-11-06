@@ -1,6 +1,18 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-B certified in TESTING (functional); guest checkout, DeliGO Puntos and DeliGO Negocios model planned (2026-11-04, Claude Code)
+## LATEST UPDATE — F4-C design approved; F4-C0 docs committed and pushed on codex/f4-b-justified-prices (2026-11-06, Claude Code)
+
+```text
+F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED (operator 2026-11-06); implementation NOT authorized; each stage C1…C6 needs its own authorization
+F4_C_DESIGN=return of outgoing units + linked sale (current catalog price) + settlement of the difference in one atomic idempotent transaction; adding = linked additional sale; internal credit (CobroVenta CREDITO_CAMBIO) never money, never a balance; reports read real cobros and are corrected before certification — codex-reports/F4_C_SALE_EXCHANGES.md
+F4_A_ON_INHERITED_LINES=DECIDED: not blocked; what was charged, with warning and audit
+F4_B_STATUS=CLOSED_TESTING_CERTIFIED (functional, TESTING only), unchanged
+DOCS=F4-C0 committed and pushed on codex/f4-b-justified-prices only (operator-authorized; parent edcc8ef); NOT integrated into testing-codex or main; no deploy · P1 warnings informative only · P2 reject linked additional sales on ANULADA origins = operator-recommended, PENDING_CONFIRMATION before C4
+BRANCHES=origin/testing-codex 2bc0a93 · origin/main 42ca500 · earlier F4-C plan 6cb3d92 / 3613091 kept apart, not merged
+NEXT_ACTION=operator decides whether to authorize F4-C1; nothing starts automatically; see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-B certified in TESTING (functional); guest checkout, DeliGO Puntos and DeliGO Negocios model planned (2026-11-04, Claude Code)
 
 ```text
 F4_B_STATUS=CLOSED_TESTING_CERTIFIED (functional; operator 11/11 manual checks in Railway TESTING; some verifications CI-only; NOT a Production authorization)

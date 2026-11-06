@@ -470,6 +470,15 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       testing-codex 2bc0a93 (Railway TESTING 51e10854, CI 41907431414, migración 20261105120000 aplicada).
       CLOSED_TESTING_CERTIFIED; algunas verificaciones sólo por CI; no autoriza Production. Pendiente: ¿F4-A bloquea
       devoluciones de líneas con precio heredado? (hoy advierte). F4-C sigue PLANNED_NOT_STARTED sin cambios de alcance.
+      → RESUELTO 2026-11-06 (D6 de F4-C): F4-A NO bloquea; reconoce lo efectivamente cobrado, con advertencia y
+      auditoría (registro de auditoría explícito previsto en F4-C4).
+    → F4-C CAMBIOS DE PRODUCTOS Y VENTAS ADICIONALES VINCULADAS (2026-11-06) = DESIGN_APPROVED_NOT_STARTED; F4-C0
+      (documentación) preparada; implementación NO autorizada (cada etapa C1…C6 con autorización propia). Cambio =
+      devolución F4-A de lo que sale + venta vinculada con lo que entra (precio de catálogo actual) + liquidación de la
+      diferencia en una única transacción; agregar = venta adicional vinculada sin devolución ficticia; crédito interno
+      sin ingresos ni movimientos financieros; reportes por cobros corregidos ANTES de certificar. Reemplaza el plan
+      6cb3d92 (no fusionado; su párrafo «el reemplazo hereda el precio cobrado» es obsoleto). Ver sección «F4-C» abajo y
+      codex-reports/F4_C_SALE_EXCHANGES.md.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).
@@ -499,6 +508,29 @@ DEPENDENCIAS RECOMENDADAS=
   - F10: auditoría técnica F10-A antes de cualquier etapa; F9 ya certificado en TESTING (2026-10-09) — su integración dentro de el lector en
     Operaciones; idempotencia del checkout de Caja (hoy inexistente) antes de vincular cobros a turnos.
 ```
+
+### F4-C — Cambios de productos y ventas adicionales vinculadas (`F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED`)
+
+Diseño aprobado por el operador el 2026-11-06 (auditoría READ-ONLY y diseño revisado del 2026-11-05). **Implementación
+NO autorizada**: F4-C0 es sólo documentación; cada etapa siguiente requiere autorización explícita. Especificación
+completa, decisiones D1–D14 / T1–T9, modelo contable e invariantes: `codex-reports/F4_C_SALE_EXCHANGES.md`.
+
+- **Base documental:** `edcc8ef`. El plan anterior (`6cb3d92`, rama local `codex/f4-c-roadmap-plan`, y `3613091`) no se
+  fusiona: su contenido vigente (objetivo, permisos sin aprobación previa, precios vigentes, sin saldos a favor,
+  inmutabilidad, casos A–E, auditoría mínima, requisitos de inventario/caja/turnos) se recuperó en la especificación;
+  su párrafo «F4-B — el reemplazo hereda el precio cobrado» y el estado AWAITING de F4-B son obsoletos.
+- **Arquitectura (D1):** cambio = devolución F4-A de lo que sale (valorado por lo efectivamente cobrado) + venta
+  vinculada con lo que entra (precio de catálogo actual, motor único de ventas, stock físico − reservas) + liquidación
+  de la diferencia, en una única transacción Serializable e idempotente. Agregar = venta adicional vinculada.
+- **Importes separados:** V_sal (devuelto), V_ent (entrada), C = crédito aplicado, D+ = diferencia cobrada (completa,
+  un solo medio real), D− = diferencia a reintegrar (en el acto o PENDIENTE, medio libre). Sin saldos a favor.
+- **Dinero real vs crédito:** el crédito es un `CobroVenta` `CREDITO_CAMBIO` sin movimiento financiero; los reportes de
+  dinero leen cobros reales y reintegros realizados; el efectivo esperado y los cierres siguen saliendo del libro.
+- **Permisos y avisos:** empleados de Caja y dueño sin autorización previa; aviso al dueño por cada cambio y cada venta
+  adicional vinculada de empleados.
+- **Etapas:** C0 docs · C1 refactor sin cambio de comportamiento · C2 reportes y turnos por cobros (equivalencia
+  probada) · C3 migración aditiva + invariantes SQL · C4 servicio y API · C5 interfaz · C6 certificación manual en
+  TESTING. Lo contable esencial (C2, C3) queda antes de certificar.
 
 ### F10 — Operaciones, turnos de Caja y control financiero para negocios genéricos
 

@@ -35,6 +35,8 @@ Sustentado sólo en CI (no ejecutado manualmente): reservas de pedidos activas (
 
 **Decisión que sigue pendiente:** si F4-A debe **bloquear** las devoluciones de líneas antiguas con precio heredado
 (regla anterior). Hoy sólo advierte y reintegra lo efectivamente cobrado.
+→ **Resuelta (operador, 2026-11-06):** no se bloquea; se reconoce lo efectivamente cobrado, con advertencia y
+auditoría. El mismo criterio rige en F4-C (`codex-reports/F4_C_SALE_EXCHANGES.md`, D6).
 
 ## Caso que originó la tarea (certificación manual en TESTING)
 
@@ -136,9 +138,10 @@ Ejemplos del operador:
 
 ## Pendiente / límites
 
-- Combinaciones 1→N y cambios con diferencia de dinero: F4-C (requiere rediseño de líneas y de topes F4-A).
-- **PENDIENTE (decisión del operador):** ¿F4-A debe bloquear devoluciones sobre líneas heredadas de la regla
-  anterior? Hoy sólo advierte.
+- Combinaciones 1→N y cambios con diferencia de dinero: F4-C. Diseño aprobado el 2026-11-06 como devolución + venta
+  vinculada (no rediseña las líneas ni los topes de F4-A): `codex-reports/F4_C_SALE_EXCHANGES.md`.
+- ~~PENDIENTE (decisión del operador): ¿F4-A debe bloquear devoluciones sobre líneas heredadas de la regla
+  anterior?~~ Resuelta 2026-11-06: no se bloquea; lo cobrado, con advertencia y auditoría.
 - No hay historial de precios: la coincidencia se comprueba sólo contra el precio vigente al corregir.
 
 ## Retest en TESTING (ejecutado por el operador el 2026-11-04; ver «Certificación manual»)

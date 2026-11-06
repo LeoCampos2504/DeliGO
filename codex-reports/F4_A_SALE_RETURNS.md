@@ -136,6 +136,11 @@ confirmación explícita. Error → conserva los datos y reintenta con la misma 
 verificaciones se sustentan sólo en CI. No autoriza Production. Sigue pendiente decidir si F4-A debe bloquear
 devoluciones de líneas con precio heredado (hoy advierte). Detalle: `codex-reports/F4_B_JUSTIFIED_PRICES.md`.
 
+**Decisión del operador (2026-11-06, D6 de F4-C):** F4-A **no** bloquea las devoluciones de líneas con precio heredado:
+reconoce lo efectivamente cobrado, con advertencia (ya visible en la interfaz) y auditoría (el registro de auditoría
+explícito de esa advertencia se agrega en F4-C4, sin cambiar importes). Cambios y ventas adicionales vinculadas:
+`codex-reports/F4_C_SALE_EXCHANGES.md` (DESIGN_APPROVED_NOT_STARTED).
+
 **Antecedente (2026-11-04, superado por la certificación de arriba):** F4-B está integrada y desplegada en TESTING (`eb0699c`), pero la certificación manual
 quedó **pausada**: el operador revirtió la regla «el reemplazo hereda el precio cobrado». La corrección (rama
 `codex/f4-b-justified-prices`, sin integrar) sólo admite el mismo producto, otro producto **de la misma venta**

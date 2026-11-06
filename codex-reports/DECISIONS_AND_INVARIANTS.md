@@ -1,6 +1,25 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
 
+## F4-C post-sale exchanges and linked additional sales (operator decisions, 2026-11-06)
+
+```text
+F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED · F4-C0 docs only · implementation NOT authorized (each stage C1…C6 needs its own operator authorization) · spec: codex-reports/F4_C_SALE_EXCHANGES.md
+F4_C_ARCHITECTURE=exchange = F4-A return of the outgoing units (valued at the amount actually charged on the current line) + linked sale of the incoming products (current catalog price, single Caja sale engine, physical stock − ACTIVA reservations) + settlement of the difference, in ONE Serializable idempotent transaction · adding products = linked additional sale, no fictitious return, no credit
+F4_C_AMOUNTS=V_sal (returned, commercial) · V_ent (incoming) · C = min(V_sal, V_ent) credit applied · D+ = max(0, V_ent − V_sal) charged in full, one real payment method · D− = max(0, V_sal − V_ent) refunded now or PENDIENTE, any method · invariants V_sal = C + D−, V_ent = C + D+, never D+ and D− both > 0
+F4_C_CREDIT=internal only: CobroVenta CREDITO_CAMBIO, 1:1 with its CambioVenta, never an OperacionFinanciera, never income, never a customer balance (no balances / current accounts in F4-C; F2 separate)
+F4_C_REPORTS=real money read from real CobroVenta (excluding CREDITO_CAMBIO) and REALIZADO refunds; commercial volume from Venta/DevolucionVenta with a «por cambios» breakdown; expected cash and closings keep reading the ledger; reports corrected BEFORE F4-C certification
+F4_C_ATTRIBUTION=date, shift and actor of the exchange; original sales, shifts and closings never modified
+F4_C_PERMISSIONS=Caja employees (área caja session) and owner, no prior approval · owner notified of EVERY exchange and linked additional sale made by employees; normal sales not notified
+F4_C_LIMITS=no fixed day limit, no limit on successive changes; traceability and informative warnings kept
+F4_C_STOCK=returned stock reused only when it comes back fit and real availability exists after reservations · deleted/disabled products cannot come in
+F4_C_SHIFTS=OPCIONAL keeps current Caja/return rules without a shift · OBLIGATORIO restrictions respected (employee without open shift → whole exchange rejected)
+F4_C_GUARANTEES=historical closings protected · no duplicate charges, refunds, credits or stock movements · idempotency and concurrency protection · F4-A, F4-B and F10 certified behaviour preserved
+F4_C_TECH=T1 linked exchange sale Venta.metodoPago = CAMBIO · T2 single real method for D+ · T3 free refund method, no employee amount limits initially · T4 gross with exchange breakdown + money by method from cobros · T5 attribution to the exchange · T6 notify linked additional sales by employees · T7 fit returned stock re-enters before planning the incoming lines · T8 unlimited chains, warnings by age · T9 OPCIONAL without shift as today
+F4_A_ON_INHERITED_LINES=DECIDED 2026-11-06: NOT blocked; refunds what was actually charged, with warning (UI, existing) and audit (explicit audit record to be added in F4-C4 without changing amounts)
+F4_C_PREVIOUS_PLAN=6cb3d92 / 3613091 not merged; its «replacement inherits the charged price» paragraph is OBSOLETE (rule reversed 2026-11-04)
+```
+
 ## F4-B price rule, client-platform and business-monetization planning (operator decisions, 2026-11-04)
 
 ```text
@@ -8,8 +27,8 @@ F4_B_INHERITED_PRICE_RULE=REVERSED (a replacement no longer inherits another pro
 F4_B_PRICE_JUSTIFICATION=MISMO_PRODUCTO | MISMA_VENTA (same sale, exact charged price) | PRECIO_CATALOGO_ACTUAL (enabled product/variant of the business whose CURRENT catalog price equals the charged price exactly)
 F4_B_CATALOG_EVIDENCE=price consulted + check time stored per line; a coincidence at correction time, NEVER presented as proof of the historical price; unchanged lines carry their earlier evidence
 F4_B_INVARIANTS=corrected total = charged total · line price = charged price · owner only, mandatory reason, audit · stock vs physical − active reservations, no duplicate movements · F4-A refunds what was actually charged
-F4_B_COMBINATIONS_AND_MONEY_DIFFERENCES=F4-C (PLANNED_NOT_STARTED)
-F4_A_ON_INHERITED_LINES=PENDING_DECISION (today: warning only)
+F4_B_COMBINATIONS_AND_MONEY_DIFFERENCES=F4-C (PLANNED_NOT_STARTED; design approved 2026-11-06 → see F4-C block above)
+F4_A_ON_INHERITED_LINES=PENDING_DECISION (today: warning only) — RESOLVED 2026-11-06, see F4-C block above
 CLIENTE_1_GUEST_CHECKOUT=PLANNED_NOT_STARTED · account optional · minimal data · secure guest tracking without exposing other orders · anti-fraud kept and reviewed; IP/device limits alone are not sufficient · independent of DeliGO Puntos
 CLIENTE_2_DELIGO_PUNTOS=PLANNED_NOT_STARTED · central, SuperAdmin-run · registered clients only (guest orders earn no points initially) · restaurant participation in accrual mandatory, prize collaboration optional · auditable ledger (issue/use/adjust/reverse) · points balance separate from money reserved for prizes · monetary parameters adjustable without code changes
 CLIENTE_2_ECONOMIC_MODEL=PROPOSED: prize fund financed ONLY from platform income actually collected and available, after the corresponding costs (real operating cost per order; experimental Railway estimate, not a fixed cost) → net available remainder 50% prizes / 50% DeliGO profit (before taxes and real expenses) · a business fee discount is NOT income · no prizes promised and no funds reserved on business debt not yet collected
