@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 guardada (commit y push autorizados 2026-11-06) sólo en la rama codex/f4-c2-cobro-based-reports (base 782efe6); sin integrar; validación en CI (PostgreSQL 16) PENDIENTE; NO certificada ni cerrada técnicamente · F4-C3 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -281,7 +281,7 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   4. La integración en `testing-codex` y cualquier despliegue (Railway TESTING o Production) requieren autorizaciones
      independientes. F4-C1 **no** está certificada en Railway TESTING ni en Production.
 
-### F4-C2 — resultado (2026-11-06; rama codex/f4-c2-cobro-based-reports; CI pendiente, no certificada)
+### F4-C2 — resultado (2026-11-06; rama codex/f4-c2-cobro-based-reports; TECHNICALLY_CLOSED_CI_PASS)
 
 - **Auditoría de lectores de `Venta.metodoPago`** (código productivo):
   - *Agregaciones de dinero (adaptadas):* resumen diario del dueño (`src/app/api/negocio/caja/ventas/route.ts`) y
@@ -314,11 +314,27 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
 - Evidencia local (PostgreSQL 12 efímero, un proceso por archivo): base `782efe6` 526 pass / 2 fail → después
   539 pass / 3 fail. Los 2 fallos preexistentes son los mismos; el tercero es la prueba intermitente conocida
   `f10-b2-1-turnos.integration.test.ts:440` (409 en ventas concurrentes, camino de escritura que F4-C2 no toca):
-  repetida 5 veces → 4 pass / 1 fail. **Validación en CI con PostgreSQL 16 pendiente** (requiere autorización aparte
-  para el workflow); F4-C2 no se declara certificada ni cerrada técnicamente hasta entonces.
-- **Limitación:** las cifras de dinero suponen un cobro = su total para las ventas actuales (invariante del motor, sin
-  restricción en la base). Una fila de cobro inconsistente —histórica o insertada a mano— cambiaría el dinero por
-  medio (no el total comercial). Antes de integrar conviene una consulta de control de sólo lectura en TESTING.
+  repetida 5 veces → 4 pass / 1 fail.
+- **CI (GitHub Actions, PostgreSQL 16 efímero):** workflow ampliado en `b55c786` (rama, typecheck de los archivos F4-C2 y
+  las dos suites en pasos propios ANTES del lote de regresión). Corrida `42282873990`, intento 1, **SUCCESS**: migraciones,
+  typecheck, `caja-resumen-cobros.test.ts`, `f4-c2-resumen-cobros.integration.test.ts`, lote de regresión
+  F4-A/F4-B/F10/reservas, campana, CajaTab, suites F4-C1 y build. La intermitente `f10-b2-1-turnos:440` pasó en esta
+  corrida. Recuentos por prueba no legibles (logs con permisos de administrador).
+- **Resultado:** los resúmenes financieros de Caja (diario del dueño y por turno) calculan el dinero por medio desde
+  `CobroVenta`, con compatibilidad para las ventas históricas sin cobros; total comercial, efectivo esperado y cierres
+  sin cambios.
+- **Limitaciones pendientes (registradas al cierre técnico):**
+  1. Prueba intermitente de concurrencia F10-B2.1 `f10-b2-1-turnos.integration.test.ts:440` (preexistente).
+  2. Diferencia entre las políticas de reintentos de ventas (3 intentos) y devoluciones (8 con espera): decisión antes
+     de F4-C4.
+  3. Posibles cobros inconsistentes en datos históricos o insertados a mano: cambiarían el dinero por medio (no el total
+     comercial); las cifras suponen un cobro = su total, invariante del motor sin restricción en la base.
+  4. **Antes de integrar en TESTING:** verificación de integridad de cobros de sólo lectura (cada venta de Caja: suma de
+     cobros = total y método = `metodoPago`, o sin cobros).
+  5. Dos pruebas locales antiguas fuera del CI: `f10-b2-0-money.integration` (JSON del resumen anterior a F4-A) y la
+     lista de escritores de `stockCantidad` de `p2-t56-r3a-i2-wiring`.
+  6. Integración y despliegues con autorizaciones propias; F4-C2 **no** está certificada en Railway TESTING ni en
+     Production.
 - **Contratos estáticos:** F10-B2.0 se conserva y amplía (sumas exactas también dentro del helper). F10-B0 reemplaza
   por diseño su aserción literal «la ruta nunca lee cobros»; su garantía de fondo —no contar dos veces— se conserva y
   refuerza (helper único, cobros agrupados por su venta, consulta separada fuera del JSON, helper sin escrituras).

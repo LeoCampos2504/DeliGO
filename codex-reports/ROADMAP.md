@@ -487,8 +487,11 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       f10-b2-1-turnos:440, dos pruebas locales desactualizadas fuera de CI, integración/deploy con autorización propia.
       Política de reintentos
       pendiente de decisión antes de F4-C4. F4-C2 no iniciada.
-    → F4-C2 (2026-11-06) = guardada y subida sólo en la rama codex/f4-c2-cobro-based-reports (base 782efe6), sin
-      integrar; CI (PostgreSQL 16) PENDIENTE, no certificada: resumen diario del dueño y resumen de turno calculan el dinero por medio desde CobroVenta (ventas
+    → F4-C2 (2026-11-06) = TECHNICALLY_CLOSED_CI_PASS sólo en la rama codex/f4-c2-cobro-based-reports (código e9869fc +
+      workflow b55c786; CI 42282873990 SUCCESS con PostgreSQL 16; aceptado por el operador), sin integrar ni
+      desplegar; NO certificada en Railway TESTING ni Production. Pendientes: verificación de integridad de cobros en
+      TESTING antes de integrar, prueba intermitente f10-b2-1-turnos:440, política de reintentos, dos pruebas locales
+      antiguas fuera de CI: resumen diario del dueño y resumen de turno calculan el dinero por medio desde CobroVenta (ventas
       antiguas sin cobros leídas por su metodoPago); mismos importes que antes (equivalencia probada con PostgreSQL
       efímero); importe reintegrable de F4-A preparado sin usar. F4-C3 no iniciada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
