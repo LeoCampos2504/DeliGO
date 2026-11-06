@@ -482,7 +482,10 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
     → F4-C1 (2026-11-06) = guardada y subida sólo en la rama codex/f4-c1-transactional-engines (base e2f8a0e), sin
       integrar: núcleos en transacción de los motores de venta y devolución + helper de rollback compuesto, sin cambio
       de comportamiento (batería local 514 → 526 aprobadas, mismos 2 fallos preexistentes; 6 pruebas nuevas con
-      PostgreSQL real, 4 ejecuciones). Validación en CI PENDIENTE: NO certificada ni cerrada. Política de reintentos
+      PostgreSQL real, 4 ejecuciones). CI 42277526005 intento 2 SUCCESS (637574b): TECHNICALLY_CLOSED_CI_PASS en su rama (aceptado por el operador), sin
+      integrar ni desplegar; NO certificada en Railway TESTING ni Production. Pendientes: prueba intermitente
+      f10-b2-1-turnos:440, dos pruebas locales desactualizadas fuera de CI, integración/deploy con autorización propia.
+      Política de reintentos
       pendiente de decisión antes de F4-C4. F4-C2 no iniciada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo

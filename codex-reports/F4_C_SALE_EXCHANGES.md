@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 guardada (commit y push autorizados 2026-11-06) sólo en la rama codex/f4-c1-transactional-engines; sin integrar; validación en CI PENDIENTE; NO certificada ni cerrada · F4-C2 NO iniciada ni autorizada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 NO iniciada ni autorizada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -237,7 +237,7 @@ completa de cambios sucesivos.
 
 Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación (garantía 4).
 
-### F4-C1 — resultado (2026-11-06; rama codex/f4-c1-transactional-engines; CI pendiente, no certificada)
+### F4-C1 — resultado (2026-11-06; rama codex/f4-c1-transactional-engines; TECHNICALLY_CLOSED_CI_PASS)
 
 - `registrarVentaCajaEnTx` (`src/lib/caja-venta-service.ts`) y `registrarDevolucionVentaEnTx`
   (`src/lib/caja-devoluciones-service.ts`): el trabajo que cada motor hacía DENTRO de su transacción, movido sin cambios
@@ -265,10 +265,21 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   proceso bun por archivo): base `e2f8a0e` 514 pass / 2 fail; después 526 pass / 2 fail, **mismo conjunto de fallos**
   (preexistentes, fuera del lote de CI: `f10-b2-0-money.integration` espera el JSON del resumen anterior a F4-A;
   `p2-t56-r3a-i2-wiring` no lista a F4-A/F4-B como escritores de stock). La suite nueva pasó 4 de 4 ejecuciones.
-  **Validación en CI pendiente**: la rama no está en los disparadores del workflow y las suites nuevas no están en su
-  lote (agregarlas requiere una autorización aparte). F4-C1 **no** se declara certificada ni cerrada hasta entonces.
-- **Pendiente antes de F4-C4:** decidir la política de reintentos del cambio (ventas 3 intentos sin espera; devoluciones
-  8 con espera corta).
+  **CI (2026-11-06):** el workflow `f10-b2-2-e-testing.yml` incorporó la rama, el typecheck de los archivos F4-C1 y las
+  dos suites nuevas en pasos propios (commit `637574b`). Corrida `42277526005`: intento 1 falló sólo en la prueba
+  intermitente conocida `f10-b2-1-turnos.integration.test.ts:440` (los pasos F4-C1 quedaron omitidos); intento 2
+  (re-ejecutado por el operador) **SUCCESS** en todos los pasos: migraciones en postgres:16 efímero, typecheck, lote de
+  regresión F4-A/F4-B/F10/reservas, campana, CajaTab, las dos suites F4-C1 y build. Los recuentos por prueba no son
+  legibles (los logs requieren permisos de administrador).
+- **Limitaciones pendientes (registradas al cierre técnico):**
+  1. Prueba intermitente de concurrencia F10-B2.1 `f10-b2-1-turnos.integration.test.ts:440`: falló en el intento 1 de
+     CI (preexistente; no corregida).
+  2. Diferencia entre las políticas de reintentos de ventas (3 intentos sin espera) y devoluciones (8 con espera
+     corta): decisión del operador antes de F4-C4.
+  3. Dos pruebas locales desactualizadas fuera del lote de CI: `f10-b2-0-money.integration` (espera el JSON del resumen
+     anterior a F4-A) y la lista de escritores de `stockCantidad` de `p2-t56-r3a-i2-wiring` (no incluye a F4-A/F4-B).
+  4. La integración en `testing-codex` y cualquier despliegue (Railway TESTING o Production) requieren autorizaciones
+     independientes. F4-C1 **no** está certificada en Railway TESTING ni en Production.
 
 ## 14. Fuera de alcance
 
