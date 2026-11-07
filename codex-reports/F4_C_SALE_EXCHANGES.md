@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 con commit y push SÓLO en la rama codex/f4-c3-sale-exchange-schema (base 9073872; sin integración, despliegue ni migración aplicada fuera de bases descartables; 2026-11-06); NO cerrada técnicamente ni certificada: falta CI con PostgreSQL 16 · F4-C4 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -339,7 +339,7 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   por diseño su aserción literal «la ruta nunca lee cobros»; su garantía de fondo —no contar dos veces— se conserva y
   refuerza (helper único, cobros agrupados por su venta, consulta separada fuera del JSON, helper sin escrituras).
 
-### F4-C3 — resultado (2026-11-06, commit y push sólo en su rama; NO cerrada técnicamente)
+### F4-C3 — resultado (2026-11-06, TECHNICALLY_CLOSED_CI_PASS sólo en su rama)
 
 - **Migración nueva y aditiva** `prisma/migrations/20261106120000_f4_c3_sale_exchange_schema`: tabla `cambios_venta`;
   `ventas_caja.ventaOrigenId` / `vinculoTipo` (NULL en toda fila existente); `cobros_venta.cambioVentaId` (único,
@@ -378,8 +378,33 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   preexistentes de siempre; la intermitente `f10-b2-1-turnos:440` pasó. **PostgreSQL 16:** no disponible en esta
   máquina (sólo binarios 12); la validación con 16 queda para CI (requiere autorización del workflow).
 - **Sin bases persistentes:** no se ejecutó ninguna migración sobre bases persistentes (ni Railway ni otras); sólo
-  sobre bases locales descartables. **F4-C3 NO está cerrada técnicamente ni certificada** hasta que pase CI con
-  PostgreSQL 16.
+  sobre bases descartables (locales y el servicio efímero de CI).
+- **Commits (sólo en la rama `codex/f4-c3-sale-exchange-schema`):** código `9637cd6` (padre `9073872`), workflow
+  `65f120c` y el commit documental de cierre.
+- **CI con PostgreSQL 16 (corrida `42324905235` sobre `65f120c`):** el workflow `f10-b2-2-e-testing.yml` incorporó la
+  rama, el typecheck de `caja-venta.ts` y de la suite F4-C3, y un paso propio para la suite F4-C3 antes del lote de
+  regresión. **Intento 1:** falló sólo en la prueba intermitente conocida `f10-b2-1-turnos.integration.test.ts:440`
+  (esperaba 201, recibió 409 en ventas concurrentes); migración, typecheck y suites F4-C2/F4-C3 ya habían pasado.
+  **Intento 2** (re-ejecutado por el operador): **SUCCESS** en los 18 pasos — `migrate deploy` aplicó la migración
+  F4-C3 (tablas, columnas, CHECK y triggers) en postgres:16 efímero; typecheck; las 14 pruebas F4-C3 con base real;
+  lote de regresión F4-A/F4-B/F10/reservas; campana; CajaTab; suites F4-C1 y F4-C2; build. Los recuentos por prueba
+  no son legibles (los logs requieren permisos de administrador).
+- **Prueba local A/B de concurrencia F10-B2.1** (PostgreSQL 12.15 descartable, 24 + 24 corridas alternadas ABBA de
+  «two registers, two cashiers, concurrent sales»): con los triggers (A) 24 pasan / 0 fallan (72 ventas 201, 49
+  errores de serialización); sin `cobros_venta_cambio_completa_trigger` ni
+  `operaciones_financieras_credito_cambio_guard_trigger` (B) 20 / 4 (68 ventas 201, 4 de 409, 58 errores); duración
+  media 1,32 s vs 1,33 s; Fisher bilateral p ≈ 0,11 (no significativo). En A el conflicto se detecta en la lectura
+  del trigger y en B en la verificación de FK preexistente sobre la MISMA fila de `cobros_venta`; cada fallo es una
+  venta que agota sus 3 intentos en caminos preexistentes. Decisión del operador: conservar los triggers. Es
+  **evidencia preliminar** de que no hay un aumento detectable; **no demuestra la ausencia absoluta de regresiones**
+  (muestra chica, PostgreSQL 12 local vs 16 en CI, carga de la máquina).
+- **Limitaciones y advertencias que pasan a F4-C4:** (1) prueba intermitente `f10-b2-1-turnos:440` (preexistente; no
+  corregida); (2) políticas de reintentos distintas: ventas 3 intentos sin espera, devoluciones 8 con espera;
+  (3) verificación de integridad de cobros (sólo lectura) en TESTING antes de integrar; (4) modos de turno: el SQL
+  acepta `turnoCajaId` NULL (OPCIONAL sin turno, reglas actuales — T9) y, si está, exige turno ABIERTO del mismo
+  negocio; OBLIGATORIO sin turno debe rechazar el cambio completo en el servicio (`TURNO_REQUERIDO`, D13), porque el
+  SQL no conoce el modo; (5) P1 y P2 pendientes; (6) dos pruebas locales antiguas fuera del CI
+  (`f10-b2-0-money.integration`, lista de escritores de `stockCantidad` de `p2-t56-r3a-i2-wiring`).
 - **Decisiones pendientes para F4-C4** (no resueltas en C3, sin cambiar F4-A/F4-B/F10):
   1. `devoluciones_venta_metodo_check` (F4-A) sólo admite EFECTIVO / TRANSFERENCIA / OTRO como `metodoPagoVenta`: una
      devolución o un cambio posterior de una venta CAMBIO no puede guardarse tal cual. Opciones: (a) migración que

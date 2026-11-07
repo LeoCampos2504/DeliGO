@@ -1,13 +1,13 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C3 sale-exchange schema committed and pushed on codex/f4-c3-sale-exchange-schema only; NOT technically closed (PostgreSQL 16 CI pending) (2026-11-06, Claude Code)
+## LATEST UPDATE — F4-C3 TECHNICALLY_CLOSED_CI_PASS on codex/f4-c3-sale-exchange-schema only (CI 42324905235 attempt 2); not integrated, not deployed (2026-11-06, Claude Code)
 
 ```text
-F4_C3_STATUS=COMMITTED_AND_PUSHED_ON_BRANCH_ONLY (parent 9073872; no integration, no deploy, migration NOT applied to any persistent DB; .github/workflows unchanged) · NOT technically closed, NOT certified
+F4_C3_STATUS=TECHNICALLY_CLOSED_CI_PASS (accepted by the operator 2026-11-06) ONLY on codex/f4-c3-sale-exchange-schema: code 9637cd6 (parent 9073872) + workflow 65f120c + docs commit; no integration, no deploy, migration NOT applied to any persistent DB; NOT certified in Railway TESTING nor Production
 F4_C3_CHANGE=additive migration 20261106120000 (cambios_venta, sale link, CREDITO_CAMBIO credit, compensated amount) with SQL invariants; F4-A refunds wired to the refundable amount (identical today); prepared constants; owner sale JSON unchanged; no service/API/UI
-F4_C3_EVIDENCE=migrations from empty DB and on populated DB OK; F4-C3 real-DB suite 14/14 (4 runs); full local battery 555/2 (same pre-existing failures); PostgreSQL 12 locally — PostgreSQL 16 pending in CI
-F4_C3_PENDING=F4-A metodoPagoVenta CHECK vs CAMBIO sales (MANDATORY for F4-C4: must allow returning and re-exchanging linked-sale products; permanent blocking NOT acceptable; new migration, never edit historical ones; check every current payment method); engine support for credit + real cobro; retry policy; cobro integrity verifications; P1/P2
-NEXT_ACTION=separate operator authorization for the PostgreSQL 16 CI workflow change; F4-C3 not closed until CI passes; see CODEX_REPORT.md top block
+F4_C3_EVIDENCE=migrations from empty DB and on populated DB OK; F4-C3 real-DB suite 14/14 (4 runs); full local battery 555/2 (same pre-existing failures) on PostgreSQL 12 · CI 42324905235 on 65f120c: attempt 1 failed only in the known intermittent f10-b2-1-turnos:440 (409); attempt 2 SUCCESS in every step on ephemeral postgres:16 (migrate deploy incl. F4-C3, typecheck, F4-C3 suite, regression batch, F4-C1/F4-C2 suites, build) · local A/B (PG12, 24+24): with triggers 0 fails, without 4 fails, p ≈ 0.11 → no detectable increase, NOT a proof of absence; triggers kept
+F4_C3_PENDING=F4-A metodoPagoVenta CHECK vs CAMBIO sales (MANDATORY for F4-C4: must allow returning and re-exchanging linked-sale products; permanent blocking NOT acceptable; new migration, never edit historical ones; check every current payment method); engine support for credit + real cobro; retry policy (sales 3 vs returns 8); cobro integrity verification before integrating in TESTING; shift modes OPCIONAL/OBLIGATORIO (OBLIGATORIO without shift rejects the whole exchange in the service); P1/P2; intermittent f10-b2-1-turnos:440; two stale local tests outside CI
+NEXT_ACTION=operator decides; nothing starts automatically (no F4-C4); see CODEX_REPORT.md top block
 ```
 
 ## PREVIOUS UPDATE (historical) — F4-C2 TECHNICALLY_CLOSED_CI_PASS on codex/f4-c2-cobro-based-reports (CI 42282873990); not integrated, not deployed (2026-11-06, Claude Code)
