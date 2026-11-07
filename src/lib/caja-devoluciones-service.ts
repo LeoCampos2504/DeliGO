@@ -191,11 +191,12 @@ export function importeDevolucionLinea(params: {
 }
 
 /**
- * F4-C2 — money that a return can still hand back: the returned commercial
- * amount minus the part compensated against new products in an F4-C exchange.
- * Prepared for F4-C3, which adds the persisted compensated amount (migration)
- * and wires this rule into the refund paths; until then nothing calls it and
- * every return refunds its whole amount, exactly as today (compensated = 0).
+ * F4-C2/F4-C3 — money that a return can still hand back: the returned
+ * commercial amount minus the part compensated against new products in an F4-C
+ * exchange (DevolucionVenta.importeCompensadoDecimal, F4-C3). Both refund paths
+ * use it. Every F4-A return has compensated = 0 (the column default; nothing
+ * writes another value until the F4-C4 exchange service), so it refunds its
+ * whole amount exactly as before. SQL also enforces that a cash refund equals it.
  */
 export function importeReintegrableDevolucion(params: {
   importeDevuelto: Prisma.Decimal
@@ -533,15 +534,17 @@ export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevol
     }
   }
   const importeTotal = lineas.reduce((acc, l) => acc.plus(l.importe), new Prisma.Decimal(0))
+  // F4-C3: an F4-A return compensates nothing, so its refundable amount is its whole amount.
+  const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal })
 
   // Money: a zero-value return has nothing to refund.
-  const reintegro: ReintegroSolicitud = importeTotal.isZero() ? { modo: "NO_CORRESPONDE" } : solicitud.reintegro
+  const reintegro: ReintegroSolicitud = importeReintegrable.isZero() ? { modo: "NO_CORRESPONDE" } : solicitud.reintegro
   let operacionId: string | null = null
   let turnoReintegroId: string | null = null
   if (reintegro.modo === "REALIZADO" && reintegro.medio === "EFECTIVO") {
     const destino = await resolverDestinoEfectivo(tx, negocioId, actorResuelto, actor.tipo === "NEGOCIO" ? solicitud.cajaFisicaId : null)
     if (!destino.ok) return destino
-    operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, importeTotal)).id
+    operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, importeReintegrable)).id
     turnoReintegroId = destino.value.turnoCajaId
   }
   const ahora = new Date()
@@ -698,13 +701,15 @@ export async function registrarReintegroDevolucion(db: Db, input: RegistrarReint
         return fail(409, row.reintegroEstado === "REALIZADO" ? "El reintegro de esta devolución ya fue registrado." : "Esta operación no tiene dinero a devolver.", "REINTEGRO_YA_REGISTRADO")
       }
       const devolucion = await tx.devolucionVenta.findUniqueOrThrow({ where: { id: devolucionId }, include: DEVOLUCION_INCLUDE })
+      // F4-C3: what is still owed — the whole amount for every F4-A return (compensated = 0).
+      const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: devolucion.importeDecimal, importeCompensado: devolucion.importeCompensadoDecimal })
 
       let operacionId: string | null = null
       let turnoReintegroId: string | null = null
       if (medio === "EFECTIVO") {
         const destino = await resolverDestinoEfectivo(tx, negocioId, actorResuelto, cajaElegida)
         if (!destino.ok) return destino
-        operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, devolucion.importeDecimal)).id
+        operacionId = (await crearOperacionReintegro(tx, negocioId, actorResuelto, destino.value, importeReintegrable)).id
         turnoReintegroId = destino.value.turnoCajaId
       }
       const ahora = new Date()
@@ -730,7 +735,7 @@ export async function registrarReintegroDevolucion(db: Db, input: RegistrarReint
             userType: "negocio",
             tipo: NOTIFICACION_TIPO_DEVOLUCION,
             titulo: "Reintegro registrado",
-            cuerpo: `${actorResuelto.nombre} registró el reintegro de ${money(devolucion.importeDecimal)} de la venta #${referenciaVenta(devolucion.ventaId)}: ${describirReintegro("REALIZADO", medio)}.`,
+            cuerpo: `${actorResuelto.nombre} registró el reintegro de ${money(importeReintegrable)} de la venta #${referenciaVenta(devolucion.ventaId)}: ${describirReintegro("REALIZADO", medio)}.`,
             negocioId,
             datos: JSON.stringify({
               navigateTo: { negocio: "caja" },
@@ -738,7 +743,7 @@ export async function registrarReintegroDevolucion(db: Db, input: RegistrarReint
               ventaId: devolucion.ventaId,
               ventaRef: referenciaVenta(devolucion.ventaId),
               empleadoNombre: actorResuelto.nombre,
-              importe: moneyToNumber(devolucion.importeDecimal),
+              importe: moneyToNumber(importeReintegrable),
               reintegroEstado: "REALIZADO",
               reintegroMedio: medio,
               fecha: ahora.toISOString(),

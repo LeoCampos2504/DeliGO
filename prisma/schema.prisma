@@ -195,6 +195,7 @@ model Negocio {
   turnosCaja             TurnoCaja[] // F10-B2.1
   devolucionesVenta      DevolucionVenta[] // F4-A
   correccionesVenta      CorreccionVenta[] // F4-B
+  cambiosVenta           CambioVenta[] // F4-C3
   traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
 
   // Plan
@@ -496,9 +497,20 @@ model Venta {
   // servidor desde la sesion y revalidado por el motor dentro de su tx).
   // NULL = venta sin turno (anterior a F10-B2.1 o transicion OPCIONAL).
   turnoCajaId String?
+  // F4-C3: venta vinculada a una venta anterior (cambio comercial o venta
+  // adicional). NULL en toda venta común. vinculoTipo: CAMBIO | ADICIONAL. Una
+  // venta CAMBIO lleva metodoPago = "CAMBIO" (resumen) y sus cobros reales +
+  // un cobro CREDITO_CAMBIO; invariantes en SQL (migración 20261106120000).
+  ventaOrigenId String?
+  vinculoTipo   String?
 
   negocio     Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   empleado    Empleado?              @relation(fields: [empleadoId], references: [id], onDelete: SetNull)
+  // F4-C3: NoAction — una venta con ventas vinculadas no puede borrarse sola.
+  ventaOrigen      Venta?        @relation("VentaVinculada", fields: [ventaOrigenId], references: [id], onDelete: NoAction)
+  ventasVinculadas Venta[]       @relation("VentaVinculada")
+  cambiosOrigen    CambioVenta[] @relation("CambioVentaOrigen")
+  cambioNuevo      CambioVenta?  @relation("CambioVentaNueva")
   // NoAction: un turno con ventas no puede borrarse solo.
   turnoCaja   TurnoCaja?             @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   items       VentaItem[]
@@ -513,6 +525,7 @@ model Venta {
   @@index([negocioId, createdAt])
   @@index([empleadoId])
   @@index([turnoCajaId])
+  @@index([ventaOrigenId])
   @@map("ventas_caja")
 }
 
@@ -535,10 +548,14 @@ model CobroVenta {
   importeDecimal     Decimal? @db.Decimal(12, 2) // F10-B2.0: importe exacto (escritura doble con `importe`)
   estadoConciliacion String   @default("NO_APLICA") // NO_APLICA | DECLARADO
   createdAt          DateTime @default(now())
+  // F4-C3: sólo para metodo = "CREDITO_CAMBIO" — crédito interno de UN cambio
+  // (único), por el importe aplicado; nunca dinero, nunca operación financiera.
+  cambioVentaId      String?  @unique
 
   negocio             Negocio              @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   venta               Venta                @relation(fields: [ventaId], references: [id], onDelete: Cascade)
   operacionFinanciera OperacionFinanciera?
+  cambioVenta         CambioVenta?         @relation(fields: [cambioVentaId], references: [id], onDelete: NoAction)
 
   @@index([negocioId, createdAt])
   @@index([ventaId])
@@ -691,6 +708,8 @@ model TurnoCaja {
   traspasoFondoDestino TraspasoFondoTurnoCaja? @relation("TraspasoFondoTurnoDestino")
   // F4-A: devoluciones cuyo efectivo salió de este turno
   reintegrosDevolucion DevolucionVenta[]
+  // F4-C3: cambios comerciales atribuidos a este turno
+  cambiosVenta CambioVenta[]
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, cierreIdempotencyKey])
@@ -868,6 +887,10 @@ model DevolucionVenta {
   actorId                 String
   empleadoId              String?
   importeDecimal          Decimal   @db.Decimal(12, 2) // valor comercial devuelto (precio efectivamente cobrado)
+  // F4-C3: parte del valor devuelto aplicada como crédito a productos nuevos en
+  // un cambio (F4-C). 0 en toda devolución F4-A común. Reintegrable =
+  // importeDecimal − importeCompensadoDecimal (importeReintegrableDevolucion).
+  importeCompensadoDecimal Decimal  @default(0) @db.Decimal(12, 2)
   metodoPagoVenta         String // snapshot del medio de la venta original
   reintegroEstado         String // NO_CORRESPONDE | PENDIENTE | REALIZADO
   reintegroMedio          String? // EFECTIVO | TRANSFERENCIA | OTRO (sólo REALIZADO)
@@ -886,6 +909,7 @@ model DevolucionVenta {
   reintegroOperacion OperacionFinanciera?  @relation(fields: [reintegroOperacionId], references: [id], onDelete: NoAction)
   reintegroTurnoCaja TurnoCaja?            @relation(fields: [reintegroTurnoCajaId], references: [id], onDelete: NoAction)
   items              DevolucionVentaItem[]
+  cambio             CambioVenta?
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, reintegroIdempotencyKey])
@@ -915,6 +939,53 @@ model DevolucionVentaItem {
   @@index([ventaItemId])
   @@index([devolucionId])
   @@map("devoluciones_venta_items")
+}
+
+// ============================================
+// F4-C3 — Cambio comercial posventa (modelo de datos; sin servicio hasta F4-C4)
+// ============================================
+// Evento inmutable que une, en UNA transacción: la devolución de lo que sale
+// (DevolucionVenta, valorada por lo efectivamente cobrado), la venta vinculada
+// con lo que entra (Venta vinculoTipo CAMBIO, precio de catálogo actual) y la
+// liquidación de la diferencia. Importes (codex-reports/F4_C_SALE_EXCHANGES.md §5):
+//   salida = crédito + diferenciaReintegro · entrada = crédito + diferenciaCobrada
+//   nunca cobro y reintegro a la vez · todos ≥ 0.
+// El crédito es interno: un único CobroVenta CREDITO_CAMBIO de la venta nueva,
+// sin operación financiera, nunca ingreso ni saldo a favor. Invariantes en SQL
+// (migración 20261106120000). Aún no lo escribe ningún código productivo.
+model CambioVenta {
+  id                         String   @id @default(cuid())
+  negocioId                  String
+  ventaOrigenId              String
+  devolucionId               String   @unique
+  ventaNuevaId               String   @unique
+  importeSalidaDecimal       Decimal  @db.Decimal(12, 2) // V_sal: valor devuelto (comercial)
+  importeEntradaDecimal      Decimal  @db.Decimal(12, 2) // V_ent: total de la venta nueva
+  creditoAplicadoDecimal     Decimal  @db.Decimal(12, 2) // C = min(V_sal, V_ent)
+  diferenciaCobradaDecimal   Decimal  @db.Decimal(12, 2) // D+ = max(0, V_ent − V_sal)
+  diferenciaReintegroDecimal Decimal  @db.Decimal(12, 2) // D− = max(0, V_sal − V_ent)
+  liquidacion                String // SIN_DIFERENCIA | COBRO | REINTEGRO
+  actorTipo                  String // NEGOCIO | EMPLEADO (derivado de la sesión)
+  actorId                    String
+  empleadoId                 String?
+  turnoCajaId                String? // turno ABIERTO al registrar el cambio (NULL = sin turno, modo OPCIONAL)
+  motivo                     String
+  advertencias               Json? // advertencias registradas (precio heredado, antigüedad…) con su detalle
+  idempotencyKey             String
+  idempotencyFingerprint     String
+  createdAt                  DateTime @default(now())
+
+  negocio       Negocio         @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  ventaOrigen   Venta           @relation("CambioVentaOrigen", fields: [ventaOrigenId], references: [id], onDelete: NoAction)
+  devolucion    DevolucionVenta @relation(fields: [devolucionId], references: [id], onDelete: NoAction)
+  ventaNueva    Venta           @relation("CambioVentaNueva", fields: [ventaNuevaId], references: [id], onDelete: NoAction)
+  turnoCaja     TurnoCaja?      @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
+  cobroCredito  CobroVenta?
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, createdAt])
+  @@index([ventaOrigenId])
+  @@map("cambios_venta")
 }
 
 // ============================================

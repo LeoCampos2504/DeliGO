@@ -123,7 +123,7 @@ describe("F4-C2 — resumirCobrosCaja", () => {
   })
 })
 
-describe("F4-C2 — importe reintegrable de una devolución (preparado para F4-C3, sin uso todavía)", () => {
+describe("F4-C2/F4-C3 — importe reintegrable de una devolución (conectado en F4-C3)", () => {
   test("without compensation it is the whole returned amount (today's behaviour)", () => {
     expect(importeReintegrableDevolucion({ importeDevuelto: D("2000.00") }).toFixed(2)).toBe("2000.00")
     expect(importeReintegrableDevolucion({ importeDevuelto: D("2000.00"), importeCompensado: null }).toFixed(2)).toBe("2000.00")
@@ -134,9 +134,13 @@ describe("F4-C2 — importe reintegrable de una devolución (preparado para F4-C
     expect(() => importeReintegrableDevolucion({ importeDevuelto: D("2000.00"), importeCompensado: D("2000.01") })).toThrow()
     expect(() => importeReintegrableDevolucion({ importeDevuelto: D("2000.00"), importeCompensado: D("-0.01") })).toThrow()
   })
-  test("not wired yet: no refund path calls it in F4-C2", () => {
-    const src = readFileSync(join(process.cwd(), "src/lib/caja-devoluciones-service.ts"), "utf8")
-    expect(src.match(/importeReintegrableDevolucion\(/g)).toHaveLength(1) // its own definition only
+  test("F4-C3: both refund paths use it, and the cash outflow is always the refundable amount", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/caja-devoluciones-service.ts"), "utf8").replace(/\r\n/g, "\n")
+    expect(src.match(/importeReintegrableDevolucion\(/g)).toHaveLength(3) // definition + return + later refund
+    expect(src).toContain("const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal })")
+    expect(src).toContain("importeReintegrableDevolucion({ importeDevuelto: devolucion.importeDecimal, importeCompensado: devolucion.importeCompensadoDecimal })")
+    expect(src.match(/crearOperacionReintegro\(tx, negocioId, actorResuelto, destino\.value, importeReintegrable\)/g)).toHaveLength(2)
+    expect(src).not.toMatch(/crearOperacionReintegro\([^)]*importeTotal\)|crearOperacionReintegro\([^)]*devolucion\.importeDecimal\)/)
   })
 })
 

@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 con commit y push SÓLO en la rama codex/f4-c3-sale-exchange-schema (base 9073872; sin integración, despliegue ni migración aplicada fuera de bases descartables; 2026-11-06); NO cerrada técnicamente ni certificada: falta CI con PostgreSQL 16 · F4-C4 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -338,6 +338,61 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
 - **Contratos estáticos:** F10-B2.0 se conserva y amplía (sumas exactas también dentro del helper). F10-B0 reemplaza
   por diseño su aserción literal «la ruta nunca lee cobros»; su garantía de fondo —no contar dos veces— se conserva y
   refuerza (helper único, cobros agrupados por su venta, consulta separada fuera del JSON, helper sin escrituras).
+
+### F4-C3 — resultado (2026-11-06, commit y push sólo en su rama; NO cerrada técnicamente)
+
+- **Migración nueva y aditiva** `prisma/migrations/20261106120000_f4_c3_sale_exchange_schema`: tabla `cambios_venta`;
+  `ventas_caja.ventaOrigenId` / `vinculoTipo` (NULL en toda fila existente); `cobros_venta.cambioVentaId` (único,
+  NULL en toda fila existente); `devoluciones_venta.importeCompensadoDecimal` NOT NULL DEFAULT 0. CHECK nuevos que
+  toda fila existente ya cumple y triggers NUEVOS; ninguna migración aplicada, función o trigger existente se toca.
+  Los renombres de índices/FK que `prisma migrate diff` propone (deriva de nombres preexistente, ajena) NO se incluyen.
+- **Invariantes en PostgreSQL:**
+  - `cambios_venta`: importes ≥ 0; salida = crédito + D−, entrada = crédito + D+, crédito = mínimo; nunca D+ y D− a
+    la vez; liquidación coherente; actor; motivo; venta origen ≠ venta nueva. Trigger: mismo negocio en venta
+    origen, devolución, venta nueva y turno; la devolución es de la venta origen con importe = salida y compensado =
+    crédito; la venta nueva es CAMBIO vinculada a la origen con total = entrada; turno ABIERTO; inmutable; no se borra
+    salvo con su negocio. Diferido (al confirmar): crédito existe sólo si > 0 y por su importe exacto; cobros reales
+    de la venta nueva = D+; devolución y venta nueva con al menos una línea.
+  - `ventas_caja`: vínculo completo o ninguno (CAMBIO | ADICIONAL, origen ≠ sí misma); `metodoPago = CAMBIO` ⇔
+    vínculo CAMBIO; origen del mismo negocio; vínculo inmutable (el bloqueo F4-A por UPDATE de otra columna sigue
+    funcionando). Diferido: una venta CAMBIO existe sólo con su cambio y con Σ cobros = su total (también al agregar
+    un cobro después).
+  - `cobros_venta`: `CREDITO_CAMBIO` ⇔ `cambioVentaId`, siempre NO_APLICA y con importe exacto; único por cambio; de
+    la venta nueva de SU cambio, por el crédito aplicado; inmutable y no borrable salvo con su negocio.
+  - `operaciones_financieras`: un cobro CREDITO_CAMBIO nunca genera operación (nunca ingreso).
+  - `devoluciones_venta`: 0 ≤ compensado ≤ importe; compensado inmutable; compensado > 0 sólo con su cambio
+    (diferido); un reintegro en efectivo sale por EXACTAMENTE lo reintegrable (importe − compensado).
+- **Código:** `importeReintegrableDevolucion` conectado a los dos caminos de reintegro de F4-A (devolución y reintegro
+  pendiente posterior) — idéntico para toda devolución F4-A (compensado = 0); constantes preparadas
+  `METODO_PAGO_VENTA_CAMBIO`, `METODO_COBRO_CREDITO_CAMBIO`, `VINCULOS_VENTA` (`src/lib/caja-venta.ts`) que el
+  checkout sigue rechazando; `ventaCajaParaRespuesta` excluye las columnas de vínculo (contrato JSON igual). Ningún
+  código productivo escribe todavía un cambio.
+- **Pruebas:** `src/lib/f4-c3-cambio-venta-schema.integration.test.ts` (14, PostgreSQL real: casos A/C/D aceptados;
+  importes, crédito, vínculos, aislamiento por negocio, turno abierto y cierre congelado, inmutabilidad, reintegro
+  F4-A por lo reintegrable, idempotencia y concurrencia, borrado del negocio en cascada) — 4 de 4 ejecuciones verdes;
+  `caja-resumen-cobros.test.ts` actualizado (la regla ahora está conectada).
+- **Migraciones:** aplicadas desde una base vacía y sobre la base de pruebas con datos históricos (562 ventas, 98
+  devoluciones, 63 correcciones, 295 turnos cerrados): todos los CHECK validaron las filas existentes; compensado = 0
+  y sin vínculos; `migrate diff` posterior sin diferencias de F4-C3.
+- **Evidencia local** (PostgreSQL **12** efímero, un proceso por archivo): 555 pass / 2 fail — los 2 fallos
+  preexistentes de siempre; la intermitente `f10-b2-1-turnos:440` pasó. **PostgreSQL 16:** no disponible en esta
+  máquina (sólo binarios 12); la validación con 16 queda para CI (requiere autorización del workflow).
+- **Sin bases persistentes:** no se ejecutó ninguna migración sobre bases persistentes (ni Railway ni otras); sólo
+  sobre bases locales descartables. **F4-C3 NO está cerrada técnicamente ni certificada** hasta que pase CI con
+  PostgreSQL 16.
+- **Decisiones pendientes para F4-C4** (no resueltas en C3, sin cambiar F4-A/F4-B/F10):
+  1. `devoluciones_venta_metodo_check` (F4-A) sólo admite EFECTIVO / TRANSFERENCIA / OTRO como `metodoPagoVenta`: una
+     devolución o un cambio posterior de una venta CAMBIO no puede guardarse tal cual. Opciones: (a) migración que
+     reemplace ese CHECK para admitir CAMBIO (no aditiva: DROP + ADD); (b) guardar en `metodoPagoVenta` el medio del
+     cobro real de la venta vinculada (o EFECTIVO si sólo hubo crédito) — sin tocar el CHECK; (c) bloquear devoluciones
+     de ventas CAMBIO hasta decidirlo.
+  **Advertencia obligatoria del operador (2026-11-06) para F4-C4:** existe una incompatibilidad entre la restricción de F4-A `devoluciones_venta_metodo_check` (medio de pago de la venta) y las devoluciones de ventas `CAMBIO`. La solución definitiva debe permitir devolver y volver a cambiar los productos procedentes de ventas vinculadas, respetando las reglas de F4-A y F4-C. **No es aceptable bloquear permanentemente esas devoluciones** (contradice la decisión aprobada de permitir cambios sucesivos): la opción (c) sólo podría ser transitoria. La solución deberá preparar una migración nueva cuando corresponda, sin editar migraciones históricas, y comprobar la compatibilidad con todos los medios de pago vigentes. Siguen pendientes la política de reintentos, las verificaciones de integridad de cobros (F4-C2) y las decisiones P1/P2.
+  2. El motor de ventas crea hoy UN cobro por el total con `metodoPago`; la venta CAMBIO necesita crédito + cobro real:
+     C4 debe extender el núcleo `registrarVentaCajaEnTx` (opción de cobros explícitos) sin cambiar la venta común.
+  3. Política de reintentos del cambio (ventas 3 / devoluciones 8).
+  4. P2 (venta ADICIONAL sobre origen ANULADA): no se impone en SQL; queda para el servicio.
+  5. Forma del JSON `advertencias` (P1).
+  6. Costo: triggers nuevos en cada cobro (chequeo diferido) y en cada operación con cobro (búsqueda por clave).
 
 ## 14. Fuera de alcance
 

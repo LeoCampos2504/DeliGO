@@ -494,6 +494,10 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       antiguas fuera de CI: resumen diario del dueño y resumen de turno calculan el dinero por medio desde CobroVenta (ventas
       antiguas sin cobros leídas por su metodoPago); mismos importes que antes (equivalencia probada con PostgreSQL
       efímero); importe reintegrable de F4-A preparado sin usar. F4-C3 no iniciada.
+    → F4-C3 (2026-11-06) = IMPLEMENTADA en la rama codex/f4-c3-sale-exchange-schema (base 9073872), con commit y push SÓLO en
+      su rama, SIN integración ni migración aplicada a bases persistentes; NO cerrada técnicamente (falta CI PG16): migración aditiva 20261106120000 (cambios_venta, vínculo
+      de ventas, crédito CREDITO_CAMBIO, importe compensado) con invariantes SQL probadas contra PostgreSQL real
+      (12 local; 16 pendiente en CI); reintegro F4-A conectado a lo reintegrable (idéntico hoy). F4-C4 no iniciada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

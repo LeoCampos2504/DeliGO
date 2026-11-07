@@ -16,6 +16,19 @@ export function isValidMetodoPagoVenta(value: unknown): value is MetodoPagoVenta
   return typeof value === "string" && (METODOS_PAGO_VENTA as readonly string[]).includes(value)
 }
 
+// F4-C3 — values PREPARED for the F4-C exchange (codex-reports/F4_C_SALE_EXCHANGES.md
+// §6–§7, T1). They are NOT payment methods of a normal Caja sale: METODOS_PAGO_VENTA
+// above stays EFECTIVO | TRANSFERENCIA | OTRO, so the checkout (owner and cashier)
+// keeps rejecting them. Only the future exchange service (F4-C4) may write them;
+// SQL invariants (migration 20261106120000) tie each one to its CambioVenta.
+/** Summary method (Venta.metodoPago) of a linked exchange sale. */
+export const METODO_PAGO_VENTA_CAMBIO = "CAMBIO"
+/** CobroVenta.metodo of the internal exchange credit — never money, never a ledger operation. */
+export const METODO_COBRO_CREDITO_CAMBIO = "CREDITO_CAMBIO"
+/** Venta.vinculoTipo of a sale linked to an earlier one. */
+export const VINCULOS_VENTA = ["CAMBIO", "ADICIONAL"] as const
+export type VinculoVenta = (typeof VINCULOS_VENTA)[number]
+
 // P2-T56-R2C: a cart LINE's identity is producto + variante (section 21) —
 // two different variants of the same product must never merge into one
 // line just because they share a productoId. `varianteId` is optional/

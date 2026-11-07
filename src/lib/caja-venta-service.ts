@@ -111,13 +111,17 @@ export const CUENTA_EFECTIVO_CAJA_FISICA_PREFIX = "efectivo_caja_fisica:"
  * *Decimal columns (Prisma Decimal objects would otherwise serialize as
  * strings). The numeric `total` / `subtotal` already carry the exact cents.
  */
-export type VentaCajaRespuesta = Omit<VentaCajaConItems, "totalDecimal" | "items"> & {
+export type VentaCajaRespuesta = Omit<VentaCajaConItems, "totalDecimal" | "items" | "ventaOrigenId" | "vinculoTipo"> & {
   items: Array<Omit<VentaCajaConItems["items"][number], "subtotalDecimal">>
 }
 
 export function ventaCajaParaRespuesta(venta: VentaCajaConItems): VentaCajaRespuesta {
-  const { totalDecimal: _totalDecimal, items, ...rest } = venta
+  // F4-C3: the sale-link columns (always NULL for a normal sale) stay out of the
+  // owner's existing JSON contract until the exchange screens need them (F4-C5).
+  const { totalDecimal: _totalDecimal, ventaOrigenId: _ventaOrigenId, vinculoTipo: _vinculoTipo, items, ...rest } = venta
   void _totalDecimal
+  void _ventaOrigenId
+  void _vinculoTipo
   return {
     ...rest,
     items: items.map(({ subtotalDecimal: _subtotalDecimal, ...item }) => {
