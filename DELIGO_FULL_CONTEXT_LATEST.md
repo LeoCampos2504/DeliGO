@@ -1,15 +1,15 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C4 exchange service + API committed and pushed on codex/f4-c4-sale-exchange-service only; CI pending, not technically closed (2026-11-09, Claude Code)
+## LATEST UPDATE — F4-C4 exchange service + API TECHNICALLY_CLOSED_CI_PASS on codex/f4-c4-sale-exchange-service only (CI 42727487810 attempt 1); not integrated, not deployed (2026-11-09, Claude Code)
 
 ```text
-F4_C4_STATUS=COMMITTED_AND_PUSHED_ON_BRANCH (branch from 7ac3291; one technical commit, its SHA in Git; no integration, no deploy, migration NOT applied to any persistent DB) · NOT technically closed (needs CI PASS on PostgreSQL 16 + operator closure authorization)
+F4_C4_STATUS=TECHNICALLY_CLOSED_CI_PASS on its branch only (operator-authorized 2026-11-09; branch from 7ac3291; functional commit dcd66adcfc67bc5f47a9ca477e0698b45902c2a8, workflow commit c72b347a126377b18182e17cedfa643a17126ae5, closure docs commit; CI 42727487810 attempt 1 SUCCESS on ephemeral PostgreSQL 16: migrate deploy with the F4-C4 migration, typecheck, the four F4-C4 suites, regressions, contracts and build green) · no integration, no deploy, migration NOT applied to any persistent DB · NOT certified in Railway TESTING nor Production
 F4_C4_CHANGE=exchange service (return engine + linked CAMBIO sale + CambioVenta + internal credit, ONE Serializable transaction with a dedicated executor: 6 attempts, full-jitter wait, 2 s wait budget, 10 s global limit) + quote + linked additional sale; owner and cashier routes; migration 20261109120000 (D2 metodoPagoVenta admits CAMBIO + match trigger; D4/P2 trigger; D3/P1 per-business thresholds; advertencias shape)
-F4_C4_EVIDENCE=migrations from empty DB and on populated DB OK; after the H1–H3 audit fixes: new suites 8 + 15 + 26 + 3 green (real DB); full local battery 607/2 (same pre-existing failures; was 595/2 before +12 tests) on PostgreSQL 12 — PostgreSQL 16 pending in CI
+F4_C4_EVIDENCE=migrations from empty DB and on populated DB OK; after the H1–H3 audit fixes: new suites 8 + 15 + 26 + 3 green (real DB); full local battery 607/2 (same pre-existing failures; was 595/2 before +12 tests) on PostgreSQL 12 — PostgreSQL 16 validated in CI 42727487810 attempt 1 SUCCESS
 F4_C4_AUDIT_FIXES=H1 quoted amounts (esperado) mandatory to confirm, exact Decimal, 409 IMPORTES_CAMBIARON without effect; H2 F4-A audit before the detail read, inherited-price evidence VERIFICADA / NO_DISPONIBLE; H3 tests A–J
 F4_C4_DEVIATIONS=f10-b2-1 contract count 2→3; C3 wiring assertion updated; F4-A audit + precioHeredado; exchange tx timeout 8 s; quote endpoints; audit inside the transaction; new notice types
-F4_C4_OPEN_RISKS=NOT resolved: (R1) F4-A return audit still post-commit without transactional guarantee — resolve or formally accept BEFORE Production · (R2) real timeout/commit race not reproduced (simulation only) · (R3) no end-to-end test of a return of a historical inherited-price line · (R4) intermittent F10-B2.1 test pending · (R5) cobro integrity verification in Railway TESTING pending
-NEXT_ACTION=operator decides on the CI workflow change for the four F4-C4 suites (PostgreSQL 16); see CODEX_REPORT.md top block
+F4_C4_OPEN_RISKS=NOT resolved: (R1) F4-A return audit still post-commit without transactional guarantee — resolve or formally accept BEFORE Production · (R2) real timeout/commit race not reproduced (simulation only) · (R3) no end-to-end test of a return of a historical inherited-price line · (R4) intermittent F10-B2.1 test pending · (R5) cobro integrity verification in Railway TESTING pending — the CI success resolves none of them
+NEXT_ACTION=operator decides the next step (R1 before Production, R5 before integrating, integration into testing-codex separately); F4-C5 does NOT start automatically; see CODEX_REPORT.md top block
 ```
 
 ## PREVIOUS UPDATE (historical) — F4-C3 TECHNICALLY_CLOSED_CI_PASS on codex/f4-c3-sale-exchange-schema only (CI 42324905235 attempt 2); not integrated, not deployed (2026-11-06, Claude Code)

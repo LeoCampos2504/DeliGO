@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 GUARDADA en la rama codex/f4-c4-sale-exchange-service (base 7ac3291; un commit técnico + push a su rama, sin integración ni migración aplicada fuera de bases descartables; CI con PostgreSQL 16 pendiente; NO cerrada técnicamente; 2026-11-09) · F4-C5 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-09): código dcd66ad + workflow c72b347 sólo en la rama codex/f4-c4-sale-exchange-service; CI 42727487810 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos · F4-C5 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -419,7 +419,7 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   5. Forma del JSON `advertencias` (P1).
   6. Costo: triggers nuevos en cada cobro (chequeo diferido) y en cada operación con cobro (búsqueda por clave).
 
-### F4-C4 — resultado (2026-11-09, commit y push sólo en su rama; CI pendiente)
+### F4-C4 — resultado (2026-11-09, TECHNICALLY_CLOSED_CI_PASS sólo en su rama)
 
 Decisiones del operador (2026-11-09): **D1** ejecutor Serializable propio de los cambios; **D2** devoluciones de
 ventas CAMBIO con `metodoPagoVenta = CAMBIO`; **D3** advertencias P1 sólo informativas (30 días / 3 cambios,
@@ -462,7 +462,15 @@ configurables por negocio); **D4** sin venta adicional vinculada a una venta anu
   crédito nunca es dinero en el resumen F4-C2.
 - **Evidencia local** (PostgreSQL **12** efímero): migraciones desde base vacía y sobre la base con datos (824
   ventas, 193 devoluciones, 66 cambios); `migrate diff` sin diferencias de F4-C4; batería completa 595 pass /
-  2 fail (los 2 fallos preexistentes de siempre). **PostgreSQL 16 pendiente en CI.**
+  2 fail (los 2 fallos preexistentes de siempre); tras H1–H3, 607 / 2 (los mismos fallos).
+- **CI con PostgreSQL 16 (corrida `42727487810`, intento 1, sobre `c72b347`)**: SUCCESS. Commit funcional
+  `dcd66adcfc67bc5f47a9ca477e0698b45902c2a8`; commit del workflow `c72b347a126377b18182e17cedfa643a17126ae5` (sólo
+  `f10-b2-2-e-testing.yml`: disparador de la rama sólo para CI, typecheck ampliado a los archivos de F4-C4 y cuatro
+  pasos propios antes del lote de regresión). Los 22 pasos en verde: `migrate deploy` aplicó la migración F4-C4 en
+  PostgreSQL 16 efímero; typecheck; suites F4-C2 y F4-C3; `caja-ejecutor-cambio`, `caja-cambios`,
+  `f4-c4-cambios.integration` y `f4-c4-auditoria-f4a.integration` (proceso propio); lote de regresión (F4-A,
+  F4-B, contratos y turnos F10, inventario, reservas); campana; CajaTab; F4-C1; build. Sólo se leyó la conclusión
+  de cada paso (los logs requieren autenticación). Sin integración ni despliegue en Railway TESTING o Production.
 - **Correcciones de la auditoría (H1–H3, autorizadas 2026-11-09)**: **H1** confirmar un cambio EXIGE `esperado`
   {salida, entrada} de la cotización (dueño y cajero): falta → 400 `ESPERADO_REQUERIDO`; mal formado → 400
   `ESPERADO_INVALIDO` (un número nunca se redondea); comparación decimal exacta con lo recalculado dentro de la
@@ -482,15 +490,16 @@ configurables por negocio); **D4** sin venta adicional vinculada a una venta anu
   cambio); aserción de cableado de C3 actualizada; auditoría F4-A + precio heredado; timeout por intento de 8 s;
   endpoints de cotización; auditoría dentro de la transacción; tipos de aviso nuevos (`caja_cambio`,
   `caja_venta_adicional`, ícono genérico hasta F4-C5).
-- **Pendientes**: CI con PostgreSQL 16 (autorización aparte); intermitencia F10-B2.1 (D5); integridad de cobros
+- **Pendientes**: intermitencia F10-B2.1 (D5); integridad de cobros
   en TESTING antes de integrar; F4-C5 (interfaz, etiquetas, configuración de umbrales, historial de cadenas,
   desglose «por cambios»); conflictos de serialización bajo carga; dos pruebas antiguas fuera de CI.
 - **Riesgos abiertos (NO resueltos)**: (R1) la auditoría de devoluciones F4-A se escribe después del commit, sin
   garantía transaccional: resolverla o aceptarla formalmente ANTES de Production; (R2) la carrera real entre timeout y
   commit no se reprodujo, sólo se probó una simulación; (R3) falta una prueba de punta a punta de devolución de una
   línea con precio heredado histórico; (R4) la prueba intermitente F10-B2.1 sigue pendiente; (R5) la verificación de
-  integridad de cobros en Railway TESTING sigue pendiente. Pruebas locales sobre PostgreSQL 12 descartable; la
-  validación con PostgreSQL 16 sigue pendiente en CI.
+  integridad de cobros en Railway TESTING sigue pendiente. Pruebas locales sobre PostgreSQL 12 descartable;
+  PostgreSQL 16 validado en CI `42727487810`. El éxito del CI NO resuelve ninguno de R1–R5 (R4: la prueba
+  intermitente pasó en esa corrida, pero no está corregida).
 
 ## 14. Fuera de alcance
 
