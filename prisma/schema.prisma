@@ -157,6 +157,11 @@ model Negocio {
   // abierto la venta se atribuye). OBLIGATORIO = un cajero sin turno abierto no
   // puede vender. CHECK en SQL. Sin ruta para activarlo hasta F10-B2.2.
   cajaTurnosModo   String  @default("OPCIONAL")
+  // F4-C4 (P1): umbrales de las advertencias informativas de un cambio
+  // comercial; NULL = predeterminado (30 días / 3 cambios anteriores). Nunca
+  // bloquean una operación. CHECK en SQL. Configuración en la interfaz: F4-C5.
+  cambioAvisoAntiguedadDias Int?
+  cambioAvisoCadenaCambios  Int?
   zonasSalon       String  @default("[]") // JSON array of zone names
 
   // Pago
@@ -891,7 +896,7 @@ model DevolucionVenta {
   // un cambio (F4-C). 0 en toda devolución F4-A común. Reintegrable =
   // importeDecimal − importeCompensadoDecimal (importeReintegrableDevolucion).
   importeCompensadoDecimal Decimal  @default(0) @db.Decimal(12, 2)
-  metodoPagoVenta         String // snapshot del medio de la venta original
+  metodoPagoVenta         String // snapshot del medio de la venta original (F4-C4: CAMBIO para una venta CAMBIO; SQL exige que coincida)
   reintegroEstado         String // NO_CORRESPONDE | PENDIENTE | REALIZADO
   reintegroMedio          String? // EFECTIVO | TRANSFERENCIA | OTRO (sólo REALIZADO)
   reintegroRegistradoEn   DateTime?

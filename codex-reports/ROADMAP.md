@@ -501,6 +501,13 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       reintegro F4-A conectado a lo reintegrable (idéntico hoy); A/B local sin aumento detectable de conflictos (no
       concluyente). Pendientes para F4-C4: CHECK F4-A vs ventas CAMBIO, reintentos, integridad de cobros, modos de
       turno, P1/P2, dos pruebas antiguas fuera de CI. F4-C4 no iniciada.
+    → F4-C4 (2026-11-09) = GUARDADA en la rama codex/f4-c4-sale-exchange-service (base 7ac3291; commit + push sólo a su rama),
+      SIN integración ni migración aplicada a bases persistentes; CI con PostgreSQL 16 pendiente, NO cerrada técnicamente: servicio y API de cambios (dueño y cajero, cotización) y
+      de ventas adicionales vinculadas; ejecutor propio (D1); devoluciones de ventas CAMBIO (D2); advertencias P1
+      configurables (D3); P2 (D4); correcciones de auditoría H1–H3 (importes cotizados obligatorios, auditoría F4-A). Batería
+      local 607/2 (preexistentes); PostgreSQL 16 pendiente en CI. Riesgos abiertos: auditoría F4-A post-commit
+      (antes de Production), carrera timeout/commit sólo simulada, precio heredado histórico sin prueba de punta a punta,
+      intermitencia F10-B2.1, integridad de cobros en TESTING. F4-C5 no iniciada.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

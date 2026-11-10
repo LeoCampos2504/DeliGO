@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 GUARDADA en la rama codex/f4-c4-sale-exchange-service (base 7ac3291; un commit técnico + push a su rama, sin integración ni migración aplicada fuera de bases descartables; CI con PostgreSQL 16 pendiente; NO cerrada técnicamente; 2026-11-09) · F4-C5 NO iniciada
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -418,6 +418,79 @@ Los cambios contables esenciales (C2 y C3) quedan **antes** de la certificación
   4. P2 (venta ADICIONAL sobre origen ANULADA): no se impone en SQL; queda para el servicio.
   5. Forma del JSON `advertencias` (P1).
   6. Costo: triggers nuevos en cada cobro (chequeo diferido) y en cada operación con cobro (búsqueda por clave).
+
+### F4-C4 — resultado (2026-11-09, commit y push sólo en su rama; CI pendiente)
+
+Decisiones del operador (2026-11-09): **D1** ejecutor Serializable propio de los cambios; **D2** devoluciones de
+ventas CAMBIO con `metodoPagoVenta = CAMBIO`; **D3** advertencias P1 sólo informativas (30 días / 3 cambios,
+configurables por negocio); **D4** sin venta adicional vinculada a una venta anulada o devuelta por completo;
+**D5** la intermitencia F10-B2.1 queda como tarea aparte (motor de ventas sin cambios).
+
+- **Servicio** `src/lib/caja-cambios-service.ts`: un cambio es UNA transacción Serializable que compone los
+  escritores existentes — réplica por Idempotency-Key + huella (mismo actor) → bloqueo de la venta origen → V_ent
+  con precios del catálogo → devolución F4-A de lo que sale (`compensacion`: C = mín(V_sal, V_ent), reintegro de
+  D− en el acto o PENDIENTE; lo apto reingresa ANTES de planificar lo que entra, T7) → venta vinculada CAMBIO del
+  motor único (stock contra físico − reservas ACTIVA, reglas de turno/caja, UN cobro real de D+ con su medio y su
+  asiento de efectivo) → `CambioVenta` (cinco importes exactos, advertencias) → crédito `CREDITO_CAMBIO`
+  (`registrarCreditoCambioEnTx`, nunca dinero ni libro) → aviso al dueño (empleados, tipo `caja_cambio`) →
+  auditoría `venta.cambio` en la misma transacción. Cualquier rechazo deshace todo. **Cotización**: el mismo
+  recorrido con los motores reales, deshecho al final (no escribe nada). **Venta adicional vinculada**: venta
+  normal del motor único con `vinculoTipo = ADICIONAL`, rechazada si el origen está anulado o devuelto por completo.
+- **API** (dueño y cajero, negocio y actor sólo desde la sesión, Idempotency-Key obligatoria):
+  `POST /api/negocio/caja/ventas/[id]/cambios`, `…/cambios/cotizacion`, `…/adicionales` y
+  `POST /api/operativo/caja/[slug]/ventas/[id]/cambios`, `…/cambios/cotizacion`, `…/adicionales`.
+- **Ejecutor D1** `src/lib/caja-ejecutor-cambio.ts`: sólo reintenta 40001/40P01; hasta 6 intentos; espera
+  aleatoria en [0, mín(250 ms, 20 ms·2^(n−1))); ≤ 2 s de espera acumulada; límite global de 10 s (primer intento
+  maxWait 2 s + timeout 8 s; los siguientes reciben lo que queda; ninguno empieza con menos de 1,5 s). Un timeout
+  (P2028) nunca se reintenta: 503 `CAMBIO_RESULTADO_INCIERTO` y el cliente reintenta con la MISMA clave (réplica o
+  un único cambio). Agotado → 409 `CAMBIO_CONFLICTO_CONCURRENTE` sin efectos. Los ejecutores existentes no cambian.
+- **Migración** `20261109120000_f4_c4_sale_exchange_service` (ninguna migración aplicada se edita):
+  `devoluciones_venta_metodo_check` AMPLIADA (DROP + ADD) con `CAMBIO` — toda fila existente sigue válida;
+  `reintegroMedio` sigue siendo sólo un medio real — y trigger que exige `metodoPagoVenta` = medio de su venta;
+  trigger P2 sobre ventas ADICIONAL; `negocios.cambioAvisoAntiguedadDias` / `cambioAvisoCadenaCambios` (NULL =
+  30 / 3) con CHECK; forma versionada de `cambios_venta.advertencias`.
+- **Motores**: `registrarVentaCajaEnTx` acepta un `vinculo` opcional (la venta normal no cambia: su bloque de cobro
+  y asiento es idéntico al certificado); `registrarDevolucionVentaEnTx` acepta `compensacion` y `omitirAviso`
+  opcionales (toda devolución F4-A compensa 0). F4-A registra en auditoría las líneas con precio heredado (D6).
+- **Pruebas**: `caja-ejecutor-cambio.test.ts` (8), `caja-cambios.test.ts` (13) y
+  `f4-c4-cambios.integration.test.ts` (19, PostgreSQL real, 6 ejecuciones verdes): casos A, B, C (en el acto y
+  PENDIENTE pagado una sola vez por D−), D (efectivo al libro; transferencia declarada) y E (cambio, devolución y
+  anulación de ventas CAMBIO; advertencia de cadena); cotización sin escrituras; réplica, clave reutilizada, otro
+  actor y doble clic concurrente; carreras por la última unidad; reintentos agotados (6 intentos, rollback
+  completo); fallos tardíos (stock, reservas, precios, medio o reintegro faltante) sin rastro; OBLIGATORIO sin
+  turno; OPCIONAL sin turno; venta de turno cerrado (cierre idéntico); dos cajas abiertas; permisos; P1 y P2; el
+  crédito nunca es dinero en el resumen F4-C2.
+- **Evidencia local** (PostgreSQL **12** efímero): migraciones desde base vacía y sobre la base con datos (824
+  ventas, 193 devoluciones, 66 cambios); `migrate diff` sin diferencias de F4-C4; batería completa 595 pass /
+  2 fail (los 2 fallos preexistentes de siempre). **PostgreSQL 16 pendiente en CI.**
+- **Correcciones de la auditoría (H1–H3, autorizadas 2026-11-09)**: **H1** confirmar un cambio EXIGE `esperado`
+  {salida, entrada} de la cotización (dueño y cajero): falta → 400 `ESPERADO_REQUERIDO`; mal formado → 400
+  `ESPERADO_INVALIDO` (un número nunca se redondea); comparación decimal exacta con lo recalculado dentro de la
+  transacción de confirmación → 409 `IMPORTES_CAMBIARON` («pedí una nueva cotización»), sin escribir nada; la réplica
+  por clave va primero (un reintento exacto devuelve el original aunque cambie un precio); la venta adicional
+  vinculada no cambia (no tiene cotización). **H2** la auditoría de devoluciones F4-A vuelve a escribirse ANTES de la
+  lectura posterior del detalle; la evidencia de precio heredado tiene su propia lectura y queda como
+  `{evidencia: VERIFICADA, ventaItemIds}` o `{evidencia: NO_DISPONIBLE}` (lectura fallida) — nunca una lista vacía
+  presentada como comprobación; importes, devoluciones, inventario y respuestas de F4-A sin cambios. **H3** pruebas
+  nuevas: huella completa de una cotización, `esperado` faltante/inválido, precio cambiado tras cotizar → 409 sin
+  efectos y nueva cotización → 201, reintento con la misma clave tras cambiar un precio, exactamente una auditoría y
+  un aviso (ninguno para el dueño), doble clic del cajero, timeout incierto (confirmado → se recupera por clave; no
+  confirmado → se ejecuta una vez), auditoría F4-A conservada si falla la lectura del detalle (proceso propio, mock
+  del módulo) y posición de los 3 sitios de atribución de turno (contratos F10 sin debilitar). Batería local 607 /
+  2 (antes 595 / 2: +12 pruebas, ningún fallo nuevo).
+- **Desvíos registrados**: contrato f10-b2-1 (sitios `turnoCajaId,` del motor 2 → 3: el asiento de D+ de un
+  cambio); aserción de cableado de C3 actualizada; auditoría F4-A + precio heredado; timeout por intento de 8 s;
+  endpoints de cotización; auditoría dentro de la transacción; tipos de aviso nuevos (`caja_cambio`,
+  `caja_venta_adicional`, ícono genérico hasta F4-C5).
+- **Pendientes**: CI con PostgreSQL 16 (autorización aparte); intermitencia F10-B2.1 (D5); integridad de cobros
+  en TESTING antes de integrar; F4-C5 (interfaz, etiquetas, configuración de umbrales, historial de cadenas,
+  desglose «por cambios»); conflictos de serialización bajo carga; dos pruebas antiguas fuera de CI.
+- **Riesgos abiertos (NO resueltos)**: (R1) la auditoría de devoluciones F4-A se escribe después del commit, sin
+  garantía transaccional: resolverla o aceptarla formalmente ANTES de Production; (R2) la carrera real entre timeout y
+  commit no se reprodujo, sólo se probó una simulación; (R3) falta una prueba de punta a punta de devolución de una
+  línea con precio heredado histórico; (R4) la prueba intermitente F10-B2.1 sigue pendiente; (R5) la verificación de
+  integridad de cobros en Railway TESTING sigue pendiente. Pruebas locales sobre PostgreSQL 12 descartable; la
+  validación con PostgreSQL 16 sigue pendiente en CI.
 
 ## 14. Fuera de alcance
 

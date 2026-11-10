@@ -194,9 +194,10 @@ export function importeDevolucionLinea(params: {
  * F4-C2/F4-C3 — money that a return can still hand back: the returned
  * commercial amount minus the part compensated against new products in an F4-C
  * exchange (DevolucionVenta.importeCompensadoDecimal, F4-C3). Both refund paths
- * use it. Every F4-A return has compensated = 0 (the column default; nothing
- * writes another value until the F4-C4 exchange service), so it refunds its
- * whole amount exactly as before. SQL also enforces that a cash refund equals it.
+ * use it. Every F4-A return has compensated = 0, so it refunds its whole amount
+ * exactly as before; only the return of an F4-C4 exchange compensates
+ * C = min(returned, V_ent) and refunds D−. SQL also enforces that a cash
+ * refund equals it.
  */
 export function importeReintegrableDevolucion(params: {
   importeDevuelto: Prisma.Decimal
@@ -412,6 +413,15 @@ export interface RegistrarDevolucionInput {
   ventaId: string
   solicitud: DevolucionSolicitud
   idempotencyKey: string
+  /**
+   * F4-C4 — only the exchange service sets it: the value of what enters
+   * (V_ent). The return then compensates C = min(returned amount, V_ent)
+   * against the new products and refunds only the rest (D−). Absent for every
+   * F4-A return (compensated = 0, unchanged).
+   */
+  compensacion?: { importeEntrada: Prisma.Decimal }
+  /** F4-C4: the exchange writes its own owner notice (one per exchange). */
+  omitirAviso?: boolean
 }
 
 function mismoActor(row: { actorTipo: string; actorId: string }, actor: CajaActor, negocioId: string) {
@@ -535,7 +545,9 @@ export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevol
   }
   const importeTotal = lineas.reduce((acc, l) => acc.plus(l.importe), new Prisma.Decimal(0))
   // F4-C3: an F4-A return compensates nothing, so its refundable amount is its whole amount.
-  const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal })
+  // F4-C4: the return of an exchange compensates C = min(returned, V_ent) and refunds D−.
+  const importeCompensado = input.compensacion ? Prisma.Decimal.min(importeTotal, input.compensacion.importeEntrada) : new Prisma.Decimal(0)
+  const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal, importeCompensado })
 
   // Money: a zero-value return has nothing to refund.
   const reintegro: ReintegroSolicitud = importeReintegrable.isZero() ? { modo: "NO_CORRESPONDE" } : solicitud.reintegro
@@ -560,6 +572,7 @@ export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevol
       actorId: actorResuelto.actorId,
       empleadoId: actorResuelto.empleadoId,
       importeDecimal: importeTotal,
+      importeCompensadoDecimal: importeCompensado,
       metodoPagoVenta: venta.metodoPago,
       reintegroEstado: reintegro.modo,
       reintegroMedio: realizado ? reintegro.medio : null,
@@ -617,7 +630,7 @@ export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevol
     })
   }
 
-  if (actorResuelto.tipo === "EMPLEADO") {
+  if (actorResuelto.tipo === "EMPLEADO" && !input.omitirAviso) {
     const lineasAviso = lineas.map((l) => {
       const item = estadoItems.get(l.ventaItemId)!.item
       return { nombre: item.varianteNombre ? `${item.nombre} — ${item.varianteNombre}` : item.nombre, cantidad: l.cantidad.toNumber() }
@@ -906,6 +919,21 @@ export function correccionParaRespuesta(c: {
         despues: { nombre: nombreLinea(l), cantidad: l.cantidad },
       })),
   }
+}
+
+/**
+ * F4-C4 (D6) — audit evidence: which of the returned lines carry a price
+ * inherited through an earlier-rule F4-B correction (same definition as the
+ * sale history, lineaVigente). It THROWS when the evidence cannot be read
+ * (missing sale, database error): the caller must then record the evidence as
+ * unavailable, never as "no inherited prices".
+ */
+export async function lineasDevueltasConPrecioHeredado(db: Pick<Db, "venta">, negocioId: string, ventaId: string, ventaItemIds: ReadonlyArray<string>): Promise<string[]> {
+  const venta = await db.venta.findFirst({ where: { id: ventaId, negocioId }, include: { items: true, correcciones: ULTIMA_CORRECCION_INCLUDE } })
+  if (!venta) throw new Error("Venta no encontrada al leer la evidencia de precio heredado.")
+  const devueltos = new Set(ventaItemIds)
+  const ultima = venta.correcciones[0]?.lineas
+  return venta.items.filter((item) => devueltos.has(item.id) && lineaVigente(item, ultima).precioHeredado).map((item) => item.id)
 }
 
 async function nombresEmpleados(db: Pick<Db, "empleado">, negocioId: string, ids: Iterable<string>) {

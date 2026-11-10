@@ -84,7 +84,9 @@ describe("F10-B2.1 — attribution is decided by the server", () => {
     expect(src).toContain('ownerSharesEmployeeShift = actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined')
     expect(src).toContain('...(!ownerSharesEmployeeShift ? { responsableTipo: actor.tipo, responsableId: actorId } : {}),')
     expect(src).toContain("if (negocio?.cajaTurnosModo === CAJA_TURNOS_MODO_OBLIGATORIO) {")
-    expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(2) // Venta + OperacionFinanciera
+    // Venta + OperacionFinanciera of the sale; F4-C4 (2026-11-09): + the cash operation of an
+    // exchange's charged difference D+ (same shift attribution rule, same engine).
+    expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(3)
     // F4-A: a cash refund is attributed to the open shift that hands the money back.
     expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path).sort()).toEqual([DEVOLUCIONES, ENGINE].sort())
   })

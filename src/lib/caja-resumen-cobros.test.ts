@@ -134,10 +134,12 @@ describe("F4-C2/F4-C3 — importe reintegrable de una devolución (conectado en 
     expect(() => importeReintegrableDevolucion({ importeDevuelto: D("2000.00"), importeCompensado: D("2000.01") })).toThrow()
     expect(() => importeReintegrableDevolucion({ importeDevuelto: D("2000.00"), importeCompensado: D("-0.01") })).toThrow()
   })
-  test("F4-C3: both refund paths use it, and the cash outflow is always the refundable amount", () => {
+  test("F4-C3/F4-C4: both refund paths use it, and the cash outflow is always the refundable amount", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/caja-devoluciones-service.ts"), "utf8").replace(/\r\n/g, "\n")
     expect(src.match(/importeReintegrableDevolucion\(/g)).toHaveLength(3) // definition + return + later refund
-    expect(src).toContain("const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal })")
+    // F4-C4: compensated = 0 for every F4-A return; only an exchange passes compensacion.
+    expect(src).toContain("const importeCompensado = input.compensacion ? Prisma.Decimal.min(importeTotal, input.compensacion.importeEntrada) : new Prisma.Decimal(0)")
+    expect(src).toContain("const importeReintegrable = importeReintegrableDevolucion({ importeDevuelto: importeTotal, importeCompensado })")
     expect(src).toContain("importeReintegrableDevolucion({ importeDevuelto: devolucion.importeDecimal, importeCompensado: devolucion.importeCompensadoDecimal })")
     expect(src.match(/crearOperacionReintegro\(tx, negocioId, actorResuelto, destino\.value, importeReintegrable\)/g)).toHaveLength(2)
     expect(src).not.toMatch(/crearOperacionReintegro\([^)]*importeTotal\)|crearOperacionReintegro\([^)]*devolucion\.importeDecimal\)/)

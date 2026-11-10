@@ -15,6 +15,7 @@ import type { CajaActor } from "@/lib/caja-turnos-service"
 import {
   detalleVentaConDevoluciones,
   devolucionParaRespuesta,
+  lineasDevueltasConPrecioHeredado,
   listarVentasConDevoluciones,
   parseDevolucionBody,
   parseFiltroHistorial,
@@ -68,6 +69,17 @@ export async function crearDevolucionHttp(req: NextRequest, negocioId: string, a
     if (!result.ok) return failure(result)
     const { devolucion, replayed } = result.value
     if (!replayed) {
+      // F4-C4 (D6): explicit audit of returned lines whose price was inherited
+      // through an earlier-rule F4-B correction (amounts unchanged). The audit
+      // never depends on the detail read below; the evidence has its own read
+      // and records VERIFICADA (with the ids, possibly none) or NO_DISPONIBLE.
+      let precioHeredado: { evidencia: "VERIFICADA"; ventaItemIds: string[] } | { evidencia: "NO_DISPONIBLE" }
+      try {
+        precioHeredado = { evidencia: "VERIFICADA", ventaItemIds: await lineasDevueltasConPrecioHeredado(db, negocioId, devolucion.ventaId, devolucion.items.map((i) => i.ventaItemId)) }
+      } catch (error) {
+        console.error("Error reading precio heredado evidence:", safeErrorForLog(error))
+        precioHeredado = { evidencia: "NO_DISPONIBLE" }
+      }
       await auditLog({
         ...audit(negocioId, actor),
         accion: devolucion.tipo === "ANULACION" ? "venta.anulada" : "venta.devolucion_parcial",
@@ -82,6 +94,7 @@ export async function crearDevolucionHttp(req: NextRequest, negocioId: string, a
           reintegroMedio: devolucion.reintegroMedio,
           reintegroTurnoCajaId: devolucion.reintegroTurnoCajaId,
           items: devolucion.items.map((i) => ({ ventaItemId: i.ventaItemId, cantidad: i.cantidad, importe: i.importeDecimal.toString(), stockResultado: i.stockResultado })),
+          precioHeredado,
         },
       })
     }

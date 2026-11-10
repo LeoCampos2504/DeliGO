@@ -52,6 +52,8 @@ import {
   computeSaleFromAuthoritativeProducts,
   estadoConciliacionInicial,
   isValidMetodoPagoVenta,
+  METODO_COBRO_CREDITO_CAMBIO,
+  METODO_PAGO_VENTA_CAMBIO,
   type MetodoPagoVenta,
   type ServerSaleLineInput,
 } from "@/lib/caja-venta"
@@ -76,10 +78,27 @@ export const TIPO_OPERACION_VENTA_COBRO = "VENTA_COBRO"
  */
 export type VentaCajaActor = { tipo: "NEGOCIO" } | { tipo: "EMPLEADO"; empleadoId: string }
 
+/**
+ * F4-C4 — link of a sale to an earlier one, written ONLY by the exchange
+ * service (caja-cambios-service.ts); a normal Caja sale never carries it.
+ *   ADICIONAL: a normal sale (its own method, one cobro for its total) linked
+ *              to the origin sale.
+ *   CAMBIO:    the new sale of an exchange. Venta.metodoPago = "CAMBIO"; its
+ *              cobros are the internal credit (written after the CambioVenta
+ *              by registrarCreditoCambioEnTx) plus, when the charged difference
+ *              D+ > 0, ONE real cobro of D+ with `medioDiferencia` (and the
+ *              cash ledger leg when EFECTIVO). `credito` + `diferencia` must be
+ *              exactly the sale total computed here, or nothing is written.
+ */
+export type VinculoVentaCaja =
+  | { tipo: "ADICIONAL"; ventaOrigenId: string }
+  | { tipo: "CAMBIO"; ventaOrigenId: string; credito: Prisma.Decimal; diferencia: Prisma.Decimal; medioDiferencia: MetodoPagoVenta | null }
+
 export interface RegistrarVentaCajaInput {
   negocioId: string
   actor: VentaCajaActor
-  metodoPago: MetodoPagoVenta
+  /** "CAMBIO" only together with vinculo.tipo = "CAMBIO" (F4-C4). */
+  metodoPago: MetodoPagoVenta | typeof METODO_PAGO_VENTA_CAMBIO
   lines: ServerSaleLineInput[]
   /** null = legacy client without Idempotency-Key (owner route transition only). */
   idempotencyKey: string | null
@@ -91,6 +110,8 @@ export interface RegistrarVentaCajaInput {
   turnoCajaId?: string | null
   /** Owner-only register choice. null/undefined means: resolve the sole open shift, if any. */
   ownerCajaFisicaId?: string | null
+  /** F4-C4: linked sale (exchange service only). Absent for every normal sale. */
+  vinculo?: VinculoVentaCaja
 }
 
 export type VentaCajaConItems = Prisma.VentaGetPayload<{ include: { items: true } }>
@@ -226,13 +247,27 @@ function rechazoEntradaVentaCaja(input: RegistrarVentaCajaInput): RegistrarVenta
   if (input.actor.tipo === "NEGOCIO" && input.ownerCajaFisicaId !== undefined && input.ownerCajaFisicaId !== null && !input.ownerCajaFisicaId.trim()) {
     return { ok: false, status: 400, error: "Caja inválida" }
   }
+  // F4-C4: "CAMBIO" is the summary method of an exchange sale and nothing else.
+  if ((input.metodoPago === METODO_PAGO_VENTA_CAMBIO) !== (input.vinculo?.tipo === "CAMBIO")) {
+    return { ok: false, status: 400, error: "Método de pago inválido" }
+  }
+  if (input.vinculo?.tipo === "CAMBIO") {
+    const { credito, diferencia, medioDiferencia } = input.vinculo
+    if (credito.isNegative() || diferencia.isNegative() || (diferencia.gt(0) && !medioDiferencia)) {
+      return { ok: false, status: 400, error: "Indicá cómo se cobra la diferencia.", code: "MEDIO_DIFERENCIA_REQUERIDO" }
+    }
+  }
   return null
 }
 
 function fingerprintEntradaVentaCaja(input: RegistrarVentaCajaInput): string | null {
-  return input.idempotencyKey
-    ? fingerprintVentaCaja(input.negocioId, input.metodoPago, input.lines, input.actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined)
-    : null
+  if (!input.idempotencyKey) return null
+  const base = fingerprintVentaCaja(input.negocioId, input.metodoPago, input.lines, input.actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined)
+  // F4-C4: a linked sale also fingerprints its link (a normal sale is unchanged).
+  if (!input.vinculo) return base
+  const v = input.vinculo
+  const detalle = v.tipo === "CAMBIO" ? `${v.credito.toFixed(2)}:${v.diferencia.toFixed(2)}:${v.medioDiferencia ?? ""}` : ""
+  return createHash("sha256").update(`${base}\nVINCULO:${v.tipo}:${v.ventaOrigenId}:${detalle}`).digest("hex")
 }
 
 /**
@@ -280,8 +315,13 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
 export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
   const rechazo = rechazoEntradaVentaCaja(input)
   if (rechazo) return rechazo
-  const { negocioId, actor, metodoPago, lines: requestedLines, idempotencyKey } = input
+  const { negocioId, actor, lines: requestedLines, idempotencyKey } = input
   const fingerprint = fingerprintEntradaVentaCaja(input)
+  // F4-C4: in an exchange sale the only REAL cobro is the charged difference
+  // D+, with its own method (none when D+ = 0); every other sale charges its
+  // whole total with its own method, exactly as before.
+  const cambio = input.vinculo?.tipo === "CAMBIO" ? input.vinculo : null
+  const metodoPago: MetodoPagoVenta | null = cambio ? (cambio.diferencia.gt(0) ? cambio.medioDiferencia : null) : (input.metodoPago as MetodoPagoVenta)
 
   // F10-B0: exact replay / reused key — BEFORE any validation or side
   // effect, so a retry of an already-committed sale never re-validates
@@ -463,6 +503,11 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
   }
   const totalExacto = importes.total
+  // F4-C4: the exchange service computed credit + difference from the same
+  // authoritative prices in this transaction; any drift writes nothing.
+  if (cambio && !cambio.credito.plus(cambio.diferencia).equals(totalExacto)) {
+    return { ok: false as const, status: 409 as const, code: "IMPORTES_CAMBIARON", error: "Los precios cambiaron mientras se procesaba el cambio. Revisá los importes e intentá de nuevo." }
+  }
 
   // P2-T56-R3A-I3: stock por clave AGREGADA (Decisión C: líneas repetidas
   // del mismo producto/variante suman antes de validar) contra el DISPONIBLE
@@ -489,7 +534,7 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
       negocioId,
       total: moneyToNumber(totalExacto),
       totalDecimal: totalExacto,
-      metodoPago,
+      metodoPago: input.metodoPago,
       cantidadItems: computed.cantidadItems,
       idempotencyKey,
       idempotencyFingerprint: fingerprint,
@@ -497,6 +542,9 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
       actorId,
       empleadoId,
       turnoCajaId,
+      // F4-C4: NULL for every normal sale (SQL: link complete-or-none, immutable).
+      ventaOrigenId: input.vinculo?.ventaOrigenId ?? null,
+      vinculoTipo: input.vinculo?.tipo ?? null,
       items: {
         create: computed.items.map((item, index) => ({
           productoId: item.productoId,
@@ -516,6 +564,44 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
   // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
   // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
   await registrarStockVentaCaja(tx, { negocioId, ventaId: venta.id, plan: stockPlan })
+
+  if (cambio) {
+    // F4-C4: an exchange sale's ONLY real cobro is its charged difference D+
+    // (none when D+ = 0), with the same cash ledger rule as any sale; its
+    // internal credit is written by registrarCreditoCambioEnTx once the
+    // CambioVenta exists. The normal-sale path below is unchanged.
+    if (metodoPago && cambio.diferencia.gt(0)) {
+      const cobroDiferencia = await tx.cobroVenta.create({
+        data: {
+          negocioId,
+          ventaId: venta.id,
+          metodo: metodoPago,
+          importe: moneyToNumber(cambio.diferencia),
+          importeDecimal: cambio.diferencia,
+          estadoConciliacion: estadoConciliacionInicial(metodoPago),
+        },
+        select: { id: true },
+      })
+      if (cuentaEfectivoId) {
+        await tx.operacionFinanciera.create({
+          data: {
+            negocioId,
+            tipo: TIPO_OPERACION_VENTA_COBRO,
+            cobroVentaId: cobroDiferencia.id,
+            actorTipo: actor.tipo,
+            actorId,
+            turnoCajaId,
+            movimientos: {
+              create: [{ negocioId, cuentaId: cuentaEfectivoId, importe: moneyToNumber(cambio.diferencia), importeDecimal: cambio.diferencia }],
+            },
+          },
+          select: { id: true },
+        })
+      }
+    }
+    return { ok: true as const, replayed: false, venta }
+  }
+  if (!metodoPago) throw new Error("A normal Caja sale always has its payment method")
 
   // F10-B0 — exactly one cobro for the whole sale (single method in the UI).
   const cobro = await tx.cobroVenta.create({
@@ -550,6 +636,32 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
   }
 
   return { ok: true as const, replayed: false, venta }
+}
+
+/**
+ * F4-C4 — the internal exchange credit of an exchange sale: ONE CobroVenta
+ * "CREDITO_CAMBIO" for exactly the applied credit, tied to its CambioVenta.
+ * It is never money: no reconciliation, no ledger operation (SQL refuses one),
+ * never counted as cash. Called only by the exchange service, inside the same
+ * transaction, right after the CambioVenta row (SQL requires it to exist).
+ */
+export async function registrarCreditoCambioEnTx(
+  tx: Prisma.TransactionClient,
+  params: { negocioId: string; ventaId: string; cambioVentaId: string; importe: Prisma.Decimal }
+): Promise<{ id: string }> {
+  if (!params.importe.gt(0)) throw new Error("El crédito interno de un cambio debe ser mayor a cero.")
+  return tx.cobroVenta.create({
+    data: {
+      negocioId: params.negocioId,
+      ventaId: params.ventaId,
+      cambioVentaId: params.cambioVentaId,
+      metodo: METODO_COBRO_CREDITO_CAMBIO,
+      importe: moneyToNumber(params.importe),
+      importeDecimal: params.importe,
+      estadoConciliacion: "NO_APLICA",
+    },
+    select: { id: true },
+  })
 }
 
 // ============================================
