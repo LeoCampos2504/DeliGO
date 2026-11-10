@@ -25,6 +25,8 @@ type TurnoCerrado = {
   resultado: Resultado
   estadoRevision: "PENDIENTE_REVISION" | "REVISADO"
   estadoEntrega: "PENDIENTE_ENTREGA" | "ENTREGA_CONFIRMADA"
+  // F4-C5 (D7): informative, apart from the frozen closing figures.
+  cambios?: { cantidad: number; diferenciaCobrada: number; reintegradoEfectivo: number; compensacionInterna: number }
   entregaActual: { efectivoEntregado: number; fondoRemanente: number; destinoTipo: "DUENO" | "RESGUARDO"; destinoNombre: string | null; actor: string; confirmadoEn: string; observacion: string | null } | null
 }
 type Revision = { id: string; actor: string; accion: string; observacion: string | null; efectivoEsperado: number; efectivoContado: number; diferencia: number; createdAt: string }
@@ -197,6 +199,7 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
             <Money label={recuperado ? "Contado por el dueño" : "Efectivo declarado"} value={turno.efectivoContado} />
             <Money label="Diferencia" value={turno.diferencia} emphasize />
           </div>
+          {turno.cambios && turno.cambios.cantidad > 0 && <p className="rounded-lg bg-muted/40 p-2 text-sm" data-testid="turno-cambios">Operaciones por cambios: {turno.cambios.cantidad} · diferencia cobrada {money.format(turno.cambios.diferenciaCobrada)} · reintegrado en efectivo {money.format(turno.cambios.reintegradoEfectivo)} · compensación interna (no es dinero) {money.format(turno.cambios.compensacionInterna)}. Ya incluido en el efectivo esperado; no recalcula el cierre.</p>}
           {turno.entregaActual && <p className="rounded-lg bg-muted/40 p-2 text-sm">Entrega actual: {money.format(turno.entregaActual.efectivoEntregado)} entregado · {money.format(turno.entregaActual.fondoRemanente)} permanece en caja · {turno.entregaActual.destinoTipo === "DUENO" ? "Dueño" : turno.entregaActual.destinoNombre} · confirmó {turno.entregaActual.actor} el {new Date(turno.entregaActual.confirmadoEn).toLocaleString("es-AR")}</p>}
           {open && <div className="space-y-3 border-t pt-3">
             <div><h5 className="text-sm font-semibold">Historial administrativo</h5>

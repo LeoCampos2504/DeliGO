@@ -1,6 +1,20 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C4 exchange service + API TECHNICALLY_CLOSED_CI_PASS on codex/f4-c4-sale-exchange-service only (CI 42727487810 attempt 1); not integrated, not deployed (2026-11-09, Claude Code)
+## LATEST UPDATE — F4-C5 exchange UI + safe recovery of uncertain attempts committed and pushed on codex/f4-c5-sale-exchange-ui only; CI pending, not technically closed (2026-11-10, Claude Code)
+
+```text
+F4_C5_STATUS=COMMITTED_AND_PUSHED_ON_BRANCH (branch from 87a36ba; one technical commit, its SHA in Git; no integration, no deploy, migration NOT applied to any persistent DB) · NOT technically closed (needs CI PASS on PostgreSQL 16 + operator closure authorization)
+F4_C5_CHANGE=owner + cashier UI of exchanges and linked additional sales (quote by button, exact esperado, P1 informative, chain history, pending refunds) · D5 option B: verification endpoints + additive migration 20261110120000 (intentos_caja_comerciales, shared primary key per business + Idempotency-Key; operation reserves REGISTRADO by trigger, verification inserts CERRADO; exactly one survives; late original refused) · attempts in localStorage stored BEFORE sending, isolated per business/actor/sale, never removed silently · D7 owner breakdown (exchanges, refunds paid by method and day, pending, compensation) + exchanges line in owner shift review · owner-only P1 thresholds endpoint/UI
+F4_C5_EVIDENCE=local battery 661/2 on 49 files (same 2 pre-existing failures; F4-C4 baseline 607/2 on 42 files) on PostgreSQL 12 · new suites 7 + 15 + 4 + 9 + 6 · races verified with a real lock wait · PostgreSQL 16 and a real browser/device NOT verified
+F4_C5_B1=daily summary totals no longer truncated at 100 sales (paged, read-only REPEATABLE READ); 8 new tests; the 2 contracts pinning the old route text updated with operator authorization (guarantees kept, 8/8 simulated regressions caught); battery 669/2 (same 2 pre-existing failures)
+F4_C5_PRE_COMMIT=f10-b2-1 explicit quote-amount exception (tested, no evasion), real-selector UI test, partial-compensation API+UI tests; battery 674/2 (same 2 pre-existing failures)
+F4_C5_TEST_CHAIN=607/2 (F4-C4) → 661/2 → 669/2 (B1) → 674/2 final on 51 files (same 2 pre-existing failures) · tsc 33 · eslint/diff-check clean
+F4_C5_PENDING=PostgreSQL 16 in CI · real browser/device · physical-camera scanner · financial integrity in TESTING before integrating (R5) · F4-A post-commit audit before Production (R1)
+F4_C5_OPEN_RISKS=R1–R5 of F4-C4 still open (R1 before Production, R5 before integrating) · localStorage limits (manual clearing, other browser/device) · storage refused → confirmation blocked
+NEXT_ACTION=operator decides on the CI workflow change for the F4-C5 suites (PostgreSQL 16); see CODEX_REPORT.md top block
+```
+
+## PREVIOUS UPDATE (historical) — F4-C4 exchange service + API TECHNICALLY_CLOSED_CI_PASS on codex/f4-c4-sale-exchange-service only (CI 42727487810 attempt 1); not integrated, not deployed (2026-11-09, Claude Code)
 
 ```text
 F4_C4_STATUS=TECHNICALLY_CLOSED_CI_PASS on its branch only (operator-authorized 2026-11-09; branch from 7ac3291; functional commit dcd66adcfc67bc5f47a9ca477e0698b45902c2a8, workflow commit c72b347a126377b18182e17cedfa643a17126ae5, closure docs commit; CI 42727487810 attempt 1 SUCCESS on ephemeral PostgreSQL 16: migrate deploy with the F4-C4 migration, typecheck, the four F4-C4 suites, regressions, contracts and build green) · no integration, no deploy, migration NOT applied to any persistent DB · NOT certified in Railway TESTING nor Production

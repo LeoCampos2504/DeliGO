@@ -5,6 +5,7 @@ import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
 import { clasificarDiferencia } from "@/lib/caja-turnos-revision"
 import { CIERRE_ORIGEN_RECUPERACION, CIERRE_ORIGEN_RESPONSABLE } from "@/lib/caja-turnos-service"
+import { resumenCambiosTurnos } from "@/lib/caja-turnos-admin"
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
       orderBy: { cerradoEn: "desc" },
       take: 100,
     })
+    // F4-C5 (D7): exchanges of each closed shift — informative, apart from the frozen closing figures.
+    const cambiosPorTurno = await resumenCambiosTurnos(db, auth.negocioId, turnos.map((t) => t.id))
     return NextResponse.json({ turnos: turnos.flatMap((turno) => {
       if (!turno.cerradoEn || !turno.efectivoContadoDecimal || !turno.efectivoEsperadoDecimal) return []
       const diferencia = turno.efectivoContadoDecimal.minus(turno.efectivoEsperadoDecimal)
@@ -44,6 +47,10 @@ export async function GET(req: NextRequest) {
         efectivoContadoExacto: turno.efectivoContadoDecimal.toFixed(2),
         diferencia: moneyToNumber(diferencia),
         resultado: clasificarDiferencia(diferencia),
+        cambios: (() => {
+          const c = cambiosPorTurno.get(turno.id)!
+          return { cantidad: c.cantidad, diferenciaCobrada: moneyToNumber(c.diferenciaCobrada), reintegradoEfectivo: moneyToNumber(c.reintegradoEfectivo), compensacionInterna: moneyToNumber(c.compensacionInterna) }
+        })(),
         estadoRevision: revision ? "REVISADO" as const : "PENDIENTE_REVISION" as const,
         ultimaRevisionEn: revision?.createdAt ?? null,
         estadoEntrega: entrega ? "ENTREGA_CONFIRMADA" as const : "PENDIENTE_ENTREGA" as const,

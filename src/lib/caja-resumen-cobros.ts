@@ -98,3 +98,73 @@ export function agruparCobrosPorVenta<C extends CobroParaResumen & { ventaId: st
   }
   return out
 }
+
+/** Exact sum of two summaries of the same period (pages): no rounding, only addMoney. */
+export function sumarResumenesCobros(a: ResumenCobrosCaja, b: ResumenCobrosCaja): ResumenCobrosCaja {
+  const cobradoPorMedio = {
+    EFECTIVO: addMoney(a.cobradoPorMedio.EFECTIVO, b.cobradoPorMedio.EFECTIVO),
+    TRANSFERENCIA: addMoney(a.cobradoPorMedio.TRANSFERENCIA, b.cobradoPorMedio.TRANSFERENCIA),
+    OTRO: addMoney(a.cobradoPorMedio.OTRO, b.cobradoPorMedio.OTRO),
+  }
+  return {
+    cantidadVentas: a.cantidadVentas + b.cantidadVentas,
+    ventasBrutas: addMoney(a.ventasBrutas, b.ventasBrutas),
+    cobradoPorMedio,
+    cobradoTotal: addMoney(cobradoPorMedio.EFECTIVO, cobradoPorMedio.TRANSFERENCIA, cobradoPorMedio.OTRO),
+    noDinero: addMoney(a.noDinero, b.noDinero),
+    ventasSinCobros: a.ventasSinCobros + b.ventasSinCobros,
+  }
+}
+
+export const RESUMEN_PAGINA_VENTAS = 1000
+
+/**
+ * F4-C5 (B1, operator-authorized 2026-11-10) — the summary of EVERY Caja sale
+ * of a business created since `desde`, never truncated by a listing limit.
+ * Stable keyset pages ordered by (createdAt, id): each page starts strictly
+ * after the last (createdAt, id) read, so ties of createdAt across a page
+ * boundary are neither skipped nor repeated. Each page is summarized with the
+ * SAME rules (resumirCobrosCaja: cobros read in their own query, legacy sales
+ * without cobros through their own metodoPago, non-money cobros apart) and
+ * pages are added exactly (sumarResumenesCobros). Memory: one page at a time.
+ * Call it inside one REPEATABLE READ transaction for a point-in-time result.
+ * Also returns the part of the volume that comes from exchanges (F4-C5 D7).
+ */
+export async function resumirCobrosCajaDesde(
+  db: Pick<Prisma.TransactionClient, "venta" | "cobroVenta">,
+  negocioId: string,
+  desde: Date,
+  opciones: { tamanoPagina?: number } = {}
+): Promise<{ resumen: ResumenCobrosCaja; ventasPorCambios: { cantidad: number; importe: Prisma.Decimal } }> {
+  const tamano = opciones.tamanoPagina ?? RESUMEN_PAGINA_VENTAS
+  let resumen = resumirCobrosCaja([])
+  let cambiosCantidad = 0
+  let cambiosImporte = addMoney()
+  let cursor: { createdAt: Date; id: string } | null = null
+  for (;;) {
+    const pagina: Array<Pick<Venta, "id" | "createdAt" | "metodoPago" | "total" | "totalDecimal" | "vinculoTipo">> = await db.venta.findMany({
+      where: {
+        negocioId,
+        createdAt: { gte: desde },
+        ...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}),
+      },
+      select: { id: true, createdAt: true, metodoPago: true, total: true, totalDecimal: true, vinculoTipo: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: tamano,
+    })
+    if (pagina.length === 0) break
+    const cobrosPorVenta = agruparCobrosPorVenta(
+      await db.cobroVenta.findMany({ where: { negocioId, ventaId: { in: pagina.map((v) => v.id) } }, select: { ventaId: true, ...COBRO_RESUMEN_SELECT } })
+    )
+    resumen = sumarResumenesCobros(resumen, resumirCobrosCaja(pagina.map((v) => ({ ...v, cobros: cobrosPorVenta.get(v.id) ?? [] }))))
+    for (const v of pagina) {
+      if (v.vinculoTipo !== "CAMBIO") continue
+      cambiosCantidad++
+      cambiosImporte = addMoney(cambiosImporte, storedMoney(v.totalDecimal, v.total))
+    }
+    if (pagina.length < tamano) break
+    const ultima = pagina[pagina.length - 1]
+    cursor = { createdAt: ultima.createdAt, id: ultima.id }
+  }
+  return { resumen, ventasPorCambios: { cantidad: cambiosCantidad, importe: cambiosImporte } }
+}

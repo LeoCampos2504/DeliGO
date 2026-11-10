@@ -9,7 +9,7 @@
 // always re-validated/recomputed server-side on checkout — the client
 // total shown here is only a preview.
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Banknote,
@@ -57,6 +57,8 @@ import {
   type CajaDevolucionesEndpoints,
   type EstadoDevolucionVenta,
 } from "@/components/business/caja-devoluciones"
+import { etiquetaMetodoVenta, type SelectorProductosProps } from "@/components/business/caja-cambios"
+import { CajaCambiosConfig } from "@/components/business/caja-cambios-config"
 import {
   addCartLine,
   cartItemCount,
@@ -157,7 +159,35 @@ function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoint
     // exactly equal to the charged one).
     correccionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/correcciones`,
     productosUrl: "/api/negocio/productos",
+    // F4-C5: exchanges and linked additional sales (owner endpoints only).
+    comercial: {
+      contexto: { negocioId, actor: "NEGOCIO" },
+      cambioUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios`,
+      cotizacionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios/cotizacion`,
+      verificarCambioUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios/verificacion`,
+      adicionalUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/adicionales`,
+      verificarAdicionalUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/adicionales/verificacion`,
+      cadenaUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cadena`,
+      ownerRegistersUrl: "/api/negocio/caja/cajas",
+      Selector: selectorProductos(ownerCajaSource(negocioId)),
+    },
   }
+}
+
+// F4-C5: the product picker of an exchange / linked sale is the SAME selling
+// view (catalog, search, scanner, variants, cart) in selection mode: it never
+// sells, never touches the pending checkout attempt. One stable component per source.
+const selectores = new Map<string, ComponentType<SelectorProductosProps>>()
+export function selectorProductos(source: CajaVenderSource): ComponentType<SelectorProductosProps> {
+  const clave = `${source.attemptScope}|${source.productosUrl}`
+  let Selector = selectores.get(clave)
+  if (!Selector) {
+    const Creado = (props: SelectorProductosProps) => <VenderView negocioId={source.attemptScope} source={source} seleccion={props} />
+    Creado.displayName = "CajaSelectorProductos"
+    selectores.set(clave, Creado)
+    Selector = Creado
+  }
+  return Selector
 }
 
 type CajaSubTab = "vender" | "resumen" | "turnos"
@@ -205,7 +235,7 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
             onPendingRegisterChange: setPendingRegisterId,
           }} />
         </>
-      ) : subTab === "turnos" ? <OwnerCajaTurnosPanel negocioId={negocio.id} /> : <ResumenView negocioId={negocio.id} />}
+      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : <ResumenView negocioId={negocio.id} />}
     </div>
   )
 }
@@ -286,7 +316,7 @@ export function ownerCajaSource(negocioId: string): CajaVenderSource {
   }
 }
 
-export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment }: { negocioId: string; source?: CajaVenderSource; ownerSaleAssignment?: OwnerSaleAssignment }) {
+export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment, seleccion }: { negocioId: string; source?: CajaVenderSource; ownerSaleAssignment?: OwnerSaleAssignment; seleccion?: SelectorProductosProps }) {
   const source = sourceProp ?? ownerCajaSource(negocioId)
   const [search, setSearch] = useState("")
   const [categoria, setCategoria] = useState("todas")
@@ -294,8 +324,9 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment 
   // reused ONLY to retry the exact same content (idempotent replay server-side).
   // Restored after a reload / killed PWA (sessionStorage; null on the server):
   // same cart, same key — confirming again recovers the sale, never sells twice.
-  const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => readPendingAttempt(source.attemptScope))
-  const [cart, setCart] = useState<CartLine[]>(() => pendingAttempt?.cart ?? [])
+  // F4-C5: in selection mode (exchange / linked sale picker) the view never reads, keeps or sends a checkout attempt.
+  const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => (seleccion ? null : readPendingAttempt(source.attemptScope)))
+  const [cart, setCart] = useState<CartLine[]>(() => seleccion?.inicial ?? pendingAttempt?.cart ?? [])
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
@@ -542,6 +573,12 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment 
   )
 
   function openCheckout() {
+    if (seleccion) {
+      if (cart.length === 0) return
+      setMobileCartOpen(false)
+      seleccion.onConfirmar(cart)
+      return
+    }
     if (ownerSaleAssignment && !ownerSaleAssignment.selectionReady && !retryingPendingAttempt) {
       toast.error("No se pudo verificar qué turno está abierto. Actualizá las cajas antes de vender.")
       return
@@ -724,6 +761,7 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment 
       onUpdateQuantity={updateQuantity}
       onRemove={(productoId, varianteId) => setCart((prev) => removeCartLine(prev, productoId, varianteId))}
       onCobrar={openCheckout}
+      etiquetaCobrar={seleccion?.etiqueta}
     />
   )
 
@@ -924,11 +962,13 @@ function CartPanel({
   onUpdateQuantity,
   onRemove,
   onCobrar,
+  etiquetaCobrar = "Cobrar",
 }: {
   cart: CartLine[]
   onUpdateQuantity: (productoId: string, cantidad: number, varianteId?: string | null) => void
   onRemove: (productoId: string, varianteId?: string | null) => void
   onCobrar: () => void
+  etiquetaCobrar?: string
 }) {
   const total = cartTotal(cart)
   if (cart.length === 0) {
@@ -962,7 +1002,7 @@ function CartPanel({
         <span className="text-sm font-semibold">Total</span>
         <span className="text-lg font-bold">{formatPrice(total)}</span>
       </div>
-      <Button className="w-full h-11 rounded-xl font-bold" onClick={onCobrar}>Cobrar</Button>
+      <Button className="w-full h-11 rounded-xl font-bold" onClick={onCobrar}>{etiquetaCobrar}</Button>
     </div>
   )
 }
@@ -1063,6 +1103,8 @@ function ResumenView({ negocioId }: { negocioId: string }) {
     devolucionesPorVenta?: Record<string, { totalDevuelto: number; estadoDevolucion: EstadoDevolucionVenta }>
     // F4-B: current lines of owner-corrected sales (absent = never corrected).
     correccionesPorVenta?: Record<string, { secuencia: number; items: VentaItemSnapshot[] }>
+    // F4-C5 (D7): owner-only breakdown (absent on an older server).
+    desgloseHoy?: DesgloseHoy
   }>({
     queryKey: ["negocio-caja-ventas-hoy", negocioId],
     queryFn: async () => {
@@ -1094,6 +1136,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
         <SummaryCard label="Devoluciones hoy" value={formatPrice(resumen?.totalDevuelto ?? 0)} />
         <SummaryCard label="Neto hoy" value={formatPrice(resumen?.totalNeto ?? resumen?.totalVendido ?? 0)} />
       </div>
+      {data?.desgloseHoy && <DesgloseCambiosHoy desglose={data.desgloseHoy} />}
 
       <div>
         <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5">
@@ -1116,7 +1159,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
                 >
                   <div className="min-w-0">
                     <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">{formatPrice(v.total)}{data?.devolucionesPorVenta?.[v.id] && <EstadoDevolucionBadge estado={data.devolucionesPorVenta[v.id].estadoDevolucion} />}{data?.correccionesPorVenta?.[v.id] && <CorregidaBadge />}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{formatUnidadesVenta(unidades)} · {v.metodoPago}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{formatUnidadesVenta(unidades)} · {etiquetaMetodoVenta(v.metodoPago)}</p>
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
                 </button>
@@ -1171,7 +1214,7 @@ function VentaDetailDialog({ venta, corregida = false, onClose, onGestionar }: {
               <span className="text-lg font-bold">{formatPrice(venta.total)}</span>
             </div>
             <p className="text-xs text-muted-foreground">{formatUnidadesVenta(unidades)}</p>
-            <p className="text-xs text-muted-foreground">Método: {venta.metodoPago}</p>
+            <p className="text-xs text-muted-foreground">Método: {etiquetaMetodoVenta(venta.metodoPago)}</p>
             <p className="text-xs text-muted-foreground">Hora: {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
           </div>
           {/* F4-A: void / partial return of this sale (current returned state is loaded fresh). */}
@@ -1180,6 +1223,46 @@ function VentaDetailDialog({ venta, corregida = false, onClose, onGestionar }: {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+interface DesgloseHoy {
+  porCambios: { cantidadVentas: number; ventas: number; cantidadDevoluciones: number; devuelto: number }
+  reintegrosPagados: { EFECTIVO: number; TRANSFERENCIA: number; OTRO: number; total: number; cantidad: number; porCambios: number }
+  reintegrosPendientes: { total: number; cantidad: number }
+  reintegrosPendientesHoy: { total: number; cantidad: number }
+  compensacionInterna: number
+}
+
+// F4-C5 (D7): exchanges, refunds actually paid (by method, on the day they were
+// paid), pending refunds (never money already handed back) and the internal
+// compensation (a credit, never money). Owner only.
+function DesgloseCambiosHoy({ desglose }: { desglose: DesgloseHoy }) {
+  const r = desglose.reintegrosPagados
+  return (
+    <div className="space-y-2" data-testid="desglose-cambios-hoy">
+      <div className="rounded-2xl bg-muted/50 p-3 text-xs">
+        <p className="font-semibold">Por cambios (hoy)</p>
+        <p>De lo vendido: {formatPrice(desglose.porCambios.ventas)} en {desglose.porCambios.cantidadVentas} venta{desglose.porCambios.cantidadVentas === 1 ? "" : "s"} · De lo devuelto: {formatPrice(desglose.porCambios.devuelto)}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-muted/50 p-3 text-xs">
+          <p className="text-[11px] text-muted-foreground">Reintegros pagados hoy</p>
+          <p className="text-lg font-bold">{formatPrice(r.total)}</p>
+          <p>Efectivo {formatPrice(r.EFECTIVO)} · Transferencia {formatPrice(r.TRANSFERENCIA)} · Otro {formatPrice(r.OTRO)}</p>
+          {r.porCambios > 0 && <p className="text-muted-foreground">De los cuales por cambios: {formatPrice(r.porCambios)}</p>}
+        </div>
+        <div className="rounded-2xl bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
+          <p className="text-[11px]">Reintegros pendientes (no entregados)</p>
+          <p className="text-lg font-bold">{formatPrice(desglose.reintegrosPendientes.total)}</p>
+          <p>{desglose.reintegrosPendientes.cantidad} abierto{desglose.reintegrosPendientes.cantidad === 1 ? "" : "s"} · generados hoy: {formatPrice(desglose.reintegrosPendientesHoy.total)}</p>
+        </div>
+      </div>
+      <div className="rounded-2xl bg-muted/50 p-3 text-xs">
+        <p className="text-[11px] text-muted-foreground">Compensación interna (crédito, no es dinero)</p>
+        <p className="text-lg font-bold">{formatPrice(desglose.compensacionInterna)}</p>
+      </div>
+    </div>
   )
 }
 

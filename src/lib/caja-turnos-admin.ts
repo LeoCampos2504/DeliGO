@@ -20,6 +20,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client"
 import { calcularSnapshotEfectivoTurno } from "@/lib/caja-turnos-snapshot"
 import { COBRO_RESUMEN_SELECT, resumirCobrosCaja } from "@/lib/caja-resumen-cobros"
+import { addMoney } from "@/lib/money"
 
 type Db = Pick<PrismaClient, "turnoCaja" | "cuentaFinanciera" | "movimientoFinanciero" | "venta">
 
@@ -44,4 +45,43 @@ export async function resumenVentasTurno(db: Db, negocioId: string, turnoId: str
     totalTransferencia: resumen.cobradoPorMedio.TRANSFERENCIA,
     totalOtro: resumen.cobradoPorMedio.OTRO,
   }
+}
+
+/**
+ * F4-C5 (D7) — exchanges attributed to these shifts (owner only). Read from the
+ * immutable exchange rows: SQL only lets an exchange be attributed to an OPEN
+ * shift, so a closed shift never gains rows and its frozen closing snapshot is
+ * never recalculated. Money = the charged difference D+ and the D− refunds paid
+ * in cash from the shift; the credit is a non-monetary compensation.
+ */
+export async function resumenCambiosTurnos(db: Pick<PrismaClient, "cambioVenta" | "devolucionVenta">, negocioId: string, turnoIds: string[]) {
+  const vacio = () => ({ cantidad: 0, diferenciaCobrada: [] as Prisma.Decimal[], compensacionInterna: [] as Prisma.Decimal[], reintegradoEfectivo: [] as Prisma.Decimal[] })
+  const acc = new Map(turnoIds.map((id) => [id, vacio()]))
+  if (turnoIds.length > 0) {
+    const [cambios, reintegros] = await Promise.all([
+      db.cambioVenta.findMany({ where: { negocioId, turnoCajaId: { in: turnoIds } }, select: { turnoCajaId: true, diferenciaCobradaDecimal: true, creditoAplicadoDecimal: true } }),
+      db.devolucionVenta.findMany({
+        where: { negocioId, reintegroTurnoCajaId: { in: turnoIds }, reintegroEstado: "REALIZADO", cambio: { isNot: null } },
+        select: { reintegroTurnoCajaId: true, importeDecimal: true, importeCompensadoDecimal: true },
+      }),
+    ])
+    for (const c of cambios) {
+      const a = acc.get(c.turnoCajaId!)
+      if (!a) continue
+      a.cantidad++
+      a.diferenciaCobrada.push(c.diferenciaCobradaDecimal)
+      a.compensacionInterna.push(c.creditoAplicadoDecimal)
+    }
+    for (const d of reintegros) acc.get(d.reintegroTurnoCajaId!)?.reintegradoEfectivo.push(d.importeDecimal.minus(d.importeCompensadoDecimal))
+  }
+  return new Map([...acc].map(([id, a]) => [id, {
+    cantidad: a.cantidad,
+    diferenciaCobrada: addMoney(...a.diferenciaCobrada),
+    compensacionInterna: addMoney(...a.compensacionInterna),
+    reintegradoEfectivo: addMoney(...a.reintegradoEfectivo),
+  }]))
+}
+
+export async function resumenCambiosTurno(db: Pick<PrismaClient, "cambioVenta" | "devolucionVenta">, negocioId: string, turnoId: string) {
+  return (await resumenCambiosTurnos(db, negocioId, [turnoId])).get(turnoId)!
 }

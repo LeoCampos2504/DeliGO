@@ -14,13 +14,17 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { parseVentaCajaRequestBody } from "@/lib/caja-venta-service"
 import { turnoAbiertoDeActor, type CajaActor } from "@/lib/caja-turnos-service"
-import { detalleVentaConDevoluciones, referenciaVenta } from "@/lib/caja-devoluciones-service"
+import { DEVOLUCION_TIPO_ANULACION, detalleVentaConDevoluciones, referenciaVenta } from "@/lib/caja-devoluciones-service"
+import { moneyToNumber, storedMoney } from "@/lib/money"
 import {
+  cadenaDeVenta,
   cotizarCambioVenta,
   describirAdvertencias,
   parseCambioBody,
   registrarCambioVenta,
   registrarVentaAdicional,
+  verificarCambioVenta,
+  verificarVentaAdicional,
   type AdvertenciasCambio,
   type CambioRegistrado,
 } from "@/lib/caja-cambios-service"
@@ -109,25 +113,27 @@ export async function cotizarCambioHttp(req: NextRequest, negocioId: string, act
   }
 }
 
+function parseAdicionalBody(body: unknown, actor: CajaActor) {
+  const raw = body as Record<string, unknown> | null
+  const parsed = parseVentaCajaRequestBody(raw)
+  if (!parsed.ok) return { ok: false as const, response: NextResponse.json({ ok: false, error: parsed.error }, { status: 400 }) }
+  const caja = raw?.cajaFisicaId
+  if (caja !== undefined && caja !== null && (typeof caja !== "string" || !caja.trim())) {
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Caja inválida.", code: "CAJA_INVALIDA" }, { status: 400 }) }
+  }
+  return {
+    ok: true as const,
+    value: { metodoPago: parsed.metodoPago, lines: parsed.lines, cajaFisicaId: actor.tipo === "NEGOCIO" && typeof caja === "string" ? caja : null },
+  }
+}
+
 export async function crearVentaAdicionalHttp(req: NextRequest, negocioId: string, actor: CajaActor, ventaId: string): Promise<NextResponse> {
   try {
     const key = readKey(req)
     if (!key) return KEY_REQUIRED()
-    const raw = (await req.json().catch(() => null)) as Record<string, unknown> | null
-    const parsed = parseVentaCajaRequestBody(raw)
-    if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
-    const caja = raw?.cajaFisicaId
-    if (caja !== undefined && caja !== null && (typeof caja !== "string" || !caja.trim())) return NextResponse.json({ ok: false, error: "Caja inválida.", code: "CAJA_INVALIDA" }, { status: 400 })
-    const result = await registrarVentaAdicional(db, {
-      negocioId,
-      actor,
-      ventaId,
-      metodoPago: parsed.metodoPago,
-      lines: parsed.lines,
-      idempotencyKey: key,
-      turnoCajaId: await turnoDeCajero(negocioId, actor),
-      cajaFisicaId: actor.tipo === "NEGOCIO" && typeof caja === "string" ? caja : null,
-    })
+    const parsed = parseAdicionalBody(await req.json().catch(() => null), actor)
+    if (!parsed.ok) return parsed.response
+    const result = await registrarVentaAdicional(db, { negocioId, actor, ventaId, ...parsed.value, idempotencyKey: key, turnoCajaId: await turnoDeCajero(negocioId, actor) })
     if (!result.ok) return failure(result)
     const { venta, replayed } = result.value
     const vista = vistaDe(actor)
@@ -142,5 +148,99 @@ export async function crearVentaAdicionalHttp(req: NextRequest, negocioId: strin
   } catch (error) {
     console.error("Error registering venta adicional vinculada:", safeErrorForLog(error))
     return SERVER_ERROR("No pudimos registrar la venta por un error del servidor.")
+  }
+}
+
+// ---------------------------------------------------------------------------
+// F4-C5 (D5, option B) — verification of an uncertain attempt
+// ---------------------------------------------------------------------------
+// The client sends the SAME Idempotency-Key and the SAME body as the uncertain
+// confirmation. Never registers anything: 200 REGISTRADO (the original result,
+// same shape as the confirmation) or 200 NO_REGISTRADO (the key is now closed:
+// a late original request will be refused without writing). 503
+// VERIFICACION_INCIERTA keeps the attempt uncertain (verify again).
+
+export async function verificarCambioHttp(req: NextRequest, negocioId: string, actor: CajaActor, ventaId: string): Promise<NextResponse> {
+  try {
+    const key = readKey(req)
+    if (!key) return KEY_REQUIRED()
+    const parsed = parseCambioBody(await req.json().catch(() => null), "REGISTRAR")
+    if (!parsed.ok) return failure(parsed)
+    const result = await verificarCambioVenta(db, { negocioId, actor, ventaId, solicitud: parsed.value, idempotencyKey: key })
+    if (!result.ok) return failure(result)
+    if (result.value.estado === "NO_REGISTRADO") {
+      return NextResponse.json({ ok: true, estado: "NO_REGISTRADO", cerradoEn: result.value.cerradoEn.toISOString() })
+    }
+    const cambio = result.value.operacion
+    const vista = vistaDe(actor)
+    const [ventaOrigen, ventaNueva, empleado] = await Promise.all([
+      detalleVentaConDevoluciones(db, negocioId, cambio.ventaOrigenId, vista),
+      detalleVentaConDevoluciones(db, negocioId, cambio.ventaNuevaId, vista),
+      actor.tipo === "NEGOCIO" && cambio.empleadoId ? db.empleado.findFirst({ where: { id: cambio.empleadoId, negocioId }, select: { nombre: true } }) : null,
+    ])
+    return NextResponse.json({ ok: true, estado: "REGISTRADO", replayed: true, cambio: cambioParaRespuesta(cambio, actor, empleado?.nombre ?? null), ventaOrigen, ventaNueva })
+  } catch (error) {
+    console.error("Error verifying cambio de venta:", safeErrorForLog(error))
+    return NextResponse.json({ ok: false, error: "No pudimos verificar la operación por un error del servidor. Su resultado sigue sin conocerse: volvé a verificar.", code: "VERIFICACION_INCIERTA" }, { status: 500 })
+  }
+}
+
+export async function verificarVentaAdicionalHttp(req: NextRequest, negocioId: string, actor: CajaActor, ventaId: string): Promise<NextResponse> {
+  try {
+    const key = readKey(req)
+    if (!key) return KEY_REQUIRED()
+    const parsed = parseAdicionalBody(await req.json().catch(() => null), actor)
+    if (!parsed.ok) return parsed.response
+    const result = await verificarVentaAdicional(db, { negocioId, actor, ventaId, ...parsed.value, idempotencyKey: key })
+    if (!result.ok) return failure(result)
+    if (result.value.estado === "NO_REGISTRADO") {
+      return NextResponse.json({ ok: true, estado: "NO_REGISTRADO", cerradoEn: result.value.cerradoEn.toISOString() })
+    }
+    const venta = result.value.operacion
+    const vista = vistaDe(actor)
+    const [detalle, ventaOrigen] = await Promise.all([
+      detalleVentaConDevoluciones(db, negocioId, venta.id, vista),
+      detalleVentaConDevoluciones(db, negocioId, ventaId, vista),
+    ])
+    return NextResponse.json({ ok: true, estado: "REGISTRADO", replayed: true, venta: detalle, vinculo: { tipo: "ADICIONAL", ventaOrigenId: ventaId, ventaOrigenReferencia: referenciaVenta(ventaId) }, ventaOrigen })
+  } catch (error) {
+    console.error("Error verifying venta adicional vinculada:", safeErrorForLog(error))
+    return NextResponse.json({ ok: false, error: "No pudimos verificar la operación por un error del servidor. Su resultado sigue sin conocerse: volvé a verificar.", code: "VERIFICACION_INCIERTA" }, { status: 500 })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// F4-C5 — chain of exchanges and linked sales of one sale (read only)
+// ---------------------------------------------------------------------------
+// Same privacy as the sale history: a cashier sees whether an exchange was
+// theirs ("Vos"), never another person's name. No money totals of the business.
+
+export async function cadenaVentaHttp(negocioId: string, actor: CajaActor, ventaId: string): Promise<NextResponse> {
+  try {
+    const cadena = await cadenaDeVenta(db, negocioId, ventaId)
+    if (!cadena) return NextResponse.json({ ok: false, error: "Venta no encontrada." }, { status: 404 })
+    const nombres = new Map<string, string>()
+    if (actor.tipo === "NEGOCIO") {
+      const ids = [...new Set(cadena.cambios.map((c) => c.empleadoId).filter((id): id is string => Boolean(id)))]
+      if (ids.length) for (const e of await db.empleado.findMany({ where: { negocioId, id: { in: ids } }, select: { id: true, nombre: true } })) nombres.set(e.id, e.nombre)
+    }
+    return NextResponse.json({
+      ok: true,
+      ventaId,
+      ventas: cadena.ventas.map((v) => ({
+        id: v.id,
+        referencia: referenciaVenta(v.id),
+        createdAt: v.createdAt,
+        total: moneyToNumber(storedMoney(v.totalDecimal, v.total)),
+        metodoPago: v.metodoPago,
+        vinculoTipo: v.vinculoTipo,
+        ventaOrigenId: v.ventaOrigenId,
+        anulada: v.devoluciones.some((d) => d.tipo === DEVOLUCION_TIPO_ANULACION),
+      })),
+      cambios: cadena.cambios.map((c) => cambioParaRespuesta(c, actor, c.empleadoId ? nombres.get(c.empleadoId) ?? null : null)),
+    })
+  } catch (error) {
+    console.error("Error reading cadena de venta:", safeErrorForLog(error))
+    return NextResponse.json({ ok: false, error: "No pudimos leer el historial vinculado." }, { status: 500 })
   }
 }

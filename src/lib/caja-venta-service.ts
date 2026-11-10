@@ -260,7 +260,9 @@ function rechazoEntradaVentaCaja(input: RegistrarVentaCajaInput): RegistrarVenta
   return null
 }
 
-function fingerprintEntradaVentaCaja(input: RegistrarVentaCajaInput): string | null {
+// F4-C5: exported (pure) so the verification of a linked additional sale
+// compares exactly the fingerprint this engine stores.
+export function fingerprintEntradaVentaCaja(input: RegistrarVentaCajaInput): string | null {
   if (!input.idempotencyKey) return null
   const base = fingerprintVentaCaja(input.negocioId, input.metodoPago, input.lines, input.actor.tipo === "NEGOCIO" ? input.ownerCajaFisicaId : undefined)
   // F4-C4: a linked sale also fingerprints its link (a normal sale is unchanged).

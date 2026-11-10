@@ -21,6 +21,10 @@
 //   7. the internal credit C as a CREDITO_CAMBIO cobro (never money, never in
 //      the ledger) — registrarCreditoCambioEnTx, in the sale engine file;
 //   8. the owner notice (employee only) and the audit record.
+// F4-C5 (D5, option B): every commercial operation reserves its key in
+// intentos_caja_comerciales (SQL trigger, same transaction); a verification
+// of an uncertain attempt either finds it (REGISTRADO) or CLOSES the key
+// (NO_REGISTRADO). A request that arrives after the closure writes nothing.
 // Any refusal or error in any step rolls EVERYTHING back. SQL (migrations
 // 20261106120000 / 20261109120000) enforces the same invariants again.
 //
@@ -40,9 +44,11 @@ import {
   type OpcionesEjecutorCambio,
 } from "@/lib/caja-ejecutor-cambio"
 import {
+  fingerprintEntradaVentaCaja,
   parseVentaCajaRequestBody,
   registrarCreditoCambioEnTx,
   registrarVentaCajaEnTx,
+  type RegistrarVentaCajaInput,
   type VentaCajaConItems,
 } from "@/lib/caja-venta-service"
 import {
@@ -416,6 +422,9 @@ export async function registrarCambioVentaEnTx(
   if (!simular) {
     const replay = await replayCambio(tx, negocioId, idempotencyKey, fingerprint, actor)
     if (replay) return replay
+    // F4-C5: a key closed by a verification never registers anything afterwards.
+    const cerrado = await rechazoIntentoCerrado(tx, negocioId, idempotencyKey, { tipo: INTENTO_TIPO_CAMBIO, ventaOrigenId: ventaId, fingerprint, actor })
+    if (cerrado) return cerrado
   }
 
   const actorResuelto = await resolverActorCambio(tx, negocioId, actor)
@@ -670,6 +679,9 @@ export async function registrarCambioVenta(db: Db, input: RegistrarCambioInput, 
     if (isUniqueViolation(error) || error instanceof ConflictoCambioAgotado) {
       const replay = await replayCambio(db, input.negocioId, input.idempotencyKey, fingerprint, input.actor)
       if (replay) return replay
+      // F4-C5: the key was closed by a verification that committed first.
+      const cerrado = await rechazoIntentoCerrado(db, input.negocioId, input.idempotencyKey, { tipo: INTENTO_TIPO_CAMBIO, ventaOrigenId: input.ventaId, fingerprint, actor: input.actor })
+      if (cerrado) return cerrado
     }
     const traducido = traducirError(error)
     if (traducido) return traducido
@@ -714,6 +726,28 @@ export interface RegistrarVentaAdicionalInput {
   cajaFisicaId?: string | null
 }
 
+/** The sale engine input of a linked additional sale (also the source of its fingerprint). */
+function entradaMotorAdicional(input: RegistrarVentaAdicionalInput): RegistrarVentaCajaInput {
+  const { negocioId, actor, ventaId, idempotencyKey } = input
+  return {
+    negocioId,
+    actor: actor.tipo === "EMPLEADO" ? { tipo: "EMPLEADO", empleadoId: actor.empleadoId } : { tipo: "NEGOCIO" },
+    metodoPago: input.metodoPago,
+    lines: input.lines,
+    idempotencyKey,
+    turnoCajaId: actor.tipo === "EMPLEADO" ? input.turnoCajaId ?? null : undefined,
+    ownerCajaFisicaId: actor.tipo === "NEGOCIO" ? input.cajaFisicaId ?? null : undefined,
+    vinculo: { tipo: "ADICIONAL", ventaOrigenId: ventaId },
+  }
+}
+
+/** Exactly the fingerprint the sale engine stores for this linked additional sale. */
+export function fingerprintVentaAdicional(input: RegistrarVentaAdicionalInput): string {
+  const fingerprint = fingerprintEntradaVentaCaja(entradaMotorAdicional(input))
+  if (!fingerprint) throw new Error("F4-C5: a linked additional sale always has an Idempotency-Key")
+  return fingerprint
+}
+
 /** P2/D4 — the origin must not be voided and must keep units not returned (current lines). */
 async function rechazoOrigenAdicional(tx: Tx, negocioId: string, ventaId: string): Promise<Rechazo | null> {
   const origen = await tx.venta.findFirst({
@@ -745,17 +779,7 @@ export async function registrarVentaAdicionalEnTx(
 ): Promise<CambioResult<{ venta: VentaCajaConItems; replayed: boolean }>> {
   const { negocioId, actor, ventaId, idempotencyKey } = input
   if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
-  const motor = () =>
-    registrarVentaCajaEnTx(tx, {
-      negocioId,
-      actor: actor.tipo === "EMPLEADO" ? { tipo: "EMPLEADO", empleadoId: actor.empleadoId } : { tipo: "NEGOCIO" },
-      metodoPago: input.metodoPago,
-      lines: input.lines,
-      idempotencyKey,
-      turnoCajaId: actor.tipo === "EMPLEADO" ? input.turnoCajaId ?? null : undefined,
-      ownerCajaFisicaId: actor.tipo === "NEGOCIO" ? input.cajaFisicaId ?? null : undefined,
-      vinculo: { tipo: "ADICIONAL", ventaOrigenId: ventaId },
-    })
+  const motor = () => registrarVentaCajaEnTx(tx, entradaMotorAdicional(input))
 
   // Replay first: an already registered additional sale is returned even if
   // its origin was voided afterwards (the engine compares fingerprint + actor).
@@ -764,6 +788,9 @@ export async function registrarVentaAdicionalEnTx(
     const replay = await motor()
     return replay.ok ? { ok: true, value: { venta: replay.venta, replayed: replay.replayed } } : (replay as Rechazo)
   }
+  // F4-C5: a key closed by a verification never registers anything afterwards.
+  const cerrado = await rechazoIntentoCerrado(tx, negocioId, idempotencyKey, { tipo: INTENTO_TIPO_ADICIONAL, ventaOrigenId: ventaId, fingerprint: fingerprintVentaAdicional(input), actor })
+  if (cerrado) return cerrado
 
   const actorResuelto = await resolverActorCambio(tx, negocioId, actor)
   if (!actorResuelto) return fail(403, "Acceso denegado")
@@ -842,4 +869,227 @@ export async function registrarVentaAdicional(
     if (traducido) return traducido
     throw error
   }
+}
+
+// ---------------------------------------------------------------------------
+// F4-C5 (D5, option B) — verification and definitive closure of an uncertain attempt
+// ---------------------------------------------------------------------------
+// The client keeps an uncertain attempt (no answer, 500, timeout, 503) with its
+// Idempotency-Key and its exact body. Verifying it NEVER runs the commercial
+// operation: in ONE Serializable transaction it either finds the operation
+// registered with that key (REGISTRADO, its original result) or, when there is
+// none, inserts the CERRADO row of intentos_caja_comerciales and answers
+// NO_REGISTRADO only after that row committed. Coordination with a concurrent
+// original request is the shared primary key (negocioId, idempotencyKey) of
+// that table — the operation inserts REGISTRADO in its own transaction (SQL
+// trigger) — so exactly one of the two survives; a lost race is retried and
+// then reads the winner. Business, origin sale, actor, key and content
+// fingerprint must all match; anything else is the controlled reused-key 409.
+
+export const INTENTO_TIPO_CAMBIO = "CAMBIO"
+export const INTENTO_TIPO_ADICIONAL = "ADICIONAL"
+export const INTENTO_ESTADO_REGISTRADO = "REGISTRADO"
+export const INTENTO_ESTADO_CERRADO = "CERRADO"
+export const INTENTO_CERRADO_CODE = "INTENTO_CERRADO"
+export const VERIFICACION_INCIERTA_CODE = "VERIFICACION_INCIERTA"
+type TipoIntento = typeof INTENTO_TIPO_CAMBIO | typeof INTENTO_TIPO_ADICIONAL
+
+const INTENTO_CERRADO_TEXTO =
+  "Este intento ya se verificó como NO registrado y quedó cerrado: no se registró nada. Pedí una nueva cotización para intentarlo de nuevo."
+const CLAVE_USADA_TEXTO = "Este intento ya se usó para otra operación. Volvé a intentarlo."
+
+export type ResultadoVerificacion<T> = { estado: "REGISTRADO"; operacion: T } | { estado: "NO_REGISTRADO"; cerradoEn: Date }
+
+interface DatosIntento {
+  tipo: TipoIntento
+  ventaOrigenId: string
+  fingerprint: string
+  actor: CajaActor
+}
+
+const actorIdDe = (negocioId: string, actor: CajaActor) => (actor.tipo === "EMPLEADO" ? actor.empleadoId : negocioId)
+
+function mismoIntento(
+  negocioId: string,
+  row: { tipo: string; ventaOrigenId: string; actorTipo: string | null; actorId: string | null; idempotencyFingerprint: string | null },
+  datos: DatosIntento
+): boolean {
+  return (
+    row.tipo === datos.tipo &&
+    row.ventaOrigenId === datos.ventaOrigenId &&
+    row.idempotencyFingerprint === datos.fingerprint &&
+    row.actorTipo === datos.actor.tipo &&
+    row.actorId === actorIdDe(negocioId, datos.actor)
+  )
+}
+
+/** A key CLOSED by a verification: the same attempt → INTENTO_CERRADO; another content/actor → reused key. */
+async function rechazoIntentoCerrado(reader: Pick<Tx, "intentoCajaComercial">, negocioId: string, key: string, datos: DatosIntento): Promise<Rechazo | null> {
+  const row = await reader.intentoCajaComercial.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey: key } } })
+  if (!row || row.estado !== INTENTO_ESTADO_CERRADO) return null
+  return mismoIntento(negocioId, row, datos) ? fail(409, INTENTO_CERRADO_TEXTO, INTENTO_CERRADO_CODE) : fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+}
+
+const IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
+
+async function cerrarIntentoEnTx(tx: Tx, negocioId: string, key: string, datos: DatosIntento, actorResuelto: ActorCambio, contexto: ContextoIntento): Promise<Date> {
+  const row = await tx.intentoCajaComercial.create({
+    data: {
+      negocioId,
+      idempotencyKey: key,
+      tipo: datos.tipo,
+      estado: INTENTO_ESTADO_CERRADO,
+      ventaOrigenId: datos.ventaOrigenId,
+      actorTipo: datos.actor.tipo,
+      actorId: actorIdDe(negocioId, datos.actor),
+      idempotencyFingerprint: datos.fingerprint,
+    },
+  })
+  await auditLogWithClient(tx, {
+    ...auditActor(actorResuelto),
+    accion: "venta.intento_comercial_cerrado",
+    recurso: "venta",
+    recursoId: datos.ventaOrigenId,
+    detalle: { negocioId, tipo: datos.tipo, idempotencyKey: key, intento: contexto.intento },
+  })
+  return row.createdAt
+}
+
+/** Common first steps of a verification: actor still allowed, origin sale of this business. */
+async function prepararVerificacion(tx: Tx, negocioId: string, actor: CajaActor, ventaId: string): Promise<Rechazo | ActorCambio> {
+  if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
+  const actorResuelto = await resolverActorCambio(tx, negocioId, actor)
+  if (!actorResuelto) return fail(403, "Acceso denegado")
+  const origen = await tx.venta.findFirst({ where: { id: ventaId, negocioId }, select: { id: true } })
+  if (!origen) return fail(404, "Venta no encontrada.")
+  return actorResuelto
+}
+
+const esRechazo = (value: Rechazo | ActorCambio): value is Rechazo => "ok" in value
+
+export async function verificarCambioVentaEnTx(
+  tx: Tx,
+  input: Omit<RegistrarCambioInput, "turnoCajaId">,
+  contexto: ContextoIntento
+): Promise<CambioResult<ResultadoVerificacion<CambioRegistrado>>> {
+  const { negocioId, actor, ventaId, solicitud, idempotencyKey } = input
+  const preparado = await prepararVerificacion(tx, negocioId, actor, ventaId)
+  if (esRechazo(preparado)) return preparado
+  const datos: DatosIntento = { tipo: INTENTO_TIPO_CAMBIO, ventaOrigenId: ventaId, fingerprint: fingerprintCambio(negocioId, ventaId, solicitud, actor), actor }
+  const reserva = await tx.intentoCajaComercial.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } } })
+  if (reserva?.estado === INTENTO_ESTADO_CERRADO) {
+    return mismoIntento(negocioId, reserva, datos) ? { ok: true, value: { estado: "NO_REGISTRADO", cerradoEn: reserva.createdAt } } : fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+  }
+  // Registered (or reserved by another operation): the replay rule decides — same content and actor only.
+  const replay = await replayCambio(tx, negocioId, idempotencyKey, datos.fingerprint, actor)
+  if (replay) return replay.ok ? { ok: true, value: { estado: "REGISTRADO", operacion: replay.value.cambio } } : replay
+  if (reserva) return fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+  return { ok: true, value: { estado: "NO_REGISTRADO", cerradoEn: await cerrarIntentoEnTx(tx, negocioId, idempotencyKey, datos, preparado, contexto) } }
+}
+
+export async function verificarVentaAdicionalEnTx(
+  tx: Tx,
+  input: Omit<RegistrarVentaAdicionalInput, "turnoCajaId">,
+  contexto: ContextoIntento
+): Promise<CambioResult<ResultadoVerificacion<VentaCajaConItems>>> {
+  const { negocioId, actor, ventaId, idempotencyKey } = input
+  const preparado = await prepararVerificacion(tx, negocioId, actor, ventaId)
+  if (esRechazo(preparado)) return preparado
+  const datos: DatosIntento = { tipo: INTENTO_TIPO_ADICIONAL, ventaOrigenId: ventaId, fingerprint: fingerprintVentaAdicional(input), actor }
+  const reserva = await tx.intentoCajaComercial.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } } })
+  if (reserva?.estado === INTENTO_ESTADO_CERRADO) {
+    return mismoIntento(negocioId, reserva, datos) ? { ok: true, value: { estado: "NO_REGISTRADO", cerradoEn: reserva.createdAt } } : fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+  }
+  // Any sale already holding this key (additional or not): only the same content, actor and origin is a match.
+  const existente = await tx.venta.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include: { items: true } })
+  if (existente) {
+    const mismo =
+      existente.vinculoTipo === INTENTO_TIPO_ADICIONAL &&
+      existente.ventaOrigenId === ventaId &&
+      existente.idempotencyFingerprint === datos.fingerprint &&
+      existente.actorTipo === actor.tipo &&
+      existente.actorId === actorIdDe(negocioId, actor)
+    return mismo ? { ok: true, value: { estado: "REGISTRADO", operacion: existente } } : fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+  }
+  if (reserva) return fail(409, CLAVE_USADA_TEXTO, IDEMPOTENCY_KEY_REUSED)
+  return { ok: true, value: { estado: "NO_REGISTRADO", cerradoEn: await cerrarIntentoEnTx(tx, negocioId, idempotencyKey, datos, preparado, contexto) } }
+}
+
+function traducirErrorVerificacion(error: unknown): Rechazo | null {
+  // Nothing is decided: the client keeps the attempt uncertain and may verify again (idempotent).
+  if (error instanceof ConflictoCambioAgotado || esTimeoutTransaccion(error)) {
+    return fail(503, "No pudimos verificar la operación todavía. Su resultado sigue sin conocerse: volvé a verificar en unos segundos.", VERIFICACION_INCIERTA_CODE)
+  }
+  return null
+}
+
+async function correrVerificacion<T>(db: Db, fn: (tx: Tx, contexto: ContextoIntento) => Promise<CambioResult<T>>, opciones: OpcionesCambio): Promise<CambioResult<T>> {
+  const ejecutar = opciones.ejecutor ?? ejecutarSerializableCambio
+  const correr = () => resolverAbortoCompartido(() => ejecutar(db, fn, opciones)) as Promise<CambioResult<T>>
+  try {
+    return await correr()
+  } catch (error) {
+    // The concurrent original (or another verification) committed the same key
+    // first: one more pass reads the winner — REGISTRADO, or the same closure.
+    if (isUniqueViolation(error)) {
+      try {
+        return await correr()
+      } catch (again) {
+        const traducido = traducirErrorVerificacion(again)
+        if (traducido) return traducido
+        throw again
+      }
+    }
+    const traducido = traducirErrorVerificacion(error)
+    if (traducido) return traducido
+    throw error
+  }
+}
+
+/** Verifies an uncertain exchange attempt (owner and cashier routes). Never registers the exchange. */
+export function verificarCambioVenta(db: Db, input: Omit<RegistrarCambioInput, "turnoCajaId">, opciones: OpcionesCambio = {}) {
+  return correrVerificacion(db, (tx, contexto) => verificarCambioVentaEnTx(tx, input, contexto), opciones)
+}
+
+/** Verifies an uncertain linked additional sale attempt. Never registers the sale. */
+export function verificarVentaAdicional(db: Db, input: Omit<RegistrarVentaAdicionalInput, "turnoCajaId">, opciones: OpcionesCambio = {}) {
+  return correrVerificacion(db, (tx, contexto) => verificarVentaAdicionalEnTx(tx, input, contexto), opciones)
+}
+
+// ---------------------------------------------------------------------------
+// F4-C5 — the chain of a sale (read only): every sale linked to it by
+// exchanges or additional sales, from its root, and the exchanges among them.
+// ---------------------------------------------------------------------------
+
+export const CADENA_VENTAS_MAX = 200
+
+export async function cadenaDeVenta(db: Db, negocioId: string, ventaId: string) {
+  const ids = await db.$queryRaw<Array<{ id: string }>>`
+    WITH RECURSIVE arriba AS (
+      SELECT "id", "ventaOrigenId", 0 AS nivel FROM "ventas_caja" WHERE "id" = ${ventaId} AND "negocioId" = ${negocioId}
+      UNION ALL
+      SELECT v."id", v."ventaOrigenId", a.nivel + 1
+        FROM "ventas_caja" v JOIN arriba a ON v."id" = a."ventaOrigenId"
+       WHERE v."negocioId" = ${negocioId} AND a.nivel < 1000
+    ),
+    raiz AS (SELECT "id" FROM arriba ORDER BY nivel DESC LIMIT 1),
+    abajo AS (
+      SELECT "id", 0 AS nivel FROM raiz
+      UNION ALL
+      SELECT v."id", b.nivel + 1
+        FROM "ventas_caja" v JOIN abajo b ON v."ventaOrigenId" = b."id"
+       WHERE v."negocioId" = ${negocioId} AND v."vinculoTipo" IN ('CAMBIO', 'ADICIONAL') AND b.nivel < 1000
+    )
+    SELECT "id" FROM abajo LIMIT ${CADENA_VENTAS_MAX}`
+  if (ids.length === 0) return null
+  const ventaIds = ids.map((r) => r.id)
+  const [ventas, cambios] = await Promise.all([
+    db.venta.findMany({
+      where: { negocioId, id: { in: ventaIds } },
+      select: { id: true, createdAt: true, total: true, totalDecimal: true, metodoPago: true, vinculoTipo: true, ventaOrigenId: true, devoluciones: { select: { tipo: true } } },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.cambioVenta.findMany({ where: { negocioId, ventaOrigenId: { in: ventaIds } }, orderBy: { createdAt: "asc" } }),
+  ])
+  return { ventas, cambios }
 }

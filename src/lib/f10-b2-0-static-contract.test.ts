@@ -81,9 +81,17 @@ describe("F10-B2.0 — owner JSON contract and exact summary", () => {
     const src = read(OWNER_ROUTE)
     // F4-C2: the exact sums moved into the single cobro summary helper (money by
     // method from CobroVenta, commercial total from the sales), still Decimal-only.
-    expect(src).toContain("const resumen = resumirCobrosCaja(")
+    // F4-C5 (B1, operator-authorized 2026-11-10): over EVERY sale of the day, via
+    // the paged helper (resumirCobrosCaja per page); never a sum of the listing.
+    expect(src).toContain("await resumirCobrosCajaDesde(tx, negocioId, startOfDay)")
+    expect(src).not.toMatch(/\bresumirCobrosCaja\(/)
     expect(src).not.toMatch(/reduce\(\(sum, v\) => sum \+ v\.total/)
     const helper = read("src/lib/caja-resumen-cobros.ts")
+    // pages are added exactly: Decimal addMoney only, never numbers or floats
+    const suma = helper.slice(helper.indexOf("export function sumarResumenesCobros("), helper.indexOf("export const RESUMEN_PAGINA_VENTAS"))
+    expect(suma).toContain("ventasBrutas: addMoney(a.ventasBrutas, b.ventasBrutas),")
+    expect(suma).toContain("noDinero: addMoney(a.noDinero, b.noDinero),")
+    expect(suma).not.toMatch(/\.plus\(|toNumber|moneyToNumber|Number\(|parseFloat|\.ventasBrutas \+|\.noDinero \+/)
     expect(helper).toContain("ventasBrutas: addMoney(...ventas.map((v) => storedMoney(v.totalDecimal, v.total))),")
     expect(helper).toContain("importe: storedMoney(c.importeDecimal, c.importe)")
     expect(helper).not.toMatch(/reduce\(\(sum|\+ v\.total|\+ c\.importe/)

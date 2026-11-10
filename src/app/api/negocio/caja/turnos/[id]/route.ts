@@ -5,7 +5,7 @@ import { auditLog } from "@/lib/audit"
 import { cerrarTurnoCaja, TURNO_ESTADO_CERRADO_DECLARADO } from "@/lib/caja-turnos-service"
 import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
-import { calcularEfectivoEsperadoTurno, resumenVentasTurno } from "@/lib/caja-turnos-admin"
+import { calcularEfectivoEsperadoTurno, resumenCambiosTurno, resumenVentasTurno } from "@/lib/caja-turnos-admin"
 
 // ============================================
 // F10-B2.1 — owner ONLY: administrative detail of one shift
@@ -23,11 +23,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
     })
     if (!turno) return NextResponse.json({ error: "Turno no encontrado" }, { status: 404 })
-    const [efectivoCalculado, ventas] = await Promise.all([
+    const [efectivoCalculado, ventas, cambios] = await Promise.all([
       turno.estado === TURNO_ESTADO_CERRADO_DECLARADO && turno.efectivoEsperadoDecimal
         ? Promise.resolve(null)
         : calcularEfectivoEsperadoTurno(db, auth.negocioId, turno.id),
       resumenVentasTurno(db, auth.negocioId, turno.id),
+      resumenCambiosTurno(db, auth.negocioId, turno.id),
     ])
     const efectivoEsperado = turno.estado === TURNO_ESTADO_CERRADO_DECLARADO
       ? turno.efectivoEsperadoDecimal
@@ -57,6 +58,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         totalEfectivo: moneyToNumber(ventas.totalEfectivo),
         totalTransferencia: moneyToNumber(ventas.totalTransferencia),
         totalOtro: moneyToNumber(ventas.totalOtro),
+      },
+      // F4-C5 (D7): exchanges of this shift — informative, apart from the closing figures.
+      cambios: {
+        cantidad: cambios.cantidad,
+        diferenciaCobrada: moneyToNumber(cambios.diferenciaCobrada),
+        reintegradoEfectivo: moneyToNumber(cambios.reintegradoEfectivo),
+        compensacionInterna: moneyToNumber(cambios.compensacionInterna),
       },
     })
   } catch (error) {

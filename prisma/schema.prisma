@@ -201,6 +201,7 @@ model Negocio {
   devolucionesVenta      DevolucionVenta[] // F4-A
   correccionesVenta      CorreccionVenta[] // F4-B
   cambiosVenta           CambioVenta[] // F4-C3
+  intentosComerciales    IntentoCajaComercial[] // F4-C5
   traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
 
   // Plan
@@ -516,6 +517,9 @@ model Venta {
   ventasVinculadas Venta[]       @relation("VentaVinculada")
   cambiosOrigen    CambioVenta[] @relation("CambioVentaOrigen")
   cambioNuevo      CambioVenta?  @relation("CambioVentaNueva")
+  // F4-C5: claims of commercial operations on this sale (origin) / of this additional sale.
+  intentosComercialesOrigen IntentoCajaComercial[] @relation("IntentoComercialOrigen")
+  intentoComercial          IntentoCajaComercial?  @relation("IntentoComercialVenta")
   // NoAction: un turno con ventas no puede borrarse solo.
   turnoCaja   TurnoCaja?             @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   items       VentaItem[]
@@ -986,11 +990,45 @@ model CambioVenta {
   ventaNueva    Venta           @relation("CambioVentaNueva", fields: [ventaNuevaId], references: [id], onDelete: NoAction)
   turnoCaja     TurnoCaja?      @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   cobroCredito  CobroVenta?
+  intentoComercial IntentoCajaComercial? // F4-C5
 
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
   @@index([ventaOrigenId])
   @@map("cambios_venta")
+}
+
+// ============================================
+// F4-C5 (D5, opción B) — una reserva por (negocio, Idempotency-Key) de una
+// operación comercial (cambio o venta adicional vinculada)
+// ============================================
+// La clave primaria compartida coordina, con el índice único y no con una
+// lectura previa, a la operación y a su verificación: la operación inserta
+// REGISTRADO (trigger AFTER INSERT de cambios_venta / ventas_caja ADICIONAL) y
+// la verificación inserta CERRADO. Exactamente una de las dos queda; una
+// solicitud original que llega después del cierre se rechaza sin escribir
+// nada. Un CERRADO es inmutable (trigger BEFORE UPDATE).
+model IntentoCajaComercial {
+  negocioId              String
+  idempotencyKey         String
+  tipo                   String // CAMBIO | ADICIONAL
+  estado                 String // REGISTRADO | CERRADO
+  ventaOrigenId          String
+  cambioVentaId          String?   @unique // sólo REGISTRADO + CAMBIO
+  ventaId                String?   @unique // sólo REGISTRADO + ADICIONAL
+  actorTipo              String? // sólo CERRADO: NEGOCIO | EMPLEADO
+  actorId                String? // sólo CERRADO: negocioId o empleadoId
+  idempotencyFingerprint String? // sólo CERRADO: huella del contenido verificado
+  createdAt              DateTime  @default(now())
+
+  negocio     Negocio      @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  ventaOrigen Venta        @relation("IntentoComercialOrigen", fields: [ventaOrigenId], references: [id], onDelete: NoAction)
+  cambioVenta CambioVenta? @relation(fields: [cambioVentaId], references: [id], onDelete: Cascade)
+  venta       Venta?       @relation("IntentoComercialVenta", fields: [ventaId], references: [id], onDelete: Cascade)
+
+  @@id([negocioId, idempotencyKey])
+  @@index([ventaOrigenId])
+  @@map("intentos_caja_comerciales")
 }
 
 // ============================================

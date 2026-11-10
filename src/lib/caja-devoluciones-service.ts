@@ -404,6 +404,8 @@ const DEVOLUCION_INCLUDE = {
     },
     orderBy: { createdAt: "asc" },
   },
+  // F4-C5: the exchange this return belongs to (its pending refund is the exchange difference D−).
+  cambio: { select: { id: true } },
 } satisfies Prisma.DevolucionVentaInclude
 export type DevolucionConItems = Prisma.DevolucionVentaGetPayload<{ include: typeof DEVOLUCION_INCLUDE }>
 
@@ -789,6 +791,10 @@ const VENTA_HISTORIAL_INCLUDE = {
   devoluciones: { include: DEVOLUCION_INCLUDE, orderBy: { createdAt: "asc" } },
   // F4-B: every owner correction (immutable), oldest first.
   correcciones: { orderBy: { secuencia: "asc" }, include: { lineas: true } },
+  // F4-C5: links of this sale (exchanges it took part in, linked additional sales).
+  cambiosOrigen: { select: { id: true, ventaNuevaId: true, devolucionId: true, createdAt: true, liquidacion: true }, orderBy: { createdAt: "asc" } },
+  cambioNuevo: { select: { id: true, ventaOrigenId: true, createdAt: true, liquidacion: true } },
+  ventasVinculadas: { where: { vinculoTipo: "ADICIONAL" }, select: { id: true, createdAt: true, total: true, totalDecimal: true, metodoPago: true }, orderBy: { createdAt: "asc" } },
 } satisfies Prisma.VentaInclude
 type VentaHistorialRow = Prisma.VentaGetPayload<{ include: typeof VENTA_HISTORIAL_INCLUDE }>
 
@@ -851,6 +857,11 @@ export function ventaConDevolucionesParaRespuesta(
     devoluciones: venta.devoluciones.map((d) => devolucionParaRespuesta(d, vista)),
     // F4-B: correction history is owner data (who corrected what and why).
     correcciones: vista.tipo === "NEGOCIO" ? venta.correcciones.map((c) => correccionParaRespuesta(c)) : [],
+    // F4-C5: links (read only). vinculo = how THIS sale was born (null = normal sale).
+    vinculo: venta.vinculoTipo && venta.ventaOrigenId ? { tipo: venta.vinculoTipo, ventaOrigenId: venta.ventaOrigenId, ventaOrigenReferencia: referenciaVenta(venta.ventaOrigenId) } : null,
+    cambiosComoOrigen: venta.cambiosOrigen.map((x) => ({ id: x.id, ventaNuevaId: x.ventaNuevaId, ventaNuevaReferencia: referenciaVenta(x.ventaNuevaId), devolucionId: x.devolucionId, createdAt: x.createdAt, liquidacion: x.liquidacion })),
+    cambioComoNueva: venta.cambioNuevo ? { id: venta.cambioNuevo.id, ventaOrigenId: venta.cambioNuevo.ventaOrigenId, ventaOrigenReferencia: referenciaVenta(venta.cambioNuevo.ventaOrigenId), createdAt: venta.cambioNuevo.createdAt, liquidacion: venta.cambioNuevo.liquidacion } : null,
+    ventasAdicionales: venta.ventasVinculadas.map((x) => ({ id: x.id, referencia: referenciaVenta(x.id), createdAt: x.createdAt, total: moneyToNumber(storedMoney(x.totalDecimal, x.total)), metodoPago: x.metodoPago })),
   }
 }
 
@@ -878,6 +889,10 @@ export function devolucionParaRespuesta(
     reintegroRegistradoEn: d.reintegroRegistradoEn,
     reintegroRegistradoPor: quien(d.reintegroActorTipo, d.reintegroActorId),
     reintegroDescripcion: describirReintegro(d.reintegroEstado as ReintegroEstado, d.reintegroMedio),
+    // F4-C5: money actually refundable (returned − compensated by an exchange) and the exchange, if any.
+    // (display only: the stored amounts already passed importeReintegrableDevolucion and the SQL CHECKs)
+    importeReintegrable: moneyToNumber(d.importeDecimal.minus(d.importeCompensadoDecimal)),
+    cambioId: d.cambio?.id ?? null,
     items: d.items.map((item) => ({
       ventaItemId: item.ventaItemId,
       nombre: nombreLinea(item.ventaItem.correcciones[0] ?? item.ventaItem),

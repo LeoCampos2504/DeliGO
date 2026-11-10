@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-09): código dcd66ad + workflow c72b347 sólo en la rama codex/f4-c4-sale-exchange-service; CI 42727487810 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos · F4-C5 NO iniciada
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-09): código dcd66ad + workflow c72b347 sólo en la rama codex/f4-c4-sale-exchange-service; CI 42727487810 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos · F4-C5 GUARDADA en la rama codex/f4-c5-sale-exchange-ui (base 87a36ba; un commit técnico + push a su rama, sin integración ni migración aplicada fuera de bases descartables; CI con PostgreSQL 16 pendiente; NO cerrada técnicamente; 2026-11-10)
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -500,6 +500,46 @@ configurables por negocio); **D4** sin venta adicional vinculada a una venta anu
   integridad de cobros en Railway TESTING sigue pendiente. Pruebas locales sobre PostgreSQL 12 descartable;
   PostgreSQL 16 validado en CI `42727487810`. El éxito del CI NO resuelve ninguno de R1–R5 (R4: la prueba
   intermitente pasó en esa corrida, pero no está corregida).
+
+### F4-C5 — resultado (2026-11-10, commit y push sólo en su rama; CI pendiente)
+
+Decisiones del operador (2026-11-09): **D1** agregados de servidor de sólo lectura; **D2** el selector de productos es
+la misma vista de venta en modo selección; **D3** cotización por botón; **D4** umbrales en un endpoint propio de Caja;
+**D5** opción B (verificación y cierre definitivo de claves) + `localStorage`; **D6** el cajero ve las cadenas con la
+privacidad actual; **D7** desglose completo; **D8** rama propia.
+
+- **Recuperación segura (D5, opción B)**: migración aditiva `20261110120000_f4_c5_commercial_attempt_claims` con la
+  tabla `intentos_caja_comerciales` y clave primaria (negocio, Idempotency-Key) compartida por la operación y su
+  verificación. La operación reserva su clave como REGISTRADO por trigger, en su propia transacción; la verificación
+  (`…/cambios/verificacion`, `…/adicionales/verificacion`, dueño y cajero, misma clave y mismo cuerpo) NUNCA ejecuta la
+  operación: devuelve REGISTRADO con el resultado original o inserta CERRADO y responde NO_REGISTRADO sólo después de
+  confirmarlo. Si compiten, el índice único hace esperar a la segunda y gana exactamente una; una solicitud original
+  tardía se rechaza (409 `INTENTO_CERRADO`) sin escribir nada. Se validan negocio, venta origen, actor, clave y huella.
+- **Interfaz**: cambio en 3 pasos (qué vuelve y su destino de stock, qué se lleva con el selector de Caja, cotización
+  exacta con crédito interno y diferencia), confirmación con `esperado` exacto, advertencias P1 informativas, venta
+  adicional vinculada, resultado, historial de cadenas y reintegros pendientes (con el importe reintegrable). Los
+  intentos se guardan en `localStorage` ANTES de enviar, aislados por negocio, actor y venta origen; un intento
+  incierto bloquea otra operación equivalente sobre esa venta hasta «Verificar operación» y nunca se borra en silencio
+  (aviso a los 7 días).
+- **Reportes (D7)**: resumen diario del dueño con operaciones por cambios, reintegros pagados por medio y fecha de pago,
+  pendientes abiertos y generados en el día, y compensación interna separada del dinero; línea de cambios en la
+  revisión de turnos del dueño, sin recalcular cierres. Umbrales P1 configurables sólo por el dueño.
+- **Evidencia local** (PostgreSQL 12 descartable): batería 661 / 2 en 49 archivos (los 2 fallos preexistentes de
+  siempre; línea base F4-C4 607 / 2 en 42 archivos). Carreras verificación/confirmación en ambos órdenes con espera
+  real de bloqueo, carreras libres, solicitudes tardías, timeout simulado y doble clic. Sin verificar: PostgreSQL 16,
+  navegador y dispositivo reales, carrera real de timeout.
+- **Correcciones previas al commit (autorizadas 2026-11-10)**: **B1** los totales del resumen diario del dueño se
+  calculaban sobre las 100 ventas del listado; ahora cubren TODAS las ventas del día (páginas estables de 1000 por
+  fecha e id, mismas reglas de dinero, lectura REPEATABLE READ de sólo lectura), con pruebas de 0, 100, 101, 500 y 1000
+  ventas; los contratos f10-b0 y f10-b2-0 se actualizaron conservando sus garantías. **F10-B2.1**: una única excepción
+  explícita y probada para los importes cotizados de F4-C5, sin formas alternativas de escribir la clave. Prueba del
+  selector real dentro del cambio y de la compensación parcial (sólo el importe reintegrable es dinero).
+- **Evidencia**: 607 / 2 (F4-C4) → 661 / 2 → 669 / 2 (B1) → **674 / 2** final en 51 archivos (los 2 fallos
+  preexistentes de siempre); TypeScript con los 33 diagnósticos preexistentes; ESLint y `git diff --check` limpios.
+- **Riesgos abiertos (NO resueltos)**: R1–R5 de F4-C4 siguen abiertos; además, `localStorage` no protege contra su
+  borrado manual, otro navegador u otro dispositivo. Pendientes: PostgreSQL 16 en GitHub Actions, pruebas visuales en
+  navegador y dispositivo real, escáner con cámara física, integridad financiera en TESTING antes de integrar y la
+  auditoría F4-A posterior al commit (resolver o aceptar formalmente antes de Production).
 
 ## 14. Fuera de alcance
 

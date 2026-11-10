@@ -59,14 +59,29 @@ describe("F10-B0 — one sales engine", () => {
     // and reads a sale without cobros (pre-F10-B0) as one cobro of its
     // metodoPago. The commercial total keeps summing the sales themselves.
     expect(route).not.toMatch(/v\.metodoPago === metodo/)
-    expect(route).toContain("const resumen = resumirCobrosCaja(")
-    expect(route).toContain("cobros: cobrosPorVenta.get(v.id) ?? []")
+    // F4-C5 (B1, operator-authorized 2026-11-10): the totals cover EVERY sale of
+    // the day. The route never summarizes its 100-sale listing (`ventasHoy`) nor
+    // reads cobros itself: it delegates to the paged helper, inside one read-only
+    // snapshot, and the count is the real one.
+    expect(route).toContain("const totales = await resumirCobrosCajaDesde(tx, negocioId, startOfDay)")
+    expect(route).toContain("cantidadVentas: resumen.cantidadVentas,")
+    expect(route).not.toMatch(/\bresumirCobrosCaja\(/) // (resumirCobrosCajaDesde is the only entry point)
+    expect(route).not.toMatch(/\bcobroVenta\.(findMany|aggregate|groupBy)\(/)
+    expect(route).not.toMatch(/cantidadVentas: ventasHoy\.length|ventasHoy\.map\(\(v\) => \(\{ \.\.\.v, cobros/)
     expect(route).toContain("totalVendido: moneyToNumber(resumen.ventasBrutas),")
     expect(route).toContain("totalEfectivo: moneyToNumber(resumen.cobradoPorMedio.EFECTIVO),")
-    // cobros are read in their own query: the sale objects (JSON contract) never carry them
-    expect(route).toMatch(/db\.cobroVenta\.findMany\(\{ where: \{ negocioId, ventaId: \{ in: ventasHoy\.map/)
     expect(route).not.toMatch(/include: \{ items: true, cobros/)
     const helper = read("src/lib/caja-resumen-cobros.ts")
+    // the paged helper: stable keyset pages (createdAt, id) — no offset paging —,
+    // each page summarized by resumirCobrosCaja with its cobros read in their own
+    // query (the sale objects never carry them), pages added exactly.
+    const paginado = helper.slice(helper.indexOf("export async function resumirCobrosCajaDesde("))
+    expect(paginado.length).toBeGreaterThan(0)
+    expect(paginado).toContain('orderBy: [{ createdAt: "asc" }, { id: "asc" }],')
+    expect(paginado).toContain("...(cursor ? { OR: [{ createdAt: { gt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { gt: cursor.id } }] } : {}),")
+    expect(paginado).not.toMatch(/\bskip:/)
+    expect(paginado).toMatch(/db\.cobroVenta\.findMany\(\{ where: \{ negocioId, ventaId: \{ in: pagina\.map\(\(v\) => v\.id\) \} \}/)
+    expect(paginado).toContain("resumen = sumarResumenesCobros(resumen, resumirCobrosCaja(pagina.map((v) => ({ ...v, cobros: cobrosPorVenta.get(v.id) ?? [] }))))")
     expect(helper).toContain('export const MEDIOS_DINERO_CAJA = ["EFECTIVO", "TRANSFERENCIA", "OTRO"] as const')
     expect(helper).toContain("if (venta.cobros && venta.cobros.length > 0) {")
     expect(helper).toContain("return [{ metodo: venta.metodoPago, importe: storedMoney(venta.totalDecimal, venta.total), legacy: true }]")

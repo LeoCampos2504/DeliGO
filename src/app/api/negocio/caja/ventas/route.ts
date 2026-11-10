@@ -9,7 +9,8 @@ import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
 import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
 import { lineaVigente } from "@/lib/caja-venta-vigente"
-import { agruparCobrosPorVenta, COBRO_RESUMEN_SELECT, resumirCobrosCaja } from "@/lib/caja-resumen-cobros"
+import { resumirCobrosCajaDesde } from "@/lib/caja-resumen-cobros"
+import { desgloseCambiosYReintegros } from "@/lib/caja-resumen-cambios"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"; F4-C2: money by method read from the real cobros).
@@ -29,40 +30,54 @@ export async function GET(req: NextRequest) {
     const startOfDay = new Date()
     startOfDay.setHours(0, 0, 0, 0)
 
+    // VISUAL listing only: the latest 100 sales of the day. F4-C5 (B1): no
+    // total is computed from this list any more (it truncated the summary of
+    // a day with more than 100 sales).
     const ventasHoy = await db.venta.findMany({
       where: { negocioId, createdAt: { gte: startOfDay } },
       include: { items: true },
       orderBy: { createdAt: "desc" },
       take: 100,
     })
-    // F4-A: returns/voids REGISTERED today (whatever the sale date). The sale
-    // rows stay gross; net = sold today − returned today.
-    const devolucionesHoy = await db.devolucionVenta.findMany({
-      where: { negocioId, createdAt: { gte: startOfDay } },
-      select: { importeDecimal: true },
-    })
+
+    // F4-C5 (B1): every total over ALL the sales of the day (stable pages of
+    // 1000, same money rules), the returns and the D7 breakdown, read in ONE
+    // read-only REPEATABLE READ transaction: one point-in-time snapshot, no
+    // locks, no writes, nothing to retry.
+    const { resumen, devolucionesHoy, desgloseHoy } = await db.$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY")
+        // F4-C2: money by method from the real cobros (non-money credit apart); legacy sales without cobros by their metodoPago.
+        const totales = await resumirCobrosCajaDesde(tx, negocioId, startOfDay)
+        // F4-A: returns/voids REGISTERED today (whatever the sale date). The sale
+        // rows stay gross; net = sold today − returned today.
+        const devoluciones = await tx.devolucionVenta.findMany({
+          where: { negocioId, createdAt: { gte: startOfDay } },
+          // F4-C5: + whether the return belongs to an exchange (D7 breakdown).
+          select: { importeDecimal: true, cambio: { select: { id: true } } },
+        })
+        // F4-C5 (D7): exchanges, refunds actually paid (by method and payment date),
+        // pending refunds and the internal compensation — a NEW key: resumenHoy keeps
+        // its exact contract. Credit is never money; pending is never paid money.
+        const desglose = await desgloseCambiosYReintegros(tx, negocioId, startOfDay, {
+          ventasPorCambios: totales.ventasPorCambios,
+          devolucionesHoy: devoluciones.map((d) => ({ importe: d.importeDecimal, esCambio: Boolean(d.cambio) })),
+          compensacionInterna: totales.resumen.noDinero,
+        })
+        return { resumen: totales.resumen, devolucionesHoy: devoluciones, desgloseHoy: desglose }
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5000, timeout: 20000 }
+    )
     // Return state of the listed sales, kept OUT of the sale objects (their
     // JSON contract is unchanged): { [ventaId]: { totalDevuelto, estadoDevolucion } }.
     const devolucionesDeVentas = ventasHoy.length
       ? await db.devolucionVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, select: { ventaId: true, tipo: true, importeDecimal: true } })
       : []
 
-    // F4-C2: the money by method comes from the cobros actually registered
-    // (CobroVenta), read in a separate query so the sale objects (JSON contract)
-    // stay unchanged. A sale without cobros (before F10-B0) is read as one cobro
-    // of its own metodoPago (src/lib/caja-resumen-cobros.ts). For every sale the
-    // engine writes today (one cobro = its total) the figures are identical to
-    // the former grouping of Venta.total by Venta.metodoPago.
-    // F10-B2.0: exact sums (Decimal column, or the legacy Float quantized to
-    // cents for a row written before the backfill); same numeric JSON shape.
-    const cobrosHoy = ventasHoy.length
-      ? await db.cobroVenta.findMany({ where: { negocioId, ventaId: { in: ventasHoy.map((v) => v.id) } }, select: { ventaId: true, ...COBRO_RESUMEN_SELECT } })
-      : []
-    const cobrosPorVenta = agruparCobrosPorVenta(cobrosHoy)
-    const resumen = resumirCobrosCaja(ventasHoy.map((v) => ({ ...v, cobros: cobrosPorVenta.get(v.id) ?? [] })))
     const totalDevueltoHoy = addMoney(...devolucionesHoy.map((d) => d.importeDecimal))
     const resumenHoy = {
-      cantidadVentas: ventasHoy.length,
+      // F4-C5 (B1): the REAL count of the day's sales (the listing above shows at most 100).
+      cantidadVentas: resumen.cantidadVentas,
       totalVendido: moneyToNumber(resumen.ventasBrutas),
       totalEfectivo: moneyToNumber(resumen.cobradoPorMedio.EFECTIVO),
       totalTransferencia: moneyToNumber(resumen.cobradoPorMedio.TRANSFERENCIA),
@@ -101,7 +116,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta, correccionesPorVenta })
+    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta, correccionesPorVenta, desgloseHoy })
   } catch (error) {
     console.error("Error listing ventas de caja:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener las ventas" }, { status: 500 })

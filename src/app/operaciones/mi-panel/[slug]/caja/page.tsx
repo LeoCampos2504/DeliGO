@@ -18,6 +18,8 @@
 // accounts, Mercado Pago and business statistics remain out of this screen.
 // F4-A adds the business's previous sales (search by day or reference) to void
 // them or return products, through the cashier's own operativo endpoints only.
+// F4-C5 adds exchanges and linked additional sales of those sales (cashier
+// endpoints only; attempts isolated per business + employee on this device).
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
@@ -27,6 +29,8 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { VenderView, type CajaVenderSource } from "@/components/business/caja-tab"
+// F4-C5: the same selling view as the exchange / linked-sale product picker.
+import { selectorProductos } from "@/components/business/caja-tab"
 import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
 import { CajaVentasHistorial, type CajaDevolucionesEndpoints } from "@/components/business/caja-devoluciones"
 
@@ -101,8 +105,20 @@ export default function CajeroCajaPage() {
       reintegroUrl: (id) => `${base}/devoluciones/${encodeURIComponent(id)}/reintegro`,
       queryScope: ["operativo-caja-devoluciones", empleado.id, negocio.id],
       invalidateAlso: [["operativo-caja-productos", empleado.id, negocio.id]],
+      comercial: source
+        ? {
+            contexto: { negocioId: negocio.id, actor: `EMPLEADO:${empleado.id}` },
+            cambioUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios`,
+            cotizacionUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios/cotizacion`,
+            verificarCambioUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios/verificacion`,
+            adicionalUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/adicionales`,
+            verificarAdicionalUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/adicionales/verificacion`,
+            cadenaUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cadena`,
+            Selector: selectorProductos(source),
+          }
+        : undefined,
     }
-  }, [state])
+  }, [state, source])
 
   return (
     <main className="min-h-screen bg-background pb-[env(safe-area-inset-bottom,0px)]">

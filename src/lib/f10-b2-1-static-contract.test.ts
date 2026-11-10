@@ -29,6 +29,19 @@ const CASHIER_TURNO = "src/app/api/operativo/caja/[slug]/turno/route.ts"
 const OWNER_SALE = "src/app/api/negocio/caja/ventas/route.ts"
 const MIGRATION = "prisma/migrations/20261011120000_f10_b2_1_cash_registers_shifts/migration.sql"
 
+// Blind close: what cashier-side code must never contain (expected cash, the admin module).
+const PROHIBIDO_CAJERO = /caja-turnos-admin|calcularEfectivoEsperado|efectivoEsperado|esperado:/
+// Alternative spellings of the `esperado` key (computed or quoted) are refused everywhere on the cashier side.
+const EVASION_ESPERADO = /\[\s*["'`]esperado["'`]\s*\]|["'`]esperado["'`]\s*:/
+// F4-C5 (operator-authorized 2026-11-10): ONE explicit exception — the quoted amounts of a
+// commercial exchange (`esperado` = { salida, entrada } of the quote, F4-C4 H1) that the cashier
+// must send back to confirm. They are NOT expected cash. The exception is this exact property
+// line, once, only in the exchange UI, built only from the quote; nothing else is excused.
+const CAMBIOS_UI = "src/components/business/caja-cambios.tsx"
+const EXCEPCION_COTIZACION = "      esperado: cotizados,\n"
+const ORIGEN_COTIZACION = "const cotizados = { salida: vigente.importes.salida, entrada: vigente.importes.entrada }"
+const sinExcepcionCotizacion = (path: string, src: string) => (path === CAMBIOS_UI ? src.split(EXCEPCION_COTIZACION).join("") : src)
+
 describe("F10-B2.1 — single writer of registers and shifts", () => {
   test("only the shifts service creates/updates registers and creates shifts", () => {
     expect(writers(/\.cajaFisica\.(create|createMany|update|updateMany|upsert)\(/)).toEqual([SERVICE])
@@ -109,10 +122,36 @@ describe("F10-B2.1 — expected cash is owner-only (blind close F10-B2.2)", () =
       (path.startsWith("src/components/") && path !== "src/components/business/owner-caja-revisiones.tsx")
     )
     for (const { path, src } of cashier) {
-      expect({ path, admin: /caja-turnos-admin|calcularEfectivoEsperado|efectivoEsperado|esperado:/.test(src) }).toEqual({ path, admin: false })
+      expect({ path, admin: PROHIBIDO_CAJERO.test(sinExcepcionCotizacion(path, src)), evasion: EVASION_ESPERADO.test(src) }).toEqual({ path, admin: false, evasion: false })
     }
     const turno = read(CASHIER_TURNO)
     expect(turno).not.toMatch(/\.(movimientoFinanciero|operacionFinanciera|cuentaFinanciera|venta|cobroVenta)\./)
+  })
+
+  test("F4-C5: the quote-amount exception is exact, single, built from the quote, and opens no protected data", () => {
+    const ui = read(CAMBIOS_UI)
+    expect(ui.split(EXCEPCION_COTIZACION).length - 1).toBe(1)
+    const origen = ui.indexOf(ORIGEN_COTIZACION)
+    const uso = ui.indexOf(EXCEPCION_COTIZACION)
+    expect(origen).toBeGreaterThan(0)
+    expect(uso).toBeGreaterThan(origen)
+    // only the request body is built between the quote and the property (nothing else read or awaited)
+    const entre = ui.slice(origen, uso)
+    expect(entre).toContain("const body = {")
+    expect(entre.split("\n").length).toBeLessThanOrEqual(8)
+    expect(entre).not.toMatch(/await|fetch\(|esperado|Esperado|turno|resumen/)
+    // the excepted file reaches nothing protected: no expected cash, no owner summaries, no owner APIs
+    expect(ui).not.toMatch(/caja-turnos-admin|caja-turnos-snapshot|calcularEfectivoEsperado|efectivoEsperado|caja-resumen-cobros|caja-resumen-cambios|\/api\/negocio\//)
+    // the exception masks nothing else: abuses are still caught
+    const abusos = [
+      ui.replace(EXCEPCION_COTIZACION, "      esperado: turno.efectivoEsperado,\n"),
+      ui.replace(EXCEPCION_COTIZACION, "      esperado: resumen.esperado,\n"),
+      `${ui}\nconst fuga = { esperado: 1 }\n`,
+      `${ui}\nimport { calcularEfectivoEsperadoTurno } from "@/lib/caja-turnos-admin"\n`,
+    ]
+    for (const abuso of abusos) expect(PROHIBIDO_CAJERO.test(sinExcepcionCotizacion(CAMBIOS_UI, abuso))).toBe(true)
+    expect(PROHIBIDO_CAJERO.test(sinExcepcionCotizacion("src/components/business/otro.tsx", EXCEPCION_COTIZACION))).toBe(true) // only that file
+    for (const evasion of ['{ ["esperado"]: x }', "{ ['esperado']: x }", '{ "esperado": x }', "{ [`esperado`]: x }"]) expect(EVASION_ESPERADO.test(evasion)).toBe(true)
   })
 
   test("admin module computes with exact money only", () => {

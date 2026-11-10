@@ -14,6 +14,8 @@ import {
   Truck,
   AlertTriangle,
   RotateCcw,
+  ArrowLeftRight,
+  ShoppingBag,
   Settings,
   Sparkles,
   Trash2,
@@ -144,6 +146,11 @@ function getNotifIcon(tipo: string) {
     // F4-A: anulación / devolución registrada por un empleado de Caja.
     case "caja_devolucion":
       return <RotateCcw className="h-4 w-4 text-orange-500" />
+    // F4-C5: cambio comercial / venta adicional vinculada registrados por un empleado de Caja.
+    case "caja_cambio":
+      return <ArrowLeftRight className="h-4 w-4 text-violet-500" />
+    case "caja_venta_adicional":
+      return <ShoppingBag className="h-4 w-4 text-violet-500" />
     default:
       return <Bell className="h-4 w-4 text-muted-foreground" />
   }
