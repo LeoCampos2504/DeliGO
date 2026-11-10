@@ -17,6 +17,8 @@ on:
       - codex/f4-c2-cobro-based-reports
       # CI-only run for F4-C3 (data model and SQL invariants of commercial exchanges) before integration; no deploy step.
       - codex/f4-c3-sale-exchange-schema
+      # CI-only run for F4-C4 (exchange service + API, linked additional sales) before integration; no deploy step.
+      - codex/f4-c4-sale-exchange-service
 
 permissions:
   contents: read
@@ -59,13 +61,15 @@ jobs:
       # F4-C2: also the cobro summary helper, the shift summary, the updated static contracts and the F4-C2 suites.
       # F4-C3: also the prepared exchange constants (caja-venta.ts) and the F4-C3 suite (the return and sale
       # services touched by F4-C3 are already covered above).
-      - name: Typecheck F4-B, F4-C1, F4-C2 and F4-C3 files
+      # F4-C4: also the exchange executor, the exchange service + HTTP layer, the return HTTP layer, the
+      # updated f10-b2-1 contract, the owner and cashier exchange/additional-sale routes and the F4-C4 suites.
+      - name: Typecheck F4-B, F4-C1, F4-C2, F4-C3 and F4-C4 files
         run: |
           bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
-          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema)" tsc-output.txt; then
-            echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 files"; exit 1
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales))" tsc-output.txt; then
+            echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 / F4-C4 files"; exit 1
           fi
-          echo "F4-B, F4-C1, F4-C2 and F4-C3 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+          echo "F4-B, F4-C1, F4-C2, F4-C3 and F4-C4 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
       # F4-C2: money by method from the real cobros, each suite in its own process, BEFORE the regression
       # batch below (which contains the known intermittent f10-b2-1-turnos:440) so their evidence is never
       # skipped by it; the integration suite writes only to the ephemeral postgres:16 service above.
@@ -74,6 +78,14 @@ jobs:
       # F4-C3: SQL invariants of commercial exchanges (applied by migrate deploy above) against the ephemeral
       # postgres:16 service, in its own process and BEFORE the regression batch for the same reason as F4-C2.
       - run: bun --no-env-file test src/lib/f4-c3-cambio-venta-schema.integration.test.ts
+      # F4-C4: exchange executor, exchange service/API and linked additional sales, each suite in its own
+      # process and BEFORE the regression batch for the same reason as F4-C2; the integration suites write
+      # only to the ephemeral postgres:16 service above (migration applied by migrate deploy). The F4-A audit
+      # suite replaces the return service module process-wide, so it MUST keep its own process.
+      - run: bun --no-env-file test src/lib/caja-ejecutor-cambio.test.ts
+      - run: bun --no-env-file test src/lib/caja-cambios.test.ts
+      - run: bun --no-env-file test src/lib/f4-c4-cambios.integration.test.ts
+      - run: bun --no-env-file test src/lib/f4-c4-auditoria-f4a.integration.test.ts
       - run: bun --no-env-file test src/lib/stock-lifecycle.test.ts src/lib/caja-turnos.test.ts src/lib/caja-turnos-entrega.test.ts src/components/business/operational-shift-panel.test.tsx src/components/business/owner-caja-revisiones.test.tsx src/components/business/owner-caja-recuperacion.test.tsx src/lib/caja-devoluciones.test.ts src/components/business/caja-devoluciones.test.tsx src/lib/f10-b0-static-contract.test.ts src/lib/f10-b2-1-static-contract.test.ts src/lib/f10-b2-0-static-contract.test.ts src/lib/f10-b2-1-turnos.integration.test.ts src/lib/f4-a-devoluciones.integration.test.ts src/lib/caja-correcciones.test.ts src/components/business/caja-correcciones.test.tsx src/lib/f4-b-correcciones.integration.test.ts
       # Separate process: this file imports the bell (Radix) without a DOM and must not share
       # the module cache with the happy-dom UI suites above (F4-A owner-bell fix).
