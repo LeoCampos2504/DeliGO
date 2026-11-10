@@ -2,7 +2,7 @@
 
 ```text
 F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED
-F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-09): código dcd66ad + workflow c72b347 sólo en la rama codex/f4-c4-sale-exchange-service; CI 42727487810 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos · F4-C5 GUARDADA en la rama codex/f4-c5-sale-exchange-ui (base 87a36ba; un commit técnico + push a su rama, sin integración ni migración aplicada fuera de bases descartables; CI con PostgreSQL 16 pendiente; NO cerrada técnicamente; 2026-11-10)
+F4_C_STAGE=F4-C0 guardada (e2f8a0e, rama codex/f4-b-justified-prices) · F4-C1 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e64e63b + workflow 637574b sólo en la rama codex/f4-c1-transactional-engines; CI 42277526005 intento 2 SUCCESS; sin integrar ni desplegar; NO certificada en Railway TESTING ni en Production · F4-C2 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código e9869fc + workflow b55c786 sólo en la rama codex/f4-c2-cobro-based-reports; CI 42282873990 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; NO certificada en Railway TESTING ni Production · F4-C3 TECHNICALLY_CLOSED_CI_PASS (aceptado por el operador 2026-11-06): código 9637cd6 + workflow 65f120c sólo en la rama codex/f4-c3-sale-exchange-schema; CI 42324905235 intento 2 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production · F4-C4 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-09): código dcd66ad + workflow c72b347 sólo en la rama codex/f4-c4-sale-exchange-service; CI 42727487810 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos · F4-C5 TECHNICALLY_CLOSED_CI_PASS (cierre autorizado por el operador 2026-11-10): código 4ff07dd + workflow d2615d1 sólo en la rama codex/f4-c5-sale-exchange-ui; CI 42753877520 intento 1 SUCCESS (PostgreSQL 16); sin integrar ni desplegar; migración sólo en bases descartables; NO certificada en Railway TESTING ni Production; riesgos R1–R5 abiertos
 DESIGN_APPROVED_BY=operador, 2026-11-06 (auditoría READ-ONLY 2026-11-05 + diseño revisado 2026-11-05)
 DOC_BASE=edcc8ef (rama codex/f4-b-justified-prices = testing-codex 2bc0a93 + docs)
 PREVIOUS_PLAN=6cb3d92 (rama local codex/f4-c-roadmap-plan) y 3613091 (codex/f4-b-owner-sale-corrections): NO fusionados; contenido vigente recuperado aquí (ver §0)
@@ -501,7 +501,7 @@ configurables por negocio); **D4** sin venta adicional vinculada a una venta anu
   PostgreSQL 16 validado en CI `42727487810`. El éxito del CI NO resuelve ninguno de R1–R5 (R4: la prueba
   intermitente pasó en esa corrida, pero no está corregida).
 
-### F4-C5 — resultado (2026-11-10, commit y push sólo en su rama; CI pendiente)
+### F4-C5 — resultado (2026-11-10, TECHNICALLY_CLOSED_CI_PASS sólo en su rama)
 
 Decisiones del operador (2026-11-09): **D1** agregados de servidor de sólo lectura; **D2** el selector de productos es
 la misma vista de venta en modo selección; **D3** cotización por botón; **D4** umbrales en un endpoint propio de Caja;
@@ -536,8 +536,16 @@ privacidad actual; **D7** desglose completo; **D8** rama propia.
   selector real dentro del cambio y de la compensación parcial (sólo el importe reintegrable es dinero).
 - **Evidencia**: 607 / 2 (F4-C4) → 661 / 2 → 669 / 2 (B1) → **674 / 2** final en 51 archivos (los 2 fallos
   preexistentes de siempre); TypeScript con los 33 diagnósticos preexistentes; ESLint y `git diff --check` limpios.
+- **CI con PostgreSQL 16 (corrida `42753877520`, intento 1, sobre `d2615d1`)**: SUCCESS, los 26 pasos en verde.
+  Commit funcional `4ff07ddd4a59fcaa260d48dc10c57177affd3676`; commit del workflow `d2615d19af45006b65d2be67b41a810c81446025`
+  (sólo `f10-b2-2-e-testing.yml`: disparador de la rama sólo para CI, typecheck ampliado a los archivos de F4-C5 sin
+  tocar los 33 diagnósticos preexistentes, siete pasos propios antes del lote de regresión). `migrate deploy` aplicó
+  la migración de F4-C5 sobre PostgreSQL 16 efímero desde una base vacía; pasaron las siete suites de F4-C5 (carreras
+  reserva/cierre de claves, compensación parcial, B1, contrato estático, UI y selector real en proceso propio) y las
+  regresiones F4-A, F4-B, F10, F4-C1 a F4-C4, stock, reservas y build. Sólo se leyó la conclusión de cada paso (los logs
+  requieren autenticación). B1 validado hasta 1000 ventas, sin límite funcional de 1000 (paginación sin tope).
 - **Riesgos abiertos (NO resueltos)**: R1–R5 de F4-C4 siguen abiertos; además, `localStorage` no protege contra su
-  borrado manual, otro navegador u otro dispositivo. Pendientes: PostgreSQL 16 en GitHub Actions, pruebas visuales en
+  borrado manual, otro navegador u otro dispositivo. Pendientes: pruebas visuales en
   navegador y dispositivo real, escáner con cámara física, integridad financiera en TESTING antes de integrar y la
   auditoría F4-A posterior al commit (resolver o aceptar formalmente antes de Production).
 

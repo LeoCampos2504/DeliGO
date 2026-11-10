@@ -509,11 +509,12 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       local 607/2 (preexistentes). Riesgos abiertos (el CI no resuelve ninguno): auditoría F4-A post-commit
       (antes de Production), carrera timeout/commit sólo simulada, precio heredado histórico sin prueba de punta a punta,
       intermitencia F10-B2.1, integridad de cobros en TESTING.
-    → F4-C5 (2026-11-10) = GUARDADA en la rama codex/f4-c5-sale-exchange-ui (base 87a36ba; commit + push sólo a su rama),
-      SIN integración ni migración aplicada a bases persistentes; CI con PostgreSQL 16 pendiente, NO cerrada técnicamente: interfaz de cambios y ventas vinculadas (dueño y
+    → F4-C5 (2026-11-10) = TECHNICALLY_CLOSED_CI_PASS sólo en la rama codex/f4-c5-sale-exchange-ui (código 4ff07dd
+      + workflow d2615d1; CI 42753877520 intento 1 SUCCESS con PostgreSQL 16; cierre autorizado por el operador),
+      SIN integración, despliegue ni migración aplicada a bases persistentes; NO certificada en TESTING: interfaz de cambios y ventas vinculadas (dueño y
       cajero), verificación y cierre definitivo de intentos inciertos (migración aditiva 20261110120000), desglose D7 y
-      umbrales P1 del dueño; totales diarios completos (B1). Batería local 674/2 (preexistentes); PostgreSQL 16 pendiente;
-      R1–R5 abiertos.
+      umbrales P1 del dueño; totales diarios completos (B1). Batería local 674/2 (preexistentes); R1–R5 abiertos (R1 antes de
+      Production, R5 antes de integrar); pruebas en navegador, teléfono y cámara física pendientes.
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).
