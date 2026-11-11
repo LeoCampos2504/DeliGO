@@ -29,8 +29,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
 import { VenderView, type CajaVenderSource } from "@/components/business/caja-tab"
-// F4-C5: the same selling view as the exchange / linked-sale product picker.
-import { selectorProductos } from "@/components/business/caja-tab"
+// «Gestionar venta» reuses this page's catalog (same endpoint and cache as the selling view).
 import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
 import { CajaVentasHistorial, type CajaDevolucionesEndpoints } from "@/components/business/caja-devoluciones"
 
@@ -105,16 +104,18 @@ export default function CajeroCajaPage() {
       reintegroUrl: (id) => `${base}/devoluciones/${encodeURIComponent(id)}/reintegro`,
       queryScope: ["operativo-caja-devoluciones", empleado.id, negocio.id],
       invalidateAlso: [["operativo-caja-productos", empleado.id, negocio.id]],
+      // «Gestionar venta»: a new purchase is a normal sale (the selling view of this page).
+      irAVender: () => document.getElementById("caja-vender")?.scrollIntoView({ behavior: "smooth", block: "start" }),
       comercial: source
         ? {
             contexto: { negocioId: negocio.id, actor: `EMPLEADO:${empleado.id}` },
             cambioUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios`,
             cotizacionUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios/cotizacion`,
             verificarCambioUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cambios/verificacion`,
-            adicionalUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/adicionales`,
             verificarAdicionalUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/adicionales/verificacion`,
             cadenaUrl: (id) => `${base}/ventas/${encodeURIComponent(id)}/cadena`,
-            Selector: selectorProductos(source),
+            // Same catalog and cache as the selling view.
+            catalogo: { productosUrl: source.productosUrl, queryKey: source.productosQueryKey },
           }
         : undefined,
     }
@@ -173,13 +174,13 @@ export default function CajeroCajaPage() {
               empleadoNombre={state.ctx.empleado.nombre}
               onAccessLost={handleAccessLost}
             />
-            <section aria-label="Ventas de Caja" className="space-y-3">
+            <section id="caja-vender" aria-label="Ventas de Caja" className="scroll-mt-3 space-y-3">
               <h2 className="px-1 text-base font-bold">Ventas</h2>
               <VenderView negocioId={state.ctx.negocio.id} source={source} />
             </section>
             {devoluciones && (
               <section aria-label="Historial de ventas" className="min-w-0 rounded-2xl border border-border bg-card p-3">
-                <CajaVentasHistorial endpoints={devoluciones} titulo="Ventas anteriores: anular o devolver" />
+                <CajaVentasHistorial endpoints={devoluciones} titulo="Ventas anteriores: gestionar, devolver o anular" />
               </section>
             )}
           </>

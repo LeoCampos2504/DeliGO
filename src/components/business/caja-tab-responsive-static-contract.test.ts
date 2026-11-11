@@ -8,6 +8,7 @@ import { resolve } from "node:path"
 // expressed as source-level assertions rather than a mounted render — same
 // established convention, not a fragile pixel-dependent test.
 const SOURCE = readFileSync(resolve(import.meta.dir, "caja-tab.tsx"), "utf8")
+const DETALLE = readFileSync(resolve(import.meta.dir, "caja-devoluciones.tsx"), "utf8")
 
 describe("P2-T56-R2A — Caja checkout responsive contract (finding A)", () => {
   test("checkout/success/detail dialogs bound their width at the SAME responsive slot the shared DialogContent uses, not just an unscoped override", () => {
@@ -39,17 +40,22 @@ describe("P2-T56-R2A — sale quantity semantics (findings B, sections 7/10/11)"
     expect(SOURCE).not.toContain('{v.cantidadItems} producto')
   })
 
+  // 2026-11-11 (operator): ONE sale detail. A recent sale opens the shared full
+  // detail (VentaDevolucionesDialog, caja-devoluciones.tsx) — the same one as
+  // «Ventas anteriores»; the simplified VentaDetailDialog was removed.
   test("sale detail renders each line from its own VentaItem snapshot fields, never a live Producto lookup", () => {
-    expect(SOURCE).toContain("venta.items.map((item) =>")
-    expect(SOURCE).toContain("item.nombre")
-    expect(SOURCE).toContain("item.cantidad")
-    expect(SOURCE).toContain("item.precio")
-    expect(SOURCE).toContain("item.subtotal")
+    expect(DETALLE).toContain("venta.items.filter((item) => item.cantidad > 0).map((item) => (")
+    expect(DETALLE).toContain("nombreItem(item)")
+    expect(DETALLE).toContain("item.cantidad")
+    expect(DETALLE).toContain("item.precio")
+    expect(DETALLE).toContain("item.subtotal")
+    expect(DETALLE).not.toContain("db.producto.findUnique")
     expect(SOURCE).not.toContain("db.producto.findUnique")
   })
 
-  test("recent sales are tap-to-expand, not all rendered open at once", () => {
-    expect(SOURCE).toContain("setDetailSale(v)")
-    expect(SOURCE).toContain("VentaDetailDialog")
+  test("recent sales are tap-to-expand into the ONE shared full detail, not all rendered open at once", () => {
+    expect(SOURCE).toContain("onClick={() => setVentaAbiertaId(v.id)}")
+    expect(SOURCE).toContain("<VentaDevolucionesDialog key={ventaAbiertaId} ventaId={ventaAbiertaId}")
+    expect(SOURCE).not.toContain("VentaDetailDialog")
   })
 })

@@ -9,7 +9,7 @@
 // always re-validated/recomputed server-side on checkout — the client
 // total shown here is only a preview.
 
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Banknote,
@@ -146,7 +146,7 @@ interface VentaResumen {
 }
 
 // F4-A: the owner's endpoints for voids / partial returns (same UI as the cashier's).
-function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoints {
+function ownerDevolucionesEndpoints(negocioId: string, irAVender?: () => void): CajaDevolucionesEndpoints {
   return {
     historialUrl: "/api/negocio/caja/ventas/historial",
     ventaUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/devoluciones`,
@@ -159,17 +159,20 @@ function ownerDevolucionesEndpoints(negocioId: string): CajaDevolucionesEndpoint
     // exactly equal to the charged one).
     correccionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/correcciones`,
     productosUrl: "/api/negocio/productos",
-    // F4-C5: exchanges and linked additional sales (owner endpoints only).
+    // «Gestionar venta»: a new purchase is a normal sale in «Vender».
+    irAVender,
+    // F4-C5: exchanges (owner endpoints only). The linked additional sale is no
+    // longer offered; its verification stays for attempts stored earlier.
     comercial: {
       contexto: { negocioId, actor: "NEGOCIO" },
       cambioUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios`,
       cotizacionUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios/cotizacion`,
       verificarCambioUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cambios/verificacion`,
-      adicionalUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/adicionales`,
       verificarAdicionalUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/adicionales/verificacion`,
       cadenaUrl: (id) => `/api/negocio/caja/ventas/${encodeURIComponent(id)}/cadena`,
       ownerRegistersUrl: "/api/negocio/caja/cajas",
-      Selector: selectorProductos(ownerCajaSource(negocioId)),
+      // Same catalog and cache as the selling view.
+      catalogo: { productosUrl: ownerCajaSource(negocioId).productosUrl, queryKey: ownerCajaSource(negocioId).productosQueryKey },
     },
   }
 }
@@ -194,6 +197,7 @@ type CajaSubTab = "vender" | "resumen" | "turnos"
 
 export function CajaTab({ negocio }: { negocio: { id: string } }) {
   const [subTab, setSubTab] = useState<CajaSubTab>("vender")
+  const irAVender = useCallback(() => setSubTab("vender"), [])
   const [registerSelection, setRegisterSelection] = useState({ cajaId: "", turnoId: "" })
   const [pendingRegisterId, setPendingRegisterId] = useState<string | null>(null)
   const registersQuery = useQuery<{ cajas: CajaFisicaResumen[] }>({
@@ -235,7 +239,7 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
             onPendingRegisterChange: setPendingRegisterId,
           }} />
         </>
-      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : <ResumenView negocioId={negocio.id} />}
+      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
     </div>
   )
 }
@@ -1093,10 +1097,12 @@ function SuccessDialog({ venta, onNuevaVenta }: { venta: VentaResumen; onNuevaVe
 // ============================================
 // RESUMEN — today's totals + recent sales (section 21)
 // ============================================
-function ResumenView({ negocioId }: { negocioId: string }) {
-  const [detailSale, setDetailSale] = useState<VentaResumen | null>(null)
-  const [gestionVentaId, setGestionVentaId] = useState<string | null>(null)
-  const devolucionesEndpoints = useMemo(() => ownerDevolucionesEndpoints(negocioId), [negocioId])
+function ResumenView({ negocioId, onIrAVender }: { negocioId: string; onIrAVender?: () => void }) {
+  // ONE sale detail for «Ventas recientes» and «Ventas anteriores»: the shared full
+  // detail (caja-devoluciones.tsx) — products, state, history, «Gestionar venta»,
+  // «Anular venta», the owner's correction. Only one sale is open at a time.
+  const [ventaAbiertaId, setVentaAbiertaId] = useState<string | null>(null)
+  const devolucionesEndpoints = useMemo(() => ownerDevolucionesEndpoints(negocioId, onIrAVender), [negocioId, onIrAVender])
   const { data, isLoading } = useQuery<{
     ventasHoy: VentaResumen[]
     resumenHoy: Record<string, number>
@@ -1154,7 +1160,7 @@ function ResumenView({ negocioId }: { negocioId: string }) {
               return (
                 <button
                   key={v.id}
-                  onClick={() => setDetailSale(v)}
+                  onClick={() => setVentaAbiertaId(v.id)}
                   className="flex w-full items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-left hover:bg-muted/40"
                 >
                   <div className="min-w-0">
@@ -1169,60 +1175,15 @@ function ResumenView({ negocioId }: { negocioId: string }) {
         )}
       </div>
 
-      {detailSale && (
-        <VentaDetailDialog venta={conLineasVigentes(detailSale)} corregida={Boolean(data?.correccionesPorVenta?.[detailSale.id])} onClose={() => setDetailSale(null)} onGestionar={() => { setGestionVentaId(detailSale.id); setDetailSale(null) }} />
-      )}
-      {gestionVentaId && <VentaDevolucionesDialog ventaId={gestionVentaId} endpoints={devolucionesEndpoints} onClose={() => setGestionVentaId(null)} />}
+      {ventaAbiertaId && <VentaDevolucionesDialog key={ventaAbiertaId} ventaId={ventaAbiertaId} endpoints={devolucionesEndpoints} onClose={() => setVentaAbiertaId(null)} />}
 
       <div className="border-t pt-3">
-        <CajaVentasHistorial endpoints={devolucionesEndpoints} titulo="Buscar ventas anteriores (anular o devolver)" />
+        <CajaVentasHistorial endpoints={devolucionesEndpoints} titulo="Buscar ventas anteriores (gestionar, devolver o anular)" />
       </div>
       <div className="border-t pt-3">
         <OwnerDevolucionesHistorial url="/api/negocio/caja/devoluciones" queryKey={[...devolucionesEndpoints.queryScope, "operaciones"]} />
       </div>
     </div>
-  )
-}
-
-// P2-T56-R2A section 8: per-line breakdown from VentaItem's own snapshot
-// fields — never recomputed from the live Producto (section 11), so a
-// price/name change tomorrow never rewrites yesterday's sale.
-function VentaDetailDialog({ venta, corregida = false, onClose, onGestionar }: { venta: VentaResumen; corregida?: boolean; onClose: () => void; onGestionar: () => void }) {
-  const unidades = totalUnidadesVenta(venta.items)
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2">Detalle de venta{corregida && <CorregidaBadge />}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          {corregida && <p className="break-words rounded-lg bg-sky-50 p-2 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">Venta corregida por el dueño: se muestran los productos vigentes. La venta original y cada corrección están en «Ver historial, anular o devolver».</p>}
-          <div className="max-h-[50vh] space-y-2.5 overflow-y-auto">
-            {venta.items.map((item) => (
-              <div key={item.id} className="flex items-start justify-between gap-2 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{item.nombre}{item.varianteNombre ? ` — ${item.varianteNombre}` : ""}</p>
-                  <p className="text-xs text-muted-foreground">{item.cantidad} × {formatPrice(item.precio)}</p>
-                </div>
-                <span className="shrink-0 font-semibold">{formatPrice(item.subtotal)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-border pt-2 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">Total</span>
-              <span className="text-lg font-bold">{formatPrice(venta.total)}</span>
-            </div>
-            <p className="text-xs text-muted-foreground">{formatUnidadesVenta(unidades)}</p>
-            <p className="text-xs text-muted-foreground">Método: {etiquetaMetodoVenta(venta.metodoPago)}</p>
-            <p className="text-xs text-muted-foreground">Hora: {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
-          </div>
-          {/* F4-A: void / partial return of this sale (current returned state is loaded fresh). */}
-          <Button variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={onGestionar}>{corregida ? "Ver historial, anular o devolver" : "Anular o devolver productos"}</Button>
-          <Button variant="secondary" className="w-full rounded-xl" onClick={onClose}>Cerrar</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   )
 }
 

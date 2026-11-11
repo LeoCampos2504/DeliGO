@@ -1,5 +1,8 @@
-// F4-C5 — UI of exchanges and linked additional sales (owner host; the cashier
-// host uses the same components with its own endpoints and context).
+// «Gestionar venta» (2026-11-11) — UI of commercial exchanges inside the single
+// sale editor (owner host; the cashier host uses the same components with its
+// own endpoints and context). The operation is inferred from what is edited:
+// something back + something new = exchange (F4-C engine, one atomic server
+// operation); only additions = nothing registered (a new sale in «Vender»).
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
@@ -12,6 +15,7 @@ const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
 const { VentaDevolucionesDialog, CajaVentasHistorial } = await import("./caja-devoluciones")
+const { inferirOperacion } = await import("./caja-cambios")
 
 const originalFetch = globalThis.fetch
 const ventaBase = {
@@ -30,6 +34,7 @@ const ventaBase = {
   ventasAdicionales: [],
 }
 let venta: Record<string, unknown> = ventaBase
+const catalogo = [{ id: "p-redmi", nombre: "Redmi", precio: 1000, eliminado: false, marca: null, sku: null, codigoBarras: null, controlStock: false, stockCantidad: 0, variantes: [] }]
 const importes = { salida: "2000.00", entrada: "1000.00", credito: "1000.00", diferenciaCobrada: "0.00", diferenciaReintegro: "1000.00" }
 const cotizacion = {
   importes,
@@ -65,6 +70,7 @@ beforeEach(() => {
       if (next === "network") throw new TypeError("Failed to fetch")
       return new Response(JSON.stringify(next.body), { status: next.status })
     }
+    if (url === "/x/productos") return new Response(JSON.stringify(catalogo), { status: 200 })
     if (url.includes("/cadena")) return new Response(JSON.stringify({ ok: true, ventas: [{ id: "venta-0", referencia: "venta-0", createdAt: "2026-10-01T10:00:00.000Z", total: 4000, metodoPago: "EFECTIVO", vinculoTipo: null, ventaOrigenId: null, anulada: false }], cambios: [] }), { status: 200 })
     if (url.includes("/historial")) return new Response(JSON.stringify({ ok: true, ventas: [] }), { status: 200 })
     return new Response(JSON.stringify({ ok: true, venta }), { status: 200 })
@@ -72,29 +78,27 @@ beforeEach(() => {
 })
 afterEach(() => { globalThis.fetch = originalFetch; document.body.innerHTML = "" })
 
-function SelectorFalso({ etiqueta, onConfirmar }: { etiqueta: string; onConfirmar: (cart: Array<{ productoId: string; nombre: string; precio: number; cantidad: number }>) => void }) {
-  return <button type="button" onClick={() => onConfirmar([{ productoId: "p-redmi", nombre: "Redmi", precio: 1000, cantidad: 1 }])}>{etiqueta}</button>
-}
-
 const comercial = (actor = "NEGOCIO") => ({
   contexto: { negocioId: "neg-1", actor },
   cambioUrl: (id: string) => `/x/ventas/${id}/cambios`,
   cotizacionUrl: (id: string) => `/x/ventas/${id}/cambios/cotizacion`,
   verificarCambioUrl: (id: string) => `/x/ventas/${id}/cambios/verificacion`,
-  adicionalUrl: (id: string) => `/x/ventas/${id}/adicionales`,
   verificarAdicionalUrl: (id: string) => `/x/ventas/${id}/adicionales/verificacion`,
   cadenaUrl: (id: string) => `/x/ventas/${id}/cadena`,
-  Selector: SelectorFalso,
+  catalogo: { productosUrl: "/x/productos", queryKey: ["test-cambios-catalogo"] },
 })
+let fueAVender = 0
 const endpoints = (actor?: string) => ({
   historialUrl: "/x/historial",
   ventaUrl: (id: string) => `/x/ventas/${id}/devoluciones`,
   reintegroUrl: (id: string) => `/x/devoluciones/${id}/reintegro`,
   queryScope: ["test-cambios"],
   comercial: comercial(actor),
+  irAVender: () => { fueAVender += 1 },
 })
 
 async function flush(ms = 40) { await act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)) }) }
+let cerrado = 0
 async function render(e = endpoints()) {
   const container = document.createElement("div")
   document.body.appendChild(container)
@@ -102,7 +106,7 @@ async function render(e = endpoints()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   await act(async () => root.render(
     <QueryClientProvider client={client}>
-      <VentaDevolucionesDialog ventaId="venta-1" endpoints={e} onClose={() => {}} />
+      <VentaDevolucionesDialog ventaId="venta-1" endpoints={e} onClose={() => { cerrado += 1 }} />
     </QueryClientProvider>
   ))
   await flush()
@@ -120,34 +124,84 @@ async function type(input: HTMLInputElement, value: string) {
   })
 }
 const text = () => document.body.textContent ?? ""
+const cotizaciones = () => posts.filter((p) => p.url.endsWith("/cambios/cotizacion"))
+const QUOTE_WAIT = 500 // the quote is requested automatically, debounced
 
-/** Steps 1–2 and the quote of an exchange with the difference left PENDING. */
-async function hastaCotizar() {
-  await click(button("Cambiar productos"))
-  await click(button("Sumar una unidad de Gaseosa"))
-  await click(button("Vuelve al stock"))
-  await click(button("Elegir lo que se lleva"))
-  await click(button("Usar estos productos"))
-  expect(button("Confirmar cambio")!.disabled).toBe(true) // no quote yet
-  await click(button("Calcular cambio"))
+async function agregarRedmi() {
+  await type(document.querySelector('input[aria-label="Buscar producto para agregar"]') as HTMLInputElement, "red")
   await flush()
+  await click(button("Agregar Redmi"))
+}
+/** Lower what comes back, add a replacement: the exchange is quoted automatically. */
+async function hastaCotizar() {
+  await click(button("Gestionar venta"))
+  await flush()
+  await click(button("Restar una unidad de Gaseosa"))
+  await click(button("Vuelve al stock"))
+  await agregarRedmi()
+  expect(button("Confirmar cambio")!.disabled).toBe(true) // the quote is not back yet
+  await flush(QUOTE_WAIT)
 }
 async function completarYConfirmar() {
   const radios = [...document.querySelectorAll('input[type="radio"]')] as HTMLInputElement[]
   await click(radios[1]) // «Queda pendiente»
-  await type(document.querySelector('input[aria-label="Motivo del cambio"]') as HTMLInputElement, "Prefiere otro")
-  await click(document.querySelector('input[type="checkbox"]') as HTMLInputElement)
+  await type(document.querySelector('input[aria-label="Motivo"]') as HTMLInputElement, "Prefiere otro")
   await click(button("Confirmar cambio"))
   await flush()
 }
 
-describe("F4-C5 — exchange flow", () => {
-  test("quote by button, exact `esperado` strings, attempt stored BEFORE sending and removed after success", async () => {
+describe("«Gestionar venta» — inferred operation", () => {
+  test("pure rule: nothing / only additions / return / total return / exchange", () => {
+    const items = [{ id: "a", cantidadRestante: 2 }, { id: "b", cantidadRestante: 1 }]
+    expect(inferirOperacion(items, {}, 0)).toBe("VACIA")
+    expect(inferirOperacion(items, {}, 1)).toBe("SOLO_AGREGA")
+    expect(inferirOperacion(items, { a: 1 }, 0)).toBe("DEVOLUCION")
+    expect(inferirOperacion(items, { a: 2, b: 1 }, 0)).toBe("DEVOLUCION_TOTAL")
+    expect(inferirOperacion(items, { a: 2, b: 1 }, 1)).toBe("CAMBIO")
+    expect(inferirOperacion(items, { b: 1 }, 2)).toBe("CAMBIO")
+  })
+
+  test("only additions: nothing can be confirmed nor quoted; it points to «Vender» and leaves the sale untouched", async () => {
+    fueAVender = 0
+    cerrado = 0
+    const root = await render()
+    await click(button("Gestionar venta"))
+    await flush()
+    await agregarRedmi()
+    await flush(QUOTE_WAIT)
+    expect(text()).toContain("es una venta nueva")
+    expect(button("Confirmar")!.disabled).toBe(true)
+    expect(posts).toHaveLength(0)
+    await click(button("Ir a Vender"))
+    expect(fueAVender).toBe(1)
+    expect(cerrado).toBe(1)
+    await act(async () => root.unmount())
+  })
+
+  test("the linked additional sale is no longer offered anywhere in the sale", async () => {
+    const root = await render()
+    expect(button("Agregar venta vinculada")).toBeUndefined()
+    expect(button("Cambiar productos")).toBeUndefined()
+    expect(button("Devolver productos")).toBeUndefined()
+    await click(button("Gestionar venta"))
+    await flush()
+    expect(text()).not.toContain("venta vinculada")
+    await act(async () => root.unmount())
+  })
+})
+
+describe("F4-C5 — exchange inside «Gestionar venta»", () => {
+  test("automatic quote, plain money summary, exact `esperado` strings, attempt stored BEFORE sending and removed after success", async () => {
     const root = await render()
     expect(text()).toContain("Cambio") // CAMBIO method label, «Por cambio» badge
     expect(text()).toContain("Viene del cambio de la venta #venta-0")
     await hastaCotizar()
-    expect(text()).toContain("Crédito interno (no es dinero)")
+    expect(cotizaciones()).toHaveLength(1)
+    expect(cotizaciones()[0].body).toEqual({ salen: [{ ventaItemId: "item-gaseosa", cantidad: 1, reingresaStock: true }], entran: [{ productoId: "p-redmi", cantidad: 1 }] })
+    expect(text()).toContain("Cambio de productos")
+    expect(text()).toMatch(/Devolver al cliente\$\s?1\.000,00/)
+    expect(text()).not.toContain("Crédito interno") // the compensation is only an optional detail, never money
+    expect(text()).toContain("no es dinero que entra ni que sale")
     expect(text()).toContain("Para tu información (no impide el cambio): venta de hace 40 días")
     await completarYConfirmar()
     const envio = posts.find((p) => p.url === "/x/ventas/venta-1/cambios")!
@@ -165,22 +219,37 @@ describe("F4-C5 — exchange flow", () => {
     await act(async () => root.unmount())
   })
 
-  test("any change after quoting invalidates it; double click sends ONE confirmation", async () => {
+  test("an undecided stock line is quoted (amounts do not depend on it) but cannot be confirmed", async () => {
     const root = await render()
-    await hastaCotizar()
-    await click(button("Cambiar lo que vuelve"))
-    await click(button("Sumar una unidad de Gaseosa"))
-    await click(button("Vuelve al stock"))
-    await click(button("Elegir lo que se lleva"))
-    await click(button("Usar estos productos"))
-    expect(text()).toContain("Cambiaste los productos: pedí una nueva cotización.")
-    expect(button("Confirmar cambio")!.disabled).toBe(true)
-    await click(button("Volver a calcular") ?? button("Calcular cambio"))
+    await click(button("Gestionar venta"))
     await flush()
+    await click(button("Restar una unidad de Gaseosa"))
+    await agregarRedmi()
+    await flush(QUOTE_WAIT)
+    expect(cotizaciones()).toHaveLength(1)
+    expect(text()).toContain("Indicá si cada producto devuelto vuelve al stock")
     const radios = [...document.querySelectorAll('input[type="radio"]')] as HTMLInputElement[]
     await click(radios[1])
-    await type(document.querySelector('input[aria-label="Motivo del cambio"]') as HTMLInputElement, "Prefiere otro")
-    await click(document.querySelector('input[type="checkbox"]') as HTMLInputElement)
+    await type(document.querySelector('input[aria-label="Motivo"]') as HTMLInputElement, "Prefiere otro")
+    expect(button("Confirmar cambio")!.disabled).toBe(true)
+    await click(button("No vuelve (dañado, abierto…)"))
+    await flush(QUOTE_WAIT) // the decision is part of the request: it is quoted again
+    expect(button("Confirmar cambio")!.disabled).toBe(false)
+    await act(async () => root.unmount())
+  })
+
+  test("any change after quoting re-quotes automatically; double click sends ONE confirmation", async () => {
+    const root = await render()
+    await hastaCotizar()
+    await click(button("Sumar una unidad de Redmi (nuevo)"))
+    expect(text()).toContain("Calculando…")
+    expect(button("Confirmar cambio")!.disabled).toBe(true)
+    await flush(QUOTE_WAIT)
+    expect(cotizaciones()).toHaveLength(2)
+    expect(cotizaciones()[1].body.entran).toEqual([{ productoId: "p-redmi", cantidad: 2 }])
+    const radios = [...document.querySelectorAll('input[type="radio"]')] as HTMLInputElement[]
+    await click(radios[1])
+    await type(document.querySelector('input[aria-label="Motivo"]') as HTMLInputElement, "Prefiere otro")
     const submit = button("Confirmar cambio")!
     await act(async () => { submit.click(); submit.click() })
     await flush()
@@ -188,15 +257,16 @@ describe("F4-C5 — exchange flow", () => {
     await act(async () => root.unmount())
   })
 
-  test("409 IMPORTES_CAMBIARON: nothing kept, error shown, a NEW quote is required", async () => {
+  test("409 IMPORTES_CAMBIARON: nothing kept, error shown, a NEW quote is requested before anything else can be confirmed", async () => {
     responses = [{ status: 409, body: { ok: false, code: "IMPORTES_CAMBIARON", error: "Los importes del cambio ya no coinciden con la cotización. No se registró nada: pedí una nueva cotización." } }]
     const root = await render()
     await hastaCotizar()
     await completarYConfirmar()
     expect(text()).toContain("pedí una nueva cotización")
     expect(window.localStorage.getItem(CLAVE_OWNER)).toBeNull()
-    expect(button("Calcular cambio")).toBeTruthy() // the quote was dropped
-    expect(button("Confirmar cambio")!.disabled).toBe(true)
+    expect(button("Confirmar cambio")!.disabled).toBe(true) // the quote was dropped
+    await flush(QUOTE_WAIT)
+    expect(cotizaciones()).toHaveLength(2)
     await act(async () => root.unmount())
   })
 
@@ -236,19 +306,17 @@ describe("F4-C5 — exchange flow", () => {
     responses = [{ status: 200, body: { ok: true, estado: "NO_REGISTRADO", cerradoEn: "2026-11-10T10:00:00.000Z" } }]
     const root = await render()
     expect(text()).toContain("sin resultado confirmado")
-    await click(button("Cambiar productos")) // opens the pending attempt, not a new form
+    await click(button("Gestionar venta")) // opens the pending attempt, not a new editor
     expect(text()).toContain("Todavía no se conoce el resultado")
-    expect(button("Sumar una unidad de Gaseosa")).toBeUndefined()
+    expect(button("Restar una unidad de Gaseosa")).toBeUndefined()
     await click(button("Verificar operación"))
     await flush()
     expect(text()).toContain("Verificado: la operación NO se registró")
     expect(window.localStorage.getItem(CLAVE_OWNER)).toBeNull()
-    await click(button("Sumar una unidad de Gaseosa"))
+    await click(button("Restar una unidad de Gaseosa"))
     await click(button("Vuelve al stock"))
-    await click(button("Elegir lo que se lleva"))
-    await click(button("Usar estos productos"))
-    await click(button("Calcular cambio"))
-    await flush()
+    await agregarRedmi()
+    await flush(QUOTE_WAIT)
     await completarYConfirmar()
     const envios = posts.filter((p) => p.url.endsWith("/cambios"))
     expect(envios).toHaveLength(2)
@@ -294,35 +362,30 @@ describe("F4-C5 — exchange flow", () => {
     await act(async () => root.unmount())
   })
 
-  test("P2 mirror: a sale with nothing left offers neither an exchange nor a linked sale", async () => {
+  test("P2 mirror: a sale with nothing left offers no «Gestionar venta» and points to a new sale", async () => {
     venta = { ...ventaBase, estadoDevolucion: "ANULADA", items: [{ ...ventaBase.items[0], cantidadDevuelta: 2, cantidadRestante: 0 }] }
     const root = await render()
-    expect(button("Cambiar productos")).toBeUndefined()
+    expect(button("Gestionar venta")).toBeUndefined()
     expect(button("Agregar venta vinculada")).toBeUndefined()
-    expect(text()).toContain("registrá una venta nueva e independiente")
+    expect(text()).toContain("registrá una venta nueva desde «Vender»")
     await act(async () => root.unmount())
   })
 })
 
-describe("F4-C5 — linked additional sale", () => {
-  test("selector → method → confirmation; uncertain → verification on the additional-sale endpoint with the same key", async () => {
-    responses = [{ status: 502, body: {} }, { status: 200, body: { ok: true, estado: "REGISTRADO", replayed: true, venta: { referencia: "adic-1", total: 1000, metodoPago: "TRANSFERENCIA" } } }]
+describe("Retired linked additional sale — attempts stored earlier are still verified", () => {
+  test("an uncertain linked-sale attempt is verified on its own endpoint with the SAME key and body; no new one can be created", async () => {
+    const intento = { v: 1, tipo: "ADICIONAL", negocioId: "neg-1", actor: "NEGOCIO", ventaOrigenId: "venta-1", ventaOrigenReferencia: "venta-1", key: "7a1c2c4e-8a1b-4d3e-9f2a-4b7c0d1e2f31", cuerpo: "{\"metodoPago\":\"TRANSFERENCIA\",\"items\":[{\"productoId\":\"p-redmi\",\"cantidad\":1}]}", resumen: { lineas: ["Agrega: 1 × Redmi"] }, estado: "INCIERTO", createdAt: Date.now(), updatedAt: Date.now() }
+    window.localStorage.setItem(CLAVE_OWNER, JSON.stringify(intento))
+    responses = [{ status: 200, body: { ok: true, estado: "REGISTRADO", replayed: true, venta: { referencia: "adic-1", total: 1000, metodoPago: "TRANSFERENCIA" } } }]
     const root = await render()
-    await click(button("Agregar venta vinculada"))
-    await click(button("Continuar"))
-    expect(button("Confirmar venta vinculada")!.disabled).toBe(true)
-    await click(button("Transferencia"))
-    await click(document.querySelector('input[type="checkbox"]') as HTMLInputElement)
-    await click(button("Confirmar venta vinculada"))
-    await flush()
-    const envio = posts.find((p) => p.url.endsWith("/adicionales"))!
-    expect(envio.guardadoAntes).toBe(true)
-    expect(envio.body).toEqual({ metodoPago: "TRANSFERENCIA", items: [{ productoId: "p-redmi", cantidad: 1 }] })
-    expect(text()).toContain("Todavía no se conoce el resultado")
+    expect(text()).toContain("registro de venta vinculada de esta venta sin resultado confirmado")
+    await click(button("Verificar operación"))
+    expect(text()).toContain("Todavía no se conoce el resultado de este registro de venta vinculada")
     await click(button("Verificar operación"))
     await flush()
     const v = posts.find((p) => p.url.endsWith("/adicionales/verificacion"))!
-    expect([v.key, v.raw]).toEqual([envio.key, envio.raw])
+    expect([v.key, v.raw]).toEqual([intento.key, intento.cuerpo])
+    expect(posts.filter((p) => p.url.endsWith("/adicionales"))).toHaveLength(0)
     expect(text()).toContain("Venta vinculada registrada #adic-1")
     expect(window.localStorage.getItem(CLAVE_OWNER)).toBeNull()
     await act(async () => root.unmount())

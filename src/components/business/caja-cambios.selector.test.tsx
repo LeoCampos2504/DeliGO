@@ -1,15 +1,15 @@
 // ============================================
-// F4-C5 — the REAL product selector (VenderView in selection mode) inside the
-// exchange dialog (happy-dom; own process: process-wide module mocks)
+// «Gestionar venta» — the compact catalog picker inside the sale editor, and
+// the selling view's selection mode (happy-dom; own process: module mocks)
 // ============================================
-// Real VentaDevolucionesDialog → OperacionComercial → selectorProductos →
-// VenderView. Only the camera component is replaced by a stand-in exposing the
-// props Caja passes (so codes can be "scanned" through the exact onCode Caja
-// wires) and sonner's toast. fetch is simulated per endpoint. Proves: search,
-// tap to add, quantities (+/−), variants, scanner consolidation, the quote is
-// asked with the selected cart, editing the cart invalidates the quote, the
-// selection mode never posts a sale nor touches the checkout attempt, and the
-// normal selling view keeps its checkout and its pending-attempt recovery.
+// Real VentaDevolucionesDialog → GestionarVenta → CatalogoCompacto, fed by the
+// owner's real catalog endpoint. fetch is simulated per endpoint. Proves:
+// search, tap to add, quantities (+/−), variants, an exact code + Enter (a
+// keyboard barcode reader) consolidates into the same line, products without
+// stock cannot be added, the quote asks for exactly the chosen products,
+// editing them re-quotes, and the editor never posts a sale nor touches the
+// checkout attempt. The selling view's selection mode (no longer used by the
+// sale editor) keeps never touching the normal checkout.
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 
@@ -19,12 +19,8 @@ afterAll(() => GlobalRegistrator.unregister())
 
 mock.module("sonner", () => ({ toast: { success: mock(() => {}), error: mock((_m: string) => {}) } }))
 interface ScannerProps { onCode: (code: string, source: "camera" | "manual") => unknown; onClose: () => void }
-let scanner: ScannerProps | null = null
 mock.module("@/components/business/barcode-scanner", () => ({
-  BarcodeScanner: (props: ScannerProps) => {
-    scanner = props
-    return null
-  },
+  BarcodeScanner: (_props: ScannerProps) => null,
 }))
 
 const React = await import("react")
@@ -39,11 +35,11 @@ const REDMI = "7790000000017"
 function producto(id: string, nombre: string, precio: number, extra: Record<string, unknown> = {}) {
   return { id, nombre, precio, categoria: "Celulares", imagenUrl: null, eliminado: false, controlStock: false, stockCantidad: 0, stockMinimo: 0, variantes: [], marca: null, sku: null, codigoBarras: null, ...extra }
 }
-const variante = (id: string, nombre: string, precio: number) => ({ id, nombre, precio, activo: true, controlStock: false, stockCantidad: 0, sku: null, codigoBarras: null })
+const variante = (id: string, nombre: string, precio: number, extra: Record<string, unknown> = {}) => ({ id, nombre, precio, activo: true, controlStock: false, stockCantidad: 0, sku: null, codigoBarras: null, ...extra })
 const catalogo = [
   producto("p-redmi", "Redmi", 1000, { codigoBarras: REDMI }),
-  producto("p-funda", "Funda", 0, { variantes: [variante("v-negra", "Negra", 1500), variante("v-roja", "Roja", 1500)] }),
-  producto("p-cargador", "Cargador", 800),
+  producto("p-funda", "Funda", 0, { variantes: [variante("v-negra", "Negra", 1500), variante("v-roja", "Roja", 1500, { controlStock: true, stockCantidad: 0 })] }),
+  producto("p-cargador", "Cargador", 800, { controlStock: true, stockCantidad: 0 }),
 ]
 const venta = {
   id: "venta-1", referencia: "venta-1", createdAt: "2026-11-10T10:00:00.000Z", metodoPago: "EFECTIVO", total: 4000, totalDevuelto: 0, totalNeto: 4000, estadoDevolucion: "VIGENTE",
@@ -53,8 +49,8 @@ const venta = {
 const cotizacion = (entrada: string) => ({
   ok: true,
   cotizacion: {
-    importes: { salida: "2000.00", entrada, credito: "2000.00", diferenciaCobrada: "0.00", diferenciaReintegro: "0.00" },
-    liquidacion: "SIN_DIFERENCIA", advertenciasTexto: [],
+    importes: { salida: "2000.00", entrada, credito: "2000.00", diferenciaCobrada: "1500.00", diferenciaReintegro: "0.00" },
+    liquidacion: "COBRO", advertenciasTexto: [],
     salen: [{ ventaItemId: "item-saphirus", nombre: "Saphirus", cantidad: 1, importe: "2000.00" }],
     entran: [],
   },
@@ -66,7 +62,6 @@ const respuesta = (body: unknown, status = 200) => ({ ok: status >= 200 && statu
 
 beforeEach(() => {
   posts = []
-  scanner = null
   window.localStorage.clear()
   window.sessionStorage.clear()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -87,6 +82,7 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
+const fuente = ownerCajaSource("neg-1")
 const endpoints = {
   historialUrl: "/x/historial",
   ventaUrl: (id: string) => `/x/ventas/${id}/devoluciones`,
@@ -97,10 +93,9 @@ const endpoints = {
     cambioUrl: (id: string) => `/x/ventas/${id}/cambios`,
     cotizacionUrl: (id: string) => `/x/ventas/${id}/cambios/cotizacion`,
     verificarCambioUrl: (id: string) => `/x/ventas/${id}/cambios/verificacion`,
-    adicionalUrl: (id: string) => `/x/ventas/${id}/adicionales`,
     verificarAdicionalUrl: (id: string) => `/x/ventas/${id}/adicionales/verificacion`,
     cadenaUrl: (id: string) => `/x/ventas/${id}/cadena`,
-    Selector: selectorProductos(ownerCajaSource("neg-1")), // the REAL selling view
+    catalogo: { productosUrl: fuente.productosUrl, queryKey: fuente.productosQueryKey }, // the owner's REAL catalog endpoint
   },
 }
 
@@ -116,7 +111,6 @@ async function montar(node: React.ReactNode) {
 }
 const botones = () => [...document.querySelectorAll("button")] as HTMLButtonElement[]
 const boton = (texto: string) => botones().find((b) => b.textContent?.trim() === texto || b.getAttribute("aria-label") === texto)
-const tarjeta = (nombre: string) => botones().find((b) => b.querySelector("p")?.textContent?.trim() === nombre)
 async function click(el: Element | undefined) {
   if (!el) throw new Error("element not found")
   await act(async () => { (el as HTMLElement).click() })
@@ -129,74 +123,67 @@ async function escribir(input: HTMLInputElement, valor: string) {
   })
   await flush()
 }
-/** Cart line (desktop cart panel, rendered first) → its −, + buttons and the quantity shown. */
-function lineaCarrito(nombre: string) {
-  const p = [...document.querySelectorAll("p")].find((x) => x.textContent?.trim() === nombre && x.className.includes("truncate"))
-  const fila = p?.closest("div.flex") as HTMLElement | null
-  if (!fila) return null
-  const [menos, mas] = [...fila.querySelectorAll("button")]
-  return { menos, mas, cantidad: Number(fila.querySelector("span.tabular-nums")?.textContent) }
+async function enter(input: HTMLInputElement) {
+  await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })) })
+  await flush()
 }
+/** New line of the editor → the quantity shown. */
+const cantidadNueva = (nombre: string) => Number((document.querySelector(`input[aria-label="Cantidad de ${nombre} (nuevo)"]`) as HTMLInputElement | null)?.value ?? NaN)
 const texto = () => document.body.textContent ?? ""
+const QUOTE_WAIT = 500
 
-describe("F4-C5 — real selector inside the exchange flow", () => {
-  test("search, tap, quantities, variants and scanner build the cart; the quote uses it; editing it invalidates the quote; no sale is posted", async () => {
+describe("«Gestionar venta» — compact catalog inside the sale editor", () => {
+  test("search, tap, quantities, variants and an exact code build the new lines; out of stock cannot be added; the quote uses them; editing re-quotes; no sale is posted", async () => {
     const root = await montar(<VentaDevolucionesDialog ventaId="venta-1" endpoints={endpoints} onClose={() => {}} />)
-    await click(boton("Cambiar productos"))
-    await click(boton("Sumar una unidad de Saphirus"))
+    await click(boton("Gestionar venta"))
+    await click(boton("Restar una unidad de Saphirus"))
     await click(boton("Vuelve al stock"))
-    await click(boton("Elegir lo que se lleva"))
-    await flush(80)
-    // the real selling view, in selection mode
-    expect(boton("Escanear productos")).toBeTruthy()
-    expect(texto()).not.toContain("Hay un cobro sin confirmar")
+    // the picker lives inside the same dialog (no full-screen selling view, never «Cobrar»)
+    expect(document.querySelector('[data-testid="catalogo-compacto"]')).toBeTruthy()
+    expect(boton("Escanear productos")).toBeUndefined()
     expect(botones().some((b) => b.textContent?.trim() === "Cobrar")).toBe(false)
 
     // search filters the real catalog
-    const buscador = document.querySelector('input[placeholder="Buscar producto…"]') as HTMLInputElement
+    const buscador = document.querySelector('input[aria-label="Buscar producto para agregar"]') as HTMLInputElement
     await escribir(buscador, "red")
-    expect(tarjeta("Redmi")).toBeTruthy()
-    expect(tarjeta("Cargador")).toBeUndefined()
-    await click(tarjeta("Redmi"))
-    expect(lineaCarrito("Redmi")?.cantidad).toBe(1)
-    await click(lineaCarrito("Redmi")!.mas)
-    expect(lineaCarrito("Redmi")?.cantidad).toBe(2)
+    expect(boton("Agregar Redmi")).toBeTruthy()
+    expect(boton("Agregar Cargador")).toBeUndefined()
+    await click(boton("Agregar Redmi"))
+    expect(cantidadNueva("Redmi")).toBe(1)
+    await click(boton("Sumar una unidad de Redmi (nuevo)"))
+    expect(cantidadNueva("Redmi")).toBe(2)
 
-    // variants: the real selector dialog
-    await escribir(buscador, "")
-    await click(tarjeta("Funda"))
-    await click(botones().find((b) => b.textContent?.trim().startsWith("Negra")))
-    expect(lineaCarrito("Funda — Negra")?.cantidad).toBe(1)
+    // variants: chips inside the result; one without stock cannot be added
+    await escribir(buscador, "funda")
+    expect(boton("Agregar Funda — Roja")!.disabled).toBe(true)
+    await click(boton("Agregar Funda — Negra"))
+    expect(cantidadNueva("Funda — Negra")).toBe(1)
+    // a product without stock cannot be added either
+    await escribir(buscador, "carg")
+    expect(boton("Agregar Cargador")!.disabled).toBe(true)
 
-    // scanner (camera stand-in): the code consolidates into the same cart line
-    await click(boton("Escanear productos"))
-    expect(scanner).not.toBeNull()
-    let lectura: { title?: string } = {}
-    await act(async () => { lectura = (await scanner!.onCode(REDMI, "camera")) as { title?: string } })
-    await flush()
-    expect(lectura.title).toBe("Agregado: Redmi")
-    expect(lineaCarrito("Redmi")?.cantidad).toBe(3)
-    await act(async () => scanner!.onClose())
-    await flush()
+    // an exact code + Enter (keyboard barcode reader) consolidates into the same line
+    await escribir(buscador, REDMI)
+    await enter(buscador)
+    expect(cantidadNueva("Redmi")).toBe(3)
+    expect(buscador.value).toBe("")
 
-    // the selection goes to the exchange, and the quote asks for exactly that cart
-    await click(boton("Usar estos productos"))
-    await click(boton("Calcular cambio"))
-    await flush()
-    const cot = posts.find((p) => p.url.endsWith("/cambios/cotizacion"))!
-    expect(cot.body.entran).toEqual([{ productoId: "p-redmi", cantidad: 3 }, { productoId: "p-funda", varianteId: "v-negra", cantidad: 1 }])
-    expect(boton("Volver a calcular")).toBeTruthy()
+    // the quote (automatic) asks for exactly the chosen products
+    await flush(QUOTE_WAIT)
+    const cotizacionesHechas = () => posts.filter((p) => p.url.endsWith("/cambios/cotizacion"))
+    expect(cotizacionesHechas().at(-1)!.body.entran).toEqual([{ productoId: "p-redmi", cantidad: 3 }, { productoId: "p-funda", varianteId: "v-negra", cantidad: 1 }])
+    expect(texto()).toMatch(/Cobrar al cliente\$\s?1\.500,00/)
+    expect(boton("Medio de cobro de la diferencia") ?? document.querySelector('[aria-label="Medio de cobro de la diferencia"]')).toBeTruthy()
 
-    // editing quantities in the real cart invalidates the quote
-    await click(boton("Cambiar lo que se lleva"))
-    await flush(80)
-    expect(lineaCarrito("Redmi")?.cantidad).toBe(3) // the selector opens with the chosen cart
-    await click(lineaCarrito("Redmi")!.menos)
-    await click(boton("Usar estos productos"))
-    expect(texto()).toContain("Cambiaste los productos: pedí una nueva cotización.")
+    // editing a new line invalidates the quote and asks a new one
+    const antes = cotizacionesHechas().length
+    await click(boton("Restar una unidad de Redmi (nuevo)"))
     expect(boton("Confirmar cambio")!.disabled).toBe(true)
+    await flush(QUOTE_WAIT)
+    expect(cotizacionesHechas().length).toBe(antes + 1)
+    expect(cotizacionesHechas().at(-1)!.body.entran).toEqual([{ productoId: "p-redmi", cantidad: 2 }, { productoId: "p-funda", varianteId: "v-negra", cantidad: 1 }])
 
-    // the selection mode never sold, never stored a checkout attempt
+    // the editor never sold, never stored a checkout attempt
     expect(posts.filter((p) => !p.url.endsWith("/cambios/cotizacion"))).toHaveLength(0)
     expect(readPendingAttempt("neg-1")).toBeNull()
     expect(Object.keys(window.sessionStorage).filter((k) => k.includes("checkout-attempt"))).toEqual([])
@@ -211,7 +198,7 @@ describe("F4-C5 — real selector inside the exchange flow", () => {
       cart: [{ productoId: "p-cargador", nombre: "Cargador", precio: 800, cantidad: 1 }],
       createdAt: Date.now(),
     })
-    const Selector = endpoints.comercial.Selector
+    const Selector = selectorProductos(ownerCajaSource("neg-1"))
     let elegido: unknown = null
     const root = await montar(<>
       <section data-testid="venta-normal"><VenderView negocioId="neg-1" source={ownerCajaSource("neg-1")} /></section>

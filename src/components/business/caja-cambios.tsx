@@ -1,29 +1,42 @@
 "use client"
 
 // ============================================
-// F4-C5 — commercial exchanges and linked additional sales (owner + cashier, same UI)
+// «Gestionar venta» — returns and commercial exchanges in ONE editor
+// (owner + cashier, same UI)
 // ============================================
 // One component for both hosts: each passes its OWN endpoints (a cashier never
-// calls an owner API) and a product selector built from the existing Caja
-// selling view. The server decides prices, amounts, stock, shifts and
-// permissions; this UI only collects choices. Rules (operator, 2026-11-09):
-//   - the quote is asked with an explicit button; any change of what goes out
-//     or comes in invalidates it; the confirmation sends the quoted amounts
-//     (`esperado`) EXACTLY as the server returned them (never recomputed);
+// calls an owner API) and its own catalog. The operator edits the sale the way
+// it happened at the counter — lowers what the customer brings back, adds what
+// the customer takes instead — and the operation is INFERRED (operator,
+// 2026-11-11), never asked:
+//   - something comes back, nothing is added → F4-A return (partial, or of
+//     every remaining unit — never an automatic void);
+//   - something comes back and something is added → F4-C exchange (one atomic
+//     server operation: return + linked CAMBIO sale + settlement);
+//   - only additions → nothing is registered here: a new purchase is a normal
+//     sale («Vender»); the linked additional sale is no longer offered;
+//   - no change → nothing can be confirmed.
+// The server decides prices, amounts, stock, shifts and permissions; this UI
+// only collects choices. Exchange rules kept from F4-C5 (operator, 2026-11-09):
+//   - any change of what goes out or comes in invalidates the quote (the
+//     quote is now requested automatically after each change instead of with
+//     a button); the confirmation sends the quoted amounts (`esperado`)
+//     EXACTLY as the server returned them (never recomputed);
 //   - P1 warnings are informative, never block;
-//   - every confirmation is an attempt stored on this device BEFORE it is sent
-//     (src/lib/caja-intento-comercial.ts). An uncertain attempt blocks a new
-//     equivalent operation on that sale until «Verificar operación» (same key,
-//     same body, never performs it) returns a SAFE result; it is never
-//     discarded by a simple warning.
+//   - every exchange confirmation is an attempt stored on this device BEFORE it
+//     is sent (src/lib/caja-intento-comercial.ts). An uncertain attempt blocks a
+//     new equivalent operation on that sale until «Verificar operación» (same
+//     key, same body, never performs it) returns a SAFE result. Attempts of the
+//     retired linked additional sale stored earlier are still verified.
 
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeftRight, History, Minus, Plus, RefreshCw, ShoppingBag } from "lucide-react"
+import { AlertTriangle, History, Minus, Plus, RefreshCw, ShoppingCart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
-import { cartTotal, type CartLine } from "@/lib/caja-venta"
+import { addCartLine, cartTotal, setCartLineQuantity, type CartLine } from "@/lib/caja-venta"
+import { importeEstimado } from "@/lib/caja-devolucion-estimado"
 import { cn, formatPrice } from "@/lib/utils"
 import {
   clasificarConfirmacion,
@@ -37,8 +50,11 @@ import {
   type IntentoComercial,
   type TipoIntentoComercial,
 } from "@/lib/caja-intento-comercial"
+import { CatalogoCompacto, type CatalogoFuente } from "@/components/business/caja-catalogo-compacto"
+import { useIdempotentPost } from "@/components/business/caja-post-idempotente"
 import type { VentaConDevoluciones, VentaDevolucionItem } from "@/components/business/caja-devoluciones"
 
+/** Props of the selling view in selection mode (caja-tab.tsx); kept for that view. */
 export interface SelectorProductosProps {
   etiqueta: string
   inicial: CartLine[]
@@ -50,13 +66,13 @@ export interface CajaComercialEndpoints {
   cambioUrl: (ventaId: string) => string
   cotizacionUrl: (ventaId: string) => string
   verificarCambioUrl: (ventaId: string) => string
-  adicionalUrl: (ventaId: string) => string
+  /** Retired linked additional sale: only verifies attempts stored earlier on this device. */
   verificarAdicionalUrl: (ventaId: string) => string
   cadenaUrl: (ventaId: string) => string
   /** Owner only: registers with an open shift (where cash comes in / goes out). */
   ownerRegistersUrl?: string
-  /** Product picker of the host (the Caja selling view in selection mode). */
-  Selector: ComponentType<SelectorProductosProps>
+  /** The host's own catalog, for the replacement products (absent = returns only). */
+  catalogo?: CatalogoFuente
 }
 
 type Medio = "EFECTIVO" | "TRANSFERENCIA" | "OTRO"
@@ -69,6 +85,7 @@ export function etiquetaMetodoVenta(metodo: string): string {
 /** Display only: the server sends exact decimal strings ("2000.00"). */
 const pesos = (value: string | number | undefined | null) => formatPrice(Number(value ?? 0))
 const nombreLinea = (l: { nombre: string; varianteNombre?: string | null }) => (l.varianteNombre ? `${l.nombre} — ${l.varianteNombre}` : l.nombre)
+const round2 = (value: number) => Math.round(value * 100) / 100
 
 interface Cotizacion {
   importes: { salida: string; entrada: string; credito: string; diferenciaCobrada: string; diferenciaReintegro: string }
@@ -132,6 +149,23 @@ function MedioBotones({ value, onChange, disabled, label }: { value: Medio | nul
   )
 }
 
+function Cantidad({ valor, max, onChange, etiqueta, disabled }: { valor: number; max?: number; onChange: (n: number) => void; etiqueta: string; disabled?: boolean }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0 rounded-xl" aria-label={`Restar una unidad de ${etiqueta}`} disabled={disabled || valor <= 0} onClick={() => onChange(valor - 1)}><Minus className="h-4 w-4" /></Button>
+      <Input
+        inputMode="decimal"
+        aria-label={`Cantidad de ${etiqueta}`}
+        value={String(valor)}
+        disabled={disabled}
+        onChange={(e) => { const n = Number(e.target.value.replace(",", ".")); if (Number.isFinite(n)) onChange(n) }}
+        className="h-9 w-14 min-w-0 rounded-xl px-1 text-center"
+      />
+      <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0 rounded-xl" aria-label={`Sumar una unidad de ${etiqueta}`} disabled={disabled || (max !== undefined && valor + 1 > max)} onClick={() => onChange(valor + 1)}><Plus className="h-4 w-4" /></Button>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Unresolved attempts
 // ---------------------------------------------------------------------------
@@ -189,7 +223,7 @@ function IntentoPendiente({ intento, endpoints, onResultado, onNoRegistrado }: {
     } else if (r === "no_registrado" || r === "clave_usada") {
       retirarIntento(endpoints.contexto, intento.ventaOrigenId)
       onNoRegistrado(r === "no_registrado"
-        ? "Verificado: la operación NO se registró y ese intento quedó cerrado. Podés pedir una nueva cotización y confirmar de nuevo."
+        ? "Verificado: la operación NO se registró y ese intento quedó cerrado. Podés gestionar la venta de nuevo."
         : "Verificado: esa clave pertenece a otra operación, así que este intento NO se registró. Podés intentarlo de nuevo.")
     } else {
       guardarIntento({ ...intento, estado: "INCIERTO", updatedAt: Date.now() })
@@ -203,7 +237,7 @@ function IntentoPendiente({ intento, endpoints, onResultado, onNoRegistrado }: {
     <div className="min-w-0 space-y-3" data-testid="intento-pendiente">
       <div role="alert" className="min-w-0 space-y-1 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
         <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4 shrink-0" />Todavía no se conoce el resultado de este {intento.tipo === "CAMBIO" ? "cambio" : "registro de venta vinculada"}.</p>
-        <p className="break-words text-xs">Mientras no se verifique, no se puede registrar otra operación de cambio o venta vinculada sobre esta venta desde este dispositivo, para no duplicarla.</p>
+        <p className="break-words text-xs">Mientras no se verifique, no se puede registrar otro cambio sobre esta venta desde este dispositivo, para no duplicarlo.</p>
         <p className="text-xs">Iniciado: {new Date(intento.createdAt).toLocaleString("es-AR")}</p>
         {vencido && <p className="text-xs font-semibold">Este intento lleva más de 7 días sin resolver: verificalo.</p>}
       </div>
@@ -223,18 +257,42 @@ function IntentoPendiente({ intento, endpoints, onResultado, onNoRegistrado }: {
 }
 
 // ---------------------------------------------------------------------------
-// Result
+// Money summary (what the customer brings back / takes / pays or receives)
 // ---------------------------------------------------------------------------
+
+/**
+ * The internal compensation is computed by the server and kept in the history,
+ * the audit and the owner's reports; here it is only an optional detail and is
+ * never shown as money that comes in or goes out.
+ */
+function ResumenDinero({ importes, liquidacion }: { importes: Cotizacion["importes"]; liquidacion: Cotizacion["liquidacion"] }) {
+  return (
+    <div className="min-w-0 space-y-1" data-testid="importes-cambio">
+      <dl className="space-y-1 text-sm">
+        <div className="flex justify-between gap-2"><dt>Devuelve el cliente</dt><dd className="font-semibold">{pesos(importes.salida)}</dd></div>
+        <div className="flex justify-between gap-2"><dt>Se lleva</dt><dd className="font-semibold">{pesos(importes.entrada)}</dd></div>
+        <div className={cn("flex justify-between gap-2 border-t pt-1.5 text-base font-bold", liquidacion === "COBRO" && "text-emerald-700 dark:text-emerald-300", liquidacion === "REINTEGRO" && "text-amber-700 dark:text-amber-300")}>
+          <dt>{liquidacion === "COBRO" ? "Cobrar al cliente" : liquidacion === "REINTEGRO" ? "Devolver al cliente" : "Sin diferencia de dinero"}</dt>
+          <dd>{liquidacion === "COBRO" ? pesos(importes.diferenciaCobrada) : liquidacion === "REINTEGRO" ? pesos(importes.diferenciaReintegro) : pesos(0)}</dd>
+        </div>
+      </dl>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer select-none">Ver detalle</summary>
+        <p className="mt-1 break-words">Se compensan {pesos(importes.credito)} entre lo que devuelve y lo que se lleva. Es una compensación interna: no es dinero que entra ni que sale de la caja.</p>
+      </details>
+    </div>
+  )
+}
 
 function ResultadoOperacion({ resultado, onCerrar }: { resultado: Resultado; onCerrar: () => void }) {
   return (
     <div className="min-w-0 space-y-3" data-testid="resultado-operacion">
-      <div role="status" className="space-y-1 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">
+      <div role="status" className="space-y-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">
         {resultado.replayed && <p className="font-semibold">Esta operación ya estaba registrada: no se aplicó dos veces.</p>}
         {resultado.tipo === "CAMBIO" ? (
           <>
             <p className="font-semibold">Cambio registrado: #{resultado.cambio.ventaOrigenReferencia} → #{resultado.cambio.ventaNuevaReferencia}</p>
-            <ImportesCambio importes={resultado.cambio.importes} liquidacion={resultado.cambio.liquidacion} />
+            <ResumenDinero importes={resultado.cambio.importes} liquidacion={resultado.cambio.liquidacion} />
             {resultado.cambio.advertenciasTexto.length > 0 && <p className="text-xs">Para tu información: {resultado.cambio.advertenciasTexto.join(" · ")}</p>}
           </>
         ) : (
@@ -243,20 +301,6 @@ function ResultadoOperacion({ resultado, onCerrar }: { resultado: Resultado; onC
       </div>
       <Button type="button" className="min-h-11 w-full rounded-xl" onClick={onCerrar}>Listo</Button>
     </div>
-  )
-}
-
-function ImportesCambio({ importes, liquidacion }: { importes: Cotizacion["importes"]; liquidacion: Cotizacion["liquidacion"] }) {
-  return (
-    <dl className="space-y-1 text-sm" data-testid="importes-cambio">
-      <div className="flex justify-between gap-2"><dt>Vuelve (lo que devuelve el cliente)</dt><dd className="font-semibold">{pesos(importes.salida)}</dd></div>
-      <div className="flex justify-between gap-2"><dt>Se lleva</dt><dd className="font-semibold">{pesos(importes.entrada)}</dd></div>
-      <div className="flex justify-between gap-2"><dt>Crédito interno (no es dinero)</dt><dd>{pesos(importes.credito)}</dd></div>
-      <div className="flex justify-between gap-2 border-t pt-1 font-bold">
-        <dt>{liquidacion === "COBRO" ? "Diferencia a cobrar" : liquidacion === "REINTEGRO" ? "Diferencia a devolver al cliente" : "Sin diferencia de dinero"}</dt>
-        <dd>{liquidacion === "COBRO" ? pesos(importes.diferenciaCobrada) : liquidacion === "REINTEGRO" ? pesos(importes.diferenciaReintegro) : pesos(0)}</dd>
-      </div>
-    </dl>
   )
 }
 
@@ -299,7 +343,7 @@ export function CadenaVenta({ url }: { url: string }) {
           {cambios.map((c) => (
             <li key={c.id} className="break-words">
               #{c.ventaOrigenReferencia} → #{c.ventaNuevaReferencia} · {new Date(c.createdAt).toLocaleString("es-AR")} · {c.registradoPor} ·{" "}
-              {c.liquidacion === "COBRO" ? `cobró ${pesos(c.importes.diferenciaCobrada)}` : c.liquidacion === "REINTEGRO" ? `devolvió ${pesos(c.importes.diferenciaReintegro)}` : "sin diferencia"} · crédito interno {pesos(c.importes.credito)}
+              {c.liquidacion === "COBRO" ? `cobró ${pesos(c.importes.diferenciaCobrada)}` : c.liquidacion === "REINTEGRO" ? `devolvió ${pesos(c.importes.diferenciaReintegro)}` : "sin diferencia"} · compensado {pesos(c.importes.credito)} (no es dinero)
             </li>
           ))}
         </ol>
@@ -309,60 +353,73 @@ export function CadenaVenta({ url }: { url: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// The operation (exchange or linked additional sale) of one origin sale
+// «Gestionar venta»
 // ---------------------------------------------------------------------------
 
-export function OperacionComercial({ tipo, venta, endpoints, onCerrar, onCambio }: {
-  tipo: TipoIntentoComercial
+export type OperacionInferida = "VACIA" | "SOLO_AGREGA" | "DEVOLUCION" | "DEVOLUCION_TOTAL" | "CAMBIO"
+
+/** The operation follows from what the operator edited — never asked. */
+export function inferirOperacion(items: ReadonlyArray<Pick<VentaDevolucionItem, "id" | "cantidadRestante">>, devuelve: Readonly<Record<string, number>>, lineasNuevas: number): OperacionInferida {
+  const vuelven = items.filter((i) => (devuelve[i.id] ?? 0) > 0)
+  if (vuelven.length === 0) return lineasNuevas > 0 ? "SOLO_AGREGA" : "VACIA"
+  if (lineasNuevas > 0) return "CAMBIO"
+  return items.every((i) => (devuelve[i.id] ?? 0) >= i.cantidadRestante) ? "DEVOLUCION_TOTAL" : "DEVOLUCION"
+}
+
+export interface GestionarVentaProps {
   venta: VentaConDevoluciones
-  endpoints: CajaComercialEndpoints
+  /** F4-A endpoint of this host: POST a return of this sale. */
+  devolucionUrl: string
+  /** Owner only: registers with an open shift (where cash comes in / goes out). */
+  ownerRegistersUrl?: string
+  /** Exchanges of this host (absent = returns only). */
+  comercial?: CajaComercialEndpoints
+  /** Takes the operator to the normal selling view (a new, independent sale). */
+  irAVender?: () => void
+  /** Back to the sale detail. */
   onCerrar: () => void
-  /** Refresh the host queries after a registered operation. */
-  onCambio: () => void
-}) {
-  const [intento, setIntento] = useState<IntentoComercial | null>(() => leerIntento(endpoints.contexto, venta.id))
+  /** Refresh the host queries after an operation (or a refusal). */
+  onActualizar: () => void
+  /** A return was registered: back to the detail with this message. */
+  onDevuelto: (mensaje: string) => void
+}
+
+export function GestionarVenta(props: GestionarVentaProps) {
+  const { venta, comercial } = props
+  const [intento, setIntento] = useState<IntentoComercial | null>(() => (comercial ? leerIntento(comercial.contexto, venta.id) : null))
   const [resultado, setResultado] = useState<Resultado | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [nuevo, setNuevo] = useState(0)
 
-  if (resultado) return <ResultadoOperacion resultado={resultado} onCerrar={onCerrar} />
-  if (intento) {
+  if (resultado) return <ResultadoOperacion resultado={resultado} onCerrar={props.onCerrar} />
+  if (intento && comercial) {
     return (
       <IntentoPendiente
         intento={intento}
-        endpoints={endpoints}
-        onResultado={(r) => { setIntento(null); setResultado(r); onCambio() }}
-        onNoRegistrado={(texto) => { setIntento(null); setAviso(texto); setNuevo((n) => n + 1) }}
+        endpoints={comercial}
+        onResultado={(r) => { setIntento(null); setResultado(r); props.onActualizar() }}
+        onNoRegistrado={(texto) => { setIntento(null); setAviso(texto); setNuevo((n) => n + 1); props.onActualizar() }}
       />
     )
   }
-  const comun = {
-    venta,
-    endpoints,
-    aviso,
-    onCancelar: onCerrar,
-    onIncierto: () => setIntento(leerIntento(endpoints.contexto, venta.id)),
-    onRegistrado: (r: Resultado) => { setResultado(r); onCambio() },
-  }
-  return tipo === "CAMBIO" ? <CambioForm key={nuevo} {...comun} /> : <AdicionalForm key={nuevo} {...comun} />
+  return (
+    <GestionarVentaForm
+      key={nuevo}
+      {...props}
+      aviso={aviso}
+      onIncierto={() => setIntento(comercial ? leerIntento(comercial.contexto, venta.id) : null)}
+      onCambioRegistrado={(r) => { setResultado(r); props.onActualizar() }}
+    />
+  )
 }
 
-interface FormProps {
-  venta: VentaConDevoluciones
-  endpoints: CajaComercialEndpoints
-  aviso: string | null
-  onCancelar: () => void
-  onIncierto: () => void
-  onRegistrado: (r: Resultado) => void
-}
-
-/** Stores the attempt, sends it once, classifies the answer (shared by both forms). */
-function useConfirmar(venta: VentaConDevoluciones, endpoints: CajaComercialEndpoints, p: { onIncierto: () => void; onRegistrado: (r: Resultado) => void }) {
+/** Stores the attempt, sends it once, classifies the answer. */
+function useConfirmar(venta: VentaConDevoluciones, endpoints: CajaComercialEndpoints | undefined, p: { onIncierto: () => void; onRegistrado: (r: Resultado) => void }) {
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const enCurso = useRef(false)
   async function confirmar(tipo: TipoIntentoComercial, url: string, body: unknown, resumen: IntentoComercial["resumen"]): Promise<{ code?: string } | null> {
-    if (enCurso.current) return null
+    if (!endpoints || enCurso.current) return null
     enCurso.current = true
     setError(null)
     try {
@@ -411,66 +468,131 @@ function useConfirmar(venta: VentaConDevoluciones, endpoints: CajaComercialEndpo
   return { confirmar, enviando, error, setError }
 }
 
-function CambioForm({ venta, endpoints, aviso, onCancelar, onIncierto, onRegistrado }: FormProps) {
+type DineroDevolucion = "REALIZADO" | "PENDIENTE" | "NO_CORRESPONDE"
+type ReintegroDiferencia = { modo: "REALIZADO"; medio: Medio } | { modo: "PENDIENTE" }
+
+const TITULO_OPERACION: Record<Exclude<OperacionInferida, "VACIA">, string> = {
+  SOLO_AGREGA: "Compra adicional",
+  DEVOLUCION: "Devolución",
+  DEVOLUCION_TOTAL: "Devolución total",
+  CAMBIO: "Cambio de productos",
+}
+
+const STOCK_BOTONES: Array<[boolean, string]> = [[true, "Vuelve al stock"], [false, "No vuelve (dañado, abierto…)"]]
+
+function GestionarVentaForm({ venta, devolucionUrl, ownerRegistersUrl, comercial, irAVender, onCerrar, onActualizar, onDevuelto, aviso, onIncierto, onCambioRegistrado }: GestionarVentaProps & {
+  aviso: string | null
+  onIncierto: () => void
+  onCambioRegistrado: (r: Resultado) => void
+}) {
   const disponibles = venta.items.filter((item) => item.cantidadRestante > 0)
-  const [paso, setPaso] = useState<"salen" | "entran" | "resumen">("salen")
-  const [cantidades, setCantidades] = useState<Record<string, number>>({})
+  const [devuelve, setDevuelve] = useState<Record<string, number>>({})
   const [stock, setStock] = useState<Record<string, boolean | undefined>>({})
   const [entran, setEntran] = useState<CartLine[]>([])
   const [motivo, setMotivo] = useState("")
-  const [cotizacion, setCotizacion] = useState<{ firma: string; datos: Cotizacion } | null>(null)
-  const [cotizando, setCotizando] = useState(false)
-  const [errorCotizacion, setErrorCotizacion] = useState<string | null>(null)
+  const [dinero, setDinero] = useState<DineroDevolucion | null>(null)
+  const metodoVenta = (["EFECTIVO", "TRANSFERENCIA", "OTRO"].includes(venta.metodoPago) ? venta.metodoPago : "EFECTIVO") as Medio
+  const [medioDevolucion, setMedioDevolucion] = useState<Medio>(metodoVenta)
   const [medioDiferencia, setMedioDiferencia] = useState<Medio | null>(null)
-  const [reintegro, setReintegro] = useState<{ modo: "REALIZADO"; medio: Medio } | { modo: "PENDIENTE" } | null>(null)
+  const [reintegro, setReintegro] = useState<ReintegroDiferencia | null>(null)
   const [caja, setCaja] = useState("")
-  const [confirmo, setConfirmo] = useState(false)
-  const { confirmar, enviando, error, setError } = useConfirmar(venta, endpoints, { onIncierto, onRegistrado })
-  const Selector = endpoints.Selector
+  const [cotizacion, setCotizacion] = useState<{ firma: string; datos: Cotizacion } | null>(null)
+  const [errorCotizacion, setErrorCotizacion] = useState<{ firma: string; texto: string; code?: string } | null>(null)
+  const [devolviendo, setDevolviendo] = useState(false)
+  const [errorDevolucion, setErrorDevolucion] = useState<string | null>(null)
+  const enCursoDevolucion = useRef(false)
+  const post = useIdempotentPost()
+  const { confirmar, enviando, error, setError } = useConfirmar(venta, comercial, { onIncierto, onRegistrado: onCambioRegistrado })
+  const ocupado = enviando || devolviendo
 
-  const salen = disponibles.filter((i) => (cantidades[i.id] ?? 0) > 0).map((i) => ({ ventaItemId: i.id, cantidad: cantidades[i.id], reingresaStock: stock[i.id] === true }))
+  const operacion = inferirOperacion(disponibles, devuelve, entran.length)
+  const esDevolucion = operacion === "DEVOLUCION" || operacion === "DEVOLUCION_TOTAL"
+  const salen = disponibles.filter((i) => (devuelve[i.id] ?? 0) > 0).map((i) => ({ ventaItemId: i.id, cantidad: devuelve[i.id], reingresaStock: stock[i.id] === true }))
   const entranBody = entran.map((l) => ({ productoId: l.productoId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), cantidad: l.cantidad }))
-  const firma = JSON.stringify({ salen, entranBody })
-  const vigente = cotizacion && cotizacion.firma === firma ? cotizacion.datos : null
-  const faltaStock = disponibles.some((i) => (cantidades[i.id] ?? 0) > 0 && stock[i.id] === undefined)
-  const efectivo = vigente ? (vigente.liquidacion === "COBRO" && medioDiferencia === "EFECTIVO") || (vigente.liquidacion === "REINTEGRO" && reintegro?.modo === "REALIZADO" && reintegro.medio === "EFECTIVO") : false
-  const registros = useOpenRegisters(endpoints.ownerRegistersUrl, efectivo)
-  const faltaCaja = efectivo && necesitaCaja(endpoints.ownerRegistersUrl, registros.data?.length) && !caja
-  const liquidacionLista = vigente ? (vigente.liquidacion === "COBRO" ? medioDiferencia !== null : vigente.liquidacion === "REINTEGRO" ? reintegro !== null : true) : false
-  const listo = Boolean(vigente) && liquidacionLista && motivo.trim().length > 0 && confirmo && !faltaCaja && !enviando
+  const faltaStock = disponibles.some((i) => (devuelve[i.id] ?? 0) > 0 && stock[i.id] === undefined)
+  // The amounts never depend on the stock decision: an undecided line is quoted as returning to stock.
+  const salenCotizacion = salen.map((s) => ({ ...s, reingresaStock: stock[s.ventaItemId] ?? true }))
+  const cajaCotizacion = comercial?.ownerRegistersUrl && caja ? caja : ""
+  const firma = JSON.stringify({ salen: salenCotizacion, entranBody, caja: cajaCotizacion })
+  const vigente = operacion === "CAMBIO" && cotizacion?.firma === firma ? cotizacion.datos : null
+  const errorVigente = operacion === "CAMBIO" && errorCotizacion?.firma === firma ? errorCotizacion : null
+  const calculando = operacion === "CAMBIO" && !vigente && !errorVigente
 
-  const setCantidad = (item: VentaDevolucionItem, n: number) => setCantidades((prev) => ({ ...prev, [item.id]: Math.max(0, Math.min(item.cantidadRestante, Math.round(n * 1000) / 1000)) }))
-
-  async function cotizar() {
-    if (cotizando) return
-    setCotizando(true)
-    setErrorCotizacion(null)
-    setError(null)
-    const firmaPedida = firma
-    try {
-      const res = await fetch(endpoints.cotizacionUrl(venta.id), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ salen, entran: entranBody, ...(motivo.trim() ? { motivo: motivo.trim() } : {}), ...(endpoints.ownerRegistersUrl && caja ? { cajaFisicaId: caja } : {}) }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok || !json.ok) {
-        setCotizacion(null)
-        setErrorCotizacion(json.error ?? "No pudimos calcular el cambio.")
-        return
+  // Exchange: quote automatically after each change (debounced). A quote computes
+  // everything with the real engines and rolls back: it never registers anything.
+  useEffect(() => {
+    if (operacion !== "CAMBIO" || !comercial) return
+    if (cotizacion?.firma === firma || errorCotizacion?.firma === firma) return
+    let actual = true
+    const pedida = firma
+    const temporizador = setTimeout(async () => {
+      try {
+        const res = await fetch(comercial.cotizacionUrl(venta.id), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ salen: salenCotizacion, entran: entranBody, ...(cajaCotizacion ? { cajaFisicaId: cajaCotizacion } : {}) }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!actual) return
+        if (!res.ok || !json.ok) {
+          setErrorCotizacion({ firma: pedida, texto: json.error ?? "No pudimos calcular el cambio.", code: typeof json.code === "string" ? json.code : undefined })
+          return
+        }
+        setCotizacion({ firma: pedida, datos: json.cotizacion })
+      } catch {
+        if (actual) setErrorCotizacion({ firma: pedida, texto: "Sin conexión: no pudimos calcular el cambio. No se registró nada." })
       }
-      setCotizacion({ firma: firmaPedida, datos: json.cotizacion })
-      setConfirmo(false)
-    } catch {
-      setCotizacion(null)
-      setErrorCotizacion("Sin conexión: no pudimos calcular el cambio. No se registró nada.")
+    }, 350)
+    return () => { actual = false; clearTimeout(temporizador) }
+    // `firma` encodes every input of the quote (what goes out, what comes in, the register).
+  }, [operacion, firma, cotizacion, errorCotizacion, comercial, venta.id])
+
+  const importeDevolucion = round2(disponibles.reduce((acc, item) => acc + importeEstimado(item, devuelve[item.id] ?? 0), 0))
+  const efectivoDevolucion = esDevolucion && dinero === "REALIZADO" && medioDevolucion === "EFECTIVO"
+  const efectivoCambio = vigente ? (vigente.liquidacion === "COBRO" && medioDiferencia === "EFECTIVO") || (vigente.liquidacion === "REINTEGRO" && reintegro?.modo === "REALIZADO" && reintegro.medio === "EFECTIVO") : false
+  // Several open registers: the owner chooses where cash moves (or where the exchange is attributed).
+  const forzarCaja = errorVigente?.code === "CAJA_SELECCION_REQUERIDA"
+  const conCaja = efectivoDevolucion || efectivoCambio || forzarCaja
+  const registros = useOpenRegisters(ownerRegistersUrl, conCaja)
+  const faltaCaja = conCaja && necesitaCaja(ownerRegistersUrl, registros.data?.length) && !caja
+  const motivoOk = motivo.trim().length > 0
+  const liquidacionLista = vigente ? (vigente.liquidacion === "COBRO" ? medioDiferencia !== null : vigente.liquidacion === "REINTEGRO" ? reintegro !== null : true) : false
+  const listoDevolucion = esDevolucion && !faltaStock && motivoOk && dinero !== null && !faltaCaja && !ocupado
+  const listoCambio = operacion === "CAMBIO" && Boolean(vigente) && liquidacionLista && !faltaStock && motivoOk && !faltaCaja && !ocupado
+  const listo = listoDevolucion || listoCambio
+
+  const setQueda = (item: VentaDevolucionItem, queda: number) => {
+    const q = Math.max(0, Math.min(item.cantidadRestante, Math.round(queda * 1000) / 1000))
+    setDevuelve((prev) => ({ ...prev, [item.id]: Math.round((item.cantidadRestante - q) * 1000) / 1000 }))
+  }
+
+  async function enviarDevolucion() {
+    if (!listoDevolucion || enCursoDevolucion.current) return
+    enCursoDevolucion.current = true
+    setDevolviendo(true)
+    setErrorDevolucion(null)
+    try {
+      const body = {
+        tipo: "DEVOLUCION_PARCIAL",
+        motivo: motivo.trim(),
+        confirmo: true,
+        reintegro: dinero === "REALIZADO" ? { modo: "REALIZADO", medio: medioDevolucion } : { modo: dinero },
+        items: salen,
+        ...(ownerRegistersUrl && caja && efectivoDevolucion ? { cajaFisicaId: caja } : {}),
+      }
+      const result = await post(devolucionUrl, body)
+      onActualizar()
+      if (!result.ok) { setErrorDevolucion(result.message); return }
+      const devolucion = result.json.devolucion as { importe?: number; reintegroDescripcion?: string } | undefined
+      onDevuelto(`${operacion === "DEVOLUCION_TOTAL" ? "Devolución total registrada" : "Devolución registrada"} por ${formatPrice(devolucion?.importe ?? importeDevolucion)}. Dinero: ${devolucion?.reintegroDescripcion ?? "registrado"}.`)
     } finally {
-      setCotizando(false)
+      enCursoDevolucion.current = false
+      setDevolviendo(false)
     }
   }
 
-  async function enviar() {
-    if (!vigente || !listo) return
+  async function enviarCambio() {
+    if (!vigente || !listoCambio || !comercial) return
     // EXACTLY the quoted strings (H1): the server compares them with Decimal.equals.
     const cotizados = { salida: vigente.importes.salida, entrada: vigente.importes.entrada }
     const body = {
@@ -482,165 +604,178 @@ function CambioForm({ venta, endpoints, aviso, onCancelar, onIncierto, onRegistr
       confirmo: true,
       ...(vigente.liquidacion === "COBRO" ? { medioDiferencia } : {}),
       ...(vigente.liquidacion === "REINTEGRO" ? { reintegro } : {}),
-      ...(endpoints.ownerRegistersUrl && caja ? { cajaFisicaId: caja } : {}),
+      ...(comercial.ownerRegistersUrl && caja ? { cajaFisicaId: caja } : {}),
     }
     const lineas = [
       `Vuelve: ${vigente.salen.map((l) => `${l.cantidad} × ${l.nombre}`).join(", ")}`,
       `Se lleva: ${vigente.entran.map((l) => `${l.cantidad} × ${nombreLinea(l)}`).join(", ")}`,
     ]
-    const rechazo = await confirmar("CAMBIO", endpoints.cambioUrl(venta.id), body, { lineas, importes: vigente.importes })
+    const rechazo = await confirmar("CAMBIO", comercial.cambioUrl(venta.id), body, { lineas, importes: vigente.importes })
+    if (rechazo) onActualizar()
     if (rechazo?.code === "IMPORTES_CAMBIARON" || rechazo?.code === "INTENTO_CERRADO") setCotizacion(null) // a new quote is required
   }
 
-  if (paso === "entran") {
-    return (
-      <div className="min-w-0 space-y-3">
-        <p className="text-sm font-semibold">Paso 2 de 3 · ¿Qué se lleva el cliente?</p>
-        <Selector etiqueta="Usar estos productos" inicial={entran} onConfirmar={(cart) => { setEntran(cart); setPaso("resumen") }} />
-        <Button type="button" variant="outline" className="min-h-11 w-full rounded-xl" onClick={() => setPaso("salen")}>Volver</Button>
-      </div>
-    )
-  }
-
-  if (paso === "salen") {
-    const listoSalen = salen.length > 0 && !faltaStock
-    return (
-      <div className="min-w-0 space-y-3" aria-label="Productos que devuelve el cliente">
-        {aviso && <p role="status" className="break-words rounded-xl bg-emerald-50 p-2 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{aviso}</p>}
-        <p className="text-sm font-semibold">Paso 1 de 3 · ¿Qué devuelve el cliente?</p>
-        {disponibles.map((item) => {
-          const cantidad = cantidades[item.id] ?? 0
-          return (
-            <div key={item.id} className="min-w-0 space-y-2 rounded-xl border p-2">
-              <p className="break-words text-sm font-medium">{nombreLinea(item)}</p>
-              <p className="text-xs text-muted-foreground">Vendidas {item.cantidad} · disponibles {item.cantidadRestante}</p>
-              {item.precioHeredado && <p className="break-words text-xs font-medium text-amber-700 dark:text-amber-300">Precio heredado de una corrección anterior: revisalo antes de cambiar.</p>}
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl" aria-label={`Restar una unidad de ${nombreLinea(item)}`} disabled={cantidad <= 0} onClick={() => setCantidad(item, cantidad - 1)}><Minus className="h-4 w-4" /></Button>
-                <Input inputMode="decimal" aria-label={`Unidades que vuelven de ${nombreLinea(item)}`} value={String(cantidad)} onChange={(e) => { const n = Number(e.target.value.replace(",", ".")); if (Number.isFinite(n)) setCantidad(item, n) }} className="h-10 w-20 min-w-0 rounded-xl text-center" />
-                <Button type="button" variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-xl" aria-label={`Sumar una unidad de ${nombreLinea(item)}`} disabled={cantidad + 1 > item.cantidadRestante} onClick={() => setCantidad(item, cantidad + 1)}><Plus className="h-4 w-4" /></Button>
-              </div>
-              {cantidad > 0 && (
-                <div role="group" aria-label={`¿${nombreLinea(item)} vuelve al stock?`} className="grid grid-cols-2 gap-2">
-                  {[true, false].map((vuelve) => (
-                    <button key={String(vuelve)} type="button" aria-pressed={stock[item.id] === vuelve} onClick={() => setStock((prev) => ({ ...prev, [item.id]: vuelve }))}
-                      className={cn("min-h-10 min-w-0 whitespace-normal rounded-xl border px-2 py-1.5 text-xs font-semibold", stock[item.id] === vuelve ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground")}>
-                      {vuelve ? "Vuelve al stock" : "No vuelve (dañado, abierto…)"}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
-        <div className="flex flex-col gap-2">
-          <Button type="button" className="h-auto min-h-11 w-full whitespace-normal rounded-xl font-bold" disabled={!listoSalen} onClick={() => setPaso("entran")}>Elegir lo que se lleva</Button>
-          <Button type="button" variant="outline" className="min-h-11 w-full rounded-xl" onClick={onCancelar}>Cancelar</Button>
-        </div>
-      </div>
-    )
-  }
+  const totalNuevos = useMemo(() => cartTotal(entran), [entran])
+  const errorEnvio = errorDevolucion ?? error
 
   return (
-    <form className="min-w-0 space-y-3" aria-label="Confirmar cambio" onSubmit={(event) => { event.preventDefault(); void enviar() }}>
-      <p className="text-sm font-semibold">Paso 3 de 3 · Cotización y confirmación</p>
-      <div className="space-y-1 text-xs text-muted-foreground">
-        <p className="break-words">Vuelve: {salen.map((s) => `${s.cantidad} × ${nombreLinea(disponibles.find((i) => i.id === s.ventaItemId)!)}`).join(", ")}</p>
-        <p className="break-words">Se lleva: {entran.map((l) => `${l.cantidad} × ${nombreLinea(l)}`).join(", ")}</p>
-        <div className="flex gap-2">
-          <Button type="button" variant="link" className="h-auto p-0 text-xs" disabled={enviando} onClick={() => setPaso("salen")}>Cambiar lo que vuelve</Button>
-          <Button type="button" variant="link" className="h-auto p-0 text-xs" disabled={enviando} onClick={() => setPaso("entran")}>Cambiar lo que se lleva</Button>
-        </div>
-      </div>
-      <Button type="button" variant={vigente ? "outline" : "default"} className="h-auto min-h-11 w-full whitespace-normal rounded-xl font-bold" disabled={cotizando || enviando} onClick={() => void cotizar()}>
-        <ArrowLeftRight className="mr-1 h-4 w-4 shrink-0" />{cotizando ? "Calculando…" : vigente ? "Volver a calcular" : "Calcular cambio"}
-      </Button>
-      {errorCotizacion && <p role="alert" className="break-words text-sm text-destructive">{errorCotizacion}</p>}
-      {cotizacion && !vigente && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">Cambiaste los productos: pedí una nueva cotización.</p>}
-      {vigente && (
-        <div className="min-w-0 space-y-3 rounded-xl border p-3">
-          <ImportesCambio importes={vigente.importes} liquidacion={vigente.liquidacion} />
-          {vigente.advertenciasTexto.length > 0 && (
-            <p className="break-words rounded-lg bg-sky-50 p-2 text-xs text-sky-950 dark:bg-sky-950/40 dark:text-sky-100" data-testid="advertencias">Para tu información (no impide el cambio): {vigente.advertenciasTexto.join(" · ")}</p>
-          )}
-          {vigente.liquidacion === "COBRO" && <MedioBotones label="Medio de cobro de la diferencia" value={medioDiferencia} onChange={setMedioDiferencia} disabled={enviando} />}
-          {vigente.liquidacion === "REINTEGRO" && (
-            <fieldset className="min-w-0 space-y-2" disabled={enviando}>
-              <legend className="text-sm font-medium">¿Qué pasa con la diferencia a favor del cliente?</legend>
-              <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "REALIZADO"} onChange={() => setReintegro({ modo: "REALIZADO", medio: "EFECTIVO" })} />La devuelvo ahora</label>
-              {reintegro?.modo === "REALIZADO" && <MedioBotones label="Medio de devolución de la diferencia" value={reintegro.medio} onChange={(m) => setReintegro({ modo: "REALIZADO", medio: m })} disabled={enviando} />}
-              <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "PENDIENTE"} onChange={() => setReintegro({ modo: "PENDIENTE" })} />Queda pendiente</label>
-            </fieldset>
-          )}
-          <CajaElegida url={endpoints.ownerRegistersUrl} enabled={efectivo} value={caja} onChange={setCaja} disabled={enviando} />
+    <form
+      aria-label="Gestionar venta"
+      className="min-w-0 space-y-4"
+      onSubmit={(event) => { event.preventDefault(); setError(null); if (esDevolucion) void enviarDevolucion(); else if (operacion === "CAMBIO") void enviarCambio() }}
+    >
+      {aviso && <p role="status" className="break-words rounded-xl bg-emerald-50 p-2 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{aviso}</p>}
+
+      <fieldset disabled={ocupado} className="min-w-0 space-y-4">
+        <section className="min-w-0 space-y-2" aria-label="Productos de la venta">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">Productos de la venta</h3>
+            <span className="text-[11px] text-muted-foreground">Bajá lo que devuelve el cliente</span>
+          </div>
+          {disponibles.map((item) => {
+            const vuelve = devuelve[item.id] ?? 0
+            const queda = Math.round((item.cantidadRestante - vuelve) * 1000) / 1000
+            const nombre = nombreLinea(item)
+            return (
+              <div key={item.id} className={cn("min-w-0 space-y-2 rounded-xl border p-2.5", vuelve > 0 && "border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/20")} data-testid="linea-venta">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">{nombre}</p>
+                    <p className="text-xs text-muted-foreground">{formatPrice(item.precio)} c/u cobrado{item.cantidadDevuelta > 0 ? ` · ya devueltas ${item.cantidadDevuelta}` : ""}</p>
+                  </div>
+                  <Cantidad valor={queda} max={item.cantidadRestante} onChange={(n) => setQueda(item, n)} etiqueta={nombre} />
+                </div>
+                {item.precioHeredado && <p className="break-words text-xs font-medium text-amber-700 dark:text-amber-300">Precio heredado de una corrección anterior: revisalo antes de continuar.</p>}
+                {vuelve > 0 && (
+                  <div className="min-w-0 space-y-1.5">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">Devuelve {vuelve} · {formatPrice(importeEstimado(item, vuelve))}</p>
+                    <div role="group" aria-label={`¿${nombre} vuelve al stock?`} className="grid grid-cols-2 gap-2">
+                      {STOCK_BOTONES.map(([valor, texto]) => (
+                        <button key={String(valor)} type="button" aria-pressed={stock[item.id] === valor} onClick={() => setStock((prev) => ({ ...prev, [item.id]: valor }))}
+                          className={cn("min-h-9 min-w-0 whitespace-normal rounded-xl border px-2 py-1 text-xs font-semibold", stock[item.id] === valor ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground")}>
+                          {texto}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </section>
+
+        {comercial?.catalogo && (
+          <section className="min-w-0 space-y-2" aria-label="Productos que se lleva">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold">Se lleva en su lugar</h3>
+              {entran.length > 0 && <span className="text-xs font-semibold">{formatPrice(totalNuevos)}</span>}
+            </div>
+            {entran.map((linea) => {
+              const nombre = nombreLinea(linea)
+              return (
+                <div key={`${linea.productoId}|${linea.varianteId ?? ""}`} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-emerald-300 bg-emerald-50/60 p-2.5 dark:border-emerald-800 dark:bg-emerald-950/20" data-testid="linea-nueva">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">{nombre}</p>
+                    <p className="text-xs text-muted-foreground">{formatPrice(linea.precio)} c/u · precio actual</p>
+                  </div>
+                  <Cantidad valor={linea.cantidad} onChange={(n) => setEntran((prev) => setCartLineQuantity(prev, linea.productoId, Math.max(0, Math.round(n * 1000) / 1000), linea.varianteId))} etiqueta={`${nombre} (nuevo)`} />
+                </div>
+              )
+            })}
+            <CatalogoCompacto fuente={comercial.catalogo} disabled={ocupado} onAgregar={(l) => setEntran((prev) => addCartLine(prev, l))} />
+          </section>
+        )}
+      </fieldset>
+
+      {operacion === "VACIA" && (
+        <p className="break-words rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
+          {comercial?.catalogo ? "Bajá la cantidad de lo que devuelve el cliente y, si se lleva otra cosa, agregala." : "Bajá la cantidad de lo que devuelve el cliente."}
+        </p>
+      )}
+
+      {operacion === "SOLO_AGREGA" && (
+        <div role="status" className="min-w-0 space-y-2 rounded-xl border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          <p className="break-words">El cliente no devuelve nada: si compra algo más, es una <strong>venta nueva</strong>. Registrala en «Vender». Esta venta no se modifica.</p>
+          {irAVender && <Button type="button" variant="outline" className="min-h-10 w-full rounded-xl bg-background" onClick={irAVender}><ShoppingCart className="mr-1 h-4 w-4" />Ir a Vender</Button>}
         </div>
       )}
-      <label className="block min-w-0 space-y-1 text-sm font-medium">
-        <span>Motivo (obligatorio)</span>
-        <Input aria-label="Motivo del cambio" value={motivo} maxLength={500} disabled={enviando} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: prefiere otro modelo" className="h-11 w-full min-w-0 rounded-xl" />
-      </label>
-      <label className="flex min-w-0 items-start gap-2 text-sm">
-        <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={confirmo} disabled={enviando || !vigente} onChange={(e) => setConfirmo(e.target.checked)} />
-        <span className="min-w-0 break-words">Confirmo el cambio con estos importes.</span>
-      </label>
-      {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}
-      <div className="flex flex-col gap-2">
-        <Button type="submit" disabled={!listo} className="h-auto min-h-11 w-full whitespace-normal rounded-xl font-bold">{enviando ? "Registrando…" : "Confirmar cambio"}</Button>
-        <Button type="button" variant="outline" disabled={enviando} className="min-h-11 w-full rounded-xl" onClick={onCancelar}>Cancelar</Button>
-      </div>
-    </form>
-  )
-}
 
-function AdicionalForm({ venta, endpoints, aviso, onCancelar, onIncierto, onRegistrado }: FormProps) {
-  const [paso, setPaso] = useState<"entran" | "resumen">("entran")
-  const [cart, setCart] = useState<CartLine[]>([])
-  const [metodo, setMetodo] = useState<Medio | null>(null)
-  const [caja, setCaja] = useState("")
-  const [confirmo, setConfirmo] = useState(false)
-  const { confirmar, enviando, error } = useConfirmar(venta, endpoints, { onIncierto, onRegistrado })
-  const Selector = endpoints.Selector
-  const total = useMemo(() => cartTotal(cart), [cart])
-  const efectivo = metodo === "EFECTIVO"
-  const registros = useOpenRegisters(endpoints.ownerRegistersUrl, efectivo)
-  const faltaCaja = efectivo && necesitaCaja(endpoints.ownerRegistersUrl, registros.data?.length) && !caja
-  const listo = cart.length > 0 && metodo !== null && confirmo && !faltaCaja && !enviando
+      {(esDevolucion || operacion === "CAMBIO") && (
+        <section className="min-w-0 space-y-3 rounded-xl border bg-muted/30 p-3" aria-label="Resumen de la operación">
+          <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold">
+            <span>{TITULO_OPERACION[operacion]}</span>
+            {operacion === "CAMBIO" && calculando && <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Calculando…</span>}
+          </p>
 
-  if (paso === "entran") {
-    return (
-      <div className="min-w-0 space-y-3">
-        {aviso && <p role="status" className="break-words rounded-xl bg-emerald-50 p-2 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">{aviso}</p>}
-        <p className="text-sm font-semibold">Venta vinculada a #{venta.referencia} · ¿Qué agrega el cliente?</p>
-        <Selector etiqueta="Continuar" inicial={cart} onConfirmar={(c) => { setCart(c); setPaso("resumen") }} />
-        <Button type="button" variant="outline" className="min-h-11 w-full rounded-xl" onClick={onCancelar}>Cancelar</Button>
-      </div>
-    )
-  }
-  return (
-    <form className="min-w-0 space-y-3" aria-label="Confirmar venta vinculada" onSubmit={(event) => {
-      event.preventDefault()
-      if (!listo) return
-      void confirmar("ADICIONAL", endpoints.adicionalUrl(venta.id), {
-        metodoPago: metodo,
-        items: cart.map((l) => ({ productoId: l.productoId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), cantidad: l.cantidad })),
-        ...(endpoints.ownerRegistersUrl && caja ? { cajaFisicaId: caja } : {}),
-      }, { lineas: [`Agrega: ${cart.map((l) => `${l.cantidad} × ${nombreLinea(l)}`).join(", ")}`] })
-    }}>
-      <p className="flex items-center gap-1.5 text-sm font-semibold"><ShoppingBag className="h-4 w-4" />Venta vinculada a #{venta.referencia}</p>
-      <ul className="space-y-0.5 text-sm">{cart.map((l) => <li key={`${l.productoId}-${l.varianteId ?? ""}`} className="flex justify-between gap-2"><span className="min-w-0 break-words">{l.cantidad} × {nombreLinea(l)}</span><span>{formatPrice(l.precio * l.cantidad)}</span></li>)}</ul>
-      <p className="flex justify-between border-t pt-1 text-sm font-bold"><span>Total estimado</span><span>{formatPrice(total)}</span></p>
-      <p className="text-xs text-muted-foreground">El total exacto lo confirma el servidor con los precios vigentes.</p>
-      <Button type="button" variant="link" className="h-auto p-0 text-xs" disabled={enviando} onClick={() => setPaso("entran")}>Cambiar productos</Button>
-      <MedioBotones label="Medio de cobro" value={metodo} onChange={setMetodo} disabled={enviando} />
-      <CajaElegida url={endpoints.ownerRegistersUrl} enabled={efectivo} value={caja} onChange={setCaja} disabled={enviando} />
-      <label className="flex min-w-0 items-start gap-2 text-sm">
-        <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={confirmo} disabled={enviando} onChange={(e) => setConfirmo(e.target.checked)} />
-        <span className="min-w-0 break-words">Confirmo esta venta vinculada.</span>
-      </label>
-      {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}
-      <div className="flex flex-col gap-2">
-        <Button type="submit" disabled={!listo} className="h-auto min-h-11 w-full whitespace-normal rounded-xl font-bold">{enviando ? "Registrando…" : "Confirmar venta vinculada"}</Button>
-        <Button type="button" variant="outline" disabled={enviando} className="min-h-11 w-full rounded-xl" onClick={onCancelar}>Cancelar</Button>
+          {esDevolucion && <>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-2 text-base font-bold"><dt>Valor de lo que devuelve</dt><dd>{formatPrice(importeDevolucion)}</dd></div>
+            </dl>
+            <p className="text-xs text-muted-foreground">Según lo que se cobró. El importe final lo confirma el sistema.{operacion === "DEVOLUCION_TOTAL" ? " Devuelve todo: la venta queda «Devuelta por completo» (no es una anulación)." : ""}</p>
+            <fieldset className="min-w-0 space-y-2" disabled={ocupado}>
+              <legend className="text-sm font-medium">¿Qué pasa con el dinero?</legend>
+              {([
+                ["REALIZADO", "Lo devuelvo ahora"],
+                ["PENDIENTE", "Queda pendiente de devolver"],
+                ["NO_CORRESPONDE", "No corresponde devolver dinero"],
+              ] as Array<[DineroDevolucion, string]>).map(([valor, texto]) => (
+                <label key={valor} className="flex min-w-0 items-center gap-2 text-sm">
+                  <input type="radio" name={`dinero-${venta.id}`} className="h-4 w-4 shrink-0" checked={dinero === valor} onChange={() => setDinero(valor)} />
+                  <span className="min-w-0 break-words">{texto}</span>
+                </label>
+              ))}
+              {dinero === "REALIZADO" && <>
+                <MedioBotones label="Medio de devolución" value={medioDevolucion} onChange={setMedioDevolucion} disabled={ocupado} />
+                <p className="break-words text-xs text-muted-foreground">{medioDevolucion === "EFECTIVO" ? "Se registra la salida de efectivo de la caja del turno actual. Los cierres anteriores no cambian." : "DeliGO no realiza transferencias: sólo registra que devolviste el dinero por ese medio."}</p>
+              </>}
+            </fieldset>
+          </>}
+
+          {operacion === "CAMBIO" && <>
+            {vigente && <ResumenDinero importes={vigente.importes} liquidacion={vigente.liquidacion} />}
+            {errorVigente && (
+              <div className="min-w-0 space-y-2">
+                <p role="alert" className="break-words text-sm text-destructive">{errorVigente.texto}</p>
+                {!forzarCaja && <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => setErrorCotizacion(null)}><RefreshCw className="mr-1 h-4 w-4" />Volver a calcular</Button>}
+              </div>
+            )}
+            {vigente && vigente.advertenciasTexto.length > 0 && (
+              <p className="break-words rounded-lg bg-sky-50 p-2 text-xs text-sky-950 dark:bg-sky-950/40 dark:text-sky-100" data-testid="advertencias">Para tu información (no impide el cambio): {vigente.advertenciasTexto.join(" · ")}</p>
+            )}
+            {vigente?.liquidacion === "COBRO" && (
+              <div className="min-w-0 space-y-1.5">
+                <p className="text-sm font-medium">¿Cómo paga la diferencia?</p>
+                <MedioBotones label="Medio de cobro de la diferencia" value={medioDiferencia} onChange={setMedioDiferencia} disabled={ocupado} />
+              </div>
+            )}
+            {vigente?.liquidacion === "REINTEGRO" && (
+              <fieldset className="min-w-0 space-y-2" disabled={ocupado}>
+                <legend className="text-sm font-medium">¿Qué pasa con la diferencia a favor del cliente?</legend>
+                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "REALIZADO"} onChange={() => setReintegro({ modo: "REALIZADO", medio: "EFECTIVO" })} />La devuelvo ahora</label>
+                {reintegro?.modo === "REALIZADO" && <MedioBotones label="Medio de devolución de la diferencia" value={reintegro.medio} onChange={(m) => setReintegro({ modo: "REALIZADO", medio: m })} disabled={ocupado} />}
+                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "PENDIENTE"} onChange={() => setReintegro({ modo: "PENDIENTE" })} />Queda pendiente</label>
+              </fieldset>
+            )}
+          </>}
+
+          <CajaElegida url={ownerRegistersUrl} enabled={conCaja} value={caja} onChange={setCaja} disabled={ocupado} />
+
+          {faltaStock && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Indicá si cada producto devuelto vuelve al stock.</p>}
+
+          <label className="block min-w-0 space-y-1 text-sm font-medium">
+            <span>Motivo</span>
+            <Input aria-label="Motivo" value={motivo} maxLength={500} disabled={ocupado} onChange={(e) => setMotivo(e.target.value)} placeholder={operacion === "CAMBIO" ? "Ej.: prefiere otro talle" : "Ej.: el cliente cambió de opinión"} className="h-11 w-full min-w-0 rounded-xl bg-background" />
+          </label>
+        </section>
+      )}
+
+      {errorEnvio && <p role="alert" className="break-words text-sm text-destructive">{errorEnvio}</p>}
+
+      <div className="sticky bottom-0 -mx-1 flex flex-col gap-2 bg-background px-1 pb-1 pt-2 sm:flex-row-reverse" data-testid="gestionar-acciones">
+        <Button type="submit" disabled={!listo} className="h-auto min-h-11 w-full whitespace-normal rounded-xl px-4 py-2 font-bold leading-snug sm:flex-1">
+          {ocupado ? "Registrando…" : operacion === "CAMBIO" ? "Confirmar cambio" : esDevolucion ? "Confirmar devolución" : "Confirmar"}
+        </Button>
+        <Button type="button" variant="outline" disabled={ocupado} className="min-h-11 w-full rounded-xl sm:w-auto sm:px-6" onClick={onCerrar}>Volver</Button>
       </div>
     </form>
   )

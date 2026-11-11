@@ -10,19 +10,26 @@
 // choices: which lines and how many, what happens to each product, the reason
 // and the refund. A failed attempt keeps every field and a retry of the same
 // data reuses the same Idempotency-Key, so it can never be applied twice.
-// F4-C5: the same sale detail also starts commercial exchanges and linked
-// additional sales (caja-cambios.tsx) and shows the links of each sale.
+// 2026-11-11 (operator): one primary action, «Gestionar venta»
+// (caja-cambios.tsx), edits what the customer brings back and takes instead;
+// the operation (return or exchange) is inferred. «Anular venta» stays an
+// explicit, separate action and the owner's F4-B correction is a secondary
+// «Corregir un error de registro». The linked additional sale is no longer
+// offered (a new purchase is a normal sale); existing links stay visible.
 
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftRight, History, Minus, PencilLine, Plus, RotateCcw, Search, ShoppingBag, Undo2 } from "lucide-react"
+import { ArrowLeftRight, History, Minus, PencilLine, Plus, RotateCcw, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 import { cn, formatPrice } from "@/lib/utils"
 import { leerIntento } from "@/lib/caja-intento-comercial"
-import { CadenaVenta, IntentosSinResolver, OperacionComercial, etiquetaMetodoVenta, type CajaComercialEndpoints } from "@/components/business/caja-cambios"
+import { importeEstimado } from "@/lib/caja-devolucion-estimado"
+import { useIdempotentPost } from "@/components/business/caja-post-idempotente"
+import { CadenaVenta, GestionarVenta, IntentosSinResolver, etiquetaMetodoVenta, type CajaComercialEndpoints } from "@/components/business/caja-cambios"
+
+export { importeEstimado }
 
 export interface CajaDevolucionesEndpoints {
   /** GET ?desde&hasta | ?ref — sales with their returns. */
@@ -41,8 +48,10 @@ export interface CajaDevolucionesEndpoints {
   correccionUrl?: (ventaId: string) => string
   /** F4-B, owner only: the owner's catalog, to offer products whose CURRENT price equals the charged price. */
   productosUrl?: string
-  /** F4-C5: exchanges / linked additional sales of this host (absent = no such actions). */
+  /** F4-C5: exchanges of this host (absent = «Gestionar venta» only registers returns). */
   comercial?: CajaComercialEndpoints
+  /** Takes the operator to the normal selling view (a new purchase is a new sale). */
+  irAVender?: () => void
 }
 
 export type EstadoDevolucionVenta = "VIGENTE" | "DEVOLUCION_PARCIAL" | "ANULADA" | "DEVUELTA_TOTAL"
@@ -144,13 +153,6 @@ export function nombreItem(item: { nombre: string; varianteNombre: string | null
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100
-/** Display-only preview of the server rule (cumulative, proportional to what was charged). */
-export function importeEstimado(item: VentaDevolucionItem, cantidad: number): number {
-  if (cantidad <= 0) return 0
-  const acumulada = item.cantidadDevuelta + cantidad
-  const objetivo = acumulada >= item.cantidad ? item.subtotal : round2((item.subtotal * acumulada) / item.cantidad)
-  return Math.max(0, round2(objetivo - item.importeDevuelto))
-}
 
 function localDayRange(day: string): { desde: string; hasta: string } {
   const [y, m, d] = day.split("-").map(Number)
@@ -180,7 +182,7 @@ export function EstadoDevolucionBadge({ estado }: { estado: EstadoDevolucionVent
 // Search + list
 // ---------------------------------------------------------------------------
 
-export function CajaVentasHistorial({ endpoints, titulo = "Ventas anteriores y devoluciones" }: { endpoints: CajaDevolucionesEndpoints; titulo?: string }) {
+export function CajaVentasHistorial({ endpoints, titulo = "Ventas anteriores: gestionar, devolver o anular" }: { endpoints: CajaDevolucionesEndpoints; titulo?: string }) {
   const [dia, setDia] = useState(todayInput)
   const [refInput, setRefInput] = useState("")
   const [filtro, setFiltro] = useState<{ dia: string; ref: string }>({ dia: todayInput(), ref: "" })
@@ -252,8 +254,13 @@ export function CajaVentasHistorial({ endpoints, titulo = "Ventas anteriores y d
 // Sale detail + actions
 // ---------------------------------------------------------------------------
 
+/**
+ * The ONE sale detail, used by the owner's «Ventas recientes» and «Ventas
+ * anteriores» and by the cashier's history: it always opens on the detail;
+ * «Gestionar venta» opens the editor and «Volver» comes back to this detail.
+ */
 export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { ventaId: string; endpoints: CajaDevolucionesEndpoints; onClose: () => void }) {
-  const [modo, setModo] = useState<"detalle" | "ANULACION" | "DEVOLUCION_PARCIAL" | "CORRECCION" | "CAMBIO" | "ADICIONAL">("detalle")
+  const [modo, setModo] = useState<"detalle" | "GESTIONAR" | "ANULACION" | "CORRECCION">("detalle")
   const [verCadena, setVerCadena] = useState(false)
   const invalidar = useInvalidate(endpoints)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -273,15 +280,18 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
   const comercial = endpoints.comercial
   // F4-C5: an attempt of THIS context on this sale without a safe result blocks a new equivalent operation.
   const intentoPendiente = comercial && venta ? leerIntento(comercial.contexto, venta.id) : null
-  const pantallaCompleta = modo === "CAMBIO" || modo === "ADICIONAL"
+  const irAVender = endpoints.irAVender ? () => { onClose(); endpoints.irAVender!() } : undefined
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={pantallaCompleta
-        ? "h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-y-auto rounded-none p-3 sm:max-w-none sm:rounded-none sm:p-4"
-        : "max-h-[90dvh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto rounded-2xl"}>
-        <DialogHeader>
-          <DialogTitle>{modo === "ANULACION" ? "Anular venta" : modo === "DEVOLUCION_PARCIAL" ? "Devolver productos" : modo === "CORRECCION" ? "Corregir venta" : modo === "CAMBIO" ? "Cambiar productos" : modo === "ADICIONAL" ? "Venta vinculada" : "Detalle de venta"}{venta ? ` #${venta.referencia}` : ""}</DialogTitle>
+      <DialogContent className={cn(
+        // Width relative to the viewport (containing block of the fixed dialog), never 100vw (scrollbars, zoom).
+        "max-h-[92dvh] w-[calc(100%-1rem)] gap-3 overflow-y-auto rounded-2xl p-4 sm:p-5",
+        modo === "GESTIONAR" ? "max-w-xl sm:max-w-xl" : "max-w-md sm:max-w-md"
+      )}>
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle>{modo === "ANULACION" ? "Anular venta" : modo === "GESTIONAR" ? "Gestionar venta" : modo === "CORRECCION" ? "Corregir un error de registro" : "Detalle de venta"}{venta ? ` #${venta.referencia}` : ""}</DialogTitle>
+          {modo === "GESTIONAR" && venta && <p className="text-xs text-muted-foreground">{new Date(venta.createdAt).toLocaleString("es-AR")} · {etiquetaMetodoVenta(venta.metodoPago)} · total {formatPrice(venta.total)}</p>}
           <DialogDescription className="sr-only">Detalle de la venta, devoluciones realizadas y acciones disponibles.</DialogDescription>
         </DialogHeader>
         {query.isLoading ? <p className="py-6 text-center text-sm text-muted-foreground">Cargando…</p>
@@ -292,7 +302,7 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
                 {intentoPendiente && (
                   <div role="alert" className="min-w-0 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
                     <p className="font-semibold">Hay un {intentoPendiente.tipo === "CAMBIO" ? "cambio" : "registro de venta vinculada"} de esta venta sin resultado confirmado.</p>
-                    <Button type="button" size="sm" className="rounded-xl" onClick={() => { setAviso(null); setModo(intentoPendiente.tipo) }}>Verificar operación</Button>
+                    <Button type="button" size="sm" className="rounded-xl" onClick={() => { setAviso(null); setModo("GESTIONAR") }}>Verificar operación</Button>
                   </div>
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -342,23 +352,29 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
                     {venta.correcciones!.map((correccion) => <CorreccionCard key={correccion.id} correccion={correccion} />)}
                   </div>
                 )}
-                {corregible && (
-                  <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={() => { setAviso(null); setModo("CORRECCION") }}><PencilLine className="mr-1 h-4 w-4 shrink-0" />Corregir venta</Button>
-                )}
                 {quedan ? (
                   <div className="flex flex-col gap-2" data-testid="venta-acciones">
-                    {comercial && <>
-                      <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={() => { setAviso(null); setModo(intentoPendiente?.tipo ?? "CAMBIO") }}><ArrowLeftRight className="mr-1 h-4 w-4 shrink-0" />Cambiar productos</Button>
-                      <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={() => { setAviso(null); setModo(intentoPendiente?.tipo ?? "ADICIONAL") }}><ShoppingBag className="mr-1 h-4 w-4 shrink-0" />Agregar venta vinculada</Button>
-                    </>}
-                    <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={() => { setAviso(null); setModo("DEVOLUCION_PARCIAL") }}><Undo2 className="mr-1 h-4 w-4 shrink-0" />Devolver productos</Button>
-                    <Button type="button" variant="destructive" className="h-auto min-h-11 w-full whitespace-normal rounded-xl" onClick={() => { setAviso(null); setModo("ANULACION") }}><RotateCcw className="mr-1 h-4 w-4 shrink-0" />Anular venta</Button>
+                    <Button type="button" className="h-auto min-h-11 w-full whitespace-normal rounded-xl font-bold" onClick={() => { setAviso(null); setModo("GESTIONAR") }}><ArrowLeftRight className="mr-1 h-4 w-4 shrink-0" />Gestionar venta</Button>
+                    <p className="text-center text-[11px] text-muted-foreground">Devoluciones y cambios de productos</p>
+                    <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal rounded-xl border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => { setAviso(null); setModo("ANULACION") }}><RotateCcw className="mr-1 h-4 w-4 shrink-0" />Anular venta</Button>
                   </div>
-                ) : <p className="text-xs text-muted-foreground">No quedan productos por devolver en esta venta.{comercial ? " Para vender algo más, registrá una venta nueva e independiente." : ""}</p>}
+                ) : <p className="text-xs text-muted-foreground">No quedan productos por devolver en esta venta. Para vender algo más, registrá una venta nueva desde «Vender».</p>}
+                {corregible && (
+                  <button type="button" className="mx-auto flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => { setAviso(null); setModo("CORRECCION") }}><PencilLine className="h-3.5 w-3.5 shrink-0" />Corregir un error de registro</button>
+                )}
                 <Button type="button" variant="secondary" className="min-h-11 w-full rounded-xl" onClick={onClose}>Cerrar</Button>
               </div>
-            ) : (modo === "CAMBIO" || modo === "ADICIONAL") && comercial ? (
-              <OperacionComercial tipo={modo} venta={venta} endpoints={comercial} onCambio={invalidar} onCerrar={() => { setModo("detalle") ; invalidar() }} />
+            ) : modo === "GESTIONAR" ? (
+              <GestionarVenta
+                venta={venta}
+                devolucionUrl={endpoints.ventaUrl(venta.id)}
+                ownerRegistersUrl={endpoints.ownerRegistersUrl}
+                comercial={comercial}
+                irAVender={irAVender}
+                onCerrar={() => { setModo("detalle"); invalidar() }}
+                onActualizar={invalidar}
+                onDevuelto={(message) => { setAviso(message); setModo("detalle") }}
+              />
             ) : modo === "CORRECCION" ? (
               <CorreccionForm
                 venta={venta}
@@ -366,7 +382,7 @@ export function VentaDevolucionesDialog({ ventaId, endpoints, onClose }: { venta
                 onCancel={() => setModo("detalle")}
                 onDone={(message) => { setAviso(message); setModo("detalle") }}
               />
-            ) : modo === "ANULACION" || modo === "DEVOLUCION_PARCIAL" ? (
+            ) : modo === "ANULACION" ? (
               <DevolucionForm
                 key={modo}
                 venta={venta}
@@ -441,31 +457,8 @@ function DevolucionCard({ devolucion, endpoints }: { devolucion: DevolucionRegis
   )
 }
 
-// ---------------------------------------------------------------------------
-// Shared submit helper: one key per canonical body, kept for 5xx / network
-// ---------------------------------------------------------------------------
-
-function useIdempotentPost() {
-  const keys = useRef(new Map<string, string>())
-  return async (url: string, body: unknown): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; message: string }> => {
-    const canonical = JSON.stringify(body)
-    let key = keys.current.get(canonical)
-    if (!key) { key = newIdempotencyKey(); keys.current.set(canonical, key) }
-    let response: Response
-    try {
-      response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: canonical })
-    } catch {
-      return { ok: false, message: "No pudimos confirmar la operación por un problema de conexión. Podés reintentar sin duplicarla." }
-    }
-    const json = await response.json().catch(() => ({}))
-    if (response.ok && json.ok) { keys.current.clear(); return { ok: true, json } }
-    if (response.status < 500) keys.current.delete(canonical)
-    return {
-      ok: false,
-      message: response.status >= 500 ? "No pudimos registrar la operación por un error del servidor. Podés reintentar sin duplicarla." : (json.error ?? "No pudimos registrar la operación."),
-    }
-  }
-}
+// Shared submit helper (one key per canonical body, kept for 5xx / network):
+// src/components/business/caja-post-idempotente.ts
 
 function useInvalidate(endpoints: CajaDevolucionesEndpoints) {
   const queryClient = useQueryClient()
@@ -863,7 +856,7 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
       onSubmit={(event) => { event.preventDefault(); if (!listo || inFlight.current) return; inFlight.current = true; mutation.mutate() }}
     >
       <p className="break-words text-sm text-muted-foreground">
-        Corregí un error de carga: el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y sólo puede tomar un producto justificado a ese precio: otro de esta venta cobrado igual, o uno cuyo precio de catálogo actual sea exactamente el cobrado. El total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero. Un cambio real de productos con diferencia de precio, o una combinación de productos, no es una corrección.
+        Sólo para errores de registro: la venta se cargó mal, pero lo que el cliente se llevó y pagó no cambió. Si el cliente devolvió o cambió productos, usá «Gestionar venta». Corregí el producto, la variante o la cantidad que realmente se entregó. Cada línea conserva el precio que se cobró y sólo puede tomar un producto justificado a ese precio: otro de esta venta cobrado igual, o uno cuyo precio de catálogo actual sea exactamente el cobrado. El total debe seguir siendo {formatPrice(venta.total)}: no se mueve dinero. Un cambio real de productos con diferencia de precio, o una combinación de productos, no es una corrección.
       </p>
       {catalogoQuery.isError && <p role="alert" className="break-words text-sm text-destructive">No se pudo cargar el catálogo: sólo se ofrecen productos de esta venta.</p>}
       <div className="space-y-2">
@@ -906,7 +899,7 @@ export function CorreccionForm({ venta, endpoints, onCancel, onDone }: {
         <div className="flex justify-between gap-2"><dt>Total cobrado</dt><dd className="font-semibold">{formatPrice(venta.total)}</dd></div>
         <div className="flex justify-between gap-2"><dt>Total corregido</dt><dd className={cn("font-semibold", !totalOk && "text-destructive")}>{formatPrice(corregido)}</dd></div>
       </dl>
-      {!totalOk && <p role="status" className="break-words text-xs text-destructive">El total corregido debe ser igual al cobrado. Para devolver dinero usá «Devolver productos».</p>}
+      {!totalOk && <p role="status" className="break-words text-xs text-destructive">El total corregido debe ser igual al cobrado. Si el cliente devolvió o cambió productos, usá «Gestionar venta».</p>}
       <label className="block min-w-0 space-y-1 text-sm font-medium" htmlFor={`correccion-motivo-${venta.id}`}>
         <span>Motivo (obligatorio)</span>
         <Input id={`correccion-motivo-${venta.id}`} value={motivo} maxLength={500} disabled={pending} onChange={(event) => setMotivo(event.target.value)} placeholder="Ej.: se escaneó el sabor equivocado" className="h-11 w-full min-w-0 rounded-xl" />

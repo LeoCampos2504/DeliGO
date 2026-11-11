@@ -127,7 +127,7 @@ async function type(input: HTMLInputElement, value: string) {
   })
 }
 async function openForm() {
-  await click(button("Corregir venta"))
+  await click(button("Corregir un error de registro"))
   await waitFor(() => document.querySelectorAll('form[aria-label="Corregir venta"] select').length === 3)
 }
 async function confirmar(motivo = "Se escaneó el sabor equivocado") {
@@ -136,19 +136,19 @@ async function confirmar(motivo = "Se escaneó el sabor equivocado") {
 }
 
 describe("F4-B — owner correction form (justified prices)", () => {
-  test("only the owner host shows «Corregir venta»; never the cashier, never after returns", async () => {
+  test("only the owner host shows the secondary «Corregir un error de registro»; never the cashier, never after returns", async () => {
     let root = await render(cashierEndpoints)
-    expect(button("Corregir venta")).toBeUndefined()
+    expect(button("Corregir un error de registro")).toBeUndefined()
     await act(async () => root.unmount())
     document.body.innerHTML = ""
     venta = { ...baseVenta, devoluciones: [{ id: "d1", ventaId: "venta-1", ventaReferencia: "venta-1", tipo: "DEVOLUCION_PARCIAL", motivo: "m", createdAt: baseVenta.createdAt, importe: 2000, registradaPor: "Vos", metodoPagoVenta: "EFECTIVO", reintegroEstado: "NO_CORRESPONDE", reintegroMedio: null, reintegroRegistradoEn: null, reintegroRegistradoPor: null, reintegroDescripcion: "sin devolución de dinero", items: [] }] }
     root = await render()
-    expect(button("Corregir venta")).toBeUndefined()
+    expect(button("Corregir un error de registro")).toBeUndefined()
     await act(async () => root.unmount())
     document.body.innerHTML = ""
     venta = baseVenta
     root = await render()
-    expect(button("Corregir venta")).toBeTruthy()
+    expect(button("Corregir un error de registro")).toBeTruthy()
     await act(async () => root.unmount())
   })
 
