@@ -15,13 +15,62 @@ import type { CajaActor } from "@/lib/caja-turnos-service"
 import {
   detalleVentaConDevoluciones,
   devolucionParaRespuesta,
+  importeReintegrableDevolucion,
   lineasDevueltasConPrecioHeredado,
   listarVentasConDevoluciones,
   parseDevolucionBody,
   parseFiltroHistorial,
   registrarDevolucionVenta,
   registrarReintegroDevolucion,
+  type DevolucionConItems,
 } from "@/lib/caja-devoluciones-service"
+
+// ---------------------------------------------------------------------------
+// Audit of a refund paid later (venta.devolucion_reintegro_registrado)
+// ---------------------------------------------------------------------------
+// `importe` keeps the meaning it has had since F4-A: the COMMERCIAL value of
+// the return (for every F4-A return it equals the money, nothing is
+// compensated). Since F4-C an exchange compensates part of that value against
+// the new products, so detalleVersion 2 adds — never replaces — the three exact
+// amounts (returned / compensated / actually refunded) and the financial
+// account the money left from. Describes what was registered; changes nothing.
+
+export type CuentaReintegroAuditoria =
+  | { evidencia: "SIN_MOVIMIENTO" } // not cash: DeliGO only records that it was refunded by that method
+  | { evidencia: "VERIFICADA"; movimientos: Array<{ cuentaFinancieraId: string; clave: string; cajaFisicaId: string | null; importe: string }> }
+  | { evidencia: "NO_DISPONIBLE" } // the account read failed: the audit is still written
+
+export function detalleAuditoriaReintegro(negocioId: string, devolucion: DevolucionConItems, cuenta: CuentaReintegroAuditoria) {
+  const reintegrado = importeReintegrableDevolucion({ importeDevuelto: devolucion.importeDecimal, importeCompensado: devolucion.importeCompensadoDecimal })
+  return {
+    negocioId,
+    devolucionId: devolucion.id,
+    importe: devolucion.importeDecimal.toString(), // historical field: commercial value returned (unchanged meaning)
+    detalleVersion: 2,
+    importeDevuelto: devolucion.importeDecimal.toFixed(2),
+    importeCompensado: devolucion.importeCompensadoDecimal.toFixed(2),
+    importeReintegrado: reintegrado.toFixed(2), // money actually handed back
+    cambioId: devolucion.cambio?.id ?? null,
+    reintegroMedio: devolucion.reintegroMedio,
+    reintegroTurnoCajaId: devolucion.reintegroTurnoCajaId,
+    reintegroOperacionId: devolucion.reintegroOperacionId,
+    cuentaFinanciera: cuenta,
+  }
+}
+
+async function movimientosDelReintegro(operacionId: string) {
+  const movimientos = await db.movimientoFinanciero.findMany({
+    where: { operacionId },
+    select: { cuentaId: true, importe: true, importeDecimal: true, cuenta: { select: { clave: true, cajaFisicaId: true } } },
+    orderBy: { createdAt: "asc" },
+  })
+  return movimientos.map((m) => ({
+    cuentaFinancieraId: m.cuentaId,
+    clave: m.cuenta.clave,
+    cajaFisicaId: m.cuenta.cajaFisicaId,
+    importe: m.importeDecimal ? m.importeDecimal.toFixed(2) : m.importe.toFixed(2), // exact; Float only for pre-F10-B2.0 rows
+  }))
+}
 
 type Vista = { tipo: "NEGOCIO" } | { tipo: "EMPLEADO"; empleadoId: string }
 const vistaDe = (actor: CajaActor): Vista => (actor.tipo === "EMPLEADO" ? { tipo: "EMPLEADO", empleadoId: actor.empleadoId } : { tipo: "NEGOCIO" })
@@ -122,12 +171,23 @@ export async function registrarReintegroHttp(req: NextRequest, negocioId: string
     if (!result.ok) return failure(result)
     const { devolucion, replayed } = result.value
     if (!replayed) {
+      // Where the money left from (read after commit, like the F4-A evidence):
+      // the audit never depends on this read — a failure records NO_DISPONIBLE.
+      let cuenta: CuentaReintegroAuditoria = { evidencia: "SIN_MOVIMIENTO" }
+      if (devolucion.reintegroOperacionId) {
+        try {
+          cuenta = { evidencia: "VERIFICADA", movimientos: await movimientosDelReintegro(devolucion.reintegroOperacionId) }
+        } catch (error) {
+          console.error("Error reading reintegro account evidence:", safeErrorForLog(error))
+          cuenta = { evidencia: "NO_DISPONIBLE" }
+        }
+      }
       await auditLog({
         ...audit(negocioId, actor),
         accion: "venta.devolucion_reintegro_registrado",
         recurso: "venta",
         recursoId: devolucion.ventaId,
-        detalle: { negocioId, devolucionId: devolucion.id, importe: devolucion.importeDecimal.toString(), reintegroMedio: devolucion.reintegroMedio, reintegroTurnoCajaId: devolucion.reintegroTurnoCajaId },
+        detalle: detalleAuditoriaReintegro(negocioId, devolucion, cuenta),
       })
     }
     const venta = await detalleVentaConDevoluciones(db, negocioId, devolucion.ventaId, vistaDe(actor))
