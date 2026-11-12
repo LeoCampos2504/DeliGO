@@ -52,6 +52,7 @@ import {
 } from "@/lib/caja-intento-comercial"
 import { CatalogoCompacto, type CatalogoFuente } from "@/components/business/caja-catalogo-compacto"
 import { useIdempotentPost } from "@/components/business/caja-post-idempotente"
+import { DestinoEfectivo, MedioReintegroSelector } from "@/components/business/caja-medio-reintegro"
 import type { VentaConDevoluciones, VentaDevolucionItem } from "@/components/business/caja-devoluciones"
 
 /** Props of the selling view in selection mode (caja-tab.tsx); kept for that view. */
@@ -469,7 +470,8 @@ function useConfirmar(venta: VentaConDevoluciones, endpoints: CajaComercialEndpo
 }
 
 type DineroDevolucion = "REALIZADO" | "PENDIENTE" | "NO_CORRESPONDE"
-type ReintegroDiferencia = { modo: "REALIZADO"; medio: Medio } | { modo: "PENDIENTE" }
+// medio null = «la devuelvo ahora» chosen but the method not yet: nothing can be confirmed.
+type ReintegroDiferencia = { modo: "REALIZADO"; medio: Medio | null } | { modo: "PENDIENTE" }
 
 const TITULO_OPERACION: Record<Exclude<OperacionInferida, "VACIA">, string> = {
   SOLO_AGREGA: "Compra adicional",
@@ -491,10 +493,14 @@ function GestionarVentaForm({ venta, devolucionUrl, ownerRegistersUrl, comercial
   const [entran, setEntran] = useState<CartLine[]>([])
   const [motivo, setMotivo] = useState("")
   const [dinero, setDinero] = useState<DineroDevolucion | null>(null)
-  const metodoVenta = (["EFECTIVO", "TRANSFERENCIA", "OTRO"].includes(venta.metodoPago) ? venta.metodoPago : "EFECTIVO") as Medio
-  const [medioDevolucion, setMedioDevolucion] = useState<Medio>(metodoVenta)
+  // The refund method is an explicit choice (never the sale's own method by default).
+  const [medioDevolucion, setMedioDevolucion] = useState<Medio | null>(null)
   const [medioDiferencia, setMedioDiferencia] = useState<Medio | null>(null)
-  const [reintegro, setReintegro] = useState<ReintegroDiferencia | null>(null)
+  // What happens with the difference, and the method chosen for it, are kept apart:
+  // switching to «Queda pendiente» and back never loses (nor invents) the method.
+  const [modoDiferencia, setModoDiferencia] = useState<"REALIZADO" | "PENDIENTE" | null>(null)
+  const [medioReintegroDiferencia, setMedioReintegroDiferencia] = useState<Medio | null>(null)
+  const reintegro: ReintegroDiferencia | null = modoDiferencia === "REALIZADO" ? { modo: "REALIZADO", medio: medioReintegroDiferencia } : modoDiferencia === "PENDIENTE" ? { modo: "PENDIENTE" } : null
   const [caja, setCaja] = useState("")
   const [cotizacion, setCotizacion] = useState<{ firma: string; datos: Cotizacion } | null>(null)
   const [errorCotizacion, setErrorCotizacion] = useState<{ firma: string; texto: string; code?: string } | null>(null)
@@ -556,8 +562,10 @@ function GestionarVentaForm({ venta, devolucionUrl, ownerRegistersUrl, comercial
   const registros = useOpenRegisters(ownerRegistersUrl, conCaja)
   const faltaCaja = conCaja && necesitaCaja(ownerRegistersUrl, registros.data?.length) && !caja
   const motivoOk = motivo.trim().length > 0
-  const liquidacionLista = vigente ? (vigente.liquidacion === "COBRO" ? medioDiferencia !== null : vigente.liquidacion === "REINTEGRO" ? reintegro !== null : true) : false
-  const listoDevolucion = esDevolucion && !faltaStock && motivoOk && dinero !== null && !faltaCaja && !ocupado
+  const reintegroListo = reintegro !== null && (reintegro.modo === "PENDIENTE" || reintegro.medio !== null)
+  const liquidacionLista = vigente ? (vigente.liquidacion === "COBRO" ? medioDiferencia !== null : vigente.liquidacion === "REINTEGRO" ? reintegroListo : true) : false
+  const medioDevolucionListo = dinero !== "REALIZADO" || medioDevolucion !== null
+  const listoDevolucion = esDevolucion && !faltaStock && motivoOk && dinero !== null && medioDevolucionListo && !faltaCaja && !ocupado
   const listoCambio = operacion === "CAMBIO" && Boolean(vigente) && liquidacionLista && !faltaStock && motivoOk && !faltaCaja && !ocupado
   const listo = listoDevolucion || listoCambio
 
@@ -724,10 +732,10 @@ function GestionarVentaForm({ venta, devolucionUrl, ownerRegistersUrl, comercial
                   <span className="min-w-0 break-words">{texto}</span>
                 </label>
               ))}
-              {dinero === "REALIZADO" && <>
-                <MedioBotones label="Medio de devolución" value={medioDevolucion} onChange={setMedioDevolucion} disabled={ocupado} />
-                <p className="break-words text-xs text-muted-foreground">{medioDevolucion === "EFECTIVO" ? "Se registra la salida de efectivo de la caja del turno actual. Los cierres anteriores no cambian." : "DeliGO no realiza transferencias: sólo registra que devolviste el dinero por ese medio."}</p>
-              </>}
+              {dinero === "REALIZADO" && (
+                <MedioReintegroSelector label="Medio de devolución" value={medioDevolucion} onChange={setMedioDevolucion} disabled={ocupado} metodoVenta={venta.metodoPago}
+                  destinoEfectivo={<DestinoEfectivo owner={Boolean(ownerRegistersUrl)} registros={registros.data} />} />
+              )}
             </fieldset>
           </>}
 
@@ -751,9 +759,12 @@ function GestionarVentaForm({ venta, devolucionUrl, ownerRegistersUrl, comercial
             {vigente?.liquidacion === "REINTEGRO" && (
               <fieldset className="min-w-0 space-y-2" disabled={ocupado}>
                 <legend className="text-sm font-medium">¿Qué pasa con la diferencia a favor del cliente?</legend>
-                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "REALIZADO"} onChange={() => setReintegro({ modo: "REALIZADO", medio: "EFECTIVO" })} />La devuelvo ahora</label>
-                {reintegro?.modo === "REALIZADO" && <MedioBotones label="Medio de devolución de la diferencia" value={reintegro.medio} onChange={(m) => setReintegro({ modo: "REALIZADO", medio: m })} disabled={ocupado} />}
-                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={reintegro?.modo === "PENDIENTE"} onChange={() => setReintegro({ modo: "PENDIENTE" })} />Queda pendiente</label>
+                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={modoDiferencia === "REALIZADO"} onChange={() => setModoDiferencia("REALIZADO")} />La devuelvo ahora</label>
+                {modoDiferencia === "REALIZADO" && (
+                  <MedioReintegroSelector label="Medio de devolución de la diferencia" value={medioReintegroDiferencia} onChange={setMedioReintegroDiferencia} disabled={ocupado} metodoVenta={venta.metodoPago}
+                    destinoEfectivo={<DestinoEfectivo owner={Boolean(ownerRegistersUrl)} registros={registros.data} />} />
+                )}
+                <label className="flex items-center gap-2 text-sm"><input type="radio" name={`dif-${venta.id}`} className="h-4 w-4" checked={modoDiferencia === "PENDIENTE"} onChange={() => setModoDiferencia("PENDIENTE")} />Queda pendiente</label>
               </fieldset>
             )}
           </>}

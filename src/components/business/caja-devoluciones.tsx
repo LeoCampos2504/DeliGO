@@ -27,6 +27,7 @@ import { cn, formatPrice } from "@/lib/utils"
 import { leerIntento } from "@/lib/caja-intento-comercial"
 import { importeEstimado } from "@/lib/caja-devolucion-estimado"
 import { useIdempotentPost } from "@/components/business/caja-post-idempotente"
+import { DestinoEfectivo, MedioReintegroSelector, type MedioReintegro } from "@/components/business/caja-medio-reintegro"
 import { CadenaVenta, GestionarVenta, IntentosSinResolver, etiquetaMetodoVenta, type CajaComercialEndpoints } from "@/components/business/caja-cambios"
 
 export { importeEstimado }
@@ -131,7 +132,8 @@ export interface CorreccionRegistrada {
   cambios: Array<{ ventaItemId: string; precio: number; criterioPrecio?: string | null; verificacionCatalogo?: { precio: number; consultadoEn: string } | null; antes: { nombre: string; cantidad: number }; despues: { nombre: string; cantidad: number } }>
 }
 
-type Medio = "EFECTIVO" | "TRANSFERENCIA" | "OTRO"
+// The refund method is always chosen explicitly (caja-medio-reintegro.tsx): never preselected.
+type Medio = MedioReintegro
 type ModoReintegro = "REALIZADO" | "PENDIENTE" | "NO_CORRESPONDE"
 
 export const ESTADO_LABEL: Record<EstadoDevolucionVenta, string> = {
@@ -140,7 +142,6 @@ export const ESTADO_LABEL: Record<EstadoDevolucionVenta, string> = {
   ANULADA: "Anulada",
   DEVUELTA_TOTAL: "Devuelta por completo",
 }
-const MEDIO_LABEL: Record<Medio, string> = { EFECTIVO: "Efectivo", TRANSFERENCIA: "Transferencia", OTRO: "Otro medio" }
 const STOCK_LABEL: Record<string, string> = {
   REINGRESADO: "volvió al stock",
   NO_REINGRESA: "no vuelve al stock",
@@ -484,9 +485,7 @@ function useOpenRegisters(url: string | undefined, enabled: boolean) {
 }
 
 function RegisterChoice({ registers, value, onChange, disabled }: { registers: Array<{ id: string; nombre: string; responsable: string }>; value: string; onChange: (id: string) => void; disabled: boolean }) {
-  if (registers.length <= 1) {
-    return <p className="break-words text-xs text-muted-foreground">{registers.length === 1 ? `El efectivo sale de ${registers[0].nombre} (turno de ${registers[0].responsable}).` : "No hay turnos abiertos: la salida queda en el efectivo sin caja asignada (modo opcional)."}</p>
-  }
+  if (registers.length <= 1) return null // named (or "no register") by DestinoEfectivo
   return (
     <label className="block min-w-0 space-y-1 text-sm font-medium">
       <span>¿De qué caja sale el efectivo?</span>
@@ -500,7 +499,7 @@ function RegisterChoice({ registers, value, onChange, disabled }: { registers: A
 
 function ReintegroPendienteForm({ devolucion, endpoints }: { devolucion: DevolucionRegistrada; endpoints: CajaDevolucionesEndpoints }) {
   const [abierto, setAbierto] = useState(false)
-  const [medio, setMedio] = useState<Medio>((["EFECTIVO", "TRANSFERENCIA", "OTRO"].includes(devolucion.metodoPagoVenta) ? devolucion.metodoPagoVenta : "EFECTIVO") as Medio)
+  const [medio, setMedio] = useState<Medio | null>(null) // explicit choice: never the sale's method by default
   const [caja, setCaja] = useState("")
   const [confirmo, setConfirmo] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -509,9 +508,11 @@ function ReintegroPendienteForm({ devolucion, endpoints }: { devolucion: Devoluc
   const invalidate = useInvalidate(endpoints)
   const registers = useOpenRegisters(endpoints.ownerRegistersUrl, abierto && medio === "EFECTIVO")
   const necesitaCaja = medio === "EFECTIVO" && (registers.data?.length ?? 0) > 1
+  const listo = medio !== null && confirmo && !(necesitaCaja && !caja)
   const mutation = useMutation({
     mutationFn: async () => {
-      const result = await post(endpoints.reintegroUrl(devolucion.id), { medio, confirmo: true, ...(endpoints.ownerRegistersUrl && caja ? { cajaFisicaId: caja } : {}) })
+      if (medio === null) throw new Error("Elegí cómo devolvés el dinero.")
+      const result = await post(endpoints.reintegroUrl(devolucion.id), { medio, confirmo: true, ...(endpoints.ownerRegistersUrl && caja && medio === "EFECTIVO" ? { cajaFisicaId: caja } : {}) })
       if (!result.ok) throw new Error(result.message)
     },
     onMutate: () => setError(null),
@@ -525,29 +526,23 @@ function ReintegroPendienteForm({ devolucion, endpoints }: { devolucion: Devoluc
   return (
     <form
       className="min-w-0 space-y-2 border-t pt-2"
-      onSubmit={(event) => { event.preventDefault(); if (!confirmo || (necesitaCaja && !caja) || inFlight.current) return; inFlight.current = true; mutation.mutate() }}
+      onSubmit={(event) => { event.preventDefault(); if (!listo || inFlight.current) return; inFlight.current = true; mutation.mutate() }}
     >
-      <MedioSelect value={medio} onChange={setMedio} disabled={mutation.isPending} />
-      {medio !== "EFECTIVO" && <p className="break-words text-xs text-muted-foreground">DeliGO no realiza transferencias: sólo registra que devolviste el dinero por ese medio.</p>}
+      <MedioReintegroSelector
+        value={medio}
+        onChange={setMedio}
+        disabled={mutation.isPending}
+        metodoVenta={devolucion.metodoPagoVenta}
+        destinoEfectivo={<DestinoEfectivo owner={Boolean(endpoints.ownerRegistersUrl)} registros={registers.data} />}
+      />
       {medio === "EFECTIVO" && endpoints.ownerRegistersUrl && registers.data && <RegisterChoice registers={registers.data} value={caja} onChange={setCaja} disabled={mutation.isPending} />}
       <label className="flex min-w-0 items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={confirmo} onChange={(event) => setConfirmo(event.target.checked)} disabled={mutation.isPending} /><span className="min-w-0 break-words">Confirmo que devolví {formatPrice(aReintegrar)} al cliente.</span></label>
       {error && <p role="alert" className="break-words text-xs text-destructive">{error}</p>}
       <div className="flex flex-col gap-2">
-        <Button type="submit" disabled={!confirmo || (necesitaCaja && !caja) || mutation.isPending} className="h-auto min-h-10 w-full whitespace-normal rounded-xl">{mutation.isPending ? "Registrando…" : "Confirmar reintegro"}</Button>
+        <Button type="submit" disabled={!listo || mutation.isPending} className="h-auto min-h-10 w-full whitespace-normal rounded-xl">{mutation.isPending ? "Registrando…" : "Confirmar reintegro"}</Button>
         <Button type="button" variant="outline" disabled={mutation.isPending} className="min-h-10 w-full rounded-xl" onClick={() => { setAbierto(false); setError(null) }}>Cancelar</Button>
       </div>
     </form>
-  )
-}
-
-function MedioSelect({ value, onChange, disabled }: { value: Medio; onChange: (medio: Medio) => void; disabled: boolean }) {
-  return (
-    <label className="block min-w-0 space-y-1 text-sm font-medium">
-      <span>Medio de devolución</span>
-      <select value={value} onChange={(event) => onChange(event.target.value as Medio)} disabled={disabled} className="h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm" aria-label="Medio de devolución">
-        {(Object.keys(MEDIO_LABEL) as Medio[]).map((medio) => <option key={medio} value={medio}>{MEDIO_LABEL[medio]}</option>)}
-      </select>
-    </label>
   )
 }
 
@@ -567,8 +562,7 @@ export function DevolucionForm({ venta, tipo, endpoints, onCancel, onDone }: {
   const [stock, setStock] = useState<Record<string, boolean | undefined>>({})
   const [motivo, setMotivo] = useState("")
   const [modoReintegro, setModoReintegro] = useState<ModoReintegro | null>(null)
-  const metodoVenta = (["EFECTIVO", "TRANSFERENCIA", "OTRO"].includes(venta.metodoPago) ? venta.metodoPago : "EFECTIVO") as Medio
-  const [medio, setMedio] = useState<Medio>(metodoVenta)
+  const [medio, setMedio] = useState<Medio | null>(null) // explicit choice: never the sale's method by default
   const [caja, setCaja] = useState("")
   const [confirmo, setConfirmo] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -581,10 +575,12 @@ export function DevolucionForm({ venta, tipo, endpoints, onCancel, onDone }: {
   const importe = useMemo(() => round2(seleccionadas.reduce((acc, item) => acc + importeEstimado(item, cantidades[item.id] ?? 0), 0)), [seleccionadas, cantidades])
   const necesitaCaja = modoReintegro === "REALIZADO" && medio === "EFECTIVO" && (registers.data?.length ?? 0) > 1
   const faltaStock = seleccionadas.some((item) => stock[item.id] === undefined)
-  const listo = seleccionadas.length > 0 && !faltaStock && motivo.trim().length > 0 && modoReintegro !== null && confirmo && !(necesitaCaja && !caja)
+  const faltaMedio = modoReintegro === "REALIZADO" && medio === null
+  const listo = seleccionadas.length > 0 && !faltaStock && motivo.trim().length > 0 && modoReintegro !== null && !faltaMedio && confirmo && !(necesitaCaja && !caja)
 
   const mutation = useMutation({
     mutationFn: async () => {
+      if (modoReintegro === "REALIZADO" && medio === null) throw new Error("Elegí cómo devolvés el dinero.")
       const body = {
         tipo,
         motivo: motivo.trim(),
@@ -694,10 +690,13 @@ export function DevolucionForm({ venta, tipo, endpoints, onCancel, onDone }: {
           </label>
         ))}
         {modoReintegro === "REALIZADO" && <>
-          <MedioSelect value={medio} onChange={setMedio} disabled={pending} />
-          {medio === "EFECTIVO"
-            ? <p className="break-words text-xs text-muted-foreground">Se registra la salida de efectivo de la caja en tu turno actual. Los cierres anteriores no cambian.</p>
-            : <p className="break-words text-xs text-muted-foreground">DeliGO no realiza transferencias: sólo registra que devolviste el dinero por ese medio.</p>}
+          <MedioReintegroSelector
+            value={medio}
+            onChange={setMedio}
+            disabled={pending}
+            metodoVenta={venta.metodoPago}
+            destinoEfectivo={<DestinoEfectivo owner={Boolean(endpoints.ownerRegistersUrl)} registros={registers.data} />}
+          />
           {medio === "EFECTIVO" && endpoints.ownerRegistersUrl && registers.data && <RegisterChoice registers={registers.data} value={caja} onChange={setCaja} disabled={pending} />}
         </>}
       </fieldset>

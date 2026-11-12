@@ -418,6 +418,8 @@ describe("F4-C5 — partial compensation in the UI", () => {
     expect(text()).not.toMatch(/devolví \$\s?(2\.000|1\.500),00/)
     const checks = [...document.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
     await click(checks[checks.length - 1])
+    expect(button("Confirmar reintegro")!.disabled).toBe(true) // no method preselected
+    await click(button("Efectivo"))
     await click(button("Confirmar reintegro"))
     await flush()
     const pago = posts.find((p) => p.url === "/x/devoluciones/dev-1/reintegro")!

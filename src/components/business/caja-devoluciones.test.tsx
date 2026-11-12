@@ -82,6 +82,9 @@ async function fillPartial() {
   await type(document.querySelector('input[aria-label="Motivo"]') as HTMLInputElement, "El cliente devolvió una gaseosa")
   const radios = [...document.querySelectorAll('input[type="radio"]')] as HTMLInputElement[]
   await click(radios[0])
+  // The refund method is never preselected: it must be chosen explicitly.
+  expect(button("Confirmar devolución")!.disabled).toBe(true)
+  await click(button("Efectivo"))
 }
 
 // 2026-11-11: returns are registered from «Gestionar venta» (lower what comes
