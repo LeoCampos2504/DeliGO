@@ -76,6 +76,11 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
   const [rectifying, setRectifying] = useState<Record<string, boolean>>({})
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
   const [custodySuccess, setCustodySuccess] = useState<Record<string, string>>({})
+  // Review form UX (2026-11-12): after a review is registered the note is cleared, a
+  // success notice is shown and the form is folded. Another review stays possible, but
+  // only through an explicit «Agregar otra revisión» (the server keeps allowing several).
+  const [reviewSuccess, setReviewSuccess] = useState<Record<string, string>>({})
+  const [addingReview, setAddingReview] = useState<Record<string, boolean>>({})
   const attempts = useRef(new Map<string, string>())
   const query = useQuery<{ turnos: TurnoCerrado[] }>({
     queryKey: closedShiftsKey(negocioId),
@@ -122,6 +127,9 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
       return turno.id
     },
     onSuccess: (turnoId) => {
+      setNotes((current) => ({ ...current, [turnoId]: "" }))
+      setAddingReview((current) => ({ ...current, [turnoId]: false }))
+      setReviewSuccess((current) => ({ ...current, [turnoId]: "Revisión registrada correctamente. Quedó en el historial administrativo." }))
       void queryClient.invalidateQueries({ queryKey: closedShiftsKey(negocioId) })
       void queryClient.invalidateQueries({ queryKey: reviewHistoryKey(negocioId, turnoId) })
     },
@@ -246,13 +254,31 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
           {open && <div id={detalleId} className="space-y-3 border-t-2 border-primary/25 pt-4">
             <div><h5 className="text-sm font-semibold">Historial administrativo</h5>
               {detail.isLoading ? <p className="text-sm text-muted-foreground">Cargando historial…</p> : detail.isError ? <p role="alert" className="text-sm text-destructive">{detail.error.message}</p> : detail.data?.revisiones.length ? <ol className="mt-2 space-y-2">{detail.data.revisiones.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.actor} · {new Date(item.createdAt).toLocaleString("es-AR")}</p><p>Esperado {money.format(item.efectivoEsperado)} · Declarado {money.format(item.efectivoContado)} · Diferencia {money.format(item.diferencia)}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol> : <p className="mt-1 text-sm text-muted-foreground">Sin revisiones anteriores.</p>}</div>
-            <form onSubmit={(event) => { event.preventDefault(); review.mutate({ turno, observacion: note }) }} className="space-y-2 rounded-lg border p-3">
-              <label htmlFor={`revision-nota-${turno.id}`} className="block text-sm font-medium">Observación administrativa {requiresNote ? "(obligatoria para esta diferencia)" : "(opcional)"}</label>
-              <Input id={`revision-nota-${turno.id}`} value={note} maxLength={1000} onChange={(event) => setNotes((current) => ({ ...current, [turno.id]: event.target.value }))} placeholder="Dejá constancia de la revisión" className="h-11 rounded-xl" />
-              {review.isError && <p role="alert" className="text-sm text-destructive">{review.error.message}</p>}
-              <Button type="submit" disabled={review.isPending || (requiresNote && !note.trim())}>{review.isPending ? "Registrando…" : "Registrar revisión administrativa"}</Button>
-              <p className="text-xs text-muted-foreground">La revisión deja un registro inmutable. No modifica el efectivo declarado ni crea ingresos o egresos.</p>
-            </form>
+            {reviewSuccess[turno.id] && <p role="status" data-testid="revision-exito" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">{reviewSuccess[turno.id]}</p>}
+            {/* Already reviewed (now or before): the form stays folded until the owner explicitly asks for another review. */}
+            {(turno.estadoRevision === "REVISADO" || Boolean(reviewSuccess[turno.id])) && !addingReview[turno.id] ? (
+              <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between" data-testid="revision-registrada">
+                <p className="text-sm text-muted-foreground">Este cierre ya tiene una revisión registrada. Si necesitás dejar otra constancia, agregala como una revisión nueva.</p>
+                <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 w-full shrink-0 whitespace-normal rounded-xl sm:w-auto" onClick={() => {
+                  review.reset()
+                  setReviewSuccess((current) => { const next = { ...current }; delete next[turno.id]; return next })
+                  setNotes((current) => ({ ...current, [turno.id]: "" }))
+                  setAddingReview((current) => ({ ...current, [turno.id]: true }))
+                }}>Agregar otra revisión</Button>
+              </div>
+            ) : (
+              <form onSubmit={(event) => { event.preventDefault(); review.mutate({ turno, observacion: note }) }} className="space-y-2 rounded-lg border p-3" aria-label="Registrar revisión administrativa">
+                {addingReview[turno.id] && <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="revision-adicional">Vas a agregar una revisión nueva al historial. La anterior se conserva sin cambios.</p>}
+                <label htmlFor={`revision-nota-${turno.id}`} className="block text-sm font-medium">Observación administrativa {requiresNote ? "(obligatoria para esta diferencia)" : "(opcional)"}</label>
+                <Input id={`revision-nota-${turno.id}`} value={note} maxLength={1000} onChange={(event) => setNotes((current) => ({ ...current, [turno.id]: event.target.value }))} placeholder="Dejá constancia de la revisión" className="h-11 rounded-xl" />
+                {review.isError && <p role="alert" className="text-sm text-destructive">{review.error.message}</p>}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button type="submit" className="h-auto min-h-10 whitespace-normal" disabled={review.isPending || (requiresNote && !note.trim())}>{review.isPending ? "Registrando…" : addingReview[turno.id] ? "Registrar revisión adicional" : "Registrar revisión administrativa"}</Button>
+                  {addingReview[turno.id] && <Button type="button" variant="outline" className="h-auto min-h-10 whitespace-normal" disabled={review.isPending} onClick={() => { review.reset(); setNotes((current) => ({ ...current, [turno.id]: "" })); setAddingReview((current) => ({ ...current, [turno.id]: false })) }}>Cancelar</Button>}
+                </div>
+                <p className="text-xs text-muted-foreground">La revisión deja un registro inmutable. No modifica el efectivo declarado ni crea ingresos o egresos.</p>
+              </form>
+            )}
             <div className="space-y-3 rounded-lg border p-3" aria-label="Entrega de efectivo y fondo remanente">
               <div><h5 className="text-sm font-semibold">Entrega y fondo remanente</h5><p className="text-xs text-muted-foreground">Se divide el efectivo {recuperado ? "contado por el dueño" : "declarado"} ({money.format(turno.efectivoContado)}); no modifica la diferencia ni genera movimientos financieros.</p></div>
               <ol className="space-y-2">{custody.isLoading ? <li className="text-sm text-muted-foreground">Cargando historial de custodia…</li> : custody.isError ? <li role="alert" className="text-sm text-destructive">{custody.error.message}</li> : custody.data?.entregas.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.tipo === "RECTIFICACION" ? "Rectificación" : "Entrega confirmada"} · {new Date(item.confirmadoEn).toLocaleString("es-AR")}</p><p>{money.format(item.efectivoEntregado)} entregado · {money.format(item.fondoRemanente)} remanente · {item.destinoTipo === "DUENO" ? "Dueño" : item.destinoNombre}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol>

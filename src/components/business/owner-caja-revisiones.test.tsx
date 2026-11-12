@@ -13,6 +13,7 @@ const { OwnerCajaRevisiones } = await import("./owner-caja-revisiones")
 const originalFetch = globalThis.fetch
 const reviewKeys: Array<string | null> = []
 let submittedNote = ""
+const submittedNotes: string[] = []
 let submittedCustody: Record<string, unknown> | null = null
 let custodyEvents: Record<string, unknown>[] = []
 let custodyPostCount = 0
@@ -64,13 +65,16 @@ beforeEach(() => {
   deferCustodyPost = false
   finishDeferredCustodyPost = null
   mockedTurno = initialTurno()
+  submittedNotes.length = 0
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith("/turnos/cerrados")) return new Response(JSON.stringify({ turnos: [mockedTurno] }), { status: 200 })
     if (url.endsWith("/revisiones") && init?.method === "POST") {
       reviewKeys.push(new Headers(init.headers).get("Idempotency-Key"))
       submittedNote = (JSON.parse(String(init.body)) as { observacion: string }).observacion
-      return new Response(JSON.stringify({ replayed: false, revision: { id: "revision-1" } }), { status: 201 })
+      submittedNotes.push(submittedNote)
+      mockedTurno = { ...mockedTurno, estadoRevision: "REVISADO" } // like the server: the list now shows it reviewed
+      return new Response(JSON.stringify({ replayed: false, revision: { id: `revision-${submittedNotes.length}` } }), { status: 201 })
     }
     if (url.endsWith("/revisiones")) return new Response(JSON.stringify({ revisiones: [] }), { status: 200 })
     if (url.endsWith("/entregas") && init?.method === "POST") {
@@ -297,6 +301,68 @@ describe("closed shifts list — legible, separated cards with a prominent «Ver
     await act(async () => boton().click())
     expect(document.getElementById("turno-detalle-turno-d-1")).toBeNull()
     expect(boton().getAttribute("aria-expanded")).toBe("false")
+    await act(async () => root.unmount())
+  })
+})
+
+// 2026-11-12 — review form UX: after a successful review the note is cleared, a success
+// notice is shown and the form folds, so it cannot be re-sent by accident. Another review
+// is still possible (the server keeps allowing several), but only through an explicit
+// «Agregar otra revisión». No business rule changes.
+describe("administrative review form — no accidental duplicates, explicit additional reviews", () => {
+  const botonTexto = (texto: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === texto) as HTMLButtonElement | undefined
+  const notaInput = () => document.querySelector('input[id^="revision-nota-"]') as HTMLInputElement | null
+  async function registrar(nota: string, boton = "Registrar revisión administrativa") {
+    await setInputValue(notaInput()!, nota)
+    await act(async () => botonTexto(boton)!.click())
+    await flush()
+  }
+
+  test("after success: note cleared, clear success notice, form folded; nothing can be re-sent by accident", async () => {
+    const root = await renderPanel()
+    await openTurnoDetails()
+    await registrar("Conteo verificado")
+    expect(submittedNotes).toEqual(["Conteo verificado"])
+    expect(document.querySelector('[data-testid="revision-exito"]')?.textContent).toContain("Revisión registrada correctamente")
+    expect(notaInput()).toBeNull() // folded: no field with the old note, no submit button
+    expect(botonTexto("Registrar revisión administrativa")).toBeUndefined()
+    expect(document.querySelector('[data-testid="revision-registrada"]')?.textContent).toContain("ya tiene una revisión registrada")
+    expect(botonTexto("Agregar otra revisión")).toBeTruthy()
+    expect(document.body.textContent).toContain("Revisado") // the card's status refreshed
+    expect(reviewKeys).toHaveLength(1)
+    await act(async () => root.unmount())
+  })
+
+  test("another review only through «Agregar otra revisión»: empty field, explicit notice, its own key; «Cancelar» sends nothing", async () => {
+    const root = await renderPanel()
+    await openTurnoDetails()
+    await registrar("Conteo verificado")
+    // Explicit intent, then changing one's mind: nothing is sent.
+    await act(async () => botonTexto("Agregar otra revisión")!.click())
+    expect(notaInput()!.value).toBe("")
+    expect(document.querySelector('[data-testid="revision-adicional"]')?.textContent).toContain("revisión nueva")
+    expect(botonTexto("Registrar revisión adicional")!.disabled).toBe(true) // a difference still requires a note
+    await act(async () => botonTexto("Cancelar")!.click())
+    expect(notaInput()).toBeNull()
+    expect(reviewKeys).toHaveLength(1)
+    // Explicit additional review.
+    await act(async () => botonTexto("Agregar otra revisión")!.click())
+    await registrar("Segunda constancia: el cajero repuso el faltante", "Registrar revisión adicional")
+    expect(submittedNotes).toEqual(["Conteo verificado", "Segunda constancia: el cajero repuso el faltante"])
+    expect(reviewKeys).toHaveLength(2)
+    expect(reviewKeys[1]).not.toBe(reviewKeys[0])
+    expect(notaInput()).toBeNull() // folded again
+    expect(document.querySelector('[data-testid="revision-exito"]')).toBeTruthy()
+    await act(async () => root.unmount())
+  })
+
+  test("a closing already reviewed before (page reload) opens folded, with the explicit option to add another", async () => {
+    mockedTurno = { ...mockedTurno, estadoRevision: "REVISADO" }
+    const root = await renderPanel()
+    await openTurnoDetails()
+    expect(notaInput()).toBeNull()
+    expect(document.querySelector('[data-testid="revision-exito"]')).toBeNull()
+    expect(botonTexto("Agregar otra revisión")).toBeTruthy()
     await act(async () => root.unmount())
   })
 })
