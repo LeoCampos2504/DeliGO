@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { BadgeCheck, Banknote, LockKeyhole, RefreshCw, Store, UserRound } from "lucide-react"
+import { AlertTriangle, BadgeCheck, Banknote, LockKeyhole, RefreshCw, Store, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
@@ -34,6 +34,14 @@ const OPENING_CONFLICT_MESSAGES: Record<string, string> = {
   CAJA_INACTIVA: "Esta caja fue desactivada. Elegí otra caja disponible.",
   TURNO_YA_ABIERTO: "Ya tenés un turno abierto.",
 }
+
+// Manual test (2026-11-12): a stale second tab confirmed a close of an already closed
+// shift. The server refused it (409 TURNO_NO_ABIERTO, nothing written) but the notice
+// was rendered at the bottom, in small grey text, under the opening form: easy to miss.
+// These notices go at the TOP of the panel, survive the refresh that follows and never
+// carry amounts (blind close: no expected cash, previous count or difference).
+export const AVISO_SEGUNDO_CIERRE = "Este turno ya había sido cerrado. No se registró un segundo cierre."
+export const AVISO_CERRADO_EN_OTRA_PESTANA = "Este turno ya fue cerrado en otra pestaña o dispositivo. Actualizamos el estado de la caja."
 
 function attemptFor(scope: string, canonical: string, prefix = STORAGE_PREFIX): string {
   const mapKey = `${prefix}${scope}:${canonical}`
@@ -75,11 +83,18 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // Amber warning about the shift's real state (kept across refreshes until the next action).
+  const [aviso, setAviso] = useState<string | null>(null)
   const openingRef = useRef(false)
+  const busyRef = useRef(false) // an opening or a close is in flight: never refresh underneath it
+  const refreshingRef = useRef(false)
+  const turnoMostradoRef = useRef<string | null>(null)
   const scope = `${negocioId}:${empleadoId}`
 
-  const refresh = useCallback(async () => {
-    setState((current) => ({ ...current, loading: true, error: null }))
+  /** Re-reads the shift state. Resolves to the open shift's id (or null), undefined when the read failed. */
+  const refresh = useCallback(async (opciones?: { silencioso?: boolean }): Promise<string | null | undefined> => {
+    // A silent re-read (back on the tab) keeps the current view until the answer arrives.
+    if (!opciones?.silencioso) setState((current) => ({ ...current, loading: true, error: null }))
     try {
       const response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, { cache: "no-store" })
       const json = await response.json().catch(() => ({}))
@@ -87,12 +102,43 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       if (!response.ok || !json.ok) throw new Error(json.error ?? "No pudimos cargar los turnos.")
       setState({ loading: false, error: null, modoTurnos: json.modoTurnos, aperturaHabilitada: json.aperturaHabilitada === true, cajas: json.cajas ?? [], turno: json.turno ?? null, ultimoCierre: json.ultimoCierre ?? null })
       setSelected((current) => json.cajas?.some((c: Register) => c.id === current && !c.ocupada) ? current : (json.cajas?.find((c: Register) => !c.ocupada)?.id ?? ""))
+      return (json.turno?.id as string | undefined) ?? null
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "No pudimos cargar los turnos." }))
+      return undefined
     }
   }, [slug, onAccessLost])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { turnoMostradoRef.current = state.turno?.id ?? null }, [state.turno])
+
+  // Back on this tab (focus / visible again): re-read the real state, so a tab left open
+  // never keeps offering to close a shift that was already closed elsewhere.
+  useEffect(() => {
+    const alVolver = async () => {
+      if (document.visibilityState !== "visible" || busyRef.current || refreshingRef.current) return
+      refreshingRef.current = true
+      try {
+        const antes = turnoMostradoRef.current
+        const ahora = await refresh({ silencioso: true })
+        if (antes && ahora === null) {
+          setConfirmingClose(false)
+          setEfectivoContado("")
+          setMessage(null)
+          setAviso(AVISO_CERRADO_EN_OTRA_PESTANA)
+        }
+      } finally {
+        refreshingRef.current = false
+      }
+    }
+    const onVisibility = () => { void alVolver() }
+    window.addEventListener("focus", onVisibility)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.removeEventListener("focus", onVisibility)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [refresh])
 
   async function openShift() {
     const fondo = Number(fondoInicial)
@@ -108,8 +154,10 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
     }
     if (openingRef.current) return
     openingRef.current = true
+    busyRef.current = true
     setSaving(true)
     setMessage(null)
+    setAviso(null)
     const body = transferencia
       ? { cajaFisicaId: selected, fondoInicial: transferencia.importe, transferirDesdeTurnoCajaId: transferencia.turnoOrigenId, confirmoRecepcionFondo: true }
       : { cajaFisicaId: selected, fondoInicial: fondoInicial.trim() }
@@ -156,6 +204,7 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       setMessage(json.error ?? "No pudimos iniciar el turno.")
     } finally {
       openingRef.current = false
+      busyRef.current = false
       setSaving(false)
     }
   }
@@ -166,26 +215,36 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       setMessage("Ingresá el efectivo contado, sin negativos y con hasta 2 decimales.")
       return
     }
+    busyRef.current = true
     setSaving(true)
     setMessage(null)
+    setAviso(null)
     const body = { action: "close", turnoCajaId: state.turno.id, efectivoContado: amount }
     const canonical = JSON.stringify(body)
     const closeScope = `${scope}:${state.turno.id}`
     try {
-      const response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": attemptFor(closeScope, canonical, CLOSE_STORAGE_PREFIX) },
-        body: JSON.stringify(body),
-      })
+      let response: Response
+      try {
+        response = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/turno`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": attemptFor(closeScope, canonical, CLOSE_STORAGE_PREFIX) },
+          body: JSON.stringify(body),
+        })
+      } catch {
+        // The key is kept: a retry replays the original close instead of closing twice.
+        setMessage("No pudimos confirmar el cierre por un problema de conexión. Podés reintentar sin duplicarlo.")
+        return
+      }
       const json = await response.json().catch(() => ({}))
       if (response.status === 401 || response.status === 403) onAccessLost(response.status, json.estado)
       if (!response.ok || !json.ok) {
         if (response.status < 500) clearAttempt(closeScope, CLOSE_STORAGE_PREFIX)
         if (response.status === 409 && json.code === "TURNO_NO_ABIERTO") {
-          // Closed elsewhere (e.g. recovered by the owner): show the real state.
+          // Already closed (another tab / device, or recovered by the owner): the server
+          // wrote nothing. Say so clearly at the top; the refresh below keeps the warning.
           setConfirmingClose(false)
           setEfectivoContado("")
-          setMessage("Este turno ya fue cerrado. Actualizamos el estado de la caja.")
+          setAviso(AVISO_SEGUNDO_CIERRE)
           await refresh()
           return
         }
@@ -199,6 +258,7 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No pudimos confirmar el cierre. Podés reintentar sin duplicarlo.")
     } finally {
+      busyRef.current = false
       setSaving(false)
     }
   }
@@ -215,6 +275,14 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
         </Button>
       </div>
 
+      {aviso && (
+        <div role="alert" data-testid="aviso-turno" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="min-w-0 flex-1 break-words font-semibold">{aviso}</p>
+          <button type="button" onClick={() => setAviso(null)} className="shrink-0 rounded-lg px-2 py-0.5 text-xs font-semibold underline-offset-2 hover:underline">Entendido</button>
+        </div>
+      )}
+      {message && <p role="status" data-testid="mensaje-turno" className="mt-3 break-words rounded-xl bg-muted/60 p-3 text-sm">{message}</p>}
       {state.error && <p role="alert" className="mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{state.error}</p>}
       {!state.loading && !state.error && state.turno && (
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
@@ -223,7 +291,7 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
           <p className="mt-1 flex items-center gap-1.5 text-sm"><UserRound className="h-4 w-4" />Responsable: {empleadoNombre}</p>
           <p className="mt-1 text-xs text-muted-foreground">Desde {new Date(state.turno.abiertoEn).toLocaleString("es-AR")}</p>
           {!confirmingClose ? (
-            <Button type="button" variant="outline" onClick={() => { setMessage(null); setConfirmingClose(true) }} disabled={!state.aperturaHabilitada || saving} className="mt-4 h-12 w-full rounded-xl font-bold">Cerrar turno</Button>
+            <Button type="button" variant="outline" onClick={() => { setMessage(null); setAviso(null); setConfirmingClose(true) }} disabled={!state.aperturaHabilitada || saving} className="mt-4 h-12 w-full rounded-xl font-bold">Cerrar turno</Button>
           ) : (
             <div className="mt-4 space-y-3 rounded-xl border border-emerald-900/15 bg-background p-3 text-foreground">
               <p className="text-sm font-semibold">Contá el efectivo que hay físicamente en la caja. El sistema no muestra el esperado.</p>
@@ -277,7 +345,6 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
           </Button>
         </div>
       )}
-      {message && <p role="status" className="mt-3 text-sm text-muted-foreground">{message}</p>}
     </section>
   )
 }

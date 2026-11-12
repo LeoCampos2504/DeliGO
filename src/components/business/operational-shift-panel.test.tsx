@@ -8,7 +8,7 @@ afterAll(() => GlobalRegistrator.unregister())
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
-const { OperationalShiftPanel } = await import("./operational-shift-panel")
+const { OperationalShiftPanel, AVISO_SEGUNDO_CIERRE, AVISO_CERRADO_EN_OTRA_PESTANA } = await import("./operational-shift-panel")
 const originalFetch = globalThis.fetch
 let enabled = false
 let currentShift: unknown = null
@@ -18,8 +18,14 @@ const openingKeys: Array<string | null> = []
 const openingBodies: Array<Record<string, unknown>> = []
 const closingKeys: Array<string | null> = []
 let closeRecoveredByOwner = false
+let closeResults: Array<"network" | "ok"> = []
+let acceptedCloseKey: string | null = null
+const acceptedCloses: string[] = []
 
 beforeEach(() => {
+  closeResults = []
+  acceptedCloseKey = null
+  acceptedCloses.length = 0
   enabled = false
   currentShift = null
   transferableFund = null
@@ -34,9 +40,18 @@ beforeEach(() => {
     if (url.endsWith("/turno") && init?.method === "POST") {
       const body = JSON.parse(String(init.body ?? "{}")) as { action?: string }
       if (body.action === "close") {
-        closingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
+        const key = new Headers(init.headers).get("Idempotency-Key")
+        closingKeys.push(key)
+        if (closeResults.shift() === "network") throw new TypeError("network lost")
+        // Like the server: the same key replays the accepted close; a closed shift refuses any other attempt.
+        if (key && key === acceptedCloseKey) return new Response(JSON.stringify({ ok: true, turno: { id: "turno-1", estado: "CERRADO_DECLARADO", cerradoEn: new Date().toISOString() } }), { status: 200, headers: { "Idempotency-Replayed": "true" } })
+        if (!currentShift || closeRecoveredByOwner) {
+          currentShift = null
+          return new Response(JSON.stringify({ ok: false, error: "El turno ya no está abierto.", code: "TURNO_NO_ABIERTO" }), { status: 409 })
+        }
         currentShift = null
-        if (closeRecoveredByOwner) return new Response(JSON.stringify({ ok: false, error: "El turno ya no está abierto.", code: "TURNO_NO_ABIERTO" }), { status: 409 })
+        acceptedCloseKey = key
+        acceptedCloses.push(String((body as { efectivoContado?: unknown }).efectivoContado))
         return new Response(JSON.stringify({ ok: true, turno: { id: "turno-1", estado: "CERRADO_DECLARADO", cerradoEn: new Date().toISOString() } }), { status: 200 })
       }
       openingKeys.push(new Headers(init.headers).get("Idempotency-Key"))
@@ -220,7 +235,7 @@ describe("F10-B2.2-B — employee shift interface", () => {
     })
     await act(async () => ([...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Confirmar cierre")) as HTMLButtonElement).click())
     await flush()
-    expect(document.body.textContent).toContain("Este turno ya fue cerrado. Actualizamos el estado de la caja.")
+    expect(document.querySelector('[data-testid="aviso-turno"]')?.textContent).toContain(AVISO_SEGUNDO_CIERRE)
     expect(document.body.textContent).toContain("cerrado por el responsable del negocio (recuperación administrativa)")
     expect(document.body.textContent).not.toContain("Turno abierto")
     expect(document.body.textContent).not.toMatch(/esperado|diferencia|15[.,]25/i)
@@ -248,7 +263,114 @@ describe("F10-B2.2-B — employee shift interface", () => {
     expect(document.body.textContent).not.toContain("esperado")
     expect(document.body.textContent).not.toContain("diferencia")
     expect(document.body.textContent).not.toContain("15.25")
+    // The confirmation is shown at the TOP of the panel, before the opening form.
+    const mensaje = document.querySelector('[data-testid="mensaje-turno"]') as HTMLElement
+    expect(mensaje.textContent).toBe("Cierre declarado registrado.")
+    expect(mensaje.compareDocumentPosition(openButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     await act(async () => root.unmount())
+  })
+})
+
+// Manual test 2026-11-12: a stale second tab confirmed the close of an already closed
+// shift. The server refused it (409, nothing written) but the notice was easy to miss.
+describe("closing from a stale tab: clear warning at the top, never a second close, never amounts", () => {
+  const SHIFT = () => ({ id: "turno-1", caja: { id: "caja-2", nombre: "Caja secundaria" }, abiertoEn: new Date().toISOString(), fondoInicial: 1000 })
+  async function pestana() {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => root.render(<OperationalShiftPanel slug="almacen" negocioId="neg-1" empleadoId="emp-1" empleadoNombre="Cajero 1" onAccessLost={() => {}} />))
+    await flush()
+    const boton = (texto: string) => [...container.querySelectorAll("button")].find((b) => b.textContent?.includes(texto)) as HTMLButtonElement
+    const escribir = async (valor: string) => {
+      const input = container.querySelector("#efectivo-contado-turno") as HTMLInputElement
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, valor)
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    }
+    const abrirCierre = async (valor: string) => { await act(async () => boton("Cerrar turno").click()); await escribir(valor) }
+    const confirmar = async () => { await act(async () => boton("Confirmar cierre").click()); await flush() }
+    const aviso = () => container.querySelector('[data-testid="aviso-turno"]') as HTMLElement | null
+    return { root, container, boton, abrirCierre, confirmar, aviso }
+  }
+  const sinImportes = (texto: string) => expect(texto).not.toMatch(/esperado|diferencia|faltante|sobrante|950|900|1[.,]?000/i)
+
+  test("two tabs: A closes with 950; B (form opened before) confirms 900 → refused, warning at the top, still visible after the refresh, no amounts", async () => {
+    enabled = true
+    currentShift = SHIFT()
+    const a = await pestana()
+    const b = await pestana()
+    await b.abrirCierre("900") // B: form open and typed, never confirmed yet
+    await a.abrirCierre("950")
+    await a.confirmar()
+    expect(a.container.textContent).toContain("Cierre declarado registrado.")
+    expect(a.aviso()).toBeNull()
+
+    await b.confirmar() // stale tab, different key
+    expect(closingKeys).toHaveLength(2)
+    expect(closingKeys[1]).not.toBe(closingKeys[0])
+    expect(acceptedCloses).toEqual(["950"]) // the server accepted ONE close, never the 900
+    const aviso = b.aviso()!
+    expect(aviso.getAttribute("role")).toBe("alert")
+    expect(aviso.textContent).toContain(AVISO_SEGUNDO_CIERRE)
+    expect(aviso.className).toContain("amber")
+    // At the top: before the opening form that replaced the close form.
+    expect(aviso.compareDocumentPosition(b.boton("Iniciar turno")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(b.container.querySelector("#efectivo-contado-turno")).toBeNull()
+    sinImportes(b.container.textContent ?? "")
+    // A later refresh keeps the warning; «Entendido» dismisses it.
+    await act(async () => ([...b.container.querySelectorAll("button")].find((x) => x.getAttribute("aria-label") === "Actualizar cajas") as HTMLButtonElement).click())
+    await flush()
+    expect(b.aviso()?.textContent).toContain(AVISO_SEGUNDO_CIERRE)
+    await act(async () => b.boton("Entendido").click())
+    expect(b.aviso()).toBeNull()
+    await act(async () => { a.root.unmount(); b.root.unmount() })
+  })
+
+  test("back on a stale tab (focus): the real state is re-read silently; the closed shift's form disappears with a warning and nothing is sent", async () => {
+    enabled = true
+    currentShift = SHIFT()
+    const b = await pestana()
+    await b.abrirCierre("900")
+    currentShift = null // closed meanwhile in another tab / device
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await flush()
+    expect(closingKeys).toHaveLength(0) // nothing was sent by the stale tab
+    expect(b.container.querySelector("#efectivo-contado-turno")).toBeNull()
+    expect(b.aviso()?.textContent).toContain(AVISO_CERRADO_EN_OTRA_PESTANA)
+    sinImportes(b.container.textContent ?? "")
+    await act(async () => b.root.unmount())
+  })
+
+  test("back on the tab while the shift is still open: nothing changes, the typed count is kept, no warning", async () => {
+    enabled = true
+    currentShift = SHIFT()
+    const b = await pestana()
+    await b.abrirCierre("950")
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")) })
+    await flush()
+    expect((b.container.querySelector("#efectivo-contado-turno") as HTMLInputElement).value).toBe("950")
+    expect(b.aviso()).toBeNull()
+    expect(b.container.textContent).toContain("Turno abierto")
+    await act(async () => b.root.unmount())
+  })
+
+  test("same idempotency key: a lost answer is retried with the SAME key and replays, never a second close", async () => {
+    enabled = true
+    currentShift = SHIFT()
+    closeResults = ["network"]
+    const a = await pestana()
+    await a.abrirCierre("950")
+    await a.confirmar() // network lost: nothing known
+    expect(a.container.querySelector('[data-testid="mensaje-turno"]')?.textContent).toContain("Podés reintentar sin duplicarlo")
+    await a.confirmar() // retry
+    expect(closingKeys).toHaveLength(2)
+    expect(closingKeys[1]).toBe(closingKeys[0])
+    expect(acceptedCloses).toEqual(["950"])
+    expect(a.container.textContent).toContain("Cierre declarado registrado.")
+    expect(a.aviso()).toBeNull()
+    await act(async () => a.root.unmount())
   })
 })
 
