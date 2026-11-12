@@ -2,9 +2,11 @@
 
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+import { cn } from "@/lib/utils"
 
 type Resultado = "COINCIDE" | "FALTANTE" | "SOBRANTE"
 type TurnoCerrado = {
@@ -50,10 +52,18 @@ function remainingFrom(counted: string, delivered: string): string | null {
   return `${left / 100n}.${String(left % 100n).padStart(2, "0")}`
 }
 
+// Readability in bright light / on the street (2026-11-12): every status pill carries a
+// contrasting ring so it stays legible on light and dark cards. Colours keep their meaning:
+// green = coincide / entrega confirmada, red = faltante, amber = sobrante, orange = revisado,
+// neutral = pendiente.
+const PILL = "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset"
+const PILL_PENDIENTE = "bg-muted text-foreground/85 ring-foreground/20"
+const PILL_OK = "bg-emerald-100 text-emerald-900 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-700"
+
 function ResultadoBadge({ resultado }: { resultado: Resultado }) {
   const label = resultado === "COINCIDE" ? "Coincide" : resultado === "FALTANTE" ? "Faltante" : "Sobrante"
-  const style = resultado === "COINCIDE" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : resultado === "FALTANTE" ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200" : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
-  return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${style}`}>{label}</span>
+  const style = resultado === "COINCIDE" ? PILL_OK : resultado === "FALTANTE" ? "bg-rose-100 text-rose-900 ring-rose-300 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-700" : "bg-amber-100 text-amber-900 ring-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-700"
+  return <span className={cn(PILL, style)}>{label}</span>
 }
 
 export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
@@ -181,17 +191,49 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
     {query.isLoading ? <p role="status" className="text-sm text-muted-foreground">Cargando turnos cerrados…</p>
       : query.isError ? <p role="alert" className="text-sm text-destructive">{query.error.message}</p>
       : !query.data?.turnos.length ? <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">Todavía no hay turnos cerrados para revisar.</p>
-      : <div className="space-y-3">{query.data.turnos.map((turno) => {
+      : <div className="space-y-4 sm:space-y-5">{query.data.turnos.map((turno) => {
         const open = selected === turno.id
         const note = notes[turno.id] ?? ""
         const requiresNote = turno.diferencia !== 0
         const recuperado = turno.cierreOrigen === "RECUPERACION_ADMINISTRATIVA"
-        return <article key={turno.id} className="space-y-3 rounded-xl border p-3 sm:p-4">
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-            <div className="min-w-0 space-y-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{turno.caja.nombre}</h4>{recuperado ? <span className="rounded-full bg-violet-100 px-2 py-1 text-xs font-semibold text-violet-900 dark:bg-violet-950 dark:text-violet-200">Cerrado por recuperación administrativa</span> : <span className="rounded-full border px-2 py-1 text-xs font-medium">CERRADO_DECLARADO</span>}<ResultadoBadge resultado={turno.resultado} /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoRevision === "REVISADO" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{turno.estadoRevision === "REVISADO" ? "Revisado" : "Pendiente de revisión"}</span><span className={`rounded-full px-2 py-1 text-xs font-semibold ${turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : "bg-muted text-muted-foreground"}`}>{turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "Entrega confirmada" : "Entrega pendiente"}</span></div>{recuperado
-              ? <><p className="text-sm text-muted-foreground">Responsable original: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")}</p><p className="text-sm text-muted-foreground">Cierre realizado por: {turno.cerradoPor ?? "Dueño (recuperación administrativa)"} · Recuperado {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>{turno.motivoRecuperacion && <p className="text-sm">Motivo: {turno.motivoRecuperacion}</p>}</>
-              : <p className="text-sm text-muted-foreground">Abrió y cerró: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")} · Cierre {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>}</div>
-            <Button type="button" variant="outline" size="sm" onClick={() => setSelected(open ? null : turno.id)}>{open ? "Ocultar detalle" : "Ver detalle"}</Button>
+        const detalleId = `turno-detalle-${turno.id}`
+        // Each closing is its own clearly separated card: orange contour + a solid orange
+        // stripe on the left, soft elevation; the open one is outlined in full orange.
+        return <article key={turno.id} data-testid="turno-cerrado" aria-label={`Cierre de ${turno.caja.nombre}`} className={cn(
+          "relative space-y-3 overflow-hidden rounded-2xl border-2 bg-card p-4 pl-5 shadow-md transition-colors sm:p-5 sm:pl-6 dark:shadow-black/50",
+          open ? "border-primary ring-2 ring-primary/25" : "border-primary/45 dark:border-primary/55",
+        )}>
+          <span aria-hidden="true" data-testid="turno-acento" className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div className="min-w-0 space-y-2">
+              <h4 className="break-words text-lg font-bold leading-tight">{turno.caja.nombre}</h4>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {recuperado
+                  ? <span className={cn(PILL, "bg-violet-100 text-violet-900 ring-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:ring-violet-700")}>Cerrado por recuperación administrativa</span>
+                  : <span className={cn(PILL, "bg-background text-foreground ring-foreground/25")}>CERRADO_DECLARADO</span>}
+                <ResultadoBadge resultado={turno.resultado} />
+                <span className={cn(PILL, turno.estadoRevision === "REVISADO" ? "bg-primary/15 text-primary ring-primary/40" : PILL_PENDIENTE)}>{turno.estadoRevision === "REVISADO" ? "Revisado" : "Pendiente de revisión"}</span>
+                <span className={cn(PILL, turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? PILL_OK : PILL_PENDIENTE)}>{turno.estadoEntrega === "ENTREGA_CONFIRMADA" ? "Entrega confirmada" : "Entrega pendiente"}</span>
+              </div>
+              {recuperado
+                ? <><p className="text-sm text-muted-foreground">Responsable original: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")}</p><p className="text-sm text-muted-foreground">Cierre realizado por: {turno.cerradoPor ?? "Dueño (recuperación administrativa)"} · Recuperado {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>{turno.motivoRecuperacion && <p className="text-sm">Motivo: {turno.motivoRecuperacion}</p>}</>
+                : <p className="text-sm text-muted-foreground">Abrió y cerró: {turno.responsableNombre} · Apertura {new Date(turno.abiertoEn).toLocaleString("es-AR")} · Cierre {new Date(turno.cerradoEn).toLocaleString("es-AR")}</p>}
+            </div>
+            <Button
+              type="button"
+              variant={open ? "outline" : "default"}
+              aria-expanded={open}
+              aria-controls={detalleId}
+              data-testid="turno-ver-detalle"
+              onClick={() => setSelected(open ? null : turno.id)}
+              className={cn(
+                "h-auto min-h-11 w-full shrink-0 gap-1.5 whitespace-normal rounded-xl px-4 font-bold focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 sm:w-auto",
+                open ? "border-2 border-primary bg-transparent text-primary hover:bg-primary/10 hover:text-primary dark:bg-transparent" : "bg-primary text-primary-foreground shadow-md hover:bg-primary/85 hover:shadow-lg active:bg-primary/80",
+              )}
+            >
+              {open ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
+              {open ? "Ocultar detalle" : "Ver detalle"}
+            </Button>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <Money label="Fondo inicial" value={turno.fondoInicial} />
@@ -201,7 +243,7 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
           </div>
           {turno.cambios && turno.cambios.cantidad > 0 && <p className="rounded-lg bg-muted/40 p-2 text-sm" data-testid="turno-cambios">Operaciones por cambios: {turno.cambios.cantidad} · diferencia cobrada {money.format(turno.cambios.diferenciaCobrada)} · reintegrado en efectivo {money.format(turno.cambios.reintegradoEfectivo)} · compensación interna (no es dinero) {money.format(turno.cambios.compensacionInterna)}. Ya incluido en el efectivo esperado; no recalcula el cierre.</p>}
           {turno.entregaActual && <p className="rounded-lg bg-muted/40 p-2 text-sm">Entrega actual: {money.format(turno.entregaActual.efectivoEntregado)} entregado · {money.format(turno.entregaActual.fondoRemanente)} permanece en caja · {turno.entregaActual.destinoTipo === "DUENO" ? "Dueño" : turno.entregaActual.destinoNombre} · confirmó {turno.entregaActual.actor} el {new Date(turno.entregaActual.confirmadoEn).toLocaleString("es-AR")}</p>}
-          {open && <div className="space-y-3 border-t pt-3">
+          {open && <div id={detalleId} className="space-y-3 border-t-2 border-primary/25 pt-4">
             <div><h5 className="text-sm font-semibold">Historial administrativo</h5>
               {detail.isLoading ? <p className="text-sm text-muted-foreground">Cargando historial…</p> : detail.isError ? <p role="alert" className="text-sm text-destructive">{detail.error.message}</p> : detail.data?.revisiones.length ? <ol className="mt-2 space-y-2">{detail.data.revisiones.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.actor} · {new Date(item.createdAt).toLocaleString("es-AR")}</p><p>Esperado {money.format(item.efectivoEsperado)} · Declarado {money.format(item.efectivoContado)} · Diferencia {money.format(item.diferencia)}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol> : <p className="mt-1 text-sm text-muted-foreground">Sin revisiones anteriores.</p>}</div>
             <form onSubmit={(event) => { event.preventDefault(); review.mutate({ turno, observacion: note }) }} className="space-y-2 rounded-lg border p-3">
@@ -256,5 +298,14 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
 }
 
 function Money({ label, value, emphasize = false }: { label: string; value: number; emphasize?: boolean }) {
-  return <div className="min-w-0 rounded-lg bg-muted/40 p-2"><p className="text-xs text-muted-foreground">{label}</p><p className={`mt-0.5 break-words font-semibold ${emphasize && value < 0 ? "text-rose-700 dark:text-rose-300" : emphasize && value > 0 ? "text-amber-700 dark:text-amber-300" : ""}`}>{money.format(value)}</p></div>
+  // Bigger, tabular figures in a defined tile; the difference keeps its colour and also
+  // gets a coloured edge when it is not zero (red = faltante, amber = sobrante).
+  const tono = emphasize && value < 0 ? "rose" : emphasize && value > 0 ? "amber" : null
+  return <div className={cn(
+    "min-w-0 rounded-xl border bg-muted/40 p-2.5",
+    tono === "rose" ? "border-rose-300 bg-rose-50/70 dark:border-rose-800 dark:bg-rose-950/30" : tono === "amber" ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30" : "border-foreground/10",
+  )}>
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className={cn("mt-0.5 break-words text-base font-bold tabular-nums", tono === "rose" ? "text-rose-700 dark:text-rose-300" : tono === "amber" ? "text-amber-700 dark:text-amber-300" : "")}>{money.format(value)}</p>
+  </div>
 }

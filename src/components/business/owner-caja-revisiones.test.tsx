@@ -259,3 +259,44 @@ describe("F10-B2.2-E — owner cash custody interface", () => {
     await act(async () => pendingRoot.unmount())
   })
 })
+
+// 2026-11-12 — readability of the closed shifts list (owner): each closing is a clearly
+// separated card with an orange contour and stripe; «Ver detalle» is a solid orange button
+// that toggles the detail (aria-expanded / aria-controls). Status texts and meanings unchanged.
+describe("closed shifts list — legible, separated cards with a prominent «Ver detalle»", () => {
+  test("each closing is its own orange-accented card; statuses keep their texts and meaning", async () => {
+    const root = await renderPanel()
+    const card = document.querySelector('[data-testid="turno-cerrado"]') as HTMLElement
+    expect(card.tagName).toBe("ARTICLE")
+    expect(card.getAttribute("aria-label")).toBe("Cierre de Caja principal")
+    for (const cls of ["border-2", "border-primary/45", "rounded-2xl", "shadow-md"]) expect(card.className).toContain(cls)
+    expect((card.querySelector('[data-testid="turno-acento"]') as HTMLElement).className).toContain("bg-primary")
+    expect(card.querySelector("h4")?.className).toContain("text-lg")
+    for (const text of ["CERRADO_DECLARADO", "Faltante", "Pendiente de revisión", "Entrega pendiente"]) expect(card.textContent).toContain(text)
+    // The difference keeps its red meaning and gets a red edge.
+    const diferencia = [...card.querySelectorAll("p")].find((p) => p.textContent === "Diferencia")!.parentElement as HTMLElement
+    expect(diferencia.className).toContain("border-rose-300")
+    await act(async () => root.unmount())
+  })
+
+  test("«Ver detalle» is a solid orange button that opens and closes the same detail (accessible state)", async () => {
+    const root = await renderPanel()
+    const boton = () => document.querySelector('[data-testid="turno-ver-detalle"]') as HTMLButtonElement
+    expect(boton().textContent).toContain("Ver detalle")
+    expect(boton().className).toContain("bg-primary")
+    expect(boton().className).toContain("hover:bg-primary/85")
+    expect(boton().getAttribute("aria-expanded")).toBe("false")
+    await act(async () => boton().click())
+    await flush()
+    expect(boton().textContent).toContain("Ocultar detalle")
+    expect(boton().getAttribute("aria-expanded")).toBe("true")
+    expect(boton().className).toContain("border-primary")
+    const detalle = document.getElementById(boton().getAttribute("aria-controls")!) as HTMLElement
+    expect(detalle.textContent).toContain("Historial administrativo")
+    expect((document.querySelector('[data-testid="turno-cerrado"]') as HTMLElement).className).toContain("ring-primary/25")
+    await act(async () => boton().click())
+    expect(document.getElementById("turno-detalle-turno-d-1")).toBeNull()
+    expect(boton().getAttribute("aria-expanded")).toBe("false")
+    await act(async () => root.unmount())
+  })
+})
