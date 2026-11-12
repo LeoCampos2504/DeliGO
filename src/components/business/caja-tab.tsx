@@ -31,7 +31,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { OwnerCajaTurnosPanel, ownerRegisterQueryKey, type CajaFisicaResumen } from "@/components/business/owner-caja-turnos"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
 import { cn, formatPrice } from "@/lib/utils"
@@ -1080,12 +1080,13 @@ function SuccessDialog({ venta, onNuevaVenta }: { venta: VentaResumen; onNuevaVe
     <Dialog open onOpenChange={(open) => !open && onNuevaVenta()}>
       <DialogContent className="max-w-xs sm:max-w-sm rounded-2xl text-center">
         <div className="flex flex-col items-center gap-2 py-2">
-          <CheckCircle2 className="h-12 w-12 text-emerald-500" />
-          <h3 className="font-bold text-lg">Venta registrada</h3>
+          <CheckCircle2 className="h-12 w-12 text-emerald-500" aria-hidden="true" />
+          {/* The visible heading IS the dialog's accessible title (Radix requires a DialogTitle). */}
+          <DialogTitle className="font-bold text-lg leading-7">Venta registrada</DialogTitle>
           <p className="text-2xl font-bold">{formatPrice(venta.total)}</p>
-          <p className="text-xs text-muted-foreground">
+          <DialogDescription className="text-xs text-muted-foreground">
             {venta.metodoPago} · {formatUnidadesVenta(unidades)} · {new Date(venta.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
-          </p>
+          </DialogDescription>
           <p className="text-[10px] text-muted-foreground">#{venta.id.slice(0, 8)}</p>
         </div>
         <Button className="w-full h-11 rounded-xl font-bold" onClick={onNuevaVenta}>Nueva venta</Button>

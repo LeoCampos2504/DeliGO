@@ -154,6 +154,34 @@ describe("F10-B1 — cashier PWA page", () => {
     await act(async () => root.unmount())
   })
 
+  // 2026-11-12 (manual test): after a cashier sale Next showed «DialogContent requires a
+  // DialogTitle…» — the success dialog used a plain <h3>. The visible heading is now the
+  // dialog's accessible title and the sale line its description; it still closes normally.
+  test("sale confirmation dialog: accessible title and description, no Radix accessibility error, closes with «Nueva venta»", async () => {
+    const errores: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => { errores.push(args.map(String).join(" ")); original(...args) }
+    try {
+      const root = await renderPage()
+      await tapProduct("Agua")
+      await cobrar()
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+      expect(dialog).toBeTruthy()
+      const titulo = document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")
+      const descripcion = document.getElementById(dialog.getAttribute("aria-describedby") ?? "")
+      expect(titulo?.textContent).toBe("Venta registrada")
+      expect(descripcion?.textContent).toContain("unidad")
+      expect(errores.filter((e) => /DialogTitle|DialogContent|aria-describedby/.test(e))).toEqual([])
+      const nueva = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Nueva venta") as HTMLButtonElement
+      await act(async () => { nueva.click() })
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+      await act(async () => root.unmount())
+    } finally {
+      console.error = original
+    }
+  })
+
   test("uncertain sale: attempt scoped to employee + business; retry reuses the key; another employee and the owner never recover it", async () => {
     nextPost = ["network"]
     const first = await renderPage()
