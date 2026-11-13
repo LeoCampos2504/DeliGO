@@ -303,13 +303,28 @@ describe("P2-T56-R3A-I3 — Caja respeta reservas ACTIVA", () => {
     expect(txOptions).toHaveLength(2)
   })
 
-  test("P2034 agotado (3 intentos) → 409 con el mensaje de siempre de Caja", async () => {
+  // E2/E3 (QA 2026-11-12): runStockSerializable keeps its 3 immediate attempts;
+  // the Caja sale adds 2 more rounds after a short pause (at most 9 attempts),
+  // and an exhausted conflict is reported as a concurrency conflict, not stock.
+  test("P2034 agotado (3 rondas × 3 intentos) → 409 VENTA_CONFLICTO_CONCURRENTE, sin mencionar stock", async () => {
     const p2034 = () => new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "test" })
-    failNextTransactionWith = [p2034(), p2034(), p2034()]
+    failNextTransactionWith = Array.from({ length: 9 }, p2034)
     const { res, body } = await vender([line({ cantidad: 1 })])
     expect(res.status).toBe(409)
-    expect(body.error).toBe("El stock cambió mientras se procesaba la venta. Volvé a intentar.")
-    expect(txOptions).toHaveLength(3)
+    expect(body.code).toBe("VENTA_CONFLICTO_CONCURRENTE")
+    expect(body.error).toBe("No pudimos completar la venta porque la caja estaba procesando otras operaciones al mismo tiempo. No se registró nada: podés volver a intentarla.")
+    expect(body.error).not.toMatch(/stock|P2034|40001|serializ/i)
+    expect(txOptions).toHaveLength(9)
+    expect(state.ventas).toHaveLength(0)
+  })
+
+  test("P2034 en la primera ronda completa (3 intentos) → la segunda ronda confirma la venta", async () => {
+    const p2034 = () => new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "test" })
+    failNextTransactionWith = [p2034(), p2034(), p2034()]
+    const { res } = await vender([line({ cantidad: 1 })])
+    expect(res.status).toBe(201)
+    expect(txOptions).toHaveLength(4)
+    expect(state.ventas).toHaveLength(1)
   })
 
   test("P2028 (timeout) NO se reintenta → 500, un solo intento", async () => {

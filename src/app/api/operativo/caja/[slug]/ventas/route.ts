@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
-import { parseVentaCajaRequestBody, registrarVentaCaja } from "@/lib/caja-venta-service"
+import { esConflictoConcurrenteVenta, parseVentaCajaRequestBody, registrarVentaCaja, VENTA_CONFLICTO_CONCURRENTE_CODE, VENTA_CONFLICTO_CONCURRENTE_MENSAJE } from "@/lib/caja-venta-service"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure, ventaParaCajero } from "@/lib/operativo-caja"
 import { turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
@@ -77,12 +76,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
     return noStore(NextResponse.json(ventaParaCajero(result.venta), { status: 201 }))
   } catch (error) {
-    const isSerializationConflict =
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||
-      (error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01"))
-    if (isSerializationConflict) {
+    // E3 (QA 2026-11-12): an exhausted concurrency conflict is NOT a stock change
+    // (stock errors keep their own messages below); nothing internal is exposed.
+    if (esConflictoConcurrenteVenta(error)) {
       return noStore(
-        NextResponse.json({ ok: false, error: "El stock cambió mientras se procesaba la venta. Volvé a intentar." }, { status: 409 })
+        NextResponse.json({ ok: false, error: VENTA_CONFLICTO_CONCURRENTE_MENSAJE, code: VENTA_CONFLICTO_CONCURRENTE_CODE }, { status: 409 })
       )
     }
     const stockError = mapStockLifecycleError(error)

@@ -6,7 +6,7 @@ import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
-import { parseVentaCajaRequestBody, registrarVentaCaja, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
+import { esConflictoConcurrenteVenta, parseVentaCajaRequestBody, registrarVentaCaja, VENTA_CONFLICTO_CONCURRENTE_CODE, VENTA_CONFLICTO_CONCURRENTE_MENSAJE, ventaCajaParaRespuesta } from "@/lib/caja-venta-service"
 import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
 import { lineaVigente } from "@/lib/caja-venta-vigente"
 import { resumirCobrosCajaDesde } from "@/lib/caja-resumen-cobros"
@@ -208,12 +208,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(ventaCajaParaRespuesta(result.venta), { status: 201 })
   } catch (error) {
-    const isSerializationConflict =
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") ||
-      (error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01"))
-    if (isSerializationConflict) {
+    // E3 (QA 2026-11-12): an exhausted concurrency conflict is NOT a stock change
+    // (stock errors keep their own messages below); nothing internal is exposed.
+    if (esConflictoConcurrenteVenta(error)) {
       return NextResponse.json(
-        { error: "El stock cambió mientras se procesaba la venta. Volvé a intentar." },
+        { error: VENTA_CONFLICTO_CONCURRENTE_MENSAJE, code: VENTA_CONFLICTO_CONCURRENTE_CODE },
         { status: 409 }
       )
     }

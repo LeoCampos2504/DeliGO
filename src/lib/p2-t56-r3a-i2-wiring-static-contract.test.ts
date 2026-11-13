@@ -300,8 +300,11 @@ describe("I3 — Caja e Inventario con reservas ACTIVA (autoridad única)", () =
     expect(route).not.toContain("registrarStockVentaCaja")
     expect(route).not.toMatch(/tx\.venta\.create\(|db\.venta\.create\(/)
     expect(route).toContain("mapStockLifecycleError(error)")
-    // el mensaje de siempre ante P2034/deadlock agotado se conserva
-    expect(route).toContain("El stock cambió mientras se procesaba la venta. Volvé a intentar.")
+    // E3 (QA 2026-11-12, autorizado): un P2034/deadlock agotado NO es un cambio
+    // de stock: la ruta usa el mensaje y código específicos del motor.
+    expect(route).toContain("if (esConflictoConcurrenteVenta(error)) {")
+    expect(route).toContain("{ error: VENTA_CONFLICTO_CONCURRENTE_MENSAJE, code: VENTA_CONFLICTO_CONCURRENTE_CODE }")
+    expect(route).not.toContain("El stock cambió mientras se procesaba la venta")
   })
 
   test("Movimientos: Serializable con retry acotado, política SALIDA/AJUSTE en la autoridad y confirmación por huella", () => {

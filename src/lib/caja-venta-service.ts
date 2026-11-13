@@ -60,6 +60,7 @@ import {
 import { isMoneyInRange, MoneyError, moneyToNumber, saleAmountsExact, type SaleAmountsExact } from "@/lib/money"
 import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO } from "@/lib/caja-turnos-service"
 import {
+  isStockSerializationConflict,
   planificarStockVentaCaja,
   registrarStockVentaCaja,
   runStockSerializable,
@@ -272,6 +273,18 @@ export function fingerprintEntradaVentaCaja(input: RegistrarVentaCajaInput): str
   return createHash("sha256").update(`${base}\nVINCULO:${v.tipo}:${v.ventaOrigenId}:${detalle}`).digest("hex")
 }
 
+// E2/E3 (QA 2026-11-12): transient concurrency conflicts of a Caja sale.
+/** Rounds of runStockSerializable (3 attempts each) → at most 9 attempts. */
+export const VENTA_CAJA_RONDAS_REINTENTO = 3
+export const VENTA_CONFLICTO_CONCURRENTE_CODE = "VENTA_CONFLICTO_CONCURRENTE"
+export const VENTA_CONFLICTO_CONCURRENTE_MENSAJE = "No pudimos completar la venta porque la caja estaba procesando otras operaciones al mismo tiempo. No se registró nada: podés volver a intentarla."
+/** Serialization failure (P2034 / raw 40001) or deadlock (40P01): transient, the transaction was rolled back. */
+export function esConflictoConcurrenteVenta(error: unknown): boolean {
+  return isStockSerializationConflict(error) || (error instanceof Prisma.PrismaClientUnknownRequestError && String(error).includes("40P01"))
+}
+/** Growing, randomized pause between rounds (40–80 ms, then 80–120 ms). */
+const esperaEntreRondasVenta = (ronda: number) => 40 * ronda + Math.floor(Math.random() * 40)
+
 /**
  * Registers a Caja sale in its OWN Serializable transaction (the behaviour of
  * both Caja routes): runStockSerializable + the in-transaction core below, and
@@ -284,9 +297,25 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
   const fingerprint = fingerprintEntradaVentaCaja(input)
 
   try {
-    return await runStockSerializable(db, async (tx) => {
-      return registrarVentaCajaEnTx(tx, input)
-    })
+    // E2 (QA 2026-11-12): runStockSerializable (the shared stock authority and
+    // its timeout policy, unchanged) retries a serialization conflict 3 times
+    // back to back. Concurrent FIRST cash sales of new registers all insert the
+    // same ledger account and could exhaust those 3 immediate attempts (409).
+    // A bounded number of extra rounds, each after a growing randomized pause,
+    // lets the committed winner become visible. Only transient conflicts are
+    // retried (refusals are RETURNED, stock errors are other exceptions), the
+    // whole transaction rolls back each time and the idempotency check runs
+    // first in every attempt, so nothing can be written twice.
+    for (let ronda = 1; ; ronda++) {
+      try {
+        return await runStockSerializable(db, async (tx) => {
+          return registrarVentaCajaEnTx(tx, input)
+        })
+      } catch (error) {
+        if (!esConflictoConcurrenteVenta(error) || ronda >= VENTA_CAJA_RONDAS_REINTENTO) throw error
+        await new Promise((resolve) => setTimeout(resolve, esperaEntreRondasVenta(ronda)))
+      }
+    }
   } catch (error) {
     // A concurrent request with the same key committed first: return that
     // sale (exact replay) or the controlled conflict — never a second sale.
@@ -419,22 +448,6 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     cajaFisicaIdDelTurno = turno.cajaFisicaId
   }
 
-  // Resolve/create the ledger account only after idempotency and shift
-  // authorization. Keep the account creation in the same transaction.
-  const cuentaEfectivoId = metodoPago !== "EFECTIVO"
-    ? null
-    : cajaFisicaIdDelTurno
-      ? await (async () => {
-          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId: cajaFisicaIdDelTurno }], skipDuplicates: true })
-          const cuenta = await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, cajaFisicaId: cajaFisicaIdDelTurno }, select: { id: true } })
-          return cuenta.id
-        })()
-      : await (async () => {
-          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR, tipo: "EFECTIVO", nombre: "Efectivo de Caja (sin caja física asignada)" }], skipDuplicates: true })
-          const cuenta = await tx.cuentaFinanciera.findUniqueOrThrow({ where: { negocioId_clave: { negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } }, select: { id: true } })
-          return cuenta.id
-        })()
-
   // F10-B2.2-A: employees must remain the shift's responsible person.
   // Owner is separately authorized for their selected/automatic register
   // above, while its employee responsibility remains unchanged.
@@ -530,6 +543,25 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     }
   })
   const stockPlan = await planificarStockVentaCaja(tx, { negocioId, lines: stockLines })
+
+  // Resolve/create the ledger account only after idempotency, shift
+  // authorization AND every validation above (E1, QA 2026-11-12): a refused
+  // sale is RETURNED — its transaction commits — so an account created before
+  // a refusal survived it. Here nothing can refuse any more (stock errors
+  // throw and roll everything back). Same transaction, same statements.
+  const cuentaEfectivoId = metodoPago !== "EFECTIVO"
+    ? null
+    : cajaFisicaIdDelTurno
+      ? await (async () => {
+          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId: cajaFisicaIdDelTurno }], skipDuplicates: true })
+          const cuenta = await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave: `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaIdDelTurno}`, cajaFisicaId: cajaFisicaIdDelTurno }, select: { id: true } })
+          return cuenta.id
+        })()
+      : await (async () => {
+          await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR, tipo: "EFECTIVO", nombre: "Efectivo de Caja (sin caja física asignada)" }], skipDuplicates: true })
+          const cuenta = await tx.cuentaFinanciera.findUniqueOrThrow({ where: { negocioId_clave: { negocioId, clave: CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } }, select: { id: true } })
+          return cuenta.id
+        })()
 
   const venta = await tx.venta.create({
     data: {
