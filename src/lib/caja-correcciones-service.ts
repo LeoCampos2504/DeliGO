@@ -200,7 +200,13 @@ async function replayCorreccion(reader: Pick<Tx, "correccionVenta">, negocioId: 
   return fail(409, "Este intento ya se usó para otra operación. Volvé a intentarlo.", "IDEMPOTENCY_KEY_REUSED")
 }
 
-export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccionInput): Promise<CorreccionResult<{ correccion: CorreccionConLineas; replayed: boolean }>> {
+/**
+ * R1 (2026-11-13): `auditar` writes the MANDATORY audit INSIDE the correction's
+ * Serializable transaction (new corrections only, never on a replay). A failed
+ * audit rolls the correction back: no stock movement or correction row without
+ * its audit, and the retry with the same Idempotency-Key starts clean.
+ */
+export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccionInput, opciones: { auditar?: (tx: Tx, correccion: CorreccionConLineas) => Promise<void> } = {}): Promise<CorreccionResult<{ correccion: CorreccionConLineas; replayed: boolean }>> {
   const { negocioId, ventaId, solicitud, idempotencyKey } = input
   if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
   const fingerprint = fingerprintCorreccion(negocioId, ventaId, solicitud)
@@ -401,6 +407,7 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
       }
 
       const creada = await tx.correccionVenta.findUniqueOrThrow({ where: { id: correccion.id }, include: CORRECCION_INCLUDE })
+      if (opciones.auditar) await opciones.auditar(tx, creada) // R1: same transaction
       return { ok: true as const, value: { correccion: creada, replayed: false } }
     })
   } catch (error) {

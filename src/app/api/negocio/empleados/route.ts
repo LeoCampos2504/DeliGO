@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import { NOMBRE_EMPLEADO_PENDIENTE } from "@/lib/caja-nombre-empleado"
 import { AREA_CAJA_RUBRO } from "@/lib/area-operativa"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
@@ -9,7 +10,8 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // Áreas operativas válidas (configuración administrativa para DeliGO Operaciones).
 const AREAS_OPERATIVAS = ["sin_asignar", "mozo", "salon", "pyr", "caja"] as const // F10-B1: + caja (sólo rubro genérico)
-const PENDING_EMPLOYEE_NAME = "Pendiente de vinculación"
+// Shared with the shift views (caja-nombre-empleado.ts), which replace it by the linked account's name.
+const PENDING_EMPLOYEE_NAME = NOMBRE_EMPLEADO_PENDIENTE
 
 /** Valida `areaOperativa` contra el allowlist. Devuelve el valor o null si es desconocido. */
 function normalizeAreaOperativa(value: unknown): string | null {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { auditLog } from "@/lib/audit"
 import { cerrarTurnoCaja, TURNO_ESTADO_CERRADO_DECLARADO } from "@/lib/caja-turnos-service"
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params
     const turno = await db.turnoCaja.findFirst({
       where: { id, negocioId: auth.negocioId },
-      include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+      include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
     })
     if (!turno) return NextResponse.json({ error: "Turno no encontrado" }, { status: 404 })
     const [efectivoCalculado, ventas, cambios] = await Promise.all([
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       id: turno.id,
       caja: turno.cajaFisica,
       responsableTipo: turno.responsableTipo,
-      responsableNombre: turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño",
+      responsableNombre: turno.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(turno.empleado)) : "Dueño",
       estado: turno.estado,
       cierreOrigen: turno.cierreOrigen,
       cierreMotivo: turno.cierreMotivo,

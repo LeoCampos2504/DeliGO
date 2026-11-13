@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { parseVentaCajaRequestBody } from "@/lib/caja-venta-service"
@@ -222,7 +223,7 @@ export async function cadenaVentaHttp(negocioId: string, actor: CajaActor, venta
     const nombres = new Map<string, string>()
     if (actor.tipo === "NEGOCIO") {
       const ids = [...new Set(cadena.cambios.map((c) => c.empleadoId).filter((id): id is string => Boolean(id)))]
-      if (ids.length) for (const e of await db.empleado.findMany({ where: { negocioId, id: { in: ids } }, select: { id: true, nombre: true } })) nombres.set(e.id, e.nombre)
+      if (ids.length) for (const e of await db.empleado.findMany({ where: { negocioId, id: { in: ids } }, select: { id: true, ...EMPLEADO_NOMBRE_SELECT } })) nombres.set(e.id, nombreVisibleEmpleado(e))
     }
     return NextResponse.json({
       ok: true,

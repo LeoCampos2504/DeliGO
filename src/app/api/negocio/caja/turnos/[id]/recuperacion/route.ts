@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { turno, replayed } = result.value
     const saved = await db.turnoCaja.findFirstOrThrow({
       where: { id: turno.id, negocioId: auth.negocioId },
-      select: { cajaFisicaId: true, responsableTipo: true, responsableId: true, cierreMotivo: true, cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+      select: { cajaFisicaId: true, responsableTipo: true, responsableId: true, cierreMotivo: true, cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
     })
     if (!replayed) await auditLog({
       userId: auth.negocioId,
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           estado: turno.estado,
           cierreOrigen: CIERRE_ORIGEN_RECUPERACION,
           caja: saved.cajaFisica,
-          responsableNombre: saved.empleado?.nombre ?? "Empleado",
+          responsableNombre: nombreVisibleEmpleado(saved.empleado),
           cerradoEn: turno.cerradoEn.toISOString(),
           motivo: saved.cierreMotivo,
           efectivoContado: moneyToNumber(turno.efectivoContadoDecimal),

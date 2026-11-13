@@ -34,6 +34,7 @@
 import { createHash } from "node:crypto"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { round2, storedMoney, moneyToNumber } from "@/lib/money"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO, type CajaActor } from "@/lib/caja-turnos-service"
 import { CUENTA_EFECTIVO_CAJA_FISICA_PREFIX, CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } from "@/lib/caja-venta-service"
 import { isStockSerializationConflict, leerDisponibilidadStock } from "@/lib/stock-lifecycle"
@@ -266,9 +267,10 @@ async function resolverActor(tx: Tx, negocioId: string, actor: CajaActor): Promi
   if (actor.tipo === "NEGOCIO") return { tipo: "NEGOCIO", actorId: negocioId, empleadoId: null, nombre: "Dueño" }
   const empleado = await tx.empleado.findFirst({
     where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false },
-    select: { id: true, nombre: true },
+    select: { id: true, ...EMPLEADO_NOMBRE_SELECT },
   })
-  return empleado ? { tipo: "EMPLEADO", actorId: empleado.id, empleadoId: empleado.id, nombre: empleado.nombre } : null
+  // Display name for the owner's notice (a placeholder-named, linked cashier shows the account's name).
+  return empleado ? { tipo: "EMPLEADO", actorId: empleado.id, empleadoId: empleado.id, nombre: nombreVisibleEmpleado(empleado) } : null
 }
 
 type DestinoEfectivo = { turnoCajaId: string | null; cuentaId: string; cajaNombre: string | null }
@@ -442,17 +444,29 @@ async function replayDevolucion(db: Pick<Tx, "devolucionVenta">, negocioId: stri
 type ResultadoDevolucion = DevolucionResult<{ devolucion: DevolucionConItems; replayed: boolean }>
 
 /**
+ * R1 (2026-11-13): the MANDATORY audit of a return / refund is written INSIDE
+ * the same Serializable transaction as the operation it describes (only for a
+ * new, non-replayed operation). If the audit cannot be written the whole
+ * operation rolls back: no committed money/stock movement without its audit,
+ * and a retry with the same Idempotency-Key starts clean. The in-transaction
+ * cores (also used by F4-C exchanges, which write their own audit) are unchanged.
+ */
+export type AuditoriaEnTx<T> = (tx: Tx, resultado: T) => Promise<void>
+
+/**
  * Registers a return in its OWN Serializable transaction (the behaviour of the
  * owner and cashier routes): runSerializable + the in-transaction core below,
  * the concurrent-duplicate replay and the mapping of the SQL guard messages.
  */
-export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucionInput): Promise<ResultadoDevolucion> {
+export async function registrarDevolucionVenta(db: Db, input: RegistrarDevolucionInput, opciones: { auditar?: AuditoriaEnTx<DevolucionConItems> } = {}): Promise<ResultadoDevolucion> {
   const { negocioId, actor, ventaId, solicitud, idempotencyKey } = input
   if (typeof ventaId !== "string" || !ventaId.trim()) return fail(400, "Venta inválida.", "VENTA_INVALIDA")
   const fingerprint = fingerprintDevolucion(negocioId, ventaId, solicitud, actor)
   try {
     return await runSerializable(db, async (tx) => {
-      return registrarDevolucionVentaEnTx(tx, input)
+      const resultado = await registrarDevolucionVentaEnTx(tx, input)
+      if (resultado.ok && !resultado.value.replayed && opciones.auditar) await opciones.auditar(tx, resultado.value.devolucion) // R1: same transaction
+      return resultado
     })
   } catch (error) {
     if (isUniqueViolation(error, "idempotencyKey")) {
@@ -681,7 +695,7 @@ export interface RegistrarReintegroInput {
   idempotencyKey: string
 }
 
-export async function registrarReintegroDevolucion(db: Db, input: RegistrarReintegroInput): Promise<DevolucionResult<{ devolucion: DevolucionConItems; replayed: boolean }>> {
+export async function registrarReintegroDevolucion(db: Db, input: RegistrarReintegroInput, opciones: { auditar?: AuditoriaEnTx<DevolucionConItems> } = {}): Promise<DevolucionResult<{ devolucion: DevolucionConItems; replayed: boolean }>> {
   const { negocioId, actor, devolucionId, idempotencyKey } = input
   if (typeof devolucionId !== "string" || !devolucionId.trim()) return fail(400, "Operación inválida.", "DEVOLUCION_INVALIDA")
   if (typeof input.medio !== "string" || !(REINTEGRO_MEDIOS as readonly string[]).includes(input.medio)) {
@@ -767,6 +781,7 @@ export async function registrarReintegroDevolucion(db: Db, input: RegistrarReint
         })
       }
       const final = await tx.devolucionVenta.findUniqueOrThrow({ where: { id: devolucionId }, include: DEVOLUCION_INCLUDE })
+      if (opciones.auditar) await opciones.auditar(tx, final) // R1: same transaction
       return { ok: true as const, value: { devolucion: final, replayed: false } }
     })
   } catch (error) {
@@ -954,8 +969,8 @@ export async function lineasDevueltasConPrecioHeredado(db: Pick<Db, "venta">, ne
 async function nombresEmpleados(db: Pick<Db, "empleado">, negocioId: string, ids: Iterable<string>) {
   const unique = [...new Set(ids)]
   if (unique.length === 0) return new Map<string, string>()
-  const rows = await db.empleado.findMany({ where: { negocioId, id: { in: unique } }, select: { id: true, nombre: true } })
-  return new Map(rows.map((r) => [r.id, r.nombre]))
+  const rows = await db.empleado.findMany({ where: { negocioId, id: { in: unique } }, select: { id: true, ...EMPLEADO_NOMBRE_SELECT } })
+  return new Map(rows.map((r) => [r.id, nombreVisibleEmpleado(r)]))
 }
 
 function empleadoIdsDe(ventas: Array<{ devoluciones: Array<{ actorTipo: string; actorId: string; reintegroActorTipo: string | null; reintegroActorId: string | null }> }>) {

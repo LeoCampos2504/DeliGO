@@ -72,6 +72,7 @@ import {
   type ServerSaleLineInput,
 } from "@/lib/caja-venta"
 import { isMoneyInRange, MoneyError, moneyToNumber, saleAmountsExact } from "@/lib/money"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { lineaVigente, nombreLinea, ULTIMA_CORRECCION_INCLUDE } from "@/lib/caja-venta-vigente"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
 import { TURNO_ESTADO_ABIERTO, type CajaActor } from "@/lib/caja-turnos-service"
@@ -317,8 +318,9 @@ type ActorCambio = { tipo: "NEGOCIO" | "EMPLEADO"; actorId: string; empleadoId: 
 
 async function resolverActorCambio(tx: Tx, negocioId: string, actor: CajaActor): Promise<ActorCambio | null> {
   if (actor.tipo === "NEGOCIO") return { tipo: "NEGOCIO", actorId: negocioId, empleadoId: null, nombre: "Dueño" }
-  const empleado = await tx.empleado.findFirst({ where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false }, select: { id: true, nombre: true } })
-  return empleado ? { tipo: "EMPLEADO", actorId: empleado.id, empleadoId: empleado.id, nombre: empleado.nombre } : null
+  const empleado = await tx.empleado.findFirst({ where: { id: actor.empleadoId, negocioId, activo: true, eliminado: false }, select: { id: true, ...EMPLEADO_NOMBRE_SELECT } })
+  // Display name for the owner's notice (a placeholder-named, linked cashier shows the account's name).
+  return empleado ? { tipo: "EMPLEADO", actorId: empleado.id, empleadoId: empleado.id, nombre: nombreVisibleEmpleado(empleado) } : null
 }
 
 /** The same no-op row lock as F4-A: concurrent operations on this sale serialize (40001 → retry). */

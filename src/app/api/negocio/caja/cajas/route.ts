@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
       listarCajasFisicas(db, auth.negocioId),
       db.turnoCaja.findMany({
         where: { negocioId: auth.negocioId, estado: TURNO_ESTADO_ABIERTO },
-        include: { empleado: { select: { nombre: true } } },
+        include: { empleado: { select: EMPLEADO_NOMBRE_SELECT } },
       }),
     ])
     const fondosTransferibles = await listarFondosRemanentesTransferibles(db, auth.negocioId, cajas.filter((c) => c.activa).map((c) => c.id))
@@ -31,8 +32,8 @@ export async function GET(req: NextRequest) {
       take: 100,
       include: {
         caja: { select: { id: true, nombre: true } },
-        turnoOrigen: { include: { empleado: { select: { nombre: true } } } },
-        turnoDestino: { include: { empleado: { select: { nombre: true } } } },
+        turnoOrigen: { include: { empleado: { select: EMPLEADO_NOMBRE_SELECT } } },
+        turnoDestino: { include: { empleado: { select: EMPLEADO_NOMBRE_SELECT } } },
       },
     })
     const porCaja = new Map(abiertos.map((t) => [t.cajaFisicaId, t]))
@@ -57,11 +58,11 @@ export async function GET(req: NextRequest) {
         estado: traspaso.estado,
         turnoOrigen: {
           id: traspaso.turnoOrigen.id,
-          responsableNombre: traspaso.turnoOrigen.responsableTipo === "EMPLEADO" ? (traspaso.turnoOrigen.empleado?.nombre ?? "Empleado") : "Dueño",
+          responsableNombre: traspaso.turnoOrigen.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(traspaso.turnoOrigen.empleado)) : "Dueño",
         },
         turnoDestino: {
           id: traspaso.turnoDestino.id,
-          responsableNombre: traspaso.turnoDestino.responsableTipo === "EMPLEADO" ? (traspaso.turnoDestino.empleado?.nombre ?? "Empleado") : "Dueño",
+          responsableNombre: traspaso.turnoDestino.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(traspaso.turnoDestino.empleado)) : "Dueño",
         },
       })),
       cajas: cajas.map((c) => {
@@ -78,7 +79,7 @@ export async function GET(req: NextRequest) {
             ? {
                 id: t.id,
                 responsableTipo: t.responsableTipo,
-                responsableNombre: t.responsableTipo === "EMPLEADO" ? (t.empleado?.nombre ?? "Empleado") : "Dueño",
+                responsableNombre: t.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(t.empleado)) : "Dueño",
                 abiertoEn: t.abiertoEn,
                 fondoInicial: moneyToNumber(t.fondoInicialDecimal),
                 estado: t.estado,

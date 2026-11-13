@@ -290,7 +290,16 @@ const esperaEntreRondasVenta = (ronda: number) => 40 * ronda + Math.floor(Math.r
  * both Caja routes): runStockSerializable + the in-transaction core below, and
  * the concurrent-duplicate replay after a unique violation of the key.
  */
-export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput): Promise<RegistrarVentaCajaResult> {
+/**
+ * R1 (2026-11-13): `auditar` writes the MANDATORY sale audit INSIDE the sale's
+ * Serializable transaction (new sales only, never on a replay). A failed audit
+ * rolls the sale back (no sale, cobro, cash leg or stock movement without its
+ * audit); every E2 retry re-runs it inside the retried transaction, so a sale
+ * is audited exactly once. The in-transaction core used by F4-C exchanges and
+ * linked sales is unchanged (those flows write their own audit).
+ */
+export type AuditoriaVentaEnTx = (tx: Prisma.TransactionClient, venta: VentaCajaConItems) => Promise<void>
+export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaInput, opciones: { auditar?: AuditoriaVentaEnTx } = {}): Promise<RegistrarVentaCajaResult> {
   const rechazo = rechazoEntradaVentaCaja(input)
   if (rechazo) return rechazo
   const { negocioId, actor, idempotencyKey } = input
@@ -309,7 +318,9 @@ export async function registrarVentaCaja(db: SaleDb, input: RegistrarVentaCajaIn
     for (let ronda = 1; ; ronda++) {
       try {
         return await runStockSerializable(db, async (tx) => {
-          return registrarVentaCajaEnTx(tx, input)
+          const resultado = await registrarVentaCajaEnTx(tx, input)
+          if (resultado.ok && !resultado.replayed && opciones.auditar) await opciones.auditar(tx, resultado.venta) // R1: same transaction
+          return resultado
         })
       } catch (error) {
         if (!esConflictoConcurrenteVenta(error) || ronda >= VENTA_CAJA_RONDAS_REINTENTO) throw error

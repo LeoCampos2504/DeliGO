@@ -54,7 +54,8 @@ mock.module("@/lib/auth", () => ({
   SESSION_COOKIE_NAME: "deligo_session",
   getUserFromToken: async () => ({ id: NEGOCIO, type: "negocio" }),
 }))
-mock.module("@/lib/audit", () => ({ auditLog: async () => {} }))
+// R1: the sale audit is now written inside the transaction via auditLogWithClient.
+mock.module("@/lib/audit", () => ({ auditLog: async () => {}, auditLogWithClient: async () => {} }))
 
 mock.module("@/lib/db", () => {
   const tx = {

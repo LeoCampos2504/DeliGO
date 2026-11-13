@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
@@ -20,12 +21,12 @@ export async function GET(req: NextRequest) {
     const [activos, recientesCerrados] = await Promise.all([
       db.turnoCaja.findMany({
         where: { negocioId: auth.negocioId, estado: "ABIERTO" },
-        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
         orderBy: { abiertoEn: "desc" },
       }),
       db.turnoCaja.findMany({
         where: { negocioId: auth.negocioId, estado: { not: "ABIERTO" } },
-        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: { nombre: true } } },
+        include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
         orderBy: { abiertoEn: "desc" },
         take: 50,
       }),
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
         id: t.id,
         caja: t.cajaFisica,
         responsableTipo: t.responsableTipo,
-        responsableNombre: t.responsableTipo === "EMPLEADO" ? (t.empleado?.nombre ?? "Empleado") : "Dueño",
+        responsableNombre: t.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(t.empleado)) : "Dueño",
         estado: t.estado,
         cierreOrigen: t.cierreOrigen,
         abiertoEn: t.abiertoEn,

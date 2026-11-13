@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
       where: { negocioId: auth.negocioId, estado: "CERRADO_DECLARADO" },
       include: {
         cajaFisica: { select: { id: true, nombre: true } },
-        empleado: { select: { nombre: true } },
+        empleado: { select: EMPLEADO_NOMBRE_SELECT },
         revisionesAdministrativas: { orderBy: { createdAt: "desc" }, take: 1 },
         entregasCustodia: { orderBy: { secuencia: "desc" }, take: 1 },
       },
@@ -33,13 +34,13 @@ export async function GET(req: NextRequest) {
         id: turno.id,
         caja: turno.cajaFisica,
         responsableTipo: turno.responsableTipo,
-        responsableNombre: turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño",
+        responsableNombre: turno.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(turno.empleado)) : "Dueño",
         abiertoEn: turno.abiertoEn,
         cerradoEn: turno.cerradoEn,
         estado: "CERRADO_DECLARADO" as const,
         // F10-B2.2-G: who really closed it. A recovery is the owner's count, not the employee's declaration.
         cierreOrigen: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? CIERRE_ORIGEN_RECUPERACION : CIERRE_ORIGEN_RESPONSABLE,
-        cerradoPor: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? "Dueño (recuperación administrativa)" : (turno.responsableTipo === "EMPLEADO" ? (turno.empleado?.nombre ?? "Empleado") : "Dueño"),
+        cerradoPor: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? "Dueño (recuperación administrativa)" : (turno.responsableTipo === "EMPLEADO" ? (nombreVisibleEmpleado(turno.empleado)) : "Dueño"),
         motivoRecuperacion: turno.cierreOrigen === CIERRE_ORIGEN_RECUPERACION ? turno.cierreMotivo : null,
         fondoInicial: moneyToNumber(turno.fondoInicialDecimal),
         efectivoEsperado: moneyToNumber(turno.efectivoEsperadoDecimal),

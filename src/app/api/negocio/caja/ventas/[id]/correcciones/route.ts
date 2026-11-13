@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { auditLog } from "@/lib/audit"
+import { auditLogWithClient } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
@@ -27,20 +27,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const parsed = parseCorreccionBody(await req.json().catch(() => null))
     if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error, ...(parsed.code ? { code: parsed.code } : {}) }, { status: parsed.status })
-    const result = await registrarCorreccionVenta(db, { negocioId: auth.negocioId, ventaId: id, solicitud: parsed.value, idempotencyKey: rawKey.toLowerCase() })
+    // R1 (2026-11-13): the audit is written INSIDE the correction's transaction
+    // (new corrections only); a failed audit rolls the whole correction back.
+    const result = await registrarCorreccionVenta(db, { negocioId: auth.negocioId, ventaId: id, solicitud: parsed.value, idempotencyKey: rawKey.toLowerCase() }, {
+      auditar: async (tx, correccion) => {
+        await auditLogWithClient(tx, {
+          userId: auth.negocioId,
+          userType: "negocio",
+          accion: "venta.corregida",
+          recurso: "venta",
+          recursoId: correccion.ventaId,
+          detalle: { negocioId: auth.negocioId, correccionId: correccion.id, secuencia: correccion.secuencia, motivo: correccion.motivo, total: correccion.totalDecimal.toString(), cambios: correccionParaRespuesta(correccion).cambios },
+        })
+      },
+    })
     if (!result.ok) return NextResponse.json({ ok: false, error: result.error, ...(result.code ? { code: result.code } : {}) }, { status: result.status })
     const { correccion, replayed } = result.value
     const respuesta = correccionParaRespuesta(correccion)
-    if (!replayed) {
-      await auditLog({
-        userId: auth.negocioId,
-        userType: "negocio",
-        accion: "venta.corregida",
-        recurso: "venta",
-        recursoId: correccion.ventaId,
-        detalle: { negocioId: auth.negocioId, correccionId: correccion.id, secuencia: correccion.secuencia, motivo: correccion.motivo, total: correccion.totalDecimal.toString(), cambios: respuesta.cambios },
-      })
-    }
     const venta = await detalleVentaConDevoluciones(db, auth.negocioId, correccion.ventaId, { tipo: "NEGOCIO" })
     return NextResponse.json(
       { ok: true, replayed, correccion: respuesta, venta },

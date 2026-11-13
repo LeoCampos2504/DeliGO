@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { auditLog } from "@/lib/audit"
+import { auditLogWithClient } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import type { CajaActor } from "@/lib/caja-turnos-service"
@@ -58,8 +58,8 @@ export function detalleAuditoriaReintegro(negocioId: string, devolucion: Devoluc
   }
 }
 
-async function movimientosDelReintegro(operacionId: string) {
-  const movimientos = await db.movimientoFinanciero.findMany({
+async function movimientosDelReintegro(client: Pick<typeof db, "movimientoFinanciero">, operacionId: string) {
+  const movimientos = await client.movimientoFinanciero.findMany({
     where: { operacionId },
     select: { cuentaId: true, importe: true, importeDecimal: true, cuenta: { select: { clave: true, cajaFisicaId: true } } },
     orderBy: { createdAt: "asc" },
@@ -114,39 +114,46 @@ export async function crearDevolucionHttp(req: NextRequest, negocioId: string, a
     if (!key) return KEY_REQUIRED()
     const parsed = parseDevolucionBody(await req.json().catch(() => null))
     if (!parsed.ok) return failure(parsed)
-    const result = await registrarDevolucionVenta(db, { negocioId, actor, ventaId, solicitud: parsed.value, idempotencyKey: key })
+    // R1 (2026-11-13): the audit is written INSIDE the return's transaction
+    // (only for a new return; a replay writes nothing). A failed audit rolls the
+    // whole return back (no money, stock or return row without its audit) and
+    // the client gets a 500 whose retry with the same key starts clean.
+    const result = await registrarDevolucionVenta(db, { negocioId, actor, ventaId, solicitud: parsed.value, idempotencyKey: key }, {
+      auditar: async (tx, devolucion) => {
+        // F4-C4 (D6): explicit audit of returned lines whose price was inherited
+        // through an earlier-rule F4-B correction (amounts unchanged). The audit
+        // never depends on the detail read below; the evidence has its own read
+        // and records VERIFICADA (with the ids, possibly none) or NO_DISPONIBLE
+        // (an SQL failure here aborts the transaction, so the audit write fails
+        // and the whole return rolls back: never a return without its audit).
+        let precioHeredado: { evidencia: "VERIFICADA"; ventaItemIds: string[] } | { evidencia: "NO_DISPONIBLE" }
+        try {
+          precioHeredado = { evidencia: "VERIFICADA", ventaItemIds: await lineasDevueltasConPrecioHeredado(tx, negocioId, devolucion.ventaId, devolucion.items.map((i) => i.ventaItemId)) }
+        } catch (error) {
+          console.error("Error reading precio heredado evidence:", safeErrorForLog(error))
+          precioHeredado = { evidencia: "NO_DISPONIBLE" }
+        }
+        await auditLogWithClient(tx, {
+          ...audit(negocioId, actor),
+          accion: devolucion.tipo === "ANULACION" ? "venta.anulada" : "venta.devolucion_parcial",
+          recurso: "venta",
+          recursoId: devolucion.ventaId,
+          detalle: {
+            negocioId,
+            devolucionId: devolucion.id,
+            importe: devolucion.importeDecimal.toString(),
+            motivo: devolucion.motivo,
+            reintegroEstado: devolucion.reintegroEstado,
+            reintegroMedio: devolucion.reintegroMedio,
+            reintegroTurnoCajaId: devolucion.reintegroTurnoCajaId,
+            items: devolucion.items.map((i) => ({ ventaItemId: i.ventaItemId, cantidad: i.cantidad, importe: i.importeDecimal.toString(), stockResultado: i.stockResultado })),
+            precioHeredado,
+          },
+        })
+      },
+    })
     if (!result.ok) return failure(result)
     const { devolucion, replayed } = result.value
-    if (!replayed) {
-      // F4-C4 (D6): explicit audit of returned lines whose price was inherited
-      // through an earlier-rule F4-B correction (amounts unchanged). The audit
-      // never depends on the detail read below; the evidence has its own read
-      // and records VERIFICADA (with the ids, possibly none) or NO_DISPONIBLE.
-      let precioHeredado: { evidencia: "VERIFICADA"; ventaItemIds: string[] } | { evidencia: "NO_DISPONIBLE" }
-      try {
-        precioHeredado = { evidencia: "VERIFICADA", ventaItemIds: await lineasDevueltasConPrecioHeredado(db, negocioId, devolucion.ventaId, devolucion.items.map((i) => i.ventaItemId)) }
-      } catch (error) {
-        console.error("Error reading precio heredado evidence:", safeErrorForLog(error))
-        precioHeredado = { evidencia: "NO_DISPONIBLE" }
-      }
-      await auditLog({
-        ...audit(negocioId, actor),
-        accion: devolucion.tipo === "ANULACION" ? "venta.anulada" : "venta.devolucion_parcial",
-        recurso: "venta",
-        recursoId: devolucion.ventaId,
-        detalle: {
-          negocioId,
-          devolucionId: devolucion.id,
-          importe: devolucion.importeDecimal.toString(),
-          motivo: devolucion.motivo,
-          reintegroEstado: devolucion.reintegroEstado,
-          reintegroMedio: devolucion.reintegroMedio,
-          reintegroTurnoCajaId: devolucion.reintegroTurnoCajaId,
-          items: devolucion.items.map((i) => ({ ventaItemId: i.ventaItemId, cantidad: i.cantidad, importe: i.importeDecimal.toString(), stockResultado: i.stockResultado })),
-          precioHeredado,
-        },
-      })
-    }
     const venta = await detalleVentaConDevoluciones(db, negocioId, devolucion.ventaId, vistaDe(actor))
     const vista = actor.tipo === "EMPLEADO" ? { tipo: "EMPLEADO" as const, empleadoId: actor.empleadoId } : { tipo: "NEGOCIO" as const, nombres: new Map<string, string>() }
     return NextResponse.json(
@@ -167,29 +174,32 @@ export async function registrarReintegroHttp(req: NextRequest, negocioId: string
     if (body?.confirmo !== true) return NextResponse.json({ ok: false, error: "Confirmá que devolviste el dinero.", code: "CONFIRMACION_REINTEGRO_REQUERIDA" }, { status: 400 })
     const caja = body?.cajaFisicaId
     if (caja !== undefined && caja !== null && (typeof caja !== "string" || !caja.trim())) return NextResponse.json({ ok: false, error: "Caja inválida.", code: "CAJA_INVALIDA" }, { status: 400 })
-    const result = await registrarReintegroDevolucion(db, { negocioId, actor, devolucionId, medio: body?.medio, cajaFisicaId: typeof caja === "string" ? caja : null, idempotencyKey: key })
+    // R1 (2026-11-13): the refund audit is written INSIDE the refund's
+    // transaction (new refunds only); a failed audit rolls the refund back.
+    const result = await registrarReintegroDevolucion(db, { negocioId, actor, devolucionId, medio: body?.medio, cajaFisicaId: typeof caja === "string" ? caja : null, idempotencyKey: key }, {
+      auditar: async (tx, devolucion) => {
+        // Where the money left from (read in the same transaction): a JS failure
+        // records NO_DISPONIBLE; an SQL failure aborts and rolls everything back.
+        let cuenta: CuentaReintegroAuditoria = { evidencia: "SIN_MOVIMIENTO" }
+        if (devolucion.reintegroOperacionId) {
+          try {
+            cuenta = { evidencia: "VERIFICADA", movimientos: await movimientosDelReintegro(tx, devolucion.reintegroOperacionId) }
+          } catch (error) {
+            console.error("Error reading reintegro account evidence:", safeErrorForLog(error))
+            cuenta = { evidencia: "NO_DISPONIBLE" }
+          }
+        }
+        await auditLogWithClient(tx, {
+          ...audit(negocioId, actor),
+          accion: "venta.devolucion_reintegro_registrado",
+          recurso: "venta",
+          recursoId: devolucion.ventaId,
+          detalle: detalleAuditoriaReintegro(negocioId, devolucion, cuenta),
+        })
+      },
+    })
     if (!result.ok) return failure(result)
     const { devolucion, replayed } = result.value
-    if (!replayed) {
-      // Where the money left from (read after commit, like the F4-A evidence):
-      // the audit never depends on this read — a failure records NO_DISPONIBLE.
-      let cuenta: CuentaReintegroAuditoria = { evidencia: "SIN_MOVIMIENTO" }
-      if (devolucion.reintegroOperacionId) {
-        try {
-          cuenta = { evidencia: "VERIFICADA", movimientos: await movimientosDelReintegro(devolucion.reintegroOperacionId) }
-        } catch (error) {
-          console.error("Error reading reintegro account evidence:", safeErrorForLog(error))
-          cuenta = { evidencia: "NO_DISPONIBLE" }
-        }
-      }
-      await auditLog({
-        ...audit(negocioId, actor),
-        accion: "venta.devolucion_reintegro_registrado",
-        recurso: "venta",
-        recursoId: devolucion.ventaId,
-        detalle: detalleAuditoriaReintegro(negocioId, devolucion, cuenta),
-      })
-    }
     const venta = await detalleVentaConDevoluciones(db, negocioId, devolucion.ventaId, vistaDe(actor))
     return NextResponse.json(
       { ok: true, replayed, venta },

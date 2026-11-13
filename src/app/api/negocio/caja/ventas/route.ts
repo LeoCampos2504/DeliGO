@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
-import { auditLog } from "@/lib/audit"
+import { auditLogWithClient } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
@@ -182,6 +182,16 @@ export async function POST(req: NextRequest) {
       metodoPago,
       lines: requestedLines,
       idempotencyKey: idempotency.key,
+    }, {
+      // R1 (2026-11-13): audit INSIDE the sale's transaction (new sales only).
+      auditar: (tx, venta) => auditLogWithClient(tx, {
+        userId: negocioId,
+        userType: "negocio",
+        accion: "venta.creada",
+        recurso: "venta",
+        recursoId: venta.id,
+        detalle: { total: venta.total, metodoPago: venta.metodoPago, cantidadItems: venta.cantidadItems },
+      }),
     })
 
     if (!result.ok) {
@@ -196,15 +206,6 @@ export async function POST(req: NextRequest) {
     if (result.replayed) {
       return NextResponse.json(ventaCajaParaRespuesta(result.venta), { status: 200, headers: { "Idempotency-Replayed": "true" } })
     }
-
-    await auditLog({
-      userId: negocioId,
-      userType: "negocio",
-      accion: "venta.creada",
-      recurso: "venta",
-      recursoId: result.venta.id,
-      detalle: { total: result.venta.total, metodoPago: result.venta.metodoPago, cantidadItems: result.venta.cantidadItems },
-    })
 
     return NextResponse.json(ventaCajaParaRespuesta(result.venta), { status: 201 })
   } catch (error) {

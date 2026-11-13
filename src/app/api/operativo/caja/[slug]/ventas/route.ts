@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { auditLog } from "@/lib/audit"
+import { auditLogWithClient } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import { mapStockLifecycleError } from "@/lib/stock-lifecycle"
@@ -51,6 +51,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       metodoPago: parsed.metodoPago,
       lines: parsed.lines,
       idempotencyKey: rawKey.toLowerCase(),
+    }, {
+      // R1 (2026-11-13): audit INSIDE the sale's transaction (new sales only).
+      auditar: (tx, venta) => auditLogWithClient(tx, {
+        userId: auth.empleado.id,
+        userType: "empleado",
+        accion: "venta.creada",
+        recurso: "venta",
+        recursoId: venta.id,
+        detalle: { negocioId: auth.negocio.id, total: venta.total, metodoPago: venta.metodoPago, cantidadItems: venta.cantidadItems },
+      }),
     })
 
     if (!result.ok) {
@@ -64,15 +74,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     if (result.replayed) {
       return noStore(NextResponse.json(ventaParaCajero(result.venta), { status: 200, headers: { "Idempotency-Replayed": "true" } }))
     }
-
-    await auditLog({
-      userId: auth.empleado.id,
-      userType: "empleado",
-      accion: "venta.creada",
-      recurso: "venta",
-      recursoId: result.venta.id,
-      detalle: { negocioId: auth.negocio.id, total: result.venta.total, metodoPago: result.venta.metodoPago, cantidadItems: result.venta.cantidadItems },
-    })
 
     return noStore(NextResponse.json(ventaParaCajero(result.venta), { status: 201 }))
   } catch (error) {
