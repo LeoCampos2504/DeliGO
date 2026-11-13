@@ -120,7 +120,7 @@ const crearProducto = (negocioId: string, nombre: string, precio: number, stock?
 // ---------------------------------------------------------------------------
 // Real routes
 // ---------------------------------------------------------------------------
-type Res = { status: number; replayed: boolean; body: Record<string, any> }  
+type Res = { status: number; replayed: boolean; body: Record<string, any> }
 const json = async (res: Response): Promise<Res> => ({ status: res.status, replayed: res.headers.get("Idempotency-Replayed") === "true", body: await res.json().catch(() => ({})) })
 const rq = (path: string, cookie: string, method = "GET", body?: unknown, key?: string) =>
   new NextRequest(`http://localhost${path}`, { method, headers: { cookie, "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -414,7 +414,7 @@ describeQa("QA — modo OBLIGATORIO (T01–T14)", () => {
   })
 
   test("T12 — segundo cierre: misma clave repite (200), misma clave con otro importe 409, clave nueva 409 TURNO_NO_ABIERTO, ráfaga concurrente sin efectos", async () => {
-    const { turnoBeto, key } = (globalThis as Record<string, any>).__qaCierre  
+    const { turnoBeto, key } = (globalThis as Record<string, any>).__qaCierre
     const antes = await foto(k.negocio.id)
     const tAntes = await db.turnoCaja.findUniqueOrThrow({ where: { id: turnoBeto } })
     const replay = await api.cerrar(beto.cookie, slug(), turnoBeto, "2950.25", key)
@@ -538,7 +538,7 @@ describeQa("QA — fondo remanente y traspasos (T15–T20)", () => {
   })
 
   test("T17 — el fondo se recibe UNA vez: replay con la misma clave no duplica; ya no se ofrece", async () => {
-    const { key, body } = (globalThis as Record<string, any>).__qaTraspaso  
+    const { key, body } = (globalThis as Record<string, any>).__qaTraspaso
     const antes = await foto(f.negocio.id)
     const replay = await api.abrir(rita.cookie, slug(), body, key)
     expect([replay.status, replay.replayed]).toEqual([200, true])
