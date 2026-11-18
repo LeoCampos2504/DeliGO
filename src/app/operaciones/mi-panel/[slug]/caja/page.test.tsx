@@ -138,6 +138,15 @@ const CASHIER_ATTEMPT = "deligo:caja:checkout-attempt:v1:operativo:emp-1:neg-1"
 const OWNER_ATTEMPT = "deligo:caja:checkout-attempt:v1:neg-1"
 
 describe("F10-B1 — cashier PWA page", () => {
+  test("F10-C1b: the «Salidas de Caja» section is present and its history is read ONCE on load, from the cashier endpoint only", async () => {
+    const root = await renderPage()
+    await flush(80)
+    expect(document.body.textContent).toContain("Salidas de Caja")
+    expect(calls.filter((c) => c.includes("/egresos"))).toEqual(["GET /api/operativo/caja/kiosco-1/egresos"])
+    expect(calls.some((c) => c.includes("/api/negocio/"))).toBe(false)
+    await act(async () => root.unmount())
+  })
+
   test("renders the selling view for the cashier and posts ONLY to the operativo sale endpoint with a UUID key", async () => {
     const root = await renderPage()
     expect(document.body.textContent).toContain("Kiosco Uno")

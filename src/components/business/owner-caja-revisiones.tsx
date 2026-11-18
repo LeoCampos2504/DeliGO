@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
 import { cn } from "@/lib/utils"
+import { DesgloseEfectivoTurno, type DesgloseEfectivo } from "@/components/business/owner-caja-desglose-turno"
 
 type Resultado = "COINCIDE" | "FALTANTE" | "SOBRANTE"
 type TurnoCerrado = {
@@ -29,6 +30,8 @@ type TurnoCerrado = {
   estadoEntrega: "PENDIENTE_ENTREGA" | "ENTREGA_CONFIRMADA"
   // F4-C5 (D7): informative, apart from the frozen closing figures.
   cambios?: { cantidad: number; diferenciaCobrada: number; reintegradoEfectivo: number; compensacionInterna: number }
+  // F10-C1c: cash by type (same ledger legs), reconciled with the frozen expected cash.
+  desgloseEfectivo?: DesgloseEfectivo
   entregaActual: { efectivoEntregado: number; fondoRemanente: number; destinoTipo: "DUENO" | "RESGUARDO"; destinoNombre: string | null; actor: string; confirmadoEn: string; observacion: string | null } | null
 }
 type Revision = { id: string; actor: string; accion: string; observacion: string | null; efectivoEsperado: number; efectivoContado: number; diferencia: number; createdAt: string }
@@ -252,6 +255,7 @@ export function OwnerCajaRevisiones({ negocioId }: { negocioId: string }) {
           {turno.cambios && turno.cambios.cantidad > 0 && <p className="rounded-lg bg-muted/40 p-2 text-sm" data-testid="turno-cambios">Operaciones por cambios: {turno.cambios.cantidad} · diferencia cobrada {money.format(turno.cambios.diferenciaCobrada)} · reintegrado en efectivo {money.format(turno.cambios.reintegradoEfectivo)} · compensación interna (no es dinero) {money.format(turno.cambios.compensacionInterna)}. Ya incluido en el efectivo esperado; no recalcula el cierre.</p>}
           {turno.entregaActual && <p className="rounded-lg bg-muted/40 p-2 text-sm">Entrega actual: {money.format(turno.entregaActual.efectivoEntregado)} entregado · {money.format(turno.entregaActual.fondoRemanente)} permanece en caja · {turno.entregaActual.destinoTipo === "DUENO" ? "Dueño" : turno.entregaActual.destinoNombre} · confirmó {turno.entregaActual.actor} el {new Date(turno.entregaActual.confirmadoEn).toLocaleString("es-AR")}</p>}
           {open && <div id={detalleId} className="space-y-3 border-t-2 border-primary/25 pt-4">
+            {turno.desgloseEfectivo && <DesgloseEfectivoTurno desglose={turno.desgloseEfectivo} />}
             <div><h5 className="text-sm font-semibold">Historial administrativo</h5>
               {detail.isLoading ? <p className="text-sm text-muted-foreground">Cargando historial…</p> : detail.isError ? <p role="alert" className="text-sm text-destructive">{detail.error.message}</p> : detail.data?.revisiones.length ? <ol className="mt-2 space-y-2">{detail.data.revisiones.map((item) => <li key={item.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="font-medium">{item.actor} · {new Date(item.createdAt).toLocaleString("es-AR")}</p><p>Esperado {money.format(item.efectivoEsperado)} · Declarado {money.format(item.efectivoContado)} · Diferencia {money.format(item.diferencia)}</p>{item.observacion && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.observacion}</p>}</li>)}</ol> : <p className="mt-1 text-sm text-muted-foreground">Sin revisiones anteriores.</p>}</div>
             {reviewSuccess[turno.id] && <p role="status" data-testid="revision-exito" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">{reviewSuccess[turno.id]}</p>}

@@ -381,6 +381,19 @@ body.ios-device.ios-keyboard-open .ios-chat-fab {
   pointer-events: none !important;
 }
 
+/* ─── F10-C1b: chat FAB and PWA install notice step aside while a cash outflow is being entered ───
+   Operaciones → Caja sets body[data-caja-salida-activa] only while the cash
+   outflow form, its confirmation or its receipt is open, so neither the
+   floating chat button nor the install notice (install-prompt.tsx) covers
+   those controls (same visibility + pointer-events pattern as the keyboard
+   rule above). Both come back unchanged when the form closes; the chat and the
+   install flow themselves are untouched. ─── */
+body[data-caja-salida-activa="true"] .ios-chat-fab,
+body[data-caja-salida-activa="true"] .deligo-install-prompt {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* ─── iOS standalone PWA: compensate stale visualViewport.offsetTop ───
    IOS-STANDALONE-REAL-DEVICE-FIX-R3: a real installed-PWA iPhone capture
    (iOS 18.7, Safari 26.0.1, standalone=true) proved BottomNav/ChatFab

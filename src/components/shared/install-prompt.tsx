@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Download, X, Share, Smartphone, ChevronRight, ChevronDown, ShieldCheck, Wifi, Globe, Chrome, MoreVertical } from "lucide-react"
@@ -17,7 +17,35 @@ import type { PwaInstallState } from "@/lib/pwa-install-state"
  * 2. Android + NO beforeinstallprompt → Step-by-step visual guide
  * 3. iOS Safari → Share → Add to home screen instructions
  * 4. Already installed → Nothing
+ *
+ * F10-C1b (2026-11-18): every bottom notice publishes its live height as the
+ * CSS variable --deligo-install-prompt-h on <html> (removed when it closes), so
+ * a work screen can reserve that room and keep its controls reachable above
+ * it; each notice also carries the class `deligo-install-prompt` so a screen
+ * can ask it to step aside while a form is open (globals.css). The install
+ * flow itself (prompt, guides, dismissal) is unchanged.
  */
+export const INSTALL_PROMPT_HEIGHT_VAR = "--deligo-install-prompt-h"
+
+/** Callback ref: mirrors the element's height into INSTALL_PROMPT_HEIGHT_VAR while it is mounted. */
+function useReservaEspacioInferior() {
+  const observer = useRef<ResizeObserver | null>(null)
+  return useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    const root = document.documentElement
+    if (!el) {
+      root.style.removeProperty(INSTALL_PROMPT_HEIGHT_VAR)
+      return
+    }
+    const publicar = () => root.style.setProperty(INSTALL_PROMPT_HEIGHT_VAR, `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    publicar()
+    if (typeof ResizeObserver !== "undefined") {
+      observer.current = new ResizeObserver(publicar)
+      observer.current.observe(el)
+    }
+  }, [])
+}
 export function InstallPrompt() {
   const pathname = usePathname()
   if (isMozoRoute(pathname)) return null
@@ -151,12 +179,14 @@ function AndroidInstallPending({
   onDismiss: () => void
 }) {
   const browserEventReceived = state === "browser-install-event-received"
+  const reserva = useReservaEspacioInferior()
 
   return (
     <div
+      ref={reserva}
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md rounded-2xl"
+      className="deligo-install-prompt fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md rounded-2xl"
     >
       <div className={`bg-gradient-to-r ${config.gradientFrom} ${config.gradientTo} rounded-2xl p-4 shadow-2xl ${config.shadowColor} flex items-start gap-3 text-white`}>
         <Download aria-hidden="true" className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -198,6 +228,7 @@ function AndroidInstallBanner({
   installing: boolean
 }) {
   const [visible, setVisible] = useState(false)
+  const reserva = useReservaEspacioInferior()
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2000)
@@ -209,11 +240,12 @@ function AndroidInstallBanner({
   return (
     <AnimatePresence>
       <motion.div
+        ref={reserva}
         initial={{ opacity: 0, y: 100 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 100 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="fixed inset-x-0 bottom-0 z-50 flex justify-center"
+        className="deligo-install-prompt fixed inset-x-0 bottom-0 z-50 flex justify-center"
       >
         <div className="w-full max-w-lg mx-4 mb-4">
           <div className={`bg-gradient-to-br ${config.gradientFrom} ${config.gradientTo} rounded-3xl p-5 shadow-2xl ${config.shadowColor} relative overflow-hidden`}>
@@ -312,7 +344,7 @@ function InstallFAB({
       whileTap={{ scale: 0.9 }}
       onClick={onInstall}
       disabled={installing}
-      className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br ${config.gradientFrom} ${config.gradientTo} shadow-xl ${config.shadowColor} flex items-center justify-center text-white active:scale-90 transition-transform`}
+      className={`deligo-install-prompt fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br ${config.gradientFrom} ${config.gradientTo} shadow-xl ${config.shadowColor} flex items-center justify-center text-white active:scale-90 transition-transform`}
       aria-label={`Instalar ${config.name}`}
     >
       {installing ? (
@@ -351,6 +383,7 @@ function AndroidManualGuide({
 }) {
   const [visible, setVisible] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const reserva = useReservaEspacioInferior()
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2500)
@@ -365,11 +398,12 @@ function AndroidManualGuide({
   return (
     <AnimatePresence>
       <motion.div
+        ref={reserva}
         initial={{ opacity: 0, y: 80 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 80 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="fixed inset-x-0 bottom-0 z-50"
+        className="deligo-install-prompt fixed inset-x-0 bottom-0 z-50"
       >
         <div className="mx-3 mb-3">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
@@ -498,6 +532,7 @@ function IOSInstallBanner({
   onDismiss: () => void
 }) {
   const [visible, setVisible] = useState(false)
+  const reserva = useReservaEspacioInferior()
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 2000)
@@ -509,11 +544,12 @@ function IOSInstallBanner({
   return (
     <AnimatePresence>
       <motion.div
+        ref={reserva}
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 50 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md"
+        className="deligo-install-prompt fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md"
       >
         <div className={`bg-gradient-to-r ${config.gradientFrom} ${config.gradientTo} rounded-2xl p-4 shadow-2xl ${config.shadowColor} relative`}>
           <button

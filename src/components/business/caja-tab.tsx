@@ -27,6 +27,7 @@ import {
   Store,
   UserRound,
   Star,
+  HandCoins,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -59,6 +60,7 @@ import {
 } from "@/components/business/caja-devoluciones"
 import { etiquetaMetodoVenta, type SelectorProductosProps } from "@/components/business/caja-cambios"
 import { CajaCambiosConfig } from "@/components/business/caja-cambios-config"
+import { OwnerCajaEgresos, ResumenEgresosHoy, type EgresosHoy } from "@/components/business/owner-caja-egresos"
 import {
   addCartLine,
   cartItemCount,
@@ -193,7 +195,7 @@ export function selectorProductos(source: CajaVenderSource): ComponentType<Selec
   return Selector
 }
 
-type CajaSubTab = "vender" | "resumen" | "turnos"
+type CajaSubTab = "vender" | "resumen" | "turnos" | "egresos"
 
 export function CajaTab({ negocio }: { negocio: { id: string } }) {
   const [subTab, setSubTab] = useState<CajaSubTab>("vender")
@@ -227,6 +229,7 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
       <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/60 p-1">
         <SubTabButton active={subTab === "vender"} icon={<ShoppingCart className="h-3.5 w-3.5" />} label="Vender" onClick={() => setSubTab("vender")} />
         <SubTabButton active={subTab === "turnos"} icon={<Store className="h-3.5 w-3.5" />} label="Cajas y turnos" onClick={() => setSubTab("turnos")} />
+        <SubTabButton active={subTab === "egresos"} icon={<HandCoins className="h-3.5 w-3.5" />} label="Egresos" onClick={() => setSubTab("egresos")} />
         <SubTabButton active={subTab === "resumen"} icon={<Receipt className="h-3.5 w-3.5" />} label="Resumen" onClick={() => setSubTab("resumen")} />
       </div>
       {subTab === "vender" ? (
@@ -239,7 +242,7 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
             onPendingRegisterChange: setPendingRegisterId,
           }} />
         </>
-      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
+      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : subTab === "egresos" ? <OwnerCajaEgresos negocioId={negocio.id} /> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
     </div>
   )
 }
@@ -1112,6 +1115,8 @@ function ResumenView({ negocioId, onIrAVender }: { negocioId: string; onIrAVende
     correccionesPorVenta?: Record<string, { secuencia: number; items: VentaItemSnapshot[] }>
     // F4-C5 (D7): owner-only breakdown (absent on an older server).
     desgloseHoy?: DesgloseHoy
+    // F10-C1c: cash outflows of the day by nature (absent on an older server).
+    egresosHoy?: EgresosHoy
   }>({
     queryKey: ["negocio-caja-ventas-hoy", negocioId],
     queryFn: async () => {
@@ -1144,6 +1149,7 @@ function ResumenView({ negocioId, onIrAVender }: { negocioId: string; onIrAVende
         <SummaryCard label="Neto hoy" value={formatPrice(resumen?.totalNeto ?? resumen?.totalVendido ?? 0)} />
       </div>
       {data?.desgloseHoy && <DesgloseCambiosHoy desglose={data.desgloseHoy} />}
+      {data?.egresosHoy && <ResumenEgresosHoy egresos={data.egresosHoy} />}
 
       <div>
         <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5">

@@ -20,6 +20,8 @@
 // them or return products, through the cashier's own operativo endpoints only.
 // F4-C5 adds exchanges and linked additional sales of those sales (cashier
 // endpoints only; attempts isolated per business + employee on this device).
+// F10-C1b adds «Salidas de Caja»: cash outflows of the cashier's OWN open shift
+// (cashier endpoints only; no expected cash, balance or difference anywhere).
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
@@ -32,6 +34,7 @@ import { VenderView, type CajaVenderSource } from "@/components/business/caja-ta
 // «Gestionar venta» reuses this page's catalog (same endpoint and cache as the selling view).
 import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
 import { CajaVentasHistorial, type CajaDevolucionesEndpoints } from "@/components/business/caja-devoluciones"
+import { CajaSalidasCajero } from "@/components/business/caja-salidas-cajero"
 
 interface CajaContexto {
   negocio: { id: string; nombre: string; slug: string; colorPrincipal: string; logoUrl: string | null }
@@ -40,12 +43,18 @@ interface CajaContexto {
 
 type PageState = { status: "loading" } | { status: "ready"; ctx: CajaContexto } | { status: "unavailable" }
 
+// F10-C1b: room below the last control — at least 7rem (floating chat button) or the PWA
+// install notice's live height + 1rem, plus the device's safe area.
+const PADDING_INFERIOR ="calc(max(7rem, var(--deligo-install-prompt-h, 0px) + 1rem) + env(safe-area-inset-bottom, 0px))"
+
 export default function CajeroCajaPage() {
   const params = useParams<{ slug: string }>()
   const slug = params.slug
   const router = useRouter()
   const nav = useOperativoNav()
   const [state, setState] = useState<PageState>({ status: "loading" })
+  // F10-C1b: the open shift seen by the shift panel; the outflow section re-reads when it changes.
+  const [turnoAbiertoId, setTurnoAbiertoId] = useState<string | null | undefined>(undefined)
 
   const handleAccessLost = useCallback(
     (status: number, estado?: string) => {
@@ -122,7 +131,10 @@ export default function CajeroCajaPage() {
   }, [state, source])
 
   return (
-    <main className="min-h-screen bg-background pb-[env(safe-area-inset-bottom,0px)]">
+    // Extra bottom room (F10-C1b): the last controls can always scroll above the floating chat
+    // button and above the PWA install notice (its live height, published by install-prompt.tsx).
+    // Inline style: a Tailwind arbitrary class does not emit this max()/var() expression.
+    <main className="min-h-screen bg-background" style={{ paddingBottom: PADDING_INFERIOR }}>
       <div className="mx-auto w-full max-w-5xl space-y-3 p-3 sm:p-4">
         <header className="flex items-center gap-2">
           <Button asChild variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-full" aria-label="Volver">
@@ -172,6 +184,14 @@ export default function CajeroCajaPage() {
               negocioId={state.ctx.negocio.id}
               empleadoId={state.ctx.empleado.id}
               empleadoNombre={state.ctx.empleado.nombre}
+              onAccessLost={handleAccessLost}
+              onTurnoChange={setTurnoAbiertoId}
+            />
+            <CajaSalidasCajero
+              slug={state.ctx.negocio.slug}
+              negocioId={state.ctx.negocio.id}
+              empleadoId={state.ctx.empleado.id}
+              turnoKey={turnoAbiertoId}
               onAccessLost={handleAccessLost}
             />
             <section id="caja-vender" aria-label="Ventas de Caja" className="scroll-mt-3 space-y-3">

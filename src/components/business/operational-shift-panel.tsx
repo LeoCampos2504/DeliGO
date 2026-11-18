@@ -73,7 +73,7 @@ function clearAttempt(scope: string, prefix = STORAGE_PREFIX) {
   try { sessionStorage.removeItem(prefix + scope) } catch { /* storage is optional */ }
 }
 
-export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNombre, onAccessLost }: { slug: string; negocioId: string; empleadoId: string; empleadoNombre: string; onAccessLost: (status: number, estado?: string) => void }) {
+export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNombre, onAccessLost, onTurnoChange }: { slug: string; negocioId: string; empleadoId: string; empleadoNombre: string; onAccessLost: (status: number, estado?: string) => void; /** F10-C1b: the open shift's id (or null) each time it is (re)read, so the outflow section follows it. */ onTurnoChange?: (turnoId: string | null) => void }) {
   const [state, setState] = useState<State>(EMPTY)
   const [selected, setSelected] = useState("")
   const [fondoInicial, setFondoInicial] = useState("0")
@@ -111,6 +111,8 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { turnoMostradoRef.current = state.turno?.id ?? null }, [state.turno])
+  const turnoIdMostrado = state.turno?.id ?? null
+  useEffect(() => { if (!state.loading) onTurnoChange?.(turnoIdMostrado) }, [state.loading, turnoIdMostrado, onTurnoChange])
 
   // Back on this tab (focus / visible again): re-read the real state, so a tab left open
   // never keeps offering to close a shift that was already closed elsewhere.
