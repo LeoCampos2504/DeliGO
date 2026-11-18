@@ -101,7 +101,8 @@ describe("F10-B2.1 — attribution is decided by the server", () => {
     // exchange's charged difference D+ (same shift attribution rule, same engine).
     expect(src.match(/\n\s+turnoCajaId,\n/g)).toHaveLength(3)
     // F4-A: a cash refund is attributed to the open shift that hands the money back.
-    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path).sort()).toEqual([DEVOLUCIONES, ENGINE].sort())
+    // F10-C1a (operator-authorized 2026-11-18, local): a cash outflow is attributed to the OPEN shift it leaves from.
+    expect(productive.filter(({ src: s }) => /\bturnoCajaId,\n/.test(s) && /\.(venta|operacionFinanciera)\.create\(/.test(s)).map(({ path }) => path).sort()).toEqual([DEVOLUCIONES, "src/lib/caja-egresos-service.ts", ENGINE].sort())
   })
 
   test("still ONE sales engine", () => {
@@ -119,7 +120,9 @@ describe("F10-B2.1 — expected cash is owner-only (blind close F10-B2.2)", () =
   test("no cashier code (operativo APIs, Operaciones pages, client components) touches expected cash or the ledger", () => {
     const cashier = productive.filter(({ path }) =>
       path.startsWith("src/app/api/operativo/") || path.startsWith("src/app/operaciones/") ||
-      (path.startsWith("src/components/") && path !== "src/components/business/owner-caja-revisiones.tsx")
+      // F10-C1c (operator-authorized 2026-11-18, local): the owner's «Egresos de Caja» panel shows the
+      // owner-only expected-cash alert figures; f10-c1c-static-contract.test.ts keeps it out of cashier code.
+      (path.startsWith("src/components/") && path !== "src/components/business/owner-caja-revisiones.tsx" && path !== "src/components/business/owner-caja-egresos.tsx")
     )
     for (const { path, src } of cashier) {
       expect({ path, admin: PROHIBIDO_CAJERO.test(sinExcepcionCotizacion(path, src)), evasion: EVASION_ESPERADO.test(src) }).toEqual({ path, admin: false, evasion: false })

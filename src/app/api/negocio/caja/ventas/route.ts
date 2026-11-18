@@ -11,6 +11,7 @@ import { addMoney, moneyToNumber, storedMoney } from "@/lib/money"
 import { lineaVigente } from "@/lib/caja-venta-vigente"
 import { resumirCobrosCajaDesde } from "@/lib/caja-resumen-cobros"
 import { desgloseCambiosYReintegros } from "@/lib/caja-resumen-cambios"
+import { resumenEgresosDesde } from "@/lib/caja-turnos-admin"
 
 // GET - Today's sales list + payment-method summary (section 21 "Caja —
 // resumen simple"; F4-C2: money by method read from the real cobros).
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     // 1000, same money rules), the returns and the D7 breakdown, read in ONE
     // read-only REPEATABLE READ transaction: one point-in-time snapshot, no
     // locks, no writes, nothing to retry.
-    const { resumen, devolucionesHoy, desgloseHoy } = await db.$transaction(
+    const { resumen, devolucionesHoy, desgloseHoy, egresosHoy } = await db.$transaction(
       async (tx) => {
         await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY")
         // F4-C2: money by method from the real cobros (non-money credit apart); legacy sales without cobros by their metodoPago.
@@ -64,7 +65,9 @@ export async function GET(req: NextRequest) {
           devolucionesHoy: devoluciones.map((d) => ({ importe: d.importeDecimal, esCambio: Boolean(d.cambio) })),
           compensacionInterna: totales.resumen.noDinero,
         })
-        return { resumen: totales.resumen, devolucionesHoy: devoluciones, desgloseHoy: desglose }
+        // F10-C1c: cash outflows of the day by nature (never one "expense" figure) and their compensations — a NEW key.
+        const egresos = await resumenEgresosDesde(tx, negocioId, startOfDay)
+        return { resumen: totales.resumen, devolucionesHoy: devoluciones, desgloseHoy: desglose, egresosHoy: egresos }
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5000, timeout: 20000 }
     )
@@ -116,7 +119,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta, correccionesPorVenta, desgloseHoy })
+    return NextResponse.json({ ventasHoy: ventasHoy.map(ventaCajaParaRespuesta), resumenHoy, devolucionesPorVenta, correccionesPorVenta, desgloseHoy, egresosHoy })
   } catch (error) {
     console.error("Error listing ventas de caja:", safeErrorForLog(error))
     return NextResponse.json({ error: "Error al obtener las ventas" }, { status: 500 })

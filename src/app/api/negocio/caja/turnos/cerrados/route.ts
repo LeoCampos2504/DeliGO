@@ -6,7 +6,7 @@ import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
 import { clasificarDiferencia } from "@/lib/caja-turnos-revision"
 import { CIERRE_ORIGEN_RECUPERACION, CIERRE_ORIGEN_RESPONSABLE } from "@/lib/caja-turnos-service"
-import { resumenCambiosTurnos } from "@/lib/caja-turnos-admin"
+import { desgloseEfectivoParaRespuesta, desgloseEfectivoTurnos, resumenCambiosTurnos } from "@/lib/caja-turnos-admin"
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,7 +24,11 @@ export async function GET(req: NextRequest) {
       take: 100,
     })
     // F4-C5 (D7): exchanges of each closed shift — informative, apart from the frozen closing figures.
-    const cambiosPorTurno = await resumenCambiosTurnos(db, auth.negocioId, turnos.map((t) => t.id))
+    const [cambiosPorTurno, desglosePorTurno] = await Promise.all([
+      resumenCambiosTurnos(db, auth.negocioId, turnos.map((t) => t.id)),
+      // F10-C1c: cash by type from the same ledger legs; `cuadra` checks it against the frozen snapshot.
+      desgloseEfectivoTurnos(db, auth.negocioId, turnos.map((t) => t.id)),
+    ])
     return NextResponse.json({ turnos: turnos.flatMap((turno) => {
       if (!turno.cerradoEn || !turno.efectivoContadoDecimal || !turno.efectivoEsperadoDecimal) return []
       const diferencia = turno.efectivoContadoDecimal.minus(turno.efectivoEsperadoDecimal)
@@ -52,6 +56,7 @@ export async function GET(req: NextRequest) {
           const c = cambiosPorTurno.get(turno.id)!
           return { cantidad: c.cantidad, diferenciaCobrada: moneyToNumber(c.diferenciaCobrada), reintegradoEfectivo: moneyToNumber(c.reintegradoEfectivo), compensacionInterna: moneyToNumber(c.compensacionInterna) }
         })(),
+        desgloseEfectivo: desgloseEfectivoParaRespuesta(desglosePorTurno.get(turno.id)!, turno.fondoInicialDecimal, turno.efectivoEsperadoDecimal),
         estadoRevision: revision ? "REVISADO" as const : "PENDIENTE_REVISION" as const,
         ultimaRevisionEn: revision?.createdAt ?? null,
         estadoEntrega: entrega ? "ENTREGA_CONFIRMADA" as const : "PENDIENTE_ENTREGA" as const,

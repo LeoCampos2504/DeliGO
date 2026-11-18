@@ -162,6 +162,10 @@ model Negocio {
   // bloquean una operación. CHECK en SQL. Configuración en la interfaz: F4-C5.
   cambioAvisoAntiguedadDias Int?
   cambioAvisoCadenaCambios  Int?
+  // F10-C1a: importe a partir del cual un egreso de caja registrado por un
+  // empleado genera un aviso destacado al dueño. NULL = sin umbral. Nunca
+  // bloquea un egreso. CHECK en SQL (> 0).
+  cajaEgresoAvisoUmbralDecimal Decimal? @db.Decimal(12, 2)
   zonasSalon       String  @default("[]") // JSON array of zone names
 
   // Pago
@@ -203,6 +207,7 @@ model Negocio {
   cambiosVenta           CambioVenta[] // F4-C3
   intentosComerciales    IntentoCajaComercial[] // F4-C5
   traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
+  egresosCaja            EgresoCaja[] // F10-C1a
 
   // Plan
   planTipo            String  @default("prueba")
@@ -605,7 +610,7 @@ model CuentaFinanciera {
 model OperacionFinanciera {
   id                  String   @id @default(cuid())
   negocioId           String
-  tipo                String // VENTA_COBRO (F10-B0) | DEVOLUCION_VENTA (F4-A, salida de efectivo); futuros: GASTO, PAGO_PROVEEDOR, TRANSFERENCIA_INTERNA, CAMBIO_*, AJUSTE, REVERSION
+  tipo                String // VENTA_COBRO (F10-B0) | DEVOLUCION_VENTA (F4-A, salida de efectivo) | GASTO, PAGO_PROVEEDOR, RETIRO_DUENO (F10-C1a, egresos de caja) | REVERSION (compensación, F10-C1c); futuros: TRANSFERENCIA_INTERNA, CAMBIO_*, AJUSTE
   estado              String   @default("CONFIRMADA")
   // Origen: un cobro de venta genera a lo sumo UNA operacion (anti-duplicado).
   cobroVentaId        String?  @unique
@@ -629,6 +634,9 @@ model OperacionFinanciera {
   movimientos MovimientoFinanciero[]
   // F4-A: reintegro en efectivo (DEVOLUCION_VENTA)
   devolucionVenta DevolucionVenta?
+  // F10-C1a: egreso de caja (GASTO | PAGO_PROVEEDOR | RETIRO_DUENO) y su compensación (REVERSION)
+  egresoCaja         EgresoCaja?
+  compensacionEgreso CompensacionEgresoCaja?
 
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
@@ -719,6 +727,8 @@ model TurnoCaja {
   reintegrosDevolucion DevolucionVenta[]
   // F4-C3: cambios comerciales atribuidos a este turno
   cambiosVenta CambioVenta[]
+  // F10-C1a: egresos de efectivo de este turno
+  egresosCaja EgresoCaja[]
 
   @@unique([negocioId, idempotencyKey])
   @@unique([negocioId, cierreIdempotencyKey])
@@ -843,6 +853,123 @@ model MovimientoFinanciero {
   @@index([cuentaId, createdAt])
   @@index([negocioId, createdAt])
   @@map("movimientos_financieros")
+}
+
+// ============================================
+// F10-C1a — egresos de efectivo de Caja (migración 20261118120000)
+// ============================================
+// Un egreso es un evento INMUTABLE: una operación del libro (GASTO |
+// PAGO_PROVEEDOR | RETIRO_DUENO) con UNA pata negativa en la cuenta de
+// efectivo de la caja física, atribuida al turno ABIERTO de esa caja. El
+// esperado del turno baja con la fórmula existente (fondo + patas del turno).
+// Sólo cambian, por la revisión del dueño, los campos de revisión y la
+// confirmación de un retiro (ninguno mueve dinero; historial en
+// revisiones_egresos_caja). Invariantes y guardas en SQL.
+model EgresoCaja {
+  id                        String    @id @default(cuid())
+  negocioId                 String
+  operacionId               String    @unique
+  turnoCajaId               String
+  cajaFisicaId              String
+  // GASTO (gasto operativo real) | PAGO_PROVEEDOR (cancela deuda/compra: F5) | RETIRO_DUENO (no es gasto)
+  naturaleza                String
+  // Sólo GASTO: INSUMOS | SERVICIOS | TRANSPORTE | MANTENIMIENTO | OTRO
+  categoria                 String?
+  medio                     String    @default("EFECTIVO")
+  importeDecimal            Decimal   @db.Decimal(12, 2)
+  motivo                    String
+  // Responsable que entrega el efectivo = quien registra (derivado de la sesión)
+  actorTipo                 String
+  actorId                   String
+  empleadoId                String?
+  proveedorNombre           String?
+  proveedorIdentificacion   String?
+  comprobanteReferencia     String?
+  // Sólo RETIRO_DUENO: DUENO | AUTORIZADO_POR_DUENO + nombre de quien recibe
+  destinatarioTipo          String?
+  destinatarioNombre        String?
+  // Sólo RETIRO_DUENO: NO_REQUERIDA (lo registró el dueño) | PENDIENTE | CONFIRMADO | NO_RECIBIDO
+  confirmacionRetiroEstado  String?
+  confirmacionRetiroEn      DateTime?
+  confirmacionRetiroActorId String?
+  // Datos PRIVADOS del dueño (nunca se devuelven al cajero)
+  esperadoPrevioDecimal     Decimal   @db.Decimal(13, 2)
+  excedeEsperado            Boolean   @default(false)
+  umbralAvisoDecimal        Decimal?  @db.Decimal(12, 2)
+  superaUmbral              Boolean   @default(false)
+  justificacion             String?
+  // SIN_REVISAR | REVISADO | OBSERVADO
+  estadoRevision            String    @default("SIN_REVISAR")
+  revisadoEn                DateTime?
+  revisadoPorId             String?
+  idempotencyKey            String
+  idempotencyFingerprint    String
+  createdAt                 DateTime  @default(now())
+
+  negocio      Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  operacion    OperacionFinanciera     @relation(fields: [operacionId], references: [id], onDelete: NoAction)
+  turno        TurnoCaja               @relation(fields: [turnoCajaId, negocioId, cajaFisicaId], references: [id, negocioId, cajaFisicaId], onDelete: NoAction)
+  revisiones   RevisionEgresoCaja[]
+  compensacion CompensacionEgresoCaja?
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@index([negocioId, createdAt])
+  @@index([turnoCajaId])
+  @@map("egresos_caja")
+}
+
+// Historial append-only de revisiones del dueño (REVISION) y de la
+// confirmación de un retiro registrado por un empleado (CONFIRMACION_RETIRO).
+model RevisionEgresoCaja {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  egresoId               String
+  // REVISION (REVISADO | OBSERVADO) | CONFIRMACION_RETIRO (CONFIRMADO | NO_RECIBIDO)
+  accion                 String
+  resultado              String
+  observacion            String?
+  actorTipo              String   @default("NEGOCIO")
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  egreso EgresoCaja @relation(fields: [egresoId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, egresoId, createdAt])
+  @@map("revisiones_egresos_caja")
+}
+
+// Compensación TOTAL de un egreso (operación REVERSION con revierteOperacionId
+// = la operación del egreso, una pata positiva en la misma cuenta). Preparada en
+// C1a (tabla + guardas SQL); la ejecuta el dueño desde F10-C1c.
+// TURNO_ABIERTO: atribuida al mismo turno, todavía abierto.
+// POSTERIOR_AL_CIERRE: SIN turno (turnoCajaId NULL): el cierre, su esperado y
+// sus revisiones nunca cambian.
+model CompensacionEgresoCaja {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  egresoId               String   @unique
+  operacionId            String   @unique
+  momento                String
+  turnoCajaId            String?
+  cajaFisicaId           String
+  importeDecimal         Decimal  @db.Decimal(12, 2)
+  motivo                 String
+  actorTipo              String   @default("NEGOCIO")
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  egreso    EgresoCaja          @relation(fields: [egresoId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  operacion OperacionFinanciera @relation(fields: [operacionId], references: [id], onDelete: NoAction)
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([egresoId, negocioId])
+  @@map("compensaciones_egresos_caja")
 }
 
 // Snapshot inmutable por línea — una venta histórica nunca cambia porque

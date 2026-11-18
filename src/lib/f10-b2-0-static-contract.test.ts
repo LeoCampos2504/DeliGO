@@ -20,6 +20,7 @@ const productive = walk("src").map((path) => ({ path, src: read(path) }))
 const ENGINE = "src/lib/caja-venta-service.ts"
 const DEVOLUCIONES = "src/lib/caja-devoluciones-service.ts"
 const CORRECCIONES = "src/lib/caja-correcciones-service.ts"
+const EGRESOS = "src/lib/caja-egresos-service.ts"
 const OWNER_ROUTE = "src/app/api/negocio/caja/ventas/route.ts"
 const MONEY = "src/lib/money.ts"
 const MIGRATION_DIR = "20261010120000_f10_b2_0_money_decimal_columns"
@@ -30,8 +31,9 @@ describe("F10-B2.0 — single writer of the exact money columns", () => {
     const writers = productive.filter(({ src }) => /\b(totalDecimal|subtotalDecimal|importeDecimal):(?!\s*true\b)/.test(src)).map(({ path }) => path)
     // F4-A: returns write their own exact amounts (never the sale's columns).
     // F4-B: owner corrections write their own exact line/total snapshots.
+    // F10-C1a (operator-authorized 2026-11-18, local): cash outflows write their own exact amount and ledger leg (never a sale's columns).
     // Order-independent: directory scan order differs between Windows and Linux CI.
-    expect([...writers].sort()).toEqual([CORRECCIONES, DEVOLUCIONES, ENGINE].sort())
+    expect([...writers].sort()).toEqual([CORRECCIONES, DEVOLUCIONES, EGRESOS, ENGINE].sort())
   })
 
   test("the engine dual-writes every money row from ONE exact computation", () => {

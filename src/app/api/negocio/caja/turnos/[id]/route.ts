@@ -6,7 +6,7 @@ import { auditLog } from "@/lib/audit"
 import { cerrarTurnoCaja, TURNO_ESTADO_CERRADO_DECLARADO } from "@/lib/caja-turnos-service"
 import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
-import { calcularEfectivoEsperadoTurno, resumenCambiosTurno, resumenVentasTurno } from "@/lib/caja-turnos-admin"
+import { calcularEfectivoEsperadoTurno, desgloseEfectivoParaRespuesta, desgloseEfectivoTurnos, resumenCambiosTurno, resumenVentasTurno } from "@/lib/caja-turnos-admin"
 
 // ============================================
 // F10-B2.1 — owner ONLY: administrative detail of one shift
@@ -24,12 +24,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
     })
     if (!turno) return NextResponse.json({ error: "Turno no encontrado" }, { status: 404 })
-    const [efectivoCalculado, ventas, cambios] = await Promise.all([
+    const [efectivoCalculado, ventas, cambios, desglose] = await Promise.all([
       turno.estado === TURNO_ESTADO_CERRADO_DECLARADO && turno.efectivoEsperadoDecimal
         ? Promise.resolve(null)
         : calcularEfectivoEsperadoTurno(db, auth.negocioId, turno.id),
       resumenVentasTurno(db, auth.negocioId, turno.id),
       resumenCambiosTurno(db, auth.negocioId, turno.id),
+      desgloseEfectivoTurnos(db, auth.negocioId, [turno.id]),
     ])
     const efectivoEsperado = turno.estado === TURNO_ESTADO_CERRADO_DECLARADO
       ? turno.efectivoEsperadoDecimal
@@ -67,6 +68,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         reintegradoEfectivo: moneyToNumber(cambios.reintegradoEfectivo),
         compensacionInterna: moneyToNumber(cambios.compensacionInterna),
       },
+      // F10-C1c: the shift's cash by type (same ledger legs as the expected cash; reconciles with it).
+      desgloseEfectivo: desgloseEfectivoParaRespuesta(desglose.get(turno.id)!, turno.fondoInicialDecimal, efectivoEsperado ?? null),
     })
   } catch (error) {
     console.error("Error reading turno de caja:", safeErrorForLog(error))
