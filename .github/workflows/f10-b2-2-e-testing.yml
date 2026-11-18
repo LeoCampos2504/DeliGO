@@ -70,14 +70,17 @@ jobs:
       # suites), the bell, the chain / thresholds / shift-detail / closed-shift routes, the cashier Caja page
       # and the F4-C5 suites (the verification routes are covered by the cambios|adicionales prefixes above).
       # «Gestionar venta» (2026-11-11): also the compact catalog picker, the shared idempotent POST and the return preview.
+      # F10-C1 (cash outflows C1a/C1b/C1c): also the outflow service + HTTP layer, the owner and cashier outflow
+      # routes, the threshold route, the cashier and owner outflow UIs, the shift breakdown, the install notice,
+      # the shift panel (not its test: pre-existing diagnostics) and the F10-C1 suites.
       # owner-caja-revisiones.tsx is NOT listed: it carries pre-existing (BigInt target) diagnostics.
-      - name: Typecheck F4-B, F4-C1, F4-C2, F4-C3, F4-C4 and F4-C5 files
+      - name: Typecheck F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files
         run: |
           bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
-          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales)|lib/caja-intento-comercial|lib/caja-resumen-cambios|lib/f4-c5-|components/business/caja-cambios|components/shared/notification-center|app/api/negocio/caja/ventas/\[id\]/cadena|app/api/operativo/caja/\[slug\]/ventas/\[id\]/cadena|app/api/negocio/caja/configuracion-cambios|app/api/negocio/caja/turnos/\[id\]/route|app/api/negocio/caja/turnos/cerrados|app/operaciones/mi-panel/\[slug\]/caja/page|components/business/caja-catalogo-compacto|components/business/caja-post-idempotente|lib/caja-devolucion-estimado|lib/f4-c-auditoria-reintegro|lib/f4-c-reintegro-concurrente|lib/f4-c-medio-reintegro|components/business/caja-medio-reintegro)" tsc-output.txt; then
-            echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 / F4-C4 / F4-C5 files"; exit 1
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales)|lib/caja-intento-comercial|lib/caja-resumen-cambios|lib/f4-c5-|components/business/caja-cambios|components/shared/notification-center|app/api/negocio/caja/ventas/\[id\]/cadena|app/api/operativo/caja/\[slug\]/ventas/\[id\]/cadena|app/api/negocio/caja/configuracion-cambios|app/api/negocio/caja/turnos/\[id\]/route|app/api/negocio/caja/turnos/cerrados|app/operaciones/mi-panel/\[slug\]/caja/page|components/business/caja-catalogo-compacto|components/business/caja-post-idempotente|lib/caja-devolucion-estimado|lib/f4-c-auditoria-reintegro|lib/f4-c-reintegro-concurrente|lib/f4-c-medio-reintegro|components/business/caja-medio-reintegro|lib/caja-egresos-|lib/f10-c1|app/api/negocio/caja/egresos|app/api/negocio/caja/configuracion-egresos|app/api/operativo/caja/\[slug\]/egresos|components/business/caja-salidas-cajero|components/business/owner-caja-egresos|components/business/owner-caja-desglose-turno|components/shared/install-prompt|components/business/operational-shift-panel\.tsx)" tsc-output.txt; then
+            echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 / F4-C4 / F4-C5 / F10-C1 files"; exit 1
           fi
-          echo "F4-B, F4-C1, F4-C2, F4-C3, F4-C4 and F4-C5 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+          echo "F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
       # F4-C2: money by method from the real cobros, each suite in its own process, BEFORE the regression
       # batch below (which contains the known intermittent f10-b2-1-turnos:440) so their evidence is never
       # skipped by it; the integration suite writes only to the ephemeral postgres:16 service above.
@@ -127,5 +130,15 @@ jobs:
       # own process; the integration suite writes only to the ephemeral postgres:16 service above.
       - run: bun --no-env-file test src/lib/f4-c1-transaccion-compartida.test.ts
       - run: bun --no-env-file test src/lib/f4-c1-transaccion-compartida.integration.test.ts
+      # F10-C1 (cash outflows): engine + SQL guards + R1 audits + owner supervision / compensations / reports on
+      # the ephemeral postgres:16 service above, then the static contracts and the cashier / owner UIs (happy-dom),
+      # each in its own process.
+      - run: bun --no-env-file test src/lib/f10-c1a-egresos.integration.test.ts
+      - run: bun --no-env-file test src/lib/f10-c1a-egresos-r1.integration.test.ts
+      - run: bun --no-env-file test src/lib/f10-c1c-egresos.integration.test.ts
+      - run: bun --no-env-file test src/lib/f10-c1a-static-contract.test.ts src/lib/f10-c1b-static-contract.test.ts src/lib/f10-c1c-static-contract.test.ts
+      - run: bun --no-env-file test src/components/business/caja-salidas-cajero.test.tsx
+      - run: bun --no-env-file test src/components/business/owner-caja-egresos.test.tsx
+      - run: bun --no-env-file test "src/app/operaciones/mi-panel/[slug]/caja/page.test.tsx"
       - run: bun --no-env-file run build
 
