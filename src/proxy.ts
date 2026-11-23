@@ -325,14 +325,21 @@ const NEGOCIO_ORIGIN_PROTECTED_PREFIXES = [
   // owner panel; the cashier route is already covered by "/api/operativo".
   "/api/negocio/caja",
   "/api/negocio/categorias",
+  // F10-C2a: purchase orders and goods receptions (approval moves stock, costs and supplier debt) — owner only.
+  "/api/negocio/compras",
   "/api/negocio/config",
   "/api/negocio/empleados",
+  // F10-C2c: price-label confirmation activates sale prices — owner only (cashier route under "/api/operativo").
+  "/api/negocio/etiquetas-precio",
   "/api/negocio/ingredientes",
   "/api/negocio/mesas-assign",
   "/api/negocio/mozos/invitaciones",
   "/api/negocio/opciones-compartidas",
   "/api/negocio/pedidos",
   "/api/negocio/productos",
+  // F5-A: supplier ledger (obligations, credits, assignments) — owner only.
+  "/api/negocio/proveedores",
+  "/api/negocio/recepciones",
   "/api/negocio/resenas",
   "/api/negocio/secciones",
   "/api/negocio/terminales-operativas",

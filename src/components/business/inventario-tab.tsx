@@ -9,7 +9,10 @@
 // POST /api/negocio/inventario/movimientos is new API surface here, kept
 // narrow (stock adjustments only, always traced).
 
+import { ProveedoresDelProducto, ProveedoresProductoNuevo } from "@/components/business/producto-proveedores"
+import { AutoriaProducto, PermisosCatalogoEmpleados } from "@/components/business/permisos-catalogo"
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Boxes,
@@ -246,6 +249,8 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
 
   return (
     <div className="space-y-4">
+      <PermisosCatalogoEmpleados />
+      <Link href="/negocio/importar-productos" className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-dashed px-3 text-sm font-medium hover:bg-muted/50" data-testid="link-importar-productos">Importar productos desde Excel o CSV</Link>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -591,6 +596,8 @@ function ProductoFormDialog({
   const [stockInicial, setStockInicial] = useState(producto ? String(producto.stockCantidad) : "0")
   const [stockMinimo, setStockMinimo] = useState(producto ? String(producto.stockMinimo) : "0")
   const [imagenUrl, setImagenUrl] = useState(producto?.imagenUrl ?? "")
+  // Catálogo: proveedores elegidos al CREAR (se asocian apenas se guarda el producto).
+  const [proveedoresNuevos, setProveedoresNuevos] = useState<string[]>([])
 
   // P2-T56-R2C §11/12: inline variant creation exists ONLY for a brand new
   // product — managing variants on an EXISTING product happens exclusively
@@ -686,6 +693,11 @@ function ProductoFormDialog({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Error al guardar el producto")
+      if (!isEdit && data?.id && proveedoresNuevos.length) {
+        // Misma relación y mismo servicio que la ficha del proveedor; si alguna falla, el producto ya quedó creado.
+        const fallos = (await Promise.all(proveedoresNuevos.map((proveedorId) => fetch(`/api/negocio/productos/${data.id}/proveedores`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proveedorId }) }).then((r) => r.ok).catch(() => false)))).filter((x) => !x).length
+        if (fallos) toast.error(`El producto se creó, pero ${fallos} ${fallos === 1 ? "proveedor no se asoció" : "proveedores no se asociaron"}. Asocialos desde «Editar producto».`)
+      }
       return data
     },
     onSuccess: () => {
@@ -857,6 +869,9 @@ function ProductoFormDialog({
               )}
             </div>
           )}
+
+          {isEdit && <AutoriaProducto productoId={producto!.id} />}
+          {isEdit ? <ProveedoresDelProducto productoId={producto!.id} /> : <ProveedoresProductoNuevo seleccion={proveedoresNuevos} onCambio={setProveedoresNuevos} />}
 
           <div className="flex gap-2 pt-2">
             <Button variant="secondary" className="flex-1 rounded-xl" onClick={onClose}>Cancelar</Button>

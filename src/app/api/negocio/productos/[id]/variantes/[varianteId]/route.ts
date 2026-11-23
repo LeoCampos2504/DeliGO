@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import type { Prisma } from "@prisma/client"
+import { conPrecioDeCatalogoEnTx } from "@/lib/etiquetas-precio-service"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { auditLog } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -80,13 +82,16 @@ export async function PUT(
     const changesCode =
       codigoBarras !== undefined && codigoBarrasValue !== null &&
       barcodeLookupKey(codigoBarrasValue) !== barcodeLookupKey(existing.codigoBarras)
+    // F10-C2c: price edits are recorded as activations and replace a pending shelf-label price (same transaction).
+    const actualizarConPrecio = (tx: Prisma.TransactionClient) =>
+      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId }, () => tx.productoVariante.update({ where: { id: varianteId }, data: updateData }))
     const updated = changesCode
       ? await runBarcodeGuardedWrite(
           db,
           { negocioId, claims: [{ code: codigoBarrasValue as string, exclude: { varianteId } }] },
-          (tx) => tx.productoVariante.update({ where: { id: varianteId }, data: updateData })
+          (tx) => actualizarConPrecio(tx)
         )
-      : await db.productoVariante.update({ where: { id: varianteId }, data: updateData })
+      : await db.$transaction((tx) => actualizarConPrecio(tx))
 
     await auditLog({
       userId: negocioId,

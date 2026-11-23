@@ -66,7 +66,9 @@ export type EgresoDueno = {
   compensacion: { id: string; operacionId: string; momento: string; importe: number; motivo: string; createdAt: string } | null
   turnoAbierto: boolean
   compensacionDisponible: boolean
-  compensacionBloqueada: "TURNO_CERRADO" | null
+  compensacionBloqueada: "TURNO_CERRADO" | "VINCULADO_A_PROVEEDOR" | null
+  // F5-A: link in force to a supplier account (optional for older payloads)
+  vinculoProveedor?: { creditoId: string; proveedorId: string; proveedorNombre: string } | null
   pendienteSupervision: boolean
   pendiente: { confirmacion: boolean; revision: boolean }
   createdAt: string
@@ -431,7 +433,12 @@ function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCo
         {e.confirmacionRetiro && e.confirmacionRetiro.estado !== "NO_REQUERIDA" && <Dato label="Recepción del retiro">{TITULO_CONFIRMACION[e.confirmacionRetiro.estado]}</Dato>}
         <div className="col-span-2 sm:col-span-3"><Dato label="Motivo">{e.motivo}</Dato></div>
       </dl>
-      {e.naturaleza === "PAGO_PROVEEDOR" && <p className="rounded-lg bg-violet-50 p-2 text-xs text-violet-950 dark:bg-violet-950/40 dark:text-violet-100">Un pago a proveedor cancela una compra o una deuda: no se suma como gasto de rentabilidad (se vinculará con la compra de mercadería).</p>}
+      {e.naturaleza === "PAGO_PROVEEDOR" && <p className="rounded-lg bg-violet-50 p-2 text-xs text-violet-950 dark:bg-violet-950/40 dark:text-violet-100">Un pago a proveedor cancela una compra o una deuda: no se suma como gasto de rentabilidad.</p>}
+      {e.naturaleza === "PAGO_PROVEEDOR" && (
+        <p className="rounded-lg border border-violet-200 p-2 text-xs dark:border-violet-800" data-testid="vinculo-proveedor">
+          {e.vinculoProveedor ? <>Vinculado a la cuenta de <span className="font-semibold">{e.vinculoProveedor.proveedorNombre}</span> (Proveedores).</> : "Todavía no está vinculado a la cuenta de un proveedor. Podés vincularlo desde Proveedores."}
+        </p>
+      )}
       {e.naturaleza === "RETIRO_DUENO" && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">Un retiro del dueño no es un gasto del negocio.</p>}
       {(e.alertas.excedeEsperado || e.alertas.superaUmbral) && (
         <div role="note" className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-sm text-rose-950 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100">
@@ -457,6 +464,9 @@ function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCo
           {e.compensacionDisponible && <Button variant="outline" className="min-h-11 rounded-xl border-rose-300 text-rose-800 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-200" onClick={() => { setExito(null); setAccion("compensacion") }}><Undo2 className="mr-1 h-4 w-4" />Corregir con compensación</Button>}
           {e.compensacion && e.turnoAbierto && <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => onRegistrarCorrecto(correcto())}>Registrar la salida correcta</Button>}
         </div>
+      )}
+      {e.compensacionBloqueada === "VINCULADO_A_PROVEEDOR" && accion === null && (
+        <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="compensacion-bloqueada-proveedor">Este pago está vinculado a la cuenta de un proveedor: para compensarlo, primero desvinculalo en Proveedores (con su motivo).</p>
       )}
       {e.compensacionBloqueada === "TURNO_CERRADO" && accion === null && (
         <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="compensacion-bloqueada">El turno de esta salida ya cerró: la corrección con dinero después del cierre todavía no está habilitada, porque el efectivo de ese turno ya se contó y se entregó. Si hay un error, dejá una observación.</p>

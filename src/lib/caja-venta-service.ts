@@ -49,6 +49,7 @@ import { createHash } from "node:crypto"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import {
   canonicalVentaCajaRequest,
+  cartTotal,
   computeSaleFromAuthoritativeProducts,
   estadoConciliacionInicial,
   isValidMetodoPagoVenta,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/caja-venta"
 import { isMoneyInRange, MoneyError, moneyToNumber, saleAmountsExact, type SaleAmountsExact } from "@/lib/money"
 import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO } from "@/lib/caja-turnos-service"
+import { clavePrecio, idInicioValido, marcarInicioUsadoEnTx, preciosAlInicio, PRECIOS_CAMBIARON_CODE, tomarInicioVentaEnTx } from "@/lib/inicio-venta-service"
 import {
   isStockSerializationConflict,
   planificarStockVentaCaja,
@@ -113,6 +115,13 @@ export interface RegistrarVentaCajaInput {
   ownerCajaFisicaId?: string | null
   /** F4-C4: linked sale (exchange service only). Absent for every normal sale. */
   vinculo?: VinculoVentaCaja
+  /**
+   * F10-C2c: server-issued start of this sale (inicios_venta). Its prices are the ones in force when the sale
+   * started, also for products added later. Single use, expires. Absent = current prices (exchanges, legacy).
+   */
+  inicioVentaId?: string | null
+  /** F10-C2c: total the cashier saw. Never a price source: a mismatch only refuses the sale (409, nothing written). */
+  totalMostrado?: number
 }
 
 export type VentaCajaConItems = Prisma.VentaGetPayload<{ include: { items: true } }>
@@ -391,6 +400,14 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
   }
   let turnoCajaId = input.turnoCajaId ?? null
 
+  // F10-C2c: the sale's start (same business, same person, single use, not expired) — after the replay above.
+  let inicioVenta: { id: string; iniciadaEn: Date } | null = null
+  if (input.inicioVentaId) {
+    const tomado = await tomarInicioVentaEnTx(tx, { negocioId, actorTipo: actor.tipo, actorId, id: input.inicioVentaId })
+    if (!tomado.ok) return tomado
+    inicioVenta = tomado.inicio
+  }
+
   // F10-B2.2-A: an owner is a permitted actor for the selected active
   // physical register's open shift, even when an employee is responsible.
   // Replay above deliberately precedes this live destination resolution.
@@ -498,14 +515,20 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     where: { id: { in: requestedLines.map((l) => l.productoId) }, negocioId, eliminado: false },
     include: { variantes: true },
   })
+  // F10-C2c: prices in force when the sale STARTED (only those that changed afterwards differ from the current ones).
+  const alInicio = inicioVenta ? await preciosAlInicio(tx, negocioId, inicioVenta.iniciadaEn, productos.map((p) => p.id)) : new Map<string, Prisma.Decimal>()
+  const precioDe = (productoId: string, varianteId: string | null, actual: number) => {
+    const previo = alInicio.get(clavePrecio(productoId, varianteId))
+    return previo ? moneyToNumber(previo) : actual
+  }
   const productsById = new Map(
     productos.map((p) => [
       p.id,
       {
         nombre: p.nombre,
-        precio: p.precio,
+        precio: precioDe(p.id, null, p.precio),
         variantes: new Map(
-          p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: v.precio }])
+          p.variantes.filter((v) => v.activo).map((v) => [v.id, { nombre: v.nombre, precio: precioDe(p.id, v.id, v.precio) }])
         ),
       },
     ])
@@ -514,6 +537,10 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
   const computed = computeSaleFromAuthoritativeProducts(requestedLines, productsById)
   if (!computed.ok) {
     return { ok: false as const, status: 400 as const, error: computed.error }
+  }
+  // Catálogo: un producto cargado sin precio de venta (por un empleado sin permiso de precios) no se vende hasta tener precio.
+  if (computed.items.some((item) => !(item.precio > 0))) {
+    return { ok: false as const, status: 400 as const, code: "PRODUCTO_SIN_PRECIO", error: "Hay un producto sin precio de venta: cargá el precio antes de venderlo." }
   }
 
   // F10-B2.0 — exact amounts: the single authority for every money column
@@ -529,6 +556,11 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     return { ok: false as const, status: 400 as const, error: IMPORTE_FUERA_DE_RANGO }
   }
   const totalExacto = importes.total
+  // F10-C2c: the cashier charges exactly what the screen showed, or nothing (refresh prices and retry). Compared
+  // with the same rule the screen uses (cartTotal) over the authoritative prices, so equal prices always match.
+  if (input.totalMostrado !== undefined && cartTotal(computed.items).toFixed(2) !== input.totalMostrado.toFixed(2)) {
+    return { ok: false as const, status: 409 as const, code: PRECIOS_CAMBIARON_CODE, error: "Los precios de algunos productos cambiaron. Revisá el carrito: ya muestra los precios correctos." }
+  }
   // F4-C4: the exchange service computed credit + difference from the same
   // authoritative prices in this transaction; any drift writes nothing.
   if (cambio && !cambio.credito.plus(cambio.diferencia).equals(totalExacto)) {
@@ -605,6 +637,9 @@ export async function registrarVentaCajaEnTx(tx: Prisma.TransactionClient, input
     },
     include: { items: true },
   })
+
+  // F10-C2c: the start is used once, bound to this sale (same transaction).
+  if (inicioVenta) await marcarInicioUsadoEnTx(tx, inicioVenta.id, venta.id)
 
   // Un descuento + un MovimientoInventario VENTA por clave agregada, en la
   // misma tx: si algo falla no queda Venta, VentaItem, stock ni movimiento.
@@ -715,11 +750,11 @@ export async function registrarCreditoCambioEnTx(
 // Same validation and messages the owner route always had; the client only
 // chooses WHICH products/variants and quantities — never prices or totals.
 export type ParsedVentaCajaBody =
-  | { ok: true; metodoPago: MetodoPagoVenta; lines: ServerSaleLineInput[] }
+  | { ok: true; metodoPago: MetodoPagoVenta; lines: ServerSaleLineInput[]; inicioVentaId?: string; totalMostrado?: number }
   | { ok: false; error: string }
 
 export function parseVentaCajaRequestBody(body: unknown): ParsedVentaCajaBody {
-  const { metodoPago, items } = (body ?? {}) as { metodoPago?: unknown; items?: unknown }
+  const { metodoPago, items, inicioVentaId, totalMostrado } = (body ?? {}) as { metodoPago?: unknown; items?: unknown; inicioVentaId?: unknown; totalMostrado?: unknown }
   if (!isValidMetodoPagoVenta(metodoPago)) return { ok: false, error: "Método de pago inválido" }
   if (!Array.isArray(items) || items.length === 0) return { ok: false, error: "La venta no tiene productos" }
   const lines: ServerSaleLineInput[] = []
@@ -739,5 +774,12 @@ export function parseVentaCajaRequestBody(body: unknown): ParsedVentaCajaBody {
       cantidad: line.cantidad,
     })
   }
-  return { ok: true, metodoPago, lines }
+  // F10-C2c: optional; the client never sends prices — only the id of the start and the total it showed.
+  if (inicioVentaId !== undefined && inicioVentaId !== null && !idInicioValido(inicioVentaId)) return { ok: false, error: "Inicio de venta inválido" }
+  if (totalMostrado !== undefined && totalMostrado !== null && (typeof totalMostrado !== "number" || !Number.isFinite(totalMostrado) || totalMostrado < 0)) return { ok: false, error: "Total inválido" }
+  return {
+    ok: true, metodoPago, lines,
+    ...(typeof inicioVentaId === "string" ? { inicioVentaId } : {}),
+    ...(typeof totalMostrado === "number" ? { totalMostrado } : {}),
+  }
 }

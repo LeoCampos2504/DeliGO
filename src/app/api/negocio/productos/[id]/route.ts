@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { auditLog } from "@/lib/audit"
+import type { Prisma } from "@prisma/client"
+import { conPrecioDeCatalogoEnTx } from "@/lib/etiquetas-precio-service"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { validateImageUrlArray, validateOptionalImageUrl } from "@/lib/resource-url"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -280,14 +283,13 @@ export async function PUT(
     }
 
     // Update product
+    // F10-C2c: a price edited here is an immediate activation (history for sales already started) and replaces a
+    // pending shelf-label price of this product — same transaction as the update.
+    const actualizarConPrecio = (tx: Prisma.TransactionClient) =>
+      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId: id, varianteId: null }, () => tx.producto.update({ where: { id }, data: updateData }))
     const producto = barcodeClaims.length > 0
-      ? await runBarcodeGuardedWrite(db, { negocioId, claims: barcodeClaims }, (tx) =>
-          tx.producto.update({ where: { id }, data: updateData })
-        )
-      : await db.producto.update({
-          where: { id },
-          data: updateData,
-        })
+      ? await runBarcodeGuardedWrite(db, { negocioId, claims: barcodeClaims }, (tx) => actualizarConPrecio(tx))
+      : await db.$transaction((tx) => actualizarConPrecio(tx))
 
     // Sync agregadoIds (delete old, create new)
     if (agregadoIds !== undefined) {
@@ -357,6 +359,8 @@ export async function PUT(
     }
 
     // Fetch updated product with relations
+    // Catálogo: el dueño también queda en la auditoría de modificaciones (quién creó / modificó cada producto).
+    await auditLog({ userId: negocioId, userType: "negocio", accion: precio !== undefined && precio !== existing.precio ? "producto.precio_cambiado" : "producto.modificado", recurso: "producto", recursoId: id, detalle: { negocioId, campos: Object.keys(updateData) } })
     const updated = await db.producto.findUnique({
       where: { id },
       include: {

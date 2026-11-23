@@ -36,11 +36,9 @@
 import { createHash } from "node:crypto"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { lineSubtotalCaja, moneyToNumber, storedMoney } from "@/lib/money"
-import { isStockSerializationConflict, leerDisponibilidadStock } from "@/lib/stock-lifecycle"
-import { resolveNextStock } from "@/lib/inventario"
+import { isStockSerializationConflict, planificarStockCorreccionVenta, registrarStockCorreccionVenta } from "@/lib/stock-lifecycle"
 import { parseMotivoDevolucion, referenciaVenta, runSerializable } from "@/lib/caja-devoluciones-service"
 import { lineaVigente, nombreLinea, ULTIMA_CORRECCION_INCLUDE, type LineaVigente } from "@/lib/caja-venta-vigente"
-import { stockKey } from "@/lib/stock-authority"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -320,35 +318,13 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
         return fail(409, `El total corregido (${money(corregido)}) no coincide con lo cobrado (${money(cobrado)}). Una corrección no cambia importes; para devolver dinero usá «Devolver productos».`, "TOTAL_CORRECCION_DISTINTO")
       }
 
-      // Stock: net change per product/variant (repeated keys add up first).
-      const neto = new Map<string, { productoId: string; productoVarianteId: string | null; delta: Prisma.Decimal; nombre: string }>()
-      const sumar = (productoId: string | null, productoVarianteId: string | null, varianteBorrada: boolean, delta: Prisma.Decimal, nombre: string) => {
-        if (!productoId || varianteBorrada || delta.isZero()) return
-        const key = stockKey(productoId, productoVarianteId)
-        const prev = neto.get(key)
-        neto.set(key, { productoId, productoVarianteId, delta: (prev?.delta ?? new Prisma.Decimal(0)).plus(delta), nombre: prev?.nombre ?? nombre })
-      }
-      for (const linea of nuevas.filter((l) => l.cambia)) {
-        const viejaBorrada = linea.vigente.varianteNombre !== null && linea.vigente.productoVarianteId === null
-        sumar(linea.vigente.productoId, linea.vigente.productoVarianteId, viejaBorrada, D(linea.vigente.cantidad), nombreLinea(linea.vigente))
-        sumar(linea.productoId, linea.productoVarianteId, false, linea.cantidad.negated(), nombreLinea(linea))
-      }
-      const plan: Array<{ productoId: string; productoVarianteId: string | null; tipo: string; cantidad: number; stockAntes: number; stockDespues: number }> = []
-      for (const item of neto.values()) {
-        if (item.delta.isZero()) continue
-        const disponibilidad = await leerDisponibilidadStock(tx, { negocioId, key: { productoId: item.productoId, productoVarianteId: item.productoVarianteId } })
-        if (!disponibilidad || !disponibilidad.controlStock) continue
-        const cantidad = item.delta.abs().toNumber()
-        if (item.delta.isNegative() && cantidad > disponibilidad.available) {
-          return fail(409, disponibilidad.activeReserved > 0
-            ? `"${item.nombre}": hay ${disponibilidad.physical} en stock pero ${disponibilidad.activeReserved} están reservadas para pedidos; sólo quedan ${disponibilidad.available} disponibles.`
-            : `"${item.nombre}" no tiene stock suficiente para la corrección (disponible: ${disponibilidad.available}).`, "STOCK_INSUFICIENTE")
-        }
-        const tipo = item.delta.isNegative() ? MOVIMIENTO_TIPO_CORRECCION_SALIDA : MOVIMIENTO_TIPO_CORRECCION_ENTRADA
-        const next = resolveNextStock(disponibilidad.physical, item.delta.isNegative() ? "SALIDA" : "ENTRADA", cantidad)
-        if (!next.ok) return fail(409, `"${item.nombre}" no tiene stock suficiente para la corrección.`, "STOCK_INSUFICIENTE")
-        plan.push({ productoId: item.productoId, productoVarianteId: item.productoVarianteId, tipo, cantidad, stockAntes: disponibilidad.physical, stockDespues: next.nextStock })
-      }
+      // Stock: net change per product/variant (repeated keys add up first) — planned by the R3A authority.
+      const lineasStock = nuevas.filter((l) => l.cambia).flatMap((linea) => [
+        { productoId: linea.vigente.productoId, productoVarianteId: linea.vigente.productoVarianteId, varianteBorrada: linea.vigente.varianteNombre !== null && linea.vigente.productoVarianteId === null, delta: D(linea.vigente.cantidad), nombre: nombreLinea(linea.vigente) },
+        { productoId: linea.productoId, productoVarianteId: linea.productoVarianteId, varianteBorrada: false, delta: linea.cantidad.negated(), nombre: nombreLinea(linea) },
+      ])
+      const planStock = await planificarStockCorreccionVenta(tx, { negocioId, lineas: lineasStock })
+      if (!planStock.ok) return fail(409, planStock.error, planStock.code)
 
       const correccion = await tx.correccionVenta.create({
         data: {
@@ -387,24 +363,7 @@ export async function registrarCorreccionVenta(db: Db, input: RegistrarCorreccio
         select: { id: true },
       })
 
-      for (const mov of plan) {
-        if (mov.productoVarianteId) await tx.productoVariante.update({ where: { id: mov.productoVarianteId }, data: { stockCantidad: mov.stockDespues } })
-        else await tx.producto.update({ where: { id: mov.productoId }, data: { stockCantidad: mov.stockDespues } })
-        await tx.movimientoInventario.create({
-          data: {
-            negocioId,
-            productoId: mov.productoId,
-            productoVarianteId: mov.productoVarianteId,
-            tipo: mov.tipo,
-            cantidad: mov.cantidad,
-            stockAntes: mov.stockAntes,
-            stockDespues: mov.stockDespues,
-            motivo: `Corrección de venta #${referenciaVenta(ventaId)}`,
-            ventaId,
-            correccionVentaId: correccion.id,
-          },
-        })
-      }
+      await registrarStockCorreccionVenta(tx, { negocioId, ventaId, correccionVentaId: correccion.id, motivo: `Corrección de venta #${referenciaVenta(ventaId)}`, plan: planStock.plan })
 
       const creada = await tx.correccionVenta.findUniqueOrThrow({ where: { id: correccion.id }, include: CORRECCION_INCLUDE })
       if (opciones.auditar) await opciones.auditar(tx, creada) // R1: same transaction

@@ -28,10 +28,16 @@ import {
   UserRound,
   Star,
   HandCoins,
+  Truck,
+  ClipboardList,
+  Tag,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { OwnerCajaTurnosPanel, ownerRegisterQueryKey, type CajaFisicaResumen } from "@/components/business/owner-caja-turnos"
+import { EtiquetasPrecioLista, etiquetasPendientesQueryKey } from "@/components/business/etiquetas-precio-lista"
+
+const ETIQUETAS_URL_DUENO = "/api/negocio/etiquetas-precio"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
@@ -61,6 +67,8 @@ import {
 import { etiquetaMetodoVenta, type SelectorProductosProps } from "@/components/business/caja-cambios"
 import { CajaCambiosConfig } from "@/components/business/caja-cambios-config"
 import { OwnerCajaEgresos, ResumenEgresosHoy, type EgresosHoy } from "@/components/business/owner-caja-egresos"
+import { OwnerProveedores } from "@/components/business/owner-proveedores"
+import { OwnerCompras, comprasQueryKey } from "@/components/business/owner-compras"
 import {
   addCartLine,
   cartItemCount,
@@ -195,11 +203,33 @@ export function selectorProductos(source: CajaVenderSource): ComponentType<Selec
   return Selector
 }
 
-type CajaSubTab = "vender" | "resumen" | "turnos" | "egresos"
+type CajaSubTab = "vender" | "resumen" | "turnos" | "egresos" | "proveedores" | "compras" | "etiquetas"
 
 export function CajaTab({ negocio }: { negocio: { id: string } }) {
   const [subTab, setSubTab] = useState<CajaSubTab>("vender")
   const irAVender = useCallback(() => setSubTab("vender"), [])
+  // F10-C2b: recepciones esperando aprobación (mismo cache que la bandeja de Compras) y salto a la cuenta del proveedor.
+  const recepcionesPendientes = useQuery({
+    queryKey: [...comprasQueryKey(negocio.id), "recepciones"],
+    queryFn: async () => {
+      const res = await fetch("/api/negocio/recepciones", { cache: "no-store" })
+      const json = await res.json()
+      if (!res.ok || json.ok === false) throw new Error("recepciones")
+      return json as { recepciones: Array<{ estado: string }> }
+    },
+  })
+  const cantidadPendientes = (recepcionesPendientes.data?.recepciones ?? []).filter((r) => r.estado === "PENDIENTE_APROBACION").length
+  // F10-C2c: etiquetas de góndola pendientes (mismo cache que la lista en su filtro inicial).
+  const etiquetasPendientes = useQuery<{ pendientes: number }>({
+    queryKey: etiquetasPendientesQueryKey(ETIQUETAS_URL_DUENO),
+    queryFn: async () => {
+      const res = await fetch(`${ETIQUETAS_URL_DUENO}?estado=PENDIENTES`, { cache: "no-store" })
+      if (!res.ok) throw new Error("etiquetas")
+      return res.json()
+    },
+  })
+  const cantidadEtiquetas = etiquetasPendientes.data?.pendientes ?? 0
+  const [proveedorAbrir, setProveedorAbrir] = useState<string | null>(null)
   const [registerSelection, setRegisterSelection] = useState({ cajaId: "", turnoId: "" })
   const [pendingRegisterId, setPendingRegisterId] = useState<string | null>(null)
   const registersQuery = useQuery<{ cajas: CajaFisicaResumen[] }>({
@@ -230,6 +260,9 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
         <SubTabButton active={subTab === "vender"} icon={<ShoppingCart className="h-3.5 w-3.5" />} label="Vender" onClick={() => setSubTab("vender")} />
         <SubTabButton active={subTab === "turnos"} icon={<Store className="h-3.5 w-3.5" />} label="Cajas y turnos" onClick={() => setSubTab("turnos")} />
         <SubTabButton active={subTab === "egresos"} icon={<HandCoins className="h-3.5 w-3.5" />} label="Egresos" onClick={() => setSubTab("egresos")} />
+        <SubTabButton active={subTab === "compras"} icon={<ClipboardList className="h-3.5 w-3.5" />} label={cantidadPendientes ? `Compras (${cantidadPendientes})` : "Compras"} onClick={() => setSubTab("compras")} />
+        <SubTabButton active={subTab === "etiquetas"} icon={<Tag className="h-3.5 w-3.5" />} label={cantidadEtiquetas ? `Etiquetas (${cantidadEtiquetas})` : "Etiquetas"} onClick={() => setSubTab("etiquetas")} />
+        <SubTabButton active={subTab === "proveedores"} icon={<Truck className="h-3.5 w-3.5" />} label="Proveedores" onClick={() => { setProveedorAbrir(null); setSubTab("proveedores") }} />
         <SubTabButton active={subTab === "resumen"} icon={<Receipt className="h-3.5 w-3.5" />} label="Resumen" onClick={() => setSubTab("resumen")} />
       </div>
       {subTab === "vender" ? (
@@ -242,7 +275,7 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
             onPendingRegisterChange: setPendingRegisterId,
           }} />
         </>
-      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : subTab === "egresos" ? <OwnerCajaEgresos negocioId={negocio.id} /> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
+      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : subTab === "egresos" ? <OwnerCajaEgresos negocioId={negocio.id} /> : subTab === "proveedores" ? <OwnerProveedores key={proveedorAbrir ?? "lista"} negocioId={negocio.id} proveedorInicialId={proveedorAbrir} /> : subTab === "compras" ? <OwnerCompras negocioId={negocio.id} onVerProveedor={(id) => { setProveedorAbrir(id); setSubTab("proveedores") }} /> : subTab === "etiquetas" ? <EtiquetasPrecioLista url={ETIQUETAS_URL_DUENO} esDueno /> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
     </div>
   )
 }
@@ -311,6 +344,29 @@ interface OwnerSaleAssignment {
   onPendingRegisterChange: (id: string | null) => void
 }
 
+// F10-C2c — inicio de la venta en curso (por persona + negocio, como el intento de cobro).
+type InicioVentaCliente = { id: string; expiraEn: string }
+type InicioVentaEstado = { vencido: boolean; usado: boolean; precios: Array<{ productoId: string; varianteId: string | null; precio: number }> }
+function leerInicioVenta(clave: string): InicioVentaCliente | null {
+  try {
+    if (typeof window === "undefined") return null
+    const raw = window.sessionStorage.getItem(clave)
+    const v = raw ? (JSON.parse(raw) as Partial<InicioVentaCliente>) : null
+    return v && typeof v.id === "string" && typeof v.expiraEn === "string" ? { id: v.id, expiraEn: v.expiraEn } : null
+  } catch {
+    return null
+  }
+}
+function escribirInicioVenta(clave: string, valor: InicioVentaCliente | null) {
+  try {
+    if (typeof window === "undefined") return
+    if (valor) window.sessionStorage.setItem(clave, JSON.stringify(valor))
+    else window.sessionStorage.removeItem(clave)
+  } catch {
+    // Sin almacenamiento: el inicio vive sólo en memoria (el servidor igual valida plazo y uso único).
+  }
+}
+
 export function ownerCajaSource(negocioId: string): CajaVenderSource {
   return {
     attemptScope: negocioId,
@@ -368,7 +424,85 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
     },
   })
 
-  const activos = useMemo(() => (productos ?? []).filter((p) => !p.eliminado), [productos])
+  // F10-C2c — precios protegidos por inicio de venta. Al agregar el primer producto, el servidor registra la hora de
+  // inicio; mientras la venta siga abierta (hasta 30 minutos) la Caja muestra y el servidor cobra los precios
+  // vigentes en ese momento, también para productos agregados después. Si después del inicio se activó un precio
+  // nuevo (etiqueta confirmada o cambio de catálogo), sólo esos productos llegan como "precio al inicio". Vaciar el
+  // carrito, cobrar o superar el plazo termina la venta: la siguiente empieza con los precios actuales. El servidor
+  // siempre decide el precio; la Caja sólo envía el id del inicio y el total que mostró.
+  const usaInicio = !seleccion
+  const inicioStorageKey = `deligo:caja:inicio-venta:v1:${source.attemptScope}`
+  const [inicio, setInicio] = useState<InicioVentaCliente | null>(() => (usaInicio ? leerInicioVenta(inicioStorageKey) : null))
+  const creandoInicioRef = useRef(false)
+  const guardarInicio = useCallback((valor: InicioVentaCliente | null) => {
+    setInicio(valor)
+    escribirInicioVenta(inicioStorageKey, valor)
+  }, [inicioStorageKey])
+  const { data: preciosInicio } = useQuery<InicioVentaEstado | null>({
+    queryKey: [...source.productosQueryKey, "inicio-venta", inicio?.id ?? null],
+    enabled: usaInicio && Boolean(inicio),
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const res = await fetch(`${source.ventasUrl}/inicio/${encodeURIComponent(inicio!.id)}`, { cache: "no-store" })
+      if (res.status === 404 || res.status === 400) return { vencido: true, usado: false, precios: [] }
+      if (!res.ok) throw new Error("inicio")
+      const json = await res.json()
+      return json.inicio as InicioVentaEstado
+    },
+  })
+  const mapaPreciosInicio = useMemo(() => new Map((preciosInicio?.precios ?? []).map((x) => [`${x.productoId}|${x.varianteId ?? ""}`, x.precio])), [preciosInicio])
+  const conPreciosDeInicio = useCallback((lista: CajaProducto[]) => (mapaPreciosInicio.size === 0 ? lista : lista.map((p) => ({
+    ...p,
+    precio: mapaPreciosInicio.get(`${p.id}|`) ?? p.precio,
+    variantes: p.variantes.map((v) => ({ ...v, precio: mapaPreciosInicio.get(`${p.id}|${v.id}`) ?? v.precio })),
+  }))), [mapaPreciosInicio])
+
+  // Primer producto agregado → se registra el inicio y se refresca el catálogo (precios vigentes al empezar).
+  useEffect(() => {
+    if (!usaInicio || cart.length === 0 || inicio || creandoInicioRef.current) return
+    creandoInicioRef.current = true
+    void (async () => {
+      try {
+        const res = await fetch(`${source.ventasUrl}/inicio`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        const json = await res.json().catch(() => ({}))
+        if (res.ok && json.inicio?.id) {
+          guardarInicio({ id: json.inicio.id, expiraEn: json.inicio.expiraEn })
+          void queryClient.invalidateQueries({ queryKey: source.productosQueryKey, exact: true })
+        }
+      } catch {
+        // Sin inicio la venta se cobra con los precios actuales y el control de total igual la protege.
+      } finally {
+        creandoInicioRef.current = false
+      }
+    })()
+  }, [usaInicio, cart.length, inicio, source.ventasUrl, source.productosQueryKey, guardarInicio, queryClient])
+  // Carrito vacío (venta cobrada o abandonada) → termina el inicio. Plazo vencido → los precios pasan a ser los actuales.
+  useEffect(() => {
+    if (inicio && cart.length === 0 && !pendingAttempt) guardarInicio(null)
+  }, [inicio, cart.length, pendingAttempt, guardarInicio])
+  useEffect(() => {
+    if (!inicio || !preciosInicio || (!preciosInicio.vencido && !preciosInicio.usado)) return
+    if (preciosInicio.vencido && cart.length > 0) toast.message("La venta estuvo abierta más de 30 minutos: se actualizaron los precios del carrito.")
+    guardarInicio(null)
+  }, [inicio, preciosInicio, cart.length, guardarInicio])
+
+  const activos = useMemo(() => conPreciosDeInicio((productos ?? []).filter((p) => !p.eliminado)), [productos, conPreciosDeInicio])
+  // El carrito muestra siempre el precio que se va a cobrar (el del inicio de esta venta).
+  useEffect(() => {
+    if (seleccion || !productos) return
+    const porId = new Map(activos.map((p) => [p.id, p]))
+    setCart((prev) => {
+      let cambio = false
+      const next = prev.map((l) => {
+        const p = porId.get(l.productoId)
+        const precio = p ? (l.varianteId ? p.variantes.find((v) => v.id === l.varianteId)?.precio : p.precio) : undefined
+        if (precio === undefined || precio === l.precio) return l
+        cambio = true
+        return { ...l, precio }
+      })
+      return cambio ? next : prev
+    })
+  }, [activos, productos, seleccion])
   const categorias = useMemo(
     () => mergeManagedCategories(categoriasManaged, activos.map((p) => p.categoria)),
     [categoriasManaged, activos]
@@ -524,7 +658,7 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
     if (resolution.kind === "not_found" && key && !scanRefetchedRef.current.has(key)) {
       scanRefetchedRef.current.add(key)
       const fresh = await refetchProductos()
-      resolution = resolveScannedBarcode<CajaVariante, CajaProducto>((fresh.data ?? []).filter((p) => !p.eliminado), code)
+      resolution = resolveScannedBarcode<CajaVariante, CajaProducto>(conPreciosDeInicio((fresh.data ?? []).filter((p) => !p.eliminado)), code)
     }
     if (resolution.kind === "not_found") {
       return { tone: "error", title: "Producto no encontrado", detail: `Código ${code}` }
@@ -630,7 +764,8 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
         res = await fetch(source.ventasUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-          body: JSON.stringify({ metodoPago, items, ...(requestCajaFisicaId ? { cajaFisicaId: requestCajaFisicaId } : {}) }),
+          // F10-C2c: the start of this sale (prices in force when it began) and the total on screen — never prices.
+          body: JSON.stringify({ metodoPago, items, ...(requestCajaFisicaId ? { cajaFisicaId: requestCajaFisicaId } : {}), ...(inicio ? { inicioVentaId: inicio.id } : {}), totalMostrado: cartTotal(cart) }),
         })
       } catch {
         throw new Error(CHECKOUT_UNCERTAIN_MESSAGE) // keep the attempt: the sale may exist
@@ -649,6 +784,13 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
       if (outcome === "uncertain") throw new Error(CHECKOUT_UNCERTAIN_MESSAGE)
       // Definitive rejection (nothing was written) or a reused key: drop the attempt.
       forgetPendingAttempt()
+      // F10-C2c: the sale's start expired or the prices on screen were outdated — nothing was charged. Refresh the
+      // prices (the cart re-prices itself) and let the cashier review the new total before charging again.
+      if (data.code === "INICIO_VENTA_VENCIDO" || data.code === "PRECIOS_CAMBIARON") {
+        if (data.code === "INICIO_VENTA_VENCIDO") guardarInicio(null)
+        setCheckoutOpen(false)
+        void queryClient.invalidateQueries({ queryKey: source.productosQueryKey })
+      }
       throw new Error(data.error || "Error al registrar la venta")
     },
     onSuccess: ({ venta, replayed }) => {

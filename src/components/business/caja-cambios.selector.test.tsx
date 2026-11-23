@@ -209,13 +209,17 @@ describe("«Gestionar venta» — compact catalog inside the sale editor", () =>
     expect(normal.textContent).toContain("Hay un cobro sin confirmar") // recovery of the normal checkout intact
     expect(seleccion.textContent).not.toContain("Hay un cobro sin confirmar")
     expect([...normal.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Cobrar")).toBe(true)
+    // F10-C2c: the NORMAL view (its restored cart is not empty) registers its sale start — price protection, never a
+    // sale. That is the only request so far; the picker below must not add any.
+    expect(posts.map((p) => p.url)).toEqual(["/api/negocio/caja/ventas/inicio"])
+    expect(posts[0].body).toEqual({})
     // selection mode: its own cart, its own label, never «Cobrar»
     await click([...seleccion.querySelectorAll("button")].find((b) => b.querySelector("p")?.textContent?.trim() === "Redmi"))
     await click([...seleccion.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Usar estos productos"))
     expect(elegido).toEqual([{ productoId: "p-redmi", nombre: "Redmi", precio: 1000, cantidad: 1 }])
     expect([...seleccion.querySelectorAll("button")].some((b) => b.textContent?.trim() === "Cobrar")).toBe(false)
     expect(readPendingAttempt("neg-1")?.key).toBe("6f1c2c4e-8a1b-4d3e-9f2a-4b7c0d1e2f30") // untouched by the picker
-    expect(posts).toHaveLength(0)
+    expect(posts.map((p) => p.url)).toEqual(["/api/negocio/caja/ventas/inicio"]) // the picker posted nothing, no sale
     await act(async () => root.unmount())
   })
 })

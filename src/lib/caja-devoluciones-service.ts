@@ -37,8 +37,7 @@ import { round2, storedMoney, moneyToNumber } from "@/lib/money"
 import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/caja-nombre-empleado"
 import { CAJA_TURNOS_MODO_OBLIGATORIO, TURNO_ESTADO_ABIERTO, type CajaActor } from "@/lib/caja-turnos-service"
 import { CUENTA_EFECTIVO_CAJA_FISICA_PREFIX, CUENTA_EFECTIVO_CAJA_SIN_ASIGNAR } from "@/lib/caja-venta-service"
-import { isStockSerializationConflict, leerDisponibilidadStock } from "@/lib/stock-lifecycle"
-import { resolveNextStock } from "@/lib/inventario"
+import { isStockSerializationConflict, reingresarStockDevolucionVenta } from "@/lib/stock-lifecycle"
 import { lineaVigente, nombreLinea, ULTIMA_CORRECCION_INCLUDE } from "@/lib/caja-venta-vigente"
 
 type Db = PrismaClient
@@ -613,33 +612,16 @@ export async function registrarDevolucionVentaEnTx(tx: Tx, input: RegistrarDevol
       // product in place of a deleted variant).
       const varianteBorrada = item.varianteNombre !== null && item.productoVarianteId === null
       const key = item.productoId && !varianteBorrada ? { productoId: item.productoId, productoVarianteId: item.productoVarianteId } : null
-      const disponibilidad = key ? await leerDisponibilidadStock(tx, { negocioId, key }) : null
-      if (!key || !disponibilidad) {
-        stockResultado = "PRODUCTO_NO_DISPONIBLE"
-      } else if (!disponibilidad.controlStock) {
-        stockResultado = "SIN_CONTROL_STOCK"
-      } else {
-        const next = resolveNextStock(disponibilidad.physical, "ENTRADA", cantidad)
-        if (!next.ok) throw new Error(next.error)
-        if (key.productoVarianteId) await tx.productoVariante.update({ where: { id: key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
-        else await tx.producto.update({ where: { id: key.productoId }, data: { stockCantidad: next.nextStock } })
-        const movimiento = await tx.movimientoInventario.create({
-          data: {
-            negocioId,
-            productoId: key.productoId,
-            productoVarianteId: key.productoVarianteId,
-            tipo: MOVIMIENTO_TIPO_DEVOLUCION,
-            cantidad,
-            stockAntes: disponibilidad.physical,
-            stockDespues: next.nextStock,
-            motivo: `${solicitud.tipo === DEVOLUCION_TIPO_ANULACION ? "Anulación" : "Devolución"} de venta #${referenciaVenta(ventaId)}`,
-            ventaId,
-          },
-          select: { id: true },
-        })
-        movimientoInventarioId = movimiento.id
-        stockResultado = "REINGRESADO"
-      }
+      // Stock sólo por la autoridad R3A (misma regla y mismo movimiento DEVOLUCION de siempre).
+      const reingreso = await reingresarStockDevolucionVenta(tx, {
+        negocioId,
+        ventaId,
+        key,
+        cantidad,
+        motivo: `${solicitud.tipo === DEVOLUCION_TIPO_ANULACION ? "Anulación" : "Devolución"} de venta #${referenciaVenta(ventaId)}`,
+      })
+      stockResultado = reingreso.resultado
+      movimientoInventarioId = reingreso.movimientoInventarioId
     }
     await tx.devolucionVentaItem.create({
       data: { devolucionId: devolucion.id, negocioId, ventaId, ventaItemId: linea.ventaItemId, cantidad, importeDecimal: linea.importe, stockResultado, movimientoInventarioId },

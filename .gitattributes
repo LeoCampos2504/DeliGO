@@ -1,0 +1,8 @@
+# Prisma migrations: always LF in the repository AND in every working copy (Windows included).
+# Prisma accepts CRLF/LF variants of an applied migration (verified: `migrate status`/`deploy`
+# against databases whose checksums were taken from CRLF copies), but byte-level contracts
+# (e.g. F10-B2.0 "migration file bytes are LF") and checksum-based tooling need one canonical
+# form. Blobs are already LF; this only fixes how they are checked out. Never edit an applied
+# migration to change its line endings.
+prisma/migrations/**/*.sql text eol=lf
+prisma/migrations/migration_lock.toml text eol=lf

@@ -1244,3 +1244,183 @@ export async function liberarReservasPorRollback(
   return { released: release, alreadyReleased, auditLogId: audit.id }
 }
 
+
+// ---------------------------------------------------------------------------
+// F10-C2a — entrada de mercadería por una recepción APROBADA (D-9, I-10)
+// ---------------------------------------------------------------------------
+
+export interface EntradaRecepcionLinea {
+  recepcionLineaId: string
+  key: StockKeyRef
+  /** Cantidad aceptada (positiva); se convierte al Float de stock sólo acá. */
+  cantidad: number
+}
+
+export interface EntradaRecepcionResultado {
+  recepcionLineaId: string
+  controlStock: boolean
+  movimientoInventarioId: string | null
+  stockAntes: number | null
+  stockDespues: number | null
+}
+
+/**
+ * Suma al stock físico lo ACEPTADO de cada línea de una recepción aprobada: UN movimiento
+ * RECEPCION por línea (recepcionLineaId único; el trigger SQL exige la recepción APROBADA y la
+ * cantidad exacta). Una entrada nunca toca reservas. Una clave sin control de stock no se mueve
+ * (sólo costo y deuda, D-11). Debe correr dentro de la transacción Serializable de la aprobación.
+ */
+export async function registrarEntradaRecepcion(
+  tx: Tx,
+  params: { negocioId: string; lineas: ReadonlyArray<EntradaRecepcionLinea> }
+): Promise<EntradaRecepcionResultado[]> {
+  const out: EntradaRecepcionResultado[] = []
+  for (const linea of params.lineas) {
+    const authority = await loadStockAuthority(tx, params.negocioId, linea.key)
+    if (!authority) throw new StockAuthorityNotFoundError()
+    if (!authority.controlStock) {
+      out.push({ recepcionLineaId: linea.recepcionLineaId, controlStock: false, movimientoInventarioId: null, stockAntes: null, stockDespues: null })
+      continue
+    }
+    const next = resolveNextStock(authority.stockCantidad, "ENTRADA", linea.cantidad)
+    if (!next.ok) throw new StockMovementInvalidError(next.error)
+    if (linea.key.productoVarianteId) {
+      await tx.productoVariante.update({ where: { id: linea.key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
+    } else {
+      await tx.producto.update({ where: { id: linea.key.productoId }, data: { stockCantidad: next.nextStock } })
+    }
+    const movimiento = await tx.movimientoInventario.create({
+      data: {
+        negocioId: params.negocioId,
+        productoId: linea.key.productoId,
+        productoVarianteId: linea.key.productoVarianteId,
+        tipo: "RECEPCION",
+        cantidad: linea.cantidad,
+        stockAntes: authority.stockCantidad,
+        stockDespues: next.nextStock,
+        recepcionLineaId: linea.recepcionLineaId,
+      },
+      select: { id: true },
+    })
+    out.push({ recepcionLineaId: linea.recepcionLineaId, controlStock: true, movimientoInventarioId: movimiento.id, stockAntes: authority.stockCantidad, stockDespues: next.nextStock })
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// F4-A / F4-C — reingreso de stock por devolución o anulación de una venta de Caja
+// ---------------------------------------------------------------------------
+// Movido desde caja-devoluciones-service.ts SIN cambiar el comportamiento: misma lectura de la
+// autoridad dentro de la transacción del caller, mismo ENTRADA, mismo movimiento DEVOLUCION con la
+// venta y el motivo que arma el caller. Una devolución nunca toca reservas.
+
+export type ResultadoReingresoVenta = "REINGRESADO" | "SIN_CONTROL_STOCK" | "PRODUCTO_NO_DISPONIBLE"
+
+export async function reingresarStockDevolucionVenta(
+  tx: Tx,
+  params: { negocioId: string; ventaId: string; key: StockKeyRef | null; cantidad: number; motivo: string }
+): Promise<{ resultado: ResultadoReingresoVenta; movimientoInventarioId: string | null }> {
+  const disponibilidad = params.key ? await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key: params.key }) : null
+  if (!params.key || !disponibilidad) return { resultado: "PRODUCTO_NO_DISPONIBLE", movimientoInventarioId: null }
+  if (!disponibilidad.controlStock) return { resultado: "SIN_CONTROL_STOCK", movimientoInventarioId: null }
+  const next = resolveNextStock(disponibilidad.physical, "ENTRADA", params.cantidad)
+  if (!next.ok) throw new Error(next.error)
+  if (params.key.productoVarianteId) await tx.productoVariante.update({ where: { id: params.key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
+  else await tx.producto.update({ where: { id: params.key.productoId }, data: { stockCantidad: next.nextStock } })
+  const movimiento = await tx.movimientoInventario.create({
+    data: {
+      negocioId: params.negocioId,
+      productoId: params.key.productoId,
+      productoVarianteId: params.key.productoVarianteId,
+      tipo: "DEVOLUCION",
+      cantidad: params.cantidad,
+      stockAntes: disponibilidad.physical,
+      stockDespues: next.nextStock,
+      motivo: params.motivo,
+      ventaId: params.ventaId,
+    },
+    select: { id: true },
+  })
+  return { resultado: "REINGRESADO", movimientoInventarioId: movimiento.id }
+}
+
+// ---------------------------------------------------------------------------
+// F4-B — stock de una corrección de venta (cambio neto por clave)
+// ---------------------------------------------------------------------------
+// Movido desde caja-correcciones-service.ts SIN cambiar el comportamiento: las claves repetidas se
+// suman primero; una SALIDA se valida contra el DISPONIBLE (respeta reservas ACTIVA); las claves sin
+// control de stock no se mueven; un movimiento CORRECCION_ENTRADA / CORRECCION_SALIDA por clave.
+
+export interface CorreccionStockLinea {
+  productoId: string | null
+  productoVarianteId: string | null
+  /** La variante original fue borrada: no se mueve stock (nunca el producto padre en su lugar). */
+  varianteBorrada: boolean
+  /** Positivo = vuelve al stock; negativo = sale del stock. */
+  delta: Prisma.Decimal
+  nombre: string
+}
+
+export interface CorreccionStockPlanItem extends StockKeyRef {
+  tipo: "CORRECCION_ENTRADA" | "CORRECCION_SALIDA"
+  cantidad: number
+  stockAntes: number
+  stockDespues: number
+}
+
+export async function planificarStockCorreccionVenta(
+  tx: Tx,
+  params: { negocioId: string; lineas: ReadonlyArray<CorreccionStockLinea> }
+): Promise<{ ok: true; plan: CorreccionStockPlanItem[] } | { ok: false; error: string; code: "STOCK_INSUFICIENTE" }> {
+  const neto = new Map<string, { productoId: string; productoVarianteId: string | null; delta: Prisma.Decimal; nombre: string }>()
+  for (const l of params.lineas) {
+    if (!l.productoId || l.varianteBorrada || l.delta.isZero()) continue
+    const key = stockKey(l.productoId, l.productoVarianteId)
+    const prev = neto.get(key)
+    neto.set(key, { productoId: l.productoId, productoVarianteId: l.productoVarianteId, delta: (prev?.delta ?? new Prisma.Decimal(0)).plus(l.delta), nombre: prev?.nombre ?? l.nombre })
+  }
+  const plan: CorreccionStockPlanItem[] = []
+  for (const item of neto.values()) {
+    if (item.delta.isZero()) continue
+    const disponibilidad = await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key: { productoId: item.productoId, productoVarianteId: item.productoVarianteId } })
+    if (!disponibilidad || !disponibilidad.controlStock) continue
+    const cantidad = item.delta.abs().toNumber()
+    if (item.delta.isNegative() && cantidad > disponibilidad.available) {
+      return {
+        ok: false,
+        code: "STOCK_INSUFICIENTE",
+        error: disponibilidad.activeReserved > 0
+          ? `"${item.nombre}": hay ${disponibilidad.physical} en stock pero ${disponibilidad.activeReserved} están reservadas para pedidos; sólo quedan ${disponibilidad.available} disponibles.`
+          : `"${item.nombre}" no tiene stock suficiente para la corrección (disponible: ${disponibilidad.available}).`,
+      }
+    }
+    const next = resolveNextStock(disponibilidad.physical, item.delta.isNegative() ? "SALIDA" : "ENTRADA", cantidad)
+    if (!next.ok) return { ok: false, code: "STOCK_INSUFICIENTE", error: `"${item.nombre}" no tiene stock suficiente para la corrección.` }
+    plan.push({ productoId: item.productoId, productoVarianteId: item.productoVarianteId, tipo: item.delta.isNegative() ? "CORRECCION_SALIDA" : "CORRECCION_ENTRADA", cantidad, stockAntes: disponibilidad.physical, stockDespues: next.nextStock })
+  }
+  return { ok: true, plan }
+}
+
+export async function registrarStockCorreccionVenta(
+  tx: Tx,
+  params: { negocioId: string; ventaId: string; correccionVentaId: string; motivo: string; plan: ReadonlyArray<CorreccionStockPlanItem> }
+): Promise<void> {
+  for (const mov of params.plan) {
+    if (mov.productoVarianteId) await tx.productoVariante.update({ where: { id: mov.productoVarianteId }, data: { stockCantidad: mov.stockDespues } })
+    else await tx.producto.update({ where: { id: mov.productoId }, data: { stockCantidad: mov.stockDespues } })
+    await tx.movimientoInventario.create({
+      data: {
+        negocioId: params.negocioId,
+        productoId: mov.productoId,
+        productoVarianteId: mov.productoVarianteId,
+        tipo: mov.tipo,
+        cantidad: mov.cantidad,
+        stockAntes: mov.stockAntes,
+        stockDespues: mov.stockDespues,
+        motivo: params.motivo,
+        ventaId: params.ventaId,
+        correccionVentaId: params.correccionVentaId,
+      },
+    })
+  }
+}

@@ -22,6 +22,10 @@ on:
       # CI-only run for F4-C5 (exchange UI, safe recovery of uncertain attempts, complete daily totals) before
       # integration; no deploy step.
       - codex/f4-c5-sale-exchange-ui
+      # CI-only run for the integration of F5-A, F10-C2a/b/c, supplier payments E1–E3 and the catalog for real
+      # businesses (product↔supplier, temporary employee permissions, Excel/CSV import) before integration; no deploy
+      # step (Railway TESTING deploys only from testing-codex).
+      - codex/integracion-compras-catalogo
 
 permissions:
   contents: read
@@ -74,10 +78,14 @@ jobs:
       # routes, the threshold route, the cashier and owner outflow UIs, the shift breakdown, the install notice,
       # the shift panel (not its test: pre-existing diagnostics) and the F10-C1 suites.
       # owner-caja-revisiones.tsx is NOT listed: it carries pre-existing (BigInt target) diagnostics.
+      # F5-A (suppliers + single ledger/assignment engine): CUIT, the supplier and ledger services, the HTTP layer,
+      # the owner routes, the owner panel and the F5-A suites.
+      # Integration (compras/catálogo): price labels and sale-start prices, supplier payments E1–E3, product↔supplier,
+      # employee catalog permissions and the Excel/CSV importer (new files must typecheck clean as well).
       - name: Typecheck F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files
         run: |
           bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
-          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales)|lib/caja-intento-comercial|lib/caja-resumen-cambios|lib/f4-c5-|components/business/caja-cambios|components/shared/notification-center|app/api/negocio/caja/ventas/\[id\]/cadena|app/api/operativo/caja/\[slug\]/ventas/\[id\]/cadena|app/api/negocio/caja/configuracion-cambios|app/api/negocio/caja/turnos/\[id\]/route|app/api/negocio/caja/turnos/cerrados|app/operaciones/mi-panel/\[slug\]/caja/page|components/business/caja-catalogo-compacto|components/business/caja-post-idempotente|lib/caja-devolucion-estimado|lib/f4-c-auditoria-reintegro|lib/f4-c-reintegro-concurrente|lib/f4-c-medio-reintegro|components/business/caja-medio-reintegro|lib/caja-egresos-|lib/f10-c1|app/api/negocio/caja/egresos|app/api/negocio/caja/configuracion-egresos|app/api/operativo/caja/\[slug\]/egresos|components/business/caja-salidas-cajero|components/business/owner-caja-egresos|components/business/owner-caja-desglose-turno|components/shared/install-prompt|components/business/operational-shift-panel\.tsx)" tsc-output.txt; then
+          if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales)|lib/caja-intento-comercial|lib/caja-resumen-cambios|lib/f4-c5-|components/business/caja-cambios|components/shared/notification-center|app/api/negocio/caja/ventas/\[id\]/cadena|app/api/operativo/caja/\[slug\]/ventas/\[id\]/cadena|app/api/negocio/caja/configuracion-cambios|app/api/negocio/caja/turnos/\[id\]/route|app/api/negocio/caja/turnos/cerrados|app/operaciones/mi-panel/\[slug\]/caja/page|components/business/caja-catalogo-compacto|components/business/caja-post-idempotente|lib/caja-devolucion-estimado|lib/f4-c-auditoria-reintegro|lib/f4-c-reintegro-concurrente|lib/f4-c-medio-reintegro|components/business/caja-medio-reintegro|lib/caja-egresos-|lib/f10-c1|app/api/negocio/caja/egresos|app/api/negocio/caja/configuracion-egresos|app/api/operativo/caja/\[slug\]/egresos|components/business/caja-salidas-cajero|components/business/owner-caja-egresos|components/business/owner-caja-desglose-turno|components/shared/install-prompt|components/business/operational-shift-panel\.tsx|lib/cuit|lib/proveedores-service|lib/cuenta-proveedor-|lib/f5a-|app/api/negocio/proveedores|components/business/owner-proveedores|lib/compras-|lib/f10-c2a-|lib/f10-c2b-|lib/r3a-f4-|lib/stock-lifecycle|lib/caja-devoluciones-service|lib/caja-correcciones-service|components/business/recepcion|components/business/owner-compras|app/operaciones/mi-panel/\[slug\]/recepciones|app/api/negocio/recepciones|app/api/negocio/compras|app/api/operativo/caja/\[slug\]/recepciones|lib/etiquetas-precio|lib/precios-venta|lib/precios-etiquetas|lib/inicio-venta|lib/pagos-pedido|lib/anticipos-pedido|lib/recepcion-pagos|lib/proveedor-productos|lib/catalogo-empleado|lib/importacion-|lib/caja-venta-service|proxy\.ts|components/business/(etiquetas-precio-lista|cuenta-proveedor-pedidos|importar-productos|permisos-catalogo|producto-proveedores|inventario-tab)|app/api/negocio/(etiquetas-precio|empleados/permisos-catalogo|productos|caja/ventas/inicio)|app/api/operativo/caja/\[slug\]/(catalogo|etiquetas-precio|pedidos|ventas/inicio|ventas/route|recepciones-datos)|app/operaciones/mi-panel/\[slug\]/(etiquetas|productos)|app/negocio/importar-productos)" tsc-output.txt; then
             echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 / F4-C4 / F4-C5 / F10-C1 files"; exit 1
           fi
           echo "F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
@@ -140,5 +148,20 @@ jobs:
       - run: bun --no-env-file test src/components/business/caja-salidas-cajero.test.tsx
       - run: bun --no-env-file test src/components/business/owner-caja-egresos.test.tsx
       - run: bun --no-env-file test "src/app/operaciones/mi-panel/[slug]/caja/page.test.tsx"
+      # F5-A (suppliers + single ledger/assignment engine; links F10-C1 supplier payments and blocks their
+      # compensation while linked): engine + SQL guards on the ephemeral postgres:16 service, then the pure,
+      # static-contract and owner-panel (happy-dom) suites, each in its own process.
+      - run: bun --no-env-file test src/lib/f5a-cuenta-proveedor.integration.test.ts
+      - run: bun --no-env-file test src/lib/cuit.test.ts src/lib/f5a-static-contract.test.ts
+      - run: bun --no-env-file test src/components/business/owner-proveedores.test.tsx
+      # F10-C2a (purchases + goods receptions: owner approval moves R3A stock, frozen costs and ONE F5 obligation
+      # atomically): engine + SQL guards on the ephemeral postgres:16 service, then the pure cost and static suites.
+      - run: bun --no-env-file test src/lib/f10-c2a-recepciones.integration.test.ts
+      - run: bun --no-env-file test src/lib/compras-calculo.test.ts src/lib/f10-c2a-static-contract.test.ts
+      # R3A single stock authority (F4-A returns/voids and F4-B corrections now write stock only through
+      # stock-lifecycle.ts) + F10-C2b reception UIs (cashier «Recibir mercadería», owner tray/approval, D-7 cash payment).
+      - run: bun --no-env-file test src/lib/r3a-f4-autoridad.integration.test.ts
+      - run: bun --no-env-file test src/lib/r3a-f4-autoridad-static-contract.test.ts src/lib/f10-c2b-static-contract.test.ts
+      - run: bun --no-env-file test src/components/business/recepciones-c2b.test.tsx
       - run: bun --no-env-file run build
 

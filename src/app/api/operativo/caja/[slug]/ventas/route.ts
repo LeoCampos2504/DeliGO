@@ -51,6 +51,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       metodoPago: parsed.metodoPago,
       lines: parsed.lines,
       idempotencyKey: rawKey.toLowerCase(),
+      inicioVentaId: parsed.inicioVentaId ?? null,
+      totalMostrado: parsed.totalMostrado,
     }, {
       // R1 (2026-11-13): audit INSIDE the sale's transaction (new sales only).
       auditar: (tx, venta) => auditLogWithClient(tx, {
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         accion: "venta.creada",
         recurso: "venta",
         recursoId: venta.id,
-        detalle: { negocioId: auth.negocio.id, total: venta.total, metodoPago: venta.metodoPago, cantidadItems: venta.cantidadItems },
+        detalle: { negocioId: auth.negocio.id, total: venta.total, metodoPago: venta.metodoPago, cantidadItems: venta.cantidadItems, ...(parsed.inicioVentaId ? { inicioVentaId: parsed.inicioVentaId } : {}) },
       }),
     })
 

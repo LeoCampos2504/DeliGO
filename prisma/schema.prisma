@@ -208,6 +208,17 @@ model Negocio {
   intentosComerciales    IntentoCajaComercial[] // F4-C5
   traspasosFondoTurnos   TraspasoFondoTurnoCaja[] // F10-B2.2-F
   egresosCaja            EgresoCaja[] // F10-C1a
+  proveedores            Proveedor[] // F5-A
+  obligacionesProveedor  ObligacionProveedor[] // F5-A
+  creditosProveedor      CreditoProveedor[] // F5-A
+  operacionesAsignacion  OperacionAsignacion[] // F5-A
+  asignacionesPago       AsignacionPago[] // F5-A
+  configuracionCompras   ConfiguracionCompras? // F10-C2a
+  compras                Compra[] // F10-C2a
+  recepciones            Recepcion[] // F10-C2a
+  costosVigentes         CostoVigente[] // F10-C2a
+  proveedorProductos     ProveedorProducto[] // F5 productos por proveedor
+  importacionesProductos ImportacionProductos[] // Catálogo: importaciones masivas (Excel/CSV)
 
   // Plan
   planTipo            String  @default("prueba")
@@ -255,6 +266,11 @@ model Negocio {
   solicitudesDestacado DestacadoSolicitud[]
   ocupacionesMesa      SesionOcupacionMesa[]
 
+  pagosRecepcion         PagoRecepcion[] // D-7 v2
+  cambiosPrecioVenta     CambioPrecioVenta[] // F10-C2b precios
+  etiquetasPrecio        EtiquetaPrecio[] // F10-C2c etiquetas de góndola
+  activacionesPrecio     ActivacionPrecioVenta[] // F10-C2c
+  iniciosVenta           InicioVenta[] // F10-C2c precios por inicio de venta
   @@map("negocios")
 }
 
@@ -345,8 +361,15 @@ model Producto {
   movimientosInventario MovimientoInventario[]
   ventaItems            VentaItem[]
   variantes             ProductoVariante[]
+  compraLineas          CompraLinea[] // F10-C2a
+  recepcionLineas       RecepcionLinea[] // F10-C2a
+  costosVigentes        CostoVigente[] // F10-C2a
+  proveedorProductos    ProveedorProducto[] // F5 productos por proveedor
   reservasStock         ReservaStock[] // P2-T56-R3A-I1
 
+  cambiosPrecioVenta    CambioPrecioVenta[] // F10-C2b precios
+  etiquetasPrecio       EtiquetaPrecio[] // F10-C2c
+  activacionesPrecio    ActivacionPrecioVenta[] // F10-C2c
   @@map("productos")
 }
 
@@ -386,7 +409,14 @@ model ProductoVariante {
   movimientosInventario MovimientoInventario[]
   pedidoItems           PedidoItem[]
   reservasStock         ReservaStock[] // P2-T56-R3A-I1
+  compraLineas          CompraLinea[] // F10-C2a
+  recepcionLineas       RecepcionLinea[] // F10-C2a
+  costosVigentes        CostoVigente[] // F10-C2a
+  proveedorProductos    ProveedorProducto[] // F5 productos por proveedor
 
+  cambiosPrecioVenta    CambioPrecioVenta[] // F10-C2b precios
+  etiquetasPrecio       EtiquetaPrecio[] // F10-C2c
+  activacionesPrecio    ActivacionPrecioVenta[] // F10-C2c
   @@index([productoId])
   @@map("producto_variantes")
 }
@@ -413,6 +443,7 @@ model MovimientoInventario {
   ventaId            String? // presente cuando tipo = VENTA, DEVOLUCION (F4-A) o CORRECCION_* (F4-B)
   correccionVentaId  String? // F4-B: presente únicamente cuando tipo = CORRECCION_ENTRADA | CORRECCION_SALIDA
   pedidoId           String? // P2-T56-R3A-I1: presente únicamente cuando tipo = PEDIDO (ningún runtime lo escribe todavía)
+  recepcionLineaId   String?  @unique // F10-C2a: presente únicamente cuando tipo = RECEPCION (una entrada por línea aprobada)
   createdAt          DateTime @default(now())
 
   negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
@@ -422,6 +453,7 @@ model MovimientoInventario {
   pedido           Pedido?           @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
   devolucionItem   DevolucionVentaItem?
   correccionVenta  CorreccionVenta?  @relation(fields: [correccionVentaId], references: [id], onDelete: SetNull)
+  recepcionLinea   RecepcionLinea?   @relation(fields: [recepcionLineaId], references: [id], onDelete: SetNull)
 
   @@index([negocioId, productoId, createdAt])
   @@index([productoVarianteId])
@@ -525,6 +557,8 @@ model Venta {
   // F4-C5: claims of commercial operations on this sale (origin) / of this additional sale.
   intentosComercialesOrigen IntentoCajaComercial[] @relation("IntentoComercialOrigen")
   intentoComercial          IntentoCajaComercial?  @relation("IntentoComercialVenta")
+  // F10-C2c: inicio de la venta (precios vigentes al empezarla); NULL en ventas sin inicio.
+  inicioVenta               InicioVenta?
   // NoAction: un turno con ventas no puede borrarse solo.
   turnoCaja   TurnoCaja?             @relation(fields: [turnoCajaId], references: [id], onDelete: NoAction)
   items       VentaItem[]
@@ -911,7 +945,9 @@ model EgresoCaja {
   turno        TurnoCaja               @relation(fields: [turnoCajaId, negocioId, cajaFisicaId], references: [id, negocioId, cajaFisicaId], onDelete: NoAction)
   revisiones   RevisionEgresoCaja[]
   compensacion CompensacionEgresoCaja?
+  creditosProveedor CreditoProveedor[] // F5-A: el egreso nunca se modifica; F5 sólo lo referencia
 
+  pagoRecepcion   PagoRecepcion[] // D-7 v2
   @@unique([negocioId, idempotencyKey])
   @@unique([id, negocioId])
   @@index([negocioId, createdAt])
@@ -970,6 +1006,503 @@ model CompensacionEgresoCaja {
   @@unique([negocioId, idempotencyKey])
   @@unique([egresoId, negocioId])
   @@map("compensaciones_egresos_caja")
+}
+
+// ============================================
+// F5-A — proveedores y motor ÚNICO de cuenta corriente (migración 20261119180000)
+// ============================================
+// Diseño: codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md v2 §4, §5, §7, §10.
+// Una OBLIGACIÓN es lo que se le debe al proveedor; un CRÉDITO lo que reduce esa
+// deuda. Una ASIGNACIÓN atribuye parte de un crédito EFECTIVO a una obligación
+// VIGENTE del MISMO proveedor (FKs compuestas (id, proveedorId, negocioId)).
+// Todo es append-only: nada confirmado se edita; anulaciones, confirmaciones,
+// rechazos y desvinculaciones son eventos; las desafectaciones son filas nuevas.
+// La deuda no es dinero: ninguna fila de F5 tiene patas en el libro financiero.
+// El efectivo sólo sale por F10-C1 (EgresoCaja PAGO_PROVEEDOR, que F5 sólo
+// REFERENCIA; la fila del egreso nunca se toca). Invariantes en SQL.
+model Proveedor {
+  id                String   @id @default(cuid())
+  negocioId         String
+  nombre            String
+  // minúsculas, sin tildes, espacios simples: sólo para advertir nombres similares (no es único)
+  nombreNormalizado String
+  // 11 dígitos con dígito verificador válido; ÚNICO por negocio cuando existe (índice parcial en SQL)
+  cuit              String?
+  telefono          String?
+  email             String?
+  notas             String?
+  activo            Boolean  @default(true)
+  actorId           String
+  idempotencyKey    String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  negocio      Negocio               @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  cambios      ProveedorCambio[]
+  obligaciones ObligacionProveedor[]
+  creditos     CreditoProveedor[]
+  operaciones  OperacionAsignacion[]
+  compras      Compra[] // F10-C2a
+  recepciones  Recepcion[] // F10-C2a
+  productos    ProveedorProducto[] // F5 productos por proveedor
+  cargosRecepcion RecepcionCargo[] // F10-C2a
+
+  pagosRecepcion PagoRecepcion[] // D-7 v2
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@index([negocioId, nombreNormalizado])
+  @@map("proveedores")
+}
+
+// Historial append-only de cambios de ficha (qué campos y sus valores anteriores).
+model ProveedorCambio {
+  id                String   @id @default(cuid())
+  negocioId         String
+  proveedorId       String
+  campos            String // JSON: lista de campos cambiados
+  valoresAnteriores String // JSON: valores anteriores de esos campos
+  actorId           String
+  createdAt         DateTime @default(now())
+
+  proveedor Proveedor @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@index([negocioId, proveedorId, createdAt])
+  @@map("proveedor_cambios")
+}
+
+// Lo que se le DEBE al proveedor. Importe > 0, inmutable.
+// origen: SALDO_INICIAL (deuda anterior al uso de DeliGO, a una fecha de corte; a lo sumo una VIGENTE por proveedor)
+//       | AJUSTE_DEUDA (dueño, con naturaleza y motivo)
+//       | RECEPCION / CARGO_ACCESORIO (reservados para F10-C2a: una obligación por recepción aprobada — recepcionId único)
+// estado: VIGENTE → ANULADA (sólo sin asignaciones vigentes; evento ANULACION)
+model ObligacionProveedor {
+  id                     String    @id @default(cuid())
+  negocioId              String
+  proveedorId            String
+  origen                 String
+  // AJUSTE_DEUDA: ERROR_DE_CARGA | DIFERENCIA_ACORDADA | RECARGO | OTRO
+  naturalezaAjuste       String?
+  importeDecimal         Decimal   @db.Decimal(12, 2)
+  fecha                  DateTime
+  descripcion            String
+  comprobanteTipo        String?
+  comprobanteNumero      String?
+  comprobanteFecha       DateTime?
+  // F10-C2a: origen RECEPCION (único por recepción) / CARGO_ACCESORIO (único por cargo)
+  recepcionId            String?
+  recepcionCargoId       String?
+  estado                 String    @default("VIGENTE")
+  anuladaEn              DateTime?
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime  @default(now())
+
+  negocio     Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor   Proveedor               @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  eventos     EventoCuentaProveedor[]
+  asignaciones AsignacionPago[]
+  recepcion      Recepcion?      @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  recepcionCargo RecepcionCargo? @relation(fields: [recepcionCargoId, negocioId], references: [id, negocioId], onDelete: NoAction)
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@unique([id, proveedorId, negocioId])
+  @@index([negocioId, proveedorId, estado])
+  @@map("obligaciones_proveedor")
+}
+
+// Lo que REDUCE la deuda. Importe > 0, inmutable salvo su estado (con evento).
+// origen / estados:
+//   PAGO_CAJA      VIGENTE → DESVINCULADO          (referencia a un egreso PAGO_PROVEEDOR de F10-C1; importe = el del egreso)
+//   PAGO_DECLARADO DECLARADO → CONFIRMADO_DUENO → ANULADO ; DECLARADO → RECHAZADO
+//                  (transferencia / Mercado Pago / otro; DECLARADO no reduce la deuda ni se asigna)
+//   AJUSTE_A_FAVOR VIGENTE → ANULADO               (dueño, con naturaleza y motivo; no es dinero)
+// EFECTIVO (cuenta para la deuda y se puede asignar) = estado VIGENTE o CONFIRMADO_DUENO.
+// La conciliación bancaria de F10-D es OTRA cosa (conciliacion*: siempre NULL en F5-A).
+model CreditoProveedor {
+  id                     String    @id @default(cuid())
+  negocioId              String
+  proveedorId            String
+  origen                 String
+  importeDecimal         Decimal   @db.Decimal(12, 2)
+  estado                 String
+  egresoCajaId           String?
+  medio                  String?
+  referencia             String?
+  fechaPago              DateTime?
+  cuentaOrigenDeclarada  String?
+  naturalezaAjuste       String?
+  motivo                 String?
+  confirmadoEn           DateTime?
+  confirmadoPorId        String?
+  cerradoEn              DateTime?
+  // Reservado F10-D (conciliación bancaria real): NULL en F5-A (CHECK)
+  conciliacionEstado     String?
+  conciliadoEn           DateTime?
+  conciliacionRef        String?
+  // Reservado F10-C2a (anticipo con referencia no vinculante a una compra): NULL en F5-A
+  compraReferenciaId     String?
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime  @default(now())
+
+  negocio      Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor    Proveedor               @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  egresoCaja   EgresoCaja?             @relation(fields: [egresoCajaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  // Pagos E1: pago (transferencia) ligado a su pedido — mismo proveedor y negocio; inmutable.
+  compraReferencia Compra?             @relation(fields: [compraReferenciaId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: NoAction)
+  eventos      EventoCuentaProveedor[]
+  asignaciones AsignacionPago[]
+
+  pagosRecepcion PagoRecepcion[] // D-7 v2
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@unique([id, proveedorId, negocioId])
+  @@index([negocioId, proveedorId, estado])
+  @@index([egresoCajaId])
+  @@map("creditos_proveedor")
+}
+
+// Eventos de estado (append-only): ANULACION | CONFIRMACION | RECHAZO | DESVINCULACION.
+model EventoCuentaProveedor {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  obligacionId           String?
+  creditoId              String?
+  tipo                   String
+  motivo                 String?
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  obligacion ObligacionProveedor? @relation(fields: [obligacionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  credito    CreditoProveedor?    @relation(fields: [creditoId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, obligacionId])
+  @@index([negocioId, creditoId])
+  @@map("eventos_cuenta_proveedor")
+}
+
+// Una operación del dueño sobre asignaciones: ASIGNAR | DESAFECTAR | REASIGNAR (idempotente, auditada).
+model OperacionAsignacion {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  proveedorId            String
+  tipo                   String
+  motivo                 String?
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  negocio      Negocio          @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor    Proveedor        @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  asignaciones AsignacionPago[]
+
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, proveedorId, negocioId])
+  @@map("operaciones_asignacion")
+}
+
+// Renglón de asignación (append-only). ASIGNACION atribuye `importe` de un crédito EFECTIVO a una
+// obligación VIGENTE; DESAFECTACION anula exactamente UNA asignación (revierteAsignacionId único).
+// Las FKs compuestas obligan a que operación, crédito y obligación sean del MISMO proveedor y negocio.
+model AsignacionPago {
+  id                   String   @id @default(cuid())
+  negocioId            String
+  proveedorId          String
+  operacionId          String
+  creditoId            String
+  obligacionId         String
+  tipo                 String
+  importeDecimal       Decimal  @db.Decimal(12, 2)
+  revierteAsignacionId String?  @unique
+  createdAt            DateTime @default(now())
+
+  negocio    Negocio             @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  operacion  OperacionAsignacion @relation(fields: [operacionId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: Cascade)
+  credito    CreditoProveedor    @relation(fields: [creditoId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: Cascade)
+  obligacion ObligacionProveedor @relation(fields: [obligacionId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: Cascade)
+  revierte   AsignacionPago?     @relation("DesafectacionAsignacion", fields: [revierteAsignacionId], references: [id], onDelete: NoAction)
+  revertidaPor AsignacionPago?   @relation("DesafectacionAsignacion")
+
+  @@index([negocioId, creditoId])
+  @@index([negocioId, obligacionId])
+  @@index([operacionId])
+  @@map("asignaciones_pago")
+}
+
+// ============================================
+// F10-C2a — compras y recepciones de mercadería (migración 20261120120000)
+// ============================================
+// Diseño: codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md v2 §4.4, §6, §7, §8.
+// Un BORRADOR no mueve stock ni genera deuda. Sólo el DUEÑO aprueba: en UNA transacción
+// Serializable se congelan los costos de cada línea, entra el stock por la autoridad R3A
+// (un MovimientoInventario RECEPCION por línea, recepcionLineaId único), se actualiza el
+// «último costo» respetando el orden real de las recepciones, nace UNA obligación de F5
+// (recepcionId único) más una por cada cargo accesorio adeudado a otro proveedor o no
+// atribuible, y opcionalmente se aplican anticipos con el motor único de F5. Aprobada,
+// rechazada o descartada, la recepción es inmutable (triggers); las correcciones son
+// documentos nuevos. Ninguna fila de C2a toca el libro financiero ni los egresos de Caja.
+
+// Configuración de compras del negocio (D-4): cómo tratan los impuestos el costo de inventario.
+model ConfiguracionCompras {
+  negocioId            String   @id
+  // IMPUESTOS_INTEGRAN_COSTO (por defecto: el impuesto no se recupera) | IMPUESTOS_RECUPERABLES (responsable inscripto)
+  tratamientoImpuestos String   @default("IMPUESTOS_INTEGRAN_COSTO")
+  updatedAt            DateTime @updatedAt
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@map("configuracion_compras")
+}
+
+// Pedido a un proveedor (documento comercial: no mueve dinero ni stock). Se recibe en una o
+// varias recepciones; lo recibido se DERIVA de las recepciones aprobadas.
+// estado: ABIERTA → CERRADA_CON_FALTANTE (el dueño da por terminado lo que falta) | ANULADA (sin recepciones aprobadas)
+model Compra {
+  id                     String    @id @default(cuid())
+  negocioId              String
+  proveedorId            String
+  numero                 Int
+  estado                 String    @default("ABIERTA")
+  fechaPedido            DateTime
+  notas                  String?
+  cerradaEn              DateTime?
+  // Pedido con total informado y costos unitarios desconocidos (referencia comercial: no genera deuda).
+  totalInformadoDecimal  Decimal?  @db.Decimal(12, 2)
+  totalInformadoIva      String? // INCLUYE_IVA | SIN_IVA | NO_SE_SABE
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime  @default(now())
+
+  negocio     Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor   Proveedor               @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  lineas      CompraLinea[]
+  recepciones Recepcion[]
+  eventos     EventoCompraRecepcion[]
+  pagosAnticipados CreditoProveedor[] // Pagos E1: pagos ligados al pedido
+
+  @@unique([negocioId, numero])
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@unique([id, proveedorId, negocioId])
+  @@index([negocioId, proveedorId, estado])
+  @@map("compras")
+}
+
+// Renglón pedido (inmutable). Producto borrado → productoId NULL; el nombre queda guardado.
+model CompraLinea {
+  id                         String   @id @default(cuid())
+  negocioId                  String
+  compraId                   String
+  orden                      Int
+  productoId                 String?
+  productoVarianteId         String?
+  productoNombre             String
+  varianteNombre             String?
+  cantidadPedidaDecimal      Decimal  @db.Decimal(14, 3)
+  costoUnitarioAcordadoDecimal Decimal? @db.Decimal(14, 4)
+  createdAt                  DateTime @default(now())
+
+  compra           Compra            @relation(fields: [compraId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  producto         Producto?         @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
+  recepcionLineas  RecepcionLinea[]
+
+  @@unique([id, negocioId])
+  @@unique([compraId, orden])
+  @@map("compra_lineas")
+}
+
+// Una entrega física de mercadería (directa o contra un pedido).
+// estado: BORRADOR → PENDIENTE_APROBACION → APROBADA | RECHAZADA ; PENDIENTE_APROBACION → BORRADOR (devuelta) ;
+//         BORRADOR → DESCARTADA ; el dueño puede aprobar o rechazar también desde BORRADOR.
+// Los totales (*Decimal de aprobación) son NULL hasta aprobar y luego se congelan.
+model Recepcion {
+  id                     String    @id @default(cuid())
+  negocioId              String
+  proveedorId            String
+  compraId               String?
+  numero                 Int
+  estado                 String    @default("BORRADOR")
+  preparadaPorTipo       String // NEGOCIO | EMPLEADO
+  preparadaPorEmpleadoId String?
+  fechaRecepcion         DateTime
+  comprobanteTipo        String?
+  comprobanteNumero      String?
+  comprobanteFecha       DateTime?
+  // tipo|número normalizado: único entre las recepciones APROBADAS del mismo proveedor (D-5)
+  comprobanteClave       String?
+  descuentoGlobalDecimal Decimal   @default(0) @db.Decimal(12, 2)
+  percepcionesDecimal    Decimal   @default(0) @db.Decimal(12, 2)
+  notas                  String?
+  version                Int       @default(1)
+  contenidoHuella        String
+  enviadaEn              DateTime?
+  aprobadaEn             DateTime?
+  rechazadaEn            DateTime?
+  descartadaEn           DateTime?
+  motivoRechazo          String?
+  // Instantánea de la aprobación
+  tratamientoImpuestos   String?
+  netoDecimal            Decimal?  @db.Decimal(12, 2)
+  descuentosDecimal      Decimal?  @db.Decimal(12, 2)
+  impuestosDecimal       Decimal?  @db.Decimal(12, 2)
+  cargosDecimal          Decimal?  @db.Decimal(12, 2)
+  totalObligacionDecimal Decimal?  @db.Decimal(12, 2)
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  negocio      Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor    Proveedor               @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  compra       Compra?                 @relation(fields: [compraId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: NoAction)
+  lineas       RecepcionLinea[]
+  cargos       RecepcionCargo[]
+  eventos      EventoCompraRecepcion[]
+  obligaciones ObligacionProveedor[]
+
+  pagos           PagoRecepcion[] // D-7 v2
+  cambiosPrecio   CambioPrecioVenta[] // F10-C2b precios
+  @@unique([negocioId, numero])
+  @@unique([negocioId, idempotencyKey])
+  @@unique([id, negocioId])
+  @@index([negocioId, estado, createdAt])
+  @@index([negocioId, proveedorId])
+  @@index([compraId])
+  @@map("recepciones")
+}
+
+// Renglón recibido. aceptada + rechazada = recibida; sólo lo ACEPTADO entra al stock y a la deuda.
+// costoUnitario = precio unitario neto del comprobante (antes del descuento de línea).
+// Los campos de aprobación (subtotal … costoUnitarioInventario) se congelan al aprobar.
+model RecepcionLinea {
+  id                               String    @id @default(cuid())
+  negocioId                        String
+  recepcionId                      String
+  orden                            Int
+  compraLineaId                    String?
+  productoId                       String?
+  productoVarianteId               String?
+  productoNombre                   String
+  varianteNombre                   String?
+  cantidadRecibidaDecimal          Decimal   @db.Decimal(14, 3)
+  cantidadAceptadaDecimal          Decimal   @db.Decimal(14, 3)
+  cantidadRechazadaDecimal         Decimal   @db.Decimal(14, 3)
+  // DANADO | VENCIDO | NO_PEDIDO | ERROR_PROVEEDOR | OTRO (obligatorio si hay rechazo)
+  motivoRechazo                    String?
+  detalleRechazo                   String?
+  costoUnitarioDecimal             Decimal   @db.Decimal(14, 4)
+  descuentoPctDecimal              Decimal   @default(0) @db.Decimal(5, 2)
+  alicuotaImpuestoPctDecimal       Decimal   @default(0) @db.Decimal(5, 2)
+  // Instantánea de la aprobación
+  controlStockAlAprobar            Boolean?
+  subtotalDecimal                  Decimal?  @db.Decimal(12, 2)
+  descuentoLineaDecimal            Decimal?  @db.Decimal(12, 2)
+  descuentoGlobalDecimal           Decimal?  @db.Decimal(12, 2)
+  netoDecimal                      Decimal?  @db.Decimal(12, 2)
+  impuestosDecimal                 Decimal?  @db.Decimal(12, 2)
+  percepcionDecimal                Decimal?  @db.Decimal(12, 2)
+  cargosDecimal                    Decimal?  @db.Decimal(12, 2)
+  costoInventarioTotalDecimal      Decimal?  @db.Decimal(12, 2)
+  costoUnitarioInventarioDecimal   Decimal?  @db.Decimal(14, 4)
+  createdAt                        DateTime  @default(now())
+
+  recepcion            Recepcion             @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  compraLinea          CompraLinea?          @relation(fields: [compraLineaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  producto             Producto?             @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  productoVariante     ProductoVariante?     @relation(fields: [productoVarianteId], references: [id], onDelete: SetNull)
+  movimientoInventario MovimientoInventario?
+  costosVigentes       CostoVigente[]
+
+  cambiosPrecio   CambioPrecioVenta[] // F10-C2b precios
+  @@unique([id, negocioId])
+  @@unique([recepcionId, orden])
+  @@index([compraLineaId])
+  @@map("recepcion_lineas")
+}
+
+// Cargo accesorio (D-10). ATRIBUIBLE: entra al costo de inventario de las líneas (por VALOR o por
+// CANTIDAD); si lo cobra el mismo proveedor va en la obligación de la recepción, si lo cobra otro
+// nace una obligación CARGO_ACCESORIO para ese proveedor. NO_ATRIBUIBLE: gasto operativo (nunca
+// inventario) con su propia obligación CARGO_ACCESORIO. Cada peso se cuenta una sola vez.
+model RecepcionCargo {
+  id                String   @id @default(cuid())
+  negocioId         String
+  recepcionId       String
+  orden             Int
+  tipo              String // ATRIBUIBLE | NO_ATRIBUIBLE
+  proveedorId       String // quien lo cobra (por defecto, el de la recepción)
+  concepto          String
+  importeDecimal    Decimal  @db.Decimal(12, 2)
+  distribucion      String? // VALOR | CANTIDAD (sólo ATRIBUIBLE)
+  comprobanteTipo   String?
+  comprobanteNumero String?
+  createdAt         DateTime @default(now())
+
+  recepcion    Recepcion             @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  proveedor    Proveedor             @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  obligaciones ObligacionProveedor[]
+
+  @@unique([id, negocioId])
+  @@unique([recepcionId, orden])
+  @@map("recepcion_cargos")
+}
+
+// Historia append-only de compras y recepciones.
+// tipo: ENVIO | DEVOLUCION_A_BORRADOR | APROBACION | RECHAZO | DESCARTE | ANULACION_COMPRA | CIERRE_COMPRA
+model EventoCompraRecepcion {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  recepcionId            String?
+  compraId               String?
+  tipo                   String
+  motivo                 String?
+  // CIERRE_COMPRA: JSON con el motivo elegido y lo pendiente al cerrar (pedido / aceptado / pendiente por renglón).
+  detalle                String?
+  actorTipo              String // NEGOCIO | EMPLEADO
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  recepcion Recepcion? @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  compra    Compra?    @relation(fields: [compraId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, recepcionId])
+  @@index([negocioId, compraId])
+  @@map("eventos_compra_recepcion")
+}
+
+// «Último costo» vigente por clave de stock (D-4): lo fijó la recepción más reciente por
+// (fechaRecepcion, aprobadaEn, recepcionLineaId). Una recepción atrasada nunca lo pisa.
+model CostoVigente {
+  id                   String   @id @default(cuid())
+  negocioId            String
+  stockKey             String
+  productoId           String
+  productoVarianteId   String?
+  recepcionLineaId     String
+  fechaRecepcion       DateTime
+  aprobadaEn           DateTime
+  costoUnitarioDecimal Decimal  @db.Decimal(14, 4)
+  updatedAt            DateTime @updatedAt
+
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: Cascade)
+  recepcionLinea   RecepcionLinea    @relation(fields: [recepcionLineaId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@unique([negocioId, stockKey])
+  @@map("costos_vigentes")
 }
 
 // Snapshot inmutable por línea — una venta histórica nunca cambia porque
@@ -1997,6 +2530,18 @@ model Empleado {
   areaOperativa     String  @default("sin_asignar")
   // Se incrementa cada vez que cambia `areaOperativa` para que la PWA detecte el nuevo contexto.
   asignacionVersion Int     @default(1)
+  // Pagos E3: permiso individual de anticipos en efectivo a proveedores (deshabilitado por defecto; límites obligatorios).
+  anticipoProveedorHabilitado             Boolean  @default(false)
+  anticipoProveedorLimiteOperacionDecimal Decimal? @db.Decimal(12, 2)
+  anticipoProveedorLimiteDiarioDecimal    Decimal? @db.Decimal(12, 2)
+  // Catálogo: permisos TEMPORALES de carga/edición de productos (deshabilitados por defecto; vigencia controlada por el servidor).
+  catalogoHasta       DateTime?
+  catalogoCrear       Boolean   @default(false)
+  catalogoEditar      Boolean   @default(false)
+  catalogoProveedores Boolean   @default(false)
+  catalogoPrecios     Boolean   @default(false)
+  catalogoCostos      Boolean   @default(false)
+  catalogoImportar    Boolean   @default(false)
   activo           Boolean @default(true)
   eliminado        Boolean @default(false)
   token            String? // token para notificaciones push
@@ -2370,3 +2915,185 @@ model DestacadoSolicitud {
   @@map("destacado_solicitudes")
 }
 
+// F5 / F10-C2b — qué productos y variantes entrega cada proveedor (muchos a muchos). Sólo configuración:
+// no mueve stock, costos, deuda ni dinero. Unicidad parcial (producto sin variante / variante) y guarda de
+// negocio en SQL (migración 20261120120000_f5_supplier_products).
+model ProveedorProducto {
+  id                 String   @id @default(cuid())
+  negocioId          String
+  proveedorId        String
+  productoId         String
+  productoVarianteId String?
+  origen             String // MANUAL | RECEPCION
+  createdAt          DateTime @default(now())
+
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  proveedor        Proveedor         @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId, proveedorId])
+  @@index([productoId])
+  @@map("proveedor_productos")
+}
+
+// F10-C2b / D-7 v2 — salida PAGO_PROVEEDOR de Caja hecha AL RECIBIR, asociada a su recepción (no mueve dinero).
+// Al aprobar: crédito F5 (si no lo había) + aplicación automática a la deuda; el excedente queda como anticipo.
+// Guardas SQL en la migración 20261120150000_c2b_reception_payments.
+model PagoRecepcion {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  recepcionId            String
+  proveedorId            String
+  egresoCajaId           String
+  origen                 String // CAJERO_AL_RECIBIR | ASOCIADO_DUENO
+  estado                 String   @default("PENDIENTE") // PENDIENTE | OBSERVADO | ACREDITADO
+  creditoProveedorId     String?
+  importeAplicadoDecimal Decimal? @db.Decimal(12, 2)
+  observacion            String?
+  actorTipo              String
+  actorId                String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @default(now()) @updatedAt
+
+  negocio   Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  recepcion Recepcion         @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  proveedor Proveedor         @relation(fields: [proveedorId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  egreso    EgresoCaja        @relation(fields: [egresoCajaId, negocioId], references: [id, negocioId], onDelete: NoAction)
+  credito   CreditoProveedor? @relation(fields: [creditoProveedorId, proveedorId, negocioId], references: [id, proveedorId, negocioId], onDelete: NoAction)
+
+  @@unique([negocioId, egresoCajaId])
+  @@index([negocioId, recepcionId])
+  @@map("pagos_recepcion")
+}
+
+// F10-C2b — historial de precios de venta actualizados (opcionalmente) al aprobar una recepción. Append-only.
+model CambioPrecioVenta {
+  id                    String   @id @default(cuid())
+  negocioId             String
+  productoId            String
+  productoVarianteId    String?
+  recepcionId           String
+  recepcionLineaId      String
+  precioAnteriorDecimal Decimal  @db.Decimal(12, 2)
+  precioNuevoDecimal    Decimal  @db.Decimal(12, 2)
+  costoAnteriorDecimal  Decimal  @db.Decimal(14, 4)
+  costoNuevoDecimal     Decimal  @db.Decimal(14, 4)
+  recargoPctDecimal     Decimal  @db.Decimal(12, 4)
+  origen                String   @default("APROBACION_RECEPCION")
+  actorTipo             String
+  actorId               String
+  createdAt             DateTime @default(now())
+
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  recepcion        Recepcion         @relation(fields: [recepcionId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  recepcionLinea   RecepcionLinea    @relation(fields: [recepcionLineaId], references: [id], onDelete: Cascade)
+  producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: Cascade)
+  etiqueta         EtiquetaPrecio? // F10-C2c
+
+  @@index([negocioId, productoId])
+  @@map("cambios_precio_venta")
+}
+
+// F10-C2c — precio autorizado por el dueño que espera el cambio de la etiqueta de góndola. PENDIENTE hasta que un
+// empleado (o el dueño) confirma la etiqueta → ACTIVADA (recién ahí cambia el precio de venta). Una autorización más
+// nueva del mismo producto/variante la deja REEMPLAZADA; nunca se activa un precio viejo. Inmutable una vez resuelta.
+model EtiquetaPrecio {
+  id                    String    @id @default(cuid())
+  negocioId             String
+  productoId            String
+  productoVarianteId    String?
+  cambioPrecioVentaId   String    @unique
+  precioAnteriorDecimal Decimal   @db.Decimal(12, 2) // precio de venta activo al autorizar
+  precioNuevoDecimal    Decimal   @db.Decimal(12, 2) // precio autorizado por el dueño
+  modo                  String // ETIQUETA | SIN_ETIQUETA
+  estado                String    @default("PENDIENTE") // PENDIENTE | ACTIVADA | REEMPLAZADA | DESCARTADA
+  reemplazaAId          String?   @unique
+  autorizadaPorTipo     String
+  autorizadaPorId       String
+  autorizadaEn          DateTime  @default(now())
+  resolucion            String?
+  resueltaEn            DateTime?
+  resueltaPorTipo       String?
+  resueltaPorId         String?
+
+  negocio           Negocio                @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto          Producto               @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante  ProductoVariante?      @relation(fields: [productoVarianteId], references: [id], onDelete: Cascade)
+  cambioPrecioVenta CambioPrecioVenta      @relation(fields: [cambioPrecioVentaId], references: [id], onDelete: Cascade)
+  activacion        ActivacionPrecioVenta?
+
+  @@index([negocioId, estado])
+  @@map("etiquetas_precio")
+}
+
+// F10-C2c — cada cambio EFECTIVO del precio de venta (append-only): por etiqueta confirmada, activación del dueño o
+// edición desde el catálogo. Es la base para cobrar a una venta ya iniciada el precio vigente cuando empezó.
+model ActivacionPrecioVenta {
+  id                    String   @id @default(cuid())
+  negocioId             String
+  productoId            String
+  productoVarianteId    String?
+  precioAnteriorDecimal Decimal  @db.Decimal(12, 2)
+  precioNuevoDecimal    Decimal  @db.Decimal(12, 2)
+  origen                String // ETIQUETA | DUENO_SIN_ETIQUETA | APROBACION_SIN_ETIQUETA | CATALOGO
+  etiquetaPrecioId      String?  @unique
+  actorTipo             String
+  actorId               String
+  activadoEn            DateTime @default(now())
+
+  negocio          Negocio           @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  producto         Producto          @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  productoVariante ProductoVariante? @relation(fields: [productoVarianteId], references: [id], onDelete: Cascade)
+  etiquetaPrecio   EtiquetaPrecio?   @relation(fields: [etiquetaPrecioId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId, productoId, activadoEn])
+  @@map("activaciones_precio_venta")
+}
+
+// F10-C2c — inicio de una venta de Caja: el servidor fija la hora; al cobrar se respetan los precios vigentes en ese
+// momento (también para productos agregados después). Un solo uso, vence a los 30 minutos.
+model InicioVenta {
+  id         String    @id @default(cuid())
+  negocioId  String
+  actorTipo  String // NEGOCIO | EMPLEADO
+  actorId    String
+  iniciadaEn DateTime  @default(now())
+  expiraEn   DateTime
+  ventaId    String?   @unique
+  usadaEn    DateTime?
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  venta   Venta?  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  @@index([negocioId, iniciadaEn])
+  @@map("inicios_venta")
+}
+
+// Catálogo — importación masiva de productos desde Excel/CSV. Un registro por confirmación (clave idempotente del
+// navegador): reintentos, doble clic o cortes devuelven el mismo resultado y nunca duplican productos. `resultados`
+// guarda el resultado de cada grupo de filas en la MISMA transacción que su escritura (una sola vez por grupo);
+// `bloqueadaHasta` es el turno de procesamiento (si el proceso se corta, otro intento retoma lo que faltó).
+model ImportacionProductos {
+  id             String    @id @default(cuid())
+  negocioId      String
+  clave          String
+  huella         String
+  actorTipo      String // NEGOCIO | EMPLEADO
+  actorId        String
+  archivo        String    @default("")
+  estado         String    @default("EN_CURSO") // EN_CURSO | COMPLETADA
+  totalGrupos    Int       @default(0)
+  resultados     Json      @default("{}")
+  resumen        Json?
+  bloqueadaHasta DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  negocio Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@unique([negocioId, clave])
+  @@index([negocioId, createdAt])
+  @@map("importaciones_productos")
+}

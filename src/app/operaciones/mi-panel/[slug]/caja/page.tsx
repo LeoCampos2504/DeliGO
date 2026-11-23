@@ -26,7 +26,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Store, UserRound } from "lucide-react"
+import { ArrowLeft, Package, PackageCheck, Store, Tag, UserRound } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOperativoNav } from "@/components/operativo/use-operativo-nav"
@@ -153,7 +154,18 @@ export default function CajeroCajaPage() {
               </p>
             )}
           </div>
+          {state.status === "ready" && (
+            // F10-C2b: «Recibir mercadería» (borradores del cajero; aprueba sólo el dueño).
+            <Button asChild variant="outline" className="h-11 shrink-0 rounded-xl px-3 text-xs">
+              <Link href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/recepciones`}>
+                <PackageCheck className="mr-1 h-4 w-4" />
+                Recibir mercadería
+              </Link>
+            </Button>
+          )}
         </header>
+        {state.status === "ready" && <EtiquetasAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/etiquetas`} />}
+        {state.status === "ready" && <CatalogoAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/productos`} />}
 
         {state.status === "loading" && (
           <div className="space-y-3">
@@ -207,5 +219,40 @@ export default function CajeroCajaPage() {
         )}
       </div>
     </main>
+  )
+}
+
+// F10-C2c: acceso a «Etiquetas de góndola» con el conteo de pendientes (el cajero sólo confirma etiquetas).
+function EtiquetasAcceso({ slug, href }: { slug: string; href: string }) {
+  const { data } = useQuery<{ pendientes: number }>({
+    queryKey: ["operativo-etiquetas-pendientes", slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/etiquetas-precio?estado=PENDIENTES`, { cache: "no-store" })
+      if (!res.ok) throw new Error("etiquetas")
+      return res.json()
+    },
+  })
+  const n = data?.pendientes ?? 0
+  return (
+    <Button asChild variant={n > 0 ? "default" : "outline"} className="h-11 w-full justify-start rounded-xl text-sm" data-testid="acceso-etiquetas">
+      <Link href={href}>
+        <Tag className="mr-2 h-4 w-4" />
+        {n > 0 ? `Etiquetas de góndola: ${n} ${n === 1 ? "pendiente" : "pendientes"} de cambiar` : "Etiquetas de góndola"}
+      </Link>
+    </Button>
+  )
+}
+
+// Catálogo: acceso a «Productos» sólo con permiso VIGENTE (lo decide el servidor en cada operación).
+function CatalogoAcceso({ slug, href }: { slug: string; href: string }) {
+  const { data } = useQuery<{ permisos: { vigente: boolean; hasta: string | null } }>({
+    queryKey: ["operativo-catalogo-permisos", slug],
+    queryFn: async () => { const res = await fetch(`/api/operativo/caja/${encodeURIComponent(slug)}/catalogo?soloPermisos=1`, { cache: "no-store" }); if (!res.ok) throw new Error("catalogo"); return res.json() },
+  })
+  if (!data?.permisos.vigente) return null
+  return (
+    <Button asChild variant="outline" className="h-11 w-full justify-start rounded-xl text-sm" data-testid="acceso-catalogo">
+      <Link href={href}><Package className="mr-2 h-4 w-4" />Productos (carga del catálogo)</Link>
+    </Button>
   )
 }

@@ -266,8 +266,17 @@ export function mapEgresoDbError(error: unknown): { status: 409; error: string; 
   if (text.includes("cannot change a closed shift") || text.includes("while the shift is open must use that shift") || text.includes("after the close is blocked")) {
     return { status: 409, error: COMPENSACION_POSTERIOR_TEXTO, code: "COMPENSACION_POSTERIOR_BLOQUEADA" }
   }
+  if (text.includes("cash outflow is linked to a supplier credit")) {
+    return { status: 409, error: COMPENSACION_VINCULADA_TEXTO, code: "PAGO_VINCULADO_A_PROVEEDOR" }
+  }
   return null
 }
+
+// F5-A (D-8): a PAGO_PROVEEDOR outflow linked to a supplier account cannot be
+// compensated while the link is in force (the supplier credit would keep reducing
+// the debt with money that went back to the drawer). Unlink it in Proveedores first.
+export const COMPENSACION_VINCULADA_TEXTO =
+  "Este pago está vinculado a la cuenta de un proveedor. Primero desvinculalo en Proveedores (con su motivo) y después compensalo."
 
 // ---------------------------------------------------------------------------
 // Actor + destination (register / shift)
@@ -400,6 +409,8 @@ export const EGRESO_INCLUDE = {
   revisiones: { orderBy: { createdAt: "asc" as const } },
   compensacion: { select: { id: true, momento: true, createdAt: true, motivo: true, importeDecimal: true, operacionId: true } },
   turno: { select: { cajaFisica: { select: { nombre: true } }, responsableTipo: true, responsableId: true, estado: true } },
+  // F5-A: the supplier link in force (at most one: partial unique index); owner view only.
+  creditosProveedor: { where: { origen: "PAGO_CAJA", estado: "VIGENTE" }, select: { id: true, proveedor: { select: { id: true, nombre: true } } } },
 } satisfies Prisma.EgresoCajaInclude
 export type EgresoConDetalle = Prisma.EgresoCajaGetPayload<{ include: typeof EGRESO_INCLUDE }>
 
@@ -738,6 +749,11 @@ export async function compensarEgresoCaja(
       const egreso = filas[0]
       if (!egreso) return fail(404, "Egreso no encontrado.", "EGRESO_NO_ENCONTRADO")
       if (await tx.compensacionEgresoCaja.findUnique({ where: { egresoId_negocioId: { egresoId, negocioId } }, select: { id: true } })) return yaCompensado
+      // F5-A (D-8): same egreso row lock as the supplier link (register row → outflow row),
+      // so a link and a compensation racing each other are ordered; the SQL trigger repeats it.
+      if (await tx.creditoProveedor.findFirst({ where: { negocioId, egresoCajaId: egresoId, origen: "PAGO_CAJA", estado: "VIGENTE" }, select: { id: true } })) {
+        return fail(409, COMPENSACION_VINCULADA_TEXTO, "PAGO_VINCULADO_A_PROVEEDOR")
+      }
       const turno = await tx.turnoCaja.findFirst({ where: { id: egreso.turnoCajaId, negocioId }, select: { estado: true } })
       if (turno?.estado !== TURNO_ESTADO_ABIERTO) return fail(409, COMPENSACION_POSTERIOR_TEXTO, "COMPENSACION_POSTERIOR_BLOQUEADA")
       const pata = await tx.movimientoFinanciero.findFirst({ where: { operacionId: egreso.operacionId, negocioId }, select: { cuentaId: true, importeDecimal: true } })
@@ -895,8 +911,10 @@ export function egresoParaDueno(e: EgresoConDetalle, nombres: Map<string, string
     // F10-C1c: what the owner can still do. A compensation is possible only while
     // the outflow's own shift is open; after the close it is blocked (F10-D).
     turnoAbierto,
-    compensacionDisponible: !e.compensacion && turnoAbierto,
-    compensacionBloqueada: !e.compensacion && !turnoAbierto ? "TURNO_CERRADO" : null,
+    // F5-A: a payment linked to a supplier account must be unlinked before compensating it.
+    vinculoProveedor: e.creditosProveedor[0] ? { creditoId: e.creditosProveedor[0].id, proveedorId: e.creditosProveedor[0].proveedor.id, proveedorNombre: e.creditosProveedor[0].proveedor.nombre } : null,
+    compensacionDisponible: !e.compensacion && turnoAbierto && !e.creditosProveedor[0],
+    compensacionBloqueada: e.compensacion ? null : !turnoAbierto ? "TURNO_CERRADO" : e.creditosProveedor[0] ? "VINCULADO_A_PROVEEDOR" : null,
     pendienteSupervision: supervision.confirmacion || supervision.revision,
     pendiente: supervision,
     createdAt: e.createdAt,
