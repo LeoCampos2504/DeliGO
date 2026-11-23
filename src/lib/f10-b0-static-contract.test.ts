@@ -94,7 +94,20 @@ describe("F10-B0 — one sales engine", () => {
     const caja = read("src/components/business/caja-tab.tsx")
     expect(caja).toContain('headers: { "Content-Type": "application/json", "Idempotency-Key": key }')
     expect(caja).toContain("const key = resolveAttemptKey(pendingAttempt, canonical) ?? newIdempotencyKey()")
-    expect(caja.match(/method: "POST"/g)?.length).toBe(1)
+    // Exactly TWO POSTs, each one accounted for (F10-C2c added the sale start; any other POST fails this contract):
+    //  1) the ONE sale confirmation, to the sales endpoint, with the Idempotency-Key bound to the attempt;
+    //  2) the sale start (price protection, F10-C2c): `${ventasUrl}/inicio`, empty body, no key, no payment data.
+    const posts = [...caja.matchAll(/method: "POST"/g)].map((m) => m.index!)
+    expect(posts).toHaveLength(2)
+    const venta = /res = await fetch\(source\.ventasUrl, \{\s*method: "POST",\s*headers: \{ "Content-Type": "application\/json", "Idempotency-Key": key \},/.exec(caja)
+    const inicio = 'fetch(`${source.ventasUrl}/inicio`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })'
+    expect(venta).not.toBeNull()
+    expect(caja.split(inicio).length - 1).toBe(1)
+    const dentro = (pos: number, desde: number, largo: number) => pos >= desde && pos < desde + largo
+    const desdeInicio = caja.indexOf(inicio)
+    for (const pos of posts) expect(dentro(pos, venta!.index, venta![0].length) || dentro(pos, desdeInicio, inicio.length)).toBe(true)
+    expect(caja.match(/fetch\(source\.ventasUrl,/g)?.length).toBe(1) // a single sale-confirmation call
+    expect(caja.match(/"Idempotency-Key": key/g)?.length).toBe(1) // the key travels only with the sale
   })
 })
 
