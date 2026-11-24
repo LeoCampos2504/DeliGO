@@ -1186,7 +1186,9 @@ describe("F10-B2.2-G — owner administrative recovery of an abandoned shift", (
 
     // 5.1 — the owner sees the open shift with real activity only.
     const before = (await listarCajas(owner)).body.cajas.find((item: { id: string }) => item.id === caja.id)
-    expect(before.turnoAbierto).toMatchObject({ id: turnoId, responsableTipo: "EMPLEADO", responsableNombre: cashier.empleado.nombre, fondoInicial: 5000, estado: "ABIERTO", cantidadVentas: 2 })
+    // BUG-001: el responsable vinculado se muestra con el nombre de su cuenta operativa (regla única aprobada).
+    const nombreVisible = (await db.cuentaOperativa.findUniqueOrThrow({ where: { id: cashier.empleado.cuentaOperativaId! }, select: { nombre: true } })).nombre
+    expect(before.turnoAbierto).toMatchObject({ id: turnoId, responsableTipo: "EMPLEADO", responsableNombre: nombreVisible, fondoInicial: 5000, estado: "ABIERTO", cantidadVentas: 2 })
     expect(before.turnoAbierto.ultimaVentaEn).toBeTruthy()
 
     // Validation: nothing is closed by an incomplete or invalid request.
@@ -1213,7 +1215,7 @@ describe("F10-B2.2-G — owner administrative recovery of an abandoned shift", (
     const key = randomUUID()
     const recovered = await recuperarTurno(owner, turnoId, base, key)
     expect(recovered.status).toBe(201)
-    expect(recovered.body.turno).toMatchObject({ id: turnoId, estado: "CERRADO_DECLARADO", cierreOrigen: "RECUPERACION_ADMINISTRATIVA", responsableNombre: cashier.empleado.nombre, motivo, efectivoContado: 24000, efectivoEsperado: 25000, diferencia: -1000 })
+    expect(recovered.body.turno).toMatchObject({ id: turnoId, estado: "CERRADO_DECLARADO", cierreOrigen: "RECUPERACION_ADMINISTRATIVA", responsableNombre: nombreVisible, motivo, efectivoContado: 24000, efectivoEsperado: 25000, diferencia: -1000 })
     const replay = await recuperarTurno(owner, turnoId, base, key)
     expect(replay.status).toBe(200)
     expect(replay.replayed).toBe(true)
@@ -1251,7 +1253,7 @@ describe("F10-B2.2-G — owner administrative recovery of an abandoned shift", (
 
     // 5.6 — D history after a fresh read; the register is free again.
     const history = (await turnosCerrados(owner)).body.turnos.find((item: { id: string }) => item.id === turnoId)
-    expect(history).toMatchObject({ cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cerradoPor: "Dueño (recuperación administrativa)", motivoRecuperacion: motivo, responsableNombre: cashier.empleado.nombre, fondoInicial: 5000, efectivoEsperado: 25000, efectivoContado: 24000, diferencia: -1000, resultado: "FALTANTE", estadoEntrega: "PENDIENTE_ENTREGA" })
+    expect(history).toMatchObject({ cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cerradoPor: "Dueño (recuperación administrativa)", motivoRecuperacion: motivo, responsableNombre: nombreVisible, fondoInicial: 5000, efectivoEsperado: 25000, efectivoContado: 24000, diferencia: -1000, resultado: "FALTANTE", estadoEntrega: "PENDIENTE_ENTREGA" })
     expect((await detalle(owner, turnoId)).body).toMatchObject({ cierreOrigen: "RECUPERACION_ADMINISTRATIVA", cierreMotivo: motivo, ventas: { cantidad: 2, totalEfectivo: 20000 } })
     expect((await revisarTurno(owner, turnoId, "Faltante verificado tras la recuperación")).status).toBe(201)
     const freed = (await listarCajas(owner)).body.cajas.find((item: { id: string }) => item.id === caja.id)
