@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -56,7 +57,7 @@ export async function GET(
           activa: true,
           ocupacionActualId: true,
           // Solo el nombre/código visibles del mozo asignado (sin IDs internos).
-          empleado: { select: { nombre: true, codigo: true } },
+          empleado: { select: { ...EMPLEADO_NOMBRE_SELECT, codigo: true } },
         },
       }),
       db.pedido.findMany({
@@ -114,7 +115,7 @@ export async function GET(
         capacidad: mesa.capacidad,
         activa: mesa.activa,
         mozoAsignado: mesa.empleado
-          ? { nombre: mesa.empleado.nombre, codigo: mesa.empleado.codigo }
+          ? { nombre: nombreVisibleEmpleado(mesa.empleado), codigo: mesa.empleado.codigo }
           : null,
         pedidosActivos,
         pedidosActivosCount: pedidosActivos.length,

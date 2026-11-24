@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { OPERATIONAL_SESSION_COOKIE_NAME } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { conNombresHistoricosVisibles } from "@/lib/empleado-identidad"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import {
   parsePedidoItemAgregados,
@@ -144,6 +145,8 @@ export async function GET(
         mesaNumero: true,
         notas: true,
         // Solo el nombre visible del mozo asignado al pedido (nunca id ni datos internos).
+        // empleadoId sólo se usa en el servidor para resolver la foto «Pendiente de vinculación»; no se devuelve.
+        empleadoId: true,
         empleadoNombre: true,
         items: {
           select: {
@@ -225,7 +228,8 @@ export async function GET(
           fecha: pedido.fecha,
           total: pedido.total,
           mesaNumero: pedido.mesaNumero,
-          empleadoNombre: pedido.empleadoNombre,
+          // BUG-001: nombre visible del mozo (la foto histórica guardada no se modifica).
+          empleadoNombre: (await conNombresHistoricosVisibles(db, negocioId, [pedido]))[0].empleadoNombre,
           notas: pedido.notas || null,
           items: pedido.items.map((item) => {
             const persistidos = persistidosPorItem.get(item.id) ?? []

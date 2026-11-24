@@ -207,10 +207,17 @@ export async function listarFondosRemanentesTransferibles(db: Db, negocioId: str
       e."confirmadoEn",
       t."cerradoEn",
       t."responsableTipo",
-      CASE WHEN t."responsableTipo" = 'EMPLEADO' THEN COALESCE(emp."nombre", 'Empleado') ELSE 'Dueño' END AS "responsableNombre"
+      -- BUG-001: misma regla que nombreVisibleEmpleado (empleado-identidad.ts): cuenta operativa vinculada no eliminada
+      -- con nombre → su nombre; si no, Empleado.nombre; si no, «Empleado».
+      CASE WHEN t."responsableTipo" = 'EMPLEADO' THEN COALESCE(
+        CASE WHEN co."id" IS NOT NULL AND co."eliminado" = FALSE AND btrim(co."nombre") <> '' THEN btrim(co."nombre") END,
+        NULLIF(btrim(emp."nombre"), ''),
+        'Empleado'
+      ) ELSE 'Dueño' END AS "responsableNombre"
     FROM "turnos_caja" t
     JOIN "cajas_fisicas" c ON c."id" = t."cajaFisicaId" AND c."negocioId" = t."negocioId" AND c."activa" = TRUE
     LEFT JOIN "empleados" emp ON emp."id" = t."empleadoId"
+    LEFT JOIN "cuentas_operativas" co ON co."id" = emp."cuentaOperativaId"
     JOIN LATERAL (
       SELECT event."id", event."fondoRemanenteDecimal", event."confirmadoEn", event."estado"
       FROM "entregas_custodia_turnos_caja" event

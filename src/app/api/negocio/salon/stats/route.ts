@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { resolveCustomDateFilter } from "@/lib/date-range-filter"
@@ -142,7 +143,7 @@ export async function GET(req: NextRequest) {
       ...new Set(allDeliveredOrders.map((pedido) => pedido.empleadoId).filter((id): id is string => Boolean(id))),
     ]
 
-    const empleados = await db.empleado.findMany({
+    const empleadosFilas = await db.empleado.findMany({
       where: {
         negocioId,
         OR: [
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
       orderBy: { nombre: "asc" },
       select: {
         id: true,
-        nombre: true,
+        ...EMPLEADO_NOMBRE_SELECT,
         codigo: true,
         rol: true,
         activo: true,
@@ -179,6 +180,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // BUG-001: nombre visible (regla única): la cuenta operativa vinculada gana; sin vínculo, Empleado.nombre.
+    const empleados = empleadosFilas.map(({ cuentaOperativa, ...e }) => ({ ...e, nombre: nombreVisibleEmpleado({ nombre: e.nombre, cuentaOperativa }) }))
     const empleadosById = new Map(empleados.map((empleado) => [empleado.id, empleado]))
     const statsByEmpleadoId = new Map<string, MozoSalonStatsAccum>()
     for (const pedido of allDeliveredOrders) {

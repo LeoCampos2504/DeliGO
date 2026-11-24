@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import { auditLog } from "@/lib/audit"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -66,9 +67,7 @@ export async function GET(req: NextRequest) {
         usedAt: true,
         revokedAt: true,
         empleadoObjetivo: {
-          select: {
-            nombre: true,
-          },
+          select: EMPLEADO_NOMBRE_SELECT,
         },
       },
     })
@@ -79,7 +78,7 @@ export async function GET(req: NextRequest) {
         invitaciones: invitaciones.map((invitation) => ({
           id: invitation.id,
           empleadoObjetivoId: invitation.empleadoObjetivoId,
-          empleadoNombre: invitation.empleadoObjetivo?.nombre ?? "Mozo",
+          empleadoNombre: (invitation.empleadoObjetivo ? nombreVisibleEmpleado(invitation.empleadoObjetivo) : "Mozo"),
           codePrefix: invitation.codePrefix,
           expiresAt: invitation.expiresAt,
           createdAt: invitation.createdAt,
@@ -182,9 +181,7 @@ export async function POST(req: NextRequest) {
           expiresAt: true,
           createdAt: true,
           empleadoObjetivo: {
-            select: {
-              nombre: true,
-            },
+            select: EMPLEADO_NOMBRE_SELECT,
           },
         },
       })
@@ -210,7 +207,7 @@ export async function POST(req: NextRequest) {
           invitacion: {
             id: invitation.id,
             empleadoObjetivoId: invitation.empleadoObjetivoId,
-            empleadoNombre: invitation.empleadoObjetivo?.nombre ?? "Mozo",
+            empleadoNombre: (invitation.empleadoObjetivo ? nombreVisibleEmpleado(invitation.empleadoObjetivo) : "Mozo"),
             codePrefix: invitation.codePrefix,
             expiresAt: invitation.expiresAt,
             createdAt: invitation.createdAt,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requireOperacionesScope, hasTerminalScope } from "@/lib/operaciones-terminal-access"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
+import { conNombresHistoricosVisibles, EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
     const puedeReasignarMesa = hasTerminalScope(auth.context, "salon.mesas.reasignar")
     const puedeLiberarMesa = hasTerminalScope(auth.context, "salon.mesas.liberar")
 
-    const [mesas, pedidos, mozosAsignables] = await Promise.all([
+    const [mesas, pedidosFilas, mozosFilas] = await Promise.all([
       db.mesa.findMany({
         where: { negocioId, activa: true },
         orderBy: { numero: "asc" },
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
           capacidad: true,
           // Nombre visible del mozo asignado (necesario para operar). El `id` solo se
           // expone más abajo a terminales con reasignación (para preseleccionar el mozo).
-          empleado: { select: { id: true, nombre: true } },
+          empleado: { select: { id: true, ...EMPLEADO_NOMBRE_SELECT } },
         },
       }),
       db.pedido.findMany({
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
           total: true,
           fecha: true,
           clienteNombre: true,
+          empleadoId: true,
           empleadoNombre: true,
           items: {
             select: {
@@ -94,11 +96,15 @@ export async function GET(req: NextRequest) {
       puedeReasignarMesa
         ? db.empleado.findMany({
             where: { negocioId, rol: "mozo", activo: true, eliminado: false },
-            orderBy: { nombre: "asc" },
-            select: { id: true, nombre: true },
+            select: { id: true, ...EMPLEADO_NOMBRE_SELECT },
           })
-        : Promise.resolve([] as { id: string; nombre: string }[]),
+        : Promise.resolve([]),
     ])
+    // BUG-001: identidad visible (regla única) para mozos, mesas y fotos históricas de pedidos.
+    const mozosAsignables = mozosFilas
+      .map((m) => ({ id: m.id, nombre: nombreVisibleEmpleado(m) }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es") || a.id.localeCompare(b.id))
+    const pedidos = await conNombresHistoricosVisibles(db, negocioId, pedidosFilas)
 
     const pedidosOut = pedidos.map((p) => ({
       id: p.id,
@@ -108,6 +114,8 @@ export async function GET(req: NextRequest) {
       fecha: p.fecha,
       clienteNombre: p.clienteNombre,
       empleadoNombre: p.empleadoNombre,
+      // true = se muestra el nombre actual porque la foto guardada era «Pendiente de vinculación» (el dato histórico no cambia).
+      empleadoNombreResuelto: p.empleadoNombreResuelto,
       items: p.items.map((item) => ({
         id: item.id,
         nombre: item.nombre,
@@ -157,8 +165,8 @@ export async function GET(req: NextRequest) {
           // (para preseleccionarlo en el selector). El resto solo ve el nombre.
           empleado: m.empleado
             ? puedeReasignarMesa
-              ? { id: m.empleado.id, nombre: m.empleado.nombre }
-              : { nombre: m.empleado.nombre }
+              ? { id: m.empleado.id, nombre: nombreVisibleEmpleado(m.empleado) }
+              : { nombre: nombreVisibleEmpleado(m.empleado) }
             : null,
         })),
         // Solo con `salon.mesas.reasignar`; en caso contrario, lista vacía (forma consistente).

@@ -43,6 +43,7 @@ import {
 } from "@/lib/compras-calculo"
 import { moneyToNumber } from "@/lib/money"
 import { anticiposPorPedido, pagosDePedido, pagosDePedidoParaRespuesta, planAnticiposPedido } from "@/lib/pagos-pedido-service"
+import { mapaNombresVisibles } from "@/lib/empleado-identidad"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -1114,10 +1115,8 @@ export async function actualizarConfiguracionCompras(db: Db, negocioId: string, 
 
 /** Vista de una recepción. `paraEmpleado` limita a sus propias recepciones y omite los vínculos con la cuenta del proveedor. */
 async function nombresEmpleados(db: Db, negocioId: string, ids: Array<string | null | undefined>) {
-  const unicos = [...new Set(ids.filter((x): x is string => Boolean(x)))]
-  if (!unicos.length) return new Map<string, string>()
-  const filas = await db.empleado.findMany({ where: { negocioId, id: { in: unicos } }, select: { id: true, nombre: true } })
-  return new Map(filas.map((f) => [f.id, f.nombre]))
+  // Regla única de identidad (empleado-identidad.ts): la cuenta operativa vinculada gana.
+  return mapaNombresVisibles(db, negocioId, ids)
 }
 
 /** Catálogo para RECIBIR mercadería: identificación, unidad y variantes activas (sin precios ni costos). */

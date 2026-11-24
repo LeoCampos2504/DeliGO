@@ -2126,7 +2126,7 @@ function MesaDetailDrawer({
               <SelectContent>
                 <SelectItem value="__none__">Sin asignar</SelectItem>
                 {mozos.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.nombre} ({m.codigo})</SelectItem>
+                  <SelectItem key={m.id} value={m.id}>{m.displayName ?? m.nombre} ({m.codigo})</SelectItem>
                 ))}
               </SelectContent>
             </Select>

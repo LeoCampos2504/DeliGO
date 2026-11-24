@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { requireOperacionesScope } from "@/lib/operaciones-terminal-access"
 import { getIngredientesQuitadosNombres } from "@/lib/pedido-item-personalizacion"
 import { buildMesaHistorialAccounts, type MesaHistorialPedidoInput } from "@/lib/mesa-historial"
+import { conNombresHistoricosVisibles } from "@/lib/empleado-identidad"
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" }
 
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
     const periodo = resolvePeriodo(searchParams.get("periodo"))
     const startDate = startDateForPeriodo(periodo)
 
-    const pedidos = await db.pedido.findMany({
+    const pedidosFilas = await db.pedido.findMany({
       where: {
         negocioId,
         metodoEntrega: "mesa",
@@ -96,6 +97,8 @@ export async function GET(req: NextRequest) {
         },
         // Solo nombres visibles (no IDs de empleado/cliente, ni teléfonos/contacto).
         clienteNombre: true,
+        // empleadoId sólo se usa en el servidor para resolver la foto «Pendiente de vinculación»; no se devuelve.
+        empleadoId: true,
         empleadoNombre: true,
         items: {
           select: {
@@ -117,6 +120,8 @@ export async function GET(req: NextRequest) {
       },
     })
 
+    // BUG-001: nombre visible del mozo; la foto histórica guardada no se modifica.
+    const pedidos = await conNombresHistoricosVisibles(db, negocioId, pedidosFilas)
     const pedidosInput: MesaHistorialPedidoInput[] = pedidos.map((p) => ({
       id: p.id,
       mesaNumero: p.mesaNumero,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -23,12 +24,13 @@ export async function GET(req: NextRequest) {
       orderBy: { numero: "asc" },
       include: {
         empleado: {
-          select: { id: true, nombre: true, codigo: true },
+          select: { id: true, ...EMPLEADO_NOMBRE_SELECT, codigo: true },
         },
       },
     })
 
-    return NextResponse.json(mesas)
+    // BUG-001: nombre visible del mozo asignado (regla única); misma forma de respuesta { id, nombre, codigo }.
+    return NextResponse.json(mesas.map((m) => ({ ...m, empleado: m.empleado ? { id: m.empleado.id, nombre: nombreVisibleEmpleado(m.empleado), codigo: m.empleado.codigo } : null })))
   } catch (error) {
     console.error("Error listing mesas:", safeErrorForLog(error))
     return NextResponse.json(

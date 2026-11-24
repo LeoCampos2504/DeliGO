@@ -11,6 +11,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { createHash } from "node:crypto"
 import { estadoCuenta, operarAsignacionesEnTx, registrarCredito, type AuditoriaEnTx, type CuentaResult } from "@/lib/cuenta-proveedor-service"
+import { mapaNombresVisibles } from "@/lib/empleado-identidad"
 
 type Db = PrismaClient
 const D = Prisma.Decimal
@@ -36,13 +37,12 @@ export async function cuentaPorPedidos(db: Db, negocioId: string, proveedorId: s
     select: { id: true, numero: true, compraId: true, fechaRecepcion: true, aprobadaEn: true, comprobanteTipo: true, comprobanteNumero: true, lineas: { orderBy: { orden: "asc" }, select: { productoNombre: true, varianteNombre: true, cantidadAceptadaDecimal: true, costoUnitarioDecimal: true } } },
   }) : []
   const empleadoIds = [...new Set(credExtra.flatMap((c) => (c.egresoCaja?.empleadoId ? [c.egresoCaja.empleadoId] : [])))]
-  const empleados = empleadoIds.length ? await db.empleado.findMany({ where: { negocioId, id: { in: empleadoIds } }, select: { id: true, nombre: true } }) : []
+  const nombreEmpleado = await mapaNombresVisibles(db, negocioId, empleadoIds)
 
   const extraObl = new Map(oblExtra.map((o) => [o.id, o]))
   const extraCred = new Map(credExtra.map((c) => [c.id, c]))
   const recPorId = new Map(recepciones.map((r) => [r.id, r]))
   const cargoPorId = new Map(cargos.map((c) => [c.id, c]))
-  const nombreEmpleado = new Map(empleados.map((e) => [e.id, e.nombre]))
   const creditoPorId = new Map(cuenta.creditos.map((c) => [c.id, c]))
   const compraPorId = new Map(compras.map((c) => [c.id, c]))
 

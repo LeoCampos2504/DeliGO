@@ -29,8 +29,11 @@ import { GET as getCadenaOwner } from "@/app/api/negocio/caja/ventas/[id]/cadena
 setDefaultTimeout(120_000)
 
 describe("nombreVisibleEmpleado (unit)", () => {
-  test("a real own name always wins", () => {
-    expect(nombreVisibleEmpleado({ nombre: "Beto", cuentaOperativa: { nombre: "Roberto Cuenta", eliminado: false } })).toBe("Beto")
+  // BUG-001 (operator decision 2026-11-24): for an ACTIVE link the account's name wins even over an inherited own name.
+  test("linked account wins over an inherited own name; without a usable link the own name stays", () => {
+    expect(nombreVisibleEmpleado({ nombre: "Beto", cuentaOperativa: { nombre: "Roberto Cuenta", eliminado: false } })).toBe("Roberto Cuenta")
+    expect(nombreVisibleEmpleado({ nombre: "Beto", cuentaOperativa: null })).toBe("Beto")
+    expect(nombreVisibleEmpleado({ nombre: "Beto", cuentaOperativa: { nombre: "Roberto Cuenta", eliminado: true } })).toBe("Beto")
   })
   test("placeholder + linked account → the account's name", () => {
     expect(nombreVisibleEmpleado({ nombre: NOMBRE_EMPLEADO_PENDIENTE, cuentaOperativa: { nombre: "Ana Real", eliminado: false } })).toBe("Ana Real")

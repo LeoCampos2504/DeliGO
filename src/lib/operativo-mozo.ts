@@ -11,6 +11,7 @@ import {
   resolveAreaOperativaEfectiva,
   type AreaOperativa,
 } from "@/lib/area-operativa"
+import { nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 export type OperativoMozoAuth =
   | {
@@ -162,7 +163,10 @@ export async function resolveOperativoAreaForSlug(
   return {
     ok: true,
     cuenta: account,
-    empleado: empleadoBase,
+    // BUG-001: `nombre` es la identidad VISIBLE (regla única de empleado-identidad.ts). Este empleado
+    // está vinculado por definición a la cuenta con sesión activa (no eliminada), así que muestra su
+    // nombre; Empleado.nombre en la base no se modifica. id, negocio y permisos son los de la fila.
+    empleado: { ...empleadoBase, nombre: nombreVisibleEmpleado({ nombre: empleado.nombre, cuentaOperativa: { nombre: account.nombre, eliminado: false } }) },
     areaOperativa: empleado.areaOperativa,
     areaOperativaEfectiva,
     negocio,

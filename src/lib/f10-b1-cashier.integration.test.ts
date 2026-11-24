@@ -331,7 +331,9 @@ describe("F10-B1 — cashier catalog", () => {
     const res = await productosCaja(cookie, negocio.slug)
     expect(res.status).toBe(200)
     expect(res.cacheControl ?? "").toContain("no-store")
-    expect(res.body.empleado).toEqual({ id: empleado.id, nombre: empleado.nombre })
+    // BUG-001: the cashier's visible identity is the linked operational account's name (same id; stored name unchanged).
+    const cuentaVinculada = await db.cuentaOperativa.findUniqueOrThrow({ where: { id: empleado.cuentaOperativaId! }, select: { nombre: true } })
+    expect(res.body.empleado).toEqual({ id: empleado.id, nombre: cuentaVinculada.nombre })
     expect(res.body.negocio.id).toBe(negocio.id)
     const ids = (res.body.productos as Array<{ id: string }>).map((p) => p.id)
     expect(ids).toContain(controlado.id)

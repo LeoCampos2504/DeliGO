@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { conNombresHistoricosVisibles } from "@/lib/empleado-identidad"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { notifyMesaOrderReadyForMozo } from "@/lib/mesa-order-ready-notification"
 import { createNotification, orderUpdateNotification } from "@/lib/push"
@@ -162,8 +163,12 @@ export async function GET(req: NextRequest) {
       db.pedido.count({ where }),
     ])
 
+    // BUG-001: nombre visible del mozo/vendedor; la foto histórica guardada no se modifica
+    // (empleadoNombreRegistrado la conserva y empleadoNombreResuelto indica cuándo se mostró el nombre actual).
+    const pedidosVisibles = await conNombresHistoricosVisibles(db, negocioId, pedidos)
+
     // Parse JSON fields in items & strip clienteTelefono
-    const pedidosParsedAll = pedidos.map(({ clienteTelefono, ...p }) => ({
+    const pedidosParsedAll = pedidosVisibles.map(({ clienteTelefono, ...p }) => ({
       ...p,
       metodoPagoCuenta: p.ocupacionMesa?.metodoPago ?? null,
       pagoConfirmadoEnCuenta: p.ocupacionMesa?.pagoConfirmadoEn?.toISOString() ?? null,

@@ -17,6 +17,7 @@ import { runBarcodeGuardedWrite, type BarcodeClaim } from "@/lib/barcode-uniquen
 import { isValidUnidadMedida } from "@/lib/inventario"
 import { validateOptionalImageUrl } from "@/lib/resource-url"
 import { conPrecioDeCatalogoEnTx } from "@/lib/etiquetas-precio-service"
+import { EMPLEADO_NOMBRE_SELECT, mapaNombresVisibles, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -171,7 +172,7 @@ export async function autoriaProducto(db: Db, negocioId: string, productoId: str
   if (!prod) return null
   const eventos = await db.auditLog.findMany({ where: { recurso: "producto", recursoId: productoId, accion: { in: ["producto.creado", "producto.modificado", "producto.precio_cambiado"] } }, orderBy: { fecha: "asc" }, select: { accion: true, userType: true, userId: true, fecha: true } })
   const ids = [...new Set(eventos.filter((e) => e.userType === "empleado").map((e) => e.userId))]
-  const nombres = new Map((ids.length ? await db.empleado.findMany({ where: { negocioId, id: { in: ids } }, select: { id: true, nombre: true } }) : []).map((e) => [e.id, e.nombre]))
+  const nombres = await mapaNombresVisibles(db, negocioId, ids)
   const quien = (e: { userType: string; userId: string }) => (e.userType === "empleado" ? nombres.get(e.userId) ?? "Empleado" : "Dueño")
   const alta = eventos.find((e) => e.accion === "producto.creado")
   const mods = eventos.filter((e) => e.accion !== "producto.creado")
@@ -184,8 +185,12 @@ export async function autoriaProducto(db: Db, negocioId: string, productoId: str
 
 // ---------- permisos (dueño) ----------
 export async function listarPermisosCatalogo(db: Db, negocioId: string) {
-  const empleados = await db.empleado.findMany({ where: { negocioId, activo: true, eliminado: false }, orderBy: { nombre: "asc" }, select: { id: true, nombre: true, catalogoHasta: true, catalogoCrear: true, catalogoEditar: true, catalogoProveedores: true, catalogoPrecios: true, catalogoCostos: true, catalogoImportar: true } })
-  return empleados.map((e) => ({ id: e.id, nombre: e.nombre, hasta: e.catalogoHasta, vigente: Boolean(e.catalogoHasta && e.catalogoHasta.getTime() > Date.now()), crear: e.catalogoCrear, editar: e.catalogoEditar, proveedores: e.catalogoProveedores, precios: e.catalogoPrecios, costos: e.catalogoCostos, importar: e.catalogoImportar }))
+  const empleados = await db.empleado.findMany({ where: { negocioId, activo: true, eliminado: false }, select: { id: true, ...EMPLEADO_NOMBRE_SELECT, catalogoHasta: true, catalogoCrear: true, catalogoEditar: true, catalogoProveedores: true, catalogoPrecios: true, catalogoCostos: true, catalogoImportar: true } })
+  // Nombre visible (regla única de identidad) y orden por ese nombre; el id y los permisos son siempre los de la fila.
+  return empleados
+    .map((e) => ({ e, nombre: nombreVisibleEmpleado(e) }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es") || a.e.id.localeCompare(b.e.id))
+    .map(({ e, nombre }) => ({ id: e.id, nombre, hasta: e.catalogoHasta, vigente: Boolean(e.catalogoHasta && e.catalogoHasta.getTime() > Date.now()), crear: e.catalogoCrear, editar: e.catalogoEditar, proveedores: e.catalogoProveedores, precios: e.catalogoPrecios, costos: e.catalogoCostos, importar: e.catalogoImportar }))
 }
 
 /** body: { empleadoId, hasta (ISO) | null (revocar), crear, editar, proveedores, precios, costos, importar } */

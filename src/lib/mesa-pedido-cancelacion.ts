@@ -49,6 +49,7 @@ import {
   STOCK_SERIALIZABLE_TIMEOUT_MS,
 } from "@/lib/stock-lifecycle"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 // ---------------------------------------------------------------------------
 // Validación del motivo (sección 11)
@@ -166,13 +167,13 @@ export async function resolverActorCancelacionMesa(
       if (area === "salon") {
         return {
           ok: true,
-          actor: { type: "salon_personal", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
+          actor: { type: "salon_personal", negocioId: pedido.negocioId, actorId: empleado.id, nombre: nombreVisibleEmpleado({ nombre: empleado.nombre, cuentaOperativa: { nombre: cuentaOperativa.nombre, eliminado: false } }) },
         }
       }
       if (area === "mozo") {
         return {
           ok: true,
-          actor: { type: "mozo", negocioId: pedido.negocioId, actorId: empleado.id, nombre: empleado.nombre },
+          actor: { type: "mozo", negocioId: pedido.negocioId, actorId: empleado.id, nombre: nombreVisibleEmpleado({ nombre: empleado.nombre, cuentaOperativa: { nombre: cuentaOperativa.nombre, eliminado: false } }) },
         }
       }
       // "pyr" / "sin_asignar": identidad válida, sin permiso para cancelar.

@@ -15,6 +15,7 @@ import { Prisma, type PrismaClient } from "@prisma/client"
 import { runSerializable } from "@/lib/caja-devoluciones-service"
 import { parseEgresoBody, type EgresoSolicitud } from "@/lib/caja-egresos-service"
 import { anticiposDisponibles, vincularPagoCajaEnTx, type AuditoriaEnTx } from "@/lib/cuenta-proveedor-service"
+import { mapaNombresVisibles } from "@/lib/empleado-identidad"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -95,7 +96,7 @@ export async function pagosDeRecepcion(db: Db | Tx, negocioId: string, recepcion
     },
   })
   const empleados = [...new Set(filas.map((f) => f.egreso.empleadoId).filter((x): x is string => Boolean(x)))]
-  const nombres = new Map((empleados.length ? await db.empleado.findMany({ where: { negocioId, id: { in: empleados } }, select: { id: true, nombre: true } }) : []).map((e) => [e.id, e.nombre]))
+  const nombres = await mapaNombresVisibles(db, negocioId, empleados)
   // Disponible de cada crédito ya existente (un pago ya vinculado puede estar usado en parte): motor de F5.
   const disponibles = filas.some((f) => f.egreso.creditosProveedor.length)
     ? new Map((await anticiposDisponibles(db, negocioId, proveedorId)).map((c) => [c.id, c.disponible]))

@@ -1,33 +1,11 @@
 // ============================================
 // Display name of an employee in the owner's Caja / shift views (display only)
 // ============================================
-// An employee created without a name keeps the placeholder below in
-// Empleado.nombre until the owner renames it; once an operational account is
-// linked, the person's real name lives in CuentaOperativa.nombre (the
-// employees list already projects it). Shift views used to print
-// Empleado.nombre as-is, so a linked cashier appeared as «Pendiente de
-// vinculación». Rule (never written to the database, no historical record
-// changes): a real own name wins; a placeholder/empty name falls back to the
-// linked, non-deleted account's name; with no linked account the placeholder
-// stays (it is then true).
+// Kept as a compatibility entry point: the single identity rule now lives in
+// src/lib/empleado-identidad.ts (BUG-001, 2026-11-24). A linked, non-deleted
+// operational account's name wins — even over an inherited own name; without a
+// usable link Empleado.nombre stays (the «Pendiente de vinculación» placeholder
+// is then true). Never written to the database; no historical record changes.
 
-export const NOMBRE_EMPLEADO_PENDIENTE = "Pendiente de vinculación"
-
-/** Prisma select for `empleado` wherever a responsible name is shown. */
-export const EMPLEADO_NOMBRE_SELECT = {
-  nombre: true,
-  cuentaOperativa: { select: { nombre: true, eliminado: true } },
-} as const
-
-export type EmpleadoConNombre = {
-  nombre: string | null
-  cuentaOperativa?: { nombre: string | null; eliminado: boolean } | null
-} | null | undefined
-
-export function nombreVisibleEmpleado(empleado: EmpleadoConNombre): string {
-  const propio = empleado?.nombre?.trim() ?? ""
-  if (propio && propio !== NOMBRE_EMPLEADO_PENDIENTE) return propio
-  const cuenta = empleado?.cuentaOperativa && !empleado.cuentaOperativa.eliminado ? (empleado.cuentaOperativa.nombre?.trim() ?? "") : ""
-  if (cuenta) return cuenta
-  return propio || "Empleado"
-}
+export { EMPLEADO_NOMBRE_SELECT, NOMBRE_EMPLEADO_PENDIENTE, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
+export type { EmpleadoConNombre } from "@/lib/empleado-identidad"

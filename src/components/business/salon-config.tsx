@@ -56,6 +56,8 @@ interface Mesa {
 interface Empleado {
   id: string
   nombre: string
+  // BUG-001: nombre de la cuenta operativa vinculada (lo proyecta GET /api/negocio/empleados); null si no hay vínculo.
+  displayName?: string | null
   codigo: string
   rol: string
   activo: boolean
@@ -1102,7 +1104,7 @@ function EmpleadosSection({ negocio }: { negocio: SalonConfigProps["negocio"] })
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold truncate">{empleado.nombre}</p>
+                      <p className="text-sm font-semibold truncate">{empleado.displayName ?? empleado.nombre}</p>
                       {!empleado.activo && (
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                           Inactivo

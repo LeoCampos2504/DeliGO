@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
       where: { id: mesaId },
       include: {
         empleado: {
-          select: { id: true, nombre: true, codigo: true },
+          select: { id: true, ...EMPLEADO_NOMBRE_SELECT, codigo: true },
         },
       },
     })
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
       zona: updated.zona,
       capacidad: updated.capacidad,
       mozoAsignado: updated.empleado
-        ? { id: updated.empleado.id, nombre: updated.empleado.nombre, codigo: updated.empleado.codigo }
+        ? { id: updated.empleado.id, nombre: nombreVisibleEmpleado(updated.empleado), codigo: updated.empleado.codigo }
         : null,
     })
   } catch (error) {

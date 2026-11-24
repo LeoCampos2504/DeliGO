@@ -11,6 +11,7 @@
 // ni ventas ya hechas. Cada cambio efectivo queda en activaciones_precio_venta (base de los precios por inicio de venta).
 
 import { Prisma, type PrismaClient } from "@prisma/client"
+import { mapaNombresVisibles } from "@/lib/empleado-identidad"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -66,8 +67,7 @@ export async function listarEtiquetas(db: Db, negocioId: string, filtro: { estad
   const pendientes = await db.etiquetaPrecio.count({ where: { negocioId, estado: "PENDIENTE" } })
   // Nombres de quien confirmó (empleados del negocio); el dueño figura como «Dueño».
   const empleadoIds = [...new Set(filas.filter((f) => f.resueltaPorTipo === "EMPLEADO" && f.resueltaPorId).map((f) => f.resueltaPorId!))]
-  const empleados = filtro.conActor && empleadoIds.length ? await db.empleado.findMany({ where: { negocioId, id: { in: empleadoIds } }, select: { id: true, nombre: true } }) : []
-  const nombreEmpleado = new Map(empleados.map((e) => [e.id, e.nombre]))
+  const nombreEmpleado = filtro.conActor ? await mapaNombresVisibles(db, negocioId, empleadoIds) : new Map<string, string>()
   return {
     pendientes,
     etiquetas: filas.map((f) => ({

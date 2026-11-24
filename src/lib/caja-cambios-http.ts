@@ -89,10 +89,10 @@ export async function crearCambioHttp(req: NextRequest, negocioId: string, actor
     const [ventaOrigen, ventaNueva, empleado] = await Promise.all([
       detalleVentaConDevoluciones(db, negocioId, cambio.ventaOrigenId, vista),
       detalleVentaConDevoluciones(db, negocioId, cambio.ventaNuevaId, vista),
-      actor.tipo === "NEGOCIO" && cambio.empleadoId ? db.empleado.findFirst({ where: { id: cambio.empleadoId, negocioId }, select: { nombre: true } }) : null,
+      actor.tipo === "NEGOCIO" && cambio.empleadoId ? db.empleado.findFirst({ where: { id: cambio.empleadoId, negocioId }, select: EMPLEADO_NOMBRE_SELECT }) : null,
     ])
     return NextResponse.json(
-      { ok: true, replayed, cambio: cambioParaRespuesta(cambio, actor, empleado?.nombre ?? null), ventaOrigen, ventaNueva },
+      { ok: true, replayed, cambio: cambioParaRespuesta(cambio, actor, empleado ? nombreVisibleEmpleado(empleado) : null), ventaOrigen, ventaNueva },
       { status: replayed ? 200 : 201, headers: replayed ? { "Idempotency-Replayed": "true" } : undefined }
     )
   } catch (error) {
@@ -177,9 +177,9 @@ export async function verificarCambioHttp(req: NextRequest, negocioId: string, a
     const [ventaOrigen, ventaNueva, empleado] = await Promise.all([
       detalleVentaConDevoluciones(db, negocioId, cambio.ventaOrigenId, vista),
       detalleVentaConDevoluciones(db, negocioId, cambio.ventaNuevaId, vista),
-      actor.tipo === "NEGOCIO" && cambio.empleadoId ? db.empleado.findFirst({ where: { id: cambio.empleadoId, negocioId }, select: { nombre: true } }) : null,
+      actor.tipo === "NEGOCIO" && cambio.empleadoId ? db.empleado.findFirst({ where: { id: cambio.empleadoId, negocioId }, select: EMPLEADO_NOMBRE_SELECT }) : null,
     ])
-    return NextResponse.json({ ok: true, estado: "REGISTRADO", replayed: true, cambio: cambioParaRespuesta(cambio, actor, empleado?.nombre ?? null), ventaOrigen, ventaNueva })
+    return NextResponse.json({ ok: true, estado: "REGISTRADO", replayed: true, cambio: cambioParaRespuesta(cambio, actor, empleado ? nombreVisibleEmpleado(empleado) : null), ventaOrigen, ventaNueva })
   } catch (error) {
     console.error("Error verifying cambio de venta:", safeErrorForLog(error))
     return NextResponse.json({ ok: false, error: "No pudimos verificar la operación por un error del servidor. Su resultado sigue sin conocerse: volvé a verificar.", code: "VERIFICACION_INCIERTA" }, { status: 500 })

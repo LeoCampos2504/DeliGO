@@ -10,6 +10,7 @@ import {
   resolveAreaOperativaEfectiva,
 } from "@/lib/area-operativa"
 import { safeErrorForLog } from "@/lib/log-safe-error"
+import { nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 function noStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store")
@@ -118,7 +119,8 @@ export async function GET(req: NextRequest) {
       .map(({ empleado, areaOperativaEfectiva }) => ({
         empleado: {
           id: empleado.id,
-          nombre: empleado.nombre,
+          // BUG-001: identidad visible (la cuenta con sesión activa está vinculada a este empleado).
+          nombre: nombreVisibleEmpleado({ nombre: empleado.nombre, cuentaOperativa: { nombre: account.nombre, eliminado: false } }),
           codigo: empleado.codigo,
           rol: empleado.rol,
           activo: empleado.activo,

@@ -19,6 +19,7 @@ import {
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { normalizeOwnSectionOptions, validateAndPriceProductSections } from "@/lib/product-own-sections"
 import { isGenericBusinessStockScope } from "@/lib/stock-authority"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 import {
   mapStockLifecycleError,
   planificarReservaStockPedido,
@@ -958,7 +959,8 @@ export async function POST(
               activo: true,
               eliminado: false,
             },
-            select: { id: true, nombre: true },
+            // BUG-001: con la cuenta vinculada para guardar la identidad visible en el pedido nuevo.
+            select: { id: true, ...EMPLEADO_NOMBRE_SELECT },
           })
           if (!empleado) throw new Error("OPERATIVO_UNAVAILABLE")
 
@@ -1315,7 +1317,7 @@ export async function POST(
               mesaNumero: mesa.numero,
               ocupacionMesaId,
               empleadoId: empleado.id,
-              empleadoNombre: empleado.nombre,
+              empleadoNombre: nombreVisibleEmpleado(empleado),
               idempotencyKey,
               idempotencyFingerprint,
               estado: "recibido",

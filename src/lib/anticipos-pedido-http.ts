@@ -20,6 +20,7 @@ import { parseEgresoBody, registrarEgresoCaja } from "@/lib/caja-egresos-service
 import { detalleAuditoriaEgreso } from "@/lib/caja-egresos-http"
 import { vincularPagoCajaEnTx } from "@/lib/cuenta-proveedor-service"
 import { deudaAprobadaPendienteDePedido, mensajeDeudaAprobada } from "@/lib/pagos-pedido-service"
+import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
 
 const NO_STORE = { "Cache-Control": "private, no-store" }
 type Fallo = { status: number; error: string; code?: string; detalle?: Record<string, unknown> }
@@ -117,7 +118,9 @@ export async function registrarAnticipoEfectivo(client: typeof db, input: { nego
 
 // ---------- permisos (sólo dueño) ----------
 export async function listarPermisosAnticipoHttp(negocioId: string) {
-  const empleados = await db.empleado.findMany({ where: { negocioId, activo: true, eliminado: false }, orderBy: { nombre: "asc" }, select: { id: true, nombre: true, anticipoProveedorHabilitado: true, anticipoProveedorLimiteOperacionDecimal: true, anticipoProveedorLimiteDiarioDecimal: true } })
+  const filas = await db.empleado.findMany({ where: { negocioId, activo: true, eliminado: false }, select: { id: true, ...EMPLEADO_NOMBRE_SELECT, anticipoProveedorHabilitado: true, anticipoProveedorLimiteOperacionDecimal: true, anticipoProveedorLimiteDiarioDecimal: true } })
+  // Nombre visible (regla única de identidad) y orden por ese nombre; id y permisos son los de la fila.
+  const empleados = filas.map((e) => ({ ...e, nombre: nombreVisibleEmpleado(e) })).sort((a, b) => a.nombre.localeCompare(b.nombre, "es") || a.id.localeCompare(b.id))
   return NextResponse.json({ ok: true, empleados: empleados.map((e) => ({ id: e.id, nombre: e.nombre, habilitado: e.anticipoProveedorHabilitado, limiteOperacion: e.anticipoProveedorLimiteOperacionDecimal?.toFixed(2) ?? null, limiteDiario: e.anticipoProveedorLimiteDiarioDecimal?.toFixed(2) ?? null })) }, { headers: NO_STORE })
 }
 
