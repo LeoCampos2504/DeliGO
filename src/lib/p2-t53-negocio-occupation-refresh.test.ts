@@ -65,7 +65,8 @@ describe("P2-T53-R1 — cierre comercial y refresh de ocupación en Negocio", ()
   })
 
   test("MesaOccupancyControl conserva su contrato de revalidación por refreshKey", () => {
-    expect(occupancyControl).toContain("}, [mesaId, refreshKey])")
+    // BUG-002: la familia de sesión declarada por la pantalla también revalida (nunca autoriza por sí sola).
+    expect(occupancyControl).toContain("}, [mesaId, refreshKey, actorFamily])")
     expect(occupancyControl).toContain("onClosed?.()")
   })
 })

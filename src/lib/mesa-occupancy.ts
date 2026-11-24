@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "crypto"
 import type { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { SESSION_COOKIE_NAME, findSesionByToken, getOperationalAccountFromRequest } from "@/lib/auth"
+import { SESSION_COOKIE_NAME, findSesionByToken, getFamilySessionCookieName, getOperationalAccountFromRequest } from "@/lib/auth"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
 import { requireOperacionesArea } from "@/lib/operaciones-terminal-access"
 import { ESTADOS_PENDIENTES_MESA, type MetodoPagoMesa } from "@/lib/mesa-cuenta"
@@ -825,6 +825,90 @@ export async function resolveMesaOccupancyCloseActor(
   }
 
   return null
+}
+
+// ============================================
+// BUG-002 — resolución de actor por FAMILIA de sesión declarada (GET/POST /api/operaciones/mesas/[id]/ocupacion)
+// ============================================
+// Causa raíz: `/api/operaciones/*` no tiene familia por ruta; el proxy sólo copia una cookie de familia a la
+// cookie legacy `deligo_session` cuando hay EXACTAMENTE una candidata. Con la sesión del dueño
+// (`deligo_session_negocio`) y una cuenta operativa (`deligo_operativo_session`) en el mismo navegador no copia
+// ninguna, el dueño no se reconoce y la cuenta operativa sin área de Salón/Mozo quedaba en 401.
+// Corrección: el llamador declara la familia (`?actorFamily=`, la fija cada pantalla, nunca el usuario) y aquí se
+// valida EXCLUSIVAMENTE la credencial de esa familia. El selector no otorga nada: sólo elige qué credencial se
+// comprueba, con las mismas reglas de siempre (negocio exacto, área efectiva, asignación de mesas). Una pantalla
+// operativa declara `cuenta_operativa`/`terminal`, así que la sesión del dueño presente en el navegador nunca
+// eleva sus peticiones. Sin selector se conserva el comportamiento anterior (compatibilidad).
+// Códigos: 401 sin credencial válida de la familia · 403 credencial válida del negocio sin permiso ·
+// 404 credencial válida de OTRO negocio (no revela la mesa) · 409/500 los decide la ruta.
+
+export type MesaOccupancyActorFamily = "negocio" | "cuenta_operativa" | "terminal"
+
+export function parseMesaOccupancyActorFamily(value: string | null | undefined): MesaOccupancyActorFamily | null | "invalid" {
+  if (value === null || value === undefined || value === "") return null
+  return value === "negocio" || value === "cuenta_operativa" || value === "terminal" ? value : "invalid"
+}
+
+export type MesaOccupancyActorResolution =
+  | { ok: true; actor: MesaOccupancyCloseActor }
+  | { ok: false; status: 401 | 403 | 404 }
+
+/** userId de una sesión de dueño VIGENTE en la cookie indicada (o null). */
+async function sesionDuenoVigente(token: string | undefined): Promise<string | null> {
+  if (!token) return null
+  const session = await findSesionByToken(token)
+  if (!session || session.userType !== "negocio" || session.expiresAt.getTime() <= Date.now()) return null
+  return session.userId
+}
+
+type ResolucionParcial = { actor: MesaOccupancyCloseActor } | { status: 401 | 403 | 404 }
+
+async function actorDueno(request: NextRequest, negocioId: string, usarCookieDeFamilia: boolean): Promise<ResolucionParcial> {
+  const familia = usarCookieDeFamilia ? request.cookies.get(getFamilySessionCookieName("negocio"))?.value : undefined
+  const userId = (await sesionDuenoVigente(familia)) ?? (await sesionDuenoVigente(request.cookies.get(SESSION_COOKIE_NAME)?.value))
+  if (!userId) return { status: 401 }
+  if (userId !== negocioId) return { status: 404 }
+  return { actor: { type: "negocio", negocioId, actorId: userId, canCloseAnyMesa: true } }
+}
+
+async function actorCuentaOperativa(request: NextRequest, negocioId: string): Promise<ResolucionParcial> {
+  const cuenta = await getOperationalAccountFromRequest(request)
+  if (!cuenta) return { status: 401 }
+  const empleado = cuenta.empleados.find((candidate) => candidate.negocio.id === negocioId && candidate.activo)
+  if (!empleado) return { status: 404 }
+  const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
+  if (area === "salon") return { actor: { type: "salon", negocioId, actorId: empleado.id, canCloseAnyMesa: true } }
+  if (area === "mozo") return { actor: { type: "mozo", negocioId, actorId: empleado.id, canCloseAnyMesa: false, assignedMesaIds: empleado.mesas.map((mesa) => mesa.id) } }
+  // caja / pyr / sin_asignar: identidad válida del negocio, sin permiso sobre la ocupación de mesas.
+  return { status: 403 }
+}
+
+async function actorTerminal(request: NextRequest, negocioId: string): Promise<ResolucionParcial> {
+  const terminalAuth = await requireOperacionesArea(request, "salon")
+  if (!terminalAuth.ok) return { status: terminalAuth.response.status === 401 ? 401 : 403 }
+  if (terminalAuth.context.negocio.id !== negocioId) return { status: 404 }
+  return { actor: { type: "salon_terminal", negocioId, actorId: terminalAuth.context.terminal.id, canCloseAnyMesa: true } }
+}
+
+export async function resolveMesaOccupancyActor(
+  request: NextRequest,
+  negocioId: string,
+  family: MesaOccupancyActorFamily | null
+): Promise<MesaOccupancyActorResolution> {
+  const cerrar = (r: ResolucionParcial): MesaOccupancyActorResolution => ("actor" in r ? { ok: true, actor: r.actor } : { ok: false, status: r.status })
+  if (family === "negocio") return cerrar(await actorDueno(request, negocioId, true))
+  if (family === "cuenta_operativa") return cerrar(await actorCuentaOperativa(request, negocioId))
+  if (family === "terminal") return cerrar(await actorTerminal(request, negocioId))
+
+  // Sin selector (compatibilidad): mismo orden que resolveMesaOccupancyCloseActor (dueño sólo por la cookie
+  // legacy que el proxy completa cuando no hay ambigüedad → cuenta operativa → terminal), con códigos precisos.
+  const intentos = [await actorDueno(request, negocioId, false), await actorCuentaOperativa(request, negocioId), await actorTerminal(request, negocioId)]
+  const conActor = intentos.find((r): r is { actor: MesaOccupancyCloseActor } => "actor" in r)
+  if (conActor) return { ok: true, actor: conActor.actor }
+  const estados = intentos.map((r) => ("status" in r ? r.status : 401))
+  if (estados.includes(403)) return { ok: false, status: 403 }
+  if (estados.includes(404)) return { ok: false, status: 404 }
+  return { ok: false, status: 401 }
 }
 
 export type MesaOccupancyStatusResult =

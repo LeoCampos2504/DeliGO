@@ -236,7 +236,8 @@ describe("P2-T48 — autoridad y paridad de ocupación personal de Salón", () =
     await createOccupation(mesa.id, negocioAjenoId)
 
     const { response } = await readOccupation(mesa.id, mozoToken)
-    expect(response.status).toBe(401)
+    // BUG-002: credencial válida de OTRO negocio → 404 (la mesa no se revela); antes 401 genérico.
+    expect(response.status).toBe(404)
   })
 
   test("área PyR no obtiene ocupación de Salón", async () => {
@@ -244,7 +245,8 @@ describe("P2-T48 — autoridad y paridad de ocupación personal de Salón", () =
     await createOccupation(mesa.id, negocioId)
 
     const { response } = await readOccupation(mesa.id, pyrToken)
-    expect(response.status).toBe(401)
+    // BUG-002: identidad válida del negocio sin permiso sobre la ocupación → 403; antes 401 genérico.
+    expect(response.status).toBe(403)
   })
 
   test("aislamiento Personal/Terminal: la página personal sólo usa API y cookie operativa", async () => {

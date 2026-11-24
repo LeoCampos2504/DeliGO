@@ -146,7 +146,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canC
     const occupancyStatus = await fetchMesaOccupancyStatus(mesaId).catch(() => ({ kind: "error" as const }))
     if (occupancyStatus.kind === "unauthorized") return setStatus("unauthorized")
     if (occupancyStatus.kind === "forbidden") return setStatus("forbidden")
-    if (occupancyStatus.kind === "error") return setStatus("error")
+    if (occupancyStatus.kind === "error" || occupancyStatus.kind === "not_found" || occupancyStatus.kind === "conflict") return setStatus("error")
     if (occupancyStatus.kind === "none") {
       setLastClosedOcupacionId(occupancyStatus.lastClosedOcupacionId)
       return setStatus("empty")

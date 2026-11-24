@@ -2098,6 +2098,7 @@ function MesaDetailDrawer({
             onClosed={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             onAccessDenied={() => queryClient.invalidateQueries({ queryKey: ["mesas", negocio.id] })}
             allowClose={false}
+            actorFamily="negocio"
           />
           {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
           <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} onClosed={onOccupationClosed} />

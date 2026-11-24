@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import {
   closeMesaOccupancyWithRevalidation,
   fetchMesaOccupancyStatus,
+  type MesaOccupancyActorFamily,
   type MesaOccupancyInfo,
 } from "@/lib/mesa-occupancy-client"
 
@@ -33,7 +34,7 @@ import {
 // toca pedidos/pagos/tickets/QR/asignación de mozo. La autorización real es
 // exclusiva del servidor (P0-D.3A); este control solo refleja sus resultados.
 
-type Status = "loading" | "active" | "none" | "unauthorized" | "forbidden" | "error"
+type Status = "loading" | "active" | "none" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "error"
 
 interface MesaOccupancyControlProps {
   mesaId: string
@@ -59,6 +60,9 @@ interface MesaOccupancyControlProps {
   // vuelve a ejecutar el GET server-side para evitar congelar un estado `none`
   // que era cierto al montar pero quedó obsoleto mientras la vista seguía abierta.
   refreshKey?: number
+  // BUG-002: familia de sesión de la PANTALLA que monta el control (dueño = "negocio", personal = "cuenta_operativa",
+  // terminal compartida = "terminal"). El servidor valida sólo esa credencial; nunca otorga permisos.
+  actorFamily?: MesaOccupancyActorFamily
 }
 
 function formatHora(iso: string): string | null {
@@ -76,6 +80,7 @@ export function MesaOccupancyControl({
   className,
   allowClose = true,
   refreshKey = 0,
+  actorFamily,
 }: MesaOccupancyControlProps) {
   const [status, setStatus] = useState<Status>("loading")
   const [occupancy, setOccupancy] = useState<MesaOccupancyInfo | null>(null)
@@ -104,7 +109,7 @@ export function MesaOccupancyControl({
     mountedRef.current = true
     const controller = new AbortController()
 
-    fetchMesaOccupancyStatus(mesaId, controller.signal)
+    fetchMesaOccupancyStatus(mesaId, controller.signal, actorFamily)
       .then((result) => {
         if (!mountedRef.current) return
         if (result.kind === "active") {
@@ -126,13 +131,13 @@ export function MesaOccupancyControl({
       mountedRef.current = false
       controller.abort()
     }
-  }, [mesaId, refreshKey])
+  }, [mesaId, refreshKey, actorFamily])
 
   async function handleConfirmClose() {
     if (closing) return
     setClosing(true)
     try {
-      const result = await closeMesaOccupancyWithRevalidation(mesaId)
+      const result = await closeMesaOccupancyWithRevalidation(mesaId, actorFamily)
       if (!mountedRef.current) return
 
       switch (result.kind) {
@@ -155,7 +160,7 @@ export function MesaOccupancyControl({
           setConfirmOpen(false)
           setStatus("loading")
           try {
-            const fresh = await fetchMesaOccupancyStatus(mesaId)
+            const fresh = await fetchMesaOccupancyStatus(mesaId, undefined, actorFamily)
             if (!mountedRef.current) return
             if (fresh.kind === "active") {
               setStatus("active")
@@ -199,10 +204,35 @@ export function MesaOccupancyControl({
     )
   }
 
-  if (status === "unauthorized" || status === "error") {
+  // BUG-002: cada resultado con su propio mensaje (antes 401 y cualquier error mostraban el mismo texto).
+  if (status === "unauthorized") {
     return (
       <div className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
-        No se pudo consultar la ocupación de la mesa.
+        Tu sesión no está activa en esta pantalla. Volvé a iniciar sesión para ver la ocupación.
+      </div>
+    )
+  }
+
+  if (status === "not_found") {
+    return (
+      <div className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+        Esta mesa no pertenece a este negocio o ya no existe.
+      </div>
+    )
+  }
+
+  if (status === "conflict") {
+    return (
+      <div className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+        El estado de ocupación de esta mesa es inconsistente. Actualizá la pantalla; si sigue igual, avisá al responsable.
+      </div>
+    )
+  }
+
+  if (status === "error") {
+    return (
+      <div className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", className)}>
+        No se pudo consultar la ocupación de la mesa. Intentá de nuevo en unos segundos.
       </div>
     )
   }

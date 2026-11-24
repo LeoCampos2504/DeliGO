@@ -1269,6 +1269,7 @@ function MesaCard({
               onClosed={onOccupancyClosed}
               onAccessDenied={onOccupancyClosed}
               allowClose={false}
+              actorFamily="cuenta_operativa"
             />
             {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes), solo mesas asignadas a este mozo. El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
             <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />

@@ -3,8 +3,10 @@ import { db } from "@/lib/db"
 import {
   getMesaOccupancyStatus,
   closeMesaOccupancy,
-  resolveMesaOccupancyCloseActor,
+  parseMesaOccupancyActorFamily,
+  resolveMesaOccupancyActor,
   logMesaOccupancyCloseEvent,
+  type MesaOccupancyActorResolution,
 } from "@/lib/mesa-occupancy"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
@@ -29,6 +31,20 @@ function jsonNoStore(body: unknown, init?: { status?: number }) {
   return NextResponse.json(body, { status: init?.status, headers: NO_STORE_HEADERS })
 }
 
+// BUG-002: el llamador declara su familia de sesión (?actorFamily=negocio|cuenta_operativa|terminal). Ver
+// resolveMesaOccupancyActor: el selector sólo elige qué credencial se valida; nunca otorga permisos.
+type ActorDeLaPeticion = { ok: true; resolucion: MesaOccupancyActorResolution } | { ok: false; response: NextResponse }
+async function actorDeLaPeticion(request: NextRequest, negocioId: string): Promise<ActorDeLaPeticion> {
+  const family = parseMesaOccupancyActorFamily(request.nextUrl.searchParams.get("actorFamily"))
+  if (family === "invalid") return { ok: false, response: jsonNoStore({ error: "actorFamily inválido", code: "MESA_OCCUPANCY_BAD_ACTOR_FAMILY" }, { status: 400 }) }
+  return { ok: true, resolucion: await resolveMesaOccupancyActor(request, negocioId, family) }
+}
+function respuestaSinActor(status: 401 | 403 | 404) {
+  if (status === 401) return jsonNoStore({ error: "Sesión no válida o vencida", code: "MESA_OCCUPANCY_UNAUTHENTICATED" }, { status: 401 })
+  if (status === 403) return jsonNoStore({ error: "No tenés permiso para la ocupación de esta mesa", code: "MESA_OCCUPANCY_FORBIDDEN" }, { status: 403 })
+  return jsonNoStore({ error: "Mesa no encontrada" }, { status: 404 })
+}
+
 // Mesa SIEMPRE resuelta server-side por id — nunca se confía en negocioId
 // enviado por el cliente. 404 genérico evita revelar si la mesa existe en
 // otro negocio.
@@ -40,6 +56,15 @@ async function resolveMesaContext(mesaId: string) {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    return await getOcupacion(request, params)
+  } catch (error) {
+    console.error("[MesaOccupancy] Error consultando ocupación:", safeErrorForLog(error))
+    return jsonNoStore({ error: "Error interno del servidor" }, { status: 500 })
+  }
+}
+
+async function getOcupacion(request: NextRequest, params: Promise<{ id: string }>) {
   const { id: mesaId } = await params
 
   const mesa = await resolveMesaContext(mesaId)
@@ -47,10 +72,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return jsonNoStore({ error: "Mesa no encontrada" }, { status: 404 })
   }
 
-  const actor = await resolveMesaOccupancyCloseActor(request, mesa.negocioId)
-  if (!actor) {
-    return jsonNoStore({ error: "No autenticado" }, { status: 401 })
-  }
+  const peticion = await actorDeLaPeticion(request, mesa.negocioId)
+  if (!peticion.ok) return peticion.response
+  if (!peticion.resolucion.ok) return respuestaSinActor(peticion.resolucion.status)
+  const actor = peticion.resolucion.actor
   if (actor.type === "mozo" && !actor.assignedMesaIds.includes(mesa.id)) {
     return jsonNoStore({ error: "No autorizado para esta mesa", code: "MESA_OCCUPANCY_CLOSE_FORBIDDEN" }, { status: 403 })
   }
@@ -91,10 +116,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return jsonNoStore({ error: "Mesa no encontrada" }, { status: 404 })
   }
 
-  const actor = await resolveMesaOccupancyCloseActor(request, mesa.negocioId)
-  if (!actor) {
-    return jsonNoStore({ error: "No autenticado" }, { status: 401 })
+  let peticion: ActorDeLaPeticion
+  try {
+    peticion = await actorDeLaPeticion(request, mesa.negocioId)
+  } catch (error) {
+    console.error("[MesaOccupancy] Error resolviendo el actor:", safeErrorForLog(error))
+    return jsonNoStore({ error: "Error interno del servidor" }, { status: 500 })
   }
+  if (!peticion.ok) return peticion.response
+  if (!peticion.resolucion.ok) return respuestaSinActor(peticion.resolucion.status)
+  const actor = peticion.resolucion.actor
   if (actor.type === "mozo" && !actor.assignedMesaIds.includes(mesa.id)) {
     logMesaOccupancyCloseEvent({
       negocioId: mesa.negocioId,

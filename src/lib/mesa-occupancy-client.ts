@@ -10,6 +10,14 @@
 // cierra una ocupación técnica existente. No duplicar este fetch en cada
 // superficie (Negocio/Salón/Mozo); todas deben reusar este módulo.
 
+// BUG-002: familia de sesión con la que la PANTALLA consulta (la fija cada host, nunca el usuario). El servidor
+// valida sólo la credencial de esa familia; sin ella se mantiene el comportamiento anterior.
+export type MesaOccupancyActorFamily = "negocio" | "cuenta_operativa" | "terminal"
+
+function urlOcupacion(mesaId: string, actorFamily?: MesaOccupancyActorFamily) {
+  return `/api/operaciones/mesas/${mesaId}/ocupacion${actorFamily ? `?actorFamily=${actorFamily}` : ""}`
+}
+
 export interface MesaOccupancyInfo {
   id: string
   startedAt: string
@@ -26,15 +34,19 @@ export type MesaOccupancyStatusOutcome =
   | { kind: "none"; lastClosedOcupacionId: string | null }
   | { kind: "unauthorized" }
   | { kind: "forbidden" }
+  // BUG-002: 404 (mesa inexistente o de otro negocio) y 409 (estado inconsistente) ya no se confunden con un error.
+  | { kind: "not_found" }
+  | { kind: "conflict" }
   | { kind: "error" }
 
 export async function fetchMesaOccupancyStatus(
   mesaId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  actorFamily?: MesaOccupancyActorFamily
 ): Promise<MesaOccupancyStatusOutcome> {
   let res: Response
   try {
-    res = await fetch(`/api/operaciones/mesas/${mesaId}/ocupacion`, { signal })
+    res = await fetch(urlOcupacion(mesaId, actorFamily), { signal })
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error
     return { kind: "error" }
@@ -42,6 +54,8 @@ export async function fetchMesaOccupancyStatus(
 
   if (res.status === 401) return { kind: "unauthorized" }
   if (res.status === 403) return { kind: "forbidden" }
+  if (res.status === 404) return { kind: "not_found" }
+  if (res.status === 409) return { kind: "conflict" }
   if (!res.ok) return { kind: "error" }
 
   const data = await res.json().catch(() => null)
@@ -84,16 +98,18 @@ export type MesaOccupancyCloseOutcome =
 // de cerrar y usa exclusivamente el `occupancy.id` de esa respuesta fresca
 // como `expectedOcupacionId`. Nunca acepta un id externo/cacheado/antiguo.
 export async function closeMesaOccupancyWithRevalidation(
-  mesaId: string
+  mesaId: string,
+  actorFamily?: MesaOccupancyActorFamily
 ): Promise<MesaOccupancyCloseOutcome> {
-  const status = await fetchMesaOccupancyStatus(mesaId)
+  const status = await fetchMesaOccupancyStatus(mesaId, undefined, actorFamily)
   if (status.kind === "unauthorized") return { kind: "unauthorized" }
   if (status.kind === "forbidden") return { kind: "forbidden" }
-  if (status.kind === "error") return { kind: "error" }
+  if (status.kind === "conflict") return { kind: "changed" }
+  if (status.kind === "error" || status.kind === "not_found") return { kind: "error" }
   if (status.kind === "none") return { kind: "no_active" }
 
   try {
-    const res = await fetch(`/api/operaciones/mesas/${mesaId}/ocupacion`, {
+    const res = await fetch(urlOcupacion(mesaId, actorFamily), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ expectedOcupacionId: status.occupancy.id }),
