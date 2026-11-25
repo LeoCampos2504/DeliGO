@@ -346,7 +346,34 @@ describe("F10-B1 — cashier catalog", () => {
     for (const forbidden of ["costo", "descuentoActivo", "tipoDescuento", "valorDescuento", "negocioId"]) {
       expect(forbidden in c).toBe(false)
     }
-    expect(JSON.stringify(res.body)).not.toContain("1200")
+    // The cost (1200) must never reach the cashier. Structural check of the WHOLE response (nested objects/arrays):
+    // the old raw-substring check (`not.toContain("1200")`) failed whenever a random cuid id happened to contain
+    // "1200" (CI 45550873390). Keys and complete values are inspected instead — never fragments of identifiers.
+    const clavesProhibidas: string[] = []
+    const valoresDeCosto: string[] = []
+    const COSTO = 1200
+    const pareceCosto = (texto: string) => /^\$?\s*1\.?200([.,]0+)?$/.test(texto.trim())
+    const recorrer = (valor: unknown, ruta: string) => {
+      if (Array.isArray(valor)) return valor.forEach((v, i) => recorrer(v, `${ruta}[${i}]`))
+      if (valor && typeof valor === "object") {
+        for (const [clave, v] of Object.entries(valor as Record<string, unknown>)) {
+          if (/cost|descuento/i.test(clave)) clavesProhibidas.push(`${ruta}.${clave}`)
+          recorrer(v, `${ruta}.${clave}`)
+        }
+        return
+      }
+      if (typeof valor === "number" && (valor === COSTO || valor === COSTO * 100)) valoresDeCosto.push(`${ruta}=${valor}`)
+      if (typeof valor === "string" && pareceCosto(valor)) valoresDeCosto.push(`${ruta}=${valor}`)
+    }
+    recorrer(res.body, "body")
+    expect(clavesProhibidas).toEqual([])
+    expect(valoresDeCosto).toEqual([])
+    // Guard of the guard: the walker does detect the cost, and ignores ids that merely contain "1200".
+    const detectado: string[] = []
+    const antes = [clavesProhibidas.length, valoresDeCosto.length]
+    recorrer({ id: "cmwvntv12002h1qyvgphe9lup", anidado: [{ x: 1200 }, { y: "1200.00" }, { costoUnitario: 5 }] }, "prueba")
+    detectado.push(...clavesProhibidas.slice(antes[0]), ...valoresDeCosto.slice(antes[1]))
+    expect(detectado.sort()).toEqual(["prueba.anidado[0].x=1200", "prueba.anidado[1].y=1200.00", "prueba.anidado[2].costoUnitario"].sort())
   })
 })
 
