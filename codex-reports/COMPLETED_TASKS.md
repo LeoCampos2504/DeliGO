@@ -1,5 +1,21 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## F10-C1 — CASH OUTFLOWS OF CAJA (C1a engine + C1b cashier UI + C1c owner panel) — CLOSED_TESTING_CERTIFIED (2026-11-19, functional)
+
+```text
+F10_C1_STATUS=CLOSED_TESTING_CERTIFIED (functional: real API + ledger + read-only SQL reconciliation and audit; TESTING only; NOT a Production authorization)
+F10_C1_TESTED_COMMIT=bfaba2ae3cfef4820c14b1fef5ce9144e277bdac (testing-codex; commits 4575857, ae6a3df, bfaba2a)
+F10_C1_RAILWAY_TESTING=DeliGO Copy db49cadf-aa1e-418a-b20e-9d916c05519e SUCCESS · migrations 20261118120000_f10_c1a_cash_outflows + 20261118150000_f10_c1c_block_post_close_compensation applied (55/55)
+F10_C1_CI=44377138529 SUCCESS
+F10_C1_PRE_DEPLOY_BACKUP=deligo-testing-pre-f10-c1-20261118T190358Z.dump SHA-256 e2549d96d1231ce290d9e3775df78f74e4c0bdad0b96448f01fc7176c40b1e2c
+F10_C3_BATTERY=2026-11-19 17:34:21–17:34:51 UTC · paola-vinal · QA Caja A · shift cmwnty0h50009l30ale83o05c · 14 PASS / 0 FAIL / 1 NOT_RUN (C3-09B cross-business write, deliberately not run in TESTING) · write-guard self-test 21/21
+F10_C3_SQL_RECONCILIATION=PASS (blind close 3539.51 = fondo + legs = declared; 8 exact operations; R1 same-transaction audits; 1 burst outflow, 0 repeated keys, 5 notices; reviews/confirmation add no movement; post-close compensation 409 with 0 shift-less reversions; 0 other-business outflows; old shift cmw2sjtoj002do40aqaq0i1hu ABIERTO, fingerprint 85721fc4117779fa64b353669895e4e0 unchanged)
+F10_C1_LOCAL_OR_CI_ONLY=cross-business writes · threshold / negative-expected alerts and owner justification · outflow/close and compensation/close races · direct SQL guards · UI review (desktop + 320/375/412/768) on local fictitious data
+F10_C1_PENDING=F10-D post-close compensation (BLOCKED, documented) · physical device check (Android HTTPS / iOS) · custody delivery of the QA shift left pending on purpose · QA tooling (scripts/qa) untracked
+PRODUCTION_TOUCHED=NO (DeliGO ccc2184a · chat 898bf9d9 · Review Expiry d22d6077 · Mesa Cron 861b79f1 on 42ca500)
+REPORT=codex-reports/F10_C_EGRESOS_CAJA_DISENO.md §13–§16
+```
+
 ## F4-B — OWNER SALE CORRECTIONS WITH JUSTIFIED PRICES — CLOSED_TESTING_CERTIFIED (2026-11-04, functional)
 
 ```text
@@ -2356,3 +2372,18 @@ NEXT_ACTION=RETURN_TO_OPERATOR_FOR_NEXT_TASK_DECISION
 ```
 
 Reporte: `codex-reports/P2_T34_R4_PHYSICAL_RECERTIFICATION_CLOSEOUT.md`.
+
+## BUG-001 + BUG-002 — identidad de empleados vinculados y ocupación con sesiones simultáneas — 2026-11-25
+
+```text
+BUG_001_STATUS=CLOSED_TESTING_FUNCTIONALLY_VERIFIED (alcance original: vistas internas)
+BUG_002_STATUS=CLOSED_TESTING_FUNCTIONALLY_VERIFIED (alcance original: GET/POST /api/operaciones/mesas/[id]/ocupacion)
+COMMITS=dd23ac1e (BUG-001) · 3c13cbf5 (BUG-002) · e77dc890 (CI) · 1c68007f (expectativa f10-b2-1-turnos)
+CI=45336755300 SUCCESS 59/59
+TESTING=testing-codex 1c68007f · DeliGO Copy 6fb22207-e7c2-40e0-9873-2b615ac66418 SUCCESS (commitHash exacto)
+OPERATOR_TESTING=8/8 APROBADAS en Railway TESTING sobre 1c68007f (incluida la ocupación con dueño y cajero conectados en el mismo navegador)
+OUT_OF_SCOPE=vista pública de la mesa («Tu mozo: Pendiente de vinculación») → BUG-003 · endpoints neutrales restantes con sesiones simultáneas → ROADMAP
+PRODUCTION_TOUCHED=NO
+```
+
+Reportes: `codex-reports/BUG_001_002_IDENTIDAD_Y_OCUPACION_R1.md`, `codex-reports/EMPLEADO_IDENTIDAD_VINCULACION_DIAGNOSTICO_R1.md`.

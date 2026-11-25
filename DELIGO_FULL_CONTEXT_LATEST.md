@@ -1,6 +1,303 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
-## LATEST UPDATE — F4-C5 exchange UI + safe recovery of uncertain attempts TECHNICALLY_CLOSED_CI_PASS on codex/f4-c5-sale-exchange-ui only (CI 42753877520 attempt 1); not integrated, not deployed (2026-11-10, Claude Code)
+## LATEST UPDATE (2026-11-24, tarde) — BUG-001/BUG-002 desplegados en TESTING; metodología permanente documentada
+
+- **Metodología permanente:** `DEVELOPMENT_WORKFLOW.md` (raíz; referenciada desde `CLAUDE.md`). Pruebas funcionales sólo
+  en Railway TESTING, sin duplicarlas en local; una tarea por vez; seguridad proporcional al riesgo. Activación: al tener
+  una versión estable certificada en Production; hasta entonces se termina la certificación por bloques.
+- **Identidad de empleados (BUG-001):** decisión del operador — un empleado vinculado se identifica por
+  `CuentaOperativa.nombre` (regla única `src/lib/empleado-identidad.ts`); `Empleado.nombre` queda como dato heredado y el
+  marcador «Pendiente de vinculación» sólo es verdad sin vínculo. Históricos intactos; páginas públicas sin cambios.
+- **Sesiones simultáneas (BUG-002):** con cookies de varias familias en el mismo navegador el proxy no reenvía ninguna a
+  `deligo_session`; las pantallas de ocupación de mesa declaran `?actorFamily=` y el servidor valida sólo esa credencial.
+  Otros endpoints con el mismo mecanismo (cuenta/cierre comercial de mesa, cancelación, notificaciones…) están en el ROADMAP.
+- DeliGO Copy / Railway TESTING corre `testing-codex` = `1c68007f` (e6224a48 + BUG-001/002; despliegue `6fb22207…` SUCCESS;
+  sin migraciones nuevas; los 4 servicios de TESTING en SUCCESS). Production sin cambios (`origin/main` `42ca5005`).
+  **2026-11-25: operador 8/8 en TESTING → BUG-001 y BUG-002 funcionalmente verificados.** Nuevo hallazgo BUG-003 (vista
+  pública de la mesa muestra «Tu mozo: Pendiente de vinculación»; sólo con sesión de dueño en el navegador, porque
+  `mesas-public` da 401 a clientes anónimos): dividido en 003A (presentación) y 003B (aislamiento: cualquier dueño podía
+  leer mesas y mozos de otro negocio; privacidad del código interno); implementado en local sin commit, en revisión
+  (`codex-reports/BUG_003_NOMBRE_PUBLICO_MOZO_R1.md`, sección R2). Regla: las superficies públicas no muestran nombres de
+  empleados ni datos de cuentas operativas mientras no exista un nombre de atención público definido por el dueño.
+  Después: retomar la preparación del Bloque 1 `M11240504`.
+
+## UPDATE (2026-11-24) — integración compras/catálogo desplegada en TESTING; certificación manual del bloque 1 preparada
+
+- DeliGO Copy / Railway TESTING corrió `testing-codex` = `e6224a48` (integración F5-A, F10-C2a/b/c, pagos E1–E3, catálogo e importación; 69 migraciones; SQL post-despliegue PASS 69|0|0|14). Production sin cambios (`origin/main` `42ca5005`). Review Moderation Expiry: build fallido transitorio (superado el 2026-11-24 por el despliegue de `1c68007f`).
+- Certificación funcional por bloques: el operador prueba a mano en la interfaz con el negocio QA `paola-vinal`; Claude prepara datos QA y verifica internamente (SQL de sólo lectura, logs, comparación antes/después, ZIP para auditoría de ChatGPT).
+- Bloque 1 (proveedores y asociaciones): herramientas en `C:\Users\eltig\deligo-dev-db\certificacion\b1-manual\` (fuera del repo), validadas contra `deligo_dev` con datos ficticios; todavía NO ejecutadas en TESTING. Paso siguiente: el operador ejecuta `b1-manual-preparar.ps1`, sigue `INSTRUCCIONES-OPERADOR.md`, completa `observaciones-operador.md` y ejecuta `b1-manual-verificar.ps1`.
+- Detalle y estado vigente: bloque LATEST de `CODEX_REPORT.md`.
+
+
+## LATEST UPDATE — catalog stage 2: bulk product import (.xlsx/.csv) implemented locally; owner .xlsx import validated manually on local dev; not committed
+
+```text
+STATUS=BULK_IMPORT implemented locally · OWNER_XLSX + EMPLOYEE_XLSX_WITHOUT_PRICE_COST + EMPLOYEE_CSV_WITH_PRICE_COST_SUPPLIER VALIDATED_MANUALLY_LOCAL_DEV (amount parser fixed: «2.315» = 2315, ambiguous values rejected) · idempotency/permissions verified by Claude (rolled back) · chunked processing + reload recovery validated manually (1,000 products, 8 requests, same key) · real network cut, error-row reimport and variant updates pending · NOT_COMMITTED · NOT_TESTING_CERTIFIED
+EVIDENCE=imports cmwpqsnij… (3 created) and cmwpr1et1… (2 updated with explicit choice: Kilo de cafe category/price/cost, Galletitas QA barcode/price) · price history via CATALOGO activation · pending label (Taza) untouched · no stock or financial movements · no duplicates · audit as owner with importacionId
+PENDING=employee import (permission, no price permission, expiry) · retries/double click/connection cut · .csv · error-rows file reimport · existing variant updates · barcode owned by another product · large files · UI: keep decisions when returning to «Revisar columnas»
+NEXT_ACTION=manual test of employee import and retry; then .csv and error-row reimport
+```
+
+## PRECEDING UPDATE — catalog: employee product↔supplier association validated manually on local dev (route fix + UI states); not committed
+
+```text
+STATUS=EMPLOYEE_PRODUCT_SUPPLIER_ASSOCIATION VALIDATED_MANUALLY_LOCAL_DEV · NOT_COMMITTED · NOT_TESTING_CERTIFIED
+FIX=employee route …/catalogo/productos/[id]/proveedores was not registered by Next (404 HTML); now explicit GET/POST/DELETE exports · supplier section shows permission/error/retry states, never stuck loading
+EVIDENCE=Galletitas QA ↔ Distribuidora Prueba by Cajero sintético 1: associate, remove, re-associate (audited as employee) · after owner revoked the supplier permission, DELETE → 403 with no change · no duplicates · price/cost/stock untouched
+PENDING=rest of catalog stage 1b (create/edit, prices, costs, expiry) and stage 1 from the owner form · Excel/CSV import · commit/CI/TESTING
+NEXT_ACTION=manual test of the remaining catalog permissions; then Excel/CSV import
+```
+
+## PRECEDING UPDATE — supplier payments redesign stages 1–3 validated manually on local dev; not committed
+
+```text
+STATUS=PAGOS_E1 (order transfer prepayment) + E2 (account by orders/invoices, pay selected debts) + E3 (cash prepayment from Caja, employee permission with limits) VALIDATED_MANUALLY_LOCAL_DEV · NOT_COMMITTED · NOT_TESTING_CERTIFIED
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §16.10–§16.12
+PENDING=reception N° 2 historical payments ($2.000 linked unassigned, $600 unlinked) · supplier due dates and refunds · prepayment rule with approved unpaid invoices · extra permission/limit tests before launch · Taza price 62,50 pending label · commit/CI/TESTING
+NEXT_ACTION=catalog for real businesses: product↔supplier association from both sides; then Excel/CSV import
+```
+
+## PRECEDING UPDATE — documentation only: supplier payments redesign recorded as proposed design (not implemented) + new future project «DeliGO Proveedores» (planned, not started); not committed
+
+```text
+CURRENT_TASK_STATUS=DOCS_UPDATED · SUPPLIER_PAYMENTS_REDESIGN=DESIGN_PROPOSED_NOT_IMPLEMENTED · DELIGO_PROVEEDORES=PLANNED_FUTURE_EXPANSION_NOT_STARTED · NO_CODE_CHANGES · NOT_COMMITTED
+STATUS_LAYERS=implemented locally (F5-A, C2a, C2b, D-7 v2, order reported total, sale prices, order close, shelf labels, sale-start prices) · validated manually on local dev (receptions without order, sale prices, shelf labels, price protection) · proposed design only (payments redesign) · future project with no development (DeliGO Proveedores)
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §16 (payments redesign) · codex-reports/DELIGO_PROVEEDORES_DISENO_FUTURO.md · ROADMAP «FUTURE EXPANSION — DeliGO Proveedores»
+KEY_RULE=a purchase-order advance is applied only to obligations of that order when its receptions are approved; never auto-applied to older debts
+REPO=deligo-dev-local unchanged in this task (HEAD bfaba2a, previous work uncommitted) · deligo_dev unchanged · docs repo 941a915 (docs uncommitted) · origin/main 42ca500
+NEXT_ACTION=operator manual tests of D-7 v2 and orders with reported total; then close §16.7 open items and authorize the payments redesign in stages
+```
+
+## PRECEDING UPDATE — F10-C2b improvements, D-7 v2, order reported total, sale price update, order close with pending, shelf labels and sale-start price protection implemented locally; partial manual validation on deligo_dev; not committed, not deployed
+
+```text
+CURRENT_TASK_STATUS=SHELF_LABELS + SALE_START_PRICE_PROTECTION + SALE_PRICE_UPDATE + RECEPTIONS_WITHOUT_ORDER VALIDATED_MANUALLY_LOCAL_DEV · ORDER_CLOSE_VERIFIED_READONLY (cashier view unconfirmed) · D7_V2 + ORDER_REPORTED_TOTAL MANUAL_TEST_PENDING · NOT_COMMITTED · NOT_DEPLOYED · NOT_TESTING_CERTIFIED
+METHOD=manual (CLAUDE.md 2026-11-19): operator walkthrough on localhost:3000 + Claude read-only verification; «validado manualmente en desarrollo local» ≠ TESTING certification
+REPO=deligo-dev-local dev/local-f4c HEAD bfaba2a = origin/testing-codex (everything uncommitted) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §15 (status table §15.3, evidence §15.4)
+MIGRATIONS=7 additive (supplier products, reception payments, order reported total, sale price history, order close snapshot, price labels + activations + sale starts, product-cascade guards) applied to deligo_dev with a backup before each; deligo_ci / deligo_qa_auto not verified
+EVIDENCE=reception N° 6 Taza $300 → authorized 302,50→375 (markup 25 %) pending label → confirmed by sxn1-e1 19:21:53,929 → catalog $375 · sale cmwpd8syq001xri9kn80elpj3 started 19:20:32,899, charged 19:22:25,058 with Taza $302,50 (total $402,50) · no duplicates
+PENDING=manual tests of D-7 v2 (reception-linked payments) and orders with reported total · reception N° 2 with $2.000 / $600 payments unreviewed · cashier view after order close unconfirmed
+PRODUCTION=unchanged (42ca500); F10-D1 mandatory before outflows/purchases in Production
+NEXT_ACTION=operator manual tests of D-7 v2 and orders with reported total (Claude verifies read-only); then commit + CI authorization decision
+```
+
+## PRECEDING UPDATE — R3A centralization of F4 stock writes + F10-C2b (cashier reception UI, owner purchases tray) + D-7 cash payment at reception implemented locally; not committed, not deployed
+
+```text
+CURRENT_TASK_STATUS=R3A_F4_CENTRALIZED_LOCAL_TESTS_PASS · F10_C2B_IMPLEMENTED_LOCAL_TESTS_PASS_BROWSER_REVIEWED · NOT_COMMITTED · NOT_DEPLOYED
+REPO=deligo-dev-local dev/local-f4c HEAD bfaba2a = origin/testing-codex (F5-A + C2a + R3A + C2b uncommitted) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §14
+R3A=F4 devoluciones/anulaciones/correcciones now write stock only through stock-lifecycle.ts (R3A static 97/97); no F4 financial change
+D7=cash payment at reception = F10-C1 PAGO_PROVEEDOR outflow «Recepción N° X» + F5 link by owner (no second movement); never auto-voided on rejection
+MIGRATIONS=none new; F5-A + C2a on deligo_ci, deligo_qa_auto, deligo_dev
+TESTS=all new + regression suites PASS · 3 pre-existing local-only contract FAILs (2 LF byte checks, f10-b1 sale route) · tsc 0 source errors (34 in generated .next types) · browser review desktop + 320/375/412/768 PASS
+PRODUCTION=unchanged (42ca500); F10-D1 mandatory before outflows/purchases in Production
+NEXT_ACTION=operator decides commit + CI authorization on a technical branch, then controlled TESTING integration of F5-A + C2a + C2b
+```
+
+## PRECEDING UPDATE — F5-A reviewed (duplicate payments, balance fields, LF protection) + F10-C2a (purchases and goods receptions) implemented locally; not committed, not deployed
+
+```text
+CURRENT_TASK_STATUS=F5A_APPROVED_LOCAL_REVIEWED · F10_C2A_IMPLEMENTED_LOCAL_TESTS_PASS · NOT_COMMITTED · NOT_DEPLOYED
+REPO=deligo-dev-local dev/local-f4c HEAD bfaba2a = origin/testing-codex (F5-A + C2a uncommitted) · docs repo deligo-main-limpio (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §12.7 + §13
+MIGRATIONS=20261119180000_f5a_suppliers_ledger + 20261119210000_f10_c2a_purchases_receptions on deligo_ci, deligo_qa_auto, deligo_dev (backups pre-f5a / pre-c2a; counts unchanged)
+TESTS=C2a 16/16 (ci) + 16/16 (qa_auto) · F5-A 25/25 · F10-C1 + R3A + F4 regression PASS · 3 pre-existing local-only contract FAILs · tsc 41 baseline
+PRODUCTION=unchanged (42ca500); F10-C1 not authorized; F10-D1 mandatory before outflows in Production
+NEXT_ACTION=operator decides commit/CI authorization or F10-C2b (UI)
+```
+
+## PRECEDING UPDATE — F5-A (suppliers + single ledger/allocation engine) implemented locally; all F5-A and F10-C1 regression suites pass; not committed, not deployed
+
+```text
+CURRENT_TASK_STATUS=F5A_IMPLEMENTED_LOCAL_TESTS_PASS · NOT_COMMITTED · NOT_DEPLOYED
+REPO=deligo-dev-local dev/local-f4c HEAD bfaba2a = origin/testing-codex (F5-A uncommitted) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §12
+MIGRATION=20261119180000_f5a_suppliers_ledger applied to deligo_ci, deligo_qa_auto and deligo_dev (backup deligo_dev_pre-f5a_20261119-160615.dump; counts unchanged)
+TESTS=F5-A int 20/20 (ci) + 20/20 (qa_auto) · unit/static 11/11 · UI 7/7 · F10-C1 regression all PASS · 1 pre-existing local-only CRLF contract FAIL · tsc 41 baseline
+PRODUCTION=unchanged (42ca500); F10-C1 not authorized; F10-D1 mandatory before outflows in Production
+NEXT_ACTION=operator reviews F5-A and decides commit/CI authorization or adjustments
+```
+
+## PRECEDING UPDATE — F10-C2 + F5 design v2: decisions final, single ledger/allocation engine, new phase order, F5-A scope ready for authorization (nothing implemented)
+
+```text
+CURRENT_TASK_STATUS=DESIGN_V2_DECISIONS_FINAL · F5A_SCOPE_READY · F5A_IMPLEMENTATION_NOT_AUTHORIZED
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md v2 (v1 archived in codex-reports/archive/)
+PHASES=F5-A → F10-C2a → F10-C2b → F10-D1 (mandatory before outflows in Production) → Production decision → F10-C2c / F5-B (same engine)
+NEXT_ACTION=operator approves the F5-A scope (§10) for local implementation
+```
+
+## PRECEDING UPDATE — F10-C2 + F5 (minimum) design proposed (not approved, nothing implemented); F10-C1 certified in TESTING but NOT authorized for Production; F10-D1 proposed as gate
+
+```text
+CURRENT_TASK_STATUS=F10_C2_F5_DESIGN_PROPOSED_NOT_APPROVED · decisions D-1…D-13 pending
+DETAIL=codex-reports/F10_C2_F5_COMPRAS_RECEPCION_DISENO.md
+PRODUCTION=F10-C1 not authorized; operator criterion: post-close outflow errors (F10-D) solved before real businesses use outflows; proposal narrow F10-D1
+NEXT_ACTION=operator approves decisions and phase order (recommended F5-A → F10-C2a → F10-C2b → F10-D1 → Production decision)
+```
+
+## PRECEDING UPDATE — F10-C1 CLOSED_TESTING_CERTIFIED (functional) on testing-codex bfaba2a; F10-C3 14 PASS / 0 FAIL / 1 NOT_RUN deliberate + SQL reconciliation PASS; Production unchanged; next = F10-C2 + F5 boundary design
+
+```text
+CURRENT_TASK_STATUS=F10_C1_CLOSED_TESTING_CERTIFIED (functional, TESTING only) · F10-D post-close compensation BLOCKED/pending · physical device check pending
+EVIDENCE=evidencias.json (C3 14 PASS, C3-09B NOT_RUN by design) · reconciliacion-c3.json PASS · blind close 3539.51 = ledger · old shift fingerprint 85721fc4117779fa64b353669895e4e0 unchanged
+PRODUCTION=unchanged (42ca500: ccc2184a / 898bf9d9 / d22d6077 / 861b79f1)
+DETAIL=codex-reports/F10_C_EGRESOS_CAJA_DISENO.md §16 · COMPLETED_TASKS F10-C1 · DECISIONS_AND_INVARIANTS F10-C1
+NEXT_ACTION=operator chooses; recommended design-only F10-C2 + minimal F5 boundary (decision #10), then F10-D
+```
+
+## PRECEDING UPDATE — F10-C3 runner hardened (no write outside paola-vinal) and rehearsed locally on deligo_qa_auto (14 PASS / 0 FAIL / 1 NOT_RUN + SQL reconciliation PASS); TESTING c3 not run; F10-C1 not certified
+
+```text
+CURRENT_TASK_STATUS=RUNNER_READY · LOCAL_REHEARSAL_PASS · TESTING_C3_NOT_RUN
+ISOLATION=TESTING read-only (GET + SQL); cross-business write case NOT_RUN in TESTING, covered in deligo_ci / deligo_qa_auto
+WRITE_GUARD=POST only, paola-vinal / QA Caja A / this run's shift and outflows only, never the old shift; self-test c3-guarda 21/21
+NEXT_ACTION=operator: qa-testing.ps1 -Fase c3 -Sha bfaba2ae3cfef4820c14b1fef5ce9144e277bdac (once) + testing-reconciliacion-f10c1.ps1
+```
+
+## PRECEDING UPDATE — F10-C1 on TESTING: post-deploy SQL check PASS + c3-foto PASS (read-only); C3 preconditions met; c3 not run; F10-C1 not certified
+
+```text
+CURRENT_TASK_STATUS=POST_DEPLOY_CHECK_PASS · C3_FOTO_PASS · C3_READY_NOT_RUN
+EVIDENCE=deligo-testing-backups\verificacion-post-f10-c1-20261118T191645Z.json (55/0, schema + SQL block, old shift ABIERTO, fingerprint 85721fc4… = backup) · evidencias.json C3-FOTO PASS (14 closed shifts cuadra, permissions 401)
+RUNNER_HARDENING=QA Alfajor price/stock guard + isolation probe never targets a business linked to the cashier (4 links)
+NEXT_ACTION=operator authorizes c3 (once) + reconciliation; certification only after reviewing both
+```
+
+## PRECEDING UPDATE — F10-C1 deployed to Railway TESTING (testing-codex bfaba2a, DeliGO Copy db49cadf SUCCESS, migrations 54+55 applied, CI 44377138529 SUCCESS); Production unchanged; c3-foto pending (operator); F10-C1 not certified
+
+```text
+CURRENT_TASK=F10-C1 TESTING deploy + F10-C3 read-only photo (financial battery c3 not authorized yet)
+CURRENT_TASK_STATUS=DEPLOYED_TESTING · POST_DEPLOY_SQL_CHECK_AND_C3_FOTO_PENDING_OPERATOR · F10_C1_NOT_CERTIFIED_IN_TESTING
+REPO_STATE=origin/testing-codex bfaba2a (4575857 → ae6a3df → bfaba2a on 4294123) · origin/main 42ca500
+BACKUP=deligo-testing-pre-f10-c1-20261118T190358Z.dump SHA-256 e2549d96…b1e2c (re-verified) · old shift fingerprint 85721fc4117779fa64b353669895e4e0
+PRODUCTION=DeliGO ccc2184a · chat 898bf9d9 · Review Expiry d22d6077 · Mesa Cron 861b79f1 (42ca500), unchanged
+NEXT_ACTION=operator: testing-verificacion-post-f10c1.ps1 + qa-testing.ps1 -Fase c3-foto -Sha bfaba2ae3cfef4820c14b1fef5ce9144e277bdac; then review; c3 only after authorization
+```
+
+## PRECEDING UPDATE — F10-C1 committed locally (4575857 → ae6a3df → bfaba2a); push to testing-codex paused until the operator runs the TESTING backup; F10-C3 runner prepared, not run; TESTING and Production untouched
+
+```text
+CURRENT_TASK=F10-C1 integration + TESTING deploy (commit/push testing-codex/TESTING deploy authorized; Production not)
+CURRENT_TASK_STATUS=COMMITTED_LOCAL · PUSH_PAUSED_PENDING_OPERATOR_TESTING_BACKUP · F10_C1_NOT_CERTIFIED_IN_TESTING
+REPO_STATE=deligo-dev-local dev/local-f4c HEAD bfaba2a (3 commits on top of origin/testing-codex 4294123) · origin/main 42ca500
+WHY_PAUSED=autodeploy applies migrations 54/55 on push; backup first; the TESTING DB URL may only be read by the operator (scripts/qa/testing-respaldo-f10c1.ps1)
+PRODUCTION_BASELINE=DeliGO ccc2184a · chat 898bf9d9 · Review Expiry d22d6077 · Mesa Cron 861b79f1 (42ca500)
+NEXT_ACTION=operator backup → verify dump → fast-forward push → verify deploy/CI/endpoints/Production → c3-foto (read-only) → c3 + SQL reconciliation when authorized
+```
+
+## PRECEDING UPDATE — F10-C1c owner «Egresos de Caja» panel, supervision, open-shift compensations and reports implemented locally on top of C1a+C1b (not committed); post-close compensation blocked pending F10-D; deligo_dev migrated with backup (55/55); only pre-existing failures; TESTING and Production untouched
+
+```text
+CURRENT_TASK=F10-C1c owner panel / supervision / compensations / reports — local only; no commit/push/deploy; no F10-C2, F10-D/E, F5
+CURRENT_TASK_STATUS=C1C_IMPLEMENTED_LOCAL_TESTS_PASS_NOT_COMMITTED (C1a + C1b also local, not committed) · POST_CLOSE_COMPENSATION=BLOCKED_PENDING_F10_D
+REPO_STATE=code worktree C:\Leo Campos\Trabajo\deligo-dev-local (dev/local-f4c = 4294123 + uncommitted C1a + C1b + C1c) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C_EGRESOS_CAJA_DISENO.md §15 (C1c), §14 (C1b), §13 (C1a)
+RULES=compensation owner-only, total, once, REVERSION in the same OPEN shift and account, original untouched, audited in-transaction · reviews/confirmations never move money · post-close compensation blocked (API 409 + SQL migration 20261118150000) because deliveries are not ledger movements
+TESTS=C1c 12/12 on deligo_ci and deligo_qa_auto · C1a green on both · owner panel 11/11 · cashier UI 17/17 · statics green · Caja battery: only pre-existing failures · tsc no new errors · ESLint clean
+LOCAL_DB=deligo_dev 55/55 migrations (backup taken first); only intentional fictitious local rows added
+NEXT_ACTION=operator reviews C1a+C1b+C1c and decides the local commit; TESTING certification steps in §15.10 need separate authorization
+```
+
+## PRECEDING UPDATE — F10-C1b cashier «Salidas de Caja» UI implemented locally on top of C1a (not committed); deligo_dev migrated with backup; mobile and desktop reviewed; only pre-existing failures; TESTING and Production untouched
+
+```text
+CURRENT_TASK=F10-C1b cashier UI for cash outflows — local only; no commit/push/deploy; C1c not started
+CURRENT_TASK_STATUS=C1B_IMPLEMENTED_LOCAL_TESTS_PASS_NOT_COMMITTED (C1a also implemented locally, not committed)
+REPO_STATE=code worktree C:\Leo Campos\Trabajo\deligo-dev-local (dev/local-f4c = 4294123 + uncommitted C1a + C1b) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C_EGRESOS_CAJA_DISENO.md §14 (C1b) and §13 (C1a)
+TESTS=C1b UI 16/16 · contract 8/8 · page 6/6 · panel 13/13 · PWA 38/38 · C1a green on deligo_ci and deligo_qa_auto · QA 25/25 · Caja battery: only the 4 known pre-existing failures · tsc no new errors · ESLint clean
+LOCAL_DB=deligo_dev 54/54 migrations (backup taken first); only intentional fictitious local rows added
+NEXT_ACTION=operator reviews C1a+C1b and decides the local commit and/or C1c authorization
+```
+
+## PRECEDING UPDATE — F10-C1a cash outflows implemented locally (deligo-dev-local, not committed); D1–D11 approved with 4 adjustments; tests pass on deligo_ci and deligo_qa_auto; TESTING and Production untouched
+
+```text
+CURRENT_TASK=F10-C1a (cash outflows) — authorized 2026-11-18 ONLY in the local dev environment; no commit/push/deploy; no Railway TESTING, Production or paola-vinal data
+CURRENT_TASK_STATUS=C1A_IMPLEMENTED_LOCAL_TESTS_PASS_NOT_COMMITTED · C1b/C1c/C2/F10-E not authorized
+REPO_STATE=code worktree C:\Leo Campos\Trabajo\deligo-dev-local (dev/local-f4c = 4294123 + uncommitted C1a) · docs repo deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915 (docs uncommitted) · origin/main 42ca500
+DETAIL=codex-reports/F10_C_EGRESOS_CAJA_DISENO.md §11.1 (operator adjustments) and §13 (migration, model, endpoints, permissions, tests, failure cases, compensation plan, risks, C1b/C1c scope)
+MIGRATION=20261118120000_f10_c1a_cash_outflows (additive) applied only to local deligo_ci + deligo_qa_auto; deligo_dev not migrated
+TESTS=C1a 21/21 + R1 6/6 + contract 7/7 on both local DBs · 100 outflow-vs-close races OK · QA 25/25 · CI battery only the 4 known pre-existing failures · tsc/ESLint clean for C1a
+NEXT_ACTION=operator reviews C1a and decides commit (local branch) and/or C1b/C1c authorization
+```
+
+## PRECEDING UPDATE — R1 + visible names: testing-codex 4294123 deployed to Railway TESTING (9e87ddf8 SUCCESS, no migrations); R1 certified in TESTING for verified flows; phase A 9/9 + B 10/10; owner visual review done; OBLIGATORIO and cashier UI not certified; F10-C design in review; Production untouched
+
+```text
+CURRENT_TASK=Close the Caja certification block in Railway TESTING (R1 transactional audit + visible cashier names integrated and deployed; read-only certification; owner visual review) and prepare F10-C (cash outflows) design for review
+CURRENT_TASK_STATUS=R1_CERTIFIED_TESTING_FOR_VERIFIED_FLOWS · phase A 9/9 + phase B 10/10 certified in TESTING (OPCIONAL) · owner visual review done (no writes) · OBLIGATORIO and cashier UI NOT certified in TESTING · F4-C6 still open · F10-C design proposed, NOT implemented · docs not committed
+COMMIT=429412384567efc0ec62bcff4b9417c99e03f210 fix(caja) R1 + visible names (19 files staged one by one; parent 4fb875e; no Co-Authored-By) · runner scripts/qa/qa-testing-http.ts + qa-testing.ps1 (phases foto/a/b/r1) kept OUT of the commit (untracked, local QA tooling)
+INTEGRATED=origin/testing-codex 4fb875e -> 4294123 (fast-forward, 1 commit, 0 merges, no force push) · origin/main 42ca500 unchanged
+TESTING_DEPLOY=DeliGO Copy / TESTING 9e87ddf8-eeb3-456b-acbb-7c6b61051998 SUCCESS · commitHash 4294123 exact · "No pending migrations to apply" (53) · Ready · 0 error lines (build/deploy) · CI 43507352040 SUCCESS attempt 1 · chat en vivo and Review Moderation Expiry redeployed 4294123; Mesa Occupancy Cron still 2bc0a93
+PRODUCTION_TOUCHED=NO · all production services on 42ca500 with unchanged deployment ids
+R1_FIX=sales (owner + cashier), F4-A returns/voids, refunds paid later and F4-B corrections write their audit with auditLogWithClient(tx) INSIDE the same Serializable transaction (new operations only; replays write nothing); a failed audit rolls everything back. F4-C was already transactional. Shift/custody events (open, blind close, delivery, review, recovery, transfer) do not move ledger money and store actor+amounts atomically in their own rows: left post-commit (optional improvement), as is the exchange-threshold config audit
+R1_TESTING_EVIDENCE=run r1 (2026-11-18 00:49:24-30 UTC, operator-run): 2 cashier cash sales, 1 cashier partial return with PENDING refund paid in cash (+replay), 1 owner correction (+replay) · read-only SQL: exactly 1 audit per operation; xmin(audit) = xmin(never-updated representative row) 5/5 (old-code baseline in TESTING 0/61); no duplicates (2 sales, 1 return, 1 correction, 3 operations, 3 movements); movements +1000/-1000/+1000 on efectivo_caja_sin_asignar; stock Alfajor net 0, Bombon -1; old owner shift unchanged; 0 changes in other businesses
+R1_LOCAL_ONLY=forced audit failures (JS and real SQL) rollback 8/8; owner sale / owner void / owner refund paths with the new code
+NAMES=nombreVisibleEmpleado (caja-nombre-empleado.ts): linked account name instead of the placeholder «Pendiente de vinculación» in owner shift views, register/transfer cards, owner notices (new ones), return history and exchange chain; display only (stored names and historical notices unchanged) · verified in TESTING: closed-shift cards, transfers, history and the 2 new notices show the account name; notices created before the deploy keep the placeholder text
+VISUAL_REVIEW_TESTING=owner session (operator sign-in), no writes (only POSTs were the operator login and the automatic push reconcile): Gestionar venta (detail, correction trail, total return text correct, money outcome and refund method NOT preselected, confirm disabled), Cajas y turnos, closed-shift detail, review ("Agregar otra revisión"), delivery/remanent, Resumen; desktop and 375 px: no horizontal overflow; console only 401 before login · NOT reviewed: cashier UI, "Venta registrada" dialog after a real sale, full exchange/additional flow with quote
+NEW_UX_FINDINGS=E10 owner panel tabs without accessible name on mobile · E11 "Registrar rectificación" still offered after the remanent was transferred (API 409) · E12 raw status "CERRADO_DECLARADO" badge · E13 search labels clipped at 375 px · confirmed still open: E6 (inconsistent hour format), E7 ("Close"), E8 (chat button overlaps controls)
+LOCAL_TESTS=R1 8/8 · names 6/6 · extended battery 570 pass / 4 known pre-existing failures (2 LF/CRLF migration checks, R3A stockCantidad writer list, stale f10-b2-0-money JSON; f4-c5 static timeout intermittent) · QA suite 25/25 · runner 19/19 · CI typecheck clean (33 pre-existing) · ESLint clean
+NOT_CERTIFIED_IN_TESTING=OBLIGATORIO mode (T01-T08, T13; needs operator-authorized UPDATE) · owner's own shift open/close (blocked by keeping the old shift) · non-enabled cashier 403 · E3 with a real conflict · cashier UI · intensive concurrency (local only)
+OPEN_RISKS=(R2) real Prisma timeout/commit race only simulated · (R3) no end-to-end return of a historical inherited-price line · (R4) F10-B2.1 intermittency mitigated by E2, open until stable in CI · persistent audit_logs failure now blocks those Caja operations (intended) · local P1001 (environment)
+TESTING_ARTIFACTS=paola-vinal keeps QA products «QA … e31b», QA Caja A/B, closed QA shifts and the A/B/r1 operations; old owner shift cmw2sjtoj002do40aqaq0i1hu OPEN with expected cash 15500.00 (kept by operator decision)
+DOCS=ROADMAP.md «ESTADO VIGENTE» rewritten (additions only vs HEAD, history intact) + this handoff + GIT_DEPLOY_HISTORY entry · NOT committed (operator review first)
+NEXT_ACTION=operator reviews the F10-C (cash outflows) design and decides OBLIGATORIO/cashier-UI certification to close F4-C6; then authorize the docs commit; R2-R4 stay open
+
+```
+
+## PRECEDING UPDATE — local block integrated: testing-codex 4fb875e deployed to Railway TESTING (f6984654 SUCCESS, F4-C3/C4/C5 migrations applied); local certification PASS; authenticated TESTING certification pending; F4-C6 not closed; Production untouched
+
+```text
+CURRENT_TASK=Close the local development block (dev/local-f4c), integrate it into testing-codex, deploy Railway TESTING and certify it automatically (operator-authorized 2026-11-12: local commits, fast-forward push to origin/testing-codex only, TESTING deploy only; Production fully out of scope)
+CURRENT_TASK_STATUS=INTEGRATED_AND_DEPLOYED_TESTING · local certification PASS · TESTING deploy/migrations/smokes PASS · authenticated functional certification in TESTING NOT RUN (no agent-usable test credentials, no isolated remote QA environment) · F4-C6 IN_PROGRESS, NOT closed
+LOCAL_COMMITS=9756908 fix(caja) E1-E3 (5 files: caja-venta-service.ts, both ventas routes, route.reservations.test.ts, R3A contract) · c954217 test(qa) isolated QA suite + scripts/qa (3 files) · 4fb875e style(qa) trailing whitespace only (separate commit instead of --amend) · next-env.d.ts and generated files excluded
+INTEGRATED=origin/testing-codex 941a915 -> 4fb875e0542d51ed9ea6d7bc04f7a32eb846e6ed (fast-forward, 10 commits: 7cdc94c 614889f cd7bc98 cee5c2e 2854c8f 82b6eb5 503e90a 9756908 c954217 4fb875e; 0 merges; no force push; pushed from C:\Leo Campos\Trabajo\deligo-dev-local branch dev/local-f4c)
+PRIOR_STATE=941a915 (F4-C0..C5) had been pushed to testing-codex on 2026-11-10 (CI 42896596381 SUCCESS) but Railway did not deploy it (billing); TESTING ran 2bc0a93 until this deploy
+RAILWAY_IDENTIFICATION=Railway CLI (operator-authorized for TESTING; Railway connector NOT used) · project amiable-rejoicing · env TESTING f37d0c49-b737-49e8-be89-a00c13734fae (DeliGO Copy c6335604-063a-4a10-9c82-b0acb9e8ca7a, branch testing-codex) vs env production f96adff2-4496-47e8-9d3d-f8fa78b855fc (DeliGO dd6b45fc-0d3d-4c38-86a6-cbb04a0025c9, branch main, deligo.ar) · TESTING domain deligo-copy-production.up.railway.app (misleading name, belongs to TESTING)
+TESTING_DEPLOY=f6984654-adf5-4eb2-9cf7-d7b2d75809d9 SUCCESS · commitHash 4fb875e0542d51ed9ea6d7bc04f7a32eb846e6ed exact match · build 0 errors · deploy logs: 53 migrations found, applied EXACTLY 20261106120000_f4_c3_sale_exchange_schema, 20261109120000_f4_c4_sale_exchange_service, 20261110120000_f4_c5_commercial_attempt_claims, "All migrations have been successfully applied", Ready · 0 error lines · chat en vivo and Review Moderation Expiry redeployed with 4fb875e; DeliGO Mesa Occupancy Cron stayed on 2bc0a93
+MIGRATIONS_AUDIT=941a915..4fb875e adds NO migration, schema or package change (.github/workflows/f10-b2-2-e-testing.yml only: 4 refund suites + typecheck list, no deploy step) · the 3 F4-C migrations are additive (only DROP = devoluciones_venta_metodo_check, re-added wider) and were rehearsed on PG18 (incl. failure/recovery) · backup: operator decision 2026-11-10 (TESTING data fictitious, B2/B3 cancelled) applies
+CI=43354490537 SUCCESS attempt 1 on 4fb875e (37 steps, ephemeral PostgreSQL 16)
+TESTING_SMOKE=/login 200 · / 307 · /api 200 · /api/negocios 200 (DB read, 115 businesses) · Caja APIs without session 401/403 · invalid login 400 · chat /health 200 · browser without session: /login and /operaciones desktop + 375 px OK, no horizontal overflow, only console error = expected anonymous 401 · NO writes to the shared TESTING database
+LOCAL_RESULTS=QA suite (deligo_qa_auto, PG18.6): 25/25 in runs 2,3,5,6,7 + after guards; runs 1,4 failed in beforeAll by local P1001 (environment) · C1 120/120, C2 120/120 · E1 no ledger account from refused sales · G 40/40 · original F10-B2.1 test 100/100 · CI battery at 4fb875e (deligo_ci, 26 commands) 499 pass / 4 fail = f4-c5-static-contract timeout (Windows, 5 s), 2 LF/CRLF migration-byte checks (Windows checkout), R3A stockCantidad writer list (correcciones/devoluciones services, pre-existing on 503e90a, cd7bc98 and 941a915) · CI typecheck step clean (33 pre-existing diagnostics elsewhere)
+QA_SUITE_GUARDS=no QA_AUTO -> whole suite skipped (rc 0, no connection); QA_AUTO=1 -> fails explicitly on wrong DB, wrong env, unreachable DB (tested: other DB, bad credentials, invalid QA_AUTO value); current_database()+port verified before the first write; every fixture writer requires it
+NOT_RUN_IN_TESTING=authenticated flows of F4-A/B/C, F10-B (permissions, shifts, blind close, review, delivery), OPCIONAL/OBLIGATORIO, carry-over funds and transfers, E1-E3 end to end, concurrency/stress · reason: no agent-usable TESTING test credentials (the TESTING hostname has no test label, so the agent may not type credentials there) and no isolated remote QA database; no load on the shared database
+NEW_FINDING=E9 (accessibility, pre-existing, not in this range): the show-password button on /login has no accessible name
+PENDING_NOT_RESOLVED=(R1) F4-A return audit post-commit — resolve or formally accept BEFORE Production · (R2) real timeout/commit race not reproduced · (R3) no end-to-end historical inherited-price return · (R4) F10-B2.1 intermittency mitigated by E2 (100/100 local, CI SUCCESS), kept open until stable in CI · local P1001 (environment, low-level cause undetermined) · UX E4-E9 · isolated remote QA environment missing
+ROADMAP=codex-reports/ROADMAP.md new top section «ESTADO VIGENTE … (2026-11-12) — PREPARADO PARA REVISIÓN» + one F4 history line, in the working tree of deligo-main-limpio only; NOT committed, NOT deployed (operator review first)
+PRODUCTION_TOUCHED=NO · main 42ca500 · every production service still on 42ca500 · no Production variable, service or deploy touched
+REPO_STATE=deligo-dev-local dev/local-f4c = 4fb875e = origin/testing-codex (only next-env.d.ts modified, generated, excluded) · deligo-main-limpio branch codex/f4-c5-sale-exchange-ui 941a915 with these handoff docs + ROADMAP edited (not committed) · 329 original untracked files incl. 32 untouched
+TESTING_AUTH_CERT_2026_11_13=BLOCKED_BEFORE_ANY_WRITE · identity re-verified by Railway CLI (project amiable-rejoicing, env TESTING, DeliGO Copy, branch testing-codex, SHA 4fb875e, datasource postgres.railway.internal:5432/railway) · no exclusive QA business visible (public generic businesses: mi-hogar, paola-vinal = operator manual-test data, not used) · blockers: agent may not enter credentials on a host without a test label; business accounts need email verification + superadmin approval; employee shift opening needs DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED=true + QA employee ids in DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS (variable change = redeploy); OBLIGATORIO has no API writer · nothing written to TESTING
+NEXT_ACTION=operator decides: (a) authenticated functional certification of F4-C6 and of this block in TESTING (operator-run with a TESTING test account, or an isolated remote QA environment authorized separately), then (b) review/commit the ROADMAP and handoff docs; R1 before any Production promotion
+
+```
+
+## PRECEDING UPDATE — F4-C6 local PostgreSQL 18.6 rehearsal PASS + integration prep done; B2/B3 cancelled (TESTING data fictitious); paused awaiting authorization to fast-forward testing-codex and deploy TESTING
+
+```text
+F4_C6_TASK=F4-C6 - functional certification of F4-C in Railway TESTING, in separately authorized stages; plan simplified by the operator 2026-11-10
+F4_C6_TASK_STATUS=PAUSED_AWAITING_OPERATOR_AUTHORIZATION · local PostgreSQL 18.6 rehearsal PASS + integration prep DONE · testing-codex NOT modified · nothing deployed
+OPERATOR_DECISIONS_2026_11_10=(1) ALL current Railway TESTING data is fictitious and disposable (114 test businesses, sales, users, money movements); the operator accepts losing/rebuilding it if a migration fails, with a diagnosis BEFORE any destructive operation · (2) B2 (encrypted backup) and B3 (restore) CANCELLED as mandatory · (3) this acceptance applies EXCLUSIVELY to TESTING, NEVER to Production, and does NOT accept R1-R4 for Production
+STEP_A_R5=PASS on TESTING (operator-run read-only script, operator-reported)
+STEP_B1=COMPLETED (operator-run, operator-reported, 2026-11-10): PostgreSQL 18.6 SSL on · 50 migrations applied, 0 incomplete · 30 sales, 22 cobros, 7 returns, 25 operations / 25 movements, 12 shifts · no blocking anomaly Q0-Q10 · all ROLLBACK · R5 output identical to step A · outputs + manifest SHA-256 verified by the operator (outside OneDrive and the repo)
+TABLES_66_VS_68=TESTING lists 66 tables = EXACTLY the tables created by the 50 migrations of 2bc0a93 (+ _prisma_migrations), none missing/extra · the local test DB had 68 = + cambios_venta (F4-C3) + intentos_caja_comerciales (F4-C5), i.e. the pending schema, NOT test helpers · post-migration TESTING must have 68
+PG18_REHEARSAL=disposable local PostgreSQL 18.6 (127.0.0.1:55418, scratch, destroyed afterwards; Railway never contacted): prisma migrate deploy of the 50 migrations of 2bc0a93 (git archive copies; the 50 files byte-identical in 941a915) -> 66 tables · synthetic OLD-schema data written the way the 2bc0a93 engine writes it and accepted by its triggers (4 businesses incl. one OBLIGATORIO, 56 sales incl. 8 legacy without cobro/totalDecimal, 48 cobros EFECTIVO/TRANSFERENCIA/OTRO with ledger, 12 returns: cash-refunded voids in an open shift / pending partial / NO_CORRESPONDE, 4 F4-B corrections, 8 shifts with a declared close) · official R5 (same SHA F4D10719...) clean on it
+PG18_MIGRATION=prisma migrate deploy (same command as the Railway pre-deploy) applied F4-C3/C4/C5 in 2.2 s · second deploy = No pending migrations · migrate status up to date · 53 applied / 0 incomplete · 68 tables · row fingerprints (md5 of every row over the old columns) of all 66 old tables IDENTICAL before/after (only _prisma_migrations 50->53) · new columns NULL/0 on every existing row · 0 not-validated constraints, 0 disabled triggers · 16 F4-C CHECKs + 17 F4-C triggers present
+PG18_OLD_CODE_COMPAT=after migrating, writes in the 2bc0a93 shape (old columns only: sales, cobros, ledger, voids with cash refund, pending refund registered later, declared shift close with expected-cash snapshot) all succeed; compensated = 0; no claim rows created
+PG18_FAILURE_REHEARSAL=second disposable DB with a deliberately invalid old row (cobro metodo CREDITO_CAMBIO): F4-C3 fails with P3018 ATOMICALLY (no table/column/function left, old row intact, _prisma_migrations row failed) · next deploys blocked by P3009 · recovery = read-only diagnosis -> fix the data -> prisma migrate resolve --rolled-back <migration> -> deploy (rehearsed: 53 applied) · TESTING R5 Q1 preconditions were all 0, so this failure is not expected there
+PG18_SUITES=the 19 CI test commands of .github/workflows/f10-b2-2-e-testing.yml with CI's env (DELIGO_ENVIRONMENT=TESTING, DELIGO_EPHEMERAL_TEST_DB=1) on the migrated PG18 DB that also holds the synthetic data: 394 pass / 0 fail (F4-C2 3, F4-C3 14, F4-C4 26+3, F4-C5 15+5+8, F4-C1 6, regression batch 217) · first attempt invalid (missing DELIGO_ENVIRONMENT) · one F4-B compatibility test needs a superuser (SET session_replication_role) like CI's postgres:16 user; rerun with that role 217/217 · afterwards 0 exchanges without their REGISTRADO claim
+PG18_DRIFT=prisma migrate diff DB->schema.prisma shows ONLY 11 cosmetic renames of identifiers truncated at 63 chars from pre-existing migrations (20260811000000 chat outbox, 20261015120000 F10-B2.2-F), none on F4-C objects; pre-existing, not fixed
+INTEGRATION_PREP=origin/testing-codex 2bc0a93 is an ancestor of 941a915: fast-forward possible, 0 divergence, 18 commits (incl. F4-B docs b8538c2 / edcc8ef, F4-C0...F4-C5 functional + ci + docs) · migrations added: exactly 20261106120000_f4_c3_sale_exchange_schema, 20261109120000_f4_c4_sale_exchange_service, 20261110120000_f4_c5_commercial_attempt_claims + prisma/schema.prisma · 68 files, +10270/-519 · no package.json / bun.lock change · origin/codex/f4-c5-sale-exchange-ui = 941a915 · origin/main 42ca500 has 15 commits not in testing-codex (pre-existing, unrelated)
+RAILWAY_DEPLOY_EXPECTATION=(from GIT_DEPLOY_HISTORY, to be confirmed by the operator in the dashboard - Railway connector not used) a push to testing-codex autodeploys DeliGO Copy / TESTING: build (prisma generate && next build) -> preDeployCommand npx prisma migrate deploy --schema prisma/schema.prisma -> start · the same push has also autodeployed chat en vivo and Review Moderation Expiry in the past (extra builds/usage) · build failure => no migration, TESTING stays on 2bc0a93 · migration failure => atomic, deploy FAILED, previous deployment keeps serving, P3009 until resolved · BILLING: the operator reports a temporary billing limitation - whether Railway will build/deploy cannot be verified from here; check workspace usage/limits before pushing
+PENDING_NOT_RESOLVED=(R1) F4-A return audit still post-commit - resolve or formally accept BEFORE Production · (R2) real timeout/commit race not reproduced · (R3) no end-to-end historical inherited-price return · (R4) see F4-C5 handoff · Production PostgreSQL version unknown · real browser / device / physical scanner not verified · a business in OBLIGATORIO mode is needed in TESTING for T11
+PRODUCTION_TOUCHED=NO · main 42ca500 and testing-codex 2bc0a93 unchanged · no merge, push, deploy or Railway configuration change · repo HEAD 941a915 on codex/f4-c5-sale-exchange-ui · 329 original untracked files preserved (incl. 32) · only these handoff docs edited in the working tree (not committed)
+NEXT_ACTION=operator authorization for stage C/D: fast-forward git push origin 941a915dc5c214c91d9a16f1a6d9dc07cfe8272d:refs/heads/testing-codex (no force, no merge commit) -> Railway TESTING autodeploy + pre-deploy migrations -> verify deployment SUCCESS with commitHash 941a915 and logs showing exactly 3 migrations applied -> post-migration read-only check (53 migrations, 68 tables) -> then functional tests T01-T23 owner + cashier
+```
+
+## PREVIOUS UPDATE — F4-C5 exchange UI + safe recovery of uncertain attempts TECHNICALLY_CLOSED_CI_PASS on codex/f4-c5-sale-exchange-ui only (CI 42753877520 attempt 1); not integrated, not deployed (2026-11-10, Claude Code)
 
 ```text
 F4_C5_STATUS=TECHNICALLY_CLOSED_CI_PASS on its branch only (operator-authorized 2026-11-10; branch from 87a36ba; functional commit 4ff07ddd4a59fcaa260d48dc10c57177affd3676, workflow commit d2615d19af45006b65d2be67b41a810c81446025, closure docs commit; CI 42753877520 attempt 1 SUCCESS on ephemeral PostgreSQL 16: migrate deploy from an empty DB incl. 20261110120000, typecheck, the seven F4-C5 suites, regressions, contracts and build green) · no integration, no deploy, migration NOT applied to any persistent DB · NOT certified in Railway TESTING nor Production

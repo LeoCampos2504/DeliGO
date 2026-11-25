@@ -1,5 +1,335 @@
 # ROADMAP — DeliGO
 
+## ESTADO VIGENTE — Negocios comunes / Caja en Railway TESTING (actualizado 2026-11-17) — PREPARADO PARA REVISIÓN
+
+Esta sección **se agrega encima** del historial y no lo reemplaza. Cuando contradice un estado escrito más abajo
+(por ejemplo `F4_C_STATUS=DESIGN_APPROVED_NOT_STARTED` o «F4-C1…C5 sin integrar»), vale esta sección; el texto de
+abajo se conserva como registro histórico. No modifica ninguna decisión comercial (COMERCIAL-1, CLIENTE-1/2/3,
+cargos y abonos siguen exactamente como están escritos). **Una certificación en TESTING no autoriza Production.**
+
+### Lote BUG-001 / BUG-002 y deuda técnica (2026-11-24)
+
+> Metodología permanente: `DEVELOPMENT_WORKFLOW.md` (activación al haber una versión estable certificada en Production).
+> Estado real del despliegue: `CODEX_REPORT.md` y `GIT_DEPLOY_HISTORY.md` (no deducirlo de esta sección).
+
+- **BUG-001 identidad de empleados vinculados** — regla única `src/lib/empleado-identidad.ts` (vínculo activo →
+  `CuentaOperativa.nombre`; sin vínculo → `Empleado.nombre`). Rama `codex/fix-identidad-ocupacion`, commits `dd23ac1e`
+  (+ `1c68007f` expectativa de `f10-b2-1-turnos`). **Desplegado en TESTING** (`testing-codex` = `1c68007f`, CI
+  `45336755300` SUCCESS). **FUNCIONALMENTE VERIFICADO en TESTING (operador, 8/8, 2026-11-25)** dentro de su alcance.
+- **BUG-002 ocupación de mesa con sesiones simultáneas** — `?actorFamily=` declarado por la pantalla; commit `3c13cbf5`.
+  **FUNCIONALMENTE VERIFICADO en TESTING (operador, 8/8, 2026-11-25)**, incluida la consulta con ambas sesiones abiertas.
+- **BUG-003A/B vista del cliente** (`codex-reports/BUG_003_NOMBRE_PUBLICO_MOZO_R1.md`, sección R2) — IMPLEMENTADO EN
+  LOCAL, sin commit/push/despliegue, pendiente de revisión de ChatGPT: 003A nunca se muestra el marcador (sin nombre de
+  atención público en el modelo → «Tu pedido será servido en esta mesa»); 003B `mesas-public` valida en el servidor que la
+  sesión de dueño sea del negocio del slug (otro negocio → 404 sin datos) y no devuelve datos de empleados; `by-codigo` sin
+  `nombre` ni `id`. Commit `4fba5341`.
+- **MEJORA FUTURA (registrada, NO autorizada) — nombre público de atención del empleado:** campo opcional definido por el
+  dueño, explícitamente público (requiere migración), expuesto sólo en una superficie limitada a la mesa del cliente y
+  validada con su credencial de ocupación/QR; nunca datos de `CuentaOperativa`. Hasta entonces la vista muestra «Tu pedido
+  será servido en esta mesa».
+- **Bloque 1 (proveedores) manual** — preparación `M11240504` detenida ANTES de crear datos QA; se retoma con la misma
+  etiqueta después de verificar BUG-001/002 en TESTING (`b1-manual-preparar.ps1 -Cajero "<nombre exacto>"`).
+
+**Pendiente — otros endpoints con el mismo mecanismo de sesiones simultáneas** (dueño + cuenta operativa en el mismo
+navegador; clase F-P2-T18-AUTH02). NO corregidos en este lote; cada uno, tarea propia:
+1. `/api/operaciones/ocupaciones/[id]/cuenta` GET/POST — «Ver cuenta» y **cierre comercial de mesa** (mismo resolvedor
+   `resolveMesaOccupancyCloseActor`). **Prioridad alta en Salón**; misma técnica que BUG-002.
+2. `/api/operaciones/pedidos/[id]/cancelar` (`mesa-pedido-cancelacion`) — cancelación de pedidos de mesa.
+3. `/api/notificaciones`, `/api/destacado-solicitud`, `/api/denuncias`, `/api/mozos/stats` — leen la cookie legacy.
+4. `/api/operativo/*` que también leen la cookie legacy — sin evaluar.
+5. `MesaCuentaDialog` consulta la ocupación sin selector (comportamiento anterior).
+
+**Páginas públicas** (`/api/empleados/by-codigo`, `/api/negocio/mesas-public`): ahora BUG-003 (ver arriba). Además,
+decisión de producto pendiente: `mesas-public` responde 401 a clientes anónimos (el proxy exige sesión de dueño), así que
+hoy los clientes nunca ven el nombre del mozo pese al comentario «PUBLIC endpoint» de la ruta. La UI no marca visualmente un nombre histórico resuelto (`empleadoNombreResuelto` disponible).
+
+**Deuda técnica PREEXISTENTE (no introducida por BUG-001/002; cualquier error fuera de esta lista es nuevo):**
+- TypeScript: **41 errores en 21 archivos** en `e6224a48` (`tsc --noEmit`), ninguno en archivos de este lote. El CI sólo
+  filtra los archivos de cada etapa.
+- Pruebas: **12 fallos** al correr la regresión local — 10 fallan igual en `e6224a48` limpio:
+  `catalog-tutorial-static-contract` (1), `auth-login-throttle.integration` (4), `f10-b1-static-contract` (1, `total:` en
+  la auditoría de la venta), `f9-barcode-static-contract` (2), `p2-t56-r3a-i2-wiring-static-contract` (1, escritores de
+  `stockCantidad`), `password-hash-workfactor-wiring-static-contract` (1); y 2 chequeos LF de migraciones
+  (`f10-b2-0`/`f10-b2-1-static-contract`) que fallan sólo en la copia Windows (pasan en checkout limpio y en CI).
+  Ninguno de esos 10 está en el workflow de CI.
+- Intermitencia conocida de `f10-b2-1-turnos` en ventas concurrentes (R4).
+
+> **Rediseño de pagos y cuenta corriente de proveedores (2026-11-20): DISEÑO PROPUESTO, SIN IMPLEMENTAR.** Dirección
+> aprobada por el operador; no autorizado para programar.
+> - Pagos registrados en el momento natural:
+>   - pedido: no pagué / parte / total estimado;
+>   - transferencia realizada en un solo paso; la programada no cuenta;
+>   - efectivo sólo por F10-C1;
+>   - dinero personal del dueño como origen distinto de Caja;
+>   - anticipos del empleado desde su turno, con permiso y límites.
+> - Se aplican solos al aprobar las recepciones de ese pedido; un anticipo **nunca** cancela deudas antiguas.
+> - Cuenta corriente con estado por factura y «Pagar deudas seleccionadas» (distribución sugerida y editable;
+>   vencidas primero). Las asignaciones técnicas quedan en opciones avanzadas.
+> - Antes de programar: completar las pruebas manuales de D-7 v2 y de pedidos con total informado, revisar la
+>   recepción N° 2 y cerrar los pendientes de diseño (devoluciones, límites del empleado, reintegros al dueño).
+>
+> Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md` §16.
+>
+> **Preparación de catálogos para incorporar negocios reales (2026-11-20): ETAPA PRIORITARIA PLANIFICADA, NO
+> IMPLEMENTADA.** Orden: **después** de terminar el rediseño de pagos a proveedores y **antes** de preparar Production.
+>
+> Alcance:
+> - importación masiva de productos por Excel/CSV, con vista previa y detección de duplicados;
+> - carga y edición de productos, variantes y códigos de barras;
+> - edición masiva de categorías y otros datos permitidos;
+> - asociación bidireccional producto ↔ proveedor, reutilizando `proveedor_productos`:
+>   - en el producto, elegir uno o varios proveedores;
+>   - en el proveedor, elegir varios productos en una sola operación;
+> - primera etapa de incorporación de comercios con catálogos reales, aislamiento de datos y permisos seguros.
+>
+> **Las funciones financieras no se habilitan a negocios reales hasta estar verificadas.**
+>
+> **Etapa 1 (2026-11-21): asociación producto ↔ proveedor desde ambas fichas — IMPLEMENTADA EN LOCAL, prueba manual pendiente.**
+> - Reutiliza `proveedor_productos` y sus servicios: sin migración, idempotente y auditado.
+> - Producto: sección «Proveedores» al crear o editar, con variantes. Proveedor: selección múltiple y una sola operación en «Productos que entrega».
+> - No toca stock, costos ni precios.
+> - **Etapa 1b (2026-11-21): permisos TEMPORALES de catálogo para empleados — IMPLEMENTADA EN LOCAL, prueba manual pendiente.** Vigencia + permisos independientes (crear, editar, proveedores, precios, costos), deshabilitados por defecto y verificados en cada operación; nunca stock ni dinero; producto sin precio no se vende; auditoría de altas y modificaciones. Migraciones `20261121180000_catalogo_permisos_empleado` y `20261121181000_catalogo_activacion_empleado` (con respaldo).
+>   - **Asociación producto ↔ proveedor desde el empleado — VALIDADA MANUALMENTE EN DESARROLLO LOCAL (2026-11-21).** Corregido antes un fallo: la ruta `GET/POST/DELETE /api/operativo/caja/[slug]/catalogo/productos/[id]/proveedores` no quedaba registrada (404 HTML) y la sección quedaba en «Cargando…»; ahora exporta cada método y la sección muestra error, reintento y avisos de permiso. Evidencia (Galletitas QA ↔ Distribuidora Prueba, Cajero sintético 1): asociar, quitar y volver a asociar con 200 y auditados como empleado (`CATALOGO_EMPLEADO`); con «Asociar proveedores» revocado, `DELETE` rechazado con 403 sin cambios ni auditoría; una sola asociación, sin duplicados; precio, costo y stock intactos, sin cambios de precio ni etiquetas. El resto de la etapa 1b (crear/editar, precios, costos, vencimiento) y la etapa 1 desde la ficha del dueño siguen con prueba manual pendiente.
+> - **Etapa 2 (2026-11-21): importación masiva desde Excel (.xlsx) y CSV — IMPLEMENTADA EN LOCAL; importación .xlsx del DUEÑO VALIDADA MANUALMENTE EN DESARROLLO LOCAL (ver abajo); resto pendiente.** Lectura en el navegador sin dependencias nuevas; 5 pasos (archivo → columnas → vista previa → confirmar → resultados); vista previa de sólo lectura con nuevos / existentes / errores (códigos repetidos en el archivo y contra el catálogo, variantes, proveedores existentes); existentes sólo con «Actualizar» explícito; sin stock ni movimientos (R3A); precios por `conPrecioDeCatalogoEnTx`; auditoría con origen `IMPORTACION`; registro idempotente `importaciones_productos` (reintentos y cortes no duplican). Permiso de empleado «Importar productos» (`catalogoImportar`, sujeto a la vigencia). Migración `20261121200000_catalogo_importacion_productos` (con respaldo). Vista previa del dueño revisada por Claude en el navegador con `C:\Users\eltig\deligo-dev-db\importacion-prueba\productos_prueba.xlsx`; la confirmación queda para la prueba del operador.
+>   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (dueño, .xlsx):** importaciones `cmwpqsnij…` (3 creados · 3 omitidos · 4 con error) y `cmwpr1et1…` (2 actualizados · 4 omitidos · 4 con error). Alta simple y con 2 variantes sin duplicados; detección de existentes; «Omitir» por defecto; «Actualizar» explícito (Kilo de cafe: categoría, precio $250,55→$260 con activación CATALOGO, costo $120→$125; Galletitas QA: código y precio $0→$900); Taza con etiqueta pendiente intacta; errores (código repetido en el archivo, sin nombre, precio inválido); proveedores existentes asociados y desconocidos no creados; sin movimientos de stock ni financieros; auditoría del dueño con `importacionId`; registro idempotente y resumen coincidentes.
+>   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (empleado, .xlsx, sin permisos de precios, costos ni proveedores):** importación `cmwpranmr…` de Cajero sintético 1 (`deligo_productos_nuevos_prueba_empleado.xlsx`, 14 filas → 13 productos creados, uno con 2 variantes); todos sin precio de venta (precio 0, no disponible) y sin costo; sin asociaciones a proveedores; sin stock, movimientos ni activaciones de precio; sin nombres, códigos ni asociaciones duplicados; auditoría `userType=empleado` con `importacionId`; permiso «Importar productos» vigente hasta 2026-11-28 con precios, costos y proveedores deshabilitados. **El archivo usado fue .xlsx: la importación .csv sigue sin probar.**
+>   - **Verificado por Claude en local con una transacción revertida (2026-11-21, sin dejar datos; no es prueba manual del operador):** vista previa sin escrituras; corte simulado a mitad (1 de 3 grupos guardado, registro EN_CURSO) → reintento inmediato no reprocesa (turno vigente) → reintento con el turno vencido retoma y completa sin repetir el grupo 1 (3 productos, 3 auditorías de alta) → repetir la confirmación completada devuelve el mismo resultado sin productos ni auditorías nuevas; misma clave con otros datos → `IMPORTACION_DISTINTA`; empleado temporal sin «Importar productos» y con permiso vencido → `IMPORTAR_SIN_PERMISO` sin registro; revocación entre grupos → el grupo 1 se crea y los pendientes quedan con error «Tu permiso cambió o venció…». Limitación: si el servidor muere a mitad, la pantalla sólo consulta el estado; para retomar hay que volver a tocar «Confirmar» pasado el turno de 60 s.
+>   - **DEFECTO ENCONTRADO en la prueba CSV del empleado (2026-11-21, importación `cmwprmsz1…`, NO VALIDADA):** un número con un solo punto de miles y sin decimales se lee como decimal: «2.315» → $2,32 (precio de «Jabón de tocador…») y «2.100» → $2,10 (costo de «Café torrado…»). Causa: `parseNumero` (`importacion-productos-service.ts:70`) exige dos grupos de miles (`{2,}`); además «2,315» (sólo coma) se toma como miles en vez de decimal. Correcto en el mismo archivo: 1.850,50 · 5.999,99 · 3.420,00 · 890,75 · 1.120,00 · 1.480,25 · 4.100,5 · 520; textos con acentos, ñ, ü, ×, –, —, comillas y «;» exactos (Windows-1252); 4 asociaciones con Distribuidora Prueba y el agua sin proveedor; sin stock, movimientos ni duplicados; auditoría del empleado; una sola importación; permisos vigentes con precios, costos y proveedores. Datos con error sin corregir (decisión del operador).
+>   - **Corrección en local (2026-11-21, autorizada por el operador; pendiente de prueba manual):** `parseNumero` reescrito sin ambigüedades: «2.315» → 2315 · «1.234.567,89» → 1234567,89 · coma = decimal con 1–2 decimales · compatibles «1890.5» y «1,234.56»; «2,315», «2.3155», más de 2 decimales o separadores mal agrupados → fila con error que muestra el valor original (sin redondeo). La vista previa muestra el importe exacto a guardar («Se guarda: precio … · costo …») con el mismo lector que la confirmación. Verificado por Claude: tabla de 34 formatos; vista previa del CSV real como dueño y como Cajero sintético 1 (sólo Jabón y Café con cambios); crear/actualizar con datos temporales en transacción revertida (importes guardados = vista previa, historial de precio CATALOGO del empleado, fila ambigua sin registro, proveedor y stock correctos); regresión de idempotencia y permisos sin cambios; tsc 41 (línea base) y ESLint limpio. Datos afectados (sólo lectura): únicamente Jabón (precio 2,32) y Café (costo 2,10), sin etiquetas pendientes.
+>   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (empleado, .csv Windows-1252 «;», con permisos de precios, costos y proveedores; 2026-11-23):** primera carga `cmwprmsz1…` (5 creados, textos especiales exactos, 4 asociaciones con Distribuidora Prueba, agua sin proveedor) + reimportación `cmwssaofk…` con el lector corregido (2 actualizados, 3 omitidos): Jabón precio $2,32 → $2.315 con activación CATALOGO del empleado (`sxn1-e1`) y auditoría `producto.precio_cambiado` origen IMPORTACION; Café costo $2,10 → $2.100 (auditoría `producto.modificado`); los otros 3 sin cambios; 28 productos / 28 nombres, sin códigos ni asociaciones duplicados; sin movimientos de stock ni de dinero; no quedan importes sospechosos de importaciones anteriores. Nota: el historial de precios registra origen CATALOGO; el vínculo con la importación está en la auditoría (`importacionId`).
+>   - **Volumen y recuperación (2026-11-23, local; medido por Claude con transacción revertida, sin dejar datos):** archivos `volumen_300_productos.csv` y `volumen_1000_productos.csv` en `C:\Users\eltig\deligo-dev-db\importacion-prueba\`. Lectura 5–12 ms; vista previa 80–110 ms (respuesta 81 / 271 KB); confirmación ~5 s (300) y ~27 s (1.000, estimado con transacciones reales). Cuello de botella: cada grupo relee todos los códigos de barras del negocio (guarda de unicidad) → costo cuadrático (≈50 % del tiempo con 1.000; crece con el tamaño del catálogo). Corrección mínima: **procesamiento por tandas** (máx. ~8 s o 150 grupos por petición, misma clave idempotente, turno liberado al terminar cada tanda), **reserva del grupo dentro de su transacción** (`FOR UPDATE` + comprobación del resultado: dos intentos simultáneos no lo repiten), **cierre único** (un solo evento de resumen), y en la pantalla: avance real con barra, reintento automático ante cortes o errores del servidor, espera automática si otro intento tiene el turno, y aviso «Continuar importación» tras recargar o cerrar (clave guardada en el navegador). Medido con tandas: 300 → 2 peticiones (la más larga 2,3 s); 1.000 → 7 peticiones (la más larga 6,9 s); sin duplicados (1.000 altas, 1.000 auditorías, 1 resumen). Regresión de idempotencia/permisos: 19/19 OK. No se cambió la guarda de códigos de barras ni precios, proveedores, stock o permisos.
+>   - **Prueba manual de volumen del operador (2026-11-23, importación `cmwsss024…`, `volumen_300_productos.csv`, dueño):** datos correctos en lectura (300 productos creados una sola vez, 300 auditorías de alta, 1 importación completada 300/300, 1 evento de resumen, 300 códigos únicos, sin movimientos de stock ni financieros). **Las tandas NO se ejercitaron:** el servidor de desarrollo seguía usando en memoria el módulo anterior del importador (cargado antes de la modificación), y la importación se hizo en una sola petición de 8,2 s, sin cortes ni reintentos. Servidor reiniciado; ambas rutas cargan el código con tandas. **Procesamiento por tandas, corte de red y «Continuar importación»: sin validación manual.**
+>   - **VALIDADO MANUALMENTE EN DESARROLLO LOCAL (2026-11-23, dueño, `volumen_1000_productos.csv`, importación `cmwst2t2z…`, servidor reiniciado): procesamiento por tandas y recuperación tras recargar la página.** 8 peticiones de confirmación (05:08:57–05:09:27 UTC), todas de la misma importación (un único registro, misma clave): 150 · 150 · 150 · 150 (la recarga ocurrió durante ésta; el servidor terminó la tanda) · 0 (el intento de la página recargada encontró el turno ocupado y esperó solo) · 150 · 150 · 100. Petición más larga ≈ 4,8 s. Resultado: 1.000 productos creados una sola vez (1.000 nombres y 1.000 códigos únicos, sin duplicados en el catálogo), 1.000 auditorías de alta (una por producto), un único resumen, 1.000/1.000 resultados y estado COMPLETADA; sin movimientos de stock, financieros ni de precios. **El corte de red no se ejercitó** (no hay peticiones fallidas ni reintentos en el registro del servidor): sólo verificado técnicamente.
+>   - **Pendiente de prueba:** corte de red real durante la importación (opcional: mismo ciclo de reintento que ya cubre la recarga); descarga de filas con error y reimportación; actualización de variantes existentes; código del archivo que ya pertenece a otro producto del catálogo; mejora de no perder decisiones al volver a «Revisar columnas».
+>   - **Mejora de interfaz pendiente (no corregida):** al volver a «Revisar columnas» se pierden las decisiones «Actualizar / Omitir» de la vista previa (vuelven a la sugerida). Menor: la auditoría de una actualización guarda el costo anterior y nuevo sólo como texto en `cambios`.
+>
+> **DeliGO Proveedores (2026-11-20): PLANNED / FUTURE EXPANSION / NOT STARTED.** Proyecto futuro B2B
+> distribuidoras ↔ comercios, fuera del desarrollo inmediato; ver la sección «FUTURE EXPANSION — DeliGO Proveedores»
+> más abajo y `DELIGO_PROVEEDORES_DISENO_FUTURO.md`.
+>
+> **Compras, recepciones y precios (2026-11-20): IMPLEMENTADO EN LOCAL, SIN COMMIT; VALIDACIÓN MANUAL PARCIAL EN
+> `deligo_dev`.** Metodología manual vigente: prueba del operador en `localhost` + verificación de Claude en solo lectura.
+> «Validado manualmente en desarrollo local» **no** es certificación en TESTING ni autoriza Production.
+>
+> | Funcionalidad | Estado |
+> |---|---|
+> | Recepciones sin pedido | VALIDADO MANUALMENTE EN DESARROLLO LOCAL |
+> | Actualización de costos y precios de venta al aprobar (conserva el recargo) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL |
+> | Etiquetas de góndola (precio pendiente hasta confirmar la etiqueta) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL |
+> | Protección de precios durante ventas iniciadas (inicio de venta, 30 min, un solo uso) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL |
+> | Cierre de pedidos con pendientes | Implementado; cierre del pedido N° 1 verificado en lectura; falta confirmar la vista del cajero |
+> | Pedidos y recepciones con pedido (+ 5 mejoras de usabilidad) | Implementado; usado en la prueba del operador, sin validación formal; recepción N° 2 pendiente (pagos de $2.000 y $600 sin revisar) |
+> | Asociación de pagos a recepciones (D-7 v2) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL (recepción N° 7) |
+> | Pedidos con total informado (modalidad B) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL (pedido N° 4 / recepción N° 8) |
+> | Pagos etapa 1: transferencia anticipada desde el pedido | VALIDADO MANUALMENTE EN DESARROLLO LOCAL (pedido N° 5 / recepciones N° 9 y N° 10; §16.10) |
+> | Pagos etapa 2: cuenta corriente por pedidos y facturas + «Pagar deudas seleccionadas» | VALIDADO MANUALMENTE EN DESARROLLO LOCAL (transferencia de $15 a las recepciones N° 8 y N° 10; §16.11) |
+> | Pagos etapa 3: anticipo en efectivo desde Caja para pedidos (dueño y empleado con permiso y límites) | VALIDADO MANUALMENTE EN DESARROLLO LOCAL (pedido N° 9 / recepción N° 13; §16.12). Revisión futura: restricción `PEDIDO_CON_DEUDA_APROBADA` |
+>
+> Siete migraciones aditivas, aplicadas sólo en `deligo_dev` con un respaldo antes de cada una; sin CI, TESTING ni
+> Production (F10-D1 sigue obligatorio). Próximo: pruebas manuales de D-7 v2 y de pedidos con total informado; después,
+> decisión de commit + CI. Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md` §15.
+>
+> **F10-C1a (2026-11-18) — egresos de efectivo de Caja: IMPLEMENTADO EN LOCAL, SIN COMMIT.** D1–D11 aprobadas con
+> cuatro ajustes; migración aditiva `20261118120000_f10_c1a_cash_outflows` + servicio y API de dueño y cajero; pruebas
+> verdes sobre `deligo_ci` y `deligo_qa_auto`. Sin interfaz (C1b/C1c no autorizados), sin despliegue; TESTING y
+> Production sin cambios. Detalle: `codex-reports/F10_C_EGRESOS_CAJA_DISENO.md` §11.1 y §13.
+>
+> **R3A en F4 + F10-C2b + D-7 (2026-11-19): IMPLEMENTADO EN LOCAL, SIN COMMIT.** F4 (devoluciones, anulaciones,
+> correcciones) escribe stock sólo por la autoridad R3A (contratos 97/97, sin cambio financiero). Interfaz del cajero
+> «Recibir mercadería» y bandeja del dueño Caja → Compras (vista previa, avisos, confirmaciones, pedidos, impuestos).
+> Pago en efectivo al recibir = salida `PAGO_PROVEEDOR` de F10-C1 vinculada por F5 (sin segundo movimiento). Sin
+> migración nueva; revisión en navegador local en escritorio y 320/375/412/768. TESTING y Production sin cambios.
+> Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md` §14.
+>
+> **F10-C2a (2026-11-19) — compras y recepciones de mercadería: IMPLEMENTADO EN LOCAL, SIN COMMIT.** Migración aditiva
+> `20261119210000_f10_c2a_purchases_receptions`; motor + API de dueño y cajero (sin interfaz: F10-C2b); aprobación
+> atómica del dueño (stock por la autoridad R3A, costos congelados, último costo en orden real, una obligación de F5,
+> anticipos opcionales). F5-A aprobado en local y revisado (duplicados de pagos, saldos sin signo, protección LF).
+> Suites nuevas y regresión verdes en `deligo_ci` / `deligo_qa_auto`; `deligo_dev` migrado con respaldo. TESTING y
+> Production sin cambios. Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md` §12.7 y §13.
+>
+> **F5-A (2026-11-19) — proveedores + motor único de cuenta corriente: IMPLEMENTADO EN LOCAL, SIN COMMIT.** Migración
+> aditiva `20261119180000_f5a_suppliers_ledger` (7 tablas, invariantes en SQL, guarda D-8 aditiva sobre compensaciones de
+> F10-C1), servicios, 11 rutas de dueño y subpestaña Caja → Proveedores. Suites F5-A y regresión F10-C1 verdes en `deligo_ci`
+> y `deligo_qa_auto`; `deligo_dev` migrado con respaldo previo. TESTING y Production sin cambios. Siguiente: revisión del
+> operador y autorización de commit/CI; después F10-C2a. Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md` §12.
+>
+> **F10-C2 + F5 mínimo — DISEÑO v2 (2026-11-19): decisiones definitivas, F5-A pendiente de autorización.** D-2/5/7/8/9/11/12/13
+> aprobadas; D-1/3/4/6/10 ajustadas (CUIT validado y único por negocio con advertencia por nombre; **motor único** de cuenta
+> corriente con asignar/dividir/desafectar/reasignar y FIFO sólo sugerido; costo histórico en Decimal con descuentos, impuestos
+> y cargos accesorios definidos; pagos declarados sin efecto sobre la deuda hasta confirmarse). Orden: F5-A → F10-C2a → F10-C2b
+> → F10-D1 (obligatorio antes de egresos en Production) → decisión de Production → F10-C2c / F5-B (extensiones del mismo motor).
+> v1 archivada en `archive/F10_C2_F5_COMPRAS_RECEPCION_DISENO_v1_20261119.md`. Alcance técnico de F5-A: §10 del diseño.
+
+> **F10-C2 + F5 mínimo (2026-11-19) — DISEÑO PROPUESTO, NO APROBADO, SIN IMPLEMENTACIÓN.** Compras, recepción de
+> mercadería (stock por la autoridad R3A, costo real, deuda al aprobar) y proveedores (ficha mínima, cuenta corriente
+> append-only, asignación de los pagos de Caja de F10-C1, pagos declarados). Decisiones D-1…D-13 (incluye #10 y #12)
+> pendientes del operador. Fases propuestas: F5-A → F10-C2a → F10-C2b → F10-D1 → decisión de Production → F5-B /
+> F10-C2c. Detalle: `F10_C2_F5_COMPRAS_RECEPCION_DISENO.md`.
+>
+> **Production / F10-D (criterio del operador, 2026-11-19):** F10-C1 está `CLOSED_TESTING_CERTIFIED` pero **NO autorizado para
+> Production**. Antes de habilitar egresos en negocios reales, F10-D debe resolver de forma segura los errores de egresos
+> descubiertos después del cierre; propuesta: un **F10-D1 acotado** (conciliación del error contra la diferencia del turno
+> cerrado y recupero real como ingreso nuevo), sin esperar a F10-D completo. No implementado.
+
+> **F10-C1 (2026-11-19) — CLOSED_TESTING_CERTIFIED (funcional).** `testing-codex` `bfaba2a`; batería F10-C3 14 PASS /
+> 0 FAIL / 1 NOT_RUN deliberado + reconciliación SQL PASS (cierre ciego $3.539,51 = libro; auditoría R1; sin duplicados;
+> sin escrituras en otros negocios; turno histórico intacto). Production sin cambios. Pendiente aparte: F10-D (compensación
+> posterior al cierre, bloqueada), prueba física en teléfonos. Siguiente: diseño F10-C2 + frontera F5 (ver §16 del diseño).
+
+> **F10-C1 (2026-11-18) — C1a + C1b + C1c DESPLEGADO EN RAILWAY TESTING, NO CERTIFICADO.** `testing-codex` `bfaba2a`
+> (DeliGO Copy `db49cadf` SUCCESS; migraciones 54 y 55 aplicadas; CI `44377138529` SUCCESS; respaldo previo verificado).
+> Production sin cambios. Falta la certificación F10-C3 (`c3-foto`, luego `c3` + reconciliación SQL). F10-D y la
+> compensación posterior al cierre siguen pendientes aparte.
+
+> **F10-C1c (2026-11-18) — panel del dueño «Egresos de Caja»: IMPLEMENTADO EN LOCAL, SIN COMMIT.** Caja → Egresos:
+> registro con caja y turno elegidos explícitamente, historial con filtros, supervisión visible, revisión y
+> confirmación de retiros sin movimiento, compensación total con el turno abierto (REVERSION auditada, original
+> intacto) y desglose de turnos/resumen por naturaleza que cuadra con el libro. La compensación **posterior al
+> cierre queda BLOQUEADA** (API 409 + guarda SQL, migración aditiva `20261118150000`) hasta F10-D: no está terminada.
+> Pruebas C1c 12/12 en `deligo_ci` y `deligo_qa_auto`; sólo fallas preexistentes. Detalle: `F10_C_EGRESOS_CAJA_DISENO.md` §15.
+
+> **F10-C1b (2026-11-18) — interfaz del cajero «Salidas de Caja»: IMPLEMENTADA EN LOCAL, SIN COMMIT.** Operaciones →
+> Caja: registro de gasto / pago a proveedor / retiro del dueño con confirmación, comprobante e historial del turno, sin
+> datos del esperado; doble clic e intentos inciertos cubiertos; aviso «Instalar la app» y chat flotante ya no tapan
+> los controles (revisado a 320/375/412/768 px y escritorio). `deligo_dev` migrada (54/54, respaldo previo). Batería
+> de Caja: sólo las 4 fallas preexistentes. C1c **no** iniciado. Detalle: `F10_C_EGRESOS_CAJA_DISENO.md` §14.
+
+### Integración y despliegues en TESTING
+
+```text
+TESTING_CODEX=429412384567efc0ec62bcff4b9417c99e03f210 (fast-forward 4fb875e..4294123, 1 commit, sin merges ni force push; 2026-11-13 21:04 UTC)
+DESPLIEGUE_VIGENTE=Railway amiable-rejoicing · entorno TESTING · servicio DeliGO Copy · 9e87ddf8-eeb3-456b-acbb-7c6b61051998 SUCCESS · commitHash 4294123 exacto · «No pending migrations to apply» (53) · 0 errores en build/deploy · CI 43507352040 SUCCESS intento 1
+DESPLIEGUE_ANTERIOR=f6984654-adf5-4eb2-9cf7-d7b2d75809d9 SUCCESS · 4fb875e (bloque local + F4-C0…C5 + E1–E3 + suite QA) · migraciones F4-C3/C4/C5 aplicadas · CI 43354490537 SUCCESS
+DOMINIO_TESTING=deligo-copy-production.up.railway.app — el nombre dice «production» pero pertenece al entorno TESTING (verificado por Railway CLI en cada corrida del runner)
+PRODUCTION=SIN CAMBIOS · main 42ca500 · servicios del entorno production en 42ca500 con los mismos IDs de despliegue
+```
+
+Commits del bloque (rama local `dev/local-f4c`): `7cdc94c` gestión de ventas unificada · `614889f` auditoría de
+reintegros · `cd7bc98` medio de reintegro explícito · `cee5c2e` «Venta registrada» accesible · `2854c8f` panel del
+cajero (segundo cierre) · `82b6eb5` turnos cerrados legibles · `503e90a` revisión administrativa sin reenvío ·
+`9756908` E1–E3 · `c954217` + `4fb875e` suite QA aislada · `4294123` **R1** (auditoría en la misma transacción) +
+nombre visible del cajero vinculado.
+
+### Certificado en Railway TESTING (con evidencia)
+
+Negocio de pruebas `paola-vinal` (modo OPCIONAL), dueño `pao2026` y un cajero existente; runner HTTP
+`scripts/qa/qa-testing-http.ts` ejecutado por el operador; auditorías SQL de sólo lectura (`railway connect`,
+transacción READ ONLY, ROLLBACK).
+
+- **Fase A 9/9 PASS:** E1/E3 (rechazos por validación y stock), ventas + idempotencia, E2 concurrencia controlada
+  (misma clave ×5, claves distintas ×5), F4-A (devolución con reintegro en efectivo, anulación con reintegro pendiente
+  pagado después), F4-B (corrección, replay, clave reusada, versión desactualizada), F4-C (cotización sin escrituras,
+  cambio sin diferencia, con cobro, con reintegro pendiente pagado, venta adicional, cadena, verificación), cajero en
+  OPCIONAL, permisos. Auditoría SQL: cobros/ventas sin descuadre, sin huérfanos ni duplicados, crédito interno =
+  compensado, auditoría completa, stock reconciliado con inventario.
+- **Fase B 10/10 PASS** (sin cerrar el turno antiguo del dueño): apertura del cajero en «QA Caja A», caja ocupada,
+  segundo turno del dueño rechazado (TURNO_YA_ABIERTO), venta del dueño sin caja → CAJA_SELECCION_REQUERIDA, con caja
+  explícita en el turno del cajero, cierre ciego con faltante, segundo cierre (replay/clave reusada/ráfaga),
+  revisión, entrega con remanente, traspaso recibido una sola vez, rectificación tardía rechazada, aislamiento.
+  Auditoría SQL: todo en QA Caja A; turno antiguo sin operaciones; 1 entrega, 1 traspaso, 1 revisión; 17 filas de
+  auditoría (el informe que decía 18 estaba equivocado).
+- **R1 certificado en TESTING para los recorridos comprobados** (corrida `r1`, 2026-11-18 00:49 UTC): venta del
+  cajero, devolución parcial y pago posterior del reintegro en efectivo (helper F4-A compartido dueño/cajero) y
+  corrección F4-B del dueño. Evidencia: 1 auditoría por operación, **xmin de la auditoría = xmin de la fila
+  representativa 5/5** (línea base del código anterior: 0/61), replays sin duplicados, importes y stock exactos.
+- **Nombres visibles:** tarjetas de turnos cerrados, traspasos, historial de devoluciones y avisos NUEVOS muestran el
+  nombre de la cuenta vinculada; los avisos anteriores al despliegue conservan su texto guardado (no se reescriben).
+- **Revisión visual con sesión del dueño (2026-11-17, sin escrituras):** Gestionar venta (detalle, corrección con
+  trazabilidad, devolución total con texto correcto, dinero y medio de reintegro sin preselección, confirmación
+  deshabilitada hasta elegir), Cajas y turnos, detalle de turno, revisión («Agregar otra revisión»), entrega y
+  remanente, Resumen; escritorio y 375 px sin desbordamiento horizontal; consola sólo con 401 previos al login.
+- **Turno antiguo del dueño** `cmw2sjtoj002do40aqaq0i1hu` (Caja principal, abierto desde el 05/11): sigue ABIERTO,
+  esperado $15.500 (recibió +$11.500 de la fase A; ninguna operación posterior). No se cierra por decisión del operador.
+
+### Certificado sólo en local (no en TESTING)
+
+- Rollback de R1 ante fallas forzadas de auditoría (JS y SQL reales): 8/8 (`r1-auditoria-transaccional`).
+- R1 en la venta del dueño, la anulación y el reintegro registrados por el dueño (misma lógica, no ejercitados en TESTING).
+- E3 con un conflicto concurrente real (mensaje VENTA_CONFLICTO_CONCURRENTE).
+- Concurrencia intensiva: C1/C2 120/120, prueba original F10-B2.1 100/100, suite QA 25/25.
+- Modo **OBLIGATORIO** (T01–T08, T13) — **NO certificado en TESTING** (requiere UPDATE autorizado por el operador).
+- Cajero no habilitado → 403 (en TESTING el cajero de pruebas está en la lista controlada).
+
+### No ejecutado en TESTING (pendiente)
+
+- Interfaz del cajero (Operaciones → Caja) con sesión; diálogo «Venta registrada» tras una venta real (requiere vender);
+  flujo visual completo de cambios y ventas adicionales con cotización (no se disparó para no generar escrituras).
+- Apertura/cierre de un turno propio del dueño (bloqueado por conservar el turno antiguo).
+- Auditoría transaccional de turnos, entregas, revisiones, recuperación, cajas y configuración: NO hace falta para
+  la integridad financiera (no mueven dinero contable y su fila guarda actor e importes de forma atómica); mejora opcional.
+
+### F4 y F10-B — estado vigente
+
+| Etapa | Estado |
+|---|---|
+| F4-A anulaciones y devoluciones | CLOSED_TESTING_CERTIFIED (2026-10-15) + recertificada por API en fase A; R1 certificado en TESTING para devolución del cajero y reintegro posterior |
+| F4-B correcciones administrativas | CLOSED_TESTING_CERTIFIED (2026-11-04) + fase A; R1 certificado en TESTING |
+| F4-C1…C5 cambios, crédito, cobros, reintegros | DEPLOYED_TESTING; certificado por API (fase A, OPCIONAL) |
+| F4-C6 certificación funcional | API/financiero en OPCIONAL y revisión visual del dueño completos; **OBLIGATORIO y la interfaz del cajero pendientes** → no cerrar todavía |
+| F10-B0 / B1 / B2.0 / B2.1 | B1 CLOSED_TESTING_CERTIFIED; B0/B2.0/B2.1 IMPLEMENTED_TESTING; E1–E3 desplegados |
+| F10-B2.2-A…G (atribución, UI, cierre ciego, revisión, entrega, fondo, recuperación) | Fase B 10/10 en TESTING (OPCIONAL); G (recuperación) no re-ejecutada |
+| F10-C, F10-D, F10-E | NOT_STARTED · F10-C: diseño propuesto, en revisión (sin implementación autorizada) |
+
+### Riesgos técnicos abiertos
+
+- **R1** — certificado en TESTING para los recorridos comprobados; rollback sólo en local.
+- **R2** carrera real timeout/commit de Prisma: sólo simulada.
+- **R3** devolución de punta a punta de una línea histórica con precio heredado: sin prueba.
+- **R4** intermitencia F10-B2.1: mitigada por E2 (100/100 local, CI SUCCESS); abierta hasta observarla estable en CI.
+- Una falla persistente de `audit_logs` bloquearía ventas/devoluciones/reintegros/correcciones (efecto buscado de R1).
+- Fallos preexistentes de la batería (sin relación con este bloque): 2 comprobaciones LF/CRLF de migraciones, lista de
+  escritores de `stockCantidad` de R3A (correcciones/devoluciones), JSON desactualizado de `f10-b2-0-money`, timeout
+  intermitente de `f4-c5-static-contract`.
+- P1001 en ráfagas de conexiones del Windows local (entorno). Dominio de TESTING con «production» en el nombre.
+- Artefactos QA en `paola-vinal` (productos «QA … e31b», QA Caja A/B, turnos cerrados, ventas/devoluciones/cambios de
+  las fases A, B y r1) y el turno antiguo con +$11.500: se conservan.
+
+### Funcionalidades pendientes de negocios comunes (F1–F11)
+
+| Ítem | Estado |
+|---|---|
+| F1 venta por peso | NOT_STARTED (requiere unidad por producto y cantidades decimales) |
+| F2 fiados / cuentas corrientes | NOT_STARTED |
+| F3 consulta privada de cuenta corriente | NOT_STARTED (depende de F2) |
+| F4 devoluciones, correcciones y cambios | A y B certificadas; C desplegada, C6 en curso |
+| F5 proveedores y compras | NOT_STARTED (frontera con F10-C/D a definir) |
+| F6 alertas de reposición | NOT_STARTED (`stockMinimo` ya existe) |
+| F7 cierre de caja | Absorbido por F10-B |
+| F8 promociones y descuentos | NOT_STARTED |
+| F9 códigos de barras con cámara | CLOSED_TESTING_CERTIFIED (2026-10-09) |
+| F10 operaciones, turnos y control financiero | IN_PROGRESS · **siguiente: F10-C egresos de Caja (diseño en revisión)** |
+| F11 tickets y comprobantes | NOT_STARTED |
+
+### COMERCIAL-1 y CLIENTE-1
+
+- **COMERCIAL-1** (ARS 10.000 mensuales con bonificación por pedidos online): PLANNED_NOT_STARTED, sin cambios.
+- **CLIENTE-1** (checkout sin cuenta obligatoria): PLANNED_NOT_STARTED, sin cambios.
+
+### Mejoras de UX y accesibilidad pendientes
+
+- E4: contraste 2,37:1 del texto blanco sobre el naranja.
+- E5: en OBLIGATORIO sin turno, «Vender» deja armar el carrito y sólo avisa al cobrar.
+- E6: horas sin a. m./p. m. en Cajas y turnos (en Resumen sí aparece «p. m.»: formato inconsistente).
+- E7: diálogos con un segundo botón de cierre en inglés («Close»).
+- E8: en celular el botón flotante del chat tapa tarjetas y controles (Vender, Cajas y turnos).
+- E9: el botón para mostrar la contraseña en `/login` no tiene nombre accesible.
+- E10 (nuevo): en celular las pestañas del panel del dueño ocultan su texto y quedan sin nombre accesible («Pedidos» se anuncia «2»).
+- E11 (nuevo): la tarjeta de un turno cuyo remanente ya se traspasó sigue ofreciendo «Registrar rectificación» (la API la rechaza con 409).
+- E12 (nuevo): la insignia del turno muestra el estado técnico «CERRADO_DECLARADO».
+- E13 (nuevo, menor): a 375 px se recortan «Día de la venta» y «Referencia de la venta» en el buscador de ventas.
+- Ver los movimientos del turno desde la revisión del dueño.
+
+### Idea futura diferida
+
+- **DeliGO Inteligencia** — `IDEA_FUTURE_DEFERRED_NOT_AUTHORIZED`. Registrada sólo como idea; sin alcance definido,
+  diseño ni implementación autorizada **hasta que el negocio genere ingresos sostenibles**.
+
+### Próximo bloque
+
+**F10-C — Egresos de Caja**: diseño propuesto para revisión (sin implementación autorizada). Antes o en paralelo,
+decidir: OBLIGATORIO en TESTING (UPDATE autorizado sobre el negocio de pruebas) e interfaz del cajero para cerrar F4-C6.
+
 ## CURRENT AUTHORITATIVE BACKLOG — P2-T56-R3A order stock lifecycle — A0.1 architecture hardened (2026-09-30) · R3A-P0 Mozo variant parity deployed to TESTING (2026-10-01) · P0-F1 variant display fix (2026-10-02) · R3A-P0 CLOSED_TESTING_CERTIFIED (2026-10-05) · R3A-I1 stock foundation CLOSED_TESTING_VERIFIED (2026-10-05) · R3A-I2 stock lifecycle runtime implemented on branch (2026-10-05) · R3A-I2 + I2-F1 deployed to TESTING mode OFF, real-DB verification blocked; I2-F2 timeout hardening on branch (2026-10-06) · I2-F3 mesa cancellation timeout hardening on branch (2026-10-07) · F2+F3 integrated, TESTING real-DB re-verified (2026-10-07) · R3A-I2 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-07) · R3A-I3 Caja/Inventario CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I4 public availability implemented on branch (2026-10-08) · R3A-I4 integrated + deployed to TESTING mode OFF (2026-10-08) · R3A-I4 CLOSED_TESTING_CERTIFIED mode OFF (2026-10-08) · R3A-I5-P0 audited mode controller deployed to TESTING, mode OFF (2026-10-08) · R3A-I5 mode ON active in TESTING, technically verified (2026-10-08) · R3A-I5 CLOSED_TESTING_CERTIFIED — R3A closed in TESTING (2026-10-08) · F9 barcode scanner + continuous Caja scanning deployed to TESTING, awaiting physical smoke (2026-10-08) · F9 certification blocked by M3/M6 post-smoke evidence gap; F10 (Operaciones, turnos de Caja y control financiero) documented as PLANNED_NOT_STARTED (2026-10-08) · F9 CLOSED_TESTING_CERTIFIED (2026-10-09) · roadmap numbering confirmed: F7→F10-B, old F10 Tickets→F11 · F10-A COMPLETED + F10-B0 implemented in TESTING (2026-10-09)
 
 ```text
@@ -163,6 +493,62 @@ P2-T54-R1 sigue abierto, bloqueado en su propia autorización de
 integración a testing-codex — sin relación con este cierre. T44 sigue
 pausada, T52 Fase 4 sigue diferida, T33/T37 siguen secuenciadas — sin
 cambios respecto del snapshot A1 anterior.
+
+## FUTURE EXPANSION — DeliGO Proveedores (PLANNED / FUTURE EXPANSION / NOT STARTED · operador 2026-11-20)
+
+`DELIGO_PROVEEDORES_STATUS=PLANNED · FUTURE_EXPANSION · NOT_STARTED`. Plataforma web B2B que conecta distribuidoras
+medianas con comercios, para pedir sin depender de la visita semanal del preventista, sin eliminarla. **No pertenece al
+desarrollo inmediato**: no se crean modelos, rutas, migraciones, interfaces ni servicios hasta una autorización
+explícita. Documento de diseño futuro: `codex-reports/DELIGO_PROVEEDORES_DISENO_FUTURO.md`.
+
+- **Mercado inicial:** distribuidoras medianas de Libertador General San Martín, Calilegua y localidades cercanas de
+  Jujuy. Tienen clientes registrados, preventistas, listas de precios y rutas propias. Sin grandes cadenas ni logística
+  compleja al inicio.
+- **Condición de lanzamiento:** primero consolidar DeliGO Negocios. Meta orientativa: unos 20 comercios asociados,
+  preferentemente activos. No desarrollar antes de una validación comercial suficiente.
+- **Acceso:** web responsive, sin app obligatoria. Pedidos B2B gratuitos para comercios aunque no contraten DeliGO
+  Negocios; integración directa con compras para quienes sí lo usan.
+- **Red privada:**
+  - cartera de clientes, preventista responsable, catálogos y listas de precios por cliente o grupo;
+  - condiciones comerciales;
+  - solicitudes de acceso de comercios nuevos con verificación por un preventista.
+  - Nunca se muestran precios privados a no autorizados.
+- **Catálogo:**
+  - presentaciones, unidades, cajas y bultos;
+  - descuentos, mínimos (cantidad y monto) y disponibilidad confiable;
+  - condiciones de pago, zonas y días de reparto;
+  - comparación entre proveedores habilitados, con precio comparable.
+- **Pedidos:** directo (el comercio) y asistido (el preventista carga y el comercio confirma). Pedidos complementarios
+  dentro del horario límite que fije la distribuidora, con confirmación visible del proveedor.
+- **Estados:** Enviado → Recibido → Aceptado → En preparación → Preparado → Despachado → Entregado / Rechazado o
+  cancelado. La fecha estimada de entrega se muestra sólo si la distribuidora la informa.
+- **Integración con DeliGO Negocios** (diferencial): el pedido digital se recibe con el circuito de compras existente
+  (recepción → aprobación → stock, costos, obligaciones F5 y precios de venta), sin duplicar el pedido y respetando
+  F5, F10-C y R3A.
+- **Monetización a evaluar** (precios NO decididos):
+  - Proveedor Básico gratis, Proveedor Pro y Proveedor Distribución por suscripción;
+  - posible tarifa por clientes nuevos conseguidos por DeliGO;
+  - sin comisión inicial sobre pedidos de clientes habituales;
+  - sin procesar pagos bancarios B2B al inicio;
+  - los ARS 10.000 de DeliGO Negocios no se trasladan a los proveedores.
+- **Fases orientativas:**
+  1. validación comercial;
+  2. MVP de catálogos privados y pedidos directos;
+  3. preventistas y pedidos asistidos;
+  4. preparación y entrega;
+  5. comparación de proveedores;
+  6. integración completa con DeliGO Negocios;
+  7. funciones premium comerciales y logísticas.
+- **Indicadores de decisión:**
+  - comercios asociados y activos;
+  - comercios interesados en pedir a proveedores;
+  - distribuidoras dispuestas a participar;
+  - pedidos mensuales potenciales;
+  - frecuencia de visitas de preventistas;
+  - tiempo administrativo ahorrado;
+  - interés real en planes premium.
+
+  La rentabilidad no se da por validada sin medirlos.
 
 ## FUTURE BACKLOG — Plataforma de clientes (decisiones del operador, 2026-11-04)
 
@@ -515,6 +901,11 @@ F4  DEVOLUCIONES Y ANULACIONES — totales/parciales, anulación de ventas, devo
       cajero), verificación y cierre definitivo de intentos inciertos (migración aditiva 20261110120000), desglose D7 y
       umbrales P1 del dueño; totales diarios completos (B1). Batería local 674/2 (preexistentes); R1–R5 abiertos (R1 antes de
       Production, R5 antes de integrar); pruebas en navegador, teléfono y cámara física pendientes.
+    → F4-C1…C5 + bloque local (2026-11-12) = INTEGRADAS Y DESPLEGADAS EN TESTING: testing-codex 4fb875e, Railway
+      TESTING f6984654 SUCCESS, migraciones C3/C4/C5 aplicadas. F4-C6 IN_PROGRESS (pruebas autenticadas en TESTING
+      pendientes); NO certificada. Ver «ESTADO VIGENTE» al comienzo de este archivo.
+    → 2026-11-17: R1 + nombres visibles integrados (4294123, TESTING 9e87ddf8); fases A 9/9 y B 10/10 y R1 certificados
+      en TESTING (OPCIONAL); OBLIGATORIO e interfaz del cajero pendientes: F4-C6 sigue abierta. Ver «ESTADO VIGENTE».
 F5  PROVEEDORES Y COMPRAS — proveedores, compras, costos, cuentas pendientes con proveedores, recepción y actualización de Inventario.
     → 2026-10-08: la recepción con aprobación del dueño y el pago a proveedor entran en F10-C/F10-D; cuentas por pagar y catálogo
       de proveedores siguen en F5 (frontera exacta a definir en F10-A).

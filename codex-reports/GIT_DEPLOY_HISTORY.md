@@ -3379,3 +3379,97 @@ indefinidamente. Ver
 `codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
 `RELEASE_ELIGIBLE=NO`, recertificación física pendiente empezando de
 nuevo por CASE G.
+
+## Bloque local dev/local-f4c + F4-C0…C5 — integración y despliegue TESTING — 2026-11-12 (2026-11-13 UTC)
+
+Autorizado por el operador (commits locales, push fast-forward sólo a `origin/testing-codex`, despliegue sólo de
+Railway TESTING; Production fuera de alcance). Push `941a915..4fb875e` (`4fb875e0542d51ed9ea6d7bc04f7a32eb846e6ed`,
+10 commits, sin merges ni force push). `941a915` ya estaba en `testing-codex` desde el 2026-11-10 pero Railway no lo
+había desplegado (facturación). Autodeploy de DeliGO Copy / TESTING `f6984654-adf5-4eb2-9cf7-d7b2d75809d9` `SUCCESS`
+con `commitHash` exacto; pre-deploy `prisma migrate deploy`: 53 migraciones, aplicadas exactamente
+`20261106120000_f4_c3_sale_exchange_schema`, `20261109120000_f4_c4_sale_exchange_service` y
+`20261110120000_f4_c5_commercial_attempt_claims`; `Ready`; 0 líneas de error en build y deploy. CI `43354490537`
+SUCCESS (intento 1). Smokes `/login` 200, `/` 307, `/api/negocios` 200, APIs de Caja sin sesión 401/403, chat `/health`
+200. chat en vivo y Review Moderation Expiry redesplegados con `4fb875e`; DeliGO Mesa Occupancy Cron siguió en
+`2bc0a93`. `origin/main` y todos los servicios de production siguen en `42ca500`. Certificación funcional autenticada
+en TESTING pendiente; F4-C6 NO cerrada.
+
+## R1 (auditoría transaccional) + nombres visibles — integración y despliegue TESTING — 2026-11-13 (21:04 UTC)
+
+Autorizado por el operador (commit local, push fast-forward sólo a `origin/testing-codex`, despliegue sólo de TESTING).
+Commit `429412384567efc0ec62bcff4b9417c99e03f210` (19 archivos, padre `4fb875e`); push `4fb875e..4294123` sin force push.
+Autodeploy DeliGO Copy / TESTING `9e87ddf8-eeb3-456b-acbb-7c6b61051998` `SUCCESS` con `commitHash` exacto; `No pending
+migrations to apply` (53); `Ready`; 0 líneas de error en build y deploy. CI `43507352040` SUCCESS (intento 1). Smokes:
+`/login` 200, `/` 307, `/api/negocios` 200, rutas de Caja sin sesión 401/403, chat `/health` 200. Verificación R1 de sólo
+lectura y corrida mínima `r1` (2026-11-18 00:49 UTC): 5/5 operaciones con auditoría en la misma transacción (xmin).
+`origin/main` y todos los servicios de production siguen en `42ca500` con los mismos IDs de despliegue.
+
+## F10-C1 (egresos de Caja C1a + C1b + C1c) — integración y despliegue TESTING — 2026-11-18 (19:07 UTC)
+
+Autorizado por el operador (commits locales, push fast-forward sólo a `origin/testing-codex`, despliegue sólo de
+Railway TESTING; Production fuera de alcance). Respaldo previo ejecutado por el operador (la sesión no lee
+credenciales de TESTING): `C:\Leo Campos\Trabajo\deligo-testing-backups\deligo-testing-pre-f10-c1-20261118T190358Z.dump`,
+1.284.430 bytes, SHA-256 `e2549d96d1231ce290d9e3775df78f74e4c0bdad0b96448f01fc7176c40b1e2c` (re-verificado por la sesión:
+PGDMP, `pg_restore --list` 18.6 OK, 68 tablas con datos, sin objetos de egresos); 53 migraciones, 0 fallidas; turno
+antiguo `cmw2sjtoj002do40aqaq0i1hu` ABIERTO, huella `85721fc4117779fa64b353669895e4e0`.
+Commits `4575857` (motor/API/migraciones/integración), `ae6a3df` (interfaces), `bfaba2a` (CI); push
+`4294123..bfaba2a` (`bfaba2ae3cfef4820c14b1fef5ce9144e277bdac`) sin merges ni force push; runner QA, generados y docs
+fuera. Autodeploy DeliGO Copy / TESTING `db49cadf-aa1e-418a-b20e-9d916c05519e` `SUCCESS` con `commitHash` exacto;
+pre-deploy `prisma migrate deploy`: 55 migraciones, aplicadas exactamente `20261118120000_f10_c1a_cash_outflows` y
+`20261118150000_f10_c1c_block_post_close_compensation`, «All migrations have been successfully applied»; `Ready`;
+0 errores en build y deploy. chat en vivo `c99e6b9f`, Review Moderation Expiry `f325282f` y Mesa Occupancy Cron
+`ade2a6ee` también `SUCCESS` en `bfaba2a`. CI `44377138529` SUCCESS (intento 1; 44 pasos, incluidas las suites F10-C1
+sobre PostgreSQL 16 y el build). Smokes: `/login` 200, `/` 307, `/api/negocios` 200, rutas de egresos del dueño y del
+cajero sin sesión 401 (GET y POST), chat `/health` 200. Production: DeliGO `ccc2184a`, chat `898bf9d9`, Review
+Moderation Expiry `d22d6077`, Mesa Cron `861b79f1`, todos `SUCCESS` en `42ca500`, idénticos a antes; `origin/main`
+`42ca500`. Certificación F10-C3 **no** ejecutada (pendiente `c3-foto` y luego `c3` + reconciliación SQL).
+Certificación F10-C3 (2026-11-19 17:34–17:35 UTC, sin despliegues nuevos): batería 14 PASS / 0 FAIL / 1 NOT_RUN
+deliberado + reconciliación SQL PASS sobre `bfaba2a`; Production idéntico (`42ca500`). F10-C1 `CLOSED_TESTING_CERTIFIED`.
+
+### 2026-11-23 — Integración compras/catálogo en Railway TESTING (`e6224a48`)
+
+Fast-forward normal `bfaba2a..e6224a4` (`e6224a486a40dd0f3803cab180d880fb4a46d729`) de `testing-codex` (sin force push,
+sin merges); commits `0473657b` (integración: F5-A, F10-C2a/b/c, pagos E1–E3, catálogo para negocios reales) y
+`e6224a48` (contrato estático F10-B0). Previo: verificación de sólo lectura PASS (despliegue anterior `bfaba2a` SUCCESS,
+55 migraciones, checksums históricos documentados de F10-B0 y F10-B2.2-F, función del fondo = migración correctiva) y
+respaldo `deligo-testing-pre-integracion-20261123T181444Z.dump` (1.325.628 bytes, SHA-256
+`8f7902110e5aecb5f342cba2d54c662ee730a80f5ff2efb62e0dd1556721989d`). CI `45226147425` (rama) y `45243094274`
+(`testing-codex`) SUCCESS, 52/52 pasos con next build.
+Railway TESTING (verificado por el operador en el panel): **DeliGO Copy SUCCESS, online, Ready**; pre-deploy
+`prisma migrate deploy` aplicó las 14 migraciones `20261119180000_f5a_suppliers_ledger` … `20261121200000_catalogo_importacion_productos`,
+«All migrations have been successfully applied». chat en vivo SUCCESS, DeliGO Mesa Occupancy Cron SUCCESS, Postgres online.
+**Review Moderation Expiry FAILED en el build** (Next.js/Turbopack: `Module not found: Can't resolve
+'@vercel/turbopack-next/internal/font/google/font'` al resolver Nunito de `next/font/google`): el lote no cambió
+`src/app/layout.tsx`, la configuración de Next, `package.json`, el lockfile ni `scripts/expire-review-moderation.ts`, y el
+mismo commit compiló en DeliGO Copy y en CI → diagnóstico: fallo transitorio de descarga de Google Fonts en ese build;
+el servicio conserva su despliegue anterior. GitHub deployment `8008022067` (agrupa el entorno) = failure por ese servicio.
+Smokes sin sesión: `/login` 200; páginas nuevas `/negocio/importar-productos`, `/operaciones/mi-panel/paola-vinal/productos/importar`
+y `…/etiquetas` 200 (inexistente 404); rutas nuevas del dueño 401 «Se requiere autenticación de negocio»; operativas 401
+`sin_sesion`; `/api/negocios` 200; ningún 500. Production sin cambios (`origin/main` `42ca500`).
+Verificación SQL posterior de sólo lectura (`testing-ejecutar-post-integracion.ps1`, operador): `69|0|0|14`,
+**VEREDICTO: PASS** — 69 migraciones registradas, 0 incompletas, 0 revertidas, las 14 nuevas aplicadas con el checksum del
+repositorio, tablas nuevas presentes y función del fondo sin cambios; commit desplegado `e6224a486a40dd0f3803cab180d880fb4a46d729`.
+**Integración técnica de DeliGO Copy en TESTING: COMPLETADA. Certificación funcional: PENDIENTE** (pruebas manuales por bloques).
+PENDIENTE SEPARADO: build fallido de Review Moderation Expiry (fuente Google, probable transitorio); redeploy de ese servicio
+sólo con autorización del operador.
+
+### 2026-11-24 — BUG-001 / BUG-002 en Railway TESTING (`1c68007f`)
+
+Rama `codex/fix-identidad-ocupacion` desde `e6224a48` (push normal): `dd23ac1e` fix(identidad) BUG-001 regla única de
+identidad visible de empleados vinculados · `3c13cbf5` fix(salon) BUG-002 ocupación de mesa con sesiones simultáneas ·
+`e77dc890` ci(bug-001-002) rama solo-CI + suites + typecheck de los archivos nuevos · `1c68007f` test(f10-b2-1)
+expectativa del responsable vinculado (regla BUG-001). Sin migraciones ni cambios de esquema.
+CI: `45336236016` (e77dc890) FAILURE — `f10-b2-1-turnos:1189` esperaba `Empleado.nombre` del responsable vinculado
+(consecuencia directa de la regla aprobada, suite no incluida en la regresión local); corregida en `1c68007f` (local 44/44).
+CI `45336755300` (1c68007f) **SUCCESS 59/59** (incluye `next build`).
+Integración: `testing-codex` `e6224a48..1c68007f` fast-forward normal (4 commits, sin merges ni force push).
+Railway TESTING (verificado por Railway CLI, sólo metadatos): **DeliGO Copy `6fb22207-e7c2-40e0-9873-2b615ac66418`
+SUCCESS, activo, commitHash `1c68007f5c9bbf8c9c4c81282f673ac6833cae07` exacto**; pre-deploy Prisma «69 migrations found …
+No pending migrations to apply»; logs desde 06:00 UTC sin errores relacionados (sólo avisos benignos de npm y del cartel de
+actualización de Prisma) y 0 respuestas HTTP ≥ 400. chat en vivo, DeliGO Mesa Occupancy Cron y **Review Moderation Expiry**
+SUCCESS en `1c68007f` (el build fallido de `e6224a48` queda superado por este despliegue). Despliegue anterior de DeliGO Copy:
+`628c9377-2f58-435f-83f6-6c25ba428b67` (`e6224a48`).
+Production sin cambios (`origin/main` `42ca5005`). Certificación funcional de BUG-001/002: PENDIENTE (operador en TESTING).
+**Verificación funcional (operador, 2026-11-25): 8/8 APROBADAS en TESTING sobre `1c68007f`** — BUG-001 y BUG-002
+funcionalmente verificados dentro de su alcance original (incluida la ocupación con ambas sesiones abiertas). Hallazgo
+fuera de alcance registrado como BUG-003 (vista pública de la mesa). Production sin cambios (`42ca5005`).

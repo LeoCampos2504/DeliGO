@@ -1,6 +1,103 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
 
+## Supplier payments redesign — PROPOSED decisions (operator 2026-11-20; NOT implemented, NOT invariants yet)
+
+```text
+STATUS=DESIGN_PROPOSED_DIRECTION_AGREED · NOT_IMPLEMENTED · detail F10_C2_F5_COMPRAS_RECEPCION_DISENO.md §16; these become invariants only when implemented and validated
+PROPOSED_PAYMENT_ORIGINS=transferencia realizada por el dueño (un solo paso, sin confirmación duplicada) · transferencia programada (pendiente, no cuenta como pagada) · efectivo de Caja sólo por F10-C1 desde turno/caja autorizados · dinero personal del dueño (origen distinto de Caja, sin egreso inventado) · anticipo del empleado desde su propio turno con permiso específico y límites (nunca transferencias del dueño)
+PROPOSED_LINKED_APPLICATION=pagos nacidos en un pedido quedan ligados al pedido y los de una recepción a esa recepción; al aprobar las recepciones se aplican automáticamente por F5, sin duplicaciones, SÓLO a las obligaciones de ese pedido/recepción; un anticipo de pedido nunca cancela deudas antiguas
+PROPOSED_ACCOUNT=estado por obligación derivado del saldo (Pendiente / Parcialmente pagada / Pagada sólo con saldo cero), vencimiento opcional, historial de pagos por factura, deuda total y anticipos diferenciados; «Pagar deudas seleccionadas» = crédito + asignaciones en una sola operación transaccional e idempotente, distribución sugerida (vencidas, luego más antiguas) editable, nunca más que el pago ni que el saldo, sobrante visible como anticipo
+PROPOSED_RULES=transferencia declarada = registro del responsable, no verificación bancaria · pedido cancelado con anticipo = crédito pendiente de resolución (no se supone devolución) · devolución bancaria real = registro financiero propio · anulación contable ≠ devolución bancaria · vencimientos editables sólo con historial y autorización · asignaciones técnicas en opciones avanzadas · sin pagos duplicados, cruces entre proveedores/negocios ni movimientos ficticios de Caja
+OPEN=devoluciones · límites monetarios del empleado · reintegros al dueño · saldo a favor general al aprobar · efectivo del dueño sin turno · autorización de vencimientos
+```
+
+## DeliGO Proveedores — future project decisions (operator 2026-11-20; PLANNED / FUTURE EXPANSION / NOT STARTED)
+
+```text
+STATUS=PLANNED · FUTURE_EXPANSION · NOT_STARTED · no models, routes, migrations, interfaces or services; detail DELIGO_PROVEEDORES_DISENO_FUTURO.md
+LAUNCH_GATE=consolidar DeliGO Negocios primero (meta orientativa ~20 comercios asociados y activos) y medir indicadores; no desarrollar antes de una validación comercial suficiente
+PRICING=ARS 10.000/mes de DeliGO Negocios NO se traslada a proveedores · freemium a evaluar (Básico gratis / Pro / Distribución) · precios NO decididos · sin comisión inicial sobre pedidos de clientes habituales · posible tarifa por clientes nuevos captados por DeliGO
+NO_B2B_PAYMENT_PROCESSING=al inicio no se procesan pagos bancarios entre comercios y distribuidoras; DeliGO sólo registra la información
+PRIVATE_PRICES=nunca mostrar precios privados a comercios no autorizados; no asumir un precio único por proveedor
+PREVENTISTAS=se mantienen (pedido asistido); DeliGO facilita, no reemplaza
+INTEGRATION=un pedido B2B de un comercio con DeliGO Negocios entra al circuito de compras existente sin duplicarse, respetando F5, F10-C y R3A
+```
+
+## F10-C2b improvements, D-7 v2, sale prices, shelf labels, sale-start prices — invariants (implemented locally 2026-11-20; not committed)
+
+```text
+SALE_PRICE_UPDATE_OPTIONAL=al aprobar una recepción el dueño elige qué precios de venta actualizar; propuesta = costoNuevo × precioBase / costoAnterior (Decimal, ROUND_HALF_UP al centavo), conserva el recargo sobre costo; precioBase = último precio AUTORIZADO (etiqueta pendiente si existe, si no el vigente); nunca toca promociones ni ventas hechas; si algo cambió entre la vista y la aprobación se aborta toda la aprobación (PRECIOS_CAMBIARON)
+SALE_PRICE_HISTORY=cambios_precio_venta es append-only (una fila por recepción y producto/variante, actor NEGOCIO, recepción APROBADA)
+SHELF_LABEL_GATE=un precio autorizado queda en etiquetas_precio PENDIENTE y NO cambia el precio cobrado hasta confirmar la etiqueta; modo SIN_ETIQUETA (elegido por el dueño: sin etiqueta física / sólo online) activa al aprobar
+SHELF_LABEL_ROLES=sólo el dueño autoriza precios, activa sin etiqueta o descarta; el empleado (área caja) sólo confirma la etiqueta física de un precio ya autorizado (CHECK en SQL: un empleado sólo puede resolver ETIQUETA_CONFIRMADA)
+SHELF_LABEL_ONCE=PENDIENTE → resuelta una sola vez (update condicional + guarda SQL); a lo sumo una pendiente por producto/variante; una activación por etiqueta (índice único); lo autorizado es inmutable; una autorización más nueva o una edición de catálogo deja la anterior REEMPLAZADA (nunca activa un precio viejo); activar exige que el precio vigente siga siendo el de la autorización
+SHELF_LABEL_NO_SIDE_EFFECTS=confirmar una etiqueta no toca compras, costos, stock, deudas, pagos, promociones ni ventas; cada resolución se audita en la misma transacción (precio_venta.etiqueta_confirmada / activado_sin_etiqueta / etiqueta_descartada)
+PRICE_ACTIVATIONS=todo cambio efectivo del precio de venta (etiqueta, dueño sin etiqueta, aprobación sin etiqueta, edición de catálogo) queda en activaciones_precio_venta (append-only), en la misma transacción que el cambio
+SALE_START_PRICES=una venta de Caja con inicioVentaId cobra a cada producto el precio vigente a la hora de inicio fijada por el servidor (precioAnterior de la primera activación posterior al inicio; si no hubo, el actual), también para productos agregados después; no se copia el catálogo
+SALE_START_LIMITS=inicio del mismo negocio y la misma persona, un solo uso (queda ligado a la venta en la misma transacción), vence a los 30 min (SQL: ≤ 2 h); vencido o usado → 409 sin escribir nada; ventas sin inicio (F4-C cambios/adicionales, clientes viejos) cobran el precio actual
+SALE_TOTAL_GUARD=el cliente nunca envía precios; si envía totalMostrado y no coincide con el total del servidor → 409 PRECIOS_CAMBIARON sin escribir nada (la Caja actualiza el carrito)
+D7_V2_RECEPTION_PAYMENT=el pago en efectivo hecho desde una recepción es un egreso F10-C1 (una sola salida de dinero) ligado estructuralmente en pagos_recepcion en la misma transacción; al aprobar se aplica solo a la deuda de esa recepción hasta lo adeudado (excedente = anticipo); asignación manual sólo para casos especiales
+ORDER_REPORTED_TOTAL=un pedido puede tener total informado + tratamiento de IVA (inmutable) con costos unitarios desconocidos; superarlo exige confirmación explícita al aprobar
+ORDER_CLOSE_WITH_PENDING=sólo el dueño; motivo tipificado + confirmación; foto inmutable pedido/aceptado/pendiente en el evento; bloqueado con recepciones en borrador o por aprobar; idempotente; no mueve stock ni dinero; un pedido cerrado no admite recepciones y sale de «Pedidos por recibir»
+RECEPTION_WITHOUT_ORDER=una recepción «sin pedido» nunca hereda renglones ni pedido: el servidor guarda compraId NULL y la Caja sólo recupera un respaldo local que corresponde exactamente al modo abierto
+```
+
+## R3A single stock writer + F10-C2b / D-7 — invariants (implemented locally 2026-11-19; not committed)
+
+```text
+R3A_SINGLE_STOCK_WRITER=stockCantidad and movimientos_inventario are written only by src/lib/stock-lifecycle.ts (plus product creation); F4 devoluciones/anulaciones (reingresarStockDevolucionVenta) and correcciones (planificarStockCorreccionVenta + registrarStockCorreccionVenta) go through it; static contracts p2-t56-r3a-i1/i2 and r3a-f4-autoridad enforce it
+R3A_F4_NO_FINANCIAL_CHANGE=the centralization keeps F4 transactions, locks, idempotency, audits, messages and amounts; a concurrent double return re-enters stock once
+C2B_UNITS=integer quantities for unit products; decimals only for kg, g, litro, ml, metro (enforced server-side: CANTIDAD_ENTERA_REQUERIDA)
+C2B_CASHIER_PRIVACY=cashier screens use only /api/operativo/caja/[slug] routes and never receive totalesAprobacion, supplier balances, advances, debt or expected Caja cash
+D7_RECEPTION_NO_MONEY=a reception never moves cash; a cash payment at reception is only an F10-C1 PAGO_PROVEEDOR outflow (own open shift, confirmation, Idempotency-Key) with the exact reference «Recepción N° X»; it does not require approval
+D7_LINK_ONCE=the owner links that outflow through F5 creditos/caja (no financial movement) and may apply it as an advance at approval; a rejected reception leaves the payment traceable and unlinked; never auto-voided or compensated
+```
+
+## F10-C2a purchases and goods receptions — invariants (implemented locally 2026-11-19; not committed)
+
+```text
+C2A_SINGLE_WRITER=src/lib/compras-recepciones-service.ts writes purchases, receptions, lines, charges, events, current costs and purchase config; stock only via registrarEntradaRecepcion (R3A authority); debt only via the F5 engine (crearObligacionDeRecepcionEnTx / operarAsignacionesEnTx)
+C2A_DRAFTS=a BORRADOR or PENDIENTE_APROBACION reception moves no stock, no cost and no debt
+C2A_APPROVAL=owner only; ONE Serializable transaction with CAS on state + the version the owner saw; any late failure rolls back everything; applied exactly once (approval event unique, recepcionLineaId unique, obligation recepcionId unique, idempotency key)
+C2A_PARTIAL=debt and stock only for ACCEPTED quantities of THIS reception; exceeding the pending quantity of a purchase order (or unordered products) needs explicit confirmation; the purchase order row is locked during approval
+C2A_COSTS=Decimal quantities (14,3), unit cost (14,4), amounts (12,2); line + global discounts, taxes (integrate cost unless IMPUESTOS_RECUPERABLES), perceptions, attributable charges distributed by largest remainder; frozen at approval and immutable
+C2A_LAST_COST=product/variant cost updated only by the most recent reception by (fechaRecepcion, aprobadaEn, line); a late reception never overwrites a newer cost
+C2A_CHARGES=attributable same-supplier charge → reception obligation; attributable other-supplier → CARGO_ACCESORIO obligation of that supplier; non-attributable → CARGO_ACCESORIO (expense, never inventory); each peso counted once
+C2A_NO_MONEY=C2a never writes the financial ledger nor Caja outflows; existing Caja payments are applied only as F5 credits; advances are applied with the same F5 assignment caps (same supplier and business)
+C2A_HISTORY=approved/rejected/discarded receptions are immutable; reception obligations cannot be cancelled (adjustment or supplier return, C2c); events append-only; nothing deleted except business cascade; deleted products keep line names and costs (SET NULL)
+```
+
+## F5-A supplier ledger — invariants (implemented locally 2026-11-19; not committed)
+
+```text
+F5A_SINGLE_WRITER=src/lib/cuenta-proveedor-service.ts writes obligations, credits, events, assignment operations and assignments; src/lib/proveedores-service.ts writes suppliers and their change history
+F5A_OWNER_ONLY=every /api/negocio/proveedores route uses requireNegocioCajaGenerico; business from the session; no cashier/operational access
+F5A_MONEY=Decimal(12,2) only; UI sums in integer cents; debt is not money (no ledger legs)
+F5A_EFFECTIVE_CREDIT=VIGENTE or CONFIRMADO_DUENO; a DECLARADO payment neither reduces debt nor can be assigned; owner confirmation ≠ bank reconciliation (F10-D columns stay NULL)
+F5A_FORMULAS=saldoNeto = deudaVigente − creditosConfirmados = obligacionesPendientes − anticiposDisponibles (identity checked); deudaExigible = max(saldoNeto, 0); saldoAFavor = max(−saldoNeto, 0) (never a negative debt); anticiposDisponibles = confirmed credits not yet assigned; assignments never change any balance
+F5A_DUPLICATE_PAYMENTS=a declared payment requires «did not leave Caja» (cash from Caja is only ever a LINKED PAGO_PROVEEDOR egreso); possible duplicates (Caja ±3 days, same amount+date, same reference) → confirmable 409, nothing written; confirmations audited in the same transaction
+F5A_ASSIGNMENTS=append-only; composite FKs (x, proveedorId, negocioId) make cross-supplier/business assignment impossible; caps on both sides in service + SQL; unassignment reverses exactly one assignment
+F5A_CASH_LINK=a PAGO_PROVEEDOR egreso is linked at most once (partial unique), at its exact amount, never modified; linking and compensating lock register row → egreso row; a linked egreso cannot be compensated (API 409 PAGO_VINCULADO_A_PROVEEDOR + SQL trigger); a compensated egreso cannot be linked
+F5A_APPEND_ONLY=no UPDATE of history and no DELETE in the 7 F5 tables (except cascade when the whole business is deleted); suppliers are deactivated, never deleted
+F5A_IDEMPOTENCY=every economic write requires Idempotency-Key + fingerprint (replay 200, reused key 409) and audits inside the same Serializable transaction
+F5A_C2A_HOOK=recepcionId reserved (NULL now) with partial unique (negocioId, recepcionId): exactly one obligation per approved reception in F10-C2a
+```
+
+## F10-C1 cash outflows of Caja — decisions and invariants (operator-approved D1–D11 + 4 adjustments, 2026-11-18; certified in TESTING 2026-11-19)
+
+```text
+F10_C1_NATURES=GASTO (operating expense, with category) · PAGO_PROVEEDOR (settles a purchase/debt; NOT a profitability expense — F5/F10-C2 link it to the reception) · RETIRO_DUENO (not an expense) · internal transfers are NOT outflows (F10-E) · never summed into one «expenses» figure
+F10_C1_LEDGER=one operation per outflow with ONE exact negative leg on the register cash account, attributed to an OPEN shift (also in OPCIONAL mode); expected cash moves through the existing formula (close formula unchanged)
+F10_C1_CONCURRENCY=register row lock FOR UPDATE (same lock as sales and the blind close); Serializable with bounded retry; Idempotency-Key + content fingerprint (replay 200, reused key 409)
+F10_C1_AUDIT=R1: every registration / review / confirmation / compensation / threshold audit is written inside the same transaction
+F10_C1_BLIND_CLOSE=a cashier never receives expected cash, balances, alerts, thresholds, justifications or owner texts; the cashier only reads a fixed administrative state of OWN outflows (Pendiente / Confirmado / Observado / Anulada por el dueño)
+F10_C1_OWNER=registers only on an explicitly chosen register AND the open shift seen (409 TURNO_CAMBIO otherwise); justification required when the expected cash would go negative; reviews and the single withdrawal confirmation never move money
+F10_C1_COMPENSATION=owner only; total; once; REVERSION with one positive leg on the same account and the same still-OPEN shift; the original row/operation/leg are immutable; a compensated withdrawal cannot be confirmed
+F10_C1_POST_CLOSE=BLOCKED (API 409 + SQL guard, migration 20261118150000): a closed shift's declared/expected/difference are frozen and custody deliveries are not ledger movements, so a shift-less reversion would create fictitious cash; F10-D must design the reconciliation (error vs real recovery) before lifting the block
+F10_C1_NOTICES=one owner notice per employee outflow inside its transaction (ALTA for withdrawal / negative expected / threshold); replays never duplicate; reviews/compensations create none
+```
+
 ## F4-C post-sale exchanges and linked additional sales (operator decisions, 2026-11-06)
 
 ```text
@@ -4635,3 +4732,18 @@ introducida por T40, no relacionada directamente con la causa del leak de
 Push (que ya tiene su propia explicación completa).
 
 Ver `codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
+
+## 2026-11-24 — Identidad visible de empleados vinculados y familia de sesión en ocupación de mesa (BUG-001 / BUG-002)
+
+- **Identidad (decisión del operador):** un empleado con vínculo activo (CuentaOperativa no eliminada, con nombre) se
+  muestra SIEMPRE con `CuentaOperativa.nombre`, aunque `Empleado.nombre` tenga un nombre heredado. Sin vínculo se muestra
+  `Empleado.nombre` («Pendiente de vinculación» sólo es verdad sin vínculo). Regla única: `src/lib/empleado-identidad.ts`.
+  **Reemplaza** la regla de `caja-nombre-empleado.ts` (R1, 2026-11-13: «un nombre propio real gana»), porque dejaba dos
+  criterios distintos (Salón mostraba la cuenta, Caja el nombre propio). Mantiene P2-T43-R2: la vinculación nunca reescribe
+  `Empleado.nombre`. Nunca se renombra en la base ni se reescriben históricos: una foto histórica igual al marcador se
+  MUESTRA resuelta sólo con relación inequívoca (`empleadoNombreRegistrado` conserva el dato). Las superficies públicas
+  siguen con `Empleado.nombre` (decisión de privacidad pendiente).
+- **Sesiones simultáneas:** en rutas neutrales (`/api/operaciones/*`) la pantalla declara su familia (`?actorFamily=`); el
+  servidor valida sólo esa credencial y el selector nunca otorga permisos ni cae a la sesión del dueño. Códigos: 401 sin
+  credencial · 403 sin permiso · 404 otro negocio o mesa inexistente · 400 selector inválido. Aplicado por ahora sólo a la
+  ocupación de mesa; el resto de los endpoints neutrales está en el ROADMAP.
