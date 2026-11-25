@@ -45,9 +45,11 @@ export async function GET(req: NextRequest) {
         eliminado: false,
         rol: "mozo",
       },
+      // BUG-003 (2026-11-25): ruta pública → nunca devuelve el nombre del empleado (Empleado.nombre puede ser el
+      // marcador «Pendiente de vinculación» o un nombre heredado: no es un nombre destinado al público) ni datos de su
+      // cuenta operativa o vinculación, ni su id interno (sin consumidores). Sólo confirma que el código corresponde a un
+      // mozo activo de ESE negocio.
       select: {
-        id: true,
-        nombre: true,
         codigo: true,
         rol: true,
         activo: true,

@@ -65,6 +65,7 @@ import { AuthModal } from "@/components/auth/auth-modal"
 import { useAuth } from "@/hooks/use-auth"
 import { getFreshClientLocation } from "@/lib/client-geolocation"
 import { resolveEffectiveMesa, shouldFetchCustomerMesaData } from "@/lib/mesa-checkout-transition"
+import { nombrePublicoMostrable } from "@/lib/empleado-identidad"
 import { getCatalogoPathActual } from "@/lib/cliente-catalog-navigation"
 import { groupByNormalizedCategory } from "@/lib/category-normalization"
 import dynamic from "next/dynamic"
@@ -287,7 +288,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
     numero: number
     nombre: string
     zona: string
-    mozoAsignado: { nombre: string; codigo: string } | null
+    // BUG-003: mesas-public ya no envía datos de empleados (siempre null); la vista sólo mostraría un nombre público válido.
+    mozoAsignado: { nombre?: string | null } | null
   } | null>({
     queryKey: ["customer-mesa", slug, mesaNumero],
     queryFn: async () => {
@@ -298,7 +300,7 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
       const res = await fetch(`/api/negocio/mesas-public?slug=${slug}`)
       if (!res.ok) return null
       const data = await res.json()
-      const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre: string; codigo: string } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
+      const found = (data.mesas as Array<{ id: string; numero: number; nombre: string; zona: string; mozoAsignado: { nombre?: string | null } | null }>).find((m: { numero: number }) => m.numero === mesaNumero)
       return found ?? null
     },
     enabled: shouldFetchCustomerMesaData({ mesaNumero, slug, isAuthenticatedMozo: false, salonHabilitadoDelNegocio }),
@@ -844,8 +846,8 @@ function CatalogoPageContent({ params }: { params: Promise<{ slug: string }> }) 
               Mesa {effectiveMesaNumero}
             </p>
             <p className="text-xs text-muted-foreground">
-              {customerMesaData?.mozoAsignado
-                ? `Tu mozo: ${customerMesaData.mozoAsignado.nombre}`
+              {nombrePublicoMostrable(customerMesaData?.mozoAsignado?.nombre)
+                ? `Tu mozo: ${nombrePublicoMostrable(customerMesaData?.mozoAsignado?.nombre)}`
                 : "Tu pedido será servido en esta mesa"}
             </p>
           </div>

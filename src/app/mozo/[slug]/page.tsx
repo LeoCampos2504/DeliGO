@@ -34,9 +34,8 @@ interface NegocioInfo {
   slug: string
 }
 
+// BUG-003: /api/empleados/by-codigo ya no devuelve el nombre del empleado (ruta pública); sólo confirma el código.
 interface MozoInfo {
-  id: string
-  nombre: string
   codigo: string
 }
 
@@ -261,7 +260,7 @@ function MozoScannerContent({ params }: { params: Promise<{ slug: string }> }) {
             {mozo ? (
               <div className="flex items-center gap-1.5 mt-0.5">
                 <UserCheck className="h-3.5 w-3.5 text-white/80" />
-                <span className="text-sm text-white/90 font-semibold">{mozo.nombre}</span>
+                <span className="text-sm text-white/90 font-semibold">Mozo</span>
                 <span className="text-xs text-white/60 font-mono">({mozo.codigo})</span>
               </div>
             ) : (

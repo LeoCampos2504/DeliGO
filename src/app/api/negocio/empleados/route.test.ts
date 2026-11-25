@@ -179,8 +179,10 @@ describe("P2-T43-R1 — GET/POST /api/negocio/empleados", () => {
     expect(reused.id).not.toBe(first.id)
 
     const byCodigoResponse = await GET_BY_CODIGO(new NextRequest(`http://localhost/api/empleados/by-codigo?codigo=${code}&negocioId=${businessA.id}`))
+    // BUG-003: la ruta pública ya no devuelve el id del empleado; el código reutilizado sigue resolviendo a un mozo
+    // ACTIVO del negocio (el histórico eliminado nunca coincide, por eliminado=false).
     expect(byCodigoResponse.status).toBe(200)
-    expect((await byCodigoResponse.json()).id).toBe(reused.id)
+    expect(await byCodigoResponse.json()).toEqual({ codigo: code, rol: "mozo", activo: true })
 
     await DELETE(
       request(`/api/negocio/empleados/${reused.id}`, "DELETE", cookieA),

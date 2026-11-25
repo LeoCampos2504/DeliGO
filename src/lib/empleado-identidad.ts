@@ -32,6 +32,18 @@ export type EmpleadoConNombre = {
   cuentaOperativa?: { nombre: string | null; eliminado: boolean } | null
 } | null | undefined
 
+/**
+ * BUG-003 — superficies PÚBLICAS (cliente final): defensa del lado de la vista. Devuelve el texto sólo si es un
+ * nombre no vacío y distinto del marcador «Pendiente de vinculación»; si no, null (la vista oculta el campo). Hoy las
+ * rutas públicas no envían nombres de empleados (no existe un nombre de atención destinado al público); esto evita que
+ * el marcador llegue a mostrarse aunque alguna respuesta lo traiga. Nunca usar datos de CuentaOperativa en público.
+ */
+export function nombrePublicoMostrable(nombre: unknown): string | null {
+  if (typeof nombre !== "string") return null
+  const t = nombre.trim()
+  return t && t !== NOMBRE_EMPLEADO_PENDIENTE ? t : null
+}
+
 /** true si el empleado tiene una CuentaOperativa vinculada utilizable (no eliminada, con nombre). */
 export function empleadoVinculado(empleado: EmpleadoConNombre): boolean {
   const cuenta = empleado?.cuentaOperativa
