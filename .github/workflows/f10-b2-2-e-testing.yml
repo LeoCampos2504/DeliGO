@@ -102,6 +102,8 @@ jobs:
       # skipped by it; the integration suite writes only to the ephemeral postgres:16 service above.
       - run: bun --no-env-file test src/lib/caja-resumen-cobros.test.ts
       - run: bun --no-env-file test src/lib/f4-c2-resumen-cobros.integration.test.ts
+      # C5: fail closed unless the declared ephemeral database is in use.
+      - run: bun --no-env-file test src/lib/f10-c2c-inicio-vencido.integration.test.ts
       # F4-C3: SQL invariants of commercial exchanges (applied by migrate deploy above) against the ephemeral
       # postgres:16 service, in its own process and BEFORE the regression batch for the same reason as F4-C2.
       - run: bun --no-env-file test src/lib/f4-c3-cambio-venta-schema.integration.test.ts
