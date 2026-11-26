@@ -22,9 +22,33 @@ export function PermisosCatalogoEmpleados() {
   )
 }
 
+type ClavePermiso = "crear" | "editar" | "proveedores" | "precios" | "costos" | "importar"
+const ETIQUETAS_PERMISO: ReadonlyArray<[ClavePermiso, string]> = [
+  ["crear", "Crear productos y variantes"],
+  ["editar", "Editar datos (nombre, categoría, código, presentación, imagen)"],
+  ["proveedores", "Asociar proveedores"],
+  ["precios", "Precios de venta"],
+  ["costos", "Costos"],
+  ["importar", "Importar productos (Excel/CSV)"],
+]
+const NINGUNO: Record<ClavePermiso, boolean> = { crear: false, editar: false, proveedores: false, precios: false, costos: false, importar: false }
+
+/**
+ * T1-02 — Casillas iniciales de la fila. Un permiso VIGENTE muestra lo otorgado (para ampliarlo o ajustarlo, como
+ * siempre). Uno vencido, revocado o inexistente empieza TODO DESMARCADO: el dueño elige explícitamente lo nuevo y
+ * nunca se reutilizan sin querer permisos viejos (por ejemplo, costos o precios). Sólo cambia el formulario; el
+ * servidor valida igual que antes y lo histórico no se toca.
+ */
+export function casillasInicialesPermiso(e: Pick<Permiso, "vigente" | ClavePermiso>): Record<ClavePermiso, boolean> {
+  if (!e.vigente) return { ...NINGUNO }
+  return { crear: e.crear, editar: e.editar, proveedores: e.proveedores, precios: e.precios, costos: e.costos, importar: e.importar }
+}
+
 function FilaPermiso({ e, onHecho }: { e: Permiso; onHecho: () => void }) {
   const [hasta, setHasta] = useState(e.vigente && e.hasta ? new Date(new Date(e.hasta).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : enDias(7))
-  const [f, setF] = useState({ crear: e.crear, editar: e.editar, proveedores: e.proveedores, precios: e.precios, costos: e.costos, importar: e.importar })
+  const [f, setF] = useState(() => casillasInicialesPermiso(e))
+  // Lo que tenía el otorgamiento anterior (sólo informativo, nunca preseleccionado).
+  const anteriores = !e.vigente && e.hasta ? ETIQUETAS_PERMISO.filter(([k]) => e[k]).map(([, t]) => t) : []
   const [msg, setMsg] = useState<string | null>(null)
   const guardar = async (revocar: boolean) => {
     const r = await fetch("/api/negocio/empleados/permisos-catalogo", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ empleadoId: e.id, hasta: revocar ? null : new Date(hasta).toISOString(), ...f }) })
@@ -35,8 +59,17 @@ function FilaPermiso({ e, onHecho }: { e: Permiso; onHecho: () => void }) {
   const chk = (k: keyof typeof f, t: string) => <label className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4" checked={f[k]} onChange={(x) => setF((v) => ({ ...v, [k]: x.target.checked }))} />{t}</label>
   return (
     <div className="space-y-1 rounded-xl border p-2" data-testid="fila-permiso-catalogo">
-      <p className="text-sm font-medium">{e.nombre} <span className={e.vigente ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}>· {e.vigente ? `habilitado hasta ${fecha(e.hasta)}` : e.hasta ? `vencido el ${fecha(e.hasta)}` : "sin permiso"}</span></p>
-      <div className="flex flex-wrap gap-x-4">{chk("crear", "Crear productos y variantes")}{chk("editar", "Editar datos (nombre, categoría, código, presentación, imagen)")}{chk("proveedores", "Asociar proveedores")}{chk("precios", "Precios de venta")}{chk("costos", "Costos")}{chk("importar", "Importar productos (Excel/CSV)")}</div>
+      <p className="text-sm font-medium">{e.nombre}{" "}
+        {e.vigente ? <span className="text-emerald-700 dark:text-emerald-300">· habilitado hasta {fecha(e.hasta)}</span>
+          : e.hasta ? <span data-testid="permiso-vencido" className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 ring-1 ring-inset ring-amber-300 dark:bg-amber-950/50 dark:text-amber-100 dark:ring-amber-800">Vencido el {fecha(e.hasta)}</span>
+          : <span className="text-muted-foreground">· sin permiso</span>}
+      </p>
+      {anteriores.length > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="permisos-anteriores">
+          Tenía: {anteriores.join(", ")}. Para volver a habilitar, marcá de nuevo sólo lo que corresponda.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-x-4">{ETIQUETAS_PERMISO.map(([k, t]) => <span key={k}>{chk(k, t)}</span>)}</div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="block space-y-1 text-xs" htmlFor={`cat-hasta-${e.id}`}><span>Vence</span><Input id={`cat-hasta-${e.id}`} type="datetime-local" value={hasta} onChange={(x) => setHasta(x.target.value)} className="h-11 rounded-xl" /></label>
         <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => setHasta(enDias(7))}>7 días</Button>

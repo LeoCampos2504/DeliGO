@@ -170,7 +170,7 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
   const [categoria, setCategoria] = useState<string>("todas")
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<InventarioProducto | null>(null)
-  const [detailProduct, setDetailProduct] = useState<InventarioProducto | null>(null)
+  const [detailSnapshot, setDetailProduct] = useState<InventarioProducto | null>(null)
   const [categoriasDialogOpen, setCategoriasDialogOpen] = useState(false)
   const queryClient = useQueryClient()
 
@@ -182,6 +182,13 @@ export function InventarioTab({ negocio }: { negocio: { id: string } }) {
       return res.json()
     },
   })
+  // T1-03: the open detail dialog always shows the LATEST server read of that product (prices of its variants
+  // included). After a successful save the catalog query is invalidated and re-read; until the server answers, the
+  // dialog keeps showing the last confirmed data (never an unconfirmed price). The click-time copy is only a fallback.
+  const detailProduct = useMemo(
+    () => (detailSnapshot ? productos?.find((p) => p.id === detailSnapshot.id) ?? detailSnapshot : null),
+    [detailSnapshot, productos]
+  )
 
   // P2-T56-R2B: managed category authority (Negocio.categorias), the SAME
   // source Caja's VenderView reads — see the R2B report §14 for why this
