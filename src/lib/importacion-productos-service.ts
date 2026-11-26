@@ -22,6 +22,7 @@ import { mapBarcodeWriteError, runBarcodeGuardedWrite, type BarcodeClaim } from 
 import { conPrecioDeCatalogoEnTx } from "@/lib/etiquetas-precio-service"
 import { permisosCatalogo } from "@/lib/catalogo-empleado-service"
 import { asociarEnTx } from "@/lib/proveedor-productos-service"
+import { MAX_FILAS_IMPORTACION } from "@/lib/importacion-limites"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -32,7 +33,8 @@ export type ActorImportacion = { tipo: "NEGOCIO" } | { tipo: "EMPLEADO"; emplead
 type Permisos = { crear: boolean; editar: boolean; proveedores: boolean; precios: boolean; costos: boolean }
 export const CAMPOS_IMPORTACION = ["nombre", "descripcion", "categoria", "marca", "codigoBarras", "precio", "costo", "variante", "proveedores"] as const
 type Campo = (typeof CAMPOS_IMPORTACION)[number]
-export const MAX_FILAS_IMPORTACION = 2000
+// T1-09: el valor vive en importacion-limites (compartido con la pantalla); mismo nombre y mismo valor.
+export { MAX_FILAS_IMPORTACION }
 const LEASE_MS = 60_000
 // Procesamiento por TANDAS: cada petición trabaja como máximo ~8 s (o 150 grupos) y devuelve el avance; el navegador
 // vuelve a llamar con la MISMA clave hasta completar. Ninguna petición dura minutos (archivos grandes, proxies, celulares).

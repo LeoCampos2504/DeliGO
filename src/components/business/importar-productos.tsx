@@ -11,7 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Download, FileSpreadsheet, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { descargarCsv, leerArchivo, type Celda, type Hoja } from "@/lib/importacion-archivo"
+import { descargarCsv, leerArchivo, MAX_BYTES_ARCHIVO, type Celda, type Hoja } from "@/lib/importacion-archivo"
+import { MAX_FILAS_IMPORTACION } from "@/lib/importacion-limites"
 
 type Campo = "nombre" | "descripcion" | "categoria" | "marca" | "codigoBarras" | "precio" | "costo" | "variante" | "proveedores"
 type Accion = "crear" | "omitir" | "actualizar"
@@ -199,9 +200,10 @@ export function ImportarProductos({ api, volverHref, volverTexto = "Volver" }: {
             onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void elegirArchivo(e.dataTransfer.files[0]) }}>
             <Upload className="h-8 w-8 text-muted-foreground" aria-hidden />
             <span className="text-sm font-medium">{ocupado ? "Leyendo archivo…" : "Elegí o arrastrá un archivo .xlsx o .csv"}</span>
-            <span className="text-xs text-muted-foreground">Hasta 2.000 filas y 5 MB. Se lee la primera hoja; la primera fila debe tener los títulos.</span>
+            <span className="text-xs text-muted-foreground">La primera fila debe tener los títulos de las columnas.</span>
             <input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" disabled={ocupado} onChange={(e) => { void elegirArchivo(e.target.files?.[0]); e.target.value = "" }} />
           </label>
+          <LimitesImportacion />
           <Button variant="outline" className="min-h-11 rounded-xl" onClick={plantilla}><Download className="mr-1 h-4 w-4" />Descargar plantilla de ejemplo (.csv)</Button>
           <p className="text-xs text-muted-foreground">Nada se guarda hasta confirmar. No se carga stock ni se crean proveedores. Los productos que ya existen nunca se modifican sin tu confirmación.</p>
         </div>
@@ -317,6 +319,25 @@ export function ImportarProductos({ api, volverHref, volverTexto = "Volver" }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** T1-09 — Formatos y límites, tomados de las MISMAS constantes que usan el lector y el servidor (dueño y empleado). */
+export const TEXTO_LIMITES_IMPORTACION = [
+  "Archivos Excel (.xlsx) o CSV (.csv).",
+  "De un Excel se procesa sólo la primera hoja.",
+  `Tamaño máximo: ${MAX_BYTES_ARCHIVO / (1024 * 1024)} MB.`,
+  `Máximo: ${MAX_FILAS_IMPORTACION.toLocaleString("es-AR")} filas por importación.`,
+] as const
+
+function LimitesImportacion() {
+  return (
+    <div className="rounded-xl border bg-muted/30 p-3 text-sm" data-testid="limites-importacion">
+      <p className="font-medium">Formatos y límites</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+        {TEXTO_LIMITES_IMPORTACION.map((t) => <li key={t}>{t}</li>)}
+      </ul>
     </div>
   )
 }
