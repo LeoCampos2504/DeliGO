@@ -20,11 +20,11 @@
 // replay; se descarta ante 4xx o éxito) y queda deshabilitada mientras está en curso.
 // Los importes se suman en centavos enteros (nunca coma flotante).
 
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, CheckCircle2, Link2, Pencil, Plus, RefreshCw, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { CuentaProveedorPedidos } from "@/components/business/cuenta-proveedor-pedidos"
+import { CuentaProveedorPedidos, type ResumenCuentaExtra } from "@/components/business/cuenta-proveedor-pedidos"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
@@ -402,13 +402,38 @@ function FormProveedor({ negocioId, actual, onCancelar, onHecho }: { negocioId: 
 // Ficha + estado de cuenta
 // ---------------------------------------------------------------------------
 
+/** T1-05: pagos que NO cuentan como pagados (se muestran aparte, nunca sumados a lo pagado). */
+const ESTADOS_CREDITO_CANCELADOS = new Set(["RECHAZADO", "ANULADO", "DESVINCULADO"])
+/** T1-05: lo que el estado de cuenta ya entrega, ordenado para mostrarlo separado (sin fórmulas nuevas). */
+export function resumenCuentaExtra(cuenta: { totales: Totales; creditos: Credito[] }): ResumenCuentaExtra {
+  const cancelados = cuenta.creditos.filter((c) => ESTADOS_CREDITO_CANCELADOS.has(c.estado))
+  return {
+    totalAcreditado: cuenta.totales.creditosConfirmados,
+    cancelados: { cantidad: cancelados.length, importe: Number(desdeCentavos(cancelados.reduce((t, c) => t + centavos(c.importe), 0))) },
+  }
+}
+
+/** T1-06: dónde se abre cada formulario — junto al pago, la deuda o la asignación sobre la que se opera. */
+export type AnclaFormulario = `cuenta:${string}` | `pago:${string}` | `deuda:${string}` | `asignacion:${string}`
+type FormularioContextual = { ancla: AnclaFormulario; nodo: ReactNode } | null
+function anclaDe(modo: Modo): AnclaFormulario | null {
+  if (modo.tipo === "asignar") return modo.origen === "cuenta" ? `cuenta:${modo.credito.id}` : `pago:${modo.credito.id}`
+  if (modo.tipo === "reasignar") return `asignacion:${modo.asignacion.id}`
+  if (modo.tipo === "motivo") return modo.accion === "desafectar" ? `asignacion:${modo.id}` : modo.accion === "anular-obligacion" ? `deuda:${modo.id}` : `pago:${modo.id}`
+  return null
+}
+function EnContexto({ contextual, ancla }: { contextual: FormularioContextual; ancla: AnclaFormulario }) {
+  if (contextual?.ancla !== ancla) return null
+  return <div className="mt-2" data-testid="formulario-contextual">{contextual.nodo}</div>
+}
+
 type Modo =
   | { tipo: "ninguno" }
   | { tipo: "editar" }
   | { tipo: "obligacion" }
   | { tipo: "credito" }
   | { tipo: "vincular" }
-  | { tipo: "asignar"; credito: Credito }
+  | { tipo: "asignar"; credito: Credito; origen?: "cuenta" | "avanzadas" }
   | { tipo: "reasignar"; asignacion: Asignacion }
   | { tipo: "motivo"; accion: "anular-obligacion" | "confirmacion" | "rechazo" | "anulacion" | "desvinculacion" | "desafectar"; id: string; resumen: Array<[string, string]> }
 
@@ -427,6 +452,16 @@ function FichaProveedor({ negocioId, proveedorId, onVolver }: { negocioId: strin
   const creditoPorId = useMemo(() => new Map((cuenta?.creditos ?? []).map((c) => [c.id, c])), [cuenta])
   const nombreObligacion = (id: string) => { const o = obligacionPorId.get(id); return o ? `${o.origen === "SALDO_INICIAL" ? "Saldo inicial" : o.origen === "RECEPCION" || o.origen === "CARGO_ACCESORIO" ? "Recepción" : "Ajuste"} · ${o.descripcion}` : "Deuda" }
   const nombreCredito = (id: string) => { const c = creditoPorId.get(id); return c ? `${etiquetaOrigenCredito(c)} · ${formatoArs(c.importe)}` : "Pago" }
+  const extraCuenta = useMemo(() => (cuenta ? resumenCuentaExtra(cuenta) : null), [cuenta])
+  // T1-06: «Asignar», «Reasignar», «Desafectar», «Anular»… se abren JUNTO al elemento elegido (mismos formularios,
+  // mismas confirmaciones y validaciones). Mientras uno está abierto, los demás botones quedan bloqueados como antes.
+  const ancla = anclaDe(modo)
+  const nodoContextual = !cuenta ? null
+    : modo.tipo === "asignar" ? <FormAsignar negocioId={negocioId} proveedorId={proveedorId} credito={modo.credito} obligaciones={cuenta.obligaciones} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />
+    : modo.tipo === "reasignar" ? <FormReasignar negocioId={negocioId} proveedorId={proveedorId} asignacion={modo.asignacion} obligaciones={cuenta.obligaciones} nombreCredito={nombreCredito} nombreObligacion={nombreObligacion} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />
+    : modo.tipo === "motivo" ? <FormMotivo negocioId={negocioId} proveedorId={proveedorId} modo={modo} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />
+    : null
+  const contextual: FormularioContextual = ancla && nodoContextual ? { ancla, nodo: nodoContextual } : null
 
   return (
     <div className="space-y-4">
@@ -449,17 +484,15 @@ function FichaProveedor({ negocioId, proveedorId, onVolver }: { negocioId: strin
 
       <Exito texto={exito} />
       {p && cuenta && (
-        <CuentaProveedorPedidos proveedorId={proveedorId} version={version} activo={p.activo}
+        <CuentaProveedorPedidos proveedorId={proveedorId} version={version} activo={p.activo} extra={extraCuenta}
+          formularioAplicar={contextual?.ancla.startsWith("cuenta:") ? { creditoId: contextual.ancla.slice("cuenta:".length), nodo: contextual.nodo } : null}
           onCambio={() => { setVersion((v) => v + 1); void cuentaQ.refetch() }}
-          onAplicarManual={(creditoId) => { const c = cuenta.creditos.find((x) => x.id === creditoId); if (c) abrir({ tipo: "asignar", credito: c }) }} />
+          onAplicarManual={(creditoId) => { const c = cuenta.creditos.find((x) => x.id === creditoId); if (c) abrir({ tipo: "asignar", credito: c, origen: "cuenta" }) }} />
       )}
 
       {cuenta && modo.tipo === "obligacion" && <FormObligacion negocioId={negocioId} proveedorId={proveedorId} tieneSaldoInicial={cuenta.obligaciones.some((o) => o.origen === "SALDO_INICIAL" && o.estado === "VIGENTE")} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
       {modo.tipo === "credito" && <FormCredito negocioId={negocioId} proveedorId={proveedorId} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
       {modo.tipo === "vincular" && p && <FormVincular negocioId={negocioId} proveedorId={proveedorId} proveedorNombre={p.nombre} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
-      {cuenta && modo.tipo === "asignar" && <FormAsignar negocioId={negocioId} proveedorId={proveedorId} credito={modo.credito} obligaciones={cuenta.obligaciones} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
-      {cuenta && modo.tipo === "reasignar" && <FormReasignar negocioId={negocioId} proveedorId={proveedorId} asignacion={modo.asignacion} obligaciones={cuenta.obligaciones} nombreCredito={nombreCredito} nombreObligacion={nombreObligacion} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
-      {modo.tipo === "motivo" && <FormMotivo negocioId={negocioId} proveedorId={proveedorId} modo={modo} onCancelar={() => setModo({ tipo: "ninguno" })} onHecho={hecho} />}
 
       {p && modo.tipo === "ninguno" && <SeccionProductosProveedor proveedorId={proveedorId} />}
 
@@ -480,12 +513,12 @@ function FichaProveedor({ negocioId, proveedorId, onVolver }: { negocioId: strin
 
       {cuenta && (
         <>
-          <SeccionDeudas obligaciones={cuenta.obligaciones} onAnular={(o) => abrir({ tipo: "motivo", accion: "anular-obligacion", id: o.id, resumen: [["Deuda", o.descripcion], ["Importe", formatoArs(o.importe)]] })} bloqueado={modo.tipo !== "ninguno"} />
-          <SeccionPagos creditos={cuenta.creditos} bloqueado={modo.tipo !== "ninguno"} onAccion={(c, a) => {
-            if (a === "asignar") return abrir({ tipo: "asignar", credito: c })
+          <SeccionDeudas obligaciones={cuenta.obligaciones} contextual={contextual} onAnular={(o) => abrir({ tipo: "motivo", accion: "anular-obligacion", id: o.id, resumen: [["Deuda", o.descripcion], ["Importe", formatoArs(o.importe)]] })} bloqueado={modo.tipo !== "ninguno"} />
+          <SeccionPagos creditos={cuenta.creditos} contextual={contextual} bloqueado={modo.tipo !== "ninguno"} onAccion={(c, a) => {
+            if (a === "asignar") return abrir({ tipo: "asignar", credito: c, origen: "avanzadas" })
             abrir({ tipo: "motivo", accion: a, id: c.id, resumen: [["Pago", etiquetaOrigenCredito(c)], ["Importe", formatoArs(c.importe)], ...(c.referencia ? [["Referencia", c.referencia] as [string, string]] : [])] })
           }} />
-          <SeccionAsignaciones asignaciones={cuenta.asignaciones} nombreCredito={nombreCredito} nombreObligacion={nombreObligacion} bloqueado={modo.tipo !== "ninguno"}
+          <SeccionAsignaciones asignaciones={cuenta.asignaciones} contextual={contextual} nombreCredito={nombreCredito} nombreObligacion={nombreObligacion} bloqueado={modo.tipo !== "ninguno"}
             onDesafectar={(a) => abrir({ tipo: "motivo", accion: "desafectar", id: a.id, resumen: [["Pago", nombreCredito(a.creditoId)], ["Deuda", nombreObligacion(a.obligacionId)], ["Importe asignado", formatoArs(a.importe)]] })}
             onReasignar={(a) => abrir({ tipo: "reasignar", asignacion: a })} />
           <SeccionHistorial cuenta={cuenta} historial={ficha.data?.historial ?? []} nombreCredito={nombreCredito} nombreObligacion={nombreObligacion} />
@@ -514,6 +547,18 @@ function SeccionProductosProveedor({ proveedorId }: { proveedorId: string }) {
   const yaEsta = (productoId: string, varianteId: string | null) => asociaciones.some((a) => a.productoId === productoId && a.productoVarianteId === varianteId)
   const resultados = busqueda.trim() ? (catalogo.data?.productos ?? []).filter((x) => matchesCajaSearch(x, busqueda)).slice(0, 20) : []
   const alternar = (productoId: string, varianteId: string | null, etiqueta: string) => setMarcados((m) => { const n = new Map(m); const k = `${productoId}:${varianteId ?? ""}`; if (n.has(k)) n.delete(k); else n.set(k, { productoId, productoVarianteId: varianteId, etiqueta }); return n })
+  // T1-08: «Todas las variantes» is ONE general association (productoVarianteId null). Marking it drops any variant of
+  // that product marked on its own, so the same choice is never sent twice; unmarking it restores nothing by itself.
+  const todasIncluidas = (productoId: string, cantidadVariantes: number) => cantidadVariantes > 0 && (yaEsta(productoId, null) || marcados.has(`${productoId}:`))
+  const alternarTodas = (productoId: string, varianteIds: string[], etiqueta: string) => setMarcados((m) => {
+    const n = new Map(m)
+    const k = `${productoId}:`
+    if (n.has(k)) n.delete(k)
+    else { n.set(k, { productoId, productoVarianteId: null, etiqueta }); for (const v of varianteIds) n.delete(`${productoId}:${v}`) }
+    return n
+  })
+  // T1-08: in the associated list a general association of a product WITH variants says so explicitly.
+  const conVariantes = useMemo(() => new Set((catalogo.data?.productos ?? []).filter((x) => x.variantes.length > 0).map((x) => x.id)), [catalogo.data])
   const enviar = async (method: "POST" | "DELETE", body?: unknown, query = "") => {
     if (enviando) return
     setEnviando(true)
@@ -551,8 +596,11 @@ function SeccionProductosProveedor({ proveedorId }: { proveedorId: string }) {
                   <span className="flex flex-wrap gap-x-3">
                     {opciones.map((o) => {
                       const ya = yaEsta(x.id, o.v)
-                      const etiqueta = `${x.nombre}${o.v ? ` — ${o.t}` : ""}`
-                      return <label key={o.v ?? "p"} className="flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="h-4 w-4" disabled={ya || enviando} checked={ya || marcados.has(`${x.id}:${o.v ?? ""}`)} onChange={() => alternar(x.id, o.v, etiqueta)} />{o.t || "Agregar"}{ya ? " (ya está)" : ""}</label>
+                      const etiqueta = `${x.nombre}${o.v ? ` — ${o.t}` : x.variantes.length ? " — todas las variantes" : ""}`
+                      // T1-08: with «Todas las variantes» (already associated or marked now) every variant shows as
+                      // INCLUDED — checked and disabled, never marked on its own (no extra record is created).
+                      const incluida = o.v !== null && todasIncluidas(x.id, x.variantes.length)
+                      return <label key={o.v ?? "p"} className={cn("flex min-h-11 items-center gap-2 text-xs", incluida && "text-muted-foreground")} data-testid={o.v === null && x.variantes.length ? "opcion-todas-variantes" : undefined}><input type="checkbox" className="h-4 w-4" disabled={ya || enviando || incluida} checked={ya || incluida || marcados.has(`${x.id}:${o.v ?? ""}`)} onChange={() => (o.v === null && x.variantes.length ? alternarTodas(x.id, x.variantes.map((v) => v.id), etiqueta) : alternar(x.id, o.v, etiqueta))} />{o.t || "Agregar"}{ya ? " (ya está)" : incluida ? " (incluida en «Todas las variantes»)" : ""}</label>
                     })}
                   </span>
                 </li>
@@ -573,7 +621,7 @@ function SeccionProductosProveedor({ proveedorId }: { proveedorId: string }) {
         <ul className="space-y-1" aria-label="Productos asociados">
           {asociaciones.map((a) => (
             <li key={a.id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-1 text-sm">
-              <span className="min-w-0 break-words">{a.producto}{a.variante ? ` — ${a.variante}` : a.productoVarianteId === null ? "" : ""}{a.origen === "RECEPCION" && <span className="ml-1 text-xs text-muted-foreground">(por una recepción)</span>}</span>
+              <span className="min-w-0 break-words">{a.producto}{a.variante ? ` — ${a.variante}` : a.productoVarianteId === null && conVariantes.has(a.productoId) ? " — todas las variantes" : ""}{a.origen === "RECEPCION" && <span className="ml-1 text-xs text-muted-foreground">(por una recepción)</span>}</span>
               <Button type="button" variant="ghost" className="min-h-11 shrink-0 rounded-xl text-rose-700" disabled={enviando} aria-label={`Quitar ${a.producto}${a.variante ? ` ${a.variante}` : ""}`} onClick={() => void enviar("DELETE", undefined, `?asociacionId=${encodeURIComponent(a.id)}`)}>Quitar</Button>
             </li>
           ))}
@@ -608,7 +656,7 @@ function Estado({ texto, tono }: { texto: string; tono: "ok" | "aviso" | "off" }
   return <span className={cn("rounded px-1.5 py-0.5 text-xs", tono === "ok" && "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100", tono === "aviso" && "bg-amber-100 text-amber-950 dark:bg-amber-950 dark:text-amber-100", tono === "off" && "bg-muted text-muted-foreground")}>{texto}</span>
 }
 
-function SeccionDeudas({ obligaciones, onAnular, bloqueado }: { obligaciones: Obligacion[]; onAnular: (o: Obligacion) => void; bloqueado: boolean }) {
+function SeccionDeudas({ obligaciones, onAnular, bloqueado, contextual = null }: { obligaciones: Obligacion[]; onAnular: (o: Obligacion) => void; bloqueado: boolean; contextual?: FormularioContextual }) {
   return (
     <div>
       <h4 className="text-sm font-semibold">Deudas</h4>
@@ -627,6 +675,7 @@ function SeccionDeudas({ obligaciones, onAnular, bloqueado }: { obligaciones: Ob
               </div>
             </div>
             {obligacionAnulable(o) && !bloqueado && <Button variant="ghost" className="mt-1 min-h-11 rounded-xl text-rose-700" onClick={() => onAnular(o)}>Anular</Button>}
+            <EnContexto contextual={contextual} ancla={`deuda:${o.id}`} />
           </li>
         ))}
       </ul>
@@ -636,7 +685,7 @@ function SeccionDeudas({ obligaciones, onAnular, bloqueado }: { obligaciones: Ob
 
 const TEXTO_ACCION: Record<AccionCredito, string> = { confirmacion: "Confirmar pago", rechazo: "Rechazar", anulacion: "Anular", desvinculacion: "Desvincular", asignar: "Asignar a deudas" }
 
-function SeccionPagos({ creditos, onAccion, bloqueado }: { creditos: Credito[]; onAccion: (c: Credito, a: AccionCredito) => void; bloqueado: boolean }) {
+function SeccionPagos({ creditos, onAccion, bloqueado, contextual = null }: { creditos: Credito[]; onAccion: (c: Credito, a: AccionCredito) => void; bloqueado: boolean; contextual?: FormularioContextual }) {
   return (
     <div>
       <h4 className="text-sm font-semibold">Pagos y créditos</h4>
@@ -664,6 +713,7 @@ function SeccionPagos({ creditos, onAccion, bloqueado }: { creditos: Credito[]; 
                 {accionesCredito(c).map((a) => <Button key={a} variant={a === "asignar" || a === "confirmacion" ? "outline" : "ghost"} className={cn("min-h-11 rounded-xl", (a === "anulacion" || a === "rechazo" || a === "desvinculacion") && "text-rose-700")} onClick={() => onAccion(c, a)}>{TEXTO_ACCION[a]}</Button>)}
               </div>
             )}
+            <EnContexto contextual={contextual} ancla={`pago:${c.id}`} />
           </li>
         ))}
       </ul>
@@ -671,7 +721,7 @@ function SeccionPagos({ creditos, onAccion, bloqueado }: { creditos: Credito[]; 
   )
 }
 
-function SeccionAsignaciones({ asignaciones, nombreCredito, nombreObligacion, onDesafectar, onReasignar, bloqueado }: { asignaciones: Asignacion[]; nombreCredito: (id: string) => string; nombreObligacion: (id: string) => string; onDesafectar: (a: Asignacion) => void; onReasignar: (a: Asignacion) => void; bloqueado: boolean }) {
+function SeccionAsignaciones({ asignaciones, nombreCredito, nombreObligacion, onDesafectar, onReasignar, bloqueado, contextual = null }: { asignaciones: Asignacion[]; nombreCredito: (id: string) => string; nombreObligacion: (id: string) => string; onDesafectar: (a: Asignacion) => void; onReasignar: (a: Asignacion) => void; bloqueado: boolean; contextual?: FormularioContextual }) {
   const vigentes = asignaciones.filter((a) => a.vigente)
   return (
     <div>
@@ -688,6 +738,7 @@ function SeccionAsignaciones({ asignaciones, nombreCredito, nombreObligacion, on
                 <Button variant="ghost" className="min-h-11 rounded-xl text-rose-700" onClick={() => onDesafectar(a)}>Desafectar</Button>
               </div>
             )}
+            <EnContexto contextual={contextual} ancla={`asignacion:${a.id}`} />
           </li>
         ))}
       </ul>

@@ -9,7 +9,7 @@ afterAll(() => GlobalRegistrator.unregister())
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
-const { OwnerProveedores, accionesCredito, centavos, textoSaldo, validarRenglones, tituloObligacion, obligacionAnulable } = await import("./owner-proveedores")
+const { OwnerProveedores, accionesCredito, centavos, textoSaldo, validarRenglones, tituloObligacion, obligacionAnulable, resumenCuentaExtra } = await import("./owner-proveedores")
 const originalFetch = globalThis.fetch
 
 type Llamada = { url: string; method: string; key: string | null; body: Record<string, unknown> | null }
@@ -257,5 +257,52 @@ describe("F5-A — panel del dueño", () => {
     await escribir(document.getElementById("motivo-accion"), "Era de otro proveedor")
     await click([...document.querySelectorAll('[data-testid="confirmacion"] button')].find((b) => b.textContent === "Desvincular"))
     expect(posts().map((p) => [p.url, p.body])).toEqual([["/api/negocio/proveedores/creditos/cr-caja/desvinculacion", { motivo: "Era de otro proveedor" }]])
+  })
+})
+
+describe("T1 — estabilización: presentación de la ficha del proveedor", () => {
+  test("T1-05: total acreditado = el que entrega el servidor; los rechazados, anulados y desvinculados van aparte y no suman", () => {
+    const c = cuenta()
+    const extra = resumenCuentaExtra({ totales: c.totales, creditos: [...c.creditos, { ...c.creditos[1], id: "cr-anul", estado: "ANULADO", efectivo: false, importe: 250.5 }, { ...c.creditos[0], id: "cr-rech", estado: "RECHAZADO", importe: 100 }] } as never)
+    expect(extra.totalAcreditado).toBe(1000) // creditosConfirmados del servidor, sin fórmula nueva
+    expect(extra.cancelados).toEqual({ cantidad: 2, importe: 350.5 })
+    // El declarado (programado) no es cancelado ni pagado.
+    expect(resumenCuentaExtra({ totales: c.totales, creditos: c.creditos } as never).cancelados).toEqual({ cantidad: 0, importe: 0 })
+  })
+
+  test("T1-06: «Asignar a deudas» abre el formulario DENTRO del mismo pago, no en otra parte de la pantalla", async () => {
+    await abrirFicha()
+    const pagoCaja = [...document.querySelectorAll('[aria-label="Pagos y créditos"] li')].find((li) => li.textContent?.includes("Caja principal"))!
+    await click([...pagoCaja.querySelectorAll("button")].find((b) => b.textContent === "Asignar a deudas"))
+    const contextual = pagoCaja.querySelector('[data-testid="formulario-contextual"]')
+    expect(contextual).not.toBeNull()
+    expect(contextual!.querySelector('[aria-label="Asignar pago a deudas"]')).not.toBeNull()
+    expect(document.querySelectorAll('[aria-label="Asignar pago a deudas"]')).toHaveLength(1) // una sola vez en la pantalla
+    expect(posts()).toHaveLength(0)
+  })
+
+  test("T1-08: «Todas las variantes» marca visualmente todas las variantes como incluidas y envía UNA asociación general", async () => {
+    responder = (l) => {
+      if (l.url === "/api/negocio/proveedores/prov-1/productos" && l.method === "GET") return new Response(JSON.stringify({ ok: true, asociaciones: [] }), { status: 200 })
+      if (l.url === "/api/negocio/compras/catalogo") return new Response(JSON.stringify({ ok: true, productos: [{ id: "pr-1", nombre: "Gaseosa", marca: null, sku: null, codigoBarras: null, categoria: null, unidadMedida: "UNIDAD", fraccionable: false, controlStock: true, variantes: [{ id: "v-1", nombre: "500 ml", sku: null, codigoBarras: null, activo: true, controlStock: true }, { id: "v-2", nombre: "1,5 L", sku: null, codigoBarras: null, activo: true, controlStock: true }] }] }), { status: 200 })
+      if (l.url === "/api/negocio/proveedores/prov-1/productos" && l.method === "POST") return new Response(JSON.stringify({ ok: true }), { status: 201 })
+      return null
+    }
+    await abrirFicha()
+    const seccion = document.querySelector('[data-testid="productos-proveedor"]') as HTMLDetailsElement
+    await act(async () => { seccion.open = true; seccion.dispatchEvent(new Event("toggle")) })
+    await flush()
+    await escribir(seccion.querySelector('input[aria-label="Buscar producto para asociar"]'), "Gaseosa")
+    await flush()
+    const todas = seccion.querySelector('[data-testid="opcion-todas-variantes"] input') as HTMLInputElement
+    await click(todas)
+    const casillas = [...seccion.querySelectorAll('[aria-label="Resultados del catálogo"] input[type="checkbox"]')] as HTMLInputElement[]
+    expect(casillas.map((c) => c.checked)).toEqual([true, true, true])
+    expect(casillas.slice(1).every((c) => c.disabled)).toBe(true)
+    expect(seccion.textContent).toContain("(incluida en «Todas las variantes»)")
+    expect(seccion.querySelector('[data-testid="asociar-seleccionados"]')?.textContent).toContain("1 seleccionado")
+    await click(boton("Asociar seleccionados"))
+    const post = posts().find((p) => p.url === "/api/negocio/proveedores/prov-1/productos")
+    expect(post?.body).toEqual({ items: [{ productoId: "pr-1", productoVarianteId: null }] })
   })
 })

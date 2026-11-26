@@ -8,7 +8,7 @@
 // seleccionadas»: una transferencia realizada por el dueño y su reparto en UNA operación (el servidor aplica los topes).
 // Pagos sin asignar, anticipos y transferencias programadas en apartados plegables propios. Sólo dueño.
 
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -43,6 +43,29 @@ const fecha = (iso: string | null | undefined, hora = false) => (iso ? new Date(
 const POR_PAGINA = 15
 const hoy = () => new Date().toISOString().slice(0, 10)
 const imp = (t: string) => { const p = parseImporteArs(t); return p.ok ? Number(p.valor) : NaN }
+
+/**
+ * T1-04 — Texto del reparto de «Pagar deudas seleccionadas». Lo que no se reparte de una transferencia queda como
+ * SALDO A FAVOR DEL NEGOCIO con este proveedor (un crédito del negocio, no una deuda con el proveedor), y no se aplica
+ * solo a otras deudas. Sólo texto: el reparto y los topes los decide el servidor como siempre.
+ */
+export function textoRepartoPago(repartido: number, total: number, queda: number): string {
+  const base = Number.isFinite(total) && total > 0 ? `Se aplican ${formatoArs(repartido)} de los ${formatoArs(total)} pagados.` : `Se aplican ${formatoArs(repartido)}.`
+  return queda > 0 ? `${base} Los ${formatoArs(queda)} restantes quedan como saldo a favor de tu negocio con este proveedor y no se aplicarán automáticamente a otras deudas.` : base
+}
+
+/** T1-05 — Datos que llegan del estado de cuenta completo (`/cuenta`), sólo para mostrarlos separados. */
+export type ResumenCuentaExtra = { totalAcreditado: number; cancelados: { cantidad: number; importe: number } }
+
+function Importe({ titulo, valor, nota, testid, tono = "normal" }: { titulo: string; valor: number; nota: string; testid: string; tono?: "normal" | "deuda" | "favor" | "fuera" }) {
+  return (
+    <div data-testid={testid} className={cn("rounded-xl border p-2", tono === "deuda" && "border-amber-300 dark:border-amber-800", tono === "favor" && "border-emerald-300 dark:border-emerald-800", tono === "fuera" && "border-dashed bg-muted/30")}>
+      <p className="text-xs text-muted-foreground">{titulo}</p>
+      <p className="text-lg font-semibold tabular-nums">{formatoArs(valor)}</p>
+      <p className="text-xs text-muted-foreground">{nota}</p>
+    </div>
+  )
+}
 
 function Chip({ e }: { e: EstadoFactura }) {
   return <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", ESTADO[e].c)}>{ESTADO[e].t}</span>
@@ -130,7 +153,7 @@ function PagarSeleccionadas({ proveedorId, facturas, onCerrar, onHecho }: { prov
     const r = await enviarJson(`/api/negocio/proveedores/${proveedorId}/pagos-deudas`, "POST", body, key)
     if (!r.ok) { if (!r.incierto) claves.current.delete(canonico); return setEstado({ enviando: false, error: r.error, code: r.code }) }
     claves.current.delete(canonico)
-    onHecho(`Transferencia de ${formatoArs(total)} registrada y aplicada a ${renglones.length} ${renglones.length === 1 ? "deuda" : "deudas"}${queda > 0 ? `; quedan ${formatoArs(queda)} a favor` : ""}.`)
+    onHecho(`Transferencia de ${formatoArs(total)} registrada y aplicada a ${renglones.length} ${renglones.length === 1 ? "deuda" : "deudas"}.${queda > 0 ? ` Los ${formatoArs(queda)} restantes quedan como saldo a favor de tu negocio con este proveedor.` : ""}`)
   }
   return (
     <div className="space-y-3 rounded-2xl border border-primary/40 bg-primary/5 p-3 text-sm" data-testid="pagar-seleccionadas">
@@ -149,7 +172,7 @@ function PagarSeleccionadas({ proveedorId, facturas, onCerrar, onHecho }: { prov
           </li>
         ))}
       </ul>
-      <p className="text-xs">Se aplica {formatoArs(repartido)}{Number.isFinite(total) && total > 0 ? ` de ${formatoArs(total)}` : ""}.{queda > 0 ? <strong> Quedan {formatoArs(queda)} a favor del proveedor (no se reparten solos).</strong> : null}</p>
+      <p className={cn("text-xs", queda > 0 && "font-semibold")} data-testid="texto-reparto">{textoRepartoPago(repartido, total, queda)}</p>
       <p className="text-xs text-muted-foreground">Se registra como transferencia realizada en este paso (es tu declaración: DeliGO no la verifica con el banco) y se aplica a las deudas elegidas en la misma operación. No sale de la Caja.</p>
       {estado.code === "POSIBLE_PAGO_DUPLICADO" && <label className="flex min-h-11 items-start gap-2 text-xs"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={noDup} onChange={(e) => setNoDup(e.target.checked)} /><span>Es una transferencia distinta, no un duplicado.</span></label>}
       {(estado.error || errores[0]) && <p role="alert" className="text-sm text-rose-700">{estado.error ?? errores[0]}</p>}
@@ -161,7 +184,13 @@ function PagarSeleccionadas({ proveedorId, facturas, onCerrar, onHecho }: { prov
   )
 }
 
-export function CuentaProveedorPedidos({ proveedorId, version, activo, onAplicarManual, onCambio }: { proveedorId: string; version: number; activo: boolean; onAplicarManual: (creditoId: string) => void; onCambio: () => void }) {
+export function CuentaProveedorPedidos({ proveedorId, version, activo, onAplicarManual, onCambio, extra, formularioAplicar }: {
+  proveedorId: string; version: number; activo: boolean; onAplicarManual: (creditoId: string) => void; onCambio: () => void
+  /** T1-05: total acreditado y pagos que no cuentan, tal como los entrega el estado de cuenta (sin fórmulas nuevas). */
+  extra?: ResumenCuentaExtra | null
+  /** T1-06: el formulario «Aplicar a deudas» se muestra junto al pago elegido. */
+  formularioAplicar?: { creditoId: string; nodo: ReactNode } | null
+}) {
   const q = useQuery<{ vista: Vista }>({
     queryKey: ["proveedor-cuenta-pedidos", proveedorId, version],
     queryFn: async () => { const r = await fetch(`/api/negocio/proveedores/${proveedorId}/cuenta-pedidos`, { cache: "no-store" }); if (!r.ok) throw new Error("cuenta"); return r.json() },
@@ -198,13 +227,31 @@ export function CuentaProveedorPedidos({ proveedorId, version, activo, onAplicar
   const R = v.resumen
   return (
     <section className="space-y-3" aria-label="Cuenta corriente por pedidos y facturas" data-testid="cuenta-por-pedidos">
-      <div className="grid gap-2 sm:grid-cols-4" data-testid="resumen-cuenta">
-        <div className="rounded-xl border p-2"><p className="text-xs text-muted-foreground">Deuda pendiente</p><p className="text-lg font-semibold tabular-nums">{formatoArs(R.deudaPendiente)}</p></div>
-        <div className="rounded-xl border p-2"><p className="text-xs text-muted-foreground">Pagos aplicados</p><p className="text-lg font-semibold tabular-nums">{formatoArs(R.pagosAplicados)}</p></div>
-        <div className="rounded-xl border p-2"><p className="text-xs text-muted-foreground">A favor disponible</p><p className="text-lg font-semibold tabular-nums">{formatoArs(R.aFavor)}</p>{R.anticiposPedidos > 0 && <p className="text-xs text-muted-foreground">{formatoArs(R.anticiposPedidos)} reservados para pedidos abiertos</p>}</div>
-        <div className="rounded-xl border p-2"><p className="text-xs text-muted-foreground">Transferencias programadas</p><p className="text-lg font-semibold tabular-nums">{formatoArs(R.programadas)}</p><p className="text-xs text-muted-foreground">No restan deuda</p></div>
+      {/* T1-05: each concept on its own, with the values the server already computes. Money that was paid,
+          what is still owed, and what is NOT money paid (scheduled, rejected/voided) never share a card. */}
+      <div className="space-y-2" data-testid="resumen-cuenta">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Importe titulo="Deuda pendiente" valor={R.deudaPendiente} nota="Lo que todavía le debés a este proveedor" testid="resumen-deuda" tono="deuda" />
+          {extra && <Importe titulo="Total pagado y acreditado" valor={extra.totalAcreditado} nota="Pagos confirmados y ajustes a favor (no incluye programados ni cancelados)" testid="resumen-total-acreditado" />}
+          <Importe titulo="Pagos aplicados a deudas" valor={R.pagosAplicados} nota="Parte de lo pagado que ya cancela facturas o recepciones" testid="resumen-aplicado" />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Importe titulo="Saldo a favor de tu negocio" valor={R.aFavorGeneral} nota="Pagado y todavía sin aplicar: se aplica a una deuda sólo cuando lo decidas" testid="resumen-a-favor" tono="favor" />
+          <Importe titulo="Anticipos reservados a pedidos" valor={R.anticiposPedidos} nota="Pagos de pedidos abiertos: se aplican al aprobar sus recepciones" testid="resumen-anticipos" tono="favor" />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Importe titulo="Transferencias programadas" valor={R.programadas} nota="Todavía no pagadas: no restan deuda ni cuentan como pago" testid="resumen-programadas" tono="fuera" />
+          {extra && <Importe titulo={`Pagos cancelados${extra.cancelados.cantidad ? ` (${extra.cancelados.cantidad})` : ""}`} valor={extra.cancelados.importe} nota="Rechazados, anulados o desvinculados: no cuentan como pagados" testid="resumen-cancelados" tono="fuera" />}
+        </div>
       </div>
       {aviso && <p role="status" className="rounded-xl bg-emerald-50 p-2 text-sm text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100">{aviso}</p>}
+      {/* T1-07: how to reach «Pagar deudas seleccionadas», visible while there is debt and nothing is selected. */}
+      {R.deudaPendiente > 0 && seleccionadas.length === 0 && !pagando && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2 text-sm" data-testid="ayuda-pagar-deudas">
+          <p className="min-w-0 flex-1">Para pagar con una transferencia, marcá las deudas con saldo (están dentro de cada pedido) y tocá <strong>«Pagar deudas seleccionadas»</strong>.</p>
+          {filtro !== "CON_SALDO" && <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => { setFiltro("CON_SALDO"); setCantidad(POR_PAGINA) }}>Ver deudas con saldo</Button>}
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden /><Input value={busca} onChange={(e) => { setBusca(e.target.value); setCantidad(POR_PAGINA) }} placeholder="Buscar pedido, recepción, comprobante o producto…" className="min-h-11 rounded-xl pl-9" aria-label="Buscar en la cuenta" /></div>
@@ -226,7 +273,8 @@ export function CuentaProveedorPedidos({ proveedorId, version, activo, onAplicar
         <ul className="space-y-2" aria-label="Pedidos y facturas">
           {filas.slice(0, cantidad).map((x) => x.tipo === "factura" ? <FilaFactura key={x.f.obligacionId} f={x.f} sel={sel.has(x.f.obligacionId)} onSel={(b) => marcar(x.f.obligacionId, b)} /> : (
             <li key={x.p.compraId} className="rounded-xl border p-2" data-testid="fila-pedido">
-              <details>
+              {/* T1-07: with «Con saldo» the orders open, so their debts (and checkboxes) are in view. */}
+              <details open={filtro === "CON_SALDO" && x.p.pendiente > 0 ? true : undefined}>
                 <summary className="cursor-pointer list-none">
                   <span className="flex flex-wrap items-center justify-between gap-1"><span className="text-sm font-medium">Pedido N° {x.p.numero}{x.p.estadoPedido !== "ABIERTA" ? " · cerrado" : ""}</span>{x.p.facturas.length ? <Chip e={x.p.estado} /> : <span className="text-xs text-muted-foreground">Sin facturas todavía</span>}</span>
                   <span className="block text-xs text-muted-foreground">{fecha(x.p.fecha)} · {x.p.facturas.length} {x.p.facturas.length === 1 ? "recepción" : "recepciones"}{x.p.anticipo.disponible > 0 ? ` · anticipo disponible ${formatoArs(x.p.anticipo.disponible)}` : ""}{x.p.anticipo.programado > 0 ? ` · programado ${formatoArs(x.p.anticipo.programado)}` : ""}</span>
@@ -246,7 +294,15 @@ export function CuentaProveedorPedidos({ proveedorId, version, activo, onAplicar
       <details className="rounded-xl border p-2" data-testid="seccion-sin-asignar">
         <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">Pagos sin asignar y saldo a favor ({formatoArs(R.aFavorGeneral)})</summary>
         {v.sinAsignar.length === 0 ? <p className="text-xs text-muted-foreground">No hay pagos sin asignar.</p> : (
-          <ul className="space-y-1 text-xs">{v.sinAsignar.map((c) => <li key={c.creditoId} className="flex flex-wrap items-center justify-between gap-2 rounded bg-muted/40 p-2"><span>{c.medio} {formatoArs(c.importe)} · {fecha(c.fecha)}{c.referencia ? ` · ref. ${c.referencia}` : ""} · {c.responsable}{c.pedido ? ` · del pedido N° ${c.pedido} (cerrado)` : ""} · <strong>disponible {formatoArs(c.disponible)}</strong></span><Button variant="outline" className="min-h-11 rounded-xl text-xs" onClick={() => onAplicarManual(c.creditoId)}>Aplicar a deudas</Button></li>)}</ul>
+          <ul className="space-y-1 text-xs">{v.sinAsignar.map((c) => (
+            <li key={c.creditoId} className={cn("rounded bg-muted/40 p-2", formularioAplicar?.creditoId === c.creditoId && "ring-2 ring-primary")}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>{c.medio} {formatoArs(c.importe)} · {fecha(c.fecha)}{c.referencia ? ` · ref. ${c.referencia}` : ""} · {c.responsable}{c.pedido ? ` · del pedido N° ${c.pedido} (cerrado)` : ""} · <strong>disponible {formatoArs(c.disponible)}</strong></span>
+                {formularioAplicar?.creditoId !== c.creditoId && <Button variant="outline" className="min-h-11 rounded-xl text-xs" disabled={Boolean(formularioAplicar)} onClick={() => onAplicarManual(c.creditoId)}>Aplicar a deudas</Button>}
+              </div>
+              {formularioAplicar?.creditoId === c.creditoId && <div className="mt-2 text-sm" data-testid="formulario-contextual">{formularioAplicar.nodo}</div>}
+            </li>
+          ))}</ul>
         )}
         <p className="mt-1 text-xs text-muted-foreground">Nada se aplica solo: cada pago se aplica cuando lo decidas.</p>
       </details>
