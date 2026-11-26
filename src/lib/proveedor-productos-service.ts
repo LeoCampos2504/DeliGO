@@ -56,7 +56,7 @@ async function insertar(tx: Tx, negocioId: string, proveedorId: string, items: A
 export async function asociarProductos(
   db: Db,
   input: { negocioId: string; proveedorId: string; body: unknown },
-  opciones: { auditar?: AuditoriaAsociacion } = {}
+  opciones: { auditar?: AuditoriaAsociacion; autorizar?: (tx: Tx) => Promise<boolean> } = {}
 ): Promise<Resultado<{ creadas: number }>> {
   const { negocioId, proveedorId } = input
   const raw = (input.body && typeof input.body === "object" ? (input.body as Record<string, unknown>).items : null)
@@ -69,6 +69,7 @@ export async function asociarProductos(
     items.push({ productoId: o.productoId, productoVarianteId: v })
   }
   return db.$transaction(async (tx) => {
+    if (opciones.autorizar && !(await opciones.autorizar(tx))) return fail(403, "Tu permiso para asociar proveedores ya no está vigente.", "PROVEEDORES_SIN_PERMISO")
     const prov = await tx.proveedor.findFirst({ where: { id: proveedorId, negocioId }, select: { id: true } })
     if (!prov) return fail(404, "Proveedor no encontrado.", "PROVEEDOR_NO_ENCONTRADO")
     const productos = await tx.producto.findMany({ where: { negocioId, eliminado: false, id: { in: [...new Set(items.map((i) => i.productoId))] } }, select: { id: true, variantes: { select: { id: true } } } })
@@ -87,11 +88,12 @@ export async function asociarProductos(
 export async function desasociarProducto(
   db: Db,
   input: { negocioId: string; proveedorId: string; asociacionId: string },
-  opciones: { auditar?: AuditoriaAsociacion } = {}
+  opciones: { auditar?: AuditoriaAsociacion; autorizar?: (tx: Tx) => Promise<boolean> } = {}
 ): Promise<Resultado<{ borradas: number }>> {
   const { negocioId, proveedorId, asociacionId } = input
   if (!asociacionId) return fail(400, "Falta la asociación.", "ASOCIACION_REQUERIDA")
   return db.$transaction(async (tx) => {
+    if (opciones.autorizar && !(await opciones.autorizar(tx))) return fail(403, "Tu permiso para asociar proveedores ya no está vigente.", "PROVEEDORES_SIN_PERMISO")
     const fila = await tx.proveedorProducto.findFirst({ where: { id: asociacionId, negocioId, proveedorId }, select: { id: true, productoId: true, productoVarianteId: true, origen: true } })
     if (!fila) return { ok: true as const, value: { borradas: 0 } } // ya no estaba: idempotente
     await tx.proveedorProducto.delete({ where: { id: fila.id } })

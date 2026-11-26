@@ -3,6 +3,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test"
 import { randomUUID } from "node:crypto"
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
+import { asociarProductos, desasociarProducto } from "@/lib/proveedor-productos-service"
 import { CatalogoError, crearProductoEmpleado, editarProductoEmpleado, guardarPermisosCatalogo, listarCatalogoEmpleado, permisosCatalogo } from "@/lib/catalogo-empleado-service"
 
 setDefaultTimeout(180_000)
@@ -80,6 +81,25 @@ describe("T2 catálogo: permisos independientes, costos y stock", () => {
     expect(await db.producto.count({ where: { negocioId: negocio.id } })).toBe(1)
     expect((await db.producto.findUniqueOrThrow({ where: { id: producto.id } })).nombre).toBe("Original")
     expect(await db.auditLog.count({ where: { recurso: "producto", recursoId: producto.id } })).toBe(0)
+  })
+
+
+  test("asociaciones de proveedor revalidan autorización en la transacción", async () => {
+    const id = randomUUID()
+    const a = await db.negocio.create({ data: { slug: `t2p-${id}`, nombre: `T2 P ${id}`, usuario: `t2p-${id}`, email: `t2p-${id}@example.test`, password: "fixture", rubro: "negocio", aprobado: true } })
+    const producto = await db.producto.create({ data: { negocioId: a.id, nombre: "Producto", precio: 10 } })
+    const proveedor = await db.proveedor.create({ data: { negocioId: a.id, nombre: "Proveedor", nombreNormalizado: "proveedor", actorId: a.id, idempotencyKey: id } })
+    const input = { negocioId: a.id, proveedorId: proveedor.id, body: { items: [{ productoId: producto.id }] } }
+    const rechazado = await asociarProductos(db, input, { autorizar: async () => false })
+    expect(rechazado.ok).toBe(false)
+    if (!rechazado.ok) expect(rechazado.status).toBe(403)
+    expect(await db.proveedorProducto.count({ where: { negocioId: a.id } })).toBe(0)
+    const permitido = await asociarProductos(db, input, { autorizar: async () => true })
+    expect(permitido.ok).toBe(true)
+    const fila = await db.proveedorProducto.findFirstOrThrow({ where: { negocioId: a.id, proveedorId: proveedor.id, productoId: producto.id } })
+    const quitar = await desasociarProducto(db, { negocioId: a.id, proveedorId: proveedor.id, asociacionId: fila.id }, { autorizar: async () => false })
+    expect(quitar.ok).toBe(false)
+    expect(await db.proveedorProducto.count({ where: { id: fila.id } })).toBe(1)
   })
 
 })

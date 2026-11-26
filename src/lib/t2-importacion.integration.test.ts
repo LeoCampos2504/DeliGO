@@ -119,4 +119,33 @@ describe("T2 importación: concurrencia, reintentos y tandas", () => {
     expect(await db.proveedorProducto.count({ where: { negocioId: a.id } })).toBe(0)
   })
 
+
+  test("replay de producto con variantes y proveedor no duplica relaciones ni auditoría", async () => {
+    const a = await negocio(), id = randomUUID()
+    const proveedor = await db.proveedor.create({ data: { negocioId: a.id, nombre: "Proveedor prueba", nombreNormalizado: "proveedor prueba", actorId: a.id, idempotencyKey: id } })
+    const base = { campos: ["nombre", "variante", "precio", "proveedores"], filas: [
+      { fila: 2, nombre: "Producto con variantes", variante: "Uno", precio: 100, proveedores: "Proveedor prueba" },
+      { fila: 3, nombre: "Producto con variantes", variante: "Dos", precio: 200, proveedores: "Proveedor prueba" },
+    ] }
+    const previa = await previsualizarImportacion(db, { negocioId: a.id, actor, body: base })
+    if (!previa.ok) throw new Error(previa.code)
+    expect(previa.value.grupos).toHaveLength(1)
+    const body = { ...base, clave: randomUUID(), decisiones: { [previa.value.grupos[0].clave]: "crear" } }
+    const input = { negocioId: a.id, actor, body }
+    const primero = await ejecutarImportacion(db, input)
+    if (!primero.ok) throw new Error(primero.code)
+    expect(primero.value.estado).toBe("COMPLETADA")
+    expect(primero.value.resultados[0].resultado).toBe("CREADO")
+    expect(await ejecutarImportacion(db, input)).toEqual(primero)
+    const productos = await db.producto.findMany({ where: { negocioId: a.id }, include: { variantes: true } })
+    expect(productos).toHaveLength(1)
+    expect(productos[0].variantes).toHaveLength(2)
+    expect(await db.proveedorProducto.count({ where: { negocioId: a.id, proveedorId: proveedor.id, productoId: productos[0].id } })).toBe(1)
+    expect(await db.auditLog.count({ where: { recurso: "producto", recursoId: productos[0].id, accion: "producto.creado" } })).toBe(1)
+    expect(await db.auditLog.count({ where: { recurso: "proveedor", recursoId: proveedor.id, accion: "proveedor.productos_asociados" } })).toBe(1)
+    expect(await db.auditLog.count({ where: { recurso: "importacion_productos", recursoId: primero.value.importacionId, accion: "catalogo.importacion" } })).toBe(1)
+    expect(await db.movimientoInventario.count({ where: { negocioId: a.id } })).toBe(0)
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: a.id } })).toBe(0)
+  })
+
 })

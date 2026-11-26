@@ -1,6 +1,7 @@
 // Catálogo — capa HTTP del empleado (área caja) y de los permisos del dueño. Identidad SIEMPRE desde la sesión.
 
 import { NextRequest, NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { auditLogWithClient } from "@/lib/audit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -44,6 +45,12 @@ export async function editarProductoEmpleadoHttp(req: NextRequest, negocioId: st
 const auditarEmpleado = (empleadoId: string) => async (tx: Parameters<typeof auditLogWithClient>[0], e: { accion: string; recurso: string; recursoId: string; detalle: Record<string, unknown> }) => {
   await auditLogWithClient(tx, { userId: empleadoId, userType: "empleado", accion: e.accion, recurso: e.recurso, recursoId: e.recursoId, detalle: { ...e.detalle, origen: "CATALOGO_EMPLEADO" } })
 }
+// Revalidar bajo bloqueo en la misma transacción que cambia la asociación.
+const autorizarProveedores = (negocioId: string, empleadoId: string) => async (tx: Prisma.TransactionClient) => {
+  await tx.$queryRaw`SELECT "id" FROM "empleados" WHERE "id" = ${empleadoId} AND "negocioId" = ${negocioId} FOR SHARE`
+  return (await permisosCatalogo(tx, negocioId, empleadoId)).proveedores
+}
+
 /** Proveedores del producto: ver con permiso de editar o de proveedores; asociar/quitar sólo con permiso de proveedores. */
 export async function proveedoresProductoEmpleadoHttp(req: NextRequest, negocioId: string, empleadoId: string, productoId: string) {
   try {
@@ -57,13 +64,13 @@ export async function proveedoresProductoEmpleadoHttp(req: NextRequest, negocioI
     if (req.method === "POST") {
       const b = await leer(req)
       if (typeof b.proveedorId !== "string" || !b.proveedorId) return fallo({ status: 400, error: "Elegí el proveedor.", code: "PROVEEDOR_REQUERIDO" })
-      const r = await asociarProductos(db, { negocioId, proveedorId: b.proveedorId, body: { items: [{ productoId, productoVarianteId: typeof b.productoVarianteId === "string" ? b.productoVarianteId : null }] } }, { auditar: auditarEmpleado(empleadoId) })
+      const r = await asociarProductos(db, { negocioId, proveedorId: b.proveedorId, body: { items: [{ productoId, productoVarianteId: typeof b.productoVarianteId === "string" ? b.productoVarianteId : null }] } }, { auditar: auditarEmpleado(empleadoId), autorizar: autorizarProveedores(negocioId, empleadoId) })
       return r.ok ? json({ ok: true, ...r.value }) : fallo(r)
     }
     const asociacionId = req.nextUrl.searchParams.get("asociacionId") ?? ""
     const fila = asociacionId ? await db.proveedorProducto.findFirst({ where: { id: asociacionId, negocioId, productoId }, select: { proveedorId: true } }) : null
     if (!fila) return json({ ok: true, borradas: 0 })
-    const r = await desasociarProducto(db, { negocioId, proveedorId: fila.proveedorId, asociacionId }, { auditar: auditarEmpleado(empleadoId) })
+    const r = await desasociarProducto(db, { negocioId, proveedorId: fila.proveedorId, asociacionId }, { auditar: auditarEmpleado(empleadoId), autorizar: autorizarProveedores(negocioId, empleadoId) })
     return r.ok ? json({ ok: true, ...r.value }) : fallo(r)
   } catch (error) { return errorDe("proveedores del producto (empleado)", error) }
 }
