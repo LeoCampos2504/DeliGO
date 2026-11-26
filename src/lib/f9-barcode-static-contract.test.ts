@@ -109,10 +109,11 @@ describe("F9 — camera lifecycle and SSR safety (static)", () => {
 
 describe("F9 — Caja reuses the existing cart and checkout", () => {
   const caja = read("src/components/business/caja-tab.tsx")
-  test("scans go through addCartLine; the only POST is the existing checkout", () => {
+  test("scans use the cart; POSTs are limited to checkout and sale start", () => {
     expect(caja).toContain("const next = addCartLine(cartRef.current, line)")
-    expect(caja.match(/method: "POST"/g)?.length).toBe(1)
-    // F10-B1: the single POST goes to the source's checkout; the owner's source is
+    expect(caja.match(/method: "POST"/g)?.length).toBe(2)
+    expect(caja).toContain('fetch(`${source.ventasUrl}/inicio`, { method: "POST"')
+    // Checkout stays on the source endpoint; F10-C2c adds the sale-start POST. The owner source is
     // still exactly the existing Caja checkout endpoint.
     expect(caja).toContain("res = await fetch(source.ventasUrl, {")
     expect(caja).toContain('ventasUrl: "/api/negocio/caja/ventas",')
@@ -165,9 +166,9 @@ describe("F9 — duplicate guard wiring (D3)", () => {
 })
 
 describe("F9 — scope: generic businesses only; Mozo keeps its flow", () => {
-  test("the scanner is used only by Caja and Inventario", () => {
+  test("the scanner is used only by Caja, Inventario and recepciones", () => {
     const users = sourceFiles.filter((f) => read(f).includes("barcode-scanner\"") && f !== "src/components/business/barcode-scanner.tsx")
-    expect(users.sort()).toEqual(["src/components/business/caja-tab.tsx", "src/components/business/inventario-tab.tsx"])
+    expect(users.sort()).toEqual(["src/components/business/caja-tab.tsx", "src/components/business/inventario-tab.tsx", "src/components/business/recepcion-editor.tsx"])
   })
   test("Caja and Inventario tabs exist only for rubro 'negocio'", () => {
     const panel = read("src/components/business/business-panel.tsx")

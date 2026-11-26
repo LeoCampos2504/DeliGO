@@ -2,6 +2,7 @@
 // T2: real importer on the isolated CI PostgreSQL. Never silently skip.
 import { describe, expect, setDefaultTimeout, test } from "bun:test"
 import { randomUUID } from "node:crypto"
+import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ejecutarImportacion, estadoImportacion, previsualizarImportacion } from "@/lib/importacion-productos-service"
 
@@ -90,6 +91,32 @@ describe("T2 importación: concurrencia, reintentos y tandas", () => {
     expect(previa.value.resumen.errores).toBeGreaterThan(0)
     expect(previa.value.grupos.some((g) => g.errores.some((e) => e.includes("repetido")))).toBe(true)
     expect(await db.producto.count({ where: { negocioId: a.id } })).toBe(0)
+  })
+
+
+  test("un permiso de proveedores revocado antes de la transacción impide crear y asociar", async () => {
+    const a = await negocio(), id = randomUUID()
+    const empleado = await db.empleado.create({ data: { negocioId: a.id, nombre: "T2", codigo: id.slice(0, 8), catalogoHasta: new Date(Date.now() + 3600_000), catalogoCrear: true, catalogoImportar: true, catalogoProveedores: true } })
+    await db.proveedor.create({ data: { negocioId: a.id, nombre: "Proveedor T2", nombreNormalizado: "proveedor t2", actorId: a.id, idempotencyKey: id } })
+    const actorEmpleado = { tipo: "EMPLEADO" as const, empleadoId: empleado.id }
+    const base = { campos: ["nombre", "proveedores"], filas: [{ fila: 2, nombre: "Nuevo T2", proveedores: "Proveedor T2" }] }
+    const previa = await previsualizarImportacion(db, { negocioId: a.id, actor: actorEmpleado, body: base })
+    if (!previa.ok) throw new Error(previa.code)
+    const body = { ...base, clave: randomUUID(), decisiones: { [previa.value.grupos[0].clave]: "crear" } }
+    let revocada = false
+    const intercalada = new Proxy(db, { get(target, prop, receiver) {
+      if (prop === "$transaction") return async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>, options: { isolationLevel?: Prisma.TransactionIsolationLevel; maxWait?: number; timeout?: number }) => {
+        if (!revocada) { revocada = true; await db.empleado.update({ where: { id: empleado.id }, data: { catalogoProveedores: false } }) }
+        return db.$transaction(fn, options)
+      }
+      return Reflect.get(target, prop, receiver)
+    } })
+    const r = await ejecutarImportacion(intercalada, { negocioId: a.id, actor: actorEmpleado, body })
+    if (!r.ok) throw new Error(r.code)
+    expect(revocada).toBe(true)
+    expect(r.value.resultados[0].resultado).toBe("ERROR")
+    expect(await db.producto.count({ where: { negocioId: a.id } })).toBe(0)
+    expect(await db.proveedorProducto.count({ where: { negocioId: a.id } })).toBe(0)
   })
 
 })

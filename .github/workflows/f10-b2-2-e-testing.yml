@@ -108,6 +108,10 @@ jobs:
       - run: bun --no-env-file test src/lib/t2-importacion-formatos.test.ts
       - run: bun --no-env-file test src/lib/t2-importacion.integration.test.ts
       - run: bun --no-env-file test src/lib/t2-catalogo.integration.test.ts
+      - run: bun --no-env-file test src/lib/t2-venta-sin-precio.integration.test.ts
+      - run: bun --no-env-file test src/lib/f10-b1-static-contract.test.ts
+      - run: bun --no-env-file test src/lib/f9-barcode-static-contract.test.ts
+      - run: bun --no-env-file test src/lib/stock-lifecycle-i3.test.ts
       # F4-C3: SQL invariants of commercial exchanges (applied by migrate deploy above) against the ephemeral
       # postgres:16 service, in its own process and BEFORE the regression batch for the same reason as F4-C2.
       - run: bun --no-env-file test src/lib/f4-c3-cambio-venta-schema.integration.test.ts

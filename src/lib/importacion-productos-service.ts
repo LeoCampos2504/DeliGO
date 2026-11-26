@@ -392,8 +392,9 @@ export async function ejecutarImportacion(db: Db, input: { negocioId: string; ac
         const claims: BarcodeClaim[] = [...(n.codigo ? [{ code: n.codigo }] : []), ...n.variantes.flatMap((v) => (v.codigo ? [{ code: v.codigo }] : []))]
         await runBarcodeGuardedWrite(db, { negocioId, claims }, async (tx) => {
           await reservarGrupo(tx, reg!.id, g.clave)
+          if (actor.tipo === "EMPLEADO") await tx.$queryRaw`SELECT "id" FROM "empleados" WHERE "id" = ${actor.empleadoId} AND "negocioId" = ${negocioId} FOR SHARE`
           const ahora = await permisosDe(tx, negocioId, actor)
-          if (!ahora?.importar || !ahora.crear || (n.costo !== null && !ahora.costos) || ((n.precio > 0 || n.variantes.some((v) => v.precio > 0)) && !ahora.precios)) throw new ErrorGrupo("Tu permiso cambió o venció durante la importación: no se creó.")
+          if (!ahora?.importar || !ahora.crear || (g.proveedorIds.length > 0 && !ahora.proveedores) || (n.costo !== null && !ahora.costos) || ((n.precio > 0 || n.variantes.some((v) => v.precio > 0)) && !ahora.precios)) throw new ErrorGrupo("Tu permiso cambió o venció durante la importación: no se creó.")
           if (await tx.producto.findFirst({ where: { negocioId, eliminado: false, nombre: { equals: n.nombre, mode: "insensitive" } }, select: { id: true } })) throw new ErrorGrupo("Ya existe un producto con ese nombre (se creó mientras tanto): no se duplica.")
           const sinPrecio = n.variantes.length ? n.variantes.some((v) => v.precio <= 0) : n.precio <= 0
           const creado = await tx.producto.create({
@@ -417,6 +418,7 @@ export async function ejecutarImportacion(db: Db, input: { negocioId: string; ac
         const claims: BarcodeClaim[] = [...(data.codigoBarras ? [{ code: data.codigoBarras, exclude: { productoId } }] : []), ...variantes.flatMap((v) => (v.codigo ? [{ code: v.codigo, exclude: { varianteId: v.varianteId } }] : []))]
         await runBarcodeGuardedWrite(db, { negocioId, claims }, async (tx) => {
           await reservarGrupo(tx, reg!.id, g.clave)
+          if (actor.tipo === "EMPLEADO") await tx.$queryRaw`SELECT "id" FROM "empleados" WHERE "id" = ${actor.empleadoId} AND "negocioId" = ${negocioId} FOR SHARE`
           const ahora = await permisosDe(tx, negocioId, actor)
           const tocaPrecio = data.precio !== undefined || variantes.some((v) => v.precio !== undefined)
           const tocaDatos = ["categoria", "marca", "descripcion", "codigoBarras"].some((k) => k in data) || variantes.some((v) => v.codigo)

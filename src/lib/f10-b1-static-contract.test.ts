@@ -96,7 +96,7 @@ describe("F10-B1 — cashier routes: authorization and identity", () => {
     expect(src).toContain("parseVentaCajaRequestBody(")
     // the body can never choose business, employee, actor, prices, totals or a shift
     // (the request body is only ever handed to parseVentaCajaRequestBody)
-    expect(src).not.toMatch(/(?<![.\w])body\.|negocioId:(?!\s*auth\.negocio\.id)|turnoId|precio|total:(?!\s*result\.venta\.total)/)
+    expect(src).not.toMatch(/(?<![.\w])body\.|negocioId:(?!\s*auth\.negocio\.id)|turnoId|precio|total:(?!\s*(?:result\.venta|venta)\.total)/)
     expect(src.match(/req\.json\(/g)).toHaveLength(1)
     expect(src).toContain("parseVentaCajaRequestBody(await req.json().catch(() => null))")
     expect(src).not.toMatch(/\.venta\.create\(|runStockSerializable\(|\$transaction\(/)
