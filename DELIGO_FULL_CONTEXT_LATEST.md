@@ -1,5 +1,30 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE (2026-11-27, 3) — T0 y T1 implementados en `codex/estabilizacion-final` (local, sin push ni despliegue)
+
+- **Worktree:** `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, base `327d6c73`.
+- **Commits locales:**
+  - `c52ecd82` T0 (17 docs);
+  - `e283c450` T1-01;
+  - `ab295580` T1-02 y T1-03;
+  - `86d89279` T1-04 a T1-08;
+  - `63d29856` T1-09;
+  - `7500dd9d` CI;
+  - más los docs de continuidad.
+- **Sin push ni despliegue. La copia original `deligo-main-limpio` no se modificó.**
+- **T1:** las 9 correcciones están implementadas (sólo presentación).
+  - Hubo implementación local y verificación estática (tsc sin diagnósticos nuevos, ESLint limpio, pruebas = base).
+  - **No** pasó por CI, **no** está desplegada en TESTING y **no** está certificada.
+  - Detalle y lista manual: plan §17.
+- **Elegibilidad (plan §16):**
+  - P2-T23 y P2-T24 no son elegibles;
+  - **P2-T54-R1 tiene evidencia insuficiente:** su código ya está en `testing-codex` y desplegado en TESTING, pero sin certificación física. Lo decide el operador;
+  - T40, T52, T53, T38 y T56 son elegibles;
+  - T44, T18 y T31 son elegibles con condiciones.
+- **P0-08 decidido:** se conserva `LATEST_SAMPLE_ONLY`; la resolución se hace en T5.
+- **Informes históricos:** quedan como respaldo privado local.
+- **Siguiente paso:** autorización de push de la rama (CI), decisión sobre T54-R1 y, después, T2 y T3.
+
 ## LATEST UPDATE (2026-11-27, 2) — decisiones D-1…D-7 y plan definitivo T0–T7 APROBADOS; preparación de T0 y T1 (sin implementar)
 
 - **Decisiones** (`DECISIONS_AND_INVARIANTS` y el plan, §0):

@@ -551,3 +551,177 @@ Estado de las filas 1, 2, 3 y 8 (2026-11-26):
 - **filas 1 y 2:** T0 y T1 autorizados, sin push;
 - **fila 3:** P2-T24 decidido, se conserva `LATEST_SAMPLE_ONLY`;
 - **fila 8:** los informes históricos quedan como respaldo privado local.
+
+
+## 16. Matriz de elegibilidad para la candidata (2026-11-26, revisión con evidencia; sin cambios de integración)
+
+**Fuentes:**
+- `git log origin/testing-codex ^origin/main`;
+- `git cat-file` en las dos ramas;
+- el mensaje del commit de Production `42ca5005`, que declara la composición del RC1;
+- el informe local `P2_PRODUCTION_RC1_BUILD_AND_AUTOMATED_GATE.md` (no versionado);
+- los marcadores de estado de `COMPLETED_TASKS`, `ROADMAP` y `CODEX_REPORT` en `testing-codex`;
+- los informes de cada trabajo.
+
+**Regla aplicada:**
+- la documentación incompleta no hace a un trabajo no elegible;
+- estar en TESTING no lo hace elegible;
+- las discrepancias se resuelven con evidencia.
+
+**Composición de Production (RC1, mensaje de `42ca5005`):**
+- **incluye:** P2-T02, T31, T39, T40, T43, T45, T46-R2, T47, T49, T50, T51, T52, T53 (`CLOSED_OPERATOR_PASS`) y T55, más la infraestructura de T44-R1D, con T44-G3 «arrastrado sin resolver» por autorización del operador;
+- **excluye por completo:** P2-T23 y P2-T24. Los archivos mixtos se reconstruyeron al último commit anterior a T23/T24.
+- **Corrección del análisis previo (§2.1):** el *tracking* de `main` es más nuevo por fecha de commit, pero su **contenido es el anterior a T23/T24**: el modelo certificado `LATEST_SAMPLE_ONLY`.
+
+| Trabajo | Funcionalidad | Estado documental | Commits sólo en `testing-codex` | Evidencia de pruebas | Estado real del código | En TESTING | En Production | Dependencias | Clasificación | Decisión recomendada para la candidata |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **P2-T40** | Paquete de RC1 (A0/A1/R1–R3/FINAL) | `CLOSED_TESTING_CERTIFIED` («close P2-T40 Testing certification», 2026-09-21). Las menciones `…AWAITING_RECERTIFICATION` son anteriores | 4, **sólo docs** (`aa98d41e`…`e1fee008`) | Certificación de TESTING y RC1 | Igual en las dos ramas, salvo docs | Sí | **Sí** (RC1) | T31 (resuelto: la versión final de T40 prevalece) | **Elegible** | Conservar; sin acción |
+| **P2-T44** | Push personal por cuenta (R1D) + G3 | `PAUSED_UNRESOLVED_AFTER_TIMEBOX` (G3) | 4, **sólo docs** (R1/R1D/R1E) | R1D incluido en RC1; G3 sin certificar | R1D en las dos ramas; G3 sin código nuevo | Sí | R1D sí; G3 arrastrado sin resolver | T31 y D-6 | **Elegible con condiciones** | Conservar R1D tal como está en Production. G3 sigue como limitación registrada, sin cambio respecto de Production. Comprobarlo junto con D-6 |
+| **P2-T52** | PWA única (empleado y salón) | `CLOSED_TESTING_CERTIFIED`. Fase 4 diferida, sin autorización | 5, **sólo docs** | Certificación de TESTING y RC1 | Igual que en Production | Sí | **Sí** | Ninguna | **Elegible** | Conservar. La Fase 4 queda fuera (no hay código) |
+| **P2-T53** | Ocupación y nitidez del panel de mesas | `CLOSED_OPERATOR_PASS` (no `CLOSED_TESTING_CERTIFIED`) | 2, **sólo docs** | Aprobación visual del operador; RC1 por reconfirmación expresa | Igual que en Production | Sí | **Sí** | Salón (conflictos D-1) | **Elegible** (con su terminología) | Conservar; revisarla en la regresión de Salón de la candidata |
+| **P2-T23** | Reproducción suave de la trayectoria (cliente) | `SUPERSEDED_BY_PRODUCT_DECISION_INTO_P2_T54`; `P2_T23_COMPLETED_TECHNICALLY=NO` (A0 de T54) | 2 de docs, más código en el linaje T23/T24 (`tracking-playback.ts`, `tracking-trajectory.ts` y los archivos mixtos de *tracking*) | Reproducción controlada sin certificación física cerrada | **Presente en `testing-codex`**, ausente en `main` | Sí | **No** (excluido del RC1) | P2-T24 y los archivos de *tracking* | **No elegible** | No reactivar. La resolución de T5 conserva el comportamiento `LATEST_SAMPLE_ONLY` de Production. El código y el historial se preservan |
+| **P2-T24** | Ajuste al mapa (OSRM) y transporte de trayectoria | `BLOCKED_NOT_RELEASE_ELIGIBLE`; `SUPERSEDED_AS_INDEPENDENT_TASK_BY_P2_T54` | 33 (docs + código) | El canario de control de R5 falló | Presente en `testing-codex` (`osrm-map-matching-provider.ts`, `t24-physical-witness.ts`, `t24-witness-revision.ts`, la ruta `api/testing/t24-physical-witness` con guarda `DELIGO_ENVIRONMENT === "TESTING"` → 404 fuera de TESTING, y los *scripts* de prueba) | Sí | **No** | `delivery-tracking-map.tsx`, `use-repartidor-tracking.ts`, `realtime-publish.ts`, `realtime-types.ts` y `api/repartidor/ubicacion` | **No elegible** (decisión del operador, P0-08) | Igual que T23. Además, en T5 hay que revisar que la ruta de prueba quede inerte en Production y que `realtime-publish.ts` y `api/repartidor/ubicacion` no cambien de comportamiento |
+| **P2-T54-R1** | Navegación del repartidor con cámara de seguimiento | Los docs dicen `IMPLEMENTED_TESTED_AWAITING_COMMIT_PUSH_AND_TESTING_DEPLOY_AUDIT` y «bloqueado en su propia autorización de integración». **Discrepancia:** el código **sí está** en `testing-codex` (commit `b2ec74fb`, 2026-09-27, ancestro de `327d6c73`). La rama `work/p2-t54-driver-navigation` no tiene commits propios | 1 de docs, más `b2ec74fb` (feat) | Pruebas unitarias de `delivery-navigation-ux`. **`PHYSICAL_CERTIFICATION_REQUIRED=SI`**, sin certificación física | Presente (`delivery-navigation.tsx`, `delivery-navigation-ux.ts`) | **Sí** (desplegado con `327d6c73`) | **No** | Navegación del repartidor; comparte área con el *tracking* | **Evidencia insuficiente** | **Decisión del operador:** (a) certificación física (Android e iOS) en T5, o (b) excluirlo de la candidata (volver la navegación del repartidor al comportamiento de Production) |
+| **P2-T18** | Chat entre pestañas (AUTH01) y sesiones simultáneas (AUTH02) | AUTH01 `OPEN_BLOCKED_BY_AUTH` / navegador real; AUTH02 `RESOLVED` (BUG-001/002) | 4: **instrumentación + sus reversiones** (contribución neta nula) | BUG-001/002 certificados | Sin código propio neto | Sí | AUTH01: misma limitación que en Production (P2-11) | T3 (resto de la clase AUTH02) | **Elegible con condiciones** | Sin acción en la candidata. El resto de AUTH02 va en T3 |
+| P2-T31 | Push en Android | En RC1; abortos intermitentes `UNRESOLVED` | 0 | RC1 | Igual que en Production | Sí | Sí | D-6 | **Elegible con condiciones** | Comprobar D-6 (no es regresión) en T5 |
+| P2-T38 | Experiencia de instalación (PWA) | `CLOSED_TESTING_CERTIFIED` (certificación física cerrada el 2026-09-26, **después** del RC1) | 4 de docs, más el código `5dc91a21` y `147f24a3` (2026-09-26) | Certificación física y de *push* registrada | Sólo en `testing-codex` | Sí | **No** | PWA (T52) | **Elegible** | Incluir; repasarlo en la regresión de la candidata (instalación en un teléfono) |
+| P2-T56 (R3A/R3B) | Autoridad única de stock | `CLOSED_TESTING_CERTIFIED` | 26 + R3A 25 | Bloques 1–6 y CI | Sólo en `testing-codex` | Sí | No | Todos los bloques | **Elegible** | Incluir |
+| F4-*, F5-A, F9, F10-*, CATALOG, BUG-001/002/003 | Caja, compras, pagos, catálogo e identidad | Certificados (Bloques 1–6 y anteriores) | Varios | Certificaciones y CI | Sólo en `testing-codex` | Sí | No | — | **Elegible** | Incluir. F10-D1 es obligatorio antes de habilitar egresos y compras (D-2) |
+| P2-T33, P2-T37 | Futuras | `BLOCKED_UNTIL_FUNCTIONAL_PREREQUISITES` / secuenciadas | 0 | — | Sin código | — | — | — | No aplica | — |
+
+**Pendiente para T5:** resolver P2-T54-R1 (decisión del operador) y preparar la resolución de *tracking* según lo decidido sobre P0-08. No se implementa ahora.
+
+## 17. T1 — implementación local (2026-11-26) · rama `codex/estabilizacion-final`
+
+**Niveles de estado:**
+- implementación local: **SÍ**;
+- verificación estática: **SÍ**;
+- CI: **NO** (requiere push, no autorizado);
+- despliegue en TESTING: **NO**;
+- certificación funcional: **NO**.
+
+**T1 no está certificada.**
+
+**Commits:**
+
+| Commit | Contenido |
+|---|---|
+| `c52ecd82` | T0: documentación (17 archivos) |
+| `e283c450` | T1-01: punto de venta |
+| `ab295580` | T1-02 y T1-03: permisos vencidos y cuadro de variantes |
+| `86d89279` | T1-04 a T1-08: proveedores |
+| `63d29856` | T1-09: límites de importación |
+| `7500dd9d` | CI: pruebas de T1 y ejecución de CI para la rama |
+
+| ID | Estado | Qué cambió (sólo presentación) |
+|---|---|---|
+| T1-01 | Implementada | Nuevo `caja-cajero-secciones.tsx`: las secciones tienen clave estable dentro de un mismo contenedor y su orden depende del turno **confirmado** (`turnoAbiertoId`).<br>• **Sin turno o cargando:** Caja y turno → Ventas → Salidas → herramientas (Etiquetas y Catálogo) → Ventas anteriores.<br>• **Con turno:** Ventas primero, el indicador «Turno abierto · `<Caja>`» y Caja y turno plegado. El panel queda **montado** (`hidden`), con un botón «Ver turno/Ocultar» que expone `aria-expanded`, y sólo se vuelve a plegar cuando cambia el turno (no en cada refresco).<br>• **Historial de salidas:** plegado (`<details>`, «Salidas de este turno (N)»), con la lista completa en una región desplazable de 60vh.<br>• «Recibir mercadería» queda en el encabezado, compacto. Las ventas sin turno no cambian |
+| T1-02 | Implementada | `casillasInicialesPermiso`: un permiso vencido, revocado o inexistente empieza **todo desmarcado**. Se muestra el distintivo «Vencido el…» y «Tenía: …» (sólo informativo). Un permiso vigente no cambia |
+| T1-03 | Implementada | El detalle del producto se deriva de la **última lectura del catálogo** (por id). La copia tomada al hacer clic queda sólo como respaldo. Se muestra el precio nuevo sólo después de la respuesta exitosa y la relectura; un rechazo deja el precio vigente |
+| T1-04 | Implementada | `textoRepartoPago` con el texto aprobado en el Bloque 3, y el mensaje de éxito equivalente. «a favor del proveedor» desaparece |
+| T1-05 | Implementada, con una **limitación** | Tarjetas separadas: deuda pendiente, **total pagado y acreditado** (`totales.creditosConfirmados` de `/cuenta`), aplicado, **saldo a favor de tu negocio** (`aFavorGeneral`), **anticipos reservados** (`anticiposPedidos`), **transferencias programadas** y **pagos cancelados** (créditos `RECHAZADO`, `ANULADO` o `DESVINCULADO` que entrega `/cuenta`: suma de filas, sin fórmula nueva).<br>**Limitación:** el servidor no entrega un «total pagado» que excluya los ajustes a favor. Por eso la tarjeta dice «Pagos confirmados y ajustes a favor». Separarlos requeriría un dato nuevo del motor: no se tocó y queda para decisión del operador |
+| T1-06 | Implementada | Asignar, reasignar, desafectar, anular y las acciones con motivo se abren **dentro del elemento elegido** (`EnContexto`, con anclas `cuenta:`, `pago:`, `deuda:` y `asignacion:`). Son los mismos formularios y confirmaciones. Mientras uno está abierto, los demás botones siguen bloqueados como antes |
+| T1-07 | Implementada | Una indicación visible con deuda y sin selección, y el botón «Ver deudas con saldo», que aplica el filtro y abre los pedidos con saldo. La barra «Pagar deudas seleccionadas» no cambia |
+| T1-08 | Implementada | Elegir «Todas las variantes» marca cada variante como incluida (marcada y deshabilitada, «(incluida en «Todas las variantes»)»), quita las variantes sueltas ya marcadas de ese producto y envía **una** asociación general. La lista dice «— todas las variantes». `producto-proveedores.tsx` ya lo indicaba; no cambió |
+| T1-09 | Implementada | Un bloque «Formatos y límites» en la pantalla única del dueño y del empleado: XLSX o CSV, primera hoja, 5 MB y 2.000 filas. Los valores salen de `MAX_BYTES_ARCHIVO` y de `MAX_FILAS_IMPORTACION`, que pasó a `importacion-limites.ts`. El servicio lo **re-exporta**, con el mismo nombre y valor. El lector y el motor no cambiaron |
+
+### 17.1 Cómo se preservan el carrito y el inicio de venta
+
+- `VenderView` guarda el carrito en memoria. Si se desmonta, se pierden el carrito y el inicio de venta.
+- Las cinco secciones son hijos **con clave estable** (`turno`, `ventas`, `salidas`, `herramientas`, `historial`) del **mismo** contenedor. Cambiar el orden del arreglo hace que React **mueva** los nodos existentes (reconciliación por clave) sin desmontar ninguna instancia.
+- Ni el carrito, ni el inicio de venta (`sessionStorage` + estado), ni la protección de precios, ni el intento de cobro, ni las consultas cambian. No se duplican componentes, consultas ni efectos.
+- **Orden de teclado y lector de pantalla:** se mueve el DOM, no sólo lo visual, así que el orden de Tab y de lectura **coincide siempre** con lo que se ve. No hizo falta CSS `order`.
+- **Foco:** si el foco del usuario estaba en una sección y el movimiento lo hace perder, se lleva al encabezado de la primera sección (`data-foco-seccion`, `tabIndex=-1`). Un refresco automático nunca mueve el foco.
+- **Prueba:** `page.secciones.test.tsx` usa la página con la `VenderView` **real**:
+  - con 2 unidades en el carrito, abre y cierra el turno;
+  - comprueba que `#caja-vender` es **el mismo nodo**;
+  - comprueba que la cantidad sigue en 2, que el inicio guardado es idéntico y que hubo **un solo** `POST …/ventas/inicio`;
+  - comprueba el orden y el indicador;
+  - comprueba que el detalle está plegado pero montado, y que un refresco del mismo turno no lo vuelve a plegar.
+
+  Una mutación de control (claves que cambian con el turno) **hace fallar** la prueba.
+
+### 17.2 Verificación estática y pruebas (ejecutadas en esta tarea, worktree local)
+
+- **TypeScript completo:** 40 diagnósticos, **idénticos a la base** `327d6c73`, comparados archivo por archivo y código por código. Ninguno en archivos de T1.
+- **ESLint** en los 17 archivos de T1: 0 problemas.
+- **`git diff --check`:** OK.
+- **Pruebas de componente y estáticas que tocan archivos de T1** (21 archivos, sin las de integración): 240 pasan y 6 fallan.
+  - Los 6 fallos son **los mismos 6 de la base sin modificar**: F10-B1 *sale route*, F9 ×2, I3, R2B-F1 y R2C 21/22. Son preexistentes y van a T2.
+  - Hubo 8 fallos adicionales que eran **artefactos de fin de línea** del worktree nuevo (`core.autocrlf=true` → CRLF en contratos estáticos que buscan `\n`). Se comprobó con la copia en LF. El contenido versionado está en LF, como en el CI.
+- **Pruebas nuevas o adaptadas (todas pasan):**
+  - `page.secciones.test.tsx` (3);
+  - `permisos-catalogo.test.tsx` (3);
+  - `inventario-tab.variantes.test.tsx` (2, con una mutación de control que falla con la copia vieja);
+  - `cuenta-proveedor-pedidos.test.ts` (2);
+  - `importar-productos.limites.test.ts` (2);
+  - `owner-proveedores.test.tsx` (+3: T1-05, T1-06 y T1-08).
+
+  Están sumadas al workflow general, cada una en su proceso.
+- No hubo pruebas funcionales manuales locales.
+
+### 17.3 Lista manual breve para TESTING (después del despliegue conjunto T1–T3)
+
+Móvil y escritorio, modo claro y oscuro:
+1. **Cajero sin turno:** Caja y turno primero, con selección, fondo e «Iniciar turno» visibles. Ventas sigue disponible, como antes.
+2. Con 1–2 productos en el carrito, **abrir el turno** → Ventas pasa primero, aparece «Turno abierto · `<Caja>`», el carrito sigue intacto y «Caja y turno» queda plegado abajo. Desplegarlo, ver el turno y volver a plegarlo.
+3. **Registrar una salida** → el historial está plegado, «Salidas de este turno (N)» lo despliega y la lista se desplaza dentro de su recuadro.
+4. **Cerrar el turno** (diferencia 0, caja QA) → vuelve el orden sin turno.
+5. Con teclado (Tab) y TalkBack o VoiceOver, el recorrido sigue el orden visible.
+6. **Dueño, permisos de catálogo:** un empleado con un permiso vencido muestra «Vencido el…» y todas las casillas desmarcadas.
+7. **Inventario:** cambiar el precio de una variante → se ve sin reabrir.
+8. **Ficha de proveedor:**
+   - las tarjetas de importes están separadas;
+   - «Pagar deudas seleccionadas» con un pago mayor muestra el texto de saldo a favor **del negocio**;
+   - «Asignar», «Desafectar» y «Reasignar» se abren junto al elemento;
+   - «Ver deudas con saldo» funciona;
+   - «Todas las variantes» marca las variantes como incluidas.
+9. **Importar productos** (dueño y empleado con permiso): se ve el bloque «Formatos y límites».
+
+Evidencia a revisar: HTTP sin 5xx, logs y, si hubo una salida o un pago, SQL de solo lectura.
+
+## 18. Plan concreto para T2 (no ejecutado; requiere autorización)
+
+1. **C5 en el CI general (D-7):**
+   - copiar `src/lib/f10-c2c-inicio-vencido.integration.test.ts` desde `3c498c24` (sólo el archivo, sin cherry-pick);
+   - agregar `bun --no-env-file test src/lib/f10-c2c-inicio-vencido.integration.test.ts` antes de la tanda de regresión;
+   - verificar en el log que se ejecuta contra PostgreSQL (2 pruebas y 41 `expect()`, sin `skip`);
+   - el workflow focalizado no se porta.
+2. **Suite D-3:**
+   - inventariar primero las pruebas existentes (`importacion-*`, `catalogo-empleado-*`, `etiquetas-precio-*`, F10-C2c), para no duplicarlas;
+   - agregar sólo los casos faltantes:
+     - aislamiento entre negocios y entre actores;
+     - independencia de permisos;
+     - ocultamiento de costos;
+     - `STOCK_NO_PERMITIDO`;
+     - `PRODUCTO_SIN_PRECIO`;
+     - restricciones del precio de variante;
+     - `ETIQUETA_PENDIENTE`;
+     - importación: idempotencia, reintentos, confirmaciones simultáneas, tandas, conflictos de código, límites, formatos numéricos, aislamiento y etiquetas pendientes;
+   - todo en el PostgreSQL efímero del CI, cada suite en su proceso.
+3. **TypeScript (40 diagnósticos de la base):**
+   - clasificar por archivo: `address-form.test` 7, `prisma/seed.ts` 6, `owner-caja-revisiones` 3 (BigInt), `mozo/[slug]` 3, `permission-prompt` 2, `barcode-scanner.test` 2, `session-cookie.test` 2, `migrate-sqlite-to-postgres` 2, y uno en cada uno de `push`, `caja-turnos-entrega`, `auth`, `promocionados-tab`, `repartidor/profile-tab`, `location-map-picker`, `address-map-picker`, `client-profile-panel`, `operational-shift-panel.test`, `config-tab`, `mozo/page`, `api/superadmin/denuncias` y `api/denuncias`;
+   - corregir primero los de flujos críticos (Caja, turnos, autenticación, *push*, mozo) y registrar los demás.
+4. **Pruebas que fallan localmente:**
+   - clasificar las 6 observadas, más el resto de la batería completa;
+   - separar las sensibles a CRLF (pasan en CI con LF) de los errores reales;
+   - corregir las reales sin debilitar ninguna aserción.
+5. **CI completo:**
+   - lint y build;
+   - la batería completa en el CI, sin exclusiones;
+   - sin actualizaciones masivas de dependencias (el aviso de Node 20 queda P2-10).
+6. **Criterio de cierre de T2:**
+   - CI verde;
+   - C5 ejecutada;
+   - la suite D-3 completa;
+   - los diagnósticos clasificados.
+
+## 19. Riesgos y limitaciones encontrados en T0/T1
+
+- **Movimiento de foco al reordenar:** está probado en happy-dom. En navegadores reales y con TalkBack o VoiceOver queda para la prueba manual de TESTING (§17.3).
+- **T1-05:** el «total pagado» incluye los ajustes a favor (es el dato existente). Si se quiere separarlos hace falta un dato nuevo del servidor, que no se tocó.
+- **T1-07:** con el filtro «Con saldo» los pedidos con saldo se abren solos. Al quitar el filtro vuelven a plegarse.
+- **Worktree nuevo con `core.autocrlf=true`:** los contratos estáticos que buscan `\n` fallan localmente. No pasa en el CI (Linux, LF). Para las comparaciones locales la copia se convirtió temporalmente a LF y después se devolvió a CRLF. El índice y los commits están en LF.
+- **`node_modules` del worktree:** es una unión (*junction*) hacia `deligo-dev-local\node_modules`, que está en la misma base `327d6c73`. Está ignorada por Git. Para regenerar el cliente Prisma o instalar dependencias habrá que hacerlo con cuidado (comparten carpeta).
+- **P2-T54-R1:** está desplegado en TESTING sin certificación física; los docs decían otra cosa (§16).
+- **El reemplazo de módulos en las pruebas de página** (`barcode-scanner` sólo con `BarcodeScanner`) obliga a ejecutar cada suite en su propio proceso, como ya hacía el workflow.

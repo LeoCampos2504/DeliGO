@@ -93,6 +93,12 @@ cargos y abonos siguen exactamente como están escritos). **Una certificación e
   - Se conservan los dos ZIP INCOMPLETO (`…171304Z`, `…171507Z` `2d3b1861…`).
   - El 403 de lectura de proveedores tras el vencimiento quedó conciliado por registro exacto.
   - Lo revisado sólo en código no se declara probado (§12 del documento del Bloque 5). No repetir pruebas del Bloque 5.
+- **T0 y T1 IMPLEMENTADOS LOCALMENTE (2026-11-26) en `codex/estabilizacion-final`. NO CERTIFICADO.**
+  - Commits: `c52ecd82` (T0) y `e283c450`/`ab295580`/`86d89279`/`63d29856`/`7500dd9d` (T1 y CI). Sin push ni despliegue.
+  - Siguiente paso: push de la rama (CI) con autorización y, después, T2 y T3 en la misma rama, con despliegue conjunto en TESTING.
+  - Plan §17 (T1), §16 (elegibilidad) y §18 (T2).
+  - **Pendiente de decisión del operador — P2-T54-R1:** el código (`b2ec74fb`) ya está en TESTING sin certificación física. Opciones: certificarlo físicamente en T5 o excluirlo de la candidata.
+  - **Limitación de T1-05 (registrada):** separar los ajustes a favor del «total pagado» requiere un dato nuevo del servidor.
 - **T0 y T1 AUTORIZADOS (operador, 2026-11-26)** en `codex/estabilizacion-final` (worktree
   `C:\Leo Campos\Trabajo\deligo-estabilizacion`, base `327d6c73`), con commits locales y sin push ni despliegue.
   - **P0-08:** se conserva `LATEST_SAMPLE_ONLY`; P2-T24 queda fuera de Production y la resolución se hace en T5.
