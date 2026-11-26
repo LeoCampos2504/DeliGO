@@ -3473,3 +3473,42 @@ Production sin cambios (`origin/main` `42ca5005`). Certificación funcional de B
 **Verificación funcional (operador, 2026-11-25): 8/8 APROBADAS en TESTING sobre `1c68007f`** — BUG-001 y BUG-002
 funcionalmente verificados dentro de su alcance original (incluida la ocupación con ambas sesiones abiertas). Hallazgo
 fuera de alcance registrado como BUG-003 (vista pública de la mesa). Production sin cambios (`42ca5005`).
+
+### 2026-11-25 — BUG-003 + documentación en la rama de correcciones (`62c6748d`) — CI FALLIDO por prueba frágil, NO integrado
+
+Commits `4fba5341` fix(publico) BUG-003 y `62c6748d` docs (sobre `1c68007f`), push normal de
+`codex/fix-identidad-ocupacion`. CI `45550873390` **FAILURE** (53/60): `f10-b1-cashier.integration.test.ts:349` exige que la
+respuesta no contenga la subcadena «1200» (el costo de un producto) y la contenía DENTRO del id aleatorio de otro producto
+(`cmwvntv12002h1qyv…` → «…v1200 2h…»). No hay costo expuesto; fragilidad preexistente de la aserción, sin relación con
+BUG-003 (esa suite pasó en el CI `45336755300`). Según el procedimiento, **no se integró**: `testing-codex` sigue en
+`1c68007f`, TESTING sin cambios, Production `42ca5005`.
+
+### 2026-11-25 — BUG-003 en Railway TESTING (`327d6c73`)
+
+Corrección autorizada de la aserción frágil: `327d6c73` test(f10-b1) — la protección de costos del cajero recorre TODA la
+respuesta JSON (claves de costo/descuento en cualquier nivel y valores completos del costo), sin falsos positivos por ids;
+sin cambios en el código de Caja. CI `45551554973` **SUCCESS 60/60** (incluye `f10-b1-cashier` y
+`bug003-superficies-publicas`). Integración: `testing-codex` `1c68007f..327d6c73` fast-forward normal (3 commits:
+`4fba5341` BUG-003, `62c6748d` docs, `327d6c73` test), sin merges ni force push.
+Railway TESTING (CLI, sólo metadatos): **DeliGO Copy `8ac0f58f-ebc4-4529-a31f-7e3654959bb5` SUCCESS, activo, commitHash
+`327d6c739a55e2f6b5da89f1ec125a24013eb345` exacto**; «69 migrations found … No pending migrations to apply»; «Ready in 92ms»;
+logs sin errores relacionados (sólo el cartel de actualización de Prisma) y 0 respuestas HTTP ≥ 400. chat en vivo y Review
+Moderation Expiry SUCCESS en `327d6c73`; DeliGO Mesa Occupancy Cron SKIPPED (sin cambios para ese servicio; sigue en
+`1c68007f`). Production sin cambios (`42ca5005`). Verificación funcional de BUG-003: PENDIENTE (operador).
+**Verificación funcional (operador, 2026-11-25): BUG-003A y BUG-003B 4/4 APROBADAS en TESTING sobre `327d6c73`** —
+presentación pública del mozo, protección frente a anónimos, aislamiento entre negocios y acceso por código del mozo.
+Production sin cambios (`42ca5005`).
+
+### 2026-11-25 — Certificación manual del Bloque 1 en TESTING (`327d6c73`) — sin despliegues
+
+Sin commits, push ni despliegues: registro de certificación sobre el despliegue vigente de DeliGO Copy
+(`8ac0f58f-ebc4-4529-a31f-7e3654959bb5`, commit `327d6c73`). Bloque 1 `M11240504` **CERTIFICADO** (operador 15/15,
+verificación interna 12/12, auditoría de ChatGPT). Evidencias: ZIP FALLIDO original `68d89011…aa2ab` (desviación de
+procedimiento en E4, conciliada por id exacto) y ZIP definitivo APROBADO `0da1488e…1da61`. Production sin cambios (`42ca5005`).
+
+### 2026-11-25 — Certificación manual del Bloque 2 en TESTING (`327d6c73`) — sin despliegues
+
+Sin commits, push ni despliegues: registro de certificación sobre DeliGO Copy `8ac0f58f-ebc4-4529-a31f-7e3654959bb5`
+(commit `327d6c73`). Bloque 2 `M11250631` **CERTIFICADO** (operador 21/21, verificación interna 13/13, auditoría de ChatGPT).
+Evidencias: ZIP INCOMPLETO `cffd60d4…` (seis 401 posteriores a las pruebas, conciliados por registro exacto) y ZIP
+definitivo APROBADO `a995816a…0e5d`. Production sin cambios (`42ca5005`).

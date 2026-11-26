@@ -1,5 +1,206 @@
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
+## LATEST UPDATE (2026-11-27, 2) — decisiones D-1…D-7 y plan definitivo T0–T7 APROBADOS; preparación de T0 y T1 (sin implementar)
+
+- **Decisiones** (`DECISIONS_AND_INVARIANTS` y el plan, §0):
+  - **D-1:** candidata desde TESTING, 45 conflictos por comportamiento, sin reset ni force push, y lo desplegado en Production = lo certificado;
+  - **D-2:** F10-D1 obligatorio, con el diseño antes de implementar;
+  - **D-3:** suite de seguridad e importación obligatoria;
+  - **D-4:** una rama de estabilización T1–T3 y un despliegue conjunto;
+  - **D-5:** «Todas las variantes» y el texto de límites de importación en T1;
+  - **D-6:** push en Android con la app cerrada, limitación sólo si no es regresión;
+  - **D-7:** C5 en el CI general, sin el workflow focalizado.
+- **Plan** (`codex-reports/CONSOLIDACION_FINAL_PRODUCTION_PLAN.md`, revisión 2): T0 docs → T1 UI → T2 seguridad y CI → T3 sesiones y 401 → T4 F10-D1 → T5 candidata → T6 preparación de Production → T7 metodología.
+  - §11: archivos del commit de documentación y exclusiones.
+  - §12: ramas (`codex/estabilizacion-final` desde `testing-codex` en un worktree nuevo; después, una candidata con merge de `origin/main`).
+  - §13: alcance, archivos y criterios de T1.
+  - §14: diseño pendiente de F10-D1.
+  - §15: bloqueos.
+- **Hallazgo P0-08:** P2-T24 (no elegible) está en `testing-codex`, y `main` tiene un *tracking* más nuevo y certificado (6 archivos). Requiere una auditoría de elegibilidad y una decisión del operador.
+- **Repositorio sin cambios:**
+  - local `codex/f4-c5-sale-exchange-ui` `941a915d` (23 detrás de `testing-codex`);
+  - TESTING `327d6c73`, Production `42ca5005`;
+  - sin commits, push ni despliegues.
+- **Siguiente:** el operador autoriza T0 (worktree y rama de estabilización, commit de documentación) y decide sobre P2-T24. Después, la autorización de T1.
+
+## LATEST UPDATE (2026-11-27) — Bloques 1–6 CERTIFICADOS en TESTING; plan de consolidación final antes de Production
+
+- **Bloque 6 CERTIFICADO:** ZIP `e042303e…` (10/10, 9/9).
+- **Plan de consolidación:** `codex-reports/CONSOLIDACION_FINAL_PRODUCTION_PLAN.md`.
+  - **P0:**
+    - integración a `main`, que tiene 45 conflictos y 8 commits propios;
+    - F10-D1 o la desactivación de egresos y compras;
+    - ensayo de las 35 migraciones sobre una copia de Production;
+    - CI completo;
+    - suite de seguridad;
+    - variables y servicios;
+    - respaldo.
+  - **P1:** punto de venta del cajero, D1, cuadro de variantes, textos y claridad financiera, C5 permanente, sesiones
+    simultáneas en Salón y notificaciones, los 401, Excel real, prueba física y commit de la documentación.
+  - **Tandas:** T0–T5.
+- Production NO está certificada. Siguiente: decisiones D-1…D-7 del operador.
+
+## UPDATE (2026-11-26, noche 3) — Bloque 6 `M11262102`: manuales 10/10 OK; falta `b6-manual-verificar.ps1`
+
+- E1 4/1/2, E2 3/1 y E3 2 creados, como se esperaba.
+- Las dos descargas de filas con error son válidas y no se modificaron. Los archivos originales están intactos.
+- Siguiente: el operador ejecuta `b6-manual-verificar.ps1`. El Bloque 6 todavía no está certificado.
+
+## UPDATE (2026-11-26, noche 2) — Bloque 6 (importación del dueño): reglas aprobadas y preparación lista
+
+- Las reglas D1, D2 y D6, el costo de catálogo y los formatos y límites quedaron aprobados y registrados en
+  DECISIONS_AND_INVARIANTS.
+- Escenarios: E1 Excel, E2 CSV y E3 recuperación. Los archivos se generan en la preparación; el `.xlsx` usa compresión
+  estándar.
+- Herramientas en `deligo-dev-db\certificacion\b6-manual\`. Documento: `codex-reports/CERTIFICACION_BLOQUE_6_IMPORTACIONES.md`.
+- Pendiente antes de Production: probar con un Excel guardado por Microsoft Excel real.
+- Siguiente: el operador ejecuta `b6-manual-preparar.ps1`.
+
+## UPDATE (2026-11-26, noche) — Bloque 5 CERTIFICADO; propuesta del Bloque 6 (importación Excel/CSV)
+
+- **Bloque 5 CERTIFICADO:** ZIP APROBADO `04cd6c33…` (21/21, 11/11, ChatGPT). Se conservan los dos ZIP INCOMPLETO. Lo
+  revisado sólo en código no se declara probado.
+- **Bloque 6:** propuesta en `codex-reports/CERTIFICACION_BLOQUE_6_IMPORTACIONES_PROPUESTA.md`.
+  - Tres importaciones del dueño: `.xlsx`, `.csv` y la reimportación de las filas con error.
+  - Reutiliza el Bloque 5 E4 (la importación del empleado).
+  - No hay pruebas automatizadas de importación.
+  - Discrepancias a confirmar: D1, D2 y D6.
+  - Sin herramientas ni ejecución.
+
+## UPDATE (2026-11-26, tarde 3) — Bloque 5: ZIP INCOMPLETO por un 403 adicional; conciliación exacta preparada
+
+- Sólo LOGS quedó INCONCLUSA, por un `GET …/productos/<P1>/proveedores 403` a las 17:05:17Z. Es la consulta automática
+  del panel de proveedores de la ficha abierta, después del vencimiento: el servidor la negó sin leer ni escribir. No hay
+  falla funcional.
+- Se concilia sólo ese registro (`conciliacion-logs.json`), con control de horario, ruta, ausencia de efectos y bytes.
+  Los dos ZIP INCOMPLETO se conservan.
+- Siguiente: el operador vuelve a ejecutar `b5-manual-verificar.ps1`. Detalle en el §11 del documento del Bloque 5.
+
+## UPDATE (2026-11-26, tarde 2) — Bloque 5 `M11261651`: manuales 21/21 OK; falta `b5-manual-verificar.ps1`
+
+- El operador hizo E1–E5 con 21/21 OK. Las observaciones están registradas, incluido el vencimiento declarado (14:04 ART).
+- La evidencia del catálogo sin costos es válida y no se modificó (`e113e56f…`).
+- Se agregaron al verificador controles de la hora declarada, de «Cat Vencida» y del vínculo de la evidencia con P1.
+- Siguiente: el operador ejecuta `b5-manual-verificar.ps1`. El Bloque 5 todavía no está certificado.
+
+## UPDATE (2026-11-26, mediodía) — Bloque 5 (permisos de catálogo): preparación lista, no ejecutada
+
+- La propuesta fue aprobada con ajustes. El documento definitivo es
+  `codex-reports/CERTIFICACION_BLOQUE_5_PERMISOS_CATALOGO.md`.
+- Escenarios E1–E5: alta con variantes y costos, revocación parcial con el formulario abierto, vencimiento automático,
+  importación con permisos parciales y cierre.
+- Herramientas en `deligo-dev-db\certificacion\b5-manual\`. La preparación es sólo de lectura.
+- D1 (permisos vencidos preseleccionados): corrección prioritaria antes de Production.
+- Hay una propuesta de suite automatizada para los riesgos no manuales (no autorizada).
+- Siguiente: el operador ejecuta `b5-manual-preparar.ps1`.
+
+## UPDATE (2026-11-26, mañana) — Bloque 4 CERTIFICADO; propuesta del Bloque 5 (permisos de catálogo)
+
+- **Bloque 4 CERTIFICADO**: original M11260155, complementaria C1–C4 APROBADA (`5279a313…`), conciliaciones y C5 (run
+  45763041157: 2 pass / 0 fail / 41 `expect()`, verificado por ChatGPT en GitHub). Se conservan todos los ZIP. No repetir
+  pruebas del Bloque 4.
+- **Antes de Production:** revisar los 32 diagnósticos de TypeScript; integrar C5 a la cobertura permanente con la próxima
+  tanda; 401 no relacionados; bug visual y mejoras de UX; batería completa de CI.
+- **Bloque 5:** propuesta en `codex-reports/CERTIFICACION_BLOQUE_5_PERMISOS_CATALOGO_PROPUESTA.md`, con escenarios E1–E5
+  nuevos que no repiten proveedores (B1) ni precios (B4). Sin preparar ni ejecutar.
+
+## UPDATE (2026-11-26, madrugada 3) — complementario C1–C4 APROBADO; C5 en CI verde, falta leer el log
+
+- ZIP complementario APROBADO `5279a313…` (auditado por ChatGPT).
+- C5: rama `codex/b4-c5-inicio-vencido`, commit `3c498c24` (dos archivos nuevos), run 45763041157 en success, sin
+  despliegues.
+- El log de la suite requiere iniciar sesión en GitHub. Sin leerlo no se confirma que los dos casos corrieron, así que el
+  Bloque 4 todavía NO está certificado. Detalle: §12.10.
+- ROADMAP: revisión técnica, antes de Production, de los 401 de `/api/notificaciones` y `/api/destacado-solicitud`.
+
+## UPDATE (2026-11-26, madrugada 2) — ZIP complementario INCOMPLETO; conciliación exacta del inicio adicional preparada
+
+- ZIP `…-20261126T052405Z-INCOMPLETO.zip` (`1e263cce…`) auditado por ChatGPT: sólo C4 quedó inconcluso, por un inicio de
+  venta extra sin usar. Está permitido por diseño: vaciar el carrito descarta el inicio de la pestaña. El operador declaró
+  que agregó y quitó un producto equivocado.
+- Se concilia sólo `cmwx2fzf3009qk60ahth5cnak`. V0-C es `cmwx2grtt…`. Hay nueva evidencia de logs de inicios. La
+  verificación sobre una copia de la evidencia real da APROBADO.
+- `total4xx` 116: son todas las 4xx del intervalo (ninguna relacionada). Ahora se agrupan.
+- Siguiente: el operador vuelve a ejecutar `b4c-verificar.ps1`. El plan de C5 está en §12.9, a la espera de autorización.
+
+## UPDATE (2026-11-26, madrugada) — Bloque 4 complementario: preparación 9/9 y C3/C4 manuales OK; falta `b4c-verificar.ps1`
+
+- La preparación complementaria salió 9/9 APROBADA. El 400 mide 130 B, que corresponde a «tiene que ser futuro», y coincide
+  con la declaración del operador.
+- C3 = OK y C4 = OK, registrados en `c3-c4/observaciones-operador.md`. No se abrió turno de Caja.
+- Siguiente: el operador ejecuta `b4c-verificar.ps1`, que genera el ZIP complementario. C5 espera autorización de commit/push.
+  Detalle: §12.8.
+
+## UPDATE (2026-11-26, noche) — Bloque 4 `M11260155`: ZIP FALLIDO conservado; certificación complementaria preparada
+
+- ZIP `B4-MANUAL-M11260155-20261126T040739Z-FALLIDO.zip` (`3b46b7bc…`, verificado): E3, E6 y GENERAL FALLIDAS; E10, LOGS y
+  OPERADOR INCONCLUSAS. Son desviaciones de procedimiento. No se transforma.
+- Después del ZIP, el operador hizo C1 (restricciones del cajero en la interfaz) y C2 (reemplazo de 1.149,50 por la edición a
+  1.100). No se repiten: `b4c-preparar.ps1` los recupera por SQL de solo lectura, diagnostica el HTTP 400 por bytes y, si
+  todo está respaldado, prepara C3/C4. Después corre `b4c-verificar.ps1`, que genera un ZIP complementario aparte.
+- HTTP 400: el operador declaró que eligió por error un vencimiento del mismo día y lo corrigió al día siguiente.
+  Se concilia sólo ese registro si los registros son compatibles. El cuerpo exacto no está disponible.
+- C5 (409 `INICIO_VENTA_VENCIDO`): propuesta de una prueba de integración en CI, no autorizada. Detalle: §12 de
+  `codex-reports/CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md`.
+
+## UPDATE (2026-11-26, tarde) — Bloque 4 `M11260155`: pruebas manuales incompletas; falta la verificación interna
+
+- Operador: E1, E2, E4, E8 y E9 OK. E3, E5, E6, E7 y E10 PENDIENTES por desviaciones de procedimiento (A cambiado por el
+  dueño, V0 perdido, reemplazo de E6 sin completar, acciones del cajero sin comprobar). **No certificado.**
+- Bug visual registrado en ROADMAP: el cuadro de variantes muestra el precio anterior hasta reabrirlo.
+- Siguiente: el operador ejecuta `b4-manual-verificar.ps1` (estado real + ZIP); después, sólo pruebas complementarias mínimas.
+
+## UPDATE (2026-11-26) — Bloque 3 CERTIFICADO; Bloque 4 (precios y etiquetas) preparado, no ejecutado
+
+- Bloque 3 `M11251859` **CERTIFICADO** (auditoría de ChatGPT): 29/29 manuales, 15/15 internos, ZIP APROBADO
+  `B3-MANUAL-M11251859-20261126T012159Z-APROBADO.zip` (`cc68cf21…a6c3`); ZIP INCOMPLETO `60044a86…` conservado. §9 de
+  `CERTIFICACION_BLOQUE_3_PAGOS_CUENTA_PROVEEDOR.md`. No repetir pruebas de los Bloques 1–3.
+- Bloque 4 **definitivo y preparado** (no ejecutado): `codex-reports/CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md`. Principales
+  E1–E7 y adicionales E8 (descartar), E9 (activar sin etiqueta) y E10 (vencimiento de 30 min). Herramientas en
+  `%USERPROFILE%\deligo-dev-db\certificacion\b4-manual\`.
+- Autenticación: iniciar sesión como dueño y cajero **antes** de `b4-manual-preparar.ps1` (lo pide confirmar); al terminar
+  cerrar las ventanas sin cerrar sesión y ejecutar `b4-manual-verificar.ps1`.
+- 401 de `/api/operativo/me`: sólo se clasifican con evidencia de inicio/cierre de sesión a ≤ 60 s; nunca por ser posteriores
+  a la última escritura; siempre listados.
+- El vencimiento de 30 min no tiene pruebas automatizadas en `327d6c73`; E10 lo certifica en la Caja; el 409 al cobrar queda
+  sólo por revisión de código (prueba focalizada propuesta en el ROADMAP, no autorizada).
+
+## UPDATE (2026-11-25, noche 2) — Bloque 3: verificación INCOMPLETO por dos 401 de sesión, conciliación lista; propuesta del Bloque 4
+
+- ZIP `B3-MANUAL-M11251859-20261125T194110Z-INCOMPLETO.zip` (`60044a86…`) conservado: 13/14, sólo LOGS por dos `GET /api/operativo/me` 401.
+- Conciliación por registro exacto (mecanismo del Bloque 2) en `preparacion/conciliacion-logs.json` + `b3-manual/comparar.mjs`;
+  §8 de `CERTIFICACION_BLOQUE_3_PAGOS_CUENTA_PROVEEDOR.md`. Siguiente: el operador vuelve a ejecutar `b3-manual-verificar.ps1`.
+- Propuesta del Bloque 4 (precios y etiquetas): `codex-reports/CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS_PROPUESTA.md` (no preparada).
+- Recomendación: iniciar sesión antes de la preparación y cerrar las ventanas sin cerrar sesión antes del verificador.
+
+## UPDATE (2026-11-25, noche) — Bloque 3 `M11251859`: pruebas manuales 29/29 OK; falta la verificación interna
+
+- Operador 29/29 OK en TESTING (`327d6c73`), inicio 19:00:23Z; `observaciones-operador.md` E1–E7 = OK; línea base original intacta.
+- Observaciones UX (E2.1, E3.1, E3.2, E4.3) y texto financiero E4.1 «a favor del proveedor» (PRIORITARIO antes de Production)
+  registrados en el ROADMAP, sin implementar. `PEDIDO_CON_DEUDA_APROBADA` certificada tal como está (revisión futura).
+- Siguiente: el operador cierra las ventanas y ejecuta `b3-manual-verificar.ps1`. Sin commits ni despliegues; Production intacta.
+
+## UPDATE (2026-11-25, tarde) — Bloque 2 CERTIFICADO; Bloque 3 (pagos y cuenta corriente) preparado
+
+- **Bloque 2 `M11250631`: CERTIFICADO** (operador 21/21, interna 13/13, auditoría de ChatGPT). Seis 401 posteriores a las
+  pruebas conciliados por registro exacto; ZIP INCOMPLETO `cffd60d4…` y APROBADO `a995816a…` conservados. Recomendación
+  permanente: cerrar las ventanas de prueba antes de cada verificación interna.
+- **Bloque 3:** `codex-reports/CERTIFICACION_BLOQUE_3_PAGOS_CUENTA_PROVEEDOR.md` + herramientas `certificacion\b3-manual\`.
+  Reutiliza la deuda de Alfa de $ 6.231,50; efectivo sólo en la caja QA «QA Caja A e31b»; turno del dueño intacto.
+  Siguiente: el operador ejecuta `b3-manual-preparar.ps1`. Production sin cambios (`42ca5005`).
+
+## UPDATE (2026-11-25) — Bloque 1 CERTIFICADO; Bloque 2 (compras y recepciones) preparado
+
+- **Bloque 1 (proveedores) `M11240504`: CERTIFICADO** en TESTING (`327d6c73`) — operador 15/15, verificación interna
+  12/12, auditoría de ChatGPT. Desviación de procedimiento en E4 conciliada por id exacto. ZIP FALLIDO original
+  (`68d89011…`) y ZIP APROBADO (`0da1488e…`) conservados en `C:\Leo Campos\Trabajo\deligo-certificaciones\`.
+- **Bloque 2 (compras y recepciones):** autorizado; documento definitivo
+  `codex-reports/CERTIFICACION_BLOQUE_2_COMPRAS_RECEPCIONES.md`; herramientas en
+  `%USERPROFILE%\deligo-dev-db\certificacion\b2-manual\` (adaptadas del B1, sin tocar las certificadas). Reutiliza Alfa,
+  Beta, productos A y B; crea sólo «QA B2 Producto Stock». Regla de turno revisada: recibir mercadería no exige turno
+  (sólo los pagos en efectivo), coincide con la preferencia del operador. Siguiente: el operador ejecuta
+  `b2-manual-preparar.ps1`. Sin commits, push ni despliegues; Production sin cambios (`42ca5005`).
+
 ## LATEST UPDATE (2026-11-24, tarde) — BUG-001/BUG-002 desplegados en TESTING; metodología permanente documentada
 
 - **Metodología permanente:** `DEVELOPMENT_WORKFLOW.md` (raíz; referenciada desde `CLAUDE.md`). Pruebas funcionales sólo
@@ -19,13 +220,15 @@
   leer mesas y mozos de otro negocio; privacidad del código interno); implementado en local sin commit, en revisión
   (`codex-reports/BUG_003_NOMBRE_PUBLICO_MOZO_R1.md`, sección R2). Regla: las superficies públicas no muestran nombres de
   empleados ni datos de cuentas operativas mientras no exista un nombre de atención público definido por el dueño.
+  BUG-003 desplegado en TESTING el 2026-11-25 (`testing-codex` = `327d6c73`) y certificado por el operador (4/4).
+  Siguiente: certificación manual del Bloque 1 (preparación `M11240504`).
   Después: retomar la preparación del Bloque 1 `M11240504`.
 
 ## UPDATE (2026-11-24) — integración compras/catálogo desplegada en TESTING; certificación manual del bloque 1 preparada
 
 - DeliGO Copy / Railway TESTING corrió `testing-codex` = `e6224a48` (integración F5-A, F10-C2a/b/c, pagos E1–E3, catálogo e importación; 69 migraciones; SQL post-despliegue PASS 69|0|0|14). Production sin cambios (`origin/main` `42ca5005`). Review Moderation Expiry: build fallido transitorio (superado el 2026-11-24 por el despliegue de `1c68007f`).
 - Certificación funcional por bloques: el operador prueba a mano en la interfaz con el negocio QA `paola-vinal`; Claude prepara datos QA y verifica internamente (SQL de sólo lectura, logs, comparación antes/después, ZIP para auditoría de ChatGPT).
-- Bloque 1 (proveedores y asociaciones): herramientas en `C:\Users\eltig\deligo-dev-db\certificacion\b1-manual\` (fuera del repo), validadas contra `deligo_dev` con datos ficticios; todavía NO ejecutadas en TESTING. Paso siguiente: el operador ejecuta `b1-manual-preparar.ps1`, sigue `INSTRUCCIONES-OPERADOR.md`, completa `observaciones-operador.md` y ejecuta `b1-manual-verificar.ps1`.
+- Bloque 1 (proveedores y asociaciones): herramientas en `%USERPROFILE%\deligo-dev-db\certificacion\b1-manual\` (fuera del repo), validadas contra `deligo_dev` con datos ficticios; todavía NO ejecutadas en TESTING. Paso siguiente: el operador ejecuta `b1-manual-preparar.ps1`, sigue `INSTRUCCIONES-OPERADOR.md`, completa `observaciones-operador.md` y ejecuta `b1-manual-verificar.ps1`.
 - Detalle y estado vigente: bloque LATEST de `CODEX_REPORT.md`.
 
 

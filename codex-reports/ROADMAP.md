@@ -22,13 +22,201 @@ cargos y abonos siguen exactamente como están escritos). **Una certificación e
   LOCAL, sin commit/push/despliegue, pendiente de revisión de ChatGPT: 003A nunca se muestra el marcador (sin nombre de
   atención público en el modelo → «Tu pedido será servido en esta mesa»); 003B `mesas-public` valida en el servidor que la
   sesión de dueño sea del negocio del slug (otro negocio → 404 sin datos) y no devuelve datos de empleados; `by-codigo` sin
-  `nombre` ni `id`. Commit `4fba5341`.
+  `nombre` ni `id`. Commit `4fba5341`. **Desplegado en TESTING (`327d6c73`)** y **FUNCIONALMENTE VERIFICADO (operador, 4/4, 2026-11-25)**.
+- **MEJORA FUTURA (registrada, NO autorizada) — UX «Todas las variantes» en la ficha del proveedor** (operador,
+  2026-11-25, Bloque 1 M11240504): al elegir «Todas las variantes» deben marcarse visualmente todas las variantes
+  individuales o mostrarse una indicación inequívoca de que todas quedan incluidas. Sólo presentación: no cambia la lógica
+  de asociaciones (la asociación general sigue siendo una fila sin variante específica).
 - **MEJORA FUTURA (registrada, NO autorizada) — nombre público de atención del empleado:** campo opcional definido por el
   dueño, explícitamente público (requiere migración), expuesto sólo en una superficie limitada a la mesa del cliente y
   validada con su credencial de ocupación/QR; nunca datos de `CuentaOperativa`. Hasta entonces la vista muestra «Tu pedido
   será servido en esta mesa».
-- **Bloque 1 (proveedores) manual** — preparación `M11240504` detenida ANTES de crear datos QA; se retoma con la misma
-  etiqueta después de verificar BUG-001/002 en TESTING (`b1-manual-preparar.ps1 -Cajero "<nombre exacto>"`).
+- **Bloque 1 (proveedores) manual `M11240504` — CERTIFICADO (2026-11-25)** en TESTING (`327d6c73`): operador 15/15,
+  verificación interna 12/12, auditoría de ChatGPT. Desviación de procedimiento en E4 (Producto Nuevo creado sin proveedor,
+  eliminado lógicamente y recreado) conciliada por id exacto. Se conservan ambos ZIP: FALLIDO `68d89011…aa2ab` y
+  APROBADO `0da1488e…1da61`. No repetir pruebas del Bloque 1.
+- **Bloque 2 (compras y recepciones) `M11250631` — CERTIFICADO (2026-11-25)** en TESTING (`327d6c73`): operador 21/21,
+  verificación interna 13/13, auditoría de ChatGPT. Seis HTTP 401 posteriores a las pruebas conciliados por registro exacto.
+  Se conservan el ZIP INCOMPLETO `cffd60d4…` y el APROBADO `a995816a…0e5d`. No repetir pruebas del Bloque 2.
+  Recomendación permanente: cerrar las ventanas de prueba antes de cada verificación interna.
+- **Bloque 3 (pagos, anticipos, deudas y cuenta corriente) `M11251859` — CERTIFICADO (2026-11-26)** en TESTING
+  (`327d6c73`): operador 29/29, verificación interna 15/15, auditoría de ChatGPT. Dos HTTP 401 `GET /api/operativo/me`
+  conciliados por registro exacto (atribución no determinable con los logs, documentada). Se conservan el ZIP INCOMPLETO
+  `60044a86…` y el APROBADO `cc68cf21…a6c3`. No repetir pruebas del Bloque 3. La salida de Caja QA del anticipo E6 sigue sin
+  revisar ni compensar (decisión del operador). Documento: `codex-reports/CERTIFICACION_BLOQUE_3_PAGOS_CUENTA_PROVEEDOR.md`.
+- **Recomendación operativa permanente (certificaciones):** iniciar sesión en las ventanas de prueba antes de la preparación
+  y, al terminar, cerrar directamente las ventanas antes del verificador, **sin cerrar sesión antes**.
+- **Consultas de sesión sin autenticar en los verificadores — APLICADO en las herramientas del Bloque 4** (`b4-manual`; las
+  de otros bloques no se tocaron): `GET /api/operativo/me` 401 se clasifica solo como esperado únicamente con evidencia de un
+  inicio de sesión exitoso a ≤ 60 s después o un cierre exitoso a ≤ 60 s antes (consulta de solo lectura de las rutas de
+  sesión: fecha, método, ruta y código), sin ningún otro 401 protegido y a lo sumo dos por transición; **nunca** por ocurrir
+  después de la última escritura. Siempre se lista en el informe; sin evidencia suficiente, LOGS queda INCONCLUSA.
+- **Bloque 4 — ejecución `M11260155` (2026-11-26): pruebas manuales hechas, INCOMPLETAS, NO CERTIFICADO.** Pendientes por
+  desviaciones de procedimiento:
+  - E3.3: Producto A cambiado por el dueño en vez del cajero.
+  - E3.4 y E10: carrito V0 perdido.
+  - E5.3: acciones del cajero sobre etiquetas no comprobadas.
+  - E6: reemplazo por edición directa sin completar; la etiqueta de 1.149,50 seguiría pendiente.
+  - E7: historial y precios finales parciales.
+  Falta la verificación interna (`b4-manual-verificar.ps1`) para conocer el estado real. Después, sólo pruebas
+  complementarias mínimas. Detalle: §11 de `CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md`.
+  - **ZIP FALLIDO** `3b46b7bc…` (verificado): E3, E6 y GENERAL FALLIDAS; E10, LOGS y OPERADOR INCONCLUSAS. Se conserva sin cambios.
+  - **Certificación complementaria PREPARADA, sin ejecutar** (§12): recuperación de C1/C2, diagnóstico del HTTP 400, C3/C4
+    (permiso temporal y protección/vencimiento) y C5 (prueba de integración del 409, propuesta, no autorizada).
+    Herramientas: `deligo-dev-db\certificacion\b4-complementaria\`.
+  - **Complementaria ejecutada:** la preparación salió 9/9 APROBADA y C3/C4 manuales salieron OK (sin turno). Falta
+    `b4c-verificar.ps1`. C5 espera autorización de commit/push.
+  - **ZIP complementario INCOMPLETO** `1e263cce…`: sólo C4 quedó inconcluso, por un inicio extra sin usar (permitido por
+    diseño). La conciliación exacta de `cmwx2fzf3009qk60ahth5cnak` está preparada. Falta volver a ejecutar
+    `b4c-verificar.ps1`. Plan de C5 en §12.9.
+  - **Paquete complementario C1–C4 APROBADO.** ZIP `B4-COMPLEMENTARIA-M11260155-20261126T053337Z-APROBADO.zip`
+    (SHA-256 `5279a313…4b63`), auditado por ChatGPT: 28 archivos. El Bloque 4 queda pendiente sólo de C5 (§12.10).
+- **Bloque 4 (precios de venta y etiquetas) — CERTIFICADO (2026-11-26).** Integra:
+  - la ejecución original `M11260155`, con su ZIP FALLIDO `3b46b7bc…` conservado;
+  - la complementaria C1–C4 APROBADA (`5279a313…`), con el ZIP INCOMPLETO `1e263cce…` conservado;
+  - las conciliaciones del HTTP 400 y del inicio adicional;
+  - C5 en CI: run 45763041157, 2 pass / 0 fail / 41 `expect()`.
+
+  Detalle en el §12.11 de `CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md`. No repetir pruebas del Bloque 4.
+- **REVISIÓN TÉCNICA PENDIENTE ANTES DE PRODUCTION — 32 diagnósticos de TypeScript:** el workflow de C5 informó
+  «32 pre-existing diagnostics elsewhere».
+  - Confirmar cuáles son realmente preexistentes en `327d6c73` y evaluar su relevancia para la estabilidad.
+  - No suponer que todos son inocuos.
+  - No son una falla de C5. No se corrigen en esta tarea.
+- **PENDIENTE — prueba C5 en la cobertura permanente:** `src/lib/f10-c2c-inicio-vencido.integration.test.ts` está hoy
+  sólo en la rama técnica `codex/b4-c5-inicio-vencido` (`3c498c24`).
+  - Integrarla, junto con su paso de CI, en la siguiente tanda autorizada de cambios, sin un despliegue dedicado.
+  - Sin merge ni cherry-pick hasta esa autorización.
+  - La ejecución focalizada no reemplaza la batería completa de CI exigida antes de Production.
+- **Bloque 5 (permisos de catálogo) `M11261651` — CERTIFICADO (CLOSED_TESTING_CERTIFIED, 2026-11-26).**
+  - ZIP APROBADO `04cd6c33…228e`: 21/21 manuales y 11/11 bloques, con auditoría de ChatGPT.
+  - Se conservan los dos ZIP INCOMPLETO (`…171304Z`, `…171507Z` `2d3b1861…`).
+  - El 403 de lectura de proveedores tras el vencimiento quedó conciliado por registro exacto.
+  - Lo revisado sólo en código no se declara probado (§12 del documento del Bloque 5). No repetir pruebas del Bloque 5.
+- **T0 y T1 AUTORIZADOS (operador, 2026-11-26)** en `codex/estabilizacion-final` (worktree
+  `C:\Leo Campos\Trabajo\deligo-estabilizacion`, base `327d6c73`), con commits locales y sin push ni despliegue.
+  - **P0-08:** se conserva `LATEST_SAMPLE_ONLY`; P2-T24 queda fuera de Production y la resolución se hace en T5.
+  - **Informes históricos:** respaldo privado local, sin versionar.
+  - Matriz de elegibilidad: plan §16.
+  - **PENDIENTE (registrado, no se modifica todavía):** contradicción en `deligo-closeout` §B, que dice que
+    `DELIGO_FULL_CONTEXT_LATEST.md` está sin seguimiento cuando en realidad está seguido y se versiona.
+- **PLAN DEFINITIVO DE ESTABILIZACIÓN T0–T7 (operador, 2026-11-26): APROBADO.** Decisiones D-1…D-7 en
+  DECISIONS_AND_INVARIANTS y en el plan (§0, revisión 2).
+  - **Orden:**
+    - **T0** docs (commit pendiente de autorización);
+    - **T1** interfaz y UX;
+    - **T2** seguridad y salud técnica (C5 en el CI general, suite D-3, TS, pruebas locales rotas, CI completo);
+    - **T3** sesiones simultáneas y 401;
+    - **T4** F10-D1 (obligatorio; primero el diseño);
+    - **T5** candidata y certificación final en TESTING;
+    - **T6** preparación de Production;
+    - **T7** activar `DEVELOPMENT_WORKFLOW.md`.
+  - T1–T3 van en una rama de estabilización con un despliegue conjunto en TESTING.
+  - **P0-08 nuevo:** `testing-codex` contiene P2-T24 (`BLOCKED_NOT_RELEASE_ELIGIBLE`), y `main` tiene un modelo de
+    seguimiento del repartidor más nuevo y certificado (`LATEST_SAMPLE_ONLY`, 6 archivos). Hacen falta una auditoría de
+    elegibilidad por trabajo y una decisión del operador antes de la candidata.
+  - **P2 que se mantienen:** importación para restaurantes, estética no esencial, funcionalidades nuevas y
+    `PEDIDO_CON_DEUDA_APROBADA`.
+- **CONSOLIDACIÓN FINAL ANTES DE PRODUCTION (2026-11-26): plan, revisión 1 (antecedente)** —
+  `codex-reports/CONSOLIDACION_FINAL_PRODUCTION_PLAN.md`.
+  - Inventario P0/P1/P2.
+  - Estado real de las ramas: `main` tiene 8 commits *release* no equivalentes, la fusión de prueba da 45 conflictos y
+    faltan 35 migraciones.
+  - Tandas T0–T5, matriz de regresiones, criterios de la candidata y decisiones D-1…D-7.
+- **P1 — JERARQUÍA VISUAL DEL PUNTO DE VENTA DEL CAJERO (operador, 2026-11-26; registrada, NO implementada).**
+  - **Sin turno:** Caja y turno → Ventas → Salidas.
+  - **Con turno confirmado:** Ventas primero, un indicador compacto «Turno abierto · `<Caja>`» y Caja y turno plegable debajo.
+  - **Salidas de Caja:** siempre debajo de Ventas, con el historial plegado por defecto y altura limitada.
+  - **Restricción técnica:** sin desmontar `VenderView`, porque el carrito vive en memoria. Reordenar con CSS `order`
+    dentro del mismo contenedor y plegar paneles sin desmontarlos.
+  - Sin cambios de lógica. Tanda T1. Detalle: §4 del plan de consolidación.
+- **Bloque 6 (importación Excel/CSV del dueño) `M11262102` — CERTIFICADO (CLOSED_TESTING_CERTIFIED, 2026-11-26).**
+  - ZIP APROBADO `e042303e…8255`: 10/10 manuales y 9/9 bloques.
+  - **Los seis bloques funcionales están certificados en TESTING.** Production NO está certificada.
+- **Antecedente — Bloque 6 preparación** (2026-11-26).
+  - Reglas D1, D2 y D6 aprobadas (`DECISIONS_AND_INVARIANTS.md`).
+  - Herramientas en `deligo-dev-db\certificacion\b6-manual\`. Documento: `codex-reports/CERTIFICACION_BLOQUE_6_IMPORTACIONES.md`.
+  - El operador ejecuta `b6-manual-preparar.ps1` (sólo lectura).
+  - **Ejecución `M11262102`:** manuales 10/10 OK, observaciones y evidencias registradas. Falta `b6-manual-verificar.ps1`.
+    No está certificado.
+- **PENDIENTE ANTES DE PRODUCTION — Excel real:** importar un `.xlsx` guardado por Microsoft Excel (fórmulas y formatos de
+  celda propios). El Bloque 6 usa un `.xlsx` con la estructura y la compresión estándar, generado sin Excel.
+- **MEJORA FUTURA (registrada, NO autorizada) — comunicación de límites de importación:** mostrar en la pantalla de
+  importación los formatos y límites vigentes (`.xlsx` primera hoja o `.csv`, 5 MB, 2000 filas).
+- **MEJORA FUTURA (registrada, NO autorizada) — importación para restaurantes:** con formato propio (variantes, adicionales
+  y opciones), después de definirlo. Hoy la importación del dueño es sólo para negocios genéricos (D6).
+- **POSIBLES FUNCIONALIDADES FUTURAS (registradas, NO autorizadas):** cambio masivo de nombres por importación y alta de
+  variantes en productos existentes (D2).
+- **Antecedente — Bloque 6 propuesta:**
+  `codex-reports/CERTIFICACION_BLOQUE_6_IMPORTACIONES_PROPUESTA.md`.
+  - Escenarios del dueño: E1 alta desde `.xlsx`, E2 actualización desde `.csv`, E3 recuperación de las filas con error.
+  - Matriz de los 20 puntos.
+  - Discrepancias a confirmar: D1 (etiqueta pendiente) y D2/D6.
+  - Sin pruebas automatizadas de importación en `327d6c73`.
+- **Antecedente — Bloque 5 preparación** (propuesta aprobada con ajustes, 2026-11-26).
+  - Escenarios E1–E5: alta con variantes, costos, revocación parcial, vencimiento automático, importación y cierre.
+  - Herramientas en `deligo-dev-db\certificacion\b5-manual\`. Documento: `codex-reports/CERTIFICACION_BLOQUE_5_PERMISOS_CATALOGO.md`.
+  - El operador ejecuta `b5-manual-preparar.ps1` (sólo lectura).
+  - La evidencia de la importación de E4 se reutiliza en el Bloque 6.
+  - **Ejecución `M11261651`:** manuales 21/21 OK y observaciones registradas. Falta la verificación interna
+    (`b5-manual-verificar.ps1`). No está certificado.
+  - **ZIP INCOMPLETO** `2d3b1861…`: sólo LOGS, por un 403 de lectura del panel de proveedores tras el vencimiento (sin
+    falla funcional). La conciliación por registro exacto está preparada. Falta volver a ejecutar el verificador (§11).
+- **CORRECCIÓN PRIORITARIA ANTES DE PRODUCTION (registrada, NO implementada) — D1, permisos vencidos preseleccionados:**
+  - Al vencer, el servidor no limpia `catalogoHasta` ni las casillas.
+  - La pantalla del dueño (`permisos-catalogo.tsx`) vuelve a mostrar marcadas las casillas viejas al habilitar de nuevo, lo que facilita otorgarlas sin querer.
+  - El vencimiento debe seguir validándose en el servidor (ya lo hace). Además, la interfaz no debe preseleccionar permisos vencidos.
+- **PROPUESTA TÉCNICA ANTES DE PRODUCTION (registrada, NO autorizada) — suite `f10-c2-catalogo-permisos.integration.test.ts`:**
+  - Aislamiento entre negocios y empleados.
+  - Ocultamiento de costos.
+  - Independencia de casillas.
+  - Rechazo con permiso vencido o revocado.
+  - `STOCK_NO_PERMITIDO`.
+  - Venta 400 `PRODUCTO_SIN_PRECIO` sin efectos (protección existente sin prueba).
+  - Restricciones de importación.
+  - `ETIQUETA_PENDIENTE`.
+
+  Incorporarla junto con C5 en la próxima tanda autorizada (§8 del documento del Bloque 5).
+- **REVISIÓN TÉCNICA PENDIENTE ANTES DE PRODUCTION (registrada, NO corregida, no bloquea el Bloque 4):** en la
+  verificación complementaria C3/C4 (TESTING, ~45 min) hubo 116 respuestas 401 en rutas no relacionadas:
+  - 110 en `GET /api/notificaciones`;
+  - 6 en `GET /api/destacado-solicitud`.
+
+  Sin 5xx ni errores de aplicación. Hay que revisar en el código si son consultas automáticas (sondeo) que se hacen sin
+  una sesión válida para esa ruta (por ejemplo, desde la pantalla del cajero o con la sesión del dueño en otra
+  pestaña) y si se pueden evitar. No se presume la causa sin esa revisión.
+- **BUG VISUAL (registrado, NO corregido) — cuadro de variantes del dueño:** al guardar el precio de una variante desde
+  Inventario, el cuadro sigue mostrando el precio anterior hasta cerrarlo y volverlo a abrir; el dato guardado es correcto
+  (Bloque 4, E2). Corregir el refresco de la vista en una tarea aparte.
+- **Bloque 4 (precios de venta y etiquetas) — preparación** (autorizada por el operador el 2026-11-26):
+  siete escenarios principales y tres adicionales (descartar, activar sin etiqueta, vencimiento de 30 min). El operador
+  ejecuta `b4-manual-preparar.ps1` cuando esté listo. Documento: `codex-reports/CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md`
+  (reemplaza a la PROPUESTA, que queda como antecedente).
+- **SEGUIMIENTO TÉCNICO (registrado, NO autorizado) — prueba automatizada del vencimiento del inicio de venta:** el código
+  vigente no tiene pruebas automatizadas de F10-C2c (etiquetas, inicio de venta). El rechazo 409 `INICIO_VENTA_VENCIDO` al
+  cobrar con un inicio vencido no se puede ejercer desde la Caja (la Caja lo detecta antes). Agregar una prueba de
+  integración focalizada en una base efímera de CI (inicio con `expiraEn` pasado → 409 sin escribir) en una tarea técnica
+  aparte; no modifica datos de TESTING ni código funcional.
+- **Observaciones del operador en el Bloque 3 (registradas, NO implementadas; ninguna es falla funcional):**
+  - **PRIORITARIO antes de Production — texto financiero E4.1:** «Quedan $768,50 a favor del proveedor (no se reparten
+    solos)» se lee al revés. Reemplazar por: «Se aplican $4.231,50 de los $5.000,00 pagados. Los $768,50 restantes quedan
+    como saldo a favor de tu negocio con este proveedor y no se aplicarán automáticamente a otras deudas.»
+  - **E4.3 claridad financiera:** mostrar explícitamente total de pagos realizados, pagos aplicados, deuda pendiente y saldo
+    a favor del negocio, separando anticipos reservados a pedidos y transferencias programadas de los créditos generales;
+    nunca mezclar dinero realizado con transferencias programadas o canceladas.
+  - **E3.1 UX:** el formulario de motivo de «Desafectar asignación» aparece arriba de la página, lejos de la acción;
+    desplegarlo junto a la asignación seleccionada o con una confirmación contextual visible.
+  - **E3.2 UX:** el formulario de «Asignar pago a deudas» aparece debajo de las transferencias programadas; mantenerlo en el
+    mismo contexto visual que el pago que se asigna.
+  - **E2.1 instrucciones:** «Pagar deudas seleccionadas» aparece después de abrir el pedido y seleccionar la deuda;
+    corregir las instrucciones de futuras certificaciones.
+- **REVISIÓN FUTURA (registrada, NO autorizada) — `PEDIDO_CON_DEUDA_APROBADA`:** hoy impide un anticipo nuevo si el pedido
+  ya tiene una factura aprobada con saldo; puede bloquear anticipos legítimos de entregas parciales. El Bloque 3 la certificó
+  tal como está (E7.1 OK). Evaluar, sobre todo con recepción parcial y mercadería pendiente, anticipar dinero por las
+  unidades pendientes sin confundirlo con el pago de una factura existente. No se modifica durante la certificación actual.
+- **OBSERVACIÓN (registrada, no autorizada) — asociación específica redundante al aprobar recepciones:** si el proveedor
+  ya entrega «todas las variantes» de un producto, la aprobación suma igual una asociación específica de la variante
+  recibida. No es duplicado según la regla vigente; evaluar junto con la mejora UX «Todas las variantes».
 
 **Pendiente — otros endpoints con el mismo mecanismo de sesiones simultáneas** (dueño + cuenta operativa en el mismo
 navegador; clase F-P2-T18-AUTH02). NO corregidos en este lote; cada uno, tarea propia:
@@ -53,6 +241,9 @@ hoy los clientes nunca ven el nombre del mozo pese al comentario «PUBLIC endpoi
   (`f10-b2-0`/`f10-b2-1-static-contract`) que fallan sólo en la copia Windows (pasan en checkout limpio y en CI).
   Ninguno de esos 10 está en el workflow de CI.
 - Intermitencia conocida de `f10-b2-1-turnos` en ventas concurrentes (R4).
+- Aserción frágil `f10-b1-cashier.integration.test.ts:349`: busca la subcadena «1200» (costo) en TODA la respuesta y
+  falla si un id aleatorio la contiene (CI `45550873390`). Corrección propuesta: comprobar que ningún campo `costo`/valor
+  de costo aparezca, no la subcadena en ids. **Corregida (autorizada) en `327d6c73`**: recorrido estructural del JSON.
 
 > **Rediseño de pagos y cuenta corriente de proveedores (2026-11-20): DISEÑO PROPUESTO, SIN IMPLEMENTAR.** Dirección
 > aprobada por el operador; no autorizado para programar.
@@ -90,14 +281,14 @@ hoy los clientes nunca ven el nombre del mozo pese al comentario «PUBLIC endpoi
 > - No toca stock, costos ni precios.
 > - **Etapa 1b (2026-11-21): permisos TEMPORALES de catálogo para empleados — IMPLEMENTADA EN LOCAL, prueba manual pendiente.** Vigencia + permisos independientes (crear, editar, proveedores, precios, costos), deshabilitados por defecto y verificados en cada operación; nunca stock ni dinero; producto sin precio no se vende; auditoría de altas y modificaciones. Migraciones `20261121180000_catalogo_permisos_empleado` y `20261121181000_catalogo_activacion_empleado` (con respaldo).
 >   - **Asociación producto ↔ proveedor desde el empleado — VALIDADA MANUALMENTE EN DESARROLLO LOCAL (2026-11-21).** Corregido antes un fallo: la ruta `GET/POST/DELETE /api/operativo/caja/[slug]/catalogo/productos/[id]/proveedores` no quedaba registrada (404 HTML) y la sección quedaba en «Cargando…»; ahora exporta cada método y la sección muestra error, reintento y avisos de permiso. Evidencia (Galletitas QA ↔ Distribuidora Prueba, Cajero sintético 1): asociar, quitar y volver a asociar con 200 y auditados como empleado (`CATALOGO_EMPLEADO`); con «Asociar proveedores» revocado, `DELETE` rechazado con 403 sin cambios ni auditoría; una sola asociación, sin duplicados; precio, costo y stock intactos, sin cambios de precio ni etiquetas. El resto de la etapa 1b (crear/editar, precios, costos, vencimiento) y la etapa 1 desde la ficha del dueño siguen con prueba manual pendiente.
-> - **Etapa 2 (2026-11-21): importación masiva desde Excel (.xlsx) y CSV — IMPLEMENTADA EN LOCAL; importación .xlsx del DUEÑO VALIDADA MANUALMENTE EN DESARROLLO LOCAL (ver abajo); resto pendiente.** Lectura en el navegador sin dependencias nuevas; 5 pasos (archivo → columnas → vista previa → confirmar → resultados); vista previa de sólo lectura con nuevos / existentes / errores (códigos repetidos en el archivo y contra el catálogo, variantes, proveedores existentes); existentes sólo con «Actualizar» explícito; sin stock ni movimientos (R3A); precios por `conPrecioDeCatalogoEnTx`; auditoría con origen `IMPORTACION`; registro idempotente `importaciones_productos` (reintentos y cortes no duplican). Permiso de empleado «Importar productos» (`catalogoImportar`, sujeto a la vigencia). Migración `20261121200000_catalogo_importacion_productos` (con respaldo). Vista previa del dueño revisada por Claude en el navegador con `C:\Users\eltig\deligo-dev-db\importacion-prueba\productos_prueba.xlsx`; la confirmación queda para la prueba del operador.
+> - **Etapa 2 (2026-11-21): importación masiva desde Excel (.xlsx) y CSV — IMPLEMENTADA EN LOCAL; importación .xlsx del DUEÑO VALIDADA MANUALMENTE EN DESARROLLO LOCAL (ver abajo); resto pendiente.** Lectura en el navegador sin dependencias nuevas; 5 pasos (archivo → columnas → vista previa → confirmar → resultados); vista previa de sólo lectura con nuevos / existentes / errores (códigos repetidos en el archivo y contra el catálogo, variantes, proveedores existentes); existentes sólo con «Actualizar» explícito; sin stock ni movimientos (R3A); precios por `conPrecioDeCatalogoEnTx`; auditoría con origen `IMPORTACION`; registro idempotente `importaciones_productos` (reintentos y cortes no duplican). Permiso de empleado «Importar productos» (`catalogoImportar`, sujeto a la vigencia). Migración `20261121200000_catalogo_importacion_productos` (con respaldo). Vista previa del dueño revisada por Claude en el navegador con `%USERPROFILE%\deligo-dev-db\importacion-prueba\productos_prueba.xlsx`; la confirmación queda para la prueba del operador.
 >   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (dueño, .xlsx):** importaciones `cmwpqsnij…` (3 creados · 3 omitidos · 4 con error) y `cmwpr1et1…` (2 actualizados · 4 omitidos · 4 con error). Alta simple y con 2 variantes sin duplicados; detección de existentes; «Omitir» por defecto; «Actualizar» explícito (Kilo de cafe: categoría, precio $250,55→$260 con activación CATALOGO, costo $120→$125; Galletitas QA: código y precio $0→$900); Taza con etiqueta pendiente intacta; errores (código repetido en el archivo, sin nombre, precio inválido); proveedores existentes asociados y desconocidos no creados; sin movimientos de stock ni financieros; auditoría del dueño con `importacionId`; registro idempotente y resumen coincidentes.
 >   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (empleado, .xlsx, sin permisos de precios, costos ni proveedores):** importación `cmwpranmr…` de Cajero sintético 1 (`deligo_productos_nuevos_prueba_empleado.xlsx`, 14 filas → 13 productos creados, uno con 2 variantes); todos sin precio de venta (precio 0, no disponible) y sin costo; sin asociaciones a proveedores; sin stock, movimientos ni activaciones de precio; sin nombres, códigos ni asociaciones duplicados; auditoría `userType=empleado` con `importacionId`; permiso «Importar productos» vigente hasta 2026-11-28 con precios, costos y proveedores deshabilitados. **El archivo usado fue .xlsx: la importación .csv sigue sin probar.**
 >   - **Verificado por Claude en local con una transacción revertida (2026-11-21, sin dejar datos; no es prueba manual del operador):** vista previa sin escrituras; corte simulado a mitad (1 de 3 grupos guardado, registro EN_CURSO) → reintento inmediato no reprocesa (turno vigente) → reintento con el turno vencido retoma y completa sin repetir el grupo 1 (3 productos, 3 auditorías de alta) → repetir la confirmación completada devuelve el mismo resultado sin productos ni auditorías nuevas; misma clave con otros datos → `IMPORTACION_DISTINTA`; empleado temporal sin «Importar productos» y con permiso vencido → `IMPORTAR_SIN_PERMISO` sin registro; revocación entre grupos → el grupo 1 se crea y los pendientes quedan con error «Tu permiso cambió o venció…». Limitación: si el servidor muere a mitad, la pantalla sólo consulta el estado; para retomar hay que volver a tocar «Confirmar» pasado el turno de 60 s.
 >   - **DEFECTO ENCONTRADO en la prueba CSV del empleado (2026-11-21, importación `cmwprmsz1…`, NO VALIDADA):** un número con un solo punto de miles y sin decimales se lee como decimal: «2.315» → $2,32 (precio de «Jabón de tocador…») y «2.100» → $2,10 (costo de «Café torrado…»). Causa: `parseNumero` (`importacion-productos-service.ts:70`) exige dos grupos de miles (`{2,}`); además «2,315» (sólo coma) se toma como miles en vez de decimal. Correcto en el mismo archivo: 1.850,50 · 5.999,99 · 3.420,00 · 890,75 · 1.120,00 · 1.480,25 · 4.100,5 · 520; textos con acentos, ñ, ü, ×, –, —, comillas y «;» exactos (Windows-1252); 4 asociaciones con Distribuidora Prueba y el agua sin proveedor; sin stock, movimientos ni duplicados; auditoría del empleado; una sola importación; permisos vigentes con precios, costos y proveedores. Datos con error sin corregir (decisión del operador).
 >   - **Corrección en local (2026-11-21, autorizada por el operador; pendiente de prueba manual):** `parseNumero` reescrito sin ambigüedades: «2.315» → 2315 · «1.234.567,89» → 1234567,89 · coma = decimal con 1–2 decimales · compatibles «1890.5» y «1,234.56»; «2,315», «2.3155», más de 2 decimales o separadores mal agrupados → fila con error que muestra el valor original (sin redondeo). La vista previa muestra el importe exacto a guardar («Se guarda: precio … · costo …») con el mismo lector que la confirmación. Verificado por Claude: tabla de 34 formatos; vista previa del CSV real como dueño y como Cajero sintético 1 (sólo Jabón y Café con cambios); crear/actualizar con datos temporales en transacción revertida (importes guardados = vista previa, historial de precio CATALOGO del empleado, fila ambigua sin registro, proveedor y stock correctos); regresión de idempotencia y permisos sin cambios; tsc 41 (línea base) y ESLint limpio. Datos afectados (sólo lectura): únicamente Jabón (precio 2,32) y Café (costo 2,10), sin etiquetas pendientes.
 >   - **VALIDADA MANUALMENTE EN DESARROLLO LOCAL (empleado, .csv Windows-1252 «;», con permisos de precios, costos y proveedores; 2026-11-23):** primera carga `cmwprmsz1…` (5 creados, textos especiales exactos, 4 asociaciones con Distribuidora Prueba, agua sin proveedor) + reimportación `cmwssaofk…` con el lector corregido (2 actualizados, 3 omitidos): Jabón precio $2,32 → $2.315 con activación CATALOGO del empleado (`sxn1-e1`) y auditoría `producto.precio_cambiado` origen IMPORTACION; Café costo $2,10 → $2.100 (auditoría `producto.modificado`); los otros 3 sin cambios; 28 productos / 28 nombres, sin códigos ni asociaciones duplicados; sin movimientos de stock ni de dinero; no quedan importes sospechosos de importaciones anteriores. Nota: el historial de precios registra origen CATALOGO; el vínculo con la importación está en la auditoría (`importacionId`).
->   - **Volumen y recuperación (2026-11-23, local; medido por Claude con transacción revertida, sin dejar datos):** archivos `volumen_300_productos.csv` y `volumen_1000_productos.csv` en `C:\Users\eltig\deligo-dev-db\importacion-prueba\`. Lectura 5–12 ms; vista previa 80–110 ms (respuesta 81 / 271 KB); confirmación ~5 s (300) y ~27 s (1.000, estimado con transacciones reales). Cuello de botella: cada grupo relee todos los códigos de barras del negocio (guarda de unicidad) → costo cuadrático (≈50 % del tiempo con 1.000; crece con el tamaño del catálogo). Corrección mínima: **procesamiento por tandas** (máx. ~8 s o 150 grupos por petición, misma clave idempotente, turno liberado al terminar cada tanda), **reserva del grupo dentro de su transacción** (`FOR UPDATE` + comprobación del resultado: dos intentos simultáneos no lo repiten), **cierre único** (un solo evento de resumen), y en la pantalla: avance real con barra, reintento automático ante cortes o errores del servidor, espera automática si otro intento tiene el turno, y aviso «Continuar importación» tras recargar o cerrar (clave guardada en el navegador). Medido con tandas: 300 → 2 peticiones (la más larga 2,3 s); 1.000 → 7 peticiones (la más larga 6,9 s); sin duplicados (1.000 altas, 1.000 auditorías, 1 resumen). Regresión de idempotencia/permisos: 19/19 OK. No se cambió la guarda de códigos de barras ni precios, proveedores, stock o permisos.
+>   - **Volumen y recuperación (2026-11-23, local; medido por Claude con transacción revertida, sin dejar datos):** archivos `volumen_300_productos.csv` y `volumen_1000_productos.csv` en `%USERPROFILE%\deligo-dev-db\importacion-prueba\`. Lectura 5–12 ms; vista previa 80–110 ms (respuesta 81 / 271 KB); confirmación ~5 s (300) y ~27 s (1.000, estimado con transacciones reales). Cuello de botella: cada grupo relee todos los códigos de barras del negocio (guarda de unicidad) → costo cuadrático (≈50 % del tiempo con 1.000; crece con el tamaño del catálogo). Corrección mínima: **procesamiento por tandas** (máx. ~8 s o 150 grupos por petición, misma clave idempotente, turno liberado al terminar cada tanda), **reserva del grupo dentro de su transacción** (`FOR UPDATE` + comprobación del resultado: dos intentos simultáneos no lo repiten), **cierre único** (un solo evento de resumen), y en la pantalla: avance real con barra, reintento automático ante cortes o errores del servidor, espera automática si otro intento tiene el turno, y aviso «Continuar importación» tras recargar o cerrar (clave guardada en el navegador). Medido con tandas: 300 → 2 peticiones (la más larga 2,3 s); 1.000 → 7 peticiones (la más larga 6,9 s); sin duplicados (1.000 altas, 1.000 auditorías, 1 resumen). Regresión de idempotencia/permisos: 19/19 OK. No se cambió la guarda de códigos de barras ni precios, proveedores, stock o permisos.
 >   - **Prueba manual de volumen del operador (2026-11-23, importación `cmwsss024…`, `volumen_300_productos.csv`, dueño):** datos correctos en lectura (300 productos creados una sola vez, 300 auditorías de alta, 1 importación completada 300/300, 1 evento de resumen, 300 códigos únicos, sin movimientos de stock ni financieros). **Las tandas NO se ejercitaron:** el servidor de desarrollo seguía usando en memoria el módulo anterior del importador (cargado antes de la modificación), y la importación se hizo en una sola petición de 8,2 s, sin cortes ni reintentos. Servidor reiniciado; ambas rutas cargan el código con tandas. **Procesamiento por tandas, corte de red y «Continuar importación»: sin validación manual.**
 >   - **VALIDADO MANUALMENTE EN DESARROLLO LOCAL (2026-11-23, dueño, `volumen_1000_productos.csv`, importación `cmwst2t2z…`, servidor reiniciado): procesamiento por tandas y recuperación tras recargar la página.** 8 peticiones de confirmación (05:08:57–05:09:27 UTC), todas de la misma importación (un único registro, misma clave): 150 · 150 · 150 · 150 (la recarga ocurrió durante ésta; el servidor terminó la tanda) · 0 (el intento de la página recargada encontró el turno ocupado y esperó solo) · 150 · 150 · 100. Petición más larga ≈ 4,8 s. Resultado: 1.000 productos creados una sola vez (1.000 nombres y 1.000 códigos únicos, sin duplicados en el catálogo), 1.000 auditorías de alta (una por producto), un único resumen, 1.000/1.000 resultados y estado COMPLETADA; sin movimientos de stock, financieros ni de precios. **El corte de red no se ejercitó** (no hay peticiones fallidas ni reintentos en el registro del servidor): sólo verificado técnicamente.
 >   - **Pendiente de prueba:** corte de red real durante la importación (opcional: mismo ciclo de reintento que ya cubre la recarga); descarga de filas con error y reimportación; actualización de variantes existentes; código del archivo que ya pertenece a otro producto del catálogo; mejora de no perder decisiones al volver a «Revisar columnas».

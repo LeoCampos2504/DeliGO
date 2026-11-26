@@ -1,5 +1,88 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T0/T1 authorization, P0-08 and public-repository privacy (operator, 2026-11-26)
+
+- **P0-08 / P2-T24:**
+  - Production keeps the certified courier-tracking model `LATEST_SAMPLE_ONLY`.
+  - P2-T24 is **not** shipped while `BLOCKED_NOT_RELEASE_ELIGIBLE`; a certified feature is never replaced by an experimental one.
+  - P2-T24 commits and evidence stay in history.
+  - The 6 `main` files are **not** blindly copied over `testing-codex`. The T5 resolution must:
+    - preserve Production behavior;
+    - keep compatible later improvements;
+    - not reactivate ineligible work;
+    - keep user isolation;
+    - avoid regressions in orders, couriers and GPS;
+    - preserve both histories.
+- **Release eligibility:** each doubtful work item is classified as Eligible / Eligible with conditions / Not eligible / Insufficient evidence, from concrete evidence.
+  - Incomplete docs do not automatically mean ineligible.
+  - Being deployed in TESTING does not automatically mean eligible.
+- **Public repository:**
+  - The ~447 never-versioned historical reports stay as a **private local backup**: not versioned, not deleted. LEGACY is immutable.
+  - Never commit: personal emails, credentials, tokens, cookies, private data, databases, backups, certification ZIPs, local configs, temp files, unnecessary sensitive identifiers, or file `32`.
+  - To publish a report, make a sanitized copy and keep the original intact.
+  - Never rewrite Git history for this.
+- **T1 invariants:** presentation, interaction and clarity only. No changes to:
+  - financial logic, Caja calculations, shift open/close, outflows, collections, sales, stock or purchases;
+  - the supplier and payment engines, audit, idempotency, server authorization or price protection;
+  - models or migrations.
+
+  A functional problem found during T1 is recorded as pending, not fixed in T1.
+
+## Consolidation before Production — operator decisions D-1…D-7 and definitive plan T0–T7 (2026-11-26; APPROVED, NOT implemented)
+
+Detail: `codex-reports/CONSOLIDACION_FINAL_PRODUCTION_PLAN.md` §0, §5, §11–§15.
+
+Divergence confirmed by ChatGPT:
+- base `86609599bcbdf7979244c34298a27836e6452d3c`;
+- 409 commits only in `testing-codex`, 15 only in `main`;
+- TESTING `327d6c739a55e2f6b5da89f1ec125a24013eb345`;
+- Production `42ca5005d2ecd412de87e454b52820f38aaec5c0`.
+
+**Decisions:**
+- **D-1 — candidate branch based on TESTING.**
+  - Inventory the 15 main-only commits (7 equivalent, 8 own) and build a matrix of changes to preserve and of Production-only behavior.
+  - Resolve the 45 conflicts **by correct behavior**, never by a blanket ours/theirs.
+  - Preserve `main` history: no reset, no force push.
+  - Special attention to: auth, sessions, orders, Salón, notifications, styles, deploy config, migrations and decision docs.
+  - The candidate is tested in TESTING. **The code deployed to Production is exactly the certified commit.**
+- **D-2 — F10-D1 is MANDATORY before Production.** Do not ship with outflows or purchases disabled. Only F10-D1 is in scope:
+  - post-close outflow errors;
+  - the original outflow and the historical close stay intact;
+  - reconcile against the closed-shift difference and its delivery;
+  - an independent, audited corrective record;
+  - **no fictitious money**;
+  - real recovery = a new income in the open shift that receives it;
+  - supplier-linked outflows go through the financial engine (credit adjustment or unlinking);
+  - F10-C1 SQL guards are lifted only through new authorized (additive) mechanisms;
+  - idempotency, permissions, audit and transactional integrity.
+
+  Design, exact scenarios, possible migrations and the financial-effects matrix must be presented and approved **before** implementation. D-2 approves the scope, not the implementation.
+- **D-3 — the full security + import suite is MANDATORY before Production.**
+  - Security: business and actor isolation, permission independence, cost hiding, catalog stock rejection, unpriced sale, variant-price restrictions, pending labels.
+  - Import: idempotency, retries, concurrent confirmations, batches, code conflicts, limits, number formats, isolation, pending labels.
+- **D-4 —** one stabilization branch for T1–T3, commits separated by responsibility, one joint initial TESTING deploy; extra deploys only if needed.
+- **D-5 —** T1 includes the visual «Todas las variantes» marker and the import formats/limits text (XLSX, CSV, first sheet, 5 MB, 2000 rows).
+- **D-6 —** Android push with the app closed is a known limitation **only if confirmed not to be a regression versus Production**. Register it. It does **not** cover notification identity inconsistencies.
+- **D-7 —** the C5 test joins the **general CI** and must really run against PostgreSQL (never skipped). The focused workflow is **not** brought into `main`. Keep branch `codex/b4-c5-inicio-vencido`, commit `3c498c24` and CI run 45763041157 as evidence.
+
+**Plan T0–T7:**
+- T0 docs and prep;
+- T1 UI/UX;
+- T2 security and technical health (C5, suite, TS 32/41, 10 failing local tests, lint, build, full CI; no exclusions, no blanket dependency updates);
+- T3 simultaneous sessions and the 116 HTTP 401;
+- T4 F10-D1;
+- T5 candidate and final TESTING certification;
+- T6 Production prep (migration rehearsal on an isolated restored copy, consistent backup with tested restore, data comparisons, variables by name only, maintenance window, recovery; restoring a backup is not lossless);
+- T7 activate `DEVELOPMENT_WORKFLOW.md`.
+
+**P2 kept:** restaurant import, non-essential aesthetics, new features, `PEDIDO_CON_DEUDA_APROBADA` (if current behavior is safe).
+
+**Invariant added by the analysis (P0-08):**
+- no work that is not release-eligible reaches Production;
+- P2-T24 is `BLOCKED_NOT_RELEASE_ELIGIBLE`;
+- `main` has a newer certified tracking model (`LATEST_SAMPLE_ONLY`) in 6 files;
+- until the operator decides, the candidate keeps `main`'s tracking.
+
 
 ## Supplier payments redesign — PROPOSED decisions (operator 2026-11-20; NOT implemented, NOT invariants yet)
 
@@ -4747,3 +4830,14 @@ Ver `codex-reports/P2_T40_R3_CASE_G_LEGACY_UNION_TARGET_REAL_ROOT_CAUSE.md`.
   servidor valida sólo esa credencial y el selector nunca otorga permisos ni cae a la sesión del dueño. Códigos: 401 sin
   credencial · 403 sin permiso · 404 otro negocio o mesa inexistente · 400 selector inválido. Aplicado por ahora sólo a la
   ocupación de mesa; el resto de los endpoints neutrales está en el ROADMAP.
+
+## 2026-11-26 — Importación masiva de productos (Excel/CSV): reglas comerciales APROBADAS por el operador (Bloque 6)
+
+```text
+STATUS=APPROVED_BUSINESS_RULES (operador, 2026-11-26) · coinciden con el comportamiento vigente en 327d6c73 · sin cambios de código
+D1_ETIQUETA_PENDIENTE=si un producto o variante tiene un precio autorizado pendiente de etiqueta, la importación NO modifica su precio vigente, NO reemplaza, descarta ni activa la etiqueta y avisa que el precio se ignoró; los demás campos autorizados sí se actualizan · la edición manual individual conserva el reemplazo certificado en el Bloque 4 · una importación masiva nunca invalida etiquetas pendientes
+D2_IDENTIDAD_Y_VARIANTES=una actualización por importación no cambia el nombre de un existente ni le agrega variantes; sí actualiza precios de variantes existentes bien identificadas y los demás campos permitidos; una celda vacía nunca borra datos · si el código identifica un producto con otro nombre, la vista previa debe dejar claro qué producto se actualiza (hoy: «En el catálogo: <nombre>» + aviso «el nombre no se cambia») · cambio masivo de nombres y alta de variantes en existentes = posibles funcionalidades futuras independientes
+D6_RUBRO=la importación del dueño es sólo para negocios genéricos; no se extiende a restaurantes en esta integración (posible importación específica de restaurantes en el futuro, con formato propio)
+COSTO=el costo importado modifica el costo del catálogo (producto.costo), nunca los costos históricos de recepciones
+FORMATOS_Y_LIMITES=.xlsx (primera hoja) y .csv · máximo 5 MB · máximo 2000 filas · comunicación de estos límites en la interfaz: mejora futura registrada
+```

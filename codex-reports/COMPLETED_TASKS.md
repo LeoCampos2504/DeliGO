@@ -2387,3 +2387,116 @@ PRODUCTION_TOUCHED=NO
 ```
 
 Reportes: `codex-reports/BUG_001_002_IDENTIDAD_Y_OCUPACION_R1.md`, `codex-reports/EMPLEADO_IDENTIDAD_VINCULACION_DIAGNOSTICO_R1.md`.
+
+## BUG-003A + BUG-003B — vista pública del mozo, aislamiento de mesas-public y privacidad de empleados — 2026-11-25
+
+```text
+BUG_003A_STATUS=CLOSED_TESTING_FUNCTIONALLY_VERIFIED (nunca se muestra «Pendiente de vinculación» ni nombres de empleados al cliente)
+BUG_003B_STATUS=CLOSED_TESTING_FUNCTIONALLY_VERIFIED (mesas-public: sesión de dueño del mismo negocio; otro negocio 404; sin código interno ni datos de empleados; by-codigo sin nombre ni id)
+COMMITS=4fba5341 (BUG-003) · 62c6748d (docs) · 327d6c73 (aserción de costos f10-b1 por estructura JSON)
+CI=45551554973 SUCCESS 60/60
+TESTING=testing-codex 327d6c73 · DeliGO Copy 8ac0f58f-ebc4-4529-a31f-7e3654959bb5 SUCCESS (commitHash exacto)
+OPERATOR_TESTING=4/4 APROBADAS sobre 327d6c739a55e2f6b5da89f1ec125a24013eb345 (presentación pública, anónimos 401, aislamiento entre negocios 404, acceso por código del mozo)
+FUTURE=nombre público de atención configurable por el dueño (ROADMAP, no autorizado)
+PRODUCTION_TOUCHED=NO
+```
+
+Reporte: `codex-reports/BUG_003_NOMBRE_PUBLICO_MOZO_R1.md` (diagnóstico + R2).
+
+## CERTIFICACIÓN MANUAL — BLOQUE 1 (proveedores y asociaciones) `M11240504` — 2026-11-25
+
+```text
+BLOCK_1_STATUS=CLOSED_TESTING_CERTIFIED (manual, auditoría independiente de ChatGPT: CERTIFICADO)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal
+OPERADOR=15/15 comprobaciones manuales APROBADAS (E1–E6)
+VERIFICACION_INTERNA=12/12 bloques APROBADOS (BASE, E1–E6, GENERAL, CONCILIACION, DESPLIEGUE, LOGS, OPERADOR) · 18 archivos íntegros · línea base conservada
+CONTROLES=sin duplicados activos · sin movimientos de stock indebidos · producto eliminado sin referencias en las 17 tablas con productoId · permisos del cajero restaurados · 403 del cajero correlacionado (ruta, método, empleado, intervalo) · sin escrituras tras la revocación · sin 5xx
+DESVIACION=procedimiento (no aplicación): «QA B1 Producto Nuevo M11240504» creado anticipadamente sin proveedor (cmwvoob0o000mk60a6s55bk5x), eliminado lógicamente por el dueño y recreado con Alfa (cmwvowh13000tk60a8hxj38zi) · conciliada por id exacto (preparacion/conciliacion.json), sin modificar datos, auditorías ni línea base
+ZIP_ORIGINAL=B1-MANUAL-M11240504-20261125T054403Z-FALLIDO.zip · SHA-256 68d89011b26a79c61e1339ac2dd05a1808cfaee3a95d25945fc19860689aa2ab · 17329 bytes (conservado)
+ZIP_DEFINITIVO=B1-MANUAL-M11240504-20261125T055809Z-APROBADO.zip · SHA-256 0da1488e001b3d2545fffd3040726d08afb419a7ccd27ce22b56847bc9b1da61 · 25636 bytes
+EVIDENCIA=C:\Leo Campos\Trabajo\deligo-certificaciones\ (fuera del repo) · herramientas %USERPROFILE%\deligo-dev-db\certificacion\b1-manual\
+UX_FUTURA=indicación «Todas las variantes» en la ficha del proveedor (ROADMAP, no autorizada)
+PRODUCTION_TOUCHED=NO
+```
+
+## CERTIFICACIÓN MANUAL — BLOQUE 2 (compras y recepciones de mercadería) `M11250631` — 2026-11-25
+
+```text
+BLOCK_2_STATUS=CLOSED_TESTING_CERTIFIED (manual, auditoría independiente de ChatGPT: CERTIFICADO)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal
+OPERADOR=21/21 comprobaciones manuales APROBADAS (E1 2/2 · E2 5/5 · E3 5/5 · E4 2/2 · E5 4/4 · E6 3/3)
+VERIFICACION_INTERNA=13/13 bloques APROBADOS (BASE, E1–E6, DINERO, GENERAL, DESPLIEGUE, CONCILIACION, LOGS, OPERADOR) · 23 archivos íntegros
+RESULTADOS=un pedido de Alfa CERRADA_CON_FALTANTE · recepción de Alfa aprobada · recepción de Beta rechazada · un movimiento RECEPCION +4 (stock 0→4) · últimos costos A 726 / B V1 786,50 / Stock 605 · una obligación de Alfa por 6.231,50 · 409 de la segunda aprobación correlacionado · sin movimientos financieros · Beta sin deuda · precios intactos · permisos del cajero intactos · turno del dueño intacto
+PREPARACION_PREVIA=cierre del turno del cajero QA cmwvlv6tb0008s40abp7v5ebj («QA Caja A e31b», fondo 0, contado 0, sin registros) antes del inicio; línea base original y nueva conservadas
+CONCILIACION=seis HTTP 401 GET /api/operativo/... 16:48:47–16:48:48 UTC (ventanas abiertas ~10 h tras las pruebas) conciliados por registro exacto; los logs no distinguen sesión vencida de ausente/inválida (limitación documentada)
+ZIP_INCOMPLETO=B2-MANUAL-M11250631-20261125T165107Z-INCOMPLETO.zip · SHA-256 cffd60d43e3e2a8e66e91bafa65f4c8bd1c67ebc8097b7ed867c124980fcd86f · 31533 bytes (conservado)
+ZIP_DEFINITIVO=B2-MANUAL-M11250631-20261125T170856Z-APROBADO.zip · SHA-256 a995816af8e8d3c36cd9256bac148077555c4bf739c4c068de393e7b0e630e5d · 41264 bytes
+OBSERVACIONES_NO_BLOQUEANTES=configuración tributaria SIN_FILA con IMPUESTOS_INTEGRAN_COSTO aplicado por defecto (comportamiento vigente) · advertencia HTTP 401 POST /api/push/unsubscribe ajena a compras
+RECOMENDACION=cerrar las ventanas de prueba antes de cada verificación interna
+PRODUCTION_TOUCHED=NO
+```
+
+## CERTIFICACIÓN MANUAL — BLOQUE 3 (pagos, anticipos, deudas y cuenta corriente de proveedores) `M11251859` — 2026-11-26
+
+```text
+BLOCK_3_STATUS=CLOSED_TESTING_CERTIFIED (manual, auditoría independiente de ChatGPT: CERTIFICADO)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal
+OPERADOR=29/29 comprobaciones manuales APROBADAS (E1 2/2 · E2 3/3 · E3 3/3 · E4 3/3 · E5 7/7 · E6 6/6 · E7 5/5)
+VERIFICACION_INTERNA=15/15 bloques APROBADOS (incluida CONCILIACION) · 17 archivos íntegros · línea base y evidencias SQL conservadas
+RESULTADOS=4 pagos efectivos por 9.000 (3 transferencias por 8.000 + anticipo en efectivo 1.000) · programada cancelada sin efecto · obligación original cancelada · nueva obligación con 210 pendientes · a favor general 768,50 · anticipo reservado 1.000 · posición neta a favor del negocio 1.558,50 · desafectación/reasignación vinculadas · una salida de efectivo de la caja QA · diferencia de cierre 0 · stock 6 · permisos restaurados · turno del dueño intacto · 0 HTTP 5xx · SQL final idéntico entre las dos verificaciones (comercial y financiero)
+CONCILIACION=dos HTTP 401 GET /api/operativo/me (19:21:00 y 19:41:02 UTC) por registro exacto; ninguna ruta protegida con 401; atribución no determinable con los logs (limitación documentada; auditoría sobre logs procesados del ZIP)
+ZIP_INCOMPLETO=B3-MANUAL-M11251859-20261125T194110Z-INCOMPLETO.zip · SHA-256 60044a86b8364cdf370b5585a675c216280a1a008f3ff978bbc455f789b4ee63 · 26735 bytes (conservado)
+ZIP_DEFINITIVO=B3-MANUAL-M11251859-20261126T012159Z-APROBADO.zip · SHA-256 cc68cf21b7fe8f6167585250ff4691cf77e8c12eb02a610e5eb1ddec9daea6c3 · 39401 bytes · 17 archivos
+EVIDENCIA=C:\Leo Campos\Trabajo\deligo-certificaciones\ (fuera del repo) · herramientas %USERPROFILE%\deligo-dev-db\certificacion\b3-manual\
+PENDIENTE_FUERA_DEL_BLOQUE=salida de Caja QA del anticipo E6 sin revisar ni compensar (decisión del operador)
+UX_FUTURA=E4.1 texto «a favor del proveedor» (PRIORITARIO antes de Production) · E4.3 totales separados · E3.1/E3.2 ubicación de formularios · E2.1 instrucciones · revisión futura de PEDIDO_CON_DEUDA_APROBADA en recepciones parciales (ROADMAP, no autorizadas)
+RECOMENDACION=iniciar sesión antes de la preparación y cerrar las ventanas sin cerrar sesión antes del verificador
+PRODUCTION_TOUCHED=NO
+```
+
+## CERTIFICACIÓN MANUAL — BLOQUE 4 (precios de venta y etiquetas de góndola) `M11260155` — 2026-11-26
+
+```text
+BLOCK_4_STATUS=CLOSED_TESTING_CERTIFIED (manual + complementaria C1–C4 + C5 en CI; auditorías independientes de ChatGPT)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal
+ORIGINAL=M11260155 · ZIP FALLIDO B4-MANUAL-M11260155-20261126T040739Z-FALLIDO.zip SHA-256 3b46b7bc76edfda52689624196a2874b7c5d057996926130ee817fc53d574795 (conservado, no se transforma) · fallas de procedimiento, sin falla funcional
+COMPLEMENTARIA=C1 restricciones del cajero (declaración + registros) · C2 reemplazo de la etiqueta de 1.149,50 por catálogo · C3 permiso temporal sólo «Precios de venta» (cambio 1.155→1.160 hecho por el cajero, revocación y restauración exacta) · C4 protección y vencimiento de la venta iniciada · restauración 1.160→1.155 por el dueño
+ZIP_INCOMPLETO=B4-COMPLEMENTARIA-M11260155-20261126T052405Z-INCOMPLETO.zip SHA-256 1e263cceb46d6b6088b57c2a346d358077ff6a648ce5e82736d00d64d3196236 (conservado)
+ZIP_DEFINITIVO=B4-COMPLEMENTARIA-M11260155-20261126T053337Z-APROBADO.zip SHA-256 5279a313eb47ec76138aa3e0eb8ebc789430665f32c8671b6f854192e4b84b63 · 28 archivos · 9/9 recuperación · 10/10 C3/C4 · 9/9 manuales
+CONCILIACIONES=HTTP 400 02:17:13.911925697Z (vencimiento no futuro; 130 B = «tiene que ser futuro»; declaración del operador) · inicio adicional cmwx2fzf3009qk60ahth5cnak (producto equivocado; ningún GET tras crearse V0-C)
+C5=rama codex/b4-c5-inicio-vencido · commit 3c498c24433590dc606cf2a3e808fe38df6c18c6 (base 327d6c73) · 2 archivos nuevos (test de integración + workflow propio) · run 45763041157 / job 139717297407 success · 2 pass 0 fail 41 expect() · sin despliegue · sin merge
+EVIDENCIA=C:\Leo Campos\Trabajo\deligo-certificaciones\ · herramientas %USERPROFILE%\deligo-dev-db\certificacion\b4-manual\ y b4-complementaria\ · documento codex-reports/CERTIFICACION_BLOQUE_4_PRECIOS_ETIQUETAS.md §11–§12.11
+PENDIENTE_ANTES_DE_PRODUCTION=32 diagnósticos TypeScript preexistentes a revisar · integrar C5 a la cobertura permanente con la siguiente tanda · 116 × 401 (/api/notificaciones, /api/destacado-solicitud) · bug visual del cuadro de variantes · mejoras de UX acumuladas · batería completa de CI
+PRODUCTION_TOUCHED=NO
+```
+
+## CERTIFICACIÓN MANUAL — BLOQUE 5 (permisos temporales de catálogo de los empleados) `M11261651` — 2026-11-26
+
+```text
+BLOCK_5_STATUS=CLOSED_TESTING_CERTIFIED (manual; auditoría independiente de ChatGPT)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal · cajero QA TEST_T44_R1D_CUENTA_4135EA7A
+OPERADOR=21/21 (E1 5/5 · E2 5/5 · E3 6/6 · E4 3/3 · E5 2/2)
+VERIFICACION_INTERNA=11/11 bloques (BASE, PERMISOS, E1–E4, GENERAL, CONCILIACION, LOGS, DESPLIEGUE, OPERADOR) · 21 archivos
+ZIP_DEFINITIVO=B5-MANUAL-M11261651-20261126T172306Z-APROBADO.zip SHA-256 04cd6c330c2d826e950d185b0ccb2ebaeab360b767e9e7c049d39a5ef7e8228e
+ZIPS_INCOMPLETOS=…171304Z-INCOMPLETO.zip y …171507Z-INCOMPLETO.zip (2d3b1861…) conservados con su resultado histórico
+CONCILIACION=GET …/productos/cmwxslact00abk60aczjryw5r/proveedores 403 2026-11-26T17:05:17.041549756Z (lectura del panel tras el vencimiento; 99 B = CATALOGO_SIN_PERMISO; sin efectos)
+EVIDENCIA_COSTOS=evidencias/catalogo-sin-costos.txt SHA-256 e113e56f53e5e69861205856547e2d3b90c543bb39a2a5383ee70aaec976a48c
+NO_PROBADO_DINAMICAMENTE=aislamiento entre negocios · STOCK_NO_PERMITIDO · PRODUCTO_SIN_PRECIO · ETIQUETA_PENDIENTE del empleado · precio de variante por empleado (sólo revisión de código)
+PENDIENTE_ANTES_DE_PRODUCTION=D1 permisos vencidos preseleccionados · suite técnica consolidada · C5 permanente · 32 diagnósticos TS · 401 · UX · CI completo
+PRODUCTION_TOUCHED=NO
+```
+
+## CERTIFICACIÓN MANUAL — BLOQUE 6 (importación masiva Excel/CSV del dueño) `M11262102` — 2026-11-26
+
+```text
+BLOCK_6_STATUS=CLOSED_TESTING_CERTIFIED (alcance funcional manual; revisión de ChatGPT + verificador)
+ENTORNO=Railway TESTING · testing-codex 327d6c739a55e2f6b5da89f1ec125a24013eb345 · negocio QA paola-vinal · dueño
+OPERADOR=10/10 (E1 5/5 · E2 4/4 · E3 1/1) · VERIFICACION_INTERNA=9/9 bloques · 18 archivos
+ZIP_DEFINITIVO=B6-MANUAL-M11262102-20261126T211329Z-APROBADO.zip SHA-256 e042303e0d6a5c5c245edf3aa9baa1fc7d7a20ecab15182f410edcd23b4d8255
+RESULTADOS=3 importaciones (4/0/1/2 · 0/3/0/1 · 2/0/0/0) · 6 productos · 2 variantes · 2 activaciones del dueño · 1 asociación Alfa · 13 auditorías · sin proveedores nuevos ni duplicados · 2.ª hoja ignorada · cancelación sin registro
+EVIDENCIAS=filas-con-error-b6-alta.csv 738fa708… · filas-con-error-b6-actualizacion.csv 5952e92b… · archivos originales a7a784cf… / 6386cc44… / c396b5ee…
+LIMITACION=permisos de empleados y compras/pagos sin comparación SQL propia (respaldo en auditoría)
+NO_CERTIFICADO=Excel real · reintentos/idempotencia · simultaneidad · tandas · conflictos adicionales · etiqueta pendiente · aislamiento dinámico · límites
+PRODUCTION_TOUCHED=NO
+SEIS_BLOQUES=1–6 CERTIFICADOS EN TESTING · Production NO certificada (main 42ca5005) · siguiente: CONSOLIDACION_FINAL_PRODUCTION_PLAN.md
+```
