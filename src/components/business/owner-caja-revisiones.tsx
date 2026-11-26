@@ -47,12 +47,12 @@ function remainingFrom(counted: string, delivered: string): string | null {
     if (value.trim().length > 15) return null
     const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim())
     if (!match) return null
-    return BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"))
+    return BigInt(match[1]) * BigInt(100) + BigInt((match[2] ?? "").padEnd(2, "0"))
   }
   const total = cents(counted); const sent = cents(delivered)
   if (total === null || sent === null || sent > total) return null
   const left = total - sent
-  return `${left / 100n}.${String(left % 100n).padStart(2, "0")}`
+  return `${left / BigInt(100)}.${String(left % BigInt(100)).padStart(2, "0")}`
 }
 
 // Readability in bright light / on the street (2026-11-12): every status pill carries a

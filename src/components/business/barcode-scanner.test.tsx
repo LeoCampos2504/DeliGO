@@ -106,7 +106,7 @@ afterEach(async () => {
 
 describe("BarcodeScanner — continuous (Caja)", () => {
   test("a code held in view adds ONE unit, the camera stays open, and a new presentation adds another", async () => {
-    const onCode = mock((code: string) => ({ tone: "success" as const, title: `Agregado: ${code}` }))
+    const onCode = mock((code: string, _source: "camera" | "manual") => ({ tone: "success" as const, title: `Agregado: ${code}` }))
     await render(<BarcodeScanner mode="continuous" title="Escanear productos" onClose={() => {}} onCode={onCode} />)
     inView = [{ rawValue: EAN13, format: "ean_13" }]
     await wait(1500) // ~10+ frames with the code still in front
@@ -239,7 +239,7 @@ describe("BarcodeScanner — continuous (Caja)", () => {
 
 describe("BarcodeScanner — single-read (Inventario)", () => {
   test("first valid read calls onCode exactly once", async () => {
-    const onCode = mock(() => undefined)
+    const onCode = mock((_code: string, _source: "camera" | "manual") => undefined)
     await render(<BarcodeScanner mode="single" title="t" onClose={() => {}} onCode={onCode} />)
     inView = [{ rawValue: EAN13, format: "ean_13" }]
     await wait(400)

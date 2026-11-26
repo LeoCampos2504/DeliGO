@@ -354,7 +354,7 @@ export function ProfileTab({ perfil, isLoading }: ProfileTabProps) {
       </div>
 
       {/* Google account info or Password change */}
-      {perfil.googleId ? (
+      {perfil?.googleId ? (
         <div className="rounded-2xl bg-card border border-border/50 p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/20 flex items-center justify-center shrink-0">

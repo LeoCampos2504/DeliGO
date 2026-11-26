@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
     }
 
     // If querying by clienteId, also return the cliente info for the dialog
-    let clienteInfo = null
+    let clienteInfo: { id: string; nombre: string; email: string; bloqueado: boolean; bloqueadoFecha: string | null } | null = null
     if (clienteId) {
       const cliente = await db.cliente.findUnique({
         where: { id: clienteId },

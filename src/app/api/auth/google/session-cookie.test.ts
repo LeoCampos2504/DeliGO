@@ -169,7 +169,7 @@ describe("P2-T34-R3 Google OAuth family session cookies", () => {
   test("helper conserva atributos seguros de cookie de familia", () => {
     const originalNodeEnv = process.env.NODE_ENV
     try {
-      process.env.NODE_ENV = "production"
+      Reflect.set(process.env, "NODE_ENV", "production")
       const response = NextResponse.json({ ok: true })
       setFamilySessionCookie(response, uuid(), "cliente")
       const serialized = cookieHeader(response)
@@ -179,7 +179,7 @@ describe("P2-T34-R3 Google OAuth family session cookies", () => {
       expect(serialized).toContain("Path=/")
       expect(serialized).toContain("Secure")
     } finally {
-      process.env.NODE_ENV = originalNodeEnv
+      Reflect.set(process.env, "NODE_ENV", originalNodeEnv)
     }
   })
 

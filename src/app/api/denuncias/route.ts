@@ -400,7 +400,7 @@ export async function GET(req: NextRequest) {
     const puedeVerClienteInfo =
       clienteId && (user.type === "superadmin" || (user.type === "negocio" && denuncias.length > 0))
 
-    let clienteInfo = null
+    let clienteInfo: { id: string; nombre: string; email: string; bloqueado: boolean; bloqueadoFecha: Date | null } | null = null
     if (puedeVerClienteInfo) {
       const cliente = await db.cliente.findUnique({
         where: { id: clienteId as string },

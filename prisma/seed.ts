@@ -279,7 +279,7 @@ async function main() {
   // ============================================
   const productoIds: Record<string, string[]> = {} // slug -> array of producto IDs
 
-  const productosData: Record<string, Array<{ nombre: string; precio: number; categoria: string; descripcion?: string; descuentoActivo?: boolean; tipoDescuento?: string; valorDescuento?: number; secciones?: string }>> = {
+  const productosData: Record<string, Array<{ nombre: string; precio: number; categoria: string; descripcion?: string; descuentoActivo?: boolean; tipoDescuento?: string; valorDescuento?: number; secciones?: string; talles?: string; colores?: string; genero?: string; material?: string }>> = {
     "parrilla-don-jorge": [
       { nombre: "Bife de Chorizo", precio: 12000, categoria: "Parrilla", descripcion: "Corte premium de 400g a la parrilla con sal gruesa", secciones: JSON.stringify([{ nombre: "Punto de cocción", opciones: ["A punto", "Jugoso", "Bien cocido"], obligatorio: true }] ) },
       { nombre: "Asado de Tira", precio: 8500, categoria: "Parrilla", descripcion: "500g de asado de tira cocido a fuego lento" },
@@ -350,7 +350,7 @@ async function main() {
 
     const ids: string[] = []
     for (const p of prods) {
-      const { descuentoActivo, tipoDescuento, valorDescuento, talles, colores, genero, material, secciones, ...base } = p as any
+      const { descuentoActivo, tipoDescuento, valorDescuento, talles, colores, genero, material, secciones, ...base } = p
       const producto = await db.producto.create({
         data: {
           ...base,

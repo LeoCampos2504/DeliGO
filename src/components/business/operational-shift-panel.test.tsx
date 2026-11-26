@@ -38,7 +38,7 @@ beforeEach(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith("/turno") && init?.method === "POST") {
-      const body = JSON.parse(String(init.body ?? "{}")) as { action?: string }
+      const body = JSON.parse(String(init.body ?? "{}")) as { action?: string; fondoInicial?: unknown }
       if (body.action === "close") {
         const key = new Headers(init.headers).get("Idempotency-Key")
         closingKeys.push(key)

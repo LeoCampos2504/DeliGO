@@ -947,11 +947,11 @@ function SettingsSection() {
             </div>
           </div>
           <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-            {[
+            {([
               { value: "light", icon: "☀️" },
               { value: "system", icon: "💻" },
               { value: "dark", icon: "🌙" },
-            ].map(({ value, icon }) => (
+            ] as const).map(({ value, icon }) => (
               <button
                 key={value}
                 onClick={() => setTheme(value)}

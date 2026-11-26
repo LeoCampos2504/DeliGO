@@ -52,7 +52,7 @@ const { act } = React
 const originalFetch = globalThis.fetch
 
 function mockFetchOnce(status: number, body: unknown) {
-  globalThis.fetch = (async () => new Response(JSON.stringify(body), { status })) as typeof fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
 }
 
 let cleanup: (() => void) | null = null
@@ -135,7 +135,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
     globalThis.fetch = (async () => {
       fetchCalled = true
       return new Response(JSON.stringify({ ok: true }), { status: 201 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const host = renderForm({ mode: "create" })
     const submit = submitButton(host)
@@ -167,7 +167,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
         JSON.stringify({ ok: true, direccion: { id: "dir-1", ...capturedBody } }),
         { status: 201 }
       )
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     let created: { id: string } | null = null
     const host = renderForm({ mode: "create", onSuccess: (d) => { created = d } })
@@ -182,7 +182,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
     act(() => submit.click())
     await flush()
 
-    expect(capturedMethod).toBe("POST")
+    expect(capturedMethod as string | null).toBe("POST")
     expect(capturedBody).not.toBeNull()
     expect((capturedBody as unknown as { alias: string }).alias).toBe("Casa")
     expect((capturedBody as unknown as { lat: number }).lat).toBe(-26.1856)
@@ -198,7 +198,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
       capturedMethod = init?.method ?? null
       capturedBody = JSON.parse(String(init?.body))
       return new Response(JSON.stringify({ ok: true, direccion: { id: "dir-existing", ...capturedBody } }), { status: 200 })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const host = renderForm({
       mode: "edit",
@@ -216,7 +216,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
     act(() => submit.click())
     await flush()
 
-    expect(capturedMethod).toBe("PUT")
+    expect(capturedMethod as string | null).toBe("PUT")
     expect((capturedBody as unknown as { id: string })?.id).toBe("dir-existing")
   })
 
@@ -228,7 +228,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
       return new Promise<Response>((resolve) => {
         resolveFetch = () => resolve(new Response(JSON.stringify({ ok: true, direccion: { id: "dir-1" } }), { status: 201 }))
       })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const host = renderForm({ mode: "create" })
     const aliasInput = host.querySelector<HTMLInputElement>('input[placeholder="Ej: Casa, Trabajo..."]')!
@@ -246,7 +246,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
     expect(fetchCallCount).toBe(1) // el segundo tap no disparó un segundo fetch
     expect(submit.disabled).toBe(true)
 
-    resolveFetch?.()
+    ;(resolveFetch as (() => void) | null)?.()
     await flush()
   })
 
@@ -270,7 +270,7 @@ describe("P2-T32 — AddressForm (autoridad única de dirección)", () => {
 
   test("cancelar no dispara ningún fetch", () => {
     let fetchCalled = false
-    globalThis.fetch = (async () => { fetchCalled = true; return new Response("{}") }) as typeof fetch
+    globalThis.fetch = (async () => { fetchCalled = true; return new Response("{}") }) as unknown as typeof fetch
 
     let cancelled = false
     const host = renderForm({ mode: "create", onCancel: () => { cancelled = true } })

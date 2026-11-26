@@ -538,7 +538,7 @@ export function ConfigTab({ negocio, horarioMode: horarioModeProp, abiertoManual
               (el botón propio de LocationPickerInline) dispara
               calibrarUbicacion, y el selector permanece abierto si la
               request falla, para no perder la posición ya elegida. */}
-          {(info as Record<string, unknown>)._showLocationPicker && (
+          {Boolean((info as Record<string, unknown>)._showLocationPicker) && (
             <LocationPickerInline
               initialLat={mergedInfo.lat ?? undefined}
               initialLng={mergedInfo.lng ?? undefined}

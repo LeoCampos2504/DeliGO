@@ -71,6 +71,7 @@ export async function registrarEntregaCustodia(db: PrismaClient, input: EntregaI
   const retained = parseImporteCustodia(input.fondoRemanente)
   if (!delivered || !retained) return fail(400, "IMPORTE_INVALIDO", "Los importes deben ser válidos, no negativos y tener hasta dos decimales.")
   if (input.destinoTipo !== "DUENO" && input.destinoTipo !== "RESGUARDO") return fail(400, "DESTINO_INVALIDO", "Seleccioná dueño o un lugar de resguardo.")
+  const destinoTipo = input.destinoTipo
   const destinationName = normalizarDestinoNombre(input.destinoNombre)
   if (destinationName === undefined || (input.destinoTipo === "DUENO" && destinationName !== null) || (input.destinoTipo === "RESGUARDO" && !destinationName)) {
     return fail(400, "DESTINO_INVALIDO", "El resguardo requiere un nombre; para el dueño no corresponde indicar uno.")
@@ -130,7 +131,7 @@ export async function registrarEntregaCustodia(db: PrismaClient, input: EntregaI
           diferenciaDecimal: turno.efectivoContadoDecimal.minus(turno.efectivoEsperadoDecimal),
           efectivoEntregadoDecimal: delivered,
           fondoRemanenteDecimal: retained,
-          destinoTipo: input.destinoTipo,
+          destinoTipo,
           destinoNombre: destinationName,
           actorId: input.actorId,
           confirmadoEn: new Date(),
