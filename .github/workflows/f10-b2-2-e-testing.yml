@@ -104,6 +104,10 @@ jobs:
       - run: bun --no-env-file test src/lib/f4-c2-resumen-cobros.integration.test.ts
       # C5: fail closed unless the declared ephemeral database is in use.
       - run: bun --no-env-file test src/lib/f10-c2c-inicio-vencido.integration.test.ts
+      # T2 import: independent processes and isolated PostgreSQL; no silent skips.
+      - run: bun --no-env-file test src/lib/t2-importacion-formatos.test.ts
+      - run: bun --no-env-file test src/lib/t2-importacion.integration.test.ts
+      - run: bun --no-env-file test src/lib/t2-catalogo.integration.test.ts
       # F4-C3: SQL invariants of commercial exchanges (applied by migrate deploy above) against the ephemeral
       # postgres:16 service, in its own process and BEFORE the regression batch for the same reason as F4-C2.
       - run: bun --no-env-file test src/lib/f4-c3-cambio-venta-schema.integration.test.ts
@@ -195,5 +199,8 @@ jobs:
       # BUG-003: customer-view surfaces — owner session must match the business (other business → 404) and no employee
       # names, internal codes or operational-account data are exposed (mesas-public, by-codigo).
       - run: bun --no-env-file test src/lib/bug003-superficies-publicas.integration.test.ts
+      # Full project typecheck: diagnostics anywhere must fail the candidate.
+      - name: Typecheck completo
+        run: bunx tsc --noEmit --incremental false --pretty false
       - run: bun --no-env-file run build
 

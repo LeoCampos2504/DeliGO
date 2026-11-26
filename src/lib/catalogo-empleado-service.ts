@@ -85,7 +85,10 @@ export async function crearProductoEmpleado(db: Db, input: { negocioId: string; 
   const claims: BarcodeClaim[] = [...(cb.value ? [{ code: cb.value }] : []), ...variantes.flatMap((v) => (v.codigoBarras ? [{ code: v.codigoBarras }] : []))]
   const producto = await runBarcodeGuardedWrite(db, { negocioId, claims }, async (tx) => {
     // Revalida dentro de la transacción: si el permiso venció o se revocó mientras tanto, no se crea nada.
-    if (!(await permisosCatalogo(tx, negocioId, empleadoId)).crear) throw new CatalogoError(SIN_PERMISO)
+    // Serializa frente a revocaciones y vuelve a verificar todos los permisos usados.
+    await tx.$queryRaw`SELECT "id" FROM "empleados" WHERE "id" = ${empleadoId} AND "negocioId" = ${negocioId} FOR SHARE`
+    const ahora = await permisosCatalogo(tx, negocioId, empleadoId)
+    if (!ahora.crear || ((precio > 0 || variantes.some((v) => v.precio > 0)) && !ahora.precios) || (typeof b.costo === "number" && !ahora.costos)) throw new CatalogoError(SIN_PERMISO)
     const creado = await tx.producto.create({
       data: {
         negocioId, nombre, categoria: texto(b.categoria, 80) || "Sin Categoria", precio, costo: p.costos && typeof b.costo === "number" ? b.costo : null,
@@ -156,8 +159,10 @@ export async function editarProductoEmpleado(db: Db, input: { negocioId: string;
   }
   const actor = { tipo: "EMPLEADO" as const, id: empleadoId }
   await runBarcodeGuardedWrite(db, { negocioId, claims }, async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "empleados" WHERE "id" = ${empleadoId} AND "negocioId" = ${negocioId} FOR SHARE`
     const ahora = await permisosCatalogo(tx, negocioId, empleadoId)
-    if (!ahora.vigente || (tocaPrecio && !ahora.precios) || ("costo" in data && !ahora.costos)) throw new CatalogoError(SIN_PERMISO)
+    const tocaDatos = descriptivos.length > 0 || variantes.some((v) => "nombre" in v || "codigoBarras" in v)
+    if (!ahora.vigente || (tocaDatos && !ahora.editar) || (tocaPrecio && !ahora.precios) || ("costo" in data && !ahora.costos)) throw new CatalogoError(SIN_PERMISO)
     // El precio pasa por el historial de activaciones (protege las ventas ya iniciadas) a nombre del empleado.
     if (Object.keys(data).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: null }, () => tx.producto.update({ where: { id: productoId }, data }), actor)
     for (const c of cambiosVariantes) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: c.id }, () => tx.productoVariante.update({ where: { id: c.id }, data: c.data }), actor)
