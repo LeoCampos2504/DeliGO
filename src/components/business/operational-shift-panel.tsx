@@ -73,8 +73,20 @@ function clearAttempt(scope: string, prefix = STORAGE_PREFIX) {
   try { sessionStorage.removeItem(prefix + scope) } catch { /* storage is optional */ }
 }
 
-export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNombre, onAccessLost, onTurnoChange }: { slug: string; negocioId: string; empleadoId: string; empleadoNombre: string; onAccessLost: (status: number, estado?: string) => void; /** F10-C1b: the open shift's id (or null) each time it is (re)read, so the outflow section follows it. */ onTurnoChange?: (turnoId: string | null) => void }) {
+export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNombre, onAccessLost, onTurnoChange, onTurnoResumen, plegableConTurno = false }: {
+  slug: string; negocioId: string; empleadoId: string; empleadoNombre: string; onAccessLost: (status: number, estado?: string) => void
+  /** F10-C1b: the open shift's id (or null) each time it is (re)read, so the outflow section follows it. */
+  onTurnoChange?: (turnoId: string | null) => void
+  /** T1-01: the confirmed open shift's register name (or null), for the page's compact «Turno abierto · <Caja>» indicator. */
+  onTurnoResumen?: (turno: { id: string; cajaNombre: string } | null) => void
+  /** T1-01: with a confirmed open shift the detail starts folded (still MOUNTED: reads, refreshes and the close keep working). */
+  plegableConTurno?: boolean
+}) {
   const [state, setState] = useState<State>(EMPTY)
+  // T1-01 (presentation only): folded/unfolded detail. Reset ONLY when the confirmed shift id
+  // changes (opening or close), never on a refresh of the same shift.
+  const [detalleVisible, setDetalleVisible] = useState(true)
+  const plegadoAplicadoRef = useRef<string | null | undefined>(undefined)
   const [selected, setSelected] = useState("")
   const [fondoInicial, setFondoInicial] = useState("0")
   const [usarFondoTransferido, setUsarFondoTransferido] = useState(false)
@@ -113,6 +125,17 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
   useEffect(() => { turnoMostradoRef.current = state.turno?.id ?? null }, [state.turno])
   const turnoIdMostrado = state.turno?.id ?? null
   useEffect(() => { if (!state.loading) onTurnoChange?.(turnoIdMostrado) }, [state.loading, turnoIdMostrado, onTurnoChange])
+  const cajaNombreMostrada = state.turno?.caja.nombre ?? null
+  useEffect(() => {
+    if (state.loading) return
+    onTurnoResumen?.(turnoIdMostrado && cajaNombreMostrada !== null ? { id: turnoIdMostrado, cajaNombre: cajaNombreMostrada } : null)
+  }, [state.loading, turnoIdMostrado, cajaNombreMostrada, onTurnoResumen])
+  useEffect(() => {
+    if (state.loading || plegadoAplicadoRef.current === turnoIdMostrado) return
+    plegadoAplicadoRef.current = turnoIdMostrado
+    setDetalleVisible(!(plegableConTurno && turnoIdMostrado))
+  }, [state.loading, turnoIdMostrado, plegableConTurno])
+  const plegado = plegableConTurno && Boolean(state.turno) && !detalleVisible
 
   // Back on this tab (focus / visible again): re-read the real state, so a tab left open
   // never keeps offering to close a shift that was already closed elsewhere.
@@ -266,15 +289,22 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
   }
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5" aria-label="Turno de Caja">
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5" aria-labelledby="turno-caja-titulo">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-2 text-base font-bold"><Store className="h-4 w-4" />Caja y turno</p>
-          <p className="mt-1 text-sm text-muted-foreground">{state.loading ? "Cargando cajas…" : "Negocio y caja física"}</p>
+        <div className="min-w-0">
+          <h2 id="turno-caja-titulo" tabIndex={-1} data-foco-seccion="" className="flex items-center gap-2 text-base font-bold outline-none"><Store className="h-4 w-4" />Caja y turno</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{state.loading ? "Cargando cajas…" : plegado && state.turno ? `Turno abierto · ${state.turno.caja.nombre}` : "Negocio y caja física"}</p>
         </div>
-        <Button type="button" variant="ghost" size="icon" aria-label="Actualizar cajas" onClick={() => void refresh()} disabled={state.loading || saving}>
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {plegableConTurno && state.turno && !state.loading && (
+            <Button type="button" variant="outline" size="sm" className="min-h-11 rounded-xl text-xs" aria-expanded={!plegado} aria-controls="turno-caja-detalle" data-testid="plegar-turno" onClick={() => setDetalleVisible((v) => !v)}>
+              {plegado ? "Ver turno" : "Ocultar"}
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="icon" aria-label="Actualizar cajas" onClick={() => void refresh()} disabled={state.loading || saving}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {aviso && (
@@ -287,7 +317,8 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
       {message && <p role="status" data-testid="mensaje-turno" className="mt-3 break-words rounded-xl bg-muted/60 p-3 text-sm">{message}</p>}
       {state.error && <p role="alert" className="mt-3 rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{state.error}</p>}
       {!state.loading && !state.error && state.turno && (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+        // T1-01: folded = hidden but MOUNTED (the close form keeps its state and keeps working when unfolded).
+        <div id="turno-caja-detalle" hidden={plegado} data-testid="detalle-turno" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
           <p className="flex items-center gap-2 font-bold"><BadgeCheck className="h-4 w-4" />Turno abierto</p>
           <p className="mt-1 text-sm">{state.turno.caja.nombre}</p>
           <p className="mt-1 flex items-center gap-1.5 text-sm"><UserRound className="h-4 w-4" />Responsable: {empleadoNombre}</p>

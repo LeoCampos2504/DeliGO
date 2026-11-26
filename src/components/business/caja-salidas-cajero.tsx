@@ -593,8 +593,14 @@ export function CajaSalidasCajero({ slug, negocioId, empleadoId, turnoKey, onAcc
         </div>
       )}
 
-      <div className="mt-5">
-        <h3 className="flex items-center gap-2 text-sm font-bold"><ReceiptText className="h-4 w-4" />Salidas de este turno</h3>
+      {/* T1-01: the history is folded by default (it never pushes the sale out of reach); unfolded it
+          shows the WHOLE list in a height-limited, keyboard-scrollable region. Same data as leer(). */}
+      <details className="group mt-5" data-testid="historial-salidas-plegable">
+        <summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl py-2 text-sm font-bold">
+          <ReceiptText className="h-4 w-4" />
+          <span>Salidas de este turno{lectura.turnoAbierto && !(lectura.cargando && lectura.salidas.length === 0) ? ` (${lectura.salidas.length})` : ""}</span>
+          <span className="ml-auto text-xs font-medium text-muted-foreground"><span className="group-open:hidden">Ver</span><span className="hidden group-open:inline">Ocultar</span></span>
+        </summary>
         {lectura.cargando && lectura.salidas.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Cargando…</p>
         ) : !lectura.turnoAbierto ? (
@@ -602,7 +608,7 @@ export function CajaSalidasCajero({ slug, negocioId, empleadoId, turnoKey, onAcc
         ) : lectura.salidas.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Todavía no registraste salidas en este turno.</p>
         ) : (
-          <ul className="mt-2 divide-y rounded-xl border" aria-label="Salidas de este turno" data-testid="historial-salidas">
+          <ul className="mt-2 max-h-[60vh] divide-y overflow-y-auto overscroll-contain rounded-xl border" tabIndex={0} aria-label="Salidas de este turno" data-testid="historial-salidas">
             {lectura.salidas.map((s) => (
               <li key={s.id} className="flex flex-col gap-1 p-3 text-sm sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -620,7 +626,7 @@ export function CajaSalidasCajero({ slug, negocioId, empleadoId, turnoKey, onAcc
             ))}
           </ul>
         )}
-      </div>
+      </details>
     </section>
   )
 }

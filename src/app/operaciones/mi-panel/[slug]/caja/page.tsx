@@ -22,11 +22,17 @@
 // endpoints only; attempts isolated per business + employee on this device).
 // F10-C1b adds «Salidas de Caja»: cash outflows of the cashier's OWN open shift
 // (cashier endpoints only; no expected cash, balance or difference anywhere).
+// T1-01 (presentation only): the sections follow the shift CONFIRMED by the server —
+// without a shift «Caja y turno» comes first; with an open shift the sale comes first,
+// with a compact «Turno abierto · <Caja>» indicator and the shift detail folded below.
+// Outflows always go after the sale (history folded) and the label/catalog accesses
+// after them. CajaSeccionesOrdenadas MOVES the keyed sections (never remounts them), so
+// the sale in progress (cart, sale start, price protection, attempt) is never lost.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Package, PackageCheck, Store, Tag, UserRound } from "lucide-react"
+import { ArrowLeft, BadgeCheck, Package, PackageCheck, Store, Tag, UserRound } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -36,6 +42,7 @@ import { VenderView, type CajaVenderSource } from "@/components/business/caja-ta
 import { OperationalShiftPanel } from "@/components/business/operational-shift-panel"
 import { CajaVentasHistorial, type CajaDevolucionesEndpoints } from "@/components/business/caja-devoluciones"
 import { CajaSalidasCajero } from "@/components/business/caja-salidas-cajero"
+import { CajaSeccionesOrdenadas } from "@/components/business/caja-cajero-secciones"
 
 interface CajaContexto {
   negocio: { id: string; nombre: string; slug: string; colorPrincipal: string; logoUrl: string | null }
@@ -56,6 +63,9 @@ export default function CajeroCajaPage() {
   const [state, setState] = useState<PageState>({ status: "loading" })
   // F10-C1b: the open shift seen by the shift panel; the outflow section re-reads when it changes.
   const [turnoAbiertoId, setTurnoAbiertoId] = useState<string | null | undefined>(undefined)
+  // T1-01: register name of the confirmed open shift, for the compact indicator only.
+  const [turnoResumen, setTurnoResumen] = useState<{ id: string; cajaNombre: string } | null>(null)
+  const conTurno = typeof turnoAbiertoId === "string"
 
   const handleAccessLost = useCallback(
     (status: number, estado?: string) => {
@@ -164,8 +174,12 @@ export default function CajeroCajaPage() {
             </Button>
           )}
         </header>
-        {state.status === "ready" && <EtiquetasAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/etiquetas`} />}
-        {state.status === "ready" && <CatalogoAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/productos`} />}
+        {state.status === "ready" && conTurno && turnoResumen?.id === turnoAbiertoId && (
+          <p data-testid="indicador-turno" className="flex min-w-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+            <BadgeCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">Turno abierto · {turnoResumen.cajaNombre}</span>
+          </p>
+        )}
 
         {state.status === "loading" && (
           <div className="space-y-3">
@@ -190,32 +204,51 @@ export default function CajeroCajaPage() {
         )}
 
         {state.status === "ready" && source && (
-          <>
-            <OperationalShiftPanel
-              slug={state.ctx.negocio.slug}
-              negocioId={state.ctx.negocio.id}
-              empleadoId={state.ctx.empleado.id}
-              empleadoNombre={state.ctx.empleado.nombre}
-              onAccessLost={handleAccessLost}
-              onTurnoChange={setTurnoAbiertoId}
-            />
-            <CajaSalidasCajero
-              slug={state.ctx.negocio.slug}
-              negocioId={state.ctx.negocio.id}
-              empleadoId={state.ctx.empleado.id}
-              turnoKey={turnoAbiertoId}
-              onAccessLost={handleAccessLost}
-            />
-            <section id="caja-vender" aria-label="Ventas de Caja" className="scroll-mt-3 space-y-3">
-              <h2 className="px-1 text-base font-bold">Ventas</h2>
-              <VenderView negocioId={state.ctx.negocio.id} source={source} />
-            </section>
-            {devoluciones && (
-              <section aria-label="Historial de ventas" className="min-w-0 rounded-2xl border border-border bg-card p-3">
-                <CajaVentasHistorial endpoints={devoluciones} titulo="Ventas anteriores: gestionar, devolver o anular" />
-              </section>
-            )}
-          </>
+          // T1-01: ONE container, keyed sections, order by the CONFIRMED shift (never remounted).
+          <CajaSeccionesOrdenadas
+            conTurno={conTurno}
+            secciones={{
+              turno: (
+                <OperationalShiftPanel
+                  slug={state.ctx.negocio.slug}
+                  negocioId={state.ctx.negocio.id}
+                  empleadoId={state.ctx.empleado.id}
+                  empleadoNombre={state.ctx.empleado.nombre}
+                  onAccessLost={handleAccessLost}
+                  onTurnoChange={setTurnoAbiertoId}
+                  onTurnoResumen={setTurnoResumen}
+                  plegableConTurno
+                />
+              ),
+              ventas: (
+                <section id="caja-vender" aria-labelledby="caja-vender-titulo" className="scroll-mt-3 space-y-3">
+                  <h2 id="caja-vender-titulo" tabIndex={-1} data-foco-seccion="" className="px-1 text-base font-bold outline-none">Ventas</h2>
+                  <VenderView negocioId={state.ctx.negocio.id} source={source} />
+                </section>
+              ),
+              salidas: (
+                <CajaSalidasCajero
+                  slug={state.ctx.negocio.slug}
+                  negocioId={state.ctx.negocio.id}
+                  empleadoId={state.ctx.empleado.id}
+                  turnoKey={turnoAbiertoId}
+                  onAccessLost={handleAccessLost}
+                />
+              ),
+              // Secondary, compact accesses (same permissions and pending-label warning as before).
+              herramientas: (
+                <nav aria-label="Herramientas de Caja" className="grid gap-2 sm:grid-cols-2">
+                  <EtiquetasAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/etiquetas`} />
+                  <CatalogoAcceso slug={state.ctx.negocio.slug} href={`${nav.homeHref}/${encodeURIComponent(state.ctx.negocio.slug)}/productos`} />
+                </nav>
+              ),
+              historial: devoluciones ? (
+                <section aria-label="Historial de ventas" className="min-w-0 rounded-2xl border border-border bg-card p-3">
+                  <CajaVentasHistorial endpoints={devoluciones} titulo="Ventas anteriores: gestionar, devolver o anular" />
+                </section>
+              ) : null,
+            }}
+          />
         )}
       </div>
     </main>
