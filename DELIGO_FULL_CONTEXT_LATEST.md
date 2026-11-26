@@ -1,3 +1,7 @@
+## LATEST UPDATE — T2 EN CURSO, NO CERRADO
+
+Rama `codex/estabilizacion-final`, base inicial `392d920a`; commits locales `a995d894`, `84a29bf4`, `8f02a377`, `f63c8365`, `a2306f47`. T2 incompleta: cobertura y verificaciones pendientes; sin push, CI remoto ni despliegue. Informe y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. C5 integrado, pruebas técnicas parcialmente preparadas, typecheck aún fallido, y ventanas de revocación de proveedor y etiqueta requieren seguimiento. T1 sigue implementada localmente sin certificación. Próximo paso: continuar T2, no iniciar T3. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
+
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 
 ## LATEST UPDATE (2026-11-27, 3) — T0 y T1 implementados en `codex/estabilizacion-final` (local, sin push ni despliegue)

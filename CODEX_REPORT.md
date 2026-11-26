@@ -6,6 +6,11 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
+=== LATEST HANDOFF — T2 EN CURSO, NO CERRADO
+
+Rama `codex/estabilizacion-final`, base inicial `392d920a`; commits locales `a995d894`, `84a29bf4`, `8f02a377`, `f63c8365`, `a2306f47`. T2 incompleta: cobertura y verificaciones pendientes; sin push, CI remoto ni despliegue. Informe y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. C5 integrado, pruebas técnicas parcialmente preparadas, typecheck aún fallido, y ventanas de revocación de proveedor y etiqueta requieren seguimiento. T1 sigue implementada localmente sin certificación. Próximo paso: continuar T2, no iniciar T3. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
+
+
 === LATEST CURRENT HANDOFF — T0 + T1 IMPLEMENTED LOCALLY ON codex/estabilizacion-final (NOT PUSHED, NOT DEPLOYED, NOT CERTIFIED) · ELIGIBILITY MATRIX
 REPO=worktree C:\Leo Campos\Trabajo\deligo-estabilizacion · rama codex/estabilizacion-final · base 327d6c739a55e2f6b5da89f1ec125a24013eb345 (= origin/testing-codex, TESTING) · origin/main 42ca5005 (Production) intacto · copia original deligo-main-limpio codex/f4-c5-sale-exchange-ui 941a915d SIN CAMBIOS en esta tarea (docs pendientes e informes sin seguimiento conservados; archivo 32 intocable)
 COMMITS_LOCALES=c52ecd82 T0 docs (17 archivos) · e283c450 T1-01 punto de venta · ab295580 T1-02/T1-03 permisos vencidos y variantes · 86d89279 T1-04..T1-08 proveedores · 63d29856 T1-09 límites de importación · 7500dd9d CI (suites T1 + rama en el workflow general) · + commit de docs de continuidad · PUSH NO AUTORIZADO
