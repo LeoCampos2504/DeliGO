@@ -1,0 +1,60 @@
+name: B4 C5 expired sale start (focused CI)
+
+# Bloque 4 C5 — focused CI run of ONE integration suite: the server rejects charging with an EXPIRED sale start
+# (409 INICIO_VENTA_VENCIDO, nothing written) plus its positive control. It runs ONLY on the technical branch below,
+# against the ephemeral postgres:16 service of this job (same service and variables as f10-b2-2-e-testing.yml). No
+# Railway, no Production, no secrets, no deploy step (Railway TESTING deploys only from testing-codex). It does NOT
+# replace the full CI battery required before Production.
+
+on:
+  push:
+    branches:
+      - codex/b4-c5-inicio-vencido
+
+permissions:
+  contents: read
+
+jobs:
+  c5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: deligo_test
+          POSTGRES_PASSWORD: deligo_test
+          POSTGRES_DB: deligo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U deligo_test -d deligo_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://deligo_test:deligo_test@127.0.0.1:5432/deligo_test?schema=public
+      DELIGO_TEST_DATABASE_URL: postgresql://deligo_test:deligo_test@127.0.0.1:5432/deligo_test?schema=public
+      DELIGO_ENVIRONMENT: TESTING
+      DELIGO_EPHEMERAL_TEST_DB: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.22
+      - run: bun --no-env-file install --frozen-lockfile
+      - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
+      - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
+      # All migrations of the certified TESTING commit, applied to the ephemeral database only.
+      - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
+      # The new suite must typecheck clean (repo-wide pre-existing diagnostics elsewhere are unchanged and ignored).
+      - name: Typecheck the C5 suite
+        run: |
+          bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
+          if grep -E "^src/lib/f10-c2c-inicio-vencido\.integration\.test\.ts" tsc-output.txt; then
+            echo "TypeScript errors in the C5 suite"; exit 1
+          fi
+          echo "C5 suite typechecks clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+      - name: C5 — expired sale start is rejected by the server (+ positive control)
+        run: bun --no-env-file test src/lib/f10-c2c-inicio-vencido.integration.test.ts
