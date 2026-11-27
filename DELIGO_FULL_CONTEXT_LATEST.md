@@ -1,4 +1,20 @@
-## LATEST UPDATE — T1–T3 CERRADAS (36/36) · F10-D1 EN DISEÑO · CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
+## LATEST UPDATE — T4 EN COMMITS SEPARADOS (8c313cc4 F10-D1 · db37ecd7 navegación · docs) · CI · DESPLIEGUE NO AUTORIZADO (2026-11-27)
+
+- Revisión de ChatGPT aprobada; commits, push a `codex/estabilizacion-final` y CI autorizados. Ningún servicio de Railway
+  sigue esa rama. Despliegue a TESTING pendiente de autorización (respaldo previo sobre TESTING con 69 migraciones; la 70
+  es F10-D1).
+- Registrado: `prisma generate` regeneró el cliente en el `node_modules` compartido; fallo local preexistente de
+  `catalog-tutorial-static-contract` pendiente de clasificación (no está en CI, módulo sin cambios).
+
+## PRECEDING UPDATE — T4 IMPLEMENTADA LOCALMENTE, SIN COMMIT, ESPERANDO REVISIÓN (2026-11-27)
+
+- **F10-D1** (conciliación y recupero de egresos descubiertos después del cierre) implementado con migración aditiva
+  `20261127120000_f10_d1_conciliacion_recupero_egresos`; el bloqueo de `20261118150000` sigue vigente.
+- **Caja / Administración** reorganizada en el panel del dueño (negocios genéricos).
+- Pruebas sólo sobre PostgreSQL efímero local; nada desplegado. `testing-codex` `d72f8bdf`, `main` `42ca5005`.
+- Siguiente: revisión de ChatGPT y autorización de commits/push/despliegue. Handoff: `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T1–T3 CERRADAS (36/36) · F10-D1 EN DISEÑO · CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
 
 - **T1, T2, T3 y la corrección de ocupación `8eacd113`: CERTIFICADAS EN TESTING** (`testing-codex` `d72f8bdf`,
   DeliGO Copy `87d1c139`). 36/36 pruebas del operador, CI, verificación interna de solo lectura y HTTP limpios.

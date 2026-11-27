@@ -6,7 +6,20 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T1–T3 CERRADAS Y CERTIFICADAS EN TESTING (36/36) · T4 F10-D1 EN DISEÑO · REORGANIZACIÓN CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
+=== LATEST HANDOFF — T4 (F10-D1 + CAJA/ADMINISTRACIÓN) EN COMMITS SEPARADOS · PUSH A LA RAMA · CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final: 8c313cc4 feat(f10-d1) → db37ecd7 feat(nav) → docs(t4) · testing-codex d72f8bdf (69 migraciones en TESTING) · main 42ca5005 intacta · Production intacto · ningún servicio de Railway sigue la rama (TESTING → testing-codex, Production → main)
+REVISION_CHATGPT=alcance F10-D1, DF-1/DF-2/DF-3 y reorganización Caja/Administración aprobados; commits, push a la rama y CI autorizados; despliegue NO autorizado
+CONTROLES_FOCALIZADOS=agregados a la suite F10-D1 (15 pruebas): tope por turno con egresos DISTINTOS en concurrencia (API y SQL directo), tope por egreso en concurrencia sólo con guardas SQL (conciliaciones + recuperos), egreso compensado, recupero duplicado / en turno cerrado / inmutable, retiro confirmado con varias parciales, atomicidad auditoría + ajuste F5
+MIGRACIONES_HISTORICAS=idénticas a e3bf6a27 (69 rastreadas; 20261118150000 sin cambios); la 70 es 20261127120000_f10_d1_conciliacion_recupero_egresos
+F10-D1=migración aditiva 20261127120000_f10_d1_conciliacion_recupero_egresos (tablas conciliaciones_egresos_caja / recuperos_egresos_caja, guardas nuevas; 20261118150000 intacta) · servicio src/lib/caja-egresos-correccion-service.ts · rutas dueño POST /api/negocio/caja/egresos/[id]/conciliacion y /recupero · ajuste F5 AJUSTE_DEUDA (ERROR_DE_CARGA / DIFERENCIA_ACORDADA) en la misma transacción · UI guiada en Caja → Egresos · reportes (desglose del turno, cierre, resumen del día)
+NAVEGACION=Caja = Vender · Cajas y turnos · Egresos (Vender queda montado) · Administración = Compras · Etiquetas · Proveedores · Resumen (contador en el menú principal)
+PRUEBAS_LOCALES=PostgreSQL 18 efímero en el scratchpad (70 migraciones aplicadas): F10-D1 11/11 · C1a 21/21 · C1a-R1 6/6 · C1c 12/12 · F5-A 25/25 · C2a 20/20 · contratos y UI afectados en verde · typecheck completo limpio salvo 2 errores preexistentes de scripts/migrate-sqlite-to-postgres.ts (clientes históricos, generados sólo en CI) · ESLint limpio en lo tocado · git diff --check OK
+PREEXISTENTE_LOCAL=catalog-tutorial-static-contract «does not auto-start…» falla localmente; el contrato sólo lee catalog-tutorial*.ts(x) y products-tab.tsx, idénticos a e3bf6a27 → preexistente; no está en el workflow de CI; causa (probablemente CRLF local) PENDIENTE DE CLASIFICACIÓN; módulo no modificado
+INCIDENCIA_ENTORNO=prisma generate regeneró el cliente de Prisma en el node_modules COMPARTIDO (junction a deligo-dev-local\node_modules) con los modelos aditivos de F10-D1; no se hicieron otras modificaciones a dependencias compartidas ni a la copia original
+SIGUIENTE_PASO=CI verde sobre el commit final de la rama → revisión de ChatGPT → operador ejecuta el respaldo de TESTING (69 migraciones) → autorización del push fast-forward a testing-codex (aplica la migración 70) → recorrido funcional focalizado
+
+=== PRECEDING HANDOFF — T1–T3 CERRADAS Y CERTIFICADAS EN TESTING (36/36) · T4 F10-D1 EN DISEÑO · REORGANIZACIÓN CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (docs de cierre sobre d72f8bdf) · testing-codex d72f8bdf (desplegado, DeliGO Copy 87d1c139) · main 42ca5005 intacta · Production intacto
 CERTIFICACION=T1, T2, T3 y corrección de ocupación 8eacd113: CLOSED_TESTING_CERTIFIED · 36/36 (28 + 8; S1 repetido como Salón personal → cerradaPorTipo=salon) · CI 45936472239/45937251271 SUCCESS · verificación interna y HTTP sin inconsistencias

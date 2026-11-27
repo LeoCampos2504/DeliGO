@@ -1,7 +1,16 @@
 # F10-D1 — Conciliación y recupero de egresos de Caja descubiertos después del cierre (DISEÑO PROPUESTO)
 
-Fecha: 2026-11-27 · Autor: Claude Code · Tanda T4 del plan de consolidación. **Estado: DISEÑO PROPUESTO, NO APROBADO,
-NO IMPLEMENTADO.** La implementación necesita aprobación del diseño y una autorización separada (decisión D-2).
+Fecha: 2026-11-27 · Autor: Claude Code · Tanda T4 del plan de consolidación. **Estado (2026-11-27): DISEÑO APROBADO por el
+operador (DF-1 fuera de alcance → roadmap; DF-2 `DIFERENCIA_ACORDADA`; DF-3 el recupero cuenta el día que entra el dinero)
+e IMPLEMENTADO localmente sin commit** (migración aditiva `20261127120000_f10_d1_conciliacion_recupero_egresos`,
+servicio `src/lib/caja-egresos-correccion-service.ts`, rutas `/conciliacion` y `/recupero`). Pendiente: revisión de
+ChatGPT, commits, CI, despliegue a TESTING y certificación funcional.
+
+Condiciones de integridad agregadas en la aprobación (implementadas): tope por **turno** (lo conciliado por todos los
+egresos de un turno cerrado no supera su sobrante `contado − esperado`; sin sobrante no se concilia y la limitación se
+informa con 409 `SIN_SOBRANTE_EN_CIERRE`); un retiro CONFIRMADO conserva salida real (sólo conciliación parcial o
+recupero); un pago con correcciones no se vincula ni desvincula y su ajuste de F5 no se anula; operación de recupero
+nunca huérfana (trigger diferido al confirmar); historial inmutable también frente a DELETE.
 
 ## 0. Fuentes y decisiones que no se reabren
 

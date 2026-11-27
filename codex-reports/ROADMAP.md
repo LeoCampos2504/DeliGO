@@ -18,8 +18,16 @@ Panel del dueño (negocios genéricos): **Caja** queda con Vender · Cajas y tur
 **Administración**, junto a Caja, con Compras · Etiquetas · Proveedores · Resumen. Se conservan las demás secciones.
 Sólo reorganización de componentes existentes: sin cambios de lógica financiera, permisos, APIs ni base; mismos filtros,
 formularios y comportamiento; compatibilidad de navegación y enlaces; estilo claro/oscuro; prioridad móvil sin mover el
-desplazamiento horizontal al menú principal. **No implementada**; se incluirá en el próximo ciclo de despliegue a
-TESTING. No confundir con la paridad de enlaces/QR de mesa (después de Production y T7).
+desplazamiento horizontal al menú principal. **Implementada localmente en T4 (2026-11-27), sin commit**, pendiente de
+revisión de ChatGPT, commit separado y del despliegue conjunto con F10-D1 a TESTING. No confundir con la paridad de
+enlaces/QR de mesa (después de Production y T7).
+
+### FUTURO (DF-1, operador 2026-11-27) — complemento informativo de egreso registrado de MENOS
+
+Fuera de F10-D1. Cuando salió más efectivo del que se registró, el cierre ya mostró un **faltante**: hoy se explica con la
+observación existente del egreso / del turno. Mejora futura posible: un «complemento de egreso» **informativo**, sin
+movimiento de dinero ni pata en el libro, que reclasifique ese faltante como gasto / pago / retiro en los reportes. No
+crea dinero ficticio ni reabre turnos. No bloquea la estabilización ni Production.
 
 ### PRIORIDAD MÁXIMA DESPUÉS DE PRODUCTION — paridad de enlaces y QR de mesa entre las pantallas de Salón (operador, 2026-11-27)
 
