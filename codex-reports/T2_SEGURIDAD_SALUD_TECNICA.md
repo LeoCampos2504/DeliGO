@@ -1,6 +1,8 @@
 # T2 — seguridad y salud técnica: avance local, NO cerrado
 
-## Actualización al reanudar — 2026-11-26, runs de CI 1–4
+## Actualización al reanudar — 2026-11-26, runs de CI 1–5
+
+**Resultado final sobre HEAD:** el run 5, [`45920504402`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45920504402), validó el HEAD `cee9f94bb5e5b107cd0eb84b78a67de86be37717`: 59 comandos, 805 aprobadas, 0 fallidas, 0 omitidas; PostgreSQL, TypeScript completo y build aprobados. Este commit sólo actualiza este documento respecto del commit de código T2 `fd80bad8`, ya validado también por el run 4. La rama `main` (`42ca5005`) y `testing-codex` (`327d6c73`) permanecen intactas.
 
 - Punto de partida verificado: rama `codex/estabilizacion-final`, HEAD `70d0b2536a418d44e21da9e32b7ce0d6219fa07c`, worktree con las modificaciones de esta continuación y sin cambios staged. Se preservaron los commits existentes.
 - P0 etiquetas/precios: se añadió `bloquearPrecioYEtiquetasEnTx`, con bloqueo del producto y variante más un no-op MVCC update en `productos` para hacer visible el punto de serialización bajo PostgreSQL `SERIALIZABLE`. Confirmar, activar sin etiqueta, descartar, aprobación de precios, precio manual del dueño, empleado e importación consultan ese punto. El dueño sigue reemplazando etiquetas; el empleado recibe 409; la importación conserva precio/stock vinculado, permite aplicar otros campos y audita ese resultado. La barrera etiqueta-primero prueba espera real de empleado e importación; precio-primero rechaza la propuesta vieja y acepta la nueva vista. Se amplió el retry F9 a P2034 y P2010/SQLSTATE 40001.
