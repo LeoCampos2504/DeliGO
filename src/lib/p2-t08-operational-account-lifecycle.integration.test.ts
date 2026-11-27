@@ -185,7 +185,8 @@ describe("P2-T08 F-T08-02 — lifecycle de CuentaOperativa en ocupación y cance
     const revoked = await crearPedidoMesaConOcupacion()
     await db.cuentaOperativa.update({ where: { id: cuentaOperativaId }, data: { activo: false } })
     const response = await cancelarPedido(
-      new NextRequest(`http://localhost/api/operaciones/pedidos/${revoked.pedidoId}/cancelar`, {
+      // T3: la ruta exige la familia de sesión de la pantalla (cuenta operativa).
+      new NextRequest(`http://localhost/api/operaciones/pedidos/${revoked.pedidoId}/cancelar?actorFamily=cuenta_operativa`, {
         method: "POST",
         headers: { cookie: `${OPERATIONAL_SESSION_COOKIE_NAME}=${operationalToken}`, "content-type": "application/json" },
         body: JSON.stringify({ motivo: "Cuenta revocada" }),

@@ -154,7 +154,8 @@ function reqConCookies(cookies: Record<string, string>): NextRequest {
 }
 
 async function postCancelarPedido(params: { pedidoId: string; token: string; motivo?: string }) {
-  const req = new NextRequest(`http://localhost/api/operaciones/pedidos/${params.pedidoId}/cancelar`, {
+  // T3: la ruta exige la familia de sesión de la pantalla; estos casos usan la sesión del dueño.
+  const req = new NextRequest(`http://localhost/api/operaciones/pedidos/${params.pedidoId}/cancelar?actorFamily=negocio`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

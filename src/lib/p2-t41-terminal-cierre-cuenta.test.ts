@@ -133,16 +133,20 @@ async function sesionOperativa(cuentaOperativaId: string) {
   return token
 }
 
-function getRequest(cookies: Record<string, string>): NextRequest {
+// T3: la ruta de la cuenta exige la familia de sesión de la pantalla (`?actorFamily=`); cada caso declara la
+// familia de la credencial que envía (terminal / cuenta_operativa / negocio).
+type FamiliaCuenta = "negocio" | "cuenta_operativa" | "terminal"
+
+function getRequest(cookies: Record<string, string>, familia: FamiliaCuenta): NextRequest {
   const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ")
-  return new NextRequest("http://localhost/api/operaciones/ocupaciones/test/cuenta", {
+  return new NextRequest(`http://localhost/api/operaciones/ocupaciones/test/cuenta?actorFamily=${familia}`, {
     headers: cookieHeader ? { cookie: cookieHeader } : undefined,
   })
 }
 
-function postCuentaRequest(cookies: Record<string, string>): NextRequest {
+function postCuentaRequest(cookies: Record<string, string>, familia: FamiliaCuenta): NextRequest {
   const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ")
-  return new NextRequest("http://localhost/api/operaciones/ocupaciones/test/cuenta", {
+  return new NextRequest(`http://localhost/api/operaciones/ocupaciones/test/cuenta?actorFamily=${familia}`, {
     method: "POST",
     headers: cookieHeader ? { cookie: cookieHeader, "content-type": "application/json" } : { "content-type": "application/json" },
     body: JSON.stringify({}),
@@ -217,7 +221,7 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const rawToken = await crearSesionTerminal(terminalSalonId)
-    const req = getRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
+    const req = getRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken }, "terminal")
     const response = await getCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
     expect(response.status).toBe(200)
     const body = await response.json()
@@ -229,7 +233,7 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const rawToken = await crearSesionTerminal(terminalSalonId)
-    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
+    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken }, "terminal")
     const response = await cerrarCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
     expect(response.status).toBe(403)
     const body = await response.json()
@@ -243,9 +247,10 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const rawToken = await crearSesionTerminal(terminalAjenaId)
-    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
+    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken }, "terminal")
     const response = await cerrarCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
-    expect([401, 403]).toContain(response.status)
+    // T3 (contrato BUG-002 de la familia declarada): credencial válida de OTRO negocio → 404, sin revelar la ocupación.
+    expect(response.status).toBe(404)
 
     const ocupacion = await db.sesionOcupacionMesa.findUniqueOrThrow({ where: { id: ocupacionId } })
     expect(ocupacion.estado).toBe("activa")
@@ -255,9 +260,10 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const rawToken = await crearSesionTerminal(terminalPyrId)
-    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken })
+    const req = postCuentaRequest({ [TERMINAL_SESSION_COOKIE_NAME]: rawToken }, "terminal")
     const response = await cerrarCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
-    expect(response.status).toBe(401)
+    // T3 (contrato BUG-002): terminal autenticada del negocio sin el área de Salón → 403 (antes 401 genérico).
+    expect(response.status).toBe(403)
 
     const ocupacion = await db.sesionOcupacionMesa.findUniqueOrThrow({ where: { id: ocupacionId } })
     expect(ocupacion.estado).toBe("activa")
@@ -267,7 +273,7 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const token = await sesionOperativa(cuentaSalonId)
-    const req = postCuentaRequest({ [OPERATIONAL_SESSION_COOKIE_NAME]: token })
+    const req = postCuentaRequest({ [OPERATIONAL_SESSION_COOKIE_NAME]: token }, "cuenta_operativa")
     const response = await cerrarCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
     expect(response.status).toBe(200)
     const body = await response.json()
@@ -283,7 +289,7 @@ describe("P2-T41 — Terminal Operativa (Salón) es de solo lectura para el cier
     const mesaId = await crearMesa(negocioId)
     const ocupacionId = await crearOcupacion(negocioId, mesaId)
     const token = await sesionNegocio(negocioId)
-    const req = postCuentaRequest({ [SESSION_COOKIE_NAME]: token })
+    const req = postCuentaRequest({ [SESSION_COOKIE_NAME]: token }, "negocio")
     const response = await cerrarCuentaRoute(req, { params: Promise.resolve({ id: ocupacionId }) })
     expect(response.status).toBe(200)
 

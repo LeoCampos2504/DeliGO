@@ -217,6 +217,18 @@ jobs:
       # BUG-003: customer-view surfaces — owner session must match the business (other business → 404) and no employee
       # names, internal codes or operational-account data are exposed (mesas-public, by-codigo).
       - run: bun --no-env-file test src/lib/bug003-superficies-publicas.integration.test.ts
+      # T3 (simultaneous owner/employee sessions + the 116 historical HTTP 401): each surface of P1-09 uses ONLY the
+      # declared family's credential (commercial table close, table-order cancel, notifications, featured requests,
+      # reports, waiter stats) with no fallback, isolation and no effects on rejection, on the ephemeral postgres:16
+      # service (fail closed otherwise); then the wiring contract, the cancel client and the bell's automatic queries
+      # (happy-dom, module mocks → own process). The historical 23-A1 / P2-T41 / P2-T08 suites now declare the family
+      # too and run here against the same ephemeral database.
+      - run: bun --no-env-file test src/lib/t3-sesiones-simultaneas.integration.test.ts
+      - run: bun --no-env-file test src/lib/t3-identidad-static-contract.test.ts src/lib/mesa-pedido-cancelacion-client.test.ts src/lib/mesa-pedido-cancelacion-ui-contract.test.ts
+      - run: bun --no-env-file test src/components/shared/notification-center.t3.test.tsx
+      - run: bun --no-env-file test --timeout 60000 src/lib/p2-t41-terminal-cierre-cuenta.test.ts
+      - run: bun --no-env-file test --timeout 60000 src/lib/mesa-pedido-cancelacion.test.ts
+      - run: bun --no-env-file test --timeout 60000 src/lib/p2-t08-operational-account-lifecycle.integration.test.ts
       # Full project typecheck: diagnostics anywhere must fail the candidate.
       - name: Typecheck completo
         run: bunx tsc --noEmit --incremental false --pretty false
