@@ -32,6 +32,9 @@ on:
       # CI-only run for the final stabilization (T1 interface fixes; later T2/T3) before integration; no deploy step
       # (Railway TESTING deploys only from testing-codex).
       - codex/estabilizacion-final
+      # T5: CI-only run for the Production release candidate (P0-08 exclusion + explicit merge of origin/main); no
+      # deploy step (Railway TESTING deploys only from testing-codex, Production only from main).
+      - codex/release-candidata
 
 permissions:
   contents: read
