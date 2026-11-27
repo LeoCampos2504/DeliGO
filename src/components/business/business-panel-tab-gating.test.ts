@@ -45,3 +45,13 @@ describe("restaurante / ropa — no regression from P2-T56-R1", () => {
     expect(productosTab?.label).toBe("Prendas")
   })
 })
+
+describe("T4 — Caja / Administración (generic business only)", () => {
+  test("negocio gets Administración right after Caja; restaurante and ropa never get it", () => {
+    const tabs = ids("negocio")
+    expect(tabs.indexOf("administracion")).toBe(tabs.indexOf("caja") + 1)
+    expect(getTabItems("negocio").find((t) => t.id === "administracion")?.label).toBe("Administración")
+    expect(ids("restaurante")).not.toContain("administracion")
+    expect(ids("ropa")).not.toContain("administracion")
+  })
+})

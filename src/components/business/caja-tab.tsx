@@ -203,22 +203,29 @@ export function selectorProductos(source: CajaVenderSource): ComponentType<Selec
   return Selector
 }
 
-type CajaSubTab = "vender" | "resumen" | "turnos" | "egresos" | "proveedores" | "compras" | "etiquetas"
+// T4 (operator, 2026-11-27) — owner navigation of a generic business:
+//   Caja           = Vender · Cajas y turnos · Egresos   (the cash itself)
+//   Administración = Compras · Etiquetas · Proveedores · Resumen
+// Same components, same endpoints and permissions; only where they live changes.
+type CajaSubTab = "vender" | "turnos" | "egresos"
+type AdministracionSubTab = "compras" | "etiquetas" | "proveedores" | "resumen"
 
-export function CajaTab({ negocio }: { negocio: { id: string } }) {
-  const [subTab, setSubTab] = useState<CajaSubTab>("vender")
-  const irAVender = useCallback(() => setSubTab("vender"), [])
-  // F10-C2b: recepciones esperando aprobación (mismo cache que la bandeja de Compras) y salto a la cuenta del proveedor.
+/**
+ * Pending work of «Administración» (receptions waiting for approval, price labels to print). Same caches as the
+ * Compras inbox and the label list, so the counters on the main menu and on the sub-tabs are always the same.
+ */
+export function useAdministracionPendientes(negocioId: string, enabled = true) {
+  // F10-C2b: recepciones esperando aprobación (mismo cache que la bandeja de Compras).
   const recepcionesPendientes = useQuery({
-    queryKey: [...comprasQueryKey(negocio.id), "recepciones"],
+    queryKey: [...comprasQueryKey(negocioId), "recepciones"],
     queryFn: async () => {
       const res = await fetch("/api/negocio/recepciones", { cache: "no-store" })
       const json = await res.json()
       if (!res.ok || json.ok === false) throw new Error("recepciones")
       return json as { recepciones: Array<{ estado: string }> }
     },
+    enabled,
   })
-  const cantidadPendientes = (recepcionesPendientes.data?.recepciones ?? []).filter((r) => r.estado === "PENDIENTE_APROBACION").length
   // F10-C2c: etiquetas de góndola pendientes (mismo cache que la lista en su filtro inicial).
   const etiquetasPendientes = useQuery<{ pendientes: number }>({
     queryKey: etiquetasPendientesQueryKey(ETIQUETAS_URL_DUENO),
@@ -227,9 +234,50 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
       if (!res.ok) throw new Error("etiquetas")
       return res.json()
     },
+    enabled,
   })
-  const cantidadEtiquetas = etiquetasPendientes.data?.pendientes ?? 0
+  const compras = (recepcionesPendientes.data?.recepciones ?? []).filter((r) => r.estado === "PENDIENTE_APROBACION").length
+  const etiquetas = etiquetasPendientes.data?.pendientes ?? 0
+  return { compras, etiquetas, total: compras + etiquetas }
+}
+
+/**
+ * «Administración» (owner, generic business). `onIrAVender` opens Caja → Vender (Resumen → «Gestionar venta»):
+ * the host navigates through its guarded panel navigation.
+ */
+export function AdministracionTab({ negocio, onIrAVender }: { negocio: { id: string }; onIrAVender?: () => void }) {
+  const [subTab, setSubTab] = useState<AdministracionSubTab>("compras")
+  const pendientes = useAdministracionPendientes(negocio.id)
+  // F10-C2b: from a purchase, the supplier's account opens inside Administración.
   const [proveedorAbrir, setProveedorAbrir] = useState<string | null>(null)
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/60 p-1" role="group" aria-label="Secciones de Administración">
+        <SubTabButton active={subTab === "compras"} icon={<ClipboardList className="h-3.5 w-3.5" />} label={pendientes.compras ? `Compras (${pendientes.compras})` : "Compras"} onClick={() => setSubTab("compras")} />
+        <SubTabButton active={subTab === "etiquetas"} icon={<Tag className="h-3.5 w-3.5" />} label={pendientes.etiquetas ? `Etiquetas (${pendientes.etiquetas})` : "Etiquetas"} onClick={() => setSubTab("etiquetas")} />
+        <SubTabButton active={subTab === "proveedores"} icon={<Truck className="h-3.5 w-3.5" />} label="Proveedores" onClick={() => { setProveedorAbrir(null); setSubTab("proveedores") }} />
+        <SubTabButton active={subTab === "resumen"} icon={<Receipt className="h-3.5 w-3.5" />} label="Resumen" onClick={() => setSubTab("resumen")} />
+      </div>
+      {subTab === "proveedores" ? <OwnerProveedores key={proveedorAbrir ?? "lista"} negocioId={negocio.id} proveedorInicialId={proveedorAbrir} />
+        : subTab === "compras" ? <OwnerCompras negocioId={negocio.id} onVerProveedor={(id) => { setProveedorAbrir(id); setSubTab("proveedores") }} />
+        : subTab === "etiquetas" ? <EtiquetasPrecioLista url={ETIQUETAS_URL_DUENO} esDueno />
+        : <ResumenView negocioId={negocio.id} onIrAVender={onIrAVender} />}
+    </div>
+  )
+}
+
+/**
+ * «Caja» (owner, generic business). `irAVenderToken`: each new value opens «Vender» (asked from Administración).
+ * The selling view stays MOUNTED while another sub-tab is shown, so the cart and the sale start are never lost.
+ */
+export function CajaTab({ negocio, irAVenderToken = 0 }: { negocio: { id: string }; irAVenderToken?: number }) {
+  const [subTab, setSubTab] = useState<CajaSubTab>("vender")
+  // A new request from Administración opens «Vender» (state adjusted during render, no effect).
+  const [tokenVisto, setTokenVisto] = useState(irAVenderToken)
+  if (tokenVisto !== irAVenderToken) {
+    setTokenVisto(irAVenderToken)
+    setSubTab("vender")
+  }
   const [registerSelection, setRegisterSelection] = useState({ cajaId: "", turnoId: "" })
   const [pendingRegisterId, setPendingRegisterId] = useState<string | null>(null)
   const registersQuery = useQuery<{ cajas: CajaFisicaResumen[] }>({
@@ -256,26 +304,22 @@ export function CajaTab({ negocio }: { negocio: { id: string } }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/60 p-1">
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-muted/60 p-1" role="group" aria-label="Secciones de Caja">
         <SubTabButton active={subTab === "vender"} icon={<ShoppingCart className="h-3.5 w-3.5" />} label="Vender" onClick={() => setSubTab("vender")} />
         <SubTabButton active={subTab === "turnos"} icon={<Store className="h-3.5 w-3.5" />} label="Cajas y turnos" onClick={() => setSubTab("turnos")} />
         <SubTabButton active={subTab === "egresos"} icon={<HandCoins className="h-3.5 w-3.5" />} label="Egresos" onClick={() => setSubTab("egresos")} />
-        <SubTabButton active={subTab === "compras"} icon={<ClipboardList className="h-3.5 w-3.5" />} label={cantidadPendientes ? `Compras (${cantidadPendientes})` : "Compras"} onClick={() => setSubTab("compras")} />
-        <SubTabButton active={subTab === "etiquetas"} icon={<Tag className="h-3.5 w-3.5" />} label={cantidadEtiquetas ? `Etiquetas (${cantidadEtiquetas})` : "Etiquetas"} onClick={() => setSubTab("etiquetas")} />
-        <SubTabButton active={subTab === "proveedores"} icon={<Truck className="h-3.5 w-3.5" />} label="Proveedores" onClick={() => { setProveedorAbrir(null); setSubTab("proveedores") }} />
-        <SubTabButton active={subTab === "resumen"} icon={<Receipt className="h-3.5 w-3.5" />} label="Resumen" onClick={() => setSubTab("resumen")} />
       </div>
-      {subTab === "vender" ? (
-        <>
-          <OwnerSaleRegisterSelector registers={openRegisters} pendingRegister={pendingRegister} loading={registersQuery.isLoading} error={registersQuery.isError} selectedId={selectedRegister?.id ?? ""} selectionRequired={selectionRequired} onSelect={selectOpenRegister} onRefresh={() => void registersQuery.refetch()} />
-          <VenderView negocioId={negocio.id} ownerSaleAssignment={{
-            cajaFisicaId: selectedRegister?.id ?? null,
-            selectionRequired,
-            selectionReady,
-            onPendingRegisterChange: setPendingRegisterId,
-          }} />
-        </>
-      ) : subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : subTab === "egresos" ? <OwnerCajaEgresos negocioId={negocio.id} /> : subTab === "proveedores" ? <OwnerProveedores key={proveedorAbrir ?? "lista"} negocioId={negocio.id} proveedorInicialId={proveedorAbrir} /> : subTab === "compras" ? <OwnerCompras negocioId={negocio.id} onVerProveedor={(id) => { setProveedorAbrir(id); setSubTab("proveedores") }} /> : subTab === "etiquetas" ? <EtiquetasPrecioLista url={ETIQUETAS_URL_DUENO} esDueno /> : <ResumenView negocioId={negocio.id} onIrAVender={irAVender} />}
+      {/* Kept mounted (only hidden) on the other sub-tabs: the cart and the sale start survive the visit. */}
+      <div hidden={subTab !== "vender"} data-testid="caja-vender">
+        <OwnerSaleRegisterSelector registers={openRegisters} pendingRegister={pendingRegister} loading={registersQuery.isLoading} error={registersQuery.isError} selectedId={selectedRegister?.id ?? ""} selectionRequired={selectionRequired} onSelect={selectOpenRegister} onRefresh={() => void registersQuery.refetch()} />
+        <VenderView negocioId={negocio.id} ownerSaleAssignment={{
+          cajaFisicaId: selectedRegister?.id ?? null,
+          selectionRequired,
+          selectionReady,
+          onPendingRegisterChange: setPendingRegisterId,
+        }} />
+      </div>
+      {subTab === "turnos" ? <><OwnerCajaTurnosPanel negocioId={negocio.id} /><CajaCambiosConfig /></> : subTab === "egresos" ? <OwnerCajaEgresos negocioId={negocio.id} /> : null}
     </div>
   )
 }
@@ -300,6 +344,8 @@ function OwnerSaleRegisterSelector({ registers, pendingRegister, loading, error,
 function SubTabButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all",

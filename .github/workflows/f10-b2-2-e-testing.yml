@@ -182,6 +182,8 @@ jobs:
       # F10-D1: post-close conciliations / recoveries of cash outflows (ephemeral postgres only) + static contract.
       - run: bun --no-env-file test src/lib/f10-d1-correcciones-egresos.integration.test.ts
       - run: bun --no-env-file test src/lib/f10-d1-static-contract.test.ts
+      # T4: Caja / Administración navigation (cart preserved, counters, guarded navigation) + tab gating.
+      - run: bun --no-env-file test src/components/business/caja-administracion-static-contract.test.ts src/components/business/business-panel-tab-gating.test.ts
       - run: bun --no-env-file test "src/app/operaciones/mi-panel/[slug]/caja/page.test.tsx"
       # T1 (stabilization, presentation only): the cashier sections follow the confirmed shift without remounting the
       # sale (REAL VenderView: cart and sale start survive opening/closing), expired catalog permissions start

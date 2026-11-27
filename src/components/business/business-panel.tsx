@@ -19,6 +19,7 @@ import {
   DoorOpen,
   DoorClosed,
   ShoppingCart,
+  Briefcase,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -38,14 +39,14 @@ import { ConfigTab } from "./config-tab"
 import { ReviewsTab } from "./reviews-tab"
 import { SalesTab } from "./sales-tab"
 import { SalonTab } from "./salon-tab"
-import { CajaTab } from "./caja-tab"
+import { AdministracionTab, CajaTab, useAdministracionPendientes } from "./caja-tab"
 import { InventarioTab } from "./inventario-tab"
 
 // ============================================
 // Types
 // ============================================
 export type PanelMode = "simple" | "expert"
-export type PanelTab = "dashboard" | "ventas" | "productos" | "caja" | "inventario" | "pedidos" | "resenas" | "salon" | "config"
+export type PanelTab = "dashboard" | "ventas" | "productos" | "caja" | "administracion" | "inventario" | "pedidos" | "resenas" | "salon" | "config"
 
 /** Shared query key so child components can invalidate tab counts */
 export const TAB_COUNTS_KEY = "negocio-tab-counts"
@@ -80,6 +81,8 @@ export function getTabItems(rubro: string): { id: PanelTab; label: string; icon:
   // model. Restaurante/Ropa are completely unchanged.
   if (isNegocio) {
     items.push({ id: "caja", label: "Caja", icon: ShoppingCart })
+    // T4 (2026-11-27): purchases, price labels, suppliers and the summary live next to Caja, not inside it.
+    items.push({ id: "administracion", label: "Administración", icon: Briefcase })
     items.push({ id: "inventario", label: "Inventario", icon: Package })
   } else {
     items.push({ id: "productos", label: isRopa ? "Prendas" : "Productos", icon: isRopa ? Shirt : Package })
@@ -153,6 +156,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       ventas: "ventas",
       productos: "productos",
       caja: "caja",
+      administracion: "administracion",
       inventario: "inventario",
       salon: "salon",
     }
@@ -269,6 +273,7 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
           ventas: "ventas",
           productos: "productos",
           caja: "caja",
+          administracion: "administracion",
           inventario: "inventario",
           pedidos: "pedidos",
           resenas: "resenas",
@@ -331,6 +336,21 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
   }
 
   const tabItems = useMemo(() => getTabItems(negocio.rubro), [negocio.rubro])
+  // T4: Administración's pending work (same caches as its sub-tabs) also shows on the main menu, so moving
+  // Compras / Etiquetas out of Caja never hides a reception waiting for approval or labels to print.
+  const administracionPendientes = useAdministracionPendientes(negocio.id, negocio.rubro === "negocio")
+  // Caja stays mounted (hidden) while the owner visits Administración, so the cart and the sale start of «Vender»
+  // survive the round trip; any other tab unmounts it exactly as before.
+  const [cajaViva, setCajaViva] = useState(false)
+  useEffect(() => {
+    if (activeTab === "caja") setCajaViva(true)
+    else if (activeTab !== "administracion") setCajaViva(false)
+  }, [activeTab])
+  const [irAVenderToken, setIrAVenderToken] = useState(0)
+  const irAVenderDesdeAdministracion = useCallback(() => {
+    setIrAVenderToken((t) => t + 1)
+    requestPanelNavigation("caja")
+  }, [requestPanelNavigation])
   const isRopa = negocio.rubro === "ropa"
   const isNegocio = negocio.rubro === "negocio"
   // Mode toggle only makes sense for restaurantes (agregados, ingredientes, etc.)
@@ -436,19 +456,21 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
 
       {/* ===== TAB NAVIGATION ===== */}
       <div className="sticky top-[104px] z-30 bg-background/95 backdrop-blur-md border-b border-border/30">
-        <div className="max-w-4xl mx-auto px-4">
-          <nav className="flex gap-1 py-1.5 overflow-x-auto scrollbar-none" aria-label="Panel navigation">
+        <div className="max-w-4xl mx-auto px-2 sm:px-4">
+          {/* Icons only below 640 px: the items share the width (Caja + Administración fit at 320 px without scrolling). */}
+          <nav className="flex gap-0.5 sm:gap-1 py-1.5 overflow-x-auto scrollbar-none" aria-label="Panel navigation">
             {tabItems.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
-              const badgeCount = tab.id === "pedidos" ? activeOrders : tab.id === "resenas" ? resenasSinRespuesta : 0
+              const badgeCount = tab.id === "pedidos" ? activeOrders : tab.id === "resenas" ? resenasSinRespuesta : tab.id === "administracion" ? administracionPendientes.total : 0
               const isBouncing = tab.id === "pedidos" ? ordersBounce : tab.id === "resenas" ? resenasBounce : false
               return (
                 <button
                   key={tab.id}
                   onClick={() => requestPanelNavigation(tab.id)}
+                  aria-label={badgeCount > 0 ? `${tab.label} (${badgeCount})` : tab.label}
                   className={cn(
-                    "relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors",
+                    "relative flex flex-1 sm:flex-none min-w-8 items-center justify-center gap-1.5 px-1.5 sm:px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-colors",
                     isActive
                       ? "text-primary"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -490,7 +512,8 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
       <main className="flex-1 max-w-4xl mx-auto w-full">
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            // Caja and Administración share one container so switching between them never remounts «Vender».
+            key={activeTab === "caja" || activeTab === "administracion" ? "caja-administracion" : activeTab}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
@@ -511,8 +534,13 @@ export function BusinessPanel({ negocio }: BusinessPanelProps) {
                 onRegisterNavigationGuard={(guard) => { catalogNavigationGuardRef.current = guard }}
               />
             )}
-            {activeTab === "caja" && (
-              <CajaTab negocio={negocio} />
+            {(activeTab === "caja" || (activeTab === "administracion" && cajaViva)) && (
+              <div hidden={activeTab !== "caja"}>
+                <CajaTab negocio={negocio} irAVenderToken={irAVenderToken} />
+              </div>
+            )}
+            {activeTab === "administracion" && (
+              <AdministracionTab negocio={negocio} onIrAVender={irAVenderDesdeAdministracion} />
             )}
             {activeTab === "inventario" && (
               <InventarioTab negocio={negocio} />

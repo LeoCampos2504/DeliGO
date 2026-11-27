@@ -19,7 +19,8 @@ const React = await import("react")
 const { act } = React
 const { createRoot } = await import("react-dom/client")
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query")
-const { CajaTab } = await import("./caja-tab")
+// T4: «Resumen» lives in Administración (same ResumenView, same endpoints).
+const { AdministracionTab } = await import("./caja-tab")
 
 const now = new Date().toISOString()
 const corregida = {
@@ -122,7 +123,7 @@ async function renderResumen() {
   await act(async () => {
     root.render(
       <QueryClientProvider client={client}>
-        <CajaTab negocio={{ id: "neg-1" }} />
+        <AdministracionTab negocio={{ id: "neg-1" }} />
       </QueryClientProvider>
     )
   })

@@ -172,7 +172,8 @@ describe("F9 — scope: generic businesses only; Mozo keeps its flow", () => {
   })
   test("Caja and Inventario tabs exist only for rubro 'negocio'", () => {
     const panel = read("src/components/business/business-panel.tsx")
-    expect(panel).toMatch(/if \(isNegocio\) \{\s*items\.push\(\{ id: "caja"[^\n]*\n\s*items\.push\(\{ id: "inventario"/)
+    // T4 (2026-11-27): Administración (purchases, labels, suppliers, summary) sits between Caja and Inventario.
+    expect(panel).toMatch(/if \(isNegocio\) \{\s*items\.push\(\{ id: "caja"[^\n]*\n(\s*\/\/[^\n]*\n)?\s*items\.push\(\{ id: "administracion"[^\n]*\n\s*items\.push\(\{ id: "inventario"/)
   })
   test("Mozo still uses its own html5-qrcode QR flow with the rear camera", () => {
     const mozo = read("src/app/mozo/[slug]/page.tsx")
