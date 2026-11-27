@@ -2,7 +2,7 @@
 
 ## Reanudación y medición actual — 2026-11-26
 
-Estado recuperado: rama `codex/estabilizacion-final`, HEAD `2356969316b81c8f9456ac9747093c46992e5ac4`; sin commits posteriores a ese HEAD al reanudar y sin cambios staged. Los cinco commits T2 previos (`a995d894`…`23569693`) se conservaron. Se continuó sobre sus modificaciones locales; no se reinició ni se descartó trabajo. La rama tiene como base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`.
+Estado recuperado: rama `codex/estabilizacion-final`, HEAD `2356969316b81c8f9456ac9747093c46992e5ac4`; sin commits posteriores a ese HEAD al reanudar y sin cambios staged. Los cinco commits T2 previos (`a995d894`…`23569693`) se conservaron. Se continuó sobre sus modificaciones locales; no se reinició ni se descartó trabajo. La rama tiene como base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. La continuación quedó en el commit local `04456072` (`test(t2): ampliar concurrencia e importaciones`).
 
 ### Avances de esta continuación
 
