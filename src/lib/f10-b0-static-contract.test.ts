@@ -20,6 +20,7 @@ const productive = walk("src").map((path) => ({ path, src: read(path) }))
 const ENGINE = "src/lib/caja-venta-service.ts"
 const DEVOLUCIONES = "src/lib/caja-devoluciones-service.ts"
 const EGRESOS = "src/lib/caja-egresos-service.ts"
+const CORRECCIONES = "src/lib/caja-egresos-correccion-service.ts"
 const ROUTE = "src/app/api/negocio/caja/ventas/route.ts"
 const MIGRATION = "prisma/migrations/20261009120000_f10_b0_sales_idempotency_payments_ledger/migration.sql"
 
@@ -31,7 +32,8 @@ describe("F10-B0 — one sales engine", () => {
     expect(writers(/\.cobroVenta\.(create|createMany|update|upsert)\(/)).toEqual([ENGINE])
     // F4-A: the sale-return service is the only other ledger writer (DEVOLUCION_VENTA cash refunds).
     // F10-C1a (operator-authorized 2026-11-18, local): + the cash-outflow service (GASTO / PAGO_PROVEEDOR / RETIRO_DUENO).
-    expect(writers(/\.operacionFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([DEVOLUCIONES, EGRESOS, ENGINE])
+    // F10-D1 (operator-authorized 2026-11-27): + the post-close recovery (RECUPERO_EGRESO, one positive leg in an open shift).
+    expect(writers(/\.operacionFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([DEVOLUCIONES, CORRECCIONES, EGRESOS, ENGINE])
     expect(writers(/\.movimientoFinanciero\.(create|createMany|update|upsert)\(/)).toEqual([])
     expect(writers(/\.cuentaFinanciera\.(create|createMany|update|upsert)\(/)).toEqual([DEVOLUCIONES, EGRESOS, ENGINE])
   })

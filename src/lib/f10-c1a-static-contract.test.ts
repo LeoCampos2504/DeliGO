@@ -55,8 +55,9 @@ describe("F10-C1a — one writer, session-derived actor", () => {
     const http = read(HTTP)
     expect(http).not.toMatch(/\bauditLog\(/)
     // F10-C1c: + the compensation audit (4 in total).
-    expect(http.match(/await auditLogWithClient\(tx, \{/g)).toHaveLength(4)
-    for (const accion of ["caja.egreso_registrado", "caja.egreso_revisado", "caja.egreso_retiro_confirmado", "caja.egreso_compensado", "negocio.config_cambiada"]) expect(http).toContain(accion)
+    // F10-D1: + the conciliation, the recovery and the F5 supplier-adjustment audits (7 in total).
+    expect(http.match(/await auditLogWithClient\(tx, \{/g)).toHaveLength(7)
+    for (const accion of ["caja.egreso_registrado", "caja.egreso_revisado", "caja.egreso_retiro_confirmado", "caja.egreso_compensado", "caja.egreso_conciliado", "caja.egreso_recuperado", "negocio.config_cambiada"]) expect(http).toContain(accion)
     const service = read(SERVICE)
     expect(service.match(/if \(opciones\.auditar\) await opciones\.auditar\(tx, /g)).toHaveLength(4)
   })

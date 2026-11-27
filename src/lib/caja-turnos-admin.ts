@@ -106,6 +106,8 @@ export type DesgloseEfectivoTurno = {
   retirosDueno: Prisma.Decimal
   compensaciones: Prisma.Decimal
   compensacionesPorNaturaleza: { GASTO: Prisma.Decimal; PAGO_PROVEEDOR: Prisma.Decimal; RETIRO_DUENO: Prisma.Decimal }
+  /** F10-D1: cash of an outflow (of an earlier, closed shift) that came back into THIS shift. Not a sale. */
+  recuperosEgresos: Prisma.Decimal
   otrosIngresos: Prisma.Decimal
   otrasSalidas: Prisma.Decimal
   totalMovimientos: Prisma.Decimal
@@ -116,7 +118,7 @@ export async function desgloseEfectivoTurnos(db: Pick<PrismaClient, "$queryRaw">
   const vacio = (): DesgloseEfectivoTurno => ({
     ventasEfectivo: cero(), reintegros: cero(), gastos: cero(), pagosProveedor: cero(), retirosDueno: cero(), compensaciones: cero(),
     compensacionesPorNaturaleza: { GASTO: cero(), PAGO_PROVEEDOR: cero(), RETIRO_DUENO: cero() },
-    otrosIngresos: cero(), otrasSalidas: cero(), totalMovimientos: cero(),
+    recuperosEgresos: cero(), otrosIngresos: cero(), otrasSalidas: cero(), totalMovimientos: cero(),
   })
   const acc = new Map(turnoIds.map((id) => [id, vacio()]))
   if (turnoIds.length === 0) return acc
@@ -147,7 +149,8 @@ export async function desgloseEfectivoTurnos(db: Pick<PrismaClient, "$queryRaw">
     else if (f.tipo === "REVERSION" && entra && (f.origenTipo === "GASTO" || f.origenTipo === "PAGO_PROVEEDOR" || f.origenTipo === "RETIRO_DUENO")) {
       d.compensaciones = d.compensaciones.plus(importe)
       d.compensacionesPorNaturaleza[f.origenTipo] = d.compensacionesPorNaturaleza[f.origenTipo].plus(importe)
-    } else if (entra) d.otrosIngresos = d.otrosIngresos.plus(importe)
+    } else if (f.tipo === "RECUPERO_EGRESO" && entra) d.recuperosEgresos = d.recuperosEgresos.plus(importe)
+    else if (entra) d.otrosIngresos = d.otrosIngresos.plus(importe)
     else d.otrasSalidas = d.otrasSalidas.plus(importe.abs())
   }
   return acc
@@ -166,6 +169,7 @@ export function desgloseEfectivoParaRespuesta(d: DesgloseEfectivoTurno, fondoIni
     retirosDueno: n(d.retirosDueno),
     compensaciones: n(d.compensaciones),
     compensacionesPorNaturaleza: { GASTO: n(d.compensacionesPorNaturaleza.GASTO), PAGO_PROVEEDOR: n(d.compensacionesPorNaturaleza.PAGO_PROVEEDOR), RETIRO_DUENO: n(d.compensacionesPorNaturaleza.RETIRO_DUENO) },
+    recuperosEgresos: n(d.recuperosEgresos),
     otrosIngresos: n(d.otrosIngresos),
     otrasSalidas: n(d.otrasSalidas),
     esperadoCalculado: n(calculado),
@@ -180,25 +184,48 @@ export function desgloseEfectivoParaRespuesta(d: DesgloseEfectivoTurno, fondoIni
  * expense here) and owner withdrawals (not an expense). Compensations registered
  * in the period are reported apart, by the nature of the outflow they reverse.
  */
-export async function resumenEgresosDesde(db: Pick<PrismaClient, "egresoCaja" | "compensacionEgresoCaja">, negocioId: string, desde: Date) {
-  const [egresos, compensaciones] = await Promise.all([
-    db.egresoCaja.findMany({ where: { negocioId, createdAt: { gte: desde } }, select: { naturaleza: true, categoria: true, importeDecimal: true } }),
+export async function resumenEgresosDesde(db: Pick<PrismaClient, "egresoCaja" | "compensacionEgresoCaja" | "conciliacionEgresoCaja" | "recuperoEgresoCaja">, negocioId: string, desde: Date) {
+  const [egresos, compensaciones, conciliacionesHoy, recuperosHoy] = await Promise.all([
+    db.egresoCaja.findMany({
+      where: { negocioId, createdAt: { gte: desde } },
+      // F10-D1: the conciliations of TODAY's outflows (whenever registered) and whether each one was compensated.
+      select: { naturaleza: true, categoria: true, importeDecimal: true, compensacion: { select: { importeDecimal: true } }, conciliaciones: { select: { importeDecimal: true } } },
+    }),
     db.compensacionEgresoCaja.findMany({ where: { negocioId, createdAt: { gte: desde } }, select: { importeDecimal: true, egreso: { select: { naturaleza: true } } } }),
+    // F10-D1: conciliations REGISTERED today on outflows of EARLIER days (informative: they move no money today).
+    db.conciliacionEgresoCaja.findMany({ where: { negocioId, createdAt: { gte: desde }, egreso: { createdAt: { lt: desde } } }, select: { importeDecimal: true, egreso: { select: { naturaleza: true } } } }),
+    // F10-D1 (DF-3): recoveries count on the day the cash comes back, whatever the outflow's date.
+    db.recuperoEgresoCaja.findMany({ where: { negocioId, createdAt: { gte: desde } }, select: { importeDecimal: true, egreso: { select: { naturaleza: true } } } }),
   ])
   const naturalezas = ["GASTO", "PAGO_PROVEEDOR", "RETIRO_DUENO"] as const
   const porNaturaleza = Object.fromEntries(naturalezas.map((nat) => {
     const propios = egresos.filter((e) => e.naturaleza === nat)
     const comp = compensaciones.filter((c) => c.egreso.naturaleza === nat)
+    const registrado = addMoney(...propios.map((e) => e.importeDecimal))
+    const conciliado = addMoney(...propios.flatMap((e) => e.conciliaciones.map((c) => c.importeDecimal)))
+    const compensadoPropio = addMoney(...propios.flatMap((e) => (e.compensacion ? [e.compensacion.importeDecimal] : [])))
+    // What really left today: recorded − compensated − never-left (conciliated). The recovery is NOT
+    // subtracted here: it is today's inflow on its own line (no double counting).
+    const efectivo = registrado.minus(compensadoPropio).minus(conciliado)
+    const recuperado = addMoney(...recuperosHoy.filter((r) => r.egreso.naturaleza === nat).map((r) => r.importeDecimal))
     return [nat, {
       cantidad: propios.length,
-      importe: moneyToNumber(addMoney(...propios.map((e) => e.importeDecimal))),
+      importe: moneyToNumber(registrado),
       cantidadCompensaciones: comp.length,
       compensado: moneyToNumber(addMoney(...comp.map((c) => c.importeDecimal))),
+      conciliado: moneyToNumber(conciliado),
+      efectivo: moneyToNumber(efectivo),
+      recuperado: moneyToNumber(recuperado),
+      neto: moneyToNumber(efectivo.minus(recuperado)),
     }]
-  })) as Record<(typeof naturalezas)[number], { cantidad: number; importe: number; cantidadCompensaciones: number; compensado: number }>
+  })) as Record<(typeof naturalezas)[number], { cantidad: number; importe: number; cantidadCompensaciones: number; compensado: number; conciliado: number; efectivo: number; recuperado: number; neto: number }>
   const categorias = [...new Set(egresos.filter((e) => e.naturaleza === "GASTO" && e.categoria).map((e) => e.categoria!))].sort()
   return {
     ...porNaturaleza,
     gastosPorCategoria: Object.fromEntries(categorias.map((cat) => [cat, moneyToNumber(addMoney(...egresos.filter((e) => e.naturaleza === "GASTO" && e.categoria === cat).map((e) => e.importeDecimal)))])),
+    // F10-D1: recoveries of the day (cash back in a drawer; not a sale nor a collection) and the
+    // conciliations of earlier outflows registered today (no cash today).
+    recuperosEgresos: { cantidad: recuperosHoy.length, importe: moneyToNumber(addMoney(...recuperosHoy.map((r) => r.importeDecimal))) },
+    conciliacionesEgresosAnteriores: { cantidad: conciliacionesHoy.length, importe: moneyToNumber(addMoney(...conciliacionesHoy.map((c) => c.importeDecimal))) },
   }
 }

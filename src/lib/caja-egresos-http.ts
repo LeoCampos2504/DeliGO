@@ -30,8 +30,11 @@ import {
   registrarEgresoCaja,
   respuestaDueno,
   revisarEgresoCaja,
+  EGRESO_INCLUDE,
   type EgresoConDetalle,
 } from "@/lib/caja-egresos-service"
+import { conciliarEgresoCerrado, contextoCorreccionEgreso, registrarRecuperoEgreso, solicitudRecupero } from "@/lib/caja-egresos-correccion-service"
+import type { AuditoriaEnTx } from "@/lib/cuenta-proveedor-service"
 
 const audit = (negocioId: string, actor: CajaActor) =>
   actor.tipo === "EMPLEADO" ? { userId: actor.empleadoId, userType: "empleado" } : { userId: negocioId, userType: "negocio" }
@@ -141,7 +144,10 @@ export async function detalleEgresoDuenoHttp(negocioId: string, egresoId: string
   try {
     const egreso = await detalleEgresoDueno(db, negocioId, egresoId)
     if (!egreso) return NextResponse.json({ ok: false, error: "Egreso no encontrado.", code: "EGRESO_NO_ENCONTRADO" }, { status: 404, headers: NO_STORE })
-    return NextResponse.json({ ok: true, egreso }, { headers: NO_STORE })
+    // F10-D1: the closed shift's surplus and custody record for the guided correction (owner only).
+    const fila = await db.egresoCaja.findFirst({ where: { id: egresoId, negocioId }, include: EGRESO_INCLUDE })
+    const contextoCorreccion = fila ? await contextoCorreccionEgreso(db, negocioId, fila) : null
+    return NextResponse.json({ ok: true, egreso, contextoCorreccion }, { headers: NO_STORE })
   } catch (error) {
     console.error("Error reading egreso de caja:", safeErrorForLog(error))
     return NextResponse.json({ ok: false, error: "No se pudo cargar la salida de efectivo." }, { status: 500, headers: NO_STORE })
@@ -241,6 +247,102 @@ export async function compensarEgresoHttp(req: NextRequest, negocioId: string, e
   }
 }
 export const confirmarRetiroHttp = (req: NextRequest, negocioId: string, egresoId: string) => decisionHttp(req, negocioId, egresoId, "CONFIRMACION_RETIRO")
+
+// ---------------------------------------------------------------------------
+// F10-D1 — owner corrections after the close (conciliation: no money; recovery: a new inflow)
+// ---------------------------------------------------------------------------
+
+/** The F5 event of the supplier adjustment, audited in the SAME transaction as the correction. */
+const auditarProveedor = (negocioId: string): AuditoriaEnTx => async (tx, e) => {
+  await auditLogWithClient(tx, { userId: negocioId, userType: "negocio", accion: e.accion, recurso: "cuenta_proveedor", recursoId: e.recursoId, detalle: e.detalle })
+}
+
+async function respuestaCorreccion(negocioId: string, egreso: EgresoConDetalle) {
+  return { egreso: await respuestaDueno(db, negocioId, egreso), contextoCorreccion: await contextoCorreccionEgreso(db, negocioId, egreso) }
+}
+
+export async function conciliarEgresoHttp(req: NextRequest, negocioId: string, egresoId: string): Promise<NextResponse> {
+  const owner: CajaActor = { tipo: "NEGOCIO" }
+  try {
+    const key = readKey(req)
+    if (!key) return KEY_REQUIRED()
+    const body = (await req.json().catch(() => null)) as { tipo?: unknown; importe?: unknown; motivo?: unknown; confirmoSinSalida?: unknown } | null
+    const result = await conciliarEgresoCerrado(db, { negocioId, egresoId, tipo: body?.tipo, importe: body?.importe, motivo: body?.motivo, confirmoSinSalida: body?.confirmoSinSalida, idempotencyKey: key }, {
+      auditarProveedor: auditarProveedor(negocioId),
+      auditar: async (tx, { egreso, conciliacion, sobrante }) => {
+        await auditLogWithClient(tx, {
+          ...audit(negocioId, owner),
+          accion: "caja.egreso_conciliado",
+          recurso: "egreso_caja",
+          recursoId: egreso.id,
+          detalle: {
+            negocioId,
+            egresoId: egreso.id,
+            conciliacionId: conciliacion.id,
+            tipo: conciliacion.tipo,
+            naturaleza: egreso.naturaleza,
+            importeEgreso: egreso.importeDecimal.toFixed(2),
+            importeConciliado: conciliacion.importeDecimal.toFixed(2),
+            turnoCajaId: conciliacion.turnoCajaId,
+            cajaFisicaId: egreso.cajaFisicaId,
+            diferenciaCierre: sobrante.diferencia.toFixed(2),
+            conciliadoEnTurnoAntes: sobrante.conciliadoAntes.toFixed(2),
+            obligacionAjusteId: conciliacion.obligacionAjusteId,
+            motivo: conciliacion.motivo,
+            // No financial movement: a conciliation only explains part of the closed shift's surplus.
+            movimientos: [],
+          },
+        })
+      },
+    })
+    if (!result.ok) return failure(result, owner)
+    return ok(await respuestaCorreccion(negocioId, result.value.egreso), result.value.replayed)
+  } catch (error) {
+    console.error("Error conciliating egreso de caja:", safeErrorForLog(error))
+    return NextResponse.json({ ok: false, error: "No pudimos registrar la corrección por un error del servidor. Podés reintentar sin duplicarla." }, { status: 500, headers: NO_STORE })
+  }
+}
+
+export async function recuperoEgresoHttp(req: NextRequest, negocioId: string, egresoId: string): Promise<NextResponse> {
+  const owner: CajaActor = { tipo: "NEGOCIO" }
+  try {
+    const key = readKey(req)
+    if (!key) return KEY_REQUIRED()
+    // The owner's explicit choice of the receiving register (and the open shift they saw) is read by the
+    // service, like an owner registration: the business always comes from the session.
+    const result = await registrarRecuperoEgreso(db, { negocioId, egresoId, idempotencyKey: key, ...solicitudRecupero(await req.json().catch(() => null)) }, {
+      auditarProveedor: auditarProveedor(negocioId),
+      auditar: async (tx, { egreso, recupero }) => {
+        await auditLogWithClient(tx, {
+          ...audit(negocioId, owner),
+          accion: "caja.egreso_recuperado",
+          recurso: "egreso_caja",
+          recursoId: egreso.id,
+          detalle: {
+            negocioId,
+            egresoId: egreso.id,
+            recuperoId: recupero.id,
+            operacionId: recupero.operacionId,
+            naturaleza: egreso.naturaleza,
+            importeEgreso: egreso.importeDecimal.toFixed(2),
+            importeRecuperado: recupero.importeDecimal.toFixed(2),
+            turnoOriginalId: egreso.turnoCajaId,
+            turnoReceptorId: recupero.turnoCajaId,
+            cajaReceptoraId: recupero.cajaFisicaId,
+            obligacionAjusteId: recupero.obligacionAjusteId,
+            motivo: recupero.motivo,
+            movimientos: await movimientosDeOperacion(tx, recupero.operacionId),
+          },
+        })
+      },
+    })
+    if (!result.ok) return failure(result, owner)
+    return ok(await respuestaCorreccion(negocioId, result.value.egreso), result.value.replayed)
+  } catch (error) {
+    console.error("Error registering recupero de egreso:", safeErrorForLog(error))
+    return NextResponse.json({ ok: false, error: "No pudimos registrar el recupero por un error del servidor. Podés reintentar sin duplicarlo." }, { status: 500, headers: NO_STORE })
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Owner threshold (informative, never blocks)

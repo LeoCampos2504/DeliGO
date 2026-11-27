@@ -16,6 +16,8 @@ type Llamada = { url: string; method: string; key: string | null; body: Record<s
 let llamadas: Llamada[] = []
 let respuestaRegistro: (body: Record<string, unknown>) => Response | Promise<Response>
 let respuestaAccion: (url: string, body: Record<string, unknown>) => Response | Promise<Response>
+// F10-D1: the closed shift's surplus returned by the outflow detail (GET /api/negocio/caja/egresos/[id]).
+let contextoCorreccion: Record<string, unknown> | null = null
 
 const egresoBase = (extra: Record<string, unknown> = {}) => ({
   id: "egr-00000001", operacionId: "op-1", naturaleza: "GASTO", categoria: "INSUMOS", importe: 1500.5, motivo: "Bolsas", turnoCajaId: "turno-a", cajaFisicaId: "caja-a", cajaNombre: "Caja principal",
@@ -44,15 +46,17 @@ beforeEach(() => {
     const method = init?.method ?? "GET"
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null
     llamadas.push({ url, method, key: init?.headers ? new Headers(init.headers).get("Idempotency-Key") : null, body })
+    const detalle = /^\/api\/negocio\/caja\/egresos\/([^/?]+)$/.exec(url)
+    if (detalle && method === "GET") return new Response(JSON.stringify({ ok: true, egreso: egresos.find((e) => e.id === detalle[1]), contextoCorreccion }), { status: 200 })
     if (url.startsWith("/api/negocio/caja/egresos") && method === "GET") return new Response(JSON.stringify({ ok: true, egresos, pendientes: { confirmacionRetiro: 1, revision: 2, total: 2 }, responsables: [{ id: "DUENO", nombre: "Dueño" }, { id: "emp-1", nombre: "Cajera A" }] }), { status: 200 })
     if (url === "/api/negocio/caja/cajas") return new Response(JSON.stringify({ modoTurnos: "OPCIONAL", cajas: cajas(), traspasos: [] }), { status: 200 })
     if (url === "/api/negocio/caja/configuracion-egresos") return new Response(JSON.stringify({ ok: true, umbralAviso: null }), { status: 200 })
     if (url === "/api/negocio/caja/egresos" && method === "POST") return respuestaRegistro(body!)
-    if (/\/api\/negocio\/caja\/egresos\/[^/]+\/(compensacion|revision|confirmacion-retiro)$/.test(url)) return respuestaAccion(url, body!)
+    if (/\/api\/negocio\/caja\/egresos\/[^/]+\/(compensacion|revision|confirmacion-retiro|conciliacion|recupero)$/.test(url)) return respuestaAccion(url, body!)
     throw new Error(`unexpected fetch ${method} ${url}`)
   }) as typeof fetch
 })
-afterEach(() => { globalThis.fetch = originalFetch; document.body.innerHTML = "" })
+afterEach(() => { globalThis.fetch = originalFetch; document.body.innerHTML = ""; contextoCorreccion = null })
 
 async function flush(ms = 40) { await act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)) }) }
 async function render() {
@@ -239,5 +243,76 @@ describe("F10-C1c — owner «Egresos de Caja» panel", () => {
     await click(boton("Registrar recepción"))
     expect(posts()[0].url).toBe("/api/negocio/caja/egresos/egr-00000003/confirmacion-retiro")
     expect(posts()[0].body).toEqual({ resultado: "NO_RECIBIDO", observacion: "No me llegó" })
+  })
+})
+
+
+describe("F10-D1 — guided correction of an outflow of a CLOSED shift", () => {
+  const correccion = (extra: Record<string, unknown> = {}) => ({ registrado: 2000, conciliado: 0, efectivo: 2000, recuperado: 0, neto: 2000, pendiente: 2000, disponible: true, bloqueo: null, sinSalidaDisponible: true, conciliacionMaxima: 2000, historial: [], ...extra })
+  const opcion = (texto: string) => [...document.querySelectorAll('[data-testid="form-correccion-posterior"] label')].find((l) => l.textContent?.includes(texto))?.querySelector("input") as HTMLInputElement
+
+  test("«salió menos»: the owner says how much really left; the conciliation (no money) carries the difference and announces the supplier adjustment", async () => {
+    egresos[1] = { ...egresos[1], correccion: correccion(), vinculoProveedor: { creditoId: "cr-1", proveedorId: "prov-1", proveedorNombre: "Distribuidora Sur" } }
+    contextoCorreccion = { turnoCerrado: { diferenciaOriginal: 500, conciliadoPorEgresos: 0, sinExplicar: 500, sobranteDisponible: 500 }, entrega: null, conciliacionPosible: 500 }
+    await render()
+    await click(document.querySelector('[data-egreso-id="egr-00000002"] button'))
+    expect(document.querySelector('[data-testid="compensacion-bloqueada"]')?.textContent).toContain("Corregir egreso (turno cerrado)")
+    await click(boton("Corregir egreso (turno cerrado)"))
+    expect(document.querySelector('[data-testid="correccion-contexto-cierre"]')?.textContent).toContain("diferencia original")
+    expect(document.querySelector('[data-testid="correccion-contexto-cierre"]')?.textContent).toContain("Todavía no se registró la entrega")
+    // The whole outflow (2000) exceeds the surplus (500): «nunca salió» is not offered.
+    expect(opcion("nunca salió").disabled).toBe(true)
+    await click(opcion("Salió menos"))
+    await escribir(document.getElementById("correccion-egr-00000002-real"), "1500")
+    expect(document.getElementById("correccion-egr-00000002-real-ayuda")?.textContent).toContain("Se concilian")
+    expect(document.querySelector('[data-testid="correccion-ajuste-proveedor"]')?.textContent).toContain("error de carga")
+    await escribir(document.getElementById("correccion-egr-00000002-motivo"), "Se pagó 1500, no 2000")
+    expect(boton("Continuar")!.disabled).toBe(true)
+    await click(document.querySelector('[data-testid="form-correccion-posterior"] input[type="checkbox"]'))
+    await click(boton("Continuar"))
+    expect(posts()).toHaveLength(0)
+    expect(document.body.textContent).toContain("No mueve dinero y no se puede deshacer")
+    await click(boton("Confirmar corrección"))
+    expect(posts()).toHaveLength(1)
+    expect(posts()[0].url).toBe("/api/negocio/caja/egresos/egr-00000002/conciliacion")
+    expect(posts()[0].body).toEqual({ tipo: "IMPORTE_EXCEDENTE", importe: "500.00", motivo: "Se pagó 1500, no 2000", confirmoSinSalida: true })
+    expect(posts()[0].key).toBeTruthy()
+  })
+
+  test("a close without surplus offers no conciliation; «salió y volvió» enters an explicitly chosen open register", async () => {
+    egresos[1] = { ...egresos[1], correccion: correccion() }
+    contextoCorreccion = { turnoCerrado: { diferenciaOriginal: 0, conciliadoPorEgresos: 0, sinExplicar: 0, sobranteDisponible: 0 }, entrega: { tipo: "ENTREGA_CONFIRMADA", efectivoEntregado: 8000, fondoRemanente: 2000, destinoTipo: "DUENO", confirmadoEn: "2026-11-18T20:00:00.000Z" }, conciliacionPosible: 0 }
+    await render()
+    await click(document.querySelector('[data-egreso-id="egr-00000002"] button'))
+    await click(boton("Corregir egreso (turno cerrado)"))
+    expect(opcion("nunca salió").disabled).toBe(true)
+    expect(opcion("Salió menos").disabled).toBe(true)
+    expect(document.querySelector('[data-testid="correccion-sin-sobrante"]')).toBeTruthy()
+    await click(opcion("salió y volvió"))
+    // Never chosen automatically, even with one open register.
+    expect((document.getElementById("correccion-egr-00000002-caja") as HTMLSelectElement).value).toBe("")
+    await escribir(document.getElementById("correccion-egr-00000002-motivo"), "El proveedor devolvió el efectivo")
+    await click(document.querySelector('[data-testid="form-correccion-posterior"] input[type="checkbox"]'))
+    expect(boton("Continuar")!.disabled).toBe(true)
+    await escribir(document.getElementById("correccion-egr-00000002-caja"), "caja-a")
+    await click(boton("Continuar"))
+    expect(document.body.textContent).toContain("Es un ingreso de efectivo y no se puede deshacer")
+    await click(boton("Confirmar corrección"))
+    expect(posts()).toHaveLength(1)
+    expect(posts()[0].url).toBe("/api/negocio/caja/egresos/egr-00000002/recupero")
+    expect(posts()[0].body).toEqual({ cajaFisicaId: "caja-a", turnoCajaId: "turno-a", importe: "2000.00", motivo: "El proveedor devolvió el efectivo", confirmoEfectivoRecibido: true })
+  })
+
+  test("an outflow of an OPEN shift or one already fully corrected offers no post-close correction", async () => {
+    egresos[0] = { ...egresos[0], correccion: correccion({ disponible: false, bloqueo: "TURNO_ABIERTO" }) }
+    egresos[1] = { ...egresos[1], correccion: correccion({ conciliado: 2000, efectivo: 0, neto: 0, pendiente: 0, disponible: false, bloqueo: "SIN_PENDIENTE", historial: [{ id: "c1", clase: "CONCILIACION", tipo: "SIN_SALIDA", importe: 2000, motivo: "Cargado por error", conAjusteProveedor: false, createdAt: "2026-11-19T10:00:00.000Z" }] }) }
+    await render()
+    expect(document.querySelector('[data-egreso-id="egr-00000002"] [data-testid="egreso-corregido"]')).toBeTruthy()
+    await click(document.querySelector('[data-egreso-id="egr-00000001"] button'))
+    expect(boton("Corregir egreso (turno cerrado)")).toBeUndefined()
+    await click(document.querySelector('[data-egreso-id="egr-00000002"] button'))
+    expect(boton("Corregir egreso (turno cerrado)")).toBeUndefined()
+    expect(document.querySelector('[data-testid="egreso-correccion-resumen"]')?.textContent).toContain("Nunca salió (conciliado)")
+    expect(document.body.textContent).toContain("nunca salieron de la caja")
   })
 })

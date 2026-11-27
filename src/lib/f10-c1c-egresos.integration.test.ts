@@ -431,7 +431,7 @@ describe("F10-C1c — reports reconciled with the ledger", () => {
     const vivo = await json(await getTurnoOwner(get(`/api/negocio/caja/turnos/${t.id}`, e.owner), idCtx(t.id)))
     expect(vivo.body.desgloseEfectivo).toEqual({
       fondoInicial: 10000, ventasEfectivo: 3000, reintegros: 0, gastos: 250, pagosProveedor: 500, retirosDueno: 1000, compensaciones: 200,
-      compensacionesPorNaturaleza: { GASTO: 200, PAGO_PROVEEDOR: 0, RETIRO_DUENO: 0 }, otrosIngresos: 0, otrasSalidas: 0, esperadoCalculado: 11450, cuadra: true,
+      compensacionesPorNaturaleza: { GASTO: 200, PAGO_PROVEEDOR: 0, RETIRO_DUENO: 0 }, recuperosEgresos: 0, otrosIngresos: 0, otrasSalidas: 0, esperadoCalculado: 11450, cuadra: true,
     })
     expect(vivo.body.efectivo.esperado).toBe(11450)
     expect((await e.cerrar(e.a.empleado.id, t.id, "11450")).ok).toBe(true)
@@ -441,10 +441,13 @@ describe("F10-C1c — reports reconciled with the ledger", () => {
 
     const hoy = await json(await getVentasOwner(get("/api/negocio/caja/ventas", e.owner)))
     expect(hoy.body.egresosHoy).toEqual({
-      GASTO: { cantidad: 2, importe: 250, cantidadCompensaciones: 1, compensado: 200 },
-      PAGO_PROVEEDOR: { cantidad: 1, importe: 500, cantidadCompensaciones: 0, compensado: 0 },
-      RETIRO_DUENO: { cantidad: 1, importe: 1000, cantidadCompensaciones: 0, compensado: 0 },
+      // F10-D1: + effective (recorded − compensated − conciliated), recovered today and net, per nature.
+      GASTO: { cantidad: 2, importe: 250, cantidadCompensaciones: 1, compensado: 200, conciliado: 0, efectivo: 50, recuperado: 0, neto: 50 },
+      PAGO_PROVEEDOR: { cantidad: 1, importe: 500, cantidadCompensaciones: 0, compensado: 0, conciliado: 0, efectivo: 500, recuperado: 0, neto: 500 },
+      RETIRO_DUENO: { cantidad: 1, importe: 1000, cantidadCompensaciones: 0, compensado: 0, conciliado: 0, efectivo: 1000, recuperado: 0, neto: 1000 },
       gastosPorCategoria: { INSUMOS: 200, TRANSPORTE: 50 },
+      recuperosEgresos: { cantidad: 0, importe: 0 },
+      conciliacionesEgresosAnteriores: { cantidad: 0, importe: 0 },
     })
     // The sales summary contract is unchanged: outflows are not returns.
     expect(hoy.body.resumenHoy).toMatchObject({ totalEfectivo: 3000, totalDevuelto: 0 })

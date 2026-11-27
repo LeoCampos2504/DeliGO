@@ -300,7 +300,8 @@ const TURNO_REQUERIDO_CAJERO = fail(409, "Para registrar una salida de efectivo 
 const TURNO_REQUERIDO_DUENO = fail(409, "Para registrar una salida de efectivo tiene que haber un turno de Caja abierto en esa caja.", "TURNO_REQUERIDO")
 const TURNO_NO_DISPONIBLE = fail(409, "El turno de Caja ya no está abierto. Actualizá la pantalla.", "TURNO_NO_DISPONIBLE")
 
-async function lockCaja(tx: Tx, negocioId: string, cajaFisicaId: string) {
+/** The physical register row lock (same lock as sales, outflows and the blind close). Also used by F10-D1. */
+export async function lockCaja(tx: Tx, negocioId: string, cajaFisicaId: string) {
   const rows = await tx.$queryRaw<Array<{ id: string; activa: boolean; nombre: string }>>`
     SELECT "id", "activa", "nombre" FROM "cajas_fisicas"
     WHERE "id" = ${cajaFisicaId} AND "negocioId" = ${negocioId}
@@ -308,7 +309,7 @@ async function lockCaja(tx: Tx, negocioId: string, cajaFisicaId: string) {
   return rows[0] ?? null
 }
 
-async function cuentaEfectivoCaja(tx: Tx, negocioId: string, cajaFisicaId: string): Promise<string> {
+export async function cuentaEfectivoCaja(tx: Tx, negocioId: string, cajaFisicaId: string): Promise<string> {
   const clave = `${CUENTA_EFECTIVO_CAJA_FISICA_PREFIX}${cajaFisicaId}`
   await tx.cuentaFinanciera.createMany({ data: [{ negocioId, clave, tipo: "EFECTIVO", nombre: "Efectivo de caja física", cajaFisicaId }], skipDuplicates: true })
   return (await tx.cuentaFinanciera.findFirstOrThrow({ where: { negocioId, clave, cajaFisicaId }, select: { id: true } })).id
@@ -411,6 +412,9 @@ export const EGRESO_INCLUDE = {
   turno: { select: { cajaFisica: { select: { nombre: true } }, responsableTipo: true, responsableId: true, estado: true } },
   // F5-A: the supplier link in force (at most one: partial unique index); owner view only.
   creditosProveedor: { where: { origen: "PAGO_CAJA", estado: "VIGENTE" }, select: { id: true, proveedor: { select: { id: true, nombre: true } } } },
+  // F10-D1: corrections discovered after the close (owner view only; never part of the cashier view).
+  conciliaciones: { orderBy: { createdAt: "asc" as const }, select: { id: true, tipo: true, importeDecimal: true, motivo: true, obligacionAjusteId: true, createdAt: true } },
+  recuperos: { orderBy: { createdAt: "asc" as const }, select: { id: true, importeDecimal: true, motivo: true, obligacionAjusteId: true, operacionId: true, turnoCajaId: true, cajaFisicaId: true, createdAt: true } },
 } satisfies Prisma.EgresoCajaInclude
 export type EgresoConDetalle = Prisma.EgresoCajaGetPayload<{ include: typeof EGRESO_INCLUDE }>
 
@@ -689,7 +693,7 @@ export function confirmarRetiroEgresoCaja(db: Db, input: DecisionEgresoInput, op
 //     (409, nothing written). An administrative observation stays available.
 
 export const COMPENSACION_POSTERIOR_TEXTO =
-  "El turno de esta salida ya cerró: la corrección posterior al cierre todavía no está habilitada porque el efectivo de un turno cerrado ya se contó y se entregó. No se modificó nada. Podés dejar una observación en la salida."
+  "El turno de esta salida ya cerró: no se puede compensar, porque el efectivo de un turno cerrado ya se contó. No se modificó nada. Si el dinero nunca salió o volvió después, usá «Corregir egreso (turno cerrado)»."
 
 export interface CompensarEgresoInput {
   negocioId: string
@@ -872,6 +876,23 @@ export const WHERE_PENDIENTE_SUPERVISION = {
   ],
 } satisfies Prisma.EgresoCajaWhereInput
 
+/**
+ * F10-D1 — the outflow after its post-close corrections (exact Decimal):
+ *   registrado = what was recorded (never changes);
+ *   conciliado = the part that never left the drawer (no money moved: it explains the closed shift's surplus);
+ *   efectivo   = registrado − conciliado: what really left;
+ *   recuperado = cash that came back later (a new inflow in the shift that received it, on that day — DF-3);
+ *   neto       = efectivo − recuperado: what left and did not come back;
+ *   pendiente  = what can still be corrected (shared cap: conciliado + recuperado ≤ registrado).
+ */
+export function correccionesDeEgreso(e: Pick<EgresoConDetalle, "importeDecimal" | "conciliaciones" | "recuperos">) {
+  const cero = new Prisma.Decimal(0)
+  const conciliado = e.conciliaciones.reduce((s, c) => s.plus(c.importeDecimal), cero)
+  const recuperado = e.recuperos.reduce((s, r) => s.plus(r.importeDecimal), cero)
+  const efectivo = e.importeDecimal.minus(conciliado)
+  return { registrado: e.importeDecimal, conciliado, recuperado, efectivo, neto: efectivo.minus(recuperado), pendiente: efectivo.minus(recuperado) }
+}
+
 /** Full owner view (owner-only data included: expected cash before the outflow and alert flags). */
 export function egresoParaDueno(e: EgresoConDetalle, nombres: Map<string, string>) {
   const esperadoResultante = e.esperadoPrevioDecimal.minus(e.importeDecimal)
@@ -917,6 +938,31 @@ export function egresoParaDueno(e: EgresoConDetalle, nombres: Map<string, string
     compensacionBloqueada: e.compensacion ? null : !turnoAbierto ? "TURNO_CERRADO" : e.creditosProveedor[0] ? "VINCULADO_A_PROVEEDOR" : null,
     pendienteSupervision: supervision.confirmacion || supervision.revision,
     pendiente: supervision,
+    // F10-D1: post-close corrections (owner only). Available while the outflow's shift is CLOSED, the
+    // outflow was not compensated and something is still correctable.
+    correccion: (() => {
+      const c = correccionesDeEgreso(e)
+      const bloqueo = e.compensacion ? "COMPENSADO" as const : turnoAbierto ? "TURNO_ABIERTO" as const : c.pendiente.lte(0) ? "SIN_PENDIENTE" as const : null
+      const retiroConfirmado = e.naturaleza === "RETIRO_DUENO" && e.confirmacionRetiroEstado === "CONFIRMADO"
+      return {
+        registrado: moneyToNumber(c.registrado),
+        conciliado: moneyToNumber(c.conciliado),
+        efectivo: moneyToNumber(c.efectivo),
+        recuperado: moneyToNumber(c.recuperado),
+        neto: moneyToNumber(c.neto),
+        pendiente: moneyToNumber(c.pendiente),
+        disponible: bloqueo === null,
+        bloqueo,
+        // «El dinero no salió» covers the WHOLE outflow: only before any correction, never for a withdrawal the owner confirmed.
+        sinSalidaDisponible: bloqueo === null && c.conciliado.isZero() && c.recuperado.isZero() && !retiroConfirmado,
+        // A confirmed withdrawal keeps some real outflow: it can only be partially conciliated.
+        conciliacionMaxima: moneyToNumber(bloqueo !== null ? new Prisma.Decimal(0) : retiroConfirmado ? Prisma.Decimal.max(new Prisma.Decimal(0), Prisma.Decimal.min(c.pendiente, c.efectivo.minus("0.01"))) : c.pendiente),
+        historial: [
+          ...e.conciliaciones.map((x) => ({ id: x.id, clase: "CONCILIACION" as const, tipo: x.tipo, importe: moneyToNumber(x.importeDecimal), motivo: x.motivo, conAjusteProveedor: x.obligacionAjusteId !== null, createdAt: x.createdAt })),
+          ...e.recuperos.map((x) => ({ id: x.id, clase: "RECUPERO" as const, tipo: null, importe: moneyToNumber(x.importeDecimal), motivo: x.motivo, conAjusteProveedor: x.obligacionAjusteId !== null, turnoCajaId: x.turnoCajaId, cajaFisicaId: x.cajaFisicaId, createdAt: x.createdAt })),
+        ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+      }
+    })(),
     createdAt: e.createdAt,
   }
 }

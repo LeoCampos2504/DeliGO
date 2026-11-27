@@ -7,6 +7,7 @@ import { cerrarTurnoCaja, TURNO_ESTADO_CERRADO_DECLARADO } from "@/lib/caja-turn
 import { moneyToNumber } from "@/lib/money"
 import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
 import { calcularEfectivoEsperadoTurno, desgloseEfectivoParaRespuesta, desgloseEfectivoTurnos, resumenCambiosTurno, resumenVentasTurno } from "@/lib/caja-turnos-admin"
+import { conciliadoPorTurnos } from "@/lib/caja-egresos-correccion-service"
 
 // ============================================
 // F10-B2.1 — owner ONLY: administrative detail of one shift
@@ -24,13 +25,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: { cajaFisica: { select: { id: true, nombre: true } }, empleado: { select: EMPLEADO_NOMBRE_SELECT } },
     })
     if (!turno) return NextResponse.json({ error: "Turno no encontrado" }, { status: 404 })
-    const [efectivoCalculado, ventas, cambios, desglose] = await Promise.all([
+    const [efectivoCalculado, ventas, cambios, desglose, conciliado] = await Promise.all([
       turno.estado === TURNO_ESTADO_CERRADO_DECLARADO && turno.efectivoEsperadoDecimal
         ? Promise.resolve(null)
         : calcularEfectivoEsperadoTurno(db, auth.negocioId, turno.id),
       resumenVentasTurno(db, auth.negocioId, turno.id),
       resumenCambiosTurno(db, auth.negocioId, turno.id),
       desgloseEfectivoTurnos(db, auth.negocioId, [turno.id]),
+      conciliadoPorTurnos(db, auth.negocioId, [turno.id]),
     ])
     const efectivoEsperado = turno.estado === TURNO_ESTADO_CERRADO_DECLARADO
       ? turno.efectivoEsperadoDecimal
@@ -54,6 +56,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         esperado: moneyToNumber(efectivoEsperado),
         contadoDeclarado: efectivoCounted ? moneyToNumber(efectivoCounted) : null,
         diferencia: diferencia ? moneyToNumber(diferencia) : null,
+        // F10-D1: part of the frozen difference explained afterwards by outflow conciliations (informative).
+        conciliadoPorEgresos: moneyToNumber(conciliado.get(turno.id)!.importe),
+        sinExplicar: diferencia ? moneyToNumber(diferencia.minus(conciliado.get(turno.id)!.importe)) : null,
       } : null,
       ventas: {
         cantidad: ventas.cantidadVentas,

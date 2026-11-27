@@ -14,6 +14,8 @@ export type DesgloseEfectivo = {
   retirosDueno: number
   compensaciones: number
   compensacionesPorNaturaleza?: { GASTO: number; PAGO_PROVEEDOR: number; RETIRO_DUENO: number }
+  /** F10-D1: cash of an earlier outflow that came back into this shift (not a sale). */
+  recuperosEgresos?: number
   otrosIngresos: number
   otrasSalidas: number
   esperadoCalculado: number
@@ -30,6 +32,7 @@ export function DesgloseEfectivoTurno({ desglose: d }: { desglose: DesgloseEfect
     ["Pagos a proveedores", d.pagosProveedor, "−"],
     ["Retiros del dueño", d.retirosDueno, "−"],
     ...(d.compensaciones ? [["Compensaciones de egresos", d.compensaciones, "+"] as [string, number, "+"]] : []),
+    ...(d.recuperosEgresos ? [["Recuperos de egresos (no es venta)", d.recuperosEgresos, "+"] as [string, number, "+"]] : []),
     ...(d.otrosIngresos ? [["Otros ingresos", d.otrosIngresos, "+"] as [string, number, "+"]] : []),
     ...(d.otrasSalidas ? [["Otras salidas", d.otrasSalidas, "−"] as [string, number, "−"]] : []),
   ]

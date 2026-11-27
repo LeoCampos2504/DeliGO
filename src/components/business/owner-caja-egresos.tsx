@@ -9,6 +9,8 @@
 //   POST /api/negocio/caja/egresos/[id]/revision         REVISADO | OBSERVADO        (never moves money)
 //   POST /api/negocio/caja/egresos/[id]/confirmacion-retiro  CONFIRMADO | NO_RECIBIDO (never moves money)
 //   POST /api/negocio/caja/egresos/[id]/compensacion     total REVERSION while the outflow's shift is OPEN
+//   POST /api/negocio/caja/egresos/[id]/conciliacion     F10-D1: shift CLOSED, the cash never left / left less (no money)
+//   POST /api/negocio/caja/egresos/[id]/recupero         F10-D1: shift CLOSED, the cash comes back into an OPEN shift
 //   GET/PATCH /api/negocio/caja/configuracion-egresos    optional notice threshold
 // Financial actions always go through an explicit confirmation step, carry an
 // Idempotency-Key per exact content (kept on a network error / 5xx so a retry
@@ -71,8 +73,35 @@ export type EgresoDueno = {
   vinculoProveedor?: { creditoId: string; proveedorId: string; proveedorNombre: string } | null
   pendienteSupervision: boolean
   pendiente: { confirmacion: boolean; revision: boolean }
+  // F10-D1 (optional for older payloads)
+  correccion?: CorreccionEgreso
   createdAt: string
 }
+
+/** F10-D1 — the outflow after its post-close corrections (owner only). */
+export type CorreccionEgreso = {
+  registrado: number
+  conciliado: number
+  efectivo: number
+  recuperado: number
+  neto: number
+  pendiente: number
+  disponible: boolean
+  bloqueo: "COMPENSADO" | "TURNO_ABIERTO" | "SIN_PENDIENTE" | null
+  sinSalidaDisponible: boolean
+  conciliacionMaxima: number
+  historial: Array<{ id: string; clase: "CONCILIACION" | "RECUPERO"; tipo: string | null; importe: number; motivo: string; conAjusteProveedor: boolean; createdAt: string }>
+}
+/** F10-D1 — the closed shift's surplus and custody record (GET /api/negocio/caja/egresos/[id]). */
+export type ContextoCorreccion = {
+  turnoCerrado: { diferenciaOriginal: number; conciliadoPorEgresos: number; sinExplicar: number; sobranteDisponible: number } | null
+  entrega: { tipo: string; efectivoEntregado: number; fondoRemanente: number; destinoTipo: string; confirmadoEn: string } | null
+  conciliacionPosible: number
+}
+const tieneCorrecciones = (e: EgresoDueno) => Boolean(e.correccion && e.correccion.historial.length > 0)
+/** Money in exact cents (the API sends numbers with at most 2 decimals). */
+const aCentavos = (v: number) => Math.round(v * 100)
+const deCentavos = (c: number) => (c / 100).toFixed(2)
 type Pendientes = { confirmacionRetiro: number; revision: number; total: number }
 type ListaResponse = { egresos: EgresoDueno[]; pendientes: Pendientes; responsables: Array<{ id: string; nombre: string }> }
 
@@ -280,6 +309,7 @@ export function OwnerCajaEgresos({ negocioId }: { negocioId: string }) {
               <FilaEgreso
                 key={e.id}
                 egreso={e}
+                cajas={todasLasCajas}
                 abierto={abierto === e.id}
                 onToggle={() => setAbierto(abierto === e.id ? null : e.id)}
                 onAccionAbierta={setAccionAbierta}
@@ -353,7 +383,7 @@ function FiltrosPanel({ filtros, onChange, cajas, responsables }: { filtros: Fil
 // One outflow: summary row + detail + actions
 // ---------------------------------------------------------------------------
 
-function FilaEgreso({ egreso: e, abierto, onToggle, onAccionAbierta, onCambio, onRegistrarCorrecto }: { egreso: EgresoDueno; abierto: boolean; onToggle: () => void; onAccionAbierta: (abierta: boolean) => void; onCambio: () => void; onRegistrarCorrecto: (inicial: FormularioSalida) => void }) {
+function FilaEgreso({ egreso: e, cajas, abierto, onToggle, onAccionAbierta, onCambio, onRegistrarCorrecto }: { egreso: EgresoDueno; cajas: CajaFisicaResumen[]; abierto: boolean; onToggle: () => void; onAccionAbierta: (abierta: boolean) => void; onCambio: () => void; onRegistrarCorrecto: (inicial: FormularioSalida) => void }) {
   const detalleId = `egreso-detalle-${e.id}`
   return (
     <li className={cn("rounded-xl border bg-card", e.pendienteSupervision && "border-amber-400 dark:border-amber-600", e.compensacion && "opacity-90")} data-testid="egreso-fila" data-egreso-id={e.id}>
@@ -363,6 +393,7 @@ function FilaEgreso({ egreso: e, abierto, onToggle, onAccionAbierta, onCambio, o
             <NaturalezaBadge naturaleza={e.naturaleza} />
             {e.categoria && <span className={cn(PILL, PILL_NEUTRO)}>{TITULO_CATEGORIA[e.categoria] ?? e.categoria}</span>}
             {e.compensacion && <span className={cn(PILL, PILL_NEUTRO)}><Undo2 className="h-3 w-3" aria-hidden="true" />Compensado</span>}
+            {tieneCorrecciones(e) && <span className={cn(PILL, "bg-sky-100 text-sky-950 ring-sky-300 dark:bg-sky-950 dark:text-sky-100 dark:ring-sky-700")} data-testid="egreso-corregido">Corregido después del cierre</span>}
             {e.pendienteSupervision && <span className={cn(PILL, "bg-amber-100 text-amber-950 ring-amber-400 dark:bg-amber-950 dark:text-amber-100 dark:ring-amber-600")}>Requiere supervisión</span>}
             {e.alertas.excedeEsperado && <span className={cn(PILL, PILL_ALERTA)}>Esperado negativo</span>}
             {e.alertas.superaUmbral && <span className={cn(PILL, PILL_ALERTA)}>Supera el umbral</span>}
@@ -375,7 +406,7 @@ function FilaEgreso({ egreso: e, abierto, onToggle, onAccionAbierta, onCambio, o
           <span className="flex items-center gap-1 text-xs font-semibold text-primary">{abierto ? "Ocultar" : "Ver detalle"}{abierto ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}</span>
         </div>
       </button>
-      {abierto && <DetalleEgreso id={detalleId} egreso={e} onAccionAbierta={onAccionAbierta} onCambio={onCambio} onRegistrarCorrecto={onRegistrarCorrecto} />}
+      {abierto && <DetalleEgreso id={detalleId} egreso={e} cajas={cajas} onAccionAbierta={onAccionAbierta} onCambio={onCambio} onRegistrarCorrecto={onRegistrarCorrecto} />}
     </li>
   )
 }
@@ -384,8 +415,8 @@ function Dato({ label, children }: { label: string; children: React.ReactNode })
   return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="break-words text-sm font-medium">{children}</dd></div>
 }
 
-function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCorrecto }: { id: string; egreso: EgresoDueno; onAccionAbierta: (abierta: boolean) => void; onCambio: () => void; onRegistrarCorrecto: (inicial: FormularioSalida) => void }) {
-  const [accion, setAccion] = useState<null | "revision" | "confirmacion" | "compensacion">(null)
+function DetalleEgreso({ id, egreso: e, cajas, onAccionAbierta, onCambio, onRegistrarCorrecto }: { id: string; egreso: EgresoDueno; cajas: CajaFisicaResumen[]; onAccionAbierta: (abierta: boolean) => void; onCambio: () => void; onRegistrarCorrecto: (inicial: FormularioSalida) => void }) {
+  const [accion, setAccion] = useState<null | "revision" | "confirmacion" | "compensacion" | "correccion">(null)
   useEffect(() => {
     onAccionAbierta(accion !== null)
     return () => onAccionAbierta(false)
@@ -400,6 +431,13 @@ function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCo
         texto: h.observacion,
       })),
       ...(e.compensacion ? [{ en: e.compensacion.createdAt, titulo: `Compensación: ${formatoArs(e.compensacion.importe)} vuelven al efectivo esperado del turno`, texto: e.compensacion.motivo }] : []),
+      ...(e.correccion?.historial ?? []).map((h) => ({
+        en: h.createdAt,
+        titulo: h.clase === "CONCILIACION"
+          ? `Conciliación posterior al cierre: ${formatoArs(h.importe)} ${h.tipo === "SIN_SALIDA" ? "nunca salieron de la caja" : "no salieron (se registró de más)"} · sin movimiento de dinero${h.conAjusteProveedor ? " · con ajuste de deuda del proveedor" : ""}`
+          : `Recupero: ${formatoArs(h.importe)} volvieron a una caja con turno abierto${h.conAjusteProveedor ? " · con ajuste de deuda del proveedor" : ""}`,
+        texto: h.motivo,
+      })),
     ]
     return items.sort((a, b) => a.en.localeCompare(b.en))
   }, [e])
@@ -440,6 +478,15 @@ function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCo
         </p>
       )}
       {e.naturaleza === "RETIRO_DUENO" && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">Un retiro del dueño no es un gasto del negocio.</p>}
+      {e.correccion && tieneCorrecciones(e) && (
+        <dl className="grid grid-cols-2 gap-2 rounded-lg border border-sky-300 p-2 text-sm sm:grid-cols-5 dark:border-sky-800" data-testid="egreso-correccion-resumen" aria-label="Correcciones posteriores al cierre">
+          <Dato label="Registrado">{formatoArs(e.correccion.registrado)}</Dato>
+          <Dato label="Nunca salió (conciliado)">{formatoArs(e.correccion.conciliado)}</Dato>
+          <Dato label="Salió realmente">{formatoArs(e.correccion.efectivo)}</Dato>
+          <Dato label="Volvió después (recupero)">{formatoArs(e.correccion.recuperado)}</Dato>
+          <Dato label="Resultado neto">{formatoArs(e.correccion.neto)}</Dato>
+        </dl>
+      )}
       {(e.alertas.excedeEsperado || e.alertas.superaUmbral) && (
         <div role="note" className="rounded-lg border border-rose-300 bg-rose-50 p-2 text-sm text-rose-950 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100">
           {e.alertas.excedeEsperado && <p>El efectivo esperado del turno quedó negativo: {formatoArs(e.alertas.efectivoEsperadoPrevio)} antes, {formatoArs(e.alertas.efectivoEsperadoResultante)} después.</p>}
@@ -463,17 +510,19 @@ function DetalleEgreso({ id, egreso: e, onAccionAbierta, onCambio, onRegistrarCo
           {e.confirmacionRetiro?.estado === "PENDIENTE" && !e.compensacion && <Button className="min-h-11 rounded-xl" onClick={() => { setExito(null); setAccion("confirmacion") }}>Confirmar recepción del retiro</Button>}
           {e.compensacionDisponible && <Button variant="outline" className="min-h-11 rounded-xl border-rose-300 text-rose-800 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-200" onClick={() => { setExito(null); setAccion("compensacion") }}><Undo2 className="mr-1 h-4 w-4" />Corregir con compensación</Button>}
           {e.compensacion && e.turnoAbierto && <Button variant="outline" className="min-h-11 rounded-xl" onClick={() => onRegistrarCorrecto(correcto())}>Registrar la salida correcta</Button>}
+          {e.correccion?.disponible && <Button variant="outline" className="min-h-11 rounded-xl border-sky-400 text-sky-900 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-100" onClick={() => { setExito(null); setAccion("correccion") }}>Corregir egreso (turno cerrado)</Button>}
         </div>
       )}
       {e.compensacionBloqueada === "VINCULADO_A_PROVEEDOR" && accion === null && (
         <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="compensacion-bloqueada-proveedor">Este pago está vinculado a la cuenta de un proveedor: para compensarlo, primero desvinculalo en Proveedores (con su motivo).</p>
       )}
       {e.compensacionBloqueada === "TURNO_CERRADO" && accion === null && (
-        <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="compensacion-bloqueada">El turno de esta salida ya cerró: la corrección con dinero después del cierre todavía no está habilitada, porque el efectivo de ese turno ya se contó y se entregó. Si hay un error, dejá una observación.</p>
+        <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground" data-testid="compensacion-bloqueada">El turno de esta salida ya cerró: no se puede compensar, porque el efectivo de ese turno ya se contó.{e.correccion?.disponible ? " Si el dinero nunca salió, salió menos o volvió después, usá «Corregir egreso (turno cerrado)»." : " Si hay un error, dejá una observación."}</p>
       )}
       {accion === "revision" && <FormRevision egreso={e} onCancelar={() => setAccion(null)} onHecho={() => hecho("Revisión registrada. No modificó dinero.")} />}
       {accion === "confirmacion" && <FormConfirmacion egreso={e} onCancelar={() => setAccion(null)} onHecho={(r) => hecho(r === "CONFIRMADO" ? "Recepción confirmada. No se generó otro movimiento: el efectivo ya había salido de la caja." : "Quedó registrado que no recibiste el efectivo. No se generó ningún movimiento.")} />}
       {accion === "compensacion" && <FormCompensacion egreso={e} onCancelar={() => setAccion(null)} onHecho={() => hecho(`Compensación registrada: ${formatoArs(e.importe)} vuelven al efectivo esperado de ${e.cajaNombre}. La salida original se conserva.`)} />}
+      {accion === "correccion" && <FormCorreccionPosterior egreso={e} cajas={cajas} onCancelar={() => setAccion(null)} onHecho={hecho} />}
     </div>
   )
 }
@@ -570,6 +619,164 @@ function FormCompensacion({ egreso, onCancelar, onHecho }: { egreso: EgresoDueno
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" className="min-h-11 rounded-xl" disabled={envio.enviando || envio.incierto} onClick={confirmando ? () => setConfirmando(false) : onCancelar}>{confirmando ? "Volver" : "Cancelar"}</Button>
         <Button type="submit" className="min-h-11 rounded-xl bg-rose-700 text-white hover:bg-rose-800" disabled={envio.enviando || !listo}>{envio.enviando ? "Registrando…" : envio.incierto ? "Reintentar" : confirmando ? "Confirmar compensación" : "Continuar"}</Button>
+      </div>
+    </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// F10-D1 — guided correction of an outflow whose shift already CLOSED
+// ---------------------------------------------------------------------------
+// The owner first says WHAT happened, because the two facts are never mixed:
+//   «nunca salió» / «salió menos» → a conciliation: no money moves, it explains the closed shift's surplus;
+//   «salió y volvió»               → a recovery: real cash enters a register with an OPEN shift.
+
+type OpcionCorreccion = "" | "SIN_SALIDA" | "IMPORTE_EXCEDENTE" | "RECUPERO"
+
+/** "1500,50" | "0" → cents; null when invalid. */
+function centavosDe(texto: string): number | null {
+  const t = texto.trim().replace(/^\$\s*/, "")
+  if (/^0+([.,]0{1,2})?$/.test(t)) return 0
+  const p = parseImporteArs(texto)
+  return p.ok ? Math.round(Number(p.valor) * 100) : null
+}
+
+function FormCorreccionPosterior({ egreso, cajas, onCancelar, onHecho }: { egreso: EgresoDueno; cajas: CajaFisicaResumen[]; onCancelar: () => void; onHecho: (texto: string) => void }) {
+  const c = egreso.correccion!
+  const contexto = useQuery<ContextoCorreccion | null>({
+    queryKey: ["negocio-caja-egreso-correccion", egreso.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/negocio/caja/egresos/${encodeURIComponent(egreso.id)}`, { cache: "no-store" })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? "No se pudo cargar el cierre de ese turno.")
+      return (json.contextoCorreccion ?? null) as ContextoCorreccion | null
+    },
+    staleTime: 0,
+  })
+  const [opcion, setOpcion] = useState<OpcionCorreccion>("")
+  const [realTexto, setRealTexto] = useState("")
+  const [recuperoTexto, setRecuperoTexto] = useState(() => deCentavos(aCentavos(c.pendiente)).replace(".", ","))
+  const [cajaId, setCajaId] = useState("")
+  const [motivo, setMotivo] = useState("")
+  const [confirmo, setConfirmo] = useState(false)
+  const [confirmando, setConfirmando] = useState(false)
+  const envio = useEnvio()
+  const id = `correccion-${egreso.id}`
+  const sel = "h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+  const cambiar = <T,>(set: (v: T) => void) => (v: T) => { set(v); setConfirmando(false) }
+
+  const ctx = contexto.data ?? null
+  const tc = ctx?.turnoCerrado ?? null
+  const maxConciliable = Math.min(aCentavos(c.conciliacionMaxima), aCentavos(ctx?.conciliacionPosible ?? 0))
+  const sinSobrante = tc !== null && tc.diferenciaOriginal <= 0
+  const sinSalidaPosible = c.sinSalidaDisponible && maxConciliable >= aCentavos(c.registrado)
+  const efectivoCts = aCentavos(c.efectivo)
+  const realCts = opcion === "IMPORTE_EXCEDENTE" ? centavosDe(realTexto) : null
+  const noSalioCts = realCts === null ? null : efectivoCts - realCts
+  const recuperoCts = opcion === "RECUPERO" ? centavosDe(recuperoTexto) : null
+  const abiertas = cajas.filter((x) => x.activa && x.turnoAbierto)
+  const caja = abiertas.find((x) => x.id === cajaId) ?? null
+  const retiroConfirmado = egreso.naturaleza === "RETIRO_DUENO" && egreso.confirmacionRetiro?.estado === "CONFIRMADO"
+
+  const errorImporte =
+    opcion === "IMPORTE_EXCEDENTE" && realTexto.trim()
+      ? realCts === null ? "Ingresá el importe en pesos, con hasta 2 decimales."
+        : noSalioCts === null || noSalioCts <= 0 ? `Lo que salió realmente tiene que ser menor que ${formatoArs(c.efectivo)}.`
+        : noSalioCts > maxConciliable ? `Sólo se pueden conciliar ${formatoArs(maxConciliable / 100)} (sobrante sin explicar del cierre y lo que queda por corregir).`
+        : null
+      : opcion === "RECUPERO" && recuperoTexto.trim()
+        ? recuperoCts === null || recuperoCts <= 0 ? "Ingresá un importe mayor a cero, con hasta 2 decimales."
+          : recuperoCts > aCentavos(c.pendiente) ? `Lo que queda por corregir de esta salida es ${formatoArs(c.pendiente)}.`
+          : null
+        : null
+  const importeCts = opcion === "SIN_SALIDA" ? aCentavos(c.registrado) : opcion === "IMPORTE_EXCEDENTE" ? noSalioCts : recuperoCts
+  const listo = opcion !== "" && motivo.trim().length > 0 && confirmo && !errorImporte && importeCts !== null && importeCts > 0
+    && (opcion !== "RECUPERO" || Boolean(caja?.turnoAbierto))
+    && (opcion !== "SIN_SALIDA" || sinSalidaPosible)
+    && (opcion !== "IMPORTE_EXCEDENTE" || (noSalioCts !== null && noSalioCts <= maxConciliable))
+  const importeTexto = importeCts !== null && importeCts > 0 ? formatoArs(importeCts / 100) : ""
+  const ajusteProveedor = egreso.vinculoProveedor
+    ? opcion === "RECUPERO" ? `En la cuenta de ${egreso.vinculoProveedor.proveedorNombre} se registra en la misma operación un ajuste de deuda («diferencia acordada») por ${importeTexto || "el importe recuperado"}: el proveedor devolvió parte del pago.`
+      : opcion ? `En la cuenta de ${egreso.vinculoProveedor.proveedorNombre} se registra en la misma operación un ajuste de deuda («error de carga») por ${importeTexto || "el importe conciliado"}: ese pago no se hizo completo.`
+      : null
+    : null
+
+  const enviarCorreccion = () => {
+    if (opcion === "RECUPERO") {
+      void envio.ejecutar(`/api/negocio/caja/egresos/${encodeURIComponent(egreso.id)}/recupero`, { cajaFisicaId: caja!.id, turnoCajaId: caja!.turnoAbierto!.id, importe: deCentavos(importeCts!), motivo: motivo.trim(), confirmoEfectivoRecibido: true },
+        () => onHecho(`Recupero registrado: ${importeTexto} entran en ${caja!.nombre} (sube su efectivo esperado). La salida original y su turno cerrado no cambian.`))
+      return
+    }
+    void envio.ejecutar(`/api/negocio/caja/egresos/${encodeURIComponent(egreso.id)}/conciliacion`, { tipo: opcion, ...(opcion === "IMPORTE_EXCEDENTE" ? { importe: deCentavos(importeCts!) } : {}), motivo: motivo.trim(), confirmoSinSalida: true },
+      () => onHecho(`Conciliación registrada: ${importeTexto} explican parte del sobrante del cierre. No se movió dinero y el turno cerrado no cambia.`))
+  }
+
+  return (
+    <form className="space-y-3 rounded-lg border-2 border-sky-300 p-3 dark:border-sky-700" aria-labelledby={`${id}-titulo`} data-testid="form-correccion-posterior"
+      onSubmit={(ev) => { ev.preventDefault(); if (!listo) return; if (!confirmando) { setConfirmando(true); return } enviarCorreccion() }}>
+      <div>
+        <p id={`${id}-titulo`} className="text-sm font-semibold">Corregir egreso de un turno cerrado</p>
+        <p className="text-xs text-muted-foreground">La salida original, su turno cerrado, el conteo, las entregas y las revisiones no se modifican. Lo que queda por corregir: {formatoArs(c.pendiente)}.</p>
+      </div>
+      <div className="rounded-lg bg-muted/40 p-2 text-sm" data-testid="correccion-contexto-cierre">
+        {contexto.isLoading ? <p className="text-muted-foreground">Cargando el cierre de ese turno…</p>
+          : contexto.isError ? <p role="alert" className="text-destructive">{contexto.error.message} <Button type="button" variant="outline" size="sm" className="ml-1" onClick={() => void contexto.refetch()}>Reintentar</Button></p>
+          : tc ? <>
+            <p>Cierre del turno de esta salida: diferencia original {formatoArs(tc.diferenciaOriginal)} · ya explicado por egresos {formatoArs(tc.conciliadoPorEgresos)} · sin explicar {formatoArs(tc.sinExplicar)}.</p>
+            <p className="text-xs text-muted-foreground">{ctx?.entrega ? `Entrega registrada: ${formatoArs(ctx.entrega.efectivoEntregado)} entregado y ${formatoArs(ctx.entrega.fondoRemanente)} quedó como fondo.` : "Todavía no se registró la entrega a custodia de ese turno."}</p>
+          </> : <p className="text-muted-foreground">No hay datos del cierre de ese turno.</p>}
+      </div>
+      <fieldset className="space-y-2" disabled={envio.enviando || envio.incierto}>
+        <legend className="text-sm font-medium">¿Qué pasó con este dinero?</legend>
+        <label className={cn("flex min-h-11 items-start gap-2 rounded-lg border p-2 text-sm", !sinSalidaPosible && "opacity-60")}>
+          <input type="radio" name={`${id}-opcion`} className="mt-0.5 h-4 w-4" checked={opcion === "SIN_SALIDA"} disabled={!sinSalidaPosible} onChange={() => cambiar(setOpcion)("SIN_SALIDA")} />
+          <span><span className="font-semibold">El dinero nunca salió de la caja</span><span className="block text-xs text-muted-foreground">Se cargó por error. No mueve dinero: explica el sobrante que mostró el cierre ({formatoArs(c.registrado)}).</span></span>
+        </label>
+        <label className={cn("flex min-h-11 items-start gap-2 rounded-lg border p-2 text-sm", maxConciliable <= 0 && "opacity-60")}>
+          <input type="radio" name={`${id}-opcion`} className="mt-0.5 h-4 w-4" checked={opcion === "IMPORTE_EXCEDENTE"} disabled={maxConciliable <= 0} onChange={() => cambiar(setOpcion)("IMPORTE_EXCEDENTE")} />
+          <span><span className="font-semibold">Salió menos de lo registrado</span><span className="block text-xs text-muted-foreground">Indicás cuánto salió realmente; la diferencia explica parte del sobrante del cierre. No mueve dinero.</span></span>
+        </label>
+        <label className={cn("flex min-h-11 items-start gap-2 rounded-lg border p-2 text-sm", abiertas.length === 0 && "opacity-60")}>
+          <input type="radio" name={`${id}-opcion`} className="mt-0.5 h-4 w-4" checked={opcion === "RECUPERO"} disabled={abiertas.length === 0} onChange={() => cambiar(setOpcion)("RECUPERO")} />
+          <span><span className="font-semibold">El dinero salió y volvió después</span><span className="block text-xs text-muted-foreground">Entra de nuevo en una caja con turno abierto y sube su efectivo esperado. No es una venta ni un cobro.{abiertas.length === 0 ? " Ahora no hay cajas con turno abierto." : ""}</span></span>
+        </label>
+      </fieldset>
+      {sinSobrante && <p role="note" className="rounded-lg bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100" data-testid="correccion-sin-sobrante">El cierre de ese turno no tuvo sobrante: si el dinero no hubiera salido, el conteo lo habría mostrado. No se puede conciliar sin inventar dinero; si otra diferencia lo ocultó, dejá una observación. Si el dinero volvió, registrá un recupero.</p>}
+      {retiroConfirmado && <p className="text-xs text-muted-foreground">Confirmaste que recibiste este retiro: sólo podés conciliar una parte (si recibiste menos) o registrar un recupero si lo devolvés a la caja.</p>}
+
+      {opcion === "IMPORTE_EXCEDENTE" && (
+        <label className="block space-y-1 text-sm font-medium" htmlFor={`${id}-real`}><span>¿Cuánto salió realmente?</span>
+          <Input id={`${id}-real`} inputMode="decimal" value={realTexto} onChange={(ev) => cambiar(setRealTexto)(ev.target.value)} disabled={envio.enviando || envio.incierto} aria-invalid={Boolean(errorImporte) || undefined} aria-describedby={`${id}-real-ayuda`} />
+          <span id={`${id}-real-ayuda`} className={cn("block text-xs", errorImporte ? "text-destructive" : "text-muted-foreground")}>{errorImporte ?? (noSalioCts !== null && noSalioCts > 0 ? `Se concilian ${formatoArs(noSalioCts / 100)} que nunca salieron.` : `Hoy figura que salieron ${formatoArs(c.efectivo)}.`)}</span>
+        </label>
+      )}
+      {opcion === "RECUPERO" && (
+        <div className="space-y-2">
+          <label className="block space-y-1 text-sm font-medium" htmlFor={`${id}-caja`}><span>Caja que recibe el efectivo</span>
+            <select id={`${id}-caja`} className={sel} value={cajaId} onChange={(ev) => cambiar(setCajaId)(ev.target.value)} disabled={envio.enviando || envio.incierto}>
+              <option value="">Elegí una caja…</option>
+              {abiertas.map((x) => <option key={x.id} value={x.id}>{x.nombre} — turno de {x.turnoAbierto?.responsableNombre}</option>)}
+            </select></label>
+          <label className="block space-y-1 text-sm font-medium" htmlFor={`${id}-importe`}><span>Importe que vuelve</span>
+            <Input id={`${id}-importe`} inputMode="decimal" value={recuperoTexto} onChange={(ev) => cambiar(setRecuperoTexto)(ev.target.value)} disabled={envio.enviando || envio.incierto} aria-invalid={Boolean(errorImporte) || undefined} aria-describedby={`${id}-importe-ayuda`} />
+            <span id={`${id}-importe-ayuda`} className={cn("block text-xs", errorImporte ? "text-destructive" : "text-muted-foreground")}>{errorImporte ?? `Hasta ${formatoArs(c.pendiente)}. El cajero no ve este importe: lo cuenta al cerrar su turno.`}</span>
+          </label>
+        </div>
+      )}
+      {ajusteProveedor && <p className="rounded-lg bg-violet-50 p-2 text-xs text-violet-950 dark:bg-violet-950/40 dark:text-violet-100" data-testid="correccion-ajuste-proveedor">{ajusteProveedor}</p>}
+      {opcion && (
+        <>
+          <label className="block space-y-1 text-sm font-medium" htmlFor={`${id}-motivo`}><span>Motivo (obligatorio)</span>
+            <Textarea id={`${id}-motivo`} value={motivo} maxLength={500} onChange={(ev) => cambiar(setMotivo)(ev.target.value)} disabled={envio.enviando || envio.incierto} /></label>
+          <label className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" className="mt-0.5 h-4 w-4" checked={confirmo} onChange={(ev) => cambiar(setConfirmo)(ev.target.checked)} disabled={envio.enviando || envio.incierto} />
+            <span>{opcion === "RECUPERO" ? `Confirmo que entrego ${importeTexto || "ese efectivo"} físicamente en ${caja?.nombre ?? "la caja elegida"}.` : `Confirmo que ${importeTexto || "ese efectivo"} nunca salió de ${egreso.cajaNombre}.`}</span></label>
+        </>
+      )}
+      {confirmando && !envio.error && <p role="alert" className="rounded-lg bg-sky-50 p-2 text-sm font-semibold text-sky-950 dark:bg-sky-950/40 dark:text-sky-100">{opcion === "RECUPERO" ? `¿Confirmás el recupero de ${importeTexto} en ${caja?.nombre}? Es un ingreso de efectivo y no se puede deshacer.` : `¿Confirmás la conciliación de ${importeTexto}? No mueve dinero y no se puede deshacer.`}</p>}
+      {envio.error && <p role="alert" className="text-sm text-destructive">{envio.error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" className="min-h-11 rounded-xl" disabled={envio.enviando || envio.incierto} onClick={confirmando ? () => setConfirmando(false) : onCancelar}>{confirmando ? "Volver" : "Cancelar"}</Button>
+        <Button type="submit" className="min-h-11 rounded-xl bg-sky-700 text-white hover:bg-sky-800" disabled={envio.enviando || !listo}>{envio.enviando ? "Registrando…" : envio.incierto ? "Reintentar" : confirmando ? "Confirmar corrección" : "Continuar"}</Button>
       </div>
     </form>
   )
@@ -817,7 +1024,12 @@ function ConfiguracionUmbral() {
 // Shared owner-only report pieces (shift detail and daily summary)
 // ---------------------------------------------------------------------------
 
-export type EgresosHoy = Record<NaturalezaSalida, { cantidad: number; importe: number; cantidadCompensaciones: number; compensado: number }> & { gastosPorCategoria: Record<string, number> }
+export type EgresosHoy = Record<NaturalezaSalida, { cantidad: number; importe: number; cantidadCompensaciones: number; compensado: number; conciliado?: number; efectivo?: number; recuperado?: number; neto?: number }> & {
+  gastosPorCategoria: Record<string, number>
+  // F10-D1 (optional for older payloads)
+  recuperosEgresos?: { cantidad: number; importe: number }
+  conciliacionesEgresosAnteriores?: { cantidad: number; importe: number }
+}
 
 /** Daily summary of cash outflows by nature (never one combined "expense" figure). */
 export function ResumenEgresosHoy({ egresos }: { egresos: EgresosHoy }) {
@@ -837,12 +1049,17 @@ export function ResumenEgresosHoy({ egresos }: { egresos: EgresosHoy }) {
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><IconoNaturaleza naturaleza={nat} />{titulo} ({egresos[nat].cantidad})</p>
             <p className="text-lg font-bold tabular-nums">{formatoArs(egresos[nat].importe)}</p>
             {egresos[nat].compensado > 0 && <p className="text-xs">Compensado: {formatoArs(egresos[nat].compensado)}</p>}
+            {(egresos[nat].conciliado ?? 0) > 0 && <p className="text-xs">Nunca salió (conciliado): {formatoArs(egresos[nat].conciliado!)}</p>}
+            {((egresos[nat].conciliado ?? 0) > 0 || egresos[nat].compensado > 0) && egresos[nat].efectivo !== undefined && <p className="text-xs font-semibold">Salió realmente: {formatoArs(egresos[nat].efectivo!)}</p>}
+            {(egresos[nat].recuperado ?? 0) > 0 && <p className="text-xs">Volvió hoy (recupero): {formatoArs(egresos[nat].recuperado!)} · neto {formatoArs(egresos[nat].neto ?? 0)}</p>}
             <p className="text-[11px] text-muted-foreground">{nota}</p>
           </div>
         ))}
       </div>
       {categorias.length > 0 && <p className="text-xs text-muted-foreground">Gastos por categoría: {categorias.map(([c, v]) => `${TITULO_CATEGORIA[c] ?? c} ${formatoArs(v)}`).join(" · ")}</p>}
       {totalCompensado > 0 && <p className="text-xs text-muted-foreground">Compensaciones registradas hoy: {formatoArs(totalCompensado)} (devuelven efectivo esperado al turno; la salida original se conserva).</p>}
+      {(egresos.recuperosEgresos?.importe ?? 0) > 0 && <p className="text-xs text-muted-foreground" data-testid="resumen-recuperos-egresos">Recuperos de egresos de hoy: {formatoArs(egresos.recuperosEgresos!.importe)} ({egresos.recuperosEgresos!.cantidad}). Es efectivo que volvió a una caja: no es una venta ni un cobro.</p>}
+      {(egresos.conciliacionesEgresosAnteriores?.importe ?? 0) > 0 && <p className="text-xs text-muted-foreground">Conciliaciones registradas hoy sobre egresos de días anteriores: {formatoArs(egresos.conciliacionesEgresosAnteriores!.importe)}. No mueven efectivo de hoy.</p>}
     </section>
   )
 }

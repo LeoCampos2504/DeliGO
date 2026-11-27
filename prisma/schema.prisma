@@ -644,7 +644,7 @@ model CuentaFinanciera {
 model OperacionFinanciera {
   id                  String   @id @default(cuid())
   negocioId           String
-  tipo                String // VENTA_COBRO (F10-B0) | DEVOLUCION_VENTA (F4-A, salida de efectivo) | GASTO, PAGO_PROVEEDOR, RETIRO_DUENO (F10-C1a, egresos de caja) | REVERSION (compensación, F10-C1c); futuros: TRANSFERENCIA_INTERNA, CAMBIO_*, AJUSTE
+  tipo                String // VENTA_COBRO (F10-B0) | DEVOLUCION_VENTA (F4-A, salida de efectivo) | GASTO, PAGO_PROVEEDOR, RETIRO_DUENO (F10-C1a, egresos de caja) | REVERSION (compensación, F10-C1c) | RECUPERO_EGRESO (F10-D1); futuros: TRANSFERENCIA_INTERNA, CAMBIO_*, AJUSTE
   estado              String   @default("CONFIRMADA")
   // Origen: un cobro de venta genera a lo sumo UNA operacion (anti-duplicado).
   cobroVentaId        String?  @unique
@@ -671,6 +671,8 @@ model OperacionFinanciera {
   // F10-C1a: egreso de caja (GASTO | PAGO_PROVEEDOR | RETIRO_DUENO) y su compensación (REVERSION)
   egresoCaja         EgresoCaja?
   compensacionEgreso CompensacionEgresoCaja?
+  // F10-D1: recupero de un egreso descubierto después del cierre (RECUPERO_EGRESO)
+  recuperoEgreso     RecuperoEgresoCaja?
 
   @@unique([negocioId, idempotencyKey])
   @@index([negocioId, createdAt])
@@ -945,6 +947,9 @@ model EgresoCaja {
   turno        TurnoCaja               @relation(fields: [turnoCajaId, negocioId, cajaFisicaId], references: [id, negocioId, cajaFisicaId], onDelete: NoAction)
   revisiones   RevisionEgresoCaja[]
   compensacion CompensacionEgresoCaja?
+  // F10-D1: correcciones posteriores al cierre (nunca modifican el egreso)
+  conciliaciones ConciliacionEgresoCaja[]
+  recuperos      RecuperoEgresoCaja[]
   creditosProveedor CreditoProveedor[] // F5-A: el egreso nunca se modifica; F5 sólo lo referencia
 
   pagoRecepcion   PagoRecepcion[] // D-7 v2
@@ -1006,6 +1011,69 @@ model CompensacionEgresoCaja {
   @@unique([negocioId, idempotencyKey])
   @@unique([egresoId, negocioId])
   @@map("compensaciones_egresos_caja")
+}
+
+// ============================================
+// F10-D1 — correcciones de egresos descubiertas DESPUÉS del cierre (migración 20261127120000)
+// ============================================
+// Nunca reabren ni modifican el turno cerrado, el egreso ni su operación; nunca crean una REVERSION sin turno
+// (el bloqueo de 20261118150000 sigue vigente). Inmutables; guardas en SQL (topes por egreso y por turno).
+//
+// CONCILIACIÓN: el efectivo NO salió (SIN_SALIDA, todo el egreso) o salió menos (IMPORTE_EXCEDENTE, una parte).
+// Explica parte del SOBRANTE del cierre congelado; no crea ningún movimiento de dinero.
+// obligacionAjusteId: AJUSTE_DEUDA ERROR_DE_CARGA de F5 cuando el pago estaba vinculado a un proveedor.
+model ConciliacionEgresoCaja {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  egresoId               String
+  turnoCajaId            String // el turno CERRADO del egreso
+  cajaFisicaId           String
+  tipo                   String // SIN_SALIDA | IMPORTE_EXCEDENTE
+  importeDecimal         Decimal  @db.Decimal(12, 2)
+  motivo                 String
+  obligacionAjusteId     String?  @unique
+  actorTipo              String   @default("NEGOCIO")
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  egreso EgresoCaja @relation(fields: [egresoId, negocioId], references: [id, negocioId], onDelete: Cascade)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, egresoId])
+  @@index([turnoCajaId])
+  @@index([negocioId, createdAt])
+  @@map("conciliaciones_egresos_caja")
+}
+
+// RECUPERO: el efectivo salió y vuelve después. Operación RECUPERO_EGRESO con UNA pata positiva en la cuenta de
+// efectivo de la caja que lo recibe, atribuida a su turno ABIERTO (turnoCajaId / cajaFisicaId = receptor).
+// No es venta ni cobro. obligacionAjusteId: AJUSTE_DEUDA DIFERENCIA_ACORDADA de F5 (DF-2) si estaba vinculado.
+model RecuperoEgresoCaja {
+  id                     String   @id @default(cuid())
+  negocioId              String
+  egresoId               String
+  operacionId            String   @unique
+  turnoCajaId            String
+  cajaFisicaId           String
+  importeDecimal         Decimal  @db.Decimal(12, 2)
+  motivo                 String
+  obligacionAjusteId     String?  @unique
+  actorTipo              String   @default("NEGOCIO")
+  actorId                String
+  idempotencyKey         String
+  idempotencyFingerprint String
+  createdAt              DateTime @default(now())
+
+  egreso    EgresoCaja          @relation(fields: [egresoId, negocioId], references: [id, negocioId], onDelete: Cascade)
+  operacion OperacionFinanciera @relation(fields: [operacionId], references: [id], onDelete: NoAction)
+
+  @@unique([negocioId, idempotencyKey])
+  @@index([negocioId, egresoId])
+  @@index([turnoCajaId])
+  @@index([negocioId, createdAt])
+  @@map("recuperos_egresos_caja")
 }
 
 // ============================================

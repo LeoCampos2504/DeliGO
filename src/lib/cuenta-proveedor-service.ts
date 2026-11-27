@@ -111,9 +111,31 @@ export function mapCuentaProveedorDbError(error: unknown): { status: 409; error:
     ["creditos_proveedor_egreso_vigente_unico", "Ese pago de Caja ya está vinculado a un proveedor.", "PAGO_YA_VINCULADO"],
     ["obligaciones_proveedor_saldo_inicial_unico", "Ese proveedor ya tiene un saldo inicial vigente.", "SALDO_INICIAL_EXISTENTE"],
     ["unassignment must reverse exactly one assignment", "Esa asignación ya fue desafectada o no corresponde.", "ASIGNACION_NO_VIGENTE"],
+    // F10-D1: un pago de Caja con correcciones posteriores al cierre conserva su vínculo y su ajuste.
+    ["post-close corrections cannot be linked", EGRESO_CORREGIDO_NO_VINCULABLE, "EGRESO_CON_CORRECCIONES"],
+    ["post-close corrections cannot be unlinked", EGRESO_CORREGIDO_NO_DESVINCULABLE, "EGRESO_CON_CORRECCIONES"],
+    ["adjustment of a cash outflow correction cannot be cancelled", AJUSTE_DE_CORRECCION_NO_ANULABLE, "AJUSTE_DE_CORRECCION_DE_CAJA"],
   ]
   for (const [frag, error2, code] of tabla) if (t.includes(frag)) return { status: 409, error: error2, code }
   return null
+}
+
+// F10-D1 — correcciones de un pago de Caja descubiertas después del cierre (conciliación / recupero). Su ajuste
+// de deuda (AJUSTE_DEUDA) se registra en la misma transacción que la corrección; después ya no se puede
+// vincular, desvincular ni anular, porque el ajuste quedaría duplicado o huérfano (la base lo repite).
+export const EGRESO_CORREGIDO_NO_VINCULABLE =
+  "Ese pago de Caja ya tiene correcciones posteriores al cierre (conciliación o recupero): no se puede vincular a un proveedor."
+export const EGRESO_CORREGIDO_NO_DESVINCULABLE =
+  "Ese pago de Caja tiene correcciones posteriores al cierre con su ajuste de deuda: no se puede desvincular. Si el proveedor no corresponde, corregilo con un ajuste en su cuenta."
+export const AJUSTE_DE_CORRECCION_NO_ANULABLE =
+  "Este ajuste de deuda nació de una corrección de un pago de Caja (conciliación o recupero) y no se anula: es parte de esa corrección."
+
+async function tieneCorreccionesDeCaja(tx: Pick<Tx, "conciliacionEgresoCaja" | "recuperoEgresoCaja">, negocioId: string, egresoCajaId: string) {
+  const [c, r] = await Promise.all([
+    tx.conciliacionEgresoCaja.findFirst({ where: { negocioId, egresoId: egresoCajaId }, select: { id: true } }),
+    tx.recuperoEgresoCaja.findFirst({ where: { negocioId, egresoId: egresoCajaId }, select: { id: true } }),
+  ])
+  return Boolean(c || r)
 }
 
 async function conManejoDeErrores<T>(fn: () => Promise<CuentaResult<T>>, alDuplicar?: () => Promise<CuentaResult<T> | null>): Promise<CuentaResult<T>> {
@@ -224,6 +246,54 @@ export async function registrarObligacion(
   }), () => replay(db))
 }
 
+/**
+ * F10-D1 — ajuste de deuda (AJUSTE_DEUDA) de una corrección posterior al cierre de un pago de Caja VINCULADO,
+ * dentro de la transacción de la corrección (mismo motor y mismas reglas que un ajuste del dueño):
+ *   - conciliación (el pago no salió o salió menos)  → ERROR_DE_CARGA;
+ *   - recupero (el proveedor devolvió efectivo)       → DIFERENCIA_ACORDADA (DF-2: sin naturaleza nueva).
+ * La deuda vuelve a subir por el importe corregido; el crédito PAGO_CAJA y sus asignaciones quedan intactos
+ * (historia) y el ajuste se asigna como cualquier otra deuda. El comprobante identifica el origen.
+ * El llamador ya tomó los candados de la caja y del egreso; acá se toma el del proveedor (mismo orden que vincular).
+ */
+export async function registrarAjusteCorreccionEgresoEnTx(
+  tx: Tx,
+  input: {
+    negocioId: string
+    proveedorId: string
+    egresoCajaId: string
+    origen: "CONCILIACION" | "RECUPERO"
+    importe: Prisma.Decimal
+    motivo: string
+    idempotencyKey: string
+    fingerprint: string
+  },
+  opciones: { auditar?: AuditoriaEnTx } = {}
+): Promise<CuentaResult<{ obligacionId: string; proveedorNombre: string }>> {
+  const { negocioId, proveedorId, egresoCajaId } = input
+  const prov = await bloquearProveedor(tx, negocioId, proveedorId)
+  if (!prov) return PROVEEDOR_NO_ENCONTRADO
+  if (!prov.activo) return fail(409, "El pago está vinculado a un proveedor inactivo. Activalo en Proveedores para registrar el ajuste de su deuda junto con esta corrección.", "PROVEEDOR_INACTIVO")
+  const naturalezaAjuste = input.origen === "CONCILIACION" ? "ERROR_DE_CARGA" : "DIFERENCIA_ACORDADA"
+  const prefijo = input.origen === "CONCILIACION" ? "Corrección de pago de Caja: el efectivo no salió (conciliación posterior al cierre)" : "Corrección de pago de Caja: el proveedor devolvió efectivo (recupero)"
+  const descripcion = `${prefijo}. ${input.motivo}`.slice(0, TEXTO_MAX)
+  const o = await tx.obligacionProveedor.create({
+    data: {
+      negocioId, proveedorId, origen: "AJUSTE_DEUDA", naturalezaAjuste, importeDecimal: input.importe, fecha: new Date(), descripcion,
+      comprobanteTipo: input.origen === "CONCILIACION" ? "Conciliación de Caja" : "Recupero de Caja", comprobanteNumero: egresoCajaId,
+      actorId: negocioId, idempotencyKey: input.idempotencyKey, idempotencyFingerprint: input.fingerprint,
+    },
+    select: { id: true },
+  })
+  if (opciones.auditar) {
+    await opciones.auditar(tx, {
+      accion: "cuenta_proveedor.obligacion_registrada",
+      recursoId: o.id,
+      detalle: { negocioId, proveedorId, obligacionId: o.id, origen: "AJUSTE_DEUDA", naturalezaAjuste, importe: input.importe.toFixed(2), origenCorreccion: input.origen === "CONCILIACION" ? "CONCILIACION_EGRESO_CAJA" : "RECUPERO_EGRESO_CAJA", egresoCajaId },
+    })
+  }
+  return { ok: true as const, value: { obligacionId: o.id, proveedorNombre: prov.nombre } }
+}
+
 /** Evento (append-only) + transición de estado en la misma transacción. */
 async function crearEvento(tx: Tx, data: { negocioId: string; obligacionId?: string; creditoId?: string; tipo: string; motivo: string | null; key: string; fp: string; fecha: Date }) {
   return tx.eventoCuentaProveedor.create({
@@ -261,6 +331,11 @@ export async function anularObligacion(
     if (o.origen === "RECEPCION" || o.origen === "CARGO_ACCESORIO") {
       return fail(409, "Una deuda que nació de una recepción aprobada no se anula: corregila con un ajuste de deuda (o con una devolución al proveedor cuando esté disponible).", "OBLIGACION_DE_RECEPCION")
     }
+    const [deConciliacion, deRecupero] = await Promise.all([
+      tx.conciliacionEgresoCaja.findUnique({ where: { obligacionAjusteId: obligacionId }, select: { id: true } }),
+      tx.recuperoEgresoCaja.findUnique({ where: { obligacionAjusteId: obligacionId }, select: { id: true } }),
+    ])
+    if (deConciliacion || deRecupero) return fail(409, AJUSTE_DE_CORRECCION_NO_ANULABLE, "AJUSTE_DE_CORRECCION_DE_CAJA")
     const { porObligacion } = await asignadoVigente(tx, negocioId, base.proveedorId)
     if ((porObligacion.get(obligacionId) ?? CERO).gt(0)) return fail(409, "Esa deuda tiene pagos asignados: desafectalos antes de anularla.", "TIENE_ASIGNACIONES")
     const ahora = new Date()
@@ -497,6 +572,7 @@ export async function vincularPagoCajaEnTx(
     }
     const dup = await yaVinculado(tx)
     if (dup) return dup
+    if (await tieneCorreccionesDeCaja(tx, negocioId, egresoCajaId)) return fail(409, EGRESO_CORREGIDO_NO_VINCULABLE, "EGRESO_CON_CORRECCIONES")
     const prov = await bloquearProveedor(tx, negocioId, proveedorId)
     if (!prov) return PROVEEDOR_NO_ENCONTRADO
     if (!prov.activo) return PROVEEDOR_INACTIVO
@@ -546,6 +622,9 @@ export async function transicionarCredito(
     const c = await tx.creditoProveedor.findFirstOrThrow({ where: { id: creditoId, negocioId }, select: { origen: true, estado: true, importeDecimal: true, egresoCajaId: true } })
     if (!(regla.origenes as readonly string[]).includes(c.origen) || !(regla.desde as readonly string[]).includes(c.estado)) {
       return fail(409, "Esa acción no corresponde al estado actual del pago.", "TRANSICION_NO_PERMITIDA", { estado: c.estado, origen: c.origen })
+    }
+    if (tipo === "DESVINCULACION" && c.egresoCajaId && await tieneCorreccionesDeCaja(tx, negocioId, c.egresoCajaId)) {
+      return fail(409, EGRESO_CORREGIDO_NO_DESVINCULABLE, "EGRESO_CON_CORRECCIONES")
     }
     if (esCreditoEfectivo(c.estado)) {
       const { porCredito } = await asignadoVigente(tx, negocioId, base.proveedorId)

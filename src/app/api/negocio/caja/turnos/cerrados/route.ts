@@ -7,6 +7,7 @@ import { requireNegocioCajaGenerico } from "@/lib/negocio-caja-auth"
 import { clasificarDiferencia } from "@/lib/caja-turnos-revision"
 import { CIERRE_ORIGEN_RECUPERACION, CIERRE_ORIGEN_RESPONSABLE } from "@/lib/caja-turnos-service"
 import { desgloseEfectivoParaRespuesta, desgloseEfectivoTurnos, resumenCambiosTurnos } from "@/lib/caja-turnos-admin"
+import { conciliadoPorTurnos } from "@/lib/caja-egresos-correccion-service"
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,10 +25,12 @@ export async function GET(req: NextRequest) {
       take: 100,
     })
     // F4-C5 (D7): exchanges of each closed shift — informative, apart from the frozen closing figures.
-    const [cambiosPorTurno, desglosePorTurno] = await Promise.all([
+    const [cambiosPorTurno, desglosePorTurno, conciliadoPorTurno] = await Promise.all([
       resumenCambiosTurnos(db, auth.negocioId, turnos.map((t) => t.id)),
       // F10-C1c: cash by type from the same ledger legs; `cuadra` checks it against the frozen snapshot.
       desgloseEfectivoTurnos(db, auth.negocioId, turnos.map((t) => t.id)),
+      // F10-D1: the part of each close's difference explained afterwards by outflow conciliations (informative).
+      conciliadoPorTurnos(db, auth.negocioId, turnos.map((t) => t.id)),
     ])
     return NextResponse.json({ turnos: turnos.flatMap((turno) => {
       if (!turno.cerradoEn || !turno.efectivoContadoDecimal || !turno.efectivoEsperadoDecimal) return []
@@ -52,6 +55,11 @@ export async function GET(req: NextRequest) {
         efectivoContadoExacto: turno.efectivoContadoDecimal.toFixed(2),
         diferencia: moneyToNumber(diferencia),
         resultado: clasificarDiferencia(diferencia),
+        // F10-D1: the frozen difference never changes; this only says how much of it outflow conciliations explain.
+        conciliacionEgresos: (() => {
+          const c = conciliadoPorTurno.get(turno.id)!
+          return c.cantidad > 0 ? { cantidad: c.cantidad, conciliado: moneyToNumber(c.importe), sinExplicar: moneyToNumber(diferencia.minus(c.importe)) } : null
+        })(),
         cambios: (() => {
           const c = cambiosPorTurno.get(turno.id)!
           return { cantidad: c.cantidad, diferenciaCobrada: moneyToNumber(c.diferenciaCobrada), reintegradoEfectivo: moneyToNumber(c.reintegradoEfectivo), compensacionInterna: moneyToNumber(c.compensacionInterna) }
