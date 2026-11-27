@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { AlertTriangle, BadgeCheck, Banknote, LockKeyhole, RefreshCw, Store, UserRound } from "lucide-react"
+import { AlertTriangle, BadgeCheck, Banknote, RefreshCw, Store, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
@@ -371,7 +371,6 @@ export function OperationalShiftPanel({ slug, negocioId, empleadoId, empleadoNom
               </label>}
             </>
           })()}
-          {!state.aperturaHabilitada && <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground"><LockKeyhole className="mr-1 inline h-4 w-4" />La apertura y el cierre están limitados a cuentas controladas de TESTING.</p>}
           {state.modoTurnos === "OPCIONAL" && <p className="text-xs text-muted-foreground">Mientras no haya un turno abierto, las ventas existentes siguen disponibles en modo opcional.</p>}
           <Button type="button" onClick={() => void openShift()} disabled={!state.aperturaHabilitada || saving || !selected || (usarFondoTransferido && !confirmoRecepcionFondo)} className="h-12 w-full rounded-xl font-bold sm:w-auto">
             {saving ? "Iniciando…" : usarFondoTransferido ? "Abrir turno con fondo transferido" : "Iniciar turno"}

@@ -12,10 +12,9 @@
 // Authorization is decided ONLY by the server (personal operational session +
 // área "caja"); this page just follows its answers: 401 → login, área lost →
 // personal home, business unavailable → message.
-// F10-B2.2-B adds shift status and controlled opening through the existing
-// turn API. Opening stays unavailable outside the TESTING allowlist until a
-// close/recovery flow exists; blind close, cash outflows, receptions,
-// accounts, Mercado Pago and business statistics remain out of this screen.
+// F10-B2.2-B adds shift status and opening through the existing turn API (T5:
+// every authorized cashier, the former TESTING pilot allowlist is retired).
+// Mercado Pago and business statistics remain out of this screen.
 // F4-A adds the business's previous sales (search by day or reference) to void
 // them or return products, through the cashier's own operativo endpoints only.
 // F4-C5 adds exchanges and linked additional sales of those sales (cashier

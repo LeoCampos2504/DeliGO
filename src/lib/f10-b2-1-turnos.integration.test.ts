@@ -261,17 +261,22 @@ describe("F10-B2.1 — physical registers", () => {
 // ---------------------------------------------------------------------------
 
 describe("F10-B2.1 — opening shifts", () => {
-  test("shift opening route is limited to explicitly allowlisted employees in TESTING", async () => {
+  // T5 (operator, 2026-11-27): the former pilot allowlist no longer decides; an authorized cashier that is NOT on it
+  // (and with the pilot flag off) opens their own shift. The security rejections live in t5-turno-cajero-habilitacion.
+  test("an authorized cashier outside the former pilot allowlist opens their shift (no env gate)", async () => {
     const { negocio } = await crearNegocio()
     const { empleado, cookie } = await crearCajero(negocio.id)
     const original = process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS ?? ""
+    const flag = process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED
     process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS = original.split(/[\s,;]+/).filter((id) => id && id !== empleado.id).join(",")
+    process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = "false"
     try {
-      expect((await turnoCajero(cookie, negocio.slug)).body.aperturaHabilitada).toBe(false)
-      expect((await abrirCajero(cookie, negocio.slug, { fondoInicial: 10 })).status).toBe(403)
-      expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(0)
+      expect((await turnoCajero(cookie, negocio.slug)).body.aperturaHabilitada).toBe(true)
+      expect((await abrirCajero(cookie, negocio.slug, { fondoInicial: 10 })).status).toBe(201)
+      expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(1)
     } finally {
       process.env.DELIGO_F10_B2_2_B_CONTROLLED_EMPLOYEE_IDS = original
+      process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = flag
     }
   })
 
@@ -282,12 +287,6 @@ describe("F10-B2.1 — opening shifts", () => {
     const current = await turnoCajero(cookie, negocio.slug)
     expect(current.body.aperturaHabilitada).toBe(true)
     expect(current.body).not.toHaveProperty("efectivoEsperado")
-    const enabled = process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED
-    process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = "false"
-    const closedGate = await abrirCajero(cookie, negocio.slug, { fondoInicial: 1 })
-    expect(closedGate.status).toBe(403)
-    expect(await db.turnoCaja.count({ where: { negocioId: negocio.id } })).toBe(0)
-    process.env.DELIGO_F10_B2_2_B_SHIFT_UI_ENABLED = enabled
     const key = randomUUID()
     const first = await abrirCajero(cookie, negocio.slug, { fondoInicial: "20000.00" }, key)
     expect(first.status).toBe(201)

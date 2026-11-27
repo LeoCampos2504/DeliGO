@@ -6,7 +6,6 @@ import { moneyToNumber } from "@/lib/money"
 import { noStore, resolveOperativoAreaForSlug } from "@/lib/operativo-mozo"
 import { cajaAuthFailure } from "@/lib/operativo-caja"
 import { abrirTurnoCaja, cerrarTurnoCaja, CIERRE_ORIGEN_RECUPERACION, asegurarCajaPredeterminada, listarFondosRemanentesTransferibles, TURNO_ESTADO_ABIERTO, TURNO_ESTADO_CERRADO_DECLARADO, turnoAbiertoDeActor } from "@/lib/caja-turnos-service"
-import { isControlledShiftUiEnabled } from "@/lib/f10-b2-2-b-shift-ui-gate"
 
 // ============================================
 // F10-B2.1 — cashier: THEIR OWN shift
@@ -18,6 +17,11 @@ import { isControlledShiftUiEnabled } from "@/lib/f10-b2-2-b-shift-ui-gate"
 // POST → open their own shift or blind-close their own shift; both require an
 // Idempotency-Key. The response never includes expected cash, differences,
 // totals, balances, other people's shifts or movements.
+// T5 (operator, 2026-11-27): every active employee with área caja of an eligible
+// business can open and close THEIR OWN shift, in TESTING and in Production. The
+// former F10-B2.2-B pilot gate (TESTING + flag + employee allowlist) is retired;
+// the authority is the resolver above plus the shift service (own shift,
+// idempotency, concurrency, blind close, administrative recovery).
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await params
@@ -46,7 +50,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
       NextResponse.json({
         ok: true,
         modoTurnos: negocio?.cajaTurnosModo ?? "OPCIONAL",
-        aperturaHabilitada: isControlledShiftUiEnabled(auth.empleado.id),
+        // Kept for the client contract: only an authorized cashier reaches this point.
+        aperturaHabilitada: true,
         cajas: cajas.map((c) => {
           const fondo = fondoPorCaja.get(c.id)
           return {
@@ -77,9 +82,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
     const { slug } = await params
     const auth = await resolveOperativoAreaForSlug(req, slug, "caja")
     if (!auth.ok) return cajaAuthFailure(auth)
-    if (!isControlledShiftUiEnabled(auth.empleado.id)) {
-      return noStore(NextResponse.json({ ok: false, error: "La operación de turnos aún no está habilitada para esta cuenta." }, { status: 403 }))
-    }
     const body = (await req.json().catch(() => null)) as { action?: unknown; turnoCajaId?: unknown; efectivoContado?: unknown; cajaFisicaId?: unknown; fondoInicial?: unknown; transferirDesdeTurnoCajaId?: unknown; confirmoRecepcionFondo?: unknown } | null
     if (body?.action === "close") {
       if (typeof body.turnoCajaId !== "string") return noStore(NextResponse.json({ ok: false, error: "Turno inválido." }, { status: 400 }))
