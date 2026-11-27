@@ -1,4 +1,4 @@
-## Estado de la estabilización (vigente, 2026-11-26)
+## Estado de la estabilización (vigente, 2026-11-27)
 
 | Tanda | Estado |
 |---|---|
@@ -7,9 +7,26 @@
 | T2 seguridad y salud técnica | **CERTIFICADA EN TESTING** (CI `8ca2053e` run `45921529454` + regresión funcional B8–B10, 2026-11-27) · XLSX de Excel real en T5 |
 | T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **CERTIFICADA EN TESTING** (2026-11-27): dueño, mozo, cajero/PyR y Salón personal (S1 `salon`, S2 `salon_personal`) · corrección de revalidación de ocupación `8eacd113` certificada (M1–M3, T1–T3) · **36/36** pruebas · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
 | Reorganización Caja / Administración (panel del dueño) | **APROBADA PARA ANTES DE PRODUCTION** (operador, 2026-11-27) · sólo navegación · alcance técnico en `T3_SESIONES_SIMULTANEAS_HTTP401.md`, no implementada · entrará en el próximo ciclo de despliegue a TESTING |
-| T4 F10-D1 | **DISEÑO EN CURSO** (autorizado 2026-11-27; implementación NO autorizada) · `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md` · obligatoria antes de habilitar egresos y compras en Production |
-| T5 candidata | **CONSTRUIDA** en `codex/release-candidata` (exclusión P0-08 + merge de `main` + turnos del cajero); falta desplegarla en TESTING y certificarla |
-| T6 Production · T7 metodología | Pendientes |
+| T4 F10-D1 | **CERTIFICADA EN TESTING** (14/14, 2026-11-27) y publicada en Production con T6 · `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md` |
+| T5 candidata | **CERRADA EXCEPCIONALMENTE** (2026-11-27): candidata `697dfd7e` desplegada en TESTING (DeliGO Copy `4b6607b0`), aprobada técnicamente; pruebas manuales restantes **DIFERIDAS, NO APROBADAS** por decisión comercial (ver abajo) |
+| T6 Production | **CERRADA** (2026-11-27): `697dfd7e` en Production (DeliGO `94e9cc9e`), 36 migraciones (70/70), verificación de solo lectura `PASS_CON_AVISOS` sin fallas |
+| T7 metodología | **PROPUESTA, PENDIENTE DE APROBACIÓN** · `codex-reports/T7_METODOLOGIA_PROPUESTA.md` |
+
+### PRÓXIMA FUNCIONALIDAD (máxima prioridad, después de aprobar T7)
+
+Paridad de enlaces y códigos QR de mesas en Terminal y Salón personal. No se empieza hasta que T7 quede establecida.
+
+### PRUEBAS MANUALES DE T5 DIFERIDAS (decisión comercial del operador, 2026-11-27 — NO APROBADAS)
+
+Segundo cajero · GPS/navegación · Salón/Mozo/Terminal/PyR · autenticación y sesiones simultáneas · notificaciones/push
+(el operador comprobó push de negocio y cliente en Production después de renovar las suscripciones; la prueba completa
+sigue diferida) · carrito/pedido público · importación XLSX de Excel real · Caja en dispositivos físicos · D-6. Se
+ejecutan cuando una funcionalidad toque esas áreas o como tareas propias.
+
+### DEUDA TÉCNICA REGISTRADA EN T6 (no bloqueante)
+
+F-T6-01 depurar suscripciones push vencidas (403/400) · F-T6-02 watch paths de Railway · F-T6-03 regla de protección de
+`main` + CI sobre `main` (resuelto por T7 si se aprueba) · F-T6-05 aviso DEP0169 `url.parse`. Detalle en `FINDINGS.md`.
 
 Detalle T2: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»). La sección siguiente es histórica.
 

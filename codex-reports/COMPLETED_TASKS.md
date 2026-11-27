@@ -1,5 +1,29 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T6 — Production deploy of the release candidate — CLOSED (operator, 2026-11-27)
+
+```text
+T6_STATUS=CLOSED (operator authorization; first stable Production version after the T0–T6 stabilization)
+COMMIT=697dfd7e6516f22e98597ab07021f30b23e6849a (main fast-forward 42ca5005..697dfd7e, 19:31:52 UTC, no force)
+TESTS=995/995 automated (CI 45957409404 codex/release-candidata + 45958296996 testing-codex on the exact SHA) · 50/50 functional previously certified (T1–T4)
+MIGRATIONS=36 applied by the normal pre-deploy on the ORIGINAL Production database · 70/70 · checksums 70/70 · 0 failed/pending
+BACKUP=deligo-production-pre-t6-20261127T192716Z.dump SHA-256 e8346a85d44ee3c5ca57a8fdd4ee23a8e719a971c01c84ee0303af212a2c2769 · isolated rehearsal PASS (1720 rows identical, 94/94 Prisma models)
+SERVICES=DeliGO 94e9cc9e · Mesa Occupancy Cron 33caa6ae · Review Moderation Expiry 42d42576 · chat en vivo 6740eb42 — all SUCCESS on 697dfd7e
+VERIFICATION=operator read-only verifier PASS_CON_AVISOS, 0 failures (195509Z, 200152Z) · warnings correlated with the operator's own logged activity · original data preserved · 0 TESTING QA data · Production/TESTING independent · conservative defaults
+OPERATOR=first real-account checks satisfactory · business and client push working after renewing subscriptions
+T5_DEFERRED=remaining T5 manual tests DEFERRED, NOT APPROVED (commercial decision; listed in ROADMAP)
+NEXT=T7 methodology proposal (codex-reports/T7_METODOLOGIA_PROPUESTA.md) awaiting approval → table link/QR parity
+```
+
+## T5 — Release candidate — CLOSED_EXCEPTIONALLY (operator commercial decision, 2026-11-27)
+
+```text
+T5_STATUS=CLOSED_EXCEPTIONALLY (technically approved; remaining manual tests DEFERRED, NOT APPROVED)
+CANDIDATE=codex/release-candidata 697dfd7e (P0-08 exclusion of P2-T23/T24/T54-R1 · explicit merge of origin/main · cashier shift gate retired)
+TESTING=testing-codex 1a3c33f5..697dfd7e · DeliGO Copy 4b6607b0 SUCCESS · chat f8094b5d · Review Expiry 6d9799a6 · Mesa Cron a095dd6e SKIPPED (watch patterns; 9b61b81c stays) · backup deligo-testing-pre-t5-20261127T072254Z.dump SHA-256 7e0ee7200cb99350d47e987b246604f1dd23bfc92fe57af1116bbd543fd0c88e
+DEFERRED_TESTS=second cashier · GPS/navigation · Salón/Mozo/Terminal/PyR · auth/simultaneous sessions · notifications/push · cart/public order · real-Excel XLSX import · Caja on physical devices · D-6
+```
+
 ## T4 — F10-D1 + Caja/Administración — CLOSED_TESTING_CERTIFIED (formal close, 2026-11-27)
 
 ```text

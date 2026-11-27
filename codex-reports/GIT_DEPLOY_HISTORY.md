@@ -1,5 +1,28 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T6 — Production deploy · STABLE VERSION 697dfd7e (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator «T6 — Autorización definitiva de despliegue en Production»: git push origin 697dfd7e…:refs/heads/main (fast-forward, no force/reset, no code change)
+PRECONDITIONS=main 42ca5005 · testing-codex 697dfd7e · ff possible · CI 45957409404 + 45958296996 SUCCESS on 697dfd7e6516f22e98597ab07021f30b23e6849a · no staged Railway changes · Production traffic quiet, 0 5xx
+BACKUP=deligo-production-pre-t6-20261127T192716Z.dump 226048 bytes SHA-256 e8346a85d44ee3c5ca57a8fdd4ee23a8e719a971c01c84ee0303af212a2c2769 (34 migrations, 48 tables, 1720 rows; identical row by row to the rehearsal base) · earlier 191559Z kept
+PUSH=42ca5005..697dfd7e main (19:31:52 UTC)
+RAILWAY_PRODUCTION=DeliGO 94e9cc9e-5be5-44e9-ac64-b557fb84f784 SUCCESS commitHash exact (pre-deploy: 70 found, 36 applied, «All migrations have been successfully applied»; Next.js Ready 65 ms; ccc2184a REMOVED, rollback-capable) · Mesa Occupancy Cron 33caa6ae SUCCESS (run 19:47 errors 0) · Review Moderation Expiry 42d42576 SUCCESS (run 20:03 errors 0) · chat en vivo 6740eb42 SUCCESS (listening, /health 200) · no service skipped · no forced redeploy · no config/variable change
+VERIFICATION=production-verificacion-t6.ps1 (operator, read-only) PASS_CON_AVISOS 0 failures · smoke deligo.ar OK · 0 5xx · Postgres log: only checkpoints + old-container SSL EOF at switchover
+CI_MAIN=none (workflow does not trigger on main — F-T6-03)
+STABLE_VERSION=697dfd7e = Production = TESTING (proposed tag prod-2026-11-27-697dfd7e, not created)
+```
+
+## T5 — release candidate deployed to Railway TESTING (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator: push 697dfd7e:refs/heads/testing-codex after backup (fast-forward, no force)
+BACKUP=deligo-testing-pre-t5-20261127T072254Z.dump SHA-256 7e0ee7200cb99350d47e987b246604f1dd23bfc92fe57af1116bbd543fd0c88e (PASS, 70 migrations)
+PUSH=1a3c33f5..697dfd7e testing-codex
+RAILWAY_TESTING=DeliGO Copy 4b6607b0-e7a6-4293-9712-2df173788f33 SUCCESS commitHash 697dfd7e · chat f8094b5d · Review Expiry 6d9799a6 · Mesa Cron a095dd6e SKIPPED (watch patterns; 9b61b81c stays active) · no new migrations (70)
+CI=45957409404 (codex/release-candidata) + 45958296996 (testing-codex) SUCCESS, 995 tests
+```
+
 ## T4 (F10-D1 + Caja/Administración) — Railway TESTING deploy (2026-11-27, Claude Code)
 
 ```text

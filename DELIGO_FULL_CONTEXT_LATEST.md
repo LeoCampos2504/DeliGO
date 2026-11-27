@@ -1,4 +1,18 @@
-## LATEST UPDATE — T5: CANDIDATA A PRODUCTION CONSTRUIDA EN `codex/release-candidata` (2026-11-27)
+## LATEST UPDATE — T6 CERRADA: `697dfd7e` EN PRODUCTION · T7 PROPUESTA (2026-11-27)
+
+- **Production = TESTING = `697dfd7e`** (70 migraciones). DeliGO `94e9cc9e`, Mesa Cron `33caa6ae`, Review Expiry
+  `42d42576`, chat `6740eb42`: SUCCESS. Las 36 migraciones corrieron en el pre-deploy normal sobre la base original;
+  checksums 70/70. Respaldo previo `deligo-production-pre-t6-20261127T192716Z.dump` (ensayo aislado PASS).
+- Verificador de solo lectura del operador: `PASS_CON_AVISOS`, 0 fallas; los avisos son la actividad del operador
+  (login, configuración, pedidos de prueba, notificaciones, renovación de suscripciones push). Base original conservada;
+  0 datos QA de TESTING; valores conservadores sin activar.
+- T5 cerrada excepcionalmente por decisión comercial: pruebas manuales restantes **diferidas, no aprobadas**.
+- **T7** (metodología obligatoria): propuesta en `codex-reports/T7_METODOLOGIA_PROPUESTA.md`, pendiente de aprobación.
+  Próxima funcionalidad: paridad de enlaces/QR de mesas en Terminal y Salón personal, después de aprobar T7.
+- El commit documental de este cierre está en `codex/release-candidata` sin push (evita un redespliegue). Handoff:
+  `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T5: CANDIDATA A PRODUCTION CONSTRUIDA EN `codex/release-candidata` (2026-11-27)
 
 - Exclusión P0-08 (P2-T23/T24/T54-R1; seguimiento y navegación de Production), merge explícito de `origin/main`
   (49 conflictos por comportamiento, sin cambios de código respecto de la candidata) y habilitación de los turnos para

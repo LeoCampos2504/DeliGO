@@ -6,7 +6,9 @@ flujo. Las certificaciones ya registradas en `codex-reports/` siguen siendo hist
 
 ## Activación
 
-**Estado: PENDIENTE DE ACTIVACIÓN.** Entra plenamente en vigencia cuando se cumplan TODAS estas condiciones:
+**Estado (2026-11-27): condición 5 cumplida — versión estable `697dfd7e` en Production (T6 cerrada).** La nueva
+metodología obligatoria (T7) está propuesta en `codex-reports/T7_METODOLOGIA_PROPUESTA.md` y, al aprobarse, reemplaza
+el contenido operativo de este archivo. Condiciones originales de activación:
 
 1. BUG-001 y BUG-002 corregidos y verificados en TESTING.
 2. Pruebas funcionales de la integración actual (compras/catálogo, commit desplegado en TESTING) completadas.

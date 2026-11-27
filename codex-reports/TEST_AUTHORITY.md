@@ -1,5 +1,14 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## T5/T6 test authority (2026-11-27)
+
+```text
+CI_FINAL=697dfd7e: 45957409404 (codex/release-candidata) + 45958296996 (testing-codex) SUCCESS, 995 tests passed
+FUNCTIONAL=50/50 operator-certified in TESTING (T1–T4) · remaining T5 manual tests DEFERRED, NOT APPROVED
+PRODUCTION=isolated rehearsal of the 36 migrations on a copy of the Production backup PASS · post-deploy read-only verifier PASS_CON_AVISOS, 0 failures (warnings = operator activity) · no functional certification repeated in Production
+TOOLS=deligo-dev-local/scripts/qa/production-respaldo-t6.ps1 (backup) · production-verificacion-t6.ps1 (read-only post-deploy: migrations+checksums, per-row fingerprints vs pre-T6 backup, counts, conservative defaults, QA markers; dry-run on an isolated copy PASS and detected a deliberate change)
+```
+
 ## T4 test authority (2026-11-27)
 
 ```text

@@ -1,5 +1,19 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T6 — Production launch and closing decisions (operator, 2026-11-27)
+
+- **Accelerated launch (commercial decision):** T5 is closed as technically approved; every remaining T5 manual test
+  is DEFERRED, NOT APPROVED, and stays in the roadmap. This does not convert those areas into certified ones.
+- **Production deploy rules applied (and kept for future releases with migrations):** fresh backup validated against
+  an isolated rehearsal of the same migrations; push only the exact SHA certified in TESTING by fast-forward; migrations
+  only through the normal pre-deploy on the original database; never TESTING data, backups or variables in Production;
+  no automatic retries, `migrate resolve`, improvised SQL reverts or restores without analysis and express
+  authorization; rollback to the previous deployment only after checking compatibility with the applied schema.
+- **T6 closed** on 697dfd7e (stable version). The closing docs commit stays on `codex/release-candidata` without push
+  so that it does not trigger a redeploy; it travels with the next release.
+- **T7 pending approval:** `codex-reports/T7_METODOLOGIA_PROPUESTA.md`. Table link/QR parity (Terminal and Salón
+  personal) is the next feature and does not start before T7 is approved.
+
 ## T5 — release candidate decisions (operator, 2026-11-27)
 
 - **Eligibility:** P0-08 keeps Production's `LATEST_SAMPLE_ONLY` tracking; P2-T23, P2-T24 and P2-T54-R1 are excluded from the

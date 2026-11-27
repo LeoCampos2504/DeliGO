@@ -1,5 +1,17 @@
 # FINDINGS REGISTRY — DeliGO
 
+## T6 findings (2026-11-27, Production)
+
+```text
+F-T6-01=stale push subscriptions: sends to old endpoints fail with 403 (likely VAPID key mismatch) / 400 and the subscription is not pruned; «0/N envíos entregados» until the operator renewed business and client subscriptions, then delivery worked · NON-BLOCKING, roadmap (prune on 403/400 or re-subscribe prompt; part of the deferred push tests)
+F-T6-02=Railway redeploys DeliGO, Review Moderation Expiry and chat on ANY commit to the tracked branch (no watch paths; chat redeployed with its folder unchanged); only Mesa Cron has watch patterns · proposal in T7 §3
+F-T6-03=CI does not run on main and main has no protection rule (any admin push is accepted) · proposal in T7 §3 (ruleset with check `validate`, CI on codex/**, Railway «Wait for CI»)
+F-T6-04=the app request logger writes the status before the route handler («→ 200» for requests that returned 401/404) · COSMETIC, use HTTP metrics/curl for real status codes
+F-T6-05=Node DEP0169 `url.parse()` deprecation warning on push sends · COSMETIC, dependency-level
+F-T6-06=operator real-account checks created 2 new orders (with items and events) and changed the status of 1 pre-existing order in Production (19:53–19:58 UTC) · RECORDED; operator decides whether to cancel them from the app
+F-T6-07=/manifest.json 404 · NOT A REGRESSION (no such file in 42ca5005 nor 697dfd7e; manifests are per role)
+```
+
 ## T4 findings (2026-11-27)
 
 ```text
