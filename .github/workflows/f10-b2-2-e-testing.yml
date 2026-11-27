@@ -3,38 +3,14 @@ name: F10-B2.2-E TESTING validation
 on:
   push:
     branches:
+      # T7 (operator, 2026-11-27): every development branch, TESTING and Production run the same full validation.
+      # `validate` is the required check of the GitHub rulesets on main and testing-codex: a SHA reaches those
+      # branches only by fast-forward after this job passed on it. No deploy step and no secrets here; Railway
+      # TESTING deploys only from testing-codex and Production only from main. `codex/**` covers the 12 branches
+      # previously listed one by one (F4-A ... T5 release candidate), so no branch lost its CI.
+      - main
       - testing-codex
-      # CI-only run for the F4-A owner-bell fix before integration (no deploy step here;
-      # Railway TESTING deploys only from testing-codex).
-      - codex/f4-a-owner-bell-notification
-      # CI-only run for F4-B (owner sale corrections) before integration; no deploy step.
-      - codex/f4-b-owner-sale-corrections
-      # CI-only run for the F4-B justified-replacement-prices fix before integration; no deploy step.
-      - codex/f4-b-justified-prices
-      # CI-only run for F4-C1 (sale/return engines composable in one transaction) before integration; no deploy step.
-      - codex/f4-c1-transactional-engines
-      # CI-only run for F4-C2 (Caja summaries read the money from the real cobros) before integration; no deploy step.
-      - codex/f4-c2-cobro-based-reports
-      # CI-only run for F4-C3 (data model and SQL invariants of commercial exchanges) before integration; no deploy step.
-      - codex/f4-c3-sale-exchange-schema
-      # CI-only run for F4-C4 (exchange service + API, linked additional sales) before integration; no deploy step.
-      - codex/f4-c4-sale-exchange-service
-      # CI-only run for F4-C5 (exchange UI, safe recovery of uncertain attempts, complete daily totals) before
-      # integration; no deploy step.
-      - codex/f4-c5-sale-exchange-ui
-      # CI-only run for the integration of F5-A, F10-C2a/b/c, supplier payments E1–E3 and the catalog for real
-      # businesses (product↔supplier, temporary employee permissions, Excel/CSV import) before integration; no deploy
-      # step (Railway TESTING deploys only from testing-codex).
-      - codex/integracion-compras-catalogo
-      # CI-only run for BUG-001 (single linked-employee identity rule) and BUG-002 (table occupancy with owner and
-      # operational sessions in the same browser) before integration; no deploy step.
-      - codex/fix-identidad-ocupacion
-      # CI-only run for the final stabilization (T1 interface fixes; later T2/T3) before integration; no deploy step
-      # (Railway TESTING deploys only from testing-codex).
-      - codex/estabilizacion-final
-      # T5: CI-only run for the Production release candidate (P0-08 exclusion + explicit merge of origin/main); no
-      # deploy step (Railway TESTING deploys only from testing-codex, Production only from main).
-      - codex/release-candidata
+      - "codex/**"
 
 permissions:
   contents: read
