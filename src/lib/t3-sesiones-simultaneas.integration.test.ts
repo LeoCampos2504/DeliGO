@@ -73,6 +73,8 @@ async function mesaConOcupacion(negocioId: string, empleadoId: string | null = n
   mesaSeq += 1
   const mesa = await db.mesa.create({ data: { negocioId, numero: 500 + mesaSeq, nombre: `Mesa ${500 + mesaSeq}`, empleadoId } })
   const ocupacion = await db.sesionOcupacionMesa.create({ data: { negocioId, mesaId: mesa.id, estado: "activa" } })
+  // El cierre compara contra el puntero real de la mesa (mismo fixture que P2-T41); sin él responde `no_active`.
+  await db.mesa.update({ where: { id: mesa.id }, data: { ocupacionActualId: ocupacion.id } })
   return { mesa, ocupacion }
 }
 
