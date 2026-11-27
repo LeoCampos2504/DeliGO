@@ -1,4 +1,14 @@
-## LATEST UPDATE — T3 TÉCNICAMENTE APROBADA POR CI (2026-11-27)
+## LATEST UPDATE — T1–T3 CERTIFICADAS EN TESTING · CORRECCIÓN DE OCUPACIÓN 8eacd113 (2026-11-27)
+
+- **TESTING:** `testing-codex` = `32cddd1e`, DeliGO Copy `084d76ad` SUCCESS; respaldo previo SHA-256 `28453218…910c`.
+- **Certificación:** operador 28/28 + verificación interna de solo lectura sin inconsistencias; 0 5xx; 0 HTTP 401 de
+  notificaciones con sesiones válidas. Aclaraciones: B8 permisos revocados después; C5/C7 hechos con rol mozo.
+  **Pendientes** dos complementarias con Salón personal (cierre comercial y cancelación, con el dueño conectado).
+- **Incidencia preexistente** (panel del mozo y Salón de terminal sin revalidar ocupación): fix `8eacd113` publicado
+  para CI; despliegue pendiente de autorización.
+- Detalle: `codex-reports/T3_SESIONES_SIMULTANEAS_HTTP401.md`; handoff: `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T3 TÉCNICAMENTE APROBADA POR CI (2026-11-27)
 
 - **T3** (sesiones simultáneas y HTTP 401) implementada en `codex/estabilizacion-final` y **aprobada por CI**: run
   [`45928752129`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45928752129), job `140276213538`, 82/82 pasos sobre

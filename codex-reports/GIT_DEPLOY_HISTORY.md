@@ -1,5 +1,17 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T1–T3 — joint Railway TESTING deploy (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator: joint T1–T3 deploy to TESTING only (backup first; push 32cddd1e:refs/heads/testing-codex, no force)
+PRECONDITIONS=CI 45929338889 SUCCESS on 32cddd1e · testing-codex 327d6c73 · main 42ca5005 · fast-forward (30 commits) · no new migrations (69)
+BACKUP=operator ran testing-respaldo-t1-t3.ps1 → deligo-testing-pre-t1-t3-20261127T024352Z.dump SHA-256 28453218c77ac92d3d78d7c756537957df4bcb8c43d84420acc38e01d0ed910c (re-verified by the session without credentials)
+PUSH=327d6c73..32cddd1e testing-codex (02:45:49 UTC)
+RAILWAY_TESTING=DeliGO Copy 084d76ad-9c0e-4534-bf7a-db0d0c650a95 SUCCESS commitHash 32cddd1e exact · chat 330198ee · Review Expiry 08603b56 · Mesa Cron bb2bb286 SUCCESS · "No pending migrations to apply" · Ready, 0 5xx
+CI_TESTING_CODEX=45930242578 SUCCESS · PRODUCTION=unchanged (main 42ca5005; DeliGO ccc2184a)
+FOLLOW_UP=fix 8eacd113 on codex/estabilizacion-final (CI pending), not deployed
+```
+
 ## T3 — CI-only pushes of codex/estabilizacion-final (2026-11-27, Claude Code)
 
 ```text

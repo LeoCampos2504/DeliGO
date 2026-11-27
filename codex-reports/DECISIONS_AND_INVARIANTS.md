@@ -1,5 +1,13 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## Occupancy revalidation invariant (2026-11-27)
+
+- Every host that mounts `MesaOccupancyControl` next to a periodic panel read must pass a `refreshKey` bumped on each
+  successful read (polling and manual «Actualizar»), so the control re-queries its canonical endpoint
+  (`/api/operaciones/mesas/[id]/ocupacion`, declared session family). Occupancy is never derived from the panel or from
+  orders. Hosts: owner Salón (P2-T53), personal Salón (P2-T48), waiter panel and terminal Salón (fix `8eacd113`).
+- Terminal Operativa keeps `canClose={false}` and the server 403 on commercial close (P2-T41).
+
 ## T3 result and invariants (2026-11-27)
 
 - **T3 TECHNICALLY APPROVED BY CI** on `3eb53576` (run `45928752129`, job `140276213538`); not functionally certified.

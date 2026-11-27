@@ -3,13 +3,35 @@
 | Tanda | Estado |
 |---|---|
 | T0 documentación | COMPLETADA |
-| T1 nueve correcciones visuales | Implementada · CI aprobado · **pendiente certificación funcional en Railway TESTING** |
-| T2 seguridad y salud técnica | **TÉCNICAMENTE APROBADA POR CI** en `8ca2053e` (run `45921529454`, job `140253127200`, 805/0/0) · pendientes las regresiones funcionales del despliegue conjunto · XLSX de Excel real en T5 |
-| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **TÉCNICAMENTE APROBADA POR CI** en `3eb53576` (run `45928752129`, job `140276213538`, 82/82 pasos) · pendiente despliegue conjunto T1–T3 en TESTING (requiere autorización) y certificación funcional · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
+| T1 nueve correcciones visuales | **CERTIFICADA FUNCIONALMENTE EN TESTING** (2026-11-27, `32cddd1e`, operador A1–A6/B1–B7 aprobadas + verificación interna) |
+| T2 seguridad y salud técnica | CI `8ca2053e` (run `45921529454`) · **regresión funcional focalizada APROBADA EN TESTING** (B8–B10, 2026-11-27) · XLSX de Excel real en T5 |
+| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | CI `3eb53576` (run `45928752129`) · **CERTIFICADA FUNCIONALMENTE EN TESTING** (C1–C12, 2026-11-27) para dueño, mozo y cajero/PyR · **pendientes 2 complementarias de Salón personal** (cierre comercial y cancelación con el dueño conectado) · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
 | T4 F10-D1 | Pendiente · obligatoria antes de habilitar egresos y compras en Production |
 | T5 candidata · T6 Production · T7 metodología | Pendientes |
 
 Detalle T2: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»). La sección siguiente es histórica.
+
+### Certificación funcional T1–T3 en TESTING (2026-11-27) — hallazgos
+
+- **Operador 28/28 aprobadas** sobre `32cddd1e` (DeliGO Copy `084d76ad`). Verificación interna de solo lectura
+  (`verificacion-t1-t3-20261127T034036Z.json`) sin inconsistencias. Detalle: `T3_SESIONES_SIMULTANEAS_HTTP401.md`.
+- **INCIDENCIA PREEXISTENTE (respecto de T1–T3) — ocupación no revalidada en el panel de mesas del mozo y en el Salón
+  de terminal:** `MesaOccupancyControl` se montaba sin `refreshKey`; el sondeo y el botón «Actualizar» recargaban el
+  panel (que no trae ocupación) pero no la ocupación, que sólo se veía al recargar el navegador. Evidencia: logs HTTP
+  (ocupación abierta por QR a las 03:19:10 tras la carga de 03:18:45; «Actualizar» ×3 sin consultar la ocupación;
+  «Ver cuenta» la ve activa a las 03:19:22) y código: T1–T3 no tocó el control, el endpoint ni el API del panel; la
+  página ya no tenía `refreshKey` en `327d6c73`. **Corrección `8eacd113`** en `codex/estabilizacion-final` (mismo patrón
+  que P2-T48/T53, contrato `occupancy-refresh-mozo-terminal-static-contract.test.ts` en el CI general), pendiente de
+  despliegue en TESTING (requiere autorización) y prueba focalizada.
+- **Aclaraciones del operador (2026-11-27):** B8 — los permisos temporales de catálogo quedaron activos al terminar y el
+  operador los revocó manualmente DESPUÉS de la ventana de certificación (la prueba de rechazo sigue aprobada). C5 y C7
+  se ejecutaron con el rol mozo (no Salón personal): los registros identifican correctamente al mozo y quedan
+  aprobadas; faltan las dos comprobaciones complementarias con Salón personal.
+- **MEJORA REGISTRADA (NO autorizada) — sondeo de `/api/public/mesa-cuenta` sin freno ante HTTP 400:** el panel público
+  de la cuenta de la mesa (`mesa-cliente-cuenta-panel.tsx`) repite la consulta cada 15 s aunque reciba 400 (37 veces
+  en la certificación). Lo disparó el slug QA `test_t44_r1d_negocio_b_4135ea7a`, que no cumple `SLUG_PATTERN`
+  (`^[a-z0-9-]{1,80}$`) de la ruta; **no se flexibiliza la validación** (los slugs reales no llevan guion bajo).
+  Mejora futura: detener el sondeo ante un 400 definitivo.
 
 ## Actualización T2 — EN CURSO, NO CERRADO (HISTÓRICO, superado por el CI final de `8ca2053e`)
 

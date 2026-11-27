@@ -1,5 +1,18 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T1–T3 — JOINT TESTING DEPLOY AND FUNCTIONAL CERTIFICATION (2026-11-27)
+
+```text
+T1_STATUS=CLOSED_TESTING_CERTIFIED · T2_FUNCTIONAL_REGRESSION=PASS (B8–B10) · T3_STATUS=CLOSED_TESTING_CERTIFIED for owner, waiter and cashier/PyR actors; Salon-personal close + cancel complementary checks PENDING
+DEPLOY=testing-codex 327d6c73..32cddd1e · DeliGO Copy 084d76ad SUCCESS (exact commitHash) · 69 migrations, none pending · CI testing-codex 45930242578 SUCCESS
+BACKUP=deligo-testing-pre-t1-t3-20261127T024352Z.dump · 1525213 bytes · SHA-256 28453218c77ac92d3d78d7c756537957df4bcb8c43d84420acc38e01d0ed910c (PGDMP, pg_restore --list OK, 93 tables)
+OPERATOR=28/28 PASS (A1–A6, B1–B10, C1–C12) · clarifications: B8 permissions revoked by the operator after the window; C5/C7 executed with the waiter role
+INTERNAL=verificacion-t1-t3-20261127T034036Z.json read-only: shift 0/500/500, sale 700 + 1 cobro, outflow 200, no duplicate keys, old shift fingerprint equal; supplier payment 1800 allocated 1663.75; rejected writes without effects; label replaced by owner; closes negocio/mozo and cancels negocio_admin/mozo with 1 event each; report on the right business
+HTTP=02:53–03:26 UTC: 0 5xx · 0 notificaciones 401 with valid sessions · destacado rejections only at logout, not repeated
+INCIDENT=pre-existing occupancy not revalidated in waiter panel and terminal Salon → fix 8eacd113 (not yet deployed)
+PRODUCTION_TOUCHED=NO
+```
+
 ## T3 — SIMULTANEOUS SESSIONS AND HTTP 401 — TECHNICALLY_APPROVED_BY_CI (2026-11-27; NOT functionally certified)
 
 ```text

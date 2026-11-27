@@ -143,6 +143,26 @@ URL: `https://deligo-copy-production.up.railway.app` · dueño y empleados ficti
   (nunca ambos desde `recibido`), un único evento con actor/motivo/estado anterior reales, sin errores inesperados, ningún
   avance después de cancelado y segunda cancelación rechazada sin duplicar. Lógica comercial sin cambios.
 
+## Certificación funcional T1–T3 en TESTING (2026-11-27)
+
+- Despliegue: push `327d6c73..32cddd1e` a `testing-codex`, DeliGO Copy `084d76ad` SUCCESS (commit exacto), 69
+  migraciones sin pendientes, 0 5xx; respaldo previo `deligo-testing-pre-t1-t3-20261127T024352Z.dump` SHA-256
+  `28453218c77ac92d3d78d7c756537957df4bcb8c43d84420acc38e01d0ed910c`. CI del push `45930242578` SUCCESS. Production intacto.
+- Operador: **28/28 aprobadas** (A1–A6, B1–B10, C1–C12). HTTP 02:53–03:26: 0 5xx; 0 HTTP 401 de `/api/notificaciones`
+  con sesiones válidas; destacado sólo rechazos en logout, sin repetición.
+- Verificación interna (`verificacion-t1-t3-20261127T034036Z.json`, solo lectura): turno QA abierto/cerrado (esperado =
+  contado = 500), venta 700 con 1 cobro, salida 200, patas exactas, sin claves duplicadas, turno antiguo con huella
+  igual; pago de 1800 asignado 1663,75 (saldo a favor 136,25); producto del 403 sin escritura; venta sin precio sin
+  registros; etiqueta pendiente reemplazada por el dueño; cierres `negocio` y `mozo` y cancelaciones `negocio_admin` y
+  `mozo` con un único evento cada una; denuncia en el negocio del pedido.
+- **Aclaraciones del operador:** B8 — permisos temporales revocados manualmente después de la ventana (rechazo de
+  escrituras aprobado). C5/C7 — hechos con el rol mozo; aprobados para ese rol; **pendientes** cierre comercial y
+  cancelación como empleado de Salón personal con el dueño conectado.
+- **Datos QA abiertos (no tocados):** ocupación activa `cmwyezwhg…` en la mesa 2 de `negocio_b` (pedidos cancelados) y
+  un pedido de retiro en `recibido`.
+- **Incidencia preexistente** (panel del mozo y Salón de terminal sin revalidar la ocupación): corrección `8eacd113`,
+  pendiente de despliegue y prueba focalizada. Mejora del sondeo de `mesa-cuenta` ante 400: ROADMAP (no autorizada).
+
 ## Límites y pendientes
 
 - **Compatibilidad residual (documentada, no eliminada):** `/api/notificaciones` sin `feed` (bundles anteriores a F4-A;

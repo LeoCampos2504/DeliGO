@@ -6,7 +6,17 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T3 TÉCNICAMENTE APROBADA POR CI · ESPERANDO AUTORIZACIÓN DEL DESPLIEGUE CONJUNTO T1–T3 EN TESTING (2026-11-27)
+=== LATEST HANDOFF — T1–T3 CERTIFICADAS EN TESTING (32cddd1e) · CORRECCIÓN DE OCUPACIÓN 8eacd113 PUBLICADA PARA CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (fix 8eacd113 + docs) · testing-codex 32cddd1e (desplegado) · main 42ca5005 intacta
+TESTING=DeliGO Copy 084d76ad SUCCESS commit 32cddd1e (push 327d6c73..32cddd1e 2026-11-27 02:45 UTC) · respaldo previo deligo-testing-pre-t1-t3-20261127T024352Z.dump SHA-256 28453218c77ac92d3d78d7c756537957df4bcb8c43d84420acc38e01d0ed910c · CI testing-codex 45930242578 SUCCESS · Production intacto
+CERTIFICACION_T1_T3=operador 28/28 (A1–A6, B1–B10, C1–C12) + verificación interna solo lectura verificacion-t1-t3-20261127T034036Z.json sin inconsistencias + HTTP 0 5xx y 0 401 de notificaciones con sesiones válidas
+ACLARACIONES=B8 permisos revocados por el operador después de la ventana · C5/C7 hechos con rol mozo (aprobados) · PENDIENTE: cierre comercial y cancelación como Salón personal con el dueño conectado
+INCIDENCIA=panel del mozo y Salón de terminal no revalidaban la ocupación (preexistente) · fix 8eacd113 (refreshKey por lectura del panel) · pendiente despliegue + prueba focalizada
+LATERAL=/api/public/mesa-cuenta repite ante 400 (slug QA con guion bajo): ROADMAP, no autorizado
+SIGUIENTE_PASO=CI verde del HEAD de la rama → operador ejecuta testing-respaldo-t1-t3.ps1 → autorización de push fast-forward a testing-codex → prueba focalizada (mozo, terminal, Salón personal C5/C7)
+
+=== PRECEDING HANDOFF — T3 TÉCNICAMENTE APROBADA POR CI · ESPERANDO AUTORIZACIÓN DEL DESPLIEGUE CONJUNTO T1–T3 EN TESTING (2026-11-27)
 
 REPO=worktree C:\Leo Campos\Trabajo\deligo-estabilizacion · rama codex/estabilizacion-final publicada · código validado 3eb53576fc113edac427ea8df97c61202eac50d0 (+ commit docs final) · testing-codex 327d6c73 y main 42ca5005 intactas · archivo 32 intocable
 T3=TÉCNICAMENTE APROBADA POR CI, NO certificada funcionalmente · commits 95a52848 identidad · 36ffd1c6 consultas automáticas · d8a445ed pruebas/CI · 85044624 fixture · d5b9a575 docs · 3eb53576 K2 23-A1 (alternativa B autorizada)
