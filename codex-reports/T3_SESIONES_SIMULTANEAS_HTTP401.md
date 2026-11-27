@@ -5,14 +5,14 @@ Fecha: 2026-11-26 · Agente: Claude Code · Autorización del operador: T3 (impl
 
 ## Estado
 
-**T3 — CI: EN CURSO, NO APROBADO (pausa por límite de uso, 2026-11-26).** Implementado en `codex/estabilizacion-final`. **No certificado funcionalmente**: falta el
+**T3 — TÉCNICAMENTE APROBADA POR CI** en `3eb53576fc113edac427ea8df97c61202eac50d0` (run `45928752129`, job `140276213538`, 82/82 pasos). Implementado en `codex/estabilizacion-final`. **No certificado funcionalmente**: falta el
 recorrido manual consolidado T1–T3 en Railway TESTING, después de un despliegue conjunto que requiere autorización.
 
 | Dato | Valor |
 |---|---|
 | HEAD inicial | `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (T2 aprobada por CI) |
-| Commits | `47649e10` docs T2 · `95a52848` identidad · `36ffd1c6` consultas automáticas · `d8a445ed` pruebas y CI· 85044624 fixture T3 |
-| CI | run 45924972870 (d8a445ed) FALLÓ: fixture T3 sin Mesa.ocupacionActualId → corregido en 85044624 · run 45925393874 (85044624) FALLÓ sólo en mesa-pedido-cancelacion.test.ts:1082 (K2, concurrencia cancelación vs. avance; cancelarPedidoMesa no modificado por T3; intercalación legítima: avance → retry serializable → preparando es cancelable → la aserción «nunca ambos» es demasiado estricta; intermitencia registrada F-P2-TESTINFRA-01). La suite T3 y el resto pasaron en ese run. PENDIENTE: decidir cómo correr 23-A1 en CI (excluir el bloque K, que nunca estuvo en CI, o corregir la aserción de K2 con autorización) y obtener CI verde |
+| Commits | `47649e10` docs T2 · `95a52848` identidad · `36ffd1c6` consultas automáticas · `d8a445ed` pruebas y CI · `85044624` fixture T3 · `d5b9a575` docs T3 · `3eb53576` K2 de 23-A1 · docs finales de T3 |
+| CI | **Final: run [`45928752129`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45928752129), job `140276213538`, `completed/success` sobre `3eb53576`: 82/82 pasos OK** (T1, T2, T3, 23-A1 completa con K2, P2-T41, ciclo de cuentas operativas P2-T08, typecheck completo y build). Conteo de pruebas: no visible sin sesión de GitHub (verificar en el log). Antecedentes: run `45924972870` (`d8a445ed`) falló por el fixture T3 sin `Mesa.ocupacionActualId` → `85044624`; run `45925393874` (`85044624`) falló sólo en K2 de 23-A1 → `3eb53576` |
 | Ramas | `main` `42ca5005` y `testing-codex` `327d6c73` sin cambios |
 
 ## Autoridad existente reutilizada (sin sistema nuevo)
@@ -84,7 +84,7 @@ recorrido manual de TESTING con dueño y empleado simultáneos.
 
 No se tocaron punto de venta, carrito, inicio de venta, precios, permisos granulares, bloqueos `FOR SHARE`,
 `bloquearPrecioYEtiquetasEnTx`, retries P2034/P2010-40001, autoridad de stock, C5, importaciones, venta sin precio ni
-ocultamiento de costos. Todas sus suites siguen en el workflow (pendiente de confirmar con el CI verde).
+ocultamiento de costos. Todas sus suites siguen en el workflow y pasaron en el run `45928752129`.
 
 ## Railway (solo lectura, por IDs, 2026-11-26)
 
@@ -131,6 +131,17 @@ URL: `https://deligo-copy-production.up.railway.app` · dueño y empleados ficti
       (a lo sumo un 401 y se detiene).
 4. Evidencia: logs HTTP del intervalo, consultas SQL de solo lectura sobre `sesiones_ocupacion_mesa`, `pedidos`,
    `pedido_eventos`, `notificaciones`, `destacado_solicitudes`, `denuncias`.
+
+## K2 de 23-A1 (autorizada por el operador, alternativa B)
+
+- **Regla confirmada:** `preparando` es cancelable (`ESTADOS_PENDIENTES_MESA`, `src/lib/mesa-cuenta.ts:42`; caso F.1 de la
+  suite). `cancelarPedidoMesa` no reintenta (P2034 → `conflict`). Si el avance `recibido → preparando` confirma antes de que
+  la cancelación lea el pedido, la cancelación parte de `preparando` y su CAS prospera: ejecución en serie legítima. No se
+  encontró regla comercial que exija que sólo una de las dos operaciones prospere.
+- **Corrección (sólo la prueba):** K2 acepta exactamente A) cancela desde `recibido` + avance 0, B) cancela desde `preparando`
+  + avance 1, C) conflicto + avance 1 + `preparando` sin evento. Refuerza: `estadoAnterior` igual al estado que dejó el avance
+  (nunca ambos desde `recibido`), un único evento con actor/motivo/estado anterior reales, sin errores inesperados, ningún
+  avance después de cancelado y segunda cancelación rechazada sin duplicar. Lógica comercial sin cambios.
 
 ## Límites y pendientes
 

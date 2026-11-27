@@ -1,5 +1,15 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T3 — CI-only pushes of codex/estabilizacion-final (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator: push only codex/estabilizacion-final for CI during T3 (no deploy); K2 test correction authorized (alternative B)
+PUSHES=8ca2053e..d8a445ed · d8a445ed..85044624 · 85044624..3eb53576 (fast-forward, no force) · then the final docs commit
+CI_RUNS=45924972870 (d8a445ed, failure: T3 fixture) · 45925393874 (85044624, failure: 23-A1 K2) · 45928752129 job 140276213538 (3eb53576, success 82/82 steps — final)
+RAILWAY_CHECK=read-only by IDs: no service follows codex/estabilizacion-final; TESTING DeliGO Copy on testing-codex 327d6c73 (8ac0f58f); Production main 42ca5005 (ccc2184a)
+DEPLOY=NONE · main 42ca5005 and testing-codex 327d6c73 unchanged
+```
+
 ## T2 — CI-only pushes of codex/estabilizacion-final (2026-11-26, Codex; recorded by Claude Code)
 
 ```text

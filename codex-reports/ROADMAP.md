@@ -5,7 +5,7 @@
 | T0 documentación | COMPLETADA |
 | T1 nueve correcciones visuales | Implementada · CI aprobado · **pendiente certificación funcional en Railway TESTING** |
 | T2 seguridad y salud técnica | **TÉCNICAMENTE APROBADA POR CI** en `8ca2053e` (run `45921529454`, job `140253127200`, 805/0/0) · pendientes las regresiones funcionales del despliegue conjunto · XLSX de Excel real en T5 |
-| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **AUTORIZADA** 2026-11-26 · en curso en `codex/estabilizacion-final` |
+| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **TÉCNICAMENTE APROBADA POR CI** en `3eb53576` (run `45928752129`, job `140276213538`, 82/82 pasos) · pendiente despliegue conjunto T1–T3 en TESTING (requiere autorización) y certificación funcional · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
 | T4 F10-D1 | Pendiente · obligatoria antes de habilitar egresos y compras en Production |
 | T5 candidata · T6 Production · T7 metodología | Pendientes |
 

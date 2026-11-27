@@ -1,4 +1,16 @@
-## LATEST UPDATE — T2 TÉCNICAMENTE APROBADA POR CI · T3 AUTORIZADA (2026-11-26)
+## LATEST UPDATE — T3 TÉCNICAMENTE APROBADA POR CI (2026-11-27)
+
+- **T3** (sesiones simultáneas y HTTP 401) implementada en `codex/estabilizacion-final` y **aprobada por CI**: run
+  [`45928752129`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45928752129), job `140276213538`, 82/82 pasos sobre
+  `3eb53576` (T1, T2, T3, 23-A1 completa, P2-T41, P2-T08, typecheck completo, build). **No certificada funcionalmente.**
+- Cada operación usa sólo la credencial de la familia de su pantalla; cuenta de mesa y cancelación exigen `?actorFamily=`;
+  rutas del dueño con credencial explícita; campana y destacado se detienen ante 401/403. Causa principal de los 116 401:
+  sesiones simultáneas (atribución individual no determinada).
+- K2 de 23-A1 corregida sólo en la prueba (avance y luego cancelación desde `preparando` es legítimo; lógica sin cambios).
+- Siguiente: autorización del despliegue conjunto T1–T3 en TESTING y recorrido manual consolidado. Detalle:
+  `codex-reports/T3_SESIONES_SIMULTANEAS_HTTP401.md`.
+
+## PRECEDING UPDATE — T2 TÉCNICAMENTE APROBADA POR CI · T3 AUTORIZADA (2026-11-26)
 
 - **Agente:** Claude Code retoma el desarrollo tras el uso temporal de Codex. No se reinicia nada ni se repiten T0–T2.
 - **Repositorio:** worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD final de

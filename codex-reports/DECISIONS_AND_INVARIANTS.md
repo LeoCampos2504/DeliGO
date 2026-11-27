@@ -1,5 +1,17 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T3 result and invariants (2026-11-27)
+
+- **T3 TECHNICALLY APPROVED BY CI** on `3eb53576` (run `45928752129`, job `140276213538`); not functionally certified.
+- **Invariants:** commercial table close (`ocupaciones/[id]/cuenta`) and table-order cancellation require the screen's
+  `?actorFamily=` (negocio | cuenta_operativa | terminal) and validate only that credential — no ordered fallback between
+  families; owner-only routes (destacado, denuncias, mozos/stats) read the owner's family cookie via
+  `readFamilySession`/`requireNegocioOwnerSession`; personal bells declare `actorFamily`; periodic queries stop on 401/403
+  (`auth-rejected-query.ts`) and are keyed by the actor. The selector never grants permissions.
+- **23-A1 K2:** advance `recibido → preparando` followed by a cancellation from `preparando` is a legitimate serial outcome
+  (`preparando` is cancellable); what stays forbidden is both succeeding from the same base state.
+- Compatibility paths kept (F4-A notifications without `feed`, BUG-002 occupancy without selector); propose removal at T5/T6.
+
 ## T2 result and T3 authorization (operator, 2026-11-26)
 
 - **T2 is TECHNICALLY APPROVED BY CI** on `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (run `45921529454`, job

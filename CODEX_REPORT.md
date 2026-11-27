@@ -6,7 +6,19 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T2 TÉCNICAMENTE APROBADA POR CI · T3 AUTORIZADA (2026-11-26, Claude Code retoma tras Codex)
+=== LATEST HANDOFF — T3 TÉCNICAMENTE APROBADA POR CI · ESPERANDO AUTORIZACIÓN DEL DESPLIEGUE CONJUNTO T1–T3 EN TESTING (2026-11-27)
+
+REPO=worktree C:\Leo Campos\Trabajo\deligo-estabilizacion · rama codex/estabilizacion-final publicada · código validado 3eb53576fc113edac427ea8df97c61202eac50d0 (+ commit docs final) · testing-codex 327d6c73 y main 42ca5005 intactas · archivo 32 intocable
+T3=TÉCNICAMENTE APROBADA POR CI, NO certificada funcionalmente · commits 95a52848 identidad · 36ffd1c6 consultas automáticas · d8a445ed pruebas/CI · 85044624 fixture · d5b9a575 docs · 3eb53576 K2 23-A1 (alternativa B autorizada)
+CI_FINAL_T3=run 45928752129 · job 140276213538 · completed/success sobre 3eb53576 · 82/82 pasos (T1, T2, T3, 23-A1 completa, P2-T41, P2-T08, typecheck completo, build) · conteo de pruebas no visible sin sesión GitHub
+T3_CAMBIOS=cuenta de mesa y cancelación exigen ?actorFamily= (400 sin él), sin fallback entre familias · destacado/denuncias/mozos-stats con credencial explícita del dueño (src/lib/actor-family-session.ts) · notificaciones feed=cuenta&actorFamily= · campana y destacado se detienen ante 401/403 (src/lib/auth-rejected-query.ts), clave por actor
+T3_401=causa principal G (sesiones simultáneas) reproducida + C (sondeo sin freno) · atribución individual de los 116: no determinada · confirmar en TESTING
+COMPAT_RESIDUAL=/api/notificaciones sin feed (F4-A) y mesas/[id]/ocupacion sin selector (BUG-002) conservadas; sin consumidores actuales
+RAILWAY_VERIFICADO=TESTING f37d0c49-b737-49e8-be89-a00c13734fae · DeliGO Copy c6335604 rama testing-codex · deployment 8ac0f58f SUCCESS 327d6c73 · checkSuites=false (despliega al push sin esperar CI) · Production f96adff2 en main 42ca5005 (DeliGO ccc2184a) · ningún servicio sigue codex/estabilizacion-final
+SIGUIENTE_PASO=el operador revisa y autoriza (o no) el despliegue conjunto T1–T3 en TESTING según la propuesta de codex-reports/T3_SESIONES_SIMULTANEAS_HTTP401.md; después el recorrido manual consolidado · T4 (F10-D1) no iniciado
+DETALLE=codex-reports/T3_SESIONES_SIMULTANEAS_HTTP401.md
+
+=== PRECEDING HANDOFF — T2 TÉCNICAMENTE APROBADA POR CI · T3 AUTORIZADA (2026-11-26, Claude Code retoma tras Codex)
 
 REPO=worktree C:\Leo Campos\Trabajo\deligo-estabilizacion · rama codex/estabilizacion-final · HEAD T2 final 8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69 (publicada) · base certificada TESTING 327d6c739a55e2f6b5da89f1ec125a24013eb345 (= origin/testing-codex, intacta) · Production origin/main 42ca5005d2ecd412de87e454b52820f38aaec5c0 (intacta) · archivo 32 intocable · copia original deligo-main-limpio sin tocar
 T2=TÉCNICAMENTE APROBADA POR CI (no certificada funcionalmente) · commits a995d894…8ca2053e (15) · código final fd80bad8; cee9f94b/7227e072/8ca2053e sólo docs

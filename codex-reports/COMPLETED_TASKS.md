@@ -1,5 +1,18 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T3 — SIMULTANEOUS SESSIONS AND HTTP 401 — TECHNICALLY_APPROVED_BY_CI (2026-11-27; NOT functionally certified)
+
+```text
+T3_STATUS=TECHNICALLY_APPROVED_BY_CI (functional certification pending in TESTING after the joint T1–T3 deploy)
+T3_COMMITS=95a52848 identity · 36ffd1c6 automatic queries · d8a445ed tests/CI · 85044624 fixture · d5b9a575 docs · 3eb53576 23-A1 K2 · final docs commit
+T3_CI=run 45928752129 · job 140276213538 · head 3eb53576 · completed/success · 82/82 steps (T1, T2, T3, full 23-A1, P2-T41, P2-T08, full typecheck, build) · test counts not visible without a GitHub session
+T3_PREVIOUS_RUNS=45924972870 (d8a445ed, fixture) · 45925393874 (85044624, 23-A1 K2)
+T3_401=main cause simultaneous sessions (reproduced) amplified by unbounded polling · individual attribution of the 116 not determined
+T3_LIMITS=F4-A notifications without feed and BUG-002 occupancy without selector kept as compatibility · old tabs get 400 on account/cancel until reload
+REPORT=codex-reports/T3_SESIONES_SIMULTANEAS_HTTP401.md
+PRODUCTION_TOUCHED=NO · TESTING_TOUCHED=NO
+```
+
 ## T2 — STABILIZATION SECURITY AND TECHNICAL HEALTH — TECHNICALLY_APPROVED_BY_CI (2026-11-26; NOT functionally certified)
 
 ```text
