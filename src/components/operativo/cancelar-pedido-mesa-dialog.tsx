@@ -26,6 +26,7 @@ import {
   esErrorRecuperable,
   mensajeCancelarPedidoMesa,
   type CancelarPedidoMesaExito,
+  type MesaPedidoCancelActorFamily,
 } from "@/lib/mesa-pedido-cancelacion-client"
 
 // ============================================
@@ -55,6 +56,12 @@ export interface CancelarPedidoMesaDialogProps {
   /** Trigger opcional (ej. para insertarlo en un menú de acciones existente). Si no se pasa, se renderiza un botón propio. */
   trigger?: (props: { onClick: () => void; disabled: boolean }) => React.ReactNode
   className?: string
+  /**
+   * T3: familia de sesión de ESTA pantalla, fijada por el host (dueño `negocio`, Mozo/Salón personal
+   * `cuenta_operativa`). El servidor valida sólo esa credencial: con otra sesión abierta en el mismo navegador la
+   * cancelación nunca se ejecuta ni se audita con la identidad equivocada.
+   */
+  actorFamily: MesaPedidoCancelActorFamily
 }
 
 export function CancelarPedidoMesaDialog({
@@ -65,6 +72,7 @@ export function CancelarPedidoMesaDialog({
   onCancelled,
   trigger,
   className,
+  actorFamily,
 }: CancelarPedidoMesaDialogProps) {
   const [open, setOpen] = useState(false)
   const [motivo, setMotivo] = useState("")
@@ -117,7 +125,7 @@ export function CancelarPedidoMesaDialog({
     if (!validacion.ok) return
     setSubmitting(true)
     try {
-      const outcome = await cancelarPedidoMesaRequest(pedidoId, validacion.motivo)
+      const outcome = await cancelarPedidoMesaRequest(pedidoId, validacion.motivo, actorFamily)
       if (!mountedRef.current) return
 
       if (outcome.kind === "ok") {

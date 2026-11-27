@@ -14,7 +14,7 @@ import { formatPrice } from "@/lib/utils"
 import type { IngredienteQuitadoGrupo } from "@/lib/pedido-item-personalizacion"
 import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
 import { CancelarPedidoMesaDialog } from "@/components/operativo/cancelar-pedido-mesa-dialog"
-import type { CancelarPedidoMesaExito } from "@/lib/mesa-pedido-cancelacion-client"
+import type { CancelarPedidoMesaExito, MesaPedidoCancelActorFamily } from "@/lib/mesa-pedido-cancelacion-client"
 
 // ============================================
 // DeliGO Operaciones — Detalle de pedido (personal PyR + Salón)
@@ -104,6 +104,8 @@ interface PedidoDetalleDrawerProps {
    */
   cancelarPedido?: {
     onCancelled: (pedido: CancelarPedidoMesaExito) => void
+    /** T3: familia de sesión del host (Mozo y Salón personal: `cuenta_operativa`). */
+    actorFamily: MesaPedidoCancelActorFamily
   }
 }
 
@@ -184,6 +186,7 @@ export function PedidoDetalleDrawer({
               estado={state.data.estado}
               metodoEntrega={state.data.metodoEntrega}
               referencia={title}
+              actorFamily={cancelarPedido.actorFamily}
               onCancelled={(pedido) => {
                 cancelarPedido.onCancelled(pedido)
                 onOpenChange(false)

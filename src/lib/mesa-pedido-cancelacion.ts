@@ -37,6 +37,7 @@ import { db } from "@/lib/db"
 import {
   SESSION_COOKIE_NAME,
   findSesionByToken,
+  getFamilySessionCookieName,
   getOperationalAccountFromRequest,
 } from "@/lib/auth"
 import { resolveAreaOperativaEfectiva } from "@/lib/area-operativa"
@@ -100,6 +101,65 @@ export type ResolverActorCancelacionResultado =
   | { ok: false; status: 403; reason: "no_permission" }
   | { ok: false; status: 404; reason: "not_found" }
 
+// ---------------------------------------------------------------------------
+// T3 — familia de sesión DECLARADA por la pantalla (sesiones simultáneas)
+// ---------------------------------------------------------------------------
+// Con el dueño y una cuenta operativa en el mismo navegador, el orden fijo de abajo (dueño → operativa → terminal)
+// no veía al dueño (el proxy deja vacía la cookie legacy cuando hay dos credenciales) y la cancelación se ejecutaba
+// —y se auditaba— como el empleado de Salón/Mozo; y una cookie legacy del dueño presente podía cancelar desde la
+// pantalla de un empleado sin permiso. La ruta HTTP exige ahora `?actorFamily=negocio|cuenta_operativa|terminal`
+// (fijado por cada host, nunca por el usuario) y se valida EXCLUSIVAMENTE la credencial de esa familia, con las
+// mismas reglas de siempre (negocio por sesión, área efectiva, asignación del mozo dentro de cancelarPedidoMesa).
+// El selector no otorga nada: una familia sin credencial válida → 401; credencial válida sin permiso → 403;
+// pedido de otro negocio o inexistente → 404 (indistinguibles). Sin fallback a otra familia.
+
+export type MesaPedidoCancelActorFamily = "negocio" | "cuenta_operativa" | "terminal"
+
+export function parseMesaPedidoCancelActorFamily(value: string | null | undefined): MesaPedidoCancelActorFamily | null | "invalid" {
+  if (value === null || value === undefined || value === "") return null
+  return value === "negocio" || value === "cuenta_operativa" || value === "terminal" ? value : "invalid"
+}
+
+async function actorCancelacionDueno(request: NextRequest, pedidoId: string): Promise<ResolverActorCancelacionResultado> {
+  // Cookie de la familia `negocio`; la legacy sólo cuando la de familia no existe (mismo criterio que el proxy y
+  // BUG-002). Sesión vencida → sin credencial. Otra familia en la legacy → identidad válida sin permiso (403).
+  const familyToken = request.cookies.get(getFamilySessionCookieName("negocio"))?.value
+  const token = familyToken ?? request.cookies.get(SESSION_COOKIE_NAME)?.value
+  const session = token ? await findSesionByToken(token) : null
+  if (!session || session.expiresAt.getTime() <= Date.now()) return { ok: false, status: 401, reason: "no_session" }
+  if (session.userType !== "negocio") {
+    return familyToken ? { ok: false, status: 401, reason: "no_session" } : { ok: false, status: 403, reason: "no_permission" }
+  }
+  const pedido = await db.pedido.findFirst({ where: { id: pedidoId, negocioId: session.userId }, select: PEDIDO_SCOPE_SELECT })
+  if (!pedido) return { ok: false, status: 404, reason: "not_found" }
+  return { ok: true, actor: { type: "negocio_admin", negocioId: session.userId, actorId: session.userId, nombre: "" } }
+}
+
+async function actorCancelacionCuentaOperativa(request: NextRequest, pedidoId: string): Promise<ResolverActorCancelacionResultado> {
+  const cuentaOperativa = await getOperationalAccountFromRequest(request)
+  if (!cuentaOperativa) return { ok: false, status: 401, reason: "no_session" }
+  const empleados = cuentaOperativa.empleados.filter((empleado) => empleado.activo)
+  const negocioIds = empleados.map((empleado) => empleado.negocio.id)
+  if (negocioIds.length === 0) return { ok: false, status: 403, reason: "no_permission" }
+  const pedido = await db.pedido.findFirst({ where: { id: pedidoId, negocioId: { in: negocioIds } }, select: { id: true, negocioId: true } })
+  if (!pedido) return { ok: false, status: 404, reason: "not_found" }
+  const empleado = empleados.find((candidato) => candidato.negocio.id === pedido.negocioId)
+  if (!empleado) return { ok: false, status: 403, reason: "no_permission" }
+  const nombre = nombreVisibleEmpleado({ nombre: empleado.nombre, cuentaOperativa: { nombre: cuentaOperativa.nombre, eliminado: false } })
+  const area = resolveAreaOperativaEfectiva({ areaOperativa: empleado.areaOperativa, rol: empleado.rol })
+  if (area === "salon") return { ok: true, actor: { type: "salon_personal", negocioId: pedido.negocioId, actorId: empleado.id, nombre } }
+  if (area === "mozo") return { ok: true, actor: { type: "mozo", negocioId: pedido.negocioId, actorId: empleado.id, nombre } }
+  return { ok: false, status: 403, reason: "no_permission" }
+}
+
+async function actorCancelacionTerminal(request: NextRequest): Promise<ResolverActorCancelacionResultado> {
+  // P2-T41: Terminal Operativa nunca cancela pedidos de mesa; sólo se distingue "con sesión" (403) de "sin" (401).
+  const terminalAuth = await requireOperacionesArea(request, "salon")
+  return terminalAuth.ok || terminalAuth.response.status === 403
+    ? { ok: false, status: 403, reason: "no_permission" }
+    : { ok: false, status: 401, reason: "no_session" }
+}
+
 /**
  * Resuelve QUIÉN pide cancelar y, en el mismo paso, confirma que el pedido
  * pertenece al negocio de ese actor — nunca al revés. Evitar deliberadamente
@@ -121,8 +181,15 @@ export type ResolverActorCancelacionResultado =
  */
 export async function resolverActorCancelacionMesa(
   request: NextRequest,
-  pedidoId: string
+  pedidoId: string,
+  family?: MesaPedidoCancelActorFamily
 ): Promise<ResolverActorCancelacionResultado> {
+  if (family === "negocio") return actorCancelacionDueno(request, pedidoId)
+  if (family === "cuenta_operativa") return actorCancelacionCuentaOperativa(request, pedidoId)
+  if (family === "terminal") return actorCancelacionTerminal(request)
+
+  // Sin familia: orden histórico 23-A1, conservado SÓLO para las pruebas de dominio existentes
+  // (mesa-pedido-cancelacion.test.ts). La ruta HTTP nunca llega acá: exige `actorFamily` (400 sin él).
   let autenticadoComoAlguien = false
 
   // 1) Negocio dueño — sesión `deligo_session`, tipo "negocio".

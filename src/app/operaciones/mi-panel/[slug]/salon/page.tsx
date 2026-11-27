@@ -835,7 +835,7 @@ export default function SalonPersonalPage() {
                           actorFamily="cuenta_operativa"
                         />
                         {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-                        <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
+                        <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} actorFamily="cuenta_operativa" />
                       </div>
                     </CardContent>
                   </Card>
@@ -864,6 +864,7 @@ export default function SalonPersonalPage() {
         estadoLabel={detalleState?.status === "ready" ? estadoLabel(detalleState.data.estado) : ""}
         nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
         cancelarPedido={{
+          actorFamily: "cuenta_operativa",
           onCancelled: () => {
             void loadPanel({ silent: true })
           },

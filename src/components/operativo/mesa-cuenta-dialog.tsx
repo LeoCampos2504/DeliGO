@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn, formatPrice } from "@/lib/utils"
-import { fetchMesaOccupancyStatus } from "@/lib/mesa-occupancy-client"
+import { fetchMesaOccupancyStatus, type MesaOccupancyActorFamily } from "@/lib/mesa-occupancy-client"
 import { ACCOUNT_PRINTING_ENABLED } from "@/lib/printing-feature"
 import type { CuentaMesaResult } from "@/lib/mesa-cuenta"
 import { getPedidoItemVarianteNombre } from "@/lib/pedido-item-variante"
@@ -72,6 +72,15 @@ interface MesaCuentaDialogProps {
   // Operativa en /operaciones/salon). Default true para no romper ningún
   // consumidor existente (Negocio/admin, Salón personal, Mozo).
   canClose?: boolean
+  // T3: familia de sesión de ESTA pantalla (la fija el host, nunca el usuario): Salón del dueño `negocio`, Mozo y
+  // Salón personal `cuenta_operativa`, Salón de terminal `terminal`. Viaja como `?actorFamily=` en la consulta de
+  // ocupación y en la cuenta (GET/POST), para que el servidor valide sólo esa credencial aunque haya otra sesión en
+  // el navegador. Obligatoria: el servidor rechaza la cuenta sin selector.
+  actorFamily: MesaOccupancyActorFamily
+}
+
+function urlCuenta(ocupacionId: string, actorFamily: MesaOccupancyActorFamily): string {
+  return `/api/operaciones/ocupaciones/${ocupacionId}/cuenta?actorFamily=${actorFamily}`
 }
 
 function formatFechaHora(iso: string): string {
@@ -92,7 +101,7 @@ async function parseErrorCode(res: Response): Promise<{ code?: string; error?: s
   }
 }
 
-export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canClose = true }: MesaCuentaDialogProps) {
+export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canClose = true, actorFamily }: MesaCuentaDialogProps) {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<Status>("idle")
   const [cuenta, setCuenta] = useState<CuentaResponse | null>(null)
@@ -107,7 +116,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canC
 
   async function fetchCuentaByOcupacionId(ocupacionId: string): Promise<boolean> {
     try {
-      const res = await fetch(`/api/operaciones/ocupaciones/${ocupacionId}/cuenta`, {
+      const res = await fetch(urlCuenta(ocupacionId, actorFamily), {
         cache: "no-store",
       })
       if (res.status === 401) {
@@ -143,7 +152,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canC
     setMetodoPago(null)
     setLastClosedOcupacionId(null)
 
-    const occupancyStatus = await fetchMesaOccupancyStatus(mesaId).catch(() => ({ kind: "error" as const }))
+    const occupancyStatus = await fetchMesaOccupancyStatus(mesaId, undefined, actorFamily).catch(() => ({ kind: "error" as const }))
     if (occupancyStatus.kind === "unauthorized") return setStatus("unauthorized")
     if (occupancyStatus.kind === "forbidden") return setStatus("forbidden")
     if (occupancyStatus.kind === "error" || occupancyStatus.kind === "not_found" || occupancyStatus.kind === "conflict") return setStatus("error")
@@ -170,7 +179,7 @@ export function MesaCuentaDialog({ mesaId, mesaNumero, className, onClosed, canC
     if (!cuenta || closing) return
     setClosing(true)
     try {
-      const res = await fetch(`/api/operaciones/ocupaciones/${cuenta.ocupacion.id}/cuenta`, {
+      const res = await fetch(urlCuenta(cuenta.ocupacion.id, actorFamily), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cuenta.totalGeneral > 0 ? { metodoPago } : {}),

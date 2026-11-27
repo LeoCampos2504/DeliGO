@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import {
   cancelarPedidoMesa,
+  parseMesaPedidoCancelActorFamily,
   resolverActorCancelacionMesa,
   validarMotivoCancelacionMesa,
 } from "@/lib/mesa-pedido-cancelacion"
@@ -36,6 +37,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { id: pedidoId } = await params
 
+    // 0) T3: familia de sesión de la pantalla (`?actorFamily=negocio|cuenta_operativa|terminal`). Obligatoria: con
+    // el dueño y un empleado en el mismo navegador, un orden fijo de prueba cancelaba —y auditaba— con la
+    // identidad equivocada. Sólo elige qué credencial se valida; nunca otorga permisos.
+    const family = parseMesaPedidoCancelActorFamily(req.nextUrl.searchParams.get("actorFamily"))
+    if (family === null || family === "invalid") {
+      return noStoreJson({ ok: false, error: "Solicitud inválida", code: "ACTOR_FAMILY_REQUIRED" }, 400)
+    }
+
     // 1) Body: JSON estricto, únicamente la clave `motivo` permitida. Nunca
     // se acepta negocioId/empleadoId/usuarioId/actorType/mesaId/rol/área/
     // ocupacionId/estado/fecha desde el cliente (sección 9).
@@ -55,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // 2) Actor EXCLUSIVAMENTE desde sesión, ya acotado al negocio real del
     // pedido (o 404 genérico si el pedido no existe / es de otro negocio —
     // misma respuesta para ambos casos, nunca se distingue por mensaje).
-    const authResult = await resolverActorCancelacionMesa(req, pedidoId)
+    const authResult = await resolverActorCancelacionMesa(req, pedidoId, family)
     if (!authResult.ok) {
       const mensaje =
         authResult.status === 401

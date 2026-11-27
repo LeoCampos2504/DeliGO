@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireNegocioOwnerSession } from "@/lib/actor-family-session"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins } from "@/lib/superadmin-notifications"
 import { dispatchSuperadminPush } from "@/lib/superadmin-push-dispatch"
@@ -23,15 +23,12 @@ function calcularPrecio(meses: number, dias: number): number {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    // T3: credencial explícita del dueño (cookie de familia `negocio`), nunca la de otra sesión del navegador.
+    const auth = await requireNegocioOwnerSession(req)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.status === 401 ? "No autenticado" : "Acceso denegado" }, { status: auth.status })
     }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
-    }
+    const user = auth.user
 
     const body = await req.json()
     const { meses, dias } = body
@@ -113,15 +110,12 @@ export async function POST(req: NextRequest) {
 // GET - Get solicitudes for the current negocio
 export async function GET(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    // T3: credencial explícita del dueño (cookie de familia `negocio`), nunca la de otra sesión del navegador.
+    const auth = await requireNegocioOwnerSession(req)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.status === 401 ? "No autenticado" : "Acceso denegado" }, { status: auth.status })
     }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
-    }
+    const user = auth.user
 
     const solicitudes = await db.destacadoSolicitud.findMany({
       where: { negocioId: user.id },

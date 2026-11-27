@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { EMPLEADO_NOMBRE_SELECT, nombreVisibleEmpleado } from "@/lib/empleado-identidad"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { requireNegocioOwnerSession } from "@/lib/actor-family-session"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 type EstadoMozoHistorico = "activo" | "suspendido" | "desvinculado" | "historico_sin_registro"
@@ -29,12 +29,12 @@ const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 // GET — Mozo order statistics for the authenticated negocio
 export async function GET(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) return NextResponse.json({ error: "No autenticado" }, { status: 401, headers: NO_STORE_HEADERS })
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "negocio") return NextResponse.json({ error: "Acceso denegado" }, { status: 403, headers: NO_STORE_HEADERS })
+    // T3: credencial explícita del dueño (cookie de familia `negocio`); con una cuenta operativa en el mismo
+    // navegador la cookie legacy queda vacía y esta ruta respondía 401 aunque el dueño estuviera conectado.
+    const auth = await requireNegocioOwnerSession(req)
+    if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "No autenticado" : "Acceso denegado" }, { status: auth.status, headers: NO_STORE_HEADERS })
 
-    const negocioId = user.id
+    const negocioId = auth.user.id
 
     // Today's date range
     const today = new Date()

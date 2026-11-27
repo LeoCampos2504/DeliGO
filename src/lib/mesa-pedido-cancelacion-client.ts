@@ -15,6 +15,9 @@
 // ciegamente `error` de la respuesta del servidor, salvo el discriminador
 // `code` para distinguir el 409 de "sin_ocupacion" del 409 genérico.
 
+/** T3: familia de sesión que declara cada pantalla (dueño `negocio`, Mozo/Salón personal `cuenta_operativa`). */
+export type MesaPedidoCancelActorFamily = "negocio" | "cuenta_operativa" | "terminal"
+
 export interface CancelarPedidoMesaExito {
   id: string
   estado: string
@@ -48,11 +51,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function cancelarPedidoMesaRequest(
   pedidoId: string,
   motivo: string,
+  actorFamily: MesaPedidoCancelActorFamily,
   signal?: AbortSignal
 ): Promise<CancelarPedidoMesaOutcome> {
   let res: Response
   try {
-    res = await fetch(`/api/operaciones/pedidos/${encodeURIComponent(pedidoId)}/cancelar`, {
+    // T3: la familia de sesión de la pantalla viaja como selector; el servidor valida sólo esa credencial.
+    res = await fetch(`/api/operaciones/pedidos/${encodeURIComponent(pedidoId)}/cancelar?actorFamily=${actorFamily}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ motivo }),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Prisma, type Denuncia } from "@prisma/client"
 import { db } from "@/lib/db"
-import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
+import { readFamilySession, requireNegocioOwnerSession } from "@/lib/actor-family-session"
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { notifySuperadmins } from "@/lib/superadmin-notifications"
@@ -73,15 +73,12 @@ async function runSerializableTransaction<T>(
 // POST - Create a denuncia (business reports a customer)
 export async function POST(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    // T3: credencial explícita del dueño (cookie de familia `negocio`), nunca la de otra sesión del navegador.
+    const auth = await requireNegocioOwnerSession(req)
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.status === 401 ? "No autenticado" : "Solo los negocios pueden denunciar clientes" }, { status: auth.status })
     }
-
-    const user = await getUserFromToken(token)
-    if (!user || user.type !== "negocio") {
-      return NextResponse.json({ error: "Solo los negocios pueden denunciar clientes" }, { status: 403 })
-    }
+    const user = auth.user
 
     // Rate limit por IP + negocio autenticado, mismo tipo y patrón ya usado para
     // reseñas (contenido generado por un usuario que afecta la reputación de otra
@@ -362,12 +359,16 @@ export async function POST(req: NextRequest) {
 // GET - List denuncias (for negocio or superadmin)
 export async function GET(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
+    // T3: el dueño se identifica por su cookie de familia `negocio` (inválida → 401, sin probar otra). Sólo sin esa
+    // cookie se lee la legacy, como antes, donde puede venir una sesión legacy de SuperAdmin.
+    const lookup = await readFamilySession(req, "negocio")
+    if (lookup.source === "none") {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 })
     }
-
-    const user = await getUserFromToken(token)
+    if (lookup.source === "family" && !lookup.user) {
+      return NextResponse.json({ error: "Sesión expirada" }, { status: 401 })
+    }
+    const user = lookup.user
     if (!user || (user.type !== "negocio" && user.type !== "superadmin")) {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }

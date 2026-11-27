@@ -826,7 +826,7 @@ function SalonView({
                 />
                 {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
                 {/* P2-T41: Terminal Operativa es de solo lectura para el cierre comercial — el servidor ya lo deniega (403), y canClose={false} evita mostrar una acción que sería rechazada. */}
-                <MesaCuentaDialog mesaId={selectedMesaObj.id} mesaNumero={selectedMesaObj.numero} canClose={false} />
+                <MesaCuentaDialog mesaId={selectedMesaObj.id} mesaNumero={selectedMesaObj.numero} canClose={false} actorFamily="terminal" />
               </div>
             )}
             {selectedOrders.length === 0 ? (

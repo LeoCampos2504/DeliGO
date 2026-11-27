@@ -2101,7 +2101,7 @@ function MesaDetailDrawer({
             actorFamily="negocio"
           />
           {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} onClosed={onOccupationClosed} />
+          <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} onClosed={onOccupationClosed} actorFamily="negocio" />
         </div>
 
         {/* Bugfix-2 [10]: asignar, reasignar o quitar el mozo de esta mesa */}
@@ -2264,6 +2264,7 @@ function MesaDetailDrawer({
                       estado={order.estado}
                       metodoEntrega={order.metodoEntrega}
                       referencia={order.mesaNumero != null ? `Mesa ${order.mesaNumero}` : undefined}
+                      actorFamily="negocio"
                       onCancelled={() => {
                         queryClient.invalidateQueries({ queryKey: ["mesa-orders", negocio.id] })
                         queryClient.invalidateQueries({ queryKey: ["negocio-pedidos", negocio.id] })

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import {
-  resolveMesaOccupancyCloseActor,
   closeMesaOccupancyComercial,
   logMesaOccupancyCloseEvent,
+  parseMesaOccupancyActorFamily,
+  resolveMesaOccupancyActor,
+  type MesaOccupancyActorFamily,
+  type MesaOccupancyCloseActor,
 } from "@/lib/mesa-occupancy"
 import { buildCuentaMesa, METODOS_PAGO_MESA, withCuentaMesaPayment, type CuentaPedidoInput, type MetodoPagoMesa } from "@/lib/mesa-cuenta"
 import { safeErrorForLog } from "@/lib/log-safe-error"
@@ -27,6 +30,34 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // (`resolveMesaOccupancyCloseActor` — Negocio dueño, Cuenta Operativa de
 // área Salón, Terminal Operativa de área Salón, o Mozo restringido a sus
 // mesas asignadas). No se amplía ni se inventa un permiso nuevo.
+//
+// T3 (sesiones simultáneas): la pantalla declara su familia (`?actorFamily=negocio|cuenta_operativa|terminal`,
+// fijada por cada host, nunca por el usuario) y se valida EXCLUSIVAMENTE esa credencial con el resolvedor de
+// BUG-002 (`resolveMesaOccupancyActor`, mismas reglas: negocio exacto, área efectiva, asignación de mesas).
+// Antes, con el dueño y una cuenta operativa en el mismo navegador, el orden fijo dueño → operativa → terminal
+// hacía que el cierre del dueño se registrara como el empleado de Salón (`cerradaPorTipo/Id`) o fallara con 401,
+// y una cookie legacy del dueño podía elevar la pantalla de un empleado. En esta ruta (mueve el cierre comercial,
+// el método de pago y el ticket) el selector es OBLIGATORIO: sin él → 400, nunca un orden de prueba entre
+// familias. Códigos: 401 sin credencial válida de esa familia · 403 credencial del negocio sin permiso ·
+// 404 credencial de otro negocio u ocupación inexistente (no revela la ocupación).
+
+type ActorDeCuenta = { ok: true; actor: MesaOccupancyCloseActor } | { ok: false; response: NextResponse }
+
+function familiaDeCuenta(request: NextRequest): MesaOccupancyActorFamily | NextResponse {
+  const family = parseMesaOccupancyActorFamily(request.nextUrl.searchParams.get("actorFamily"))
+  if (family === null || family === "invalid") {
+    return jsonNoStore({ error: "actorFamily requerido o inválido", code: "MESA_CUENTA_ACTOR_FAMILY_REQUIRED" }, { status: 400 })
+  }
+  return family
+}
+
+async function resolverActorDeCuenta(request: NextRequest, negocioId: string, family: MesaOccupancyActorFamily): Promise<ActorDeCuenta> {
+  const resolved = await resolveMesaOccupancyActor(request, negocioId, family)
+  if (resolved.ok) return { ok: true, actor: resolved.actor }
+  if (resolved.status === 404) return { ok: false, response: jsonNoStore({ error: "Ocupación no encontrada" }, { status: 404 }) }
+  if (resolved.status === 403) return { ok: false, response: jsonNoStore({ error: "No autorizado para esta mesa", code: "MESA_CUENTA_FORBIDDEN" }, { status: 403 }) }
+  return { ok: false, response: jsonNoStore({ error: "No autenticado" }, { status: 401 }) }
+}
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store" } as const
 
@@ -117,16 +148,18 @@ async function serializeOcupacion(ocupacionId: string, fallback: {
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: ocupacionId } = await params
 
+  const family = familiaDeCuenta(request)
+  if (family instanceof NextResponse) return family
+
   const context = await resolveOcupacionContext(ocupacionId)
   if (!context) {
     return jsonNoStore({ error: "Ocupación no encontrada" }, { status: 404 })
   }
   const { ocupacion, mesa } = context
 
-  const actor = await resolveMesaOccupancyCloseActor(request, ocupacion.negocioId)
-  if (!actor) {
-    return jsonNoStore({ error: "No autenticado" }, { status: 401 })
-  }
+  const resolved = await resolverActorDeCuenta(request, ocupacion.negocioId, family)
+  if (!resolved.ok) return resolved.response
+  const actor = resolved.actor
   if (actor.type === "mozo" && !actor.assignedMesaIds.includes(mesa.id)) {
     return jsonNoStore({ error: "No autorizado para esta mesa", code: "MESA_CUENTA_FORBIDDEN" }, { status: 403 })
   }
@@ -150,16 +183,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: ocupacionId } = await params
 
+  const family = familiaDeCuenta(request)
+  if (family instanceof NextResponse) return family
+
   const context = await resolveOcupacionContext(ocupacionId)
   if (!context) {
     return jsonNoStore({ error: "Ocupación no encontrada" }, { status: 404 })
   }
   const { ocupacion, mesa } = context
 
-  const actor = await resolveMesaOccupancyCloseActor(request, ocupacion.negocioId)
-  if (!actor) {
-    return jsonNoStore({ error: "No autenticado" }, { status: 401 })
-  }
+  const resolved = await resolverActorDeCuenta(request, ocupacion.negocioId, family)
+  if (!resolved.ok) return resolved.response
+  const actor = resolved.actor
   // P2-T41: Terminal Operativa nunca puede ejecutar el cierre COMERCIAL
   // (esta ruta) — mueve dinero/pedidos/tickets. Conserva sí, sin cambios,
   // el cierre TÉCNICO (`mesas/[id]/ocupacion`), que no toca nada de eso.

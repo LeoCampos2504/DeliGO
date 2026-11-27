@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getOperationalAccountFromRequest, getUserFromToken, OPERATIONAL_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME, type AuthUser } from "@/lib/auth"
+import { parsePersonalSessionFamily, readFamilySession } from "@/lib/actor-family-session"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 
 // F4-A fix — which feed a bell reads. The operational cookie has path "/", so
@@ -10,12 +11,40 @@ import { safeErrorForLog } from "@/lib/log-safe-error"
 // the session it reads (?feed=cuenta = personal/owner session, ?feed=operativo =
 // employee session). The parameter only picks WHICH cookie to validate — the
 // identity always comes from that validated session and never falls back to the
-// other one. Without the parameter (clients cached before this fix) a valid
-// personal session wins, otherwise the operational one.
+// other one.
+//
+// T3 (sesiones simultáneas / 116 HTTP 401):
+// - every current bell sends `feed`; the parameter-less branch below is kept
+//   EXACTLY as certified by F4-A, only for bundles loaded before F4-A (its CI
+//   suite pins it). It is a documented residual compatibility path.
+// - `feed=cuenta` takes `actorFamily=cliente|negocio|repartidor`: the bell's own
+//   family cookie is validated directly (see actor-family-session.ts). Reading
+//   only the legacy cookie made the owner bell answer 401 every 10 s whenever an
+//   operational session shared the browser (the proxy fills the legacy cookie
+//   only when exactly one credential is present). A credential of another type
+//   never answers for the declared family. Without `actorFamily` (tabs loaded
+//   before this fix) only the legacy cookie is read, as before — never the
+//   operational session.
 type Feed =
   | { ok: true; kind: "operativo"; employeeIds: string[] }
   | { ok: true; kind: "cuenta"; user: AuthUser }
   | { ok: false; response: NextResponse }
+
+const sinSesion = () => ({ ok: false as const, response: NextResponse.json({ error: "No autenticado" }, { status: 401 }) })
+
+async function resolverCuenta(req: NextRequest): Promise<Feed> {
+  const familia = parsePersonalSessionFamily(new URL(req.url).searchParams.get("actorFamily"))
+  if (familia === "invalid") {
+    return { ok: false, response: NextResponse.json({ error: "actorFamily no válido" }, { status: 400 }) }
+  }
+  if (familia) {
+    const { user } = await readFamilySession(req, familia)
+    return user && user.type === familia ? { ok: true, kind: "cuenta", user } : sinSesion()
+  }
+  const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+  const user = token ? await getUserFromToken(token) : null
+  return user ? { ok: true, kind: "cuenta", user } : sinSesion()
+}
 
 async function resolverFeed(req: NextRequest): Promise<Feed> {
   const pedido = new URL(req.url).searchParams.get("feed")
@@ -27,19 +56,16 @@ async function resolverFeed(req: NextRequest): Promise<Feed> {
     const account = await getOperationalAccountFromRequest(req)
     return account ? account.empleados.map((empleado) => empleado.id) : null
   }
-  const cuenta = async () => {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    return token ? getUserFromToken(token) : null
-  }
-  const sinSesion = () => ({ ok: false as const, response: NextResponse.json({ error: "No autenticado" }, { status: 401 }) })
 
   if (pedido === "operativo") {
     const employeeIds = await operativo()
     return employeeIds ? { ok: true, kind: "operativo", employeeIds } : sinSesion()
   }
-  const user = await cuenta()
+  if (pedido === "cuenta") return resolverCuenta(req)
+  // F4-A compatibility (no `feed`): personal legacy session, otherwise the operational one — unchanged.
+  const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
+  const user = token ? await getUserFromToken(token) : null
   if (user) return { ok: true, kind: "cuenta", user }
-  if (pedido === "cuenta") return sinSesion()
   const employeeIds = await operativo()
   return employeeIds ? { ok: true, kind: "operativo", employeeIds } : sinSesion()
 }
@@ -175,18 +201,15 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE /api/notificaciones — Delete old notifications
+// DELETE /api/notificaciones — Delete old notifications (personal feed only)
 export async function DELETE(req: NextRequest) {
   try {
-    const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
-    if (!token) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    const user = await getUserFromToken(token)
-    if (!user) {
-      return NextResponse.json({ error: "Sesión inválida" }, { status: 401 })
-    }
+    // T3: same personal-credential resolution as the `cuenta` feed (explicit
+    // family when declared, legacy cookie otherwise); never the operational one.
+    const feed = await resolverCuenta(req)
+    if (!feed.ok) return feed.response
+    if (feed.kind !== "cuenta") return sinSesion()
+    const user = feed.user
 
     const body = await req.json()
     const { notificationId, olderThanDays } = body as {

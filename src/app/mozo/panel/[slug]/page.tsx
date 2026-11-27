@@ -1096,6 +1096,7 @@ export default function MozoSalonPanelPage() {
         }
         nombreMostrado={detalleState?.status === "ready" ? detalleState.data.empleadoNombre : null}
         cancelarPedido={{
+          actorFamily: "cuenta_operativa",
           onCancelled: () => {
             invalidateSilentRefresh()
             void loadPanel({ silent: true })
@@ -1272,7 +1273,7 @@ function MesaCard({
               actorFamily="cuenta_operativa"
             />
             {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes), solo mesas asignadas a este mozo. El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
-            <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} />
+            <MesaCuentaDialog mesaId={mesa.id} mesaNumero={mesa.numero} actorFamily="cuenta_operativa" />
           </div>
         )}
       </CardContent>
