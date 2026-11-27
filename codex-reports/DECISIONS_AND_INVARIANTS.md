@@ -1,5 +1,20 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T7 — incremental development methodology ACTIVE (operator, 2026-11-27)
+
+- Cycle DEFINICIÓN → DESARROLLO → CI → TESTING → CERTIFICACIÓN MANUAL FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA →
+  CIERRE; authority `DEVELOPMENT_WORKFLOW.md`. One feature and one functional branch at a time; `main` = `testing-codex`
+  at start and close; Production receives by normal fast-forward the exact SHA certified in TESTING; no pull request or
+  merge commit may change that SHA; Production verification is technical and proportional; every existing test, job,
+  step, environment guard and security contract stays; extra controls only by risk; independent databases; nothing
+  experimental in Production without certification and express authorization; no redundant authorizations inside an
+  approved scope.
+- Branch protection: GitHub ruleset on `main` and `testing-codex` (required check `validate` from GitHub Actions, no
+  force push, no deletion, linear history, no bypass) must first be proven on a probe branch to accept a direct
+  fast-forward of an approved SHA and reject an unapproved one. Railway «Wait for CI» is an extra defense, enabled in
+  Production only once `main` carries the workflow that runs on `main` pushes.
+- Docs-only commits never advance `main`/`testing-codex` while every commit redeploys; they travel with the next cycle.
+
 ## T6 — Production launch and closing decisions (operator, 2026-11-27)
 
 - **Accelerated launch (commercial decision):** T5 is closed as technically approved; every remaining T5 manual test

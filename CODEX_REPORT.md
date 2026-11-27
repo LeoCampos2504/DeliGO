@@ -6,7 +6,21 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T6 CERRADA: CANDIDATA 697dfd7e PUBLICADA EN PRODUCTION Y VERIFICADA · T7 (METODOLOGÍA) PROPUESTA, PENDIENTE DE APROBACIÓN (2026-11-27)
+=== LATEST HANDOFF — T7 VIGENTE: METODOLOGÍA INCREMENTAL ACTIVADA · T6 CERRADA · SIN DESPLIEGUES (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama codex/t7-metodologia (remota, documental + disparador de CI; ningún servicio de Railway la sigue): 90114b0c docs(t6) → docs(t7) → ci(t7) · origin/main = origin/testing-codex = 697dfd7e6516f22e98597ab07021f30b23e6849a (sin cambios) · codex/release-candidata remota en 697dfd7e
+PRODUCTION=697dfd7e (DeliGO 94e9cc9e, Mesa Cron 33caa6ae, Review Expiry 42d42576, chat 6740eb42) · etiqueta prod-2026-11-27-697dfd7e · ningún despliegue nuevo en T7
+T7=VIGENTE (operador, 2026-11-27): DEFINICIÓN → DESARROLLO → CI → TESTING → CERTIFICACIÓN MANUAL FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA → CIERRE · autoridad DEVELOPMENT_WORKFLOW.md (+ CLAUDE.md) · propuesta original codex-reports/T7_METODOLOGIA_PROPUESTA.md
+PROTECCIONES_ACTIVAS=regla de proceso: fast-forward del SHA exacto certificado, sin force, ramas alineadas, una rama funcional
+PROTECCIONES_PREPARADAS=CI validate sobre main, testing-codex y codex/** (commit ci(t7) en codex/t7-metodologia; mismos 81 pasos; entra en main/testing-codex con el primer ciclo) · rulesets para importar en .github/rulesets/ (prueba + main/testing-codex: check validate app 15368, sin force, sin eliminación, historia lineal, sin bypass, sin PR obligatorio)
+PROTECCIONES_PENDIENTES=importar y probar el ruleset (operador + Claude, procedimiento en DEVELOPMENT_WORKFLOW.md) · Railway «Wait for CI» (después de que main tenga el workflow nuevo) · watch paths (decisión del operador) · Claude no tiene acceso de administración a GitHub sin leer credenciales
+DOCUMENTACION_PENDIENTE_DE_MAIN=90114b0c + docs(t7) + ci(t7) viajan con el primer ciclo T7 (la rama de la próxima funcionalidad parte de la punta de codex/t7-metodologia)
+T5=pruebas manuales restantes DIFERIDAS, NO APROBADAS
+PRIMERA_TAREA_PROXIMA_SESION=(0) importar y probar el ruleset; (1) paridad de enlaces y códigos QR de mesas en Terminal y Salón personal, por el ciclo T7, rama desde la punta de codex/t7-metodologia
+ROADMAP_SIGUIENTE=renovación y limpieza segura de suscripciones push inválidas (F-T6-01) · incidencias diferidas de T5 y T6 · certificaciones funcionales pendientes · funcionalidades restantes · investigación del seguimiento GPS de repartidores
+PROHIBIDO_HOY=sin funcionalidades nuevas, sin correcciones, sin publicar en main/testing-codex, sin despliegues
+
+=== PRECEDING HANDOFF — T6 CERRADA: CANDIDATA 697dfd7e PUBLICADA EN PRODUCTION Y VERIFICADA · T7 (METODOLOGÍA) PROPUESTA, PENDIENTE DE APROBACIÓN (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/release-candidata (commit documental de cierre de T6 sobre 697dfd7e, SIN push) · origin/main = origin/testing-codex = origin/codex/release-candidata = 697dfd7e6516f22e98597ab07021f30b23e6849a
 PRODUCTION=DeliGO 94e9cc9e-5be5-44e9-ac64-b557fb84f784 SUCCESS (commitHash 697dfd7e exacto; ccc2184a REMOVED, rollback posible) · Mesa Occupancy Cron 33caa6ae SUCCESS (19:47 UTC errors 0) · Review Moderation Expiry 42d42576 SUCCESS (20:03 UTC errors 0) · chat en vivo 6740eb42 SUCCESS (/health 200)

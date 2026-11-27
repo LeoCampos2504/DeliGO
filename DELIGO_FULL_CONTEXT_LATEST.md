@@ -1,4 +1,15 @@
-## LATEST UPDATE — T6 CERRADA: `697dfd7e` EN PRODUCTION · T7 PROPUESTA (2026-11-27)
+## LATEST UPDATE — T7 VIGENTE: METODOLOGÍA INCREMENTAL (2026-11-27)
+
+- **T7 activada por el operador** el 2026-11-27: ciclo DEFINICIÓN → DESARROLLO → CI → TESTING → CERTIFICACIÓN MANUAL
+  FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA → CIERRE; autoridad `DEVELOPMENT_WORKFLOW.md`.
+- Protecciones: la regla de proceso (fast-forward del SHA certificado, sin force) está activa; el CI sobre `codex/**`,
+  `testing-codex` y `main` y los rulesets de GitHub están **preparados** en la rama remota `codex/t7-metodologia`
+  (sin despliegues); importar/probar el ruleset y «Wait for CI» quedan **pendientes** para la próxima sesión.
+- `main` = `testing-codex` = Production = `697dfd7e`, etiqueta `prod-2026-11-27-697dfd7e`. Sin despliegues en T7.
+- Primera tarea al retomar: paridad de enlaces y códigos QR de mesas en Terminal y Salón personal. Handoff:
+  `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T6 CERRADA: `697dfd7e` EN PRODUCTION · T7 PROPUESTA (2026-11-27)
 
 - **Production = TESTING = `697dfd7e`** (70 migraciones). DeliGO `94e9cc9e`, Mesa Cron `33caa6ae`, Review Expiry
   `42d42576`, chat `6740eb42`: SUCCESS. Las 36 migraciones corrieron en el pre-deploy normal sobre la base original;

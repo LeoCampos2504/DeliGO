@@ -1,5 +1,17 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T7 — Incremental development methodology — ACTIVE (operator, 2026-11-27)
+
+```text
+T7_STATUS=ACTIVE (DEVELOPMENT_WORKFLOW.md, CLAUDE.md) · T6 closure accepted
+ACTIVE_NOW=process rule: exact certified SHA by fast-forward, no force, aligned branches, one functional branch
+PREPARED=CI validate on main/testing-codex/codex/** (codex/t7-metodologia) · GitHub rulesets to import (.github/rulesets/)
+PENDING=ruleset import + fast-forward probe · Railway Wait for CI · watch paths
+RELEASE_TAG=prod-2026-11-27-697dfd7e
+NO_DEPLOYMENTS=main and testing-codex unchanged at 697dfd7e
+NEXT=table link/QR parity in Terminal and Salón personal (first T7 cycle)
+```
+
 ## T6 — Production deploy of the release candidate — CLOSED (operator, 2026-11-27)
 
 ```text

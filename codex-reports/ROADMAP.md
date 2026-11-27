@@ -10,11 +10,18 @@
 | T4 F10-D1 | **CERTIFICADA EN TESTING** (14/14, 2026-11-27) y publicada en Production con T6 · `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md` |
 | T5 candidata | **CERRADA EXCEPCIONALMENTE** (2026-11-27): candidata `697dfd7e` desplegada en TESTING (DeliGO Copy `4b6607b0`), aprobada técnicamente; pruebas manuales restantes **DIFERIDAS, NO APROBADAS** por decisión comercial (ver abajo) |
 | T6 Production | **CERRADA** (2026-11-27): `697dfd7e` en Production (DeliGO `94e9cc9e`), 36 migraciones (70/70), verificación de solo lectura `PASS_CON_AVISOS` sin fallas |
-| T7 metodología | **PROPUESTA, PENDIENTE DE APROBACIÓN** · `codex-reports/T7_METODOLOGIA_PROPUESTA.md` |
+| T7 metodología | **VIGENTE** (operador, 2026-11-27) · `DEVELOPMENT_WORKFLOW.md` · protecciones técnicas preparadas en `codex/t7-metodologia`, activación pendiente (ver allí) |
 
-### PRÓXIMA FUNCIONALIDAD (máxima prioridad, después de aprobar T7)
+### ORDEN DE PRIORIDADES AL RETOMAR (operador, 2026-11-27)
 
-Paridad de enlaces y códigos QR de mesas en Terminal y Salón personal. No se empieza hasta que T7 quede establecida.
+0. Importar y probar el ruleset de GitHub (procedimiento en `DEVELOPMENT_WORKFLOW.md`); requisito operativo, no funcionalidad.
+1. **Paridad de enlaces y códigos QR de mesas en Terminal y Salón personal** — primera funcionalidad del ciclo T7; su
+   rama parte de la punta de `codex/t7-metodologia` (lleva los documentos de T6/T7 y el disparador de CI).
+2. Renovación y limpieza segura de suscripciones push inválidas (F-T6-01).
+3. Incidencias diferidas de T5 y T6.
+4. Certificaciones funcionales pendientes (pruebas manuales de T5 diferidas).
+5. Funcionalidades restantes del roadmap.
+6. Investigación del seguimiento GPS de repartidores (P2-T23/T24 excluidos de Production; historial conservado).
 
 ### PRUEBAS MANUALES DE T5 DIFERIDAS (decisión comercial del operador, 2026-11-27 — NO APROBADAS)
 

@@ -1,7 +1,12 @@
-# T7 — Metodología obligatoria de desarrollo de DeliGO (PROPUESTA, pendiente de aprobación)
+# T7 — Metodología obligatoria de desarrollo de DeliGO (APROBADA Y VIGENTE desde 2026-11-27)
 
-Preparada por Claude el 2026-11-27, después del cierre de T6, a pedido del operador. **Estado: PROPUESTA — no vigente
-hasta que el operador la apruebe.** Al aprobarse reemplaza el contenido operativo de `DEVELOPMENT_WORKFLOW.md`
+**Estado: APROBADA por el operador el 2026-11-27 con precisiones; la autoridad vigente es `DEVELOPMENT_WORKFLOW.md`.**
+Precisiones del operador: ciclo con «CERTIFICACIÓN MANUAL FOCALIZADA»; una única rama funcional activa; sin pull
+requests ni merge commits que cambien el SHA certificado; probar que el ruleset admite el fast-forward directo antes de
+aplicarlo; «Wait for CI» en Production sólo cuando el workflow contemple los pushes a `main`; sin autorizaciones
+redundantes dentro de un alcance aprobado. Este documento conserva la propuesta original y su razonamiento.
+
+Preparada por Claude el 2026-11-27, después del cierre de T6, a pedido del operador. Al aprobarse reemplaza el contenido operativo de `DEVELOPMENT_WORKFLOW.md`
 (2026-11-24), que queda como antecedente; sus principios (pruebas funcionales sólo en TESTING, una tarea por vez, límite
 de unos tres intentos, seguridad proporcional, documentos de continuidad) se conservan dentro de este ciclo.
 

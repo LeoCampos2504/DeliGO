@@ -29,14 +29,16 @@ SECRET_EXPOSURE_INCIDENT=STOP_AND_REPORT
 
 Never read or print live credential values, `.env` contents, complete Railway variables/configuration, process-environment dumps, or connector auth/config payloads. Use names and metadata only. Normal development must run without Production secrets and without Production-capable connectors. A session needing exceptional Production administration must be separate, operator-controlled, and limited to one authorized action. If a guardrail is absent, incompatible, errors, or cannot be confirmed, block the sensitive operation. These controls are defense in depth, not a guarantee against arbitrary code or a compromised host.
 
-## Metodología permanente (operador, 2026-11-24) — `DEVELOPMENT_WORKFLOW.md`
+## Metodología obligatoria T7 (operador, VIGENTE desde 2026-11-27) — `DEVELOPMENT_WORKFLOW.md`
 
-Leer `DEVELOPMENT_WORKFLOW.md` (raíz) antes de planificar cualquier tarea: flujo operador → ChatGPT → Claude → GitHub
-Actions → TESTING → Production, pruebas funcionales sólo en Railway TESTING (sin duplicarlas en local), una tarea por vez,
-límite de ~3 intentos fallidos, seguridad proporcional al riesgo y documentos de continuidad. **Condición de activación:**
-entra plenamente en vigencia cuando exista una versión estable certificada en Production (ver el archivo); hasta entonces
-se termina la certificación actual por bloques con los controles ya preparados y sin trabajo extra. La sección siguiente
-(2026-11-19) queda como antecedente y sus principios se mantienen dentro del nuevo flujo.
+Leer `DEVELOPMENT_WORKFLOW.md` (raíz) antes de planificar cualquier tarea. Ciclo: DEFINICIÓN → DESARROLLO → CI →
+TESTING → CERTIFICACIÓN MANUAL FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA → CIERRE. Una funcionalidad a la vez y
+una única rama funcional activa; `main` y `testing-codex` alineadas al empezar y al cerrar; Production recibe por
+fast-forward, sin force, exactamente el SHA certificado en TESTING; no se repite en Production la certificación manual;
+se mantienen todas las pruebas y contratos de seguridad; controles extra sólo según riesgo; bases independientes;
+nada experimental en Production sin certificación y autorización. Estado de las protecciones técnicas (ruleset de
+GitHub, CI sobre `codex/**`, «Wait for CI»): ver el archivo — distinguir lo activo de lo pendiente. Las metodologías
+del 2026-11-24 y del 2026-11-19 (sección siguiente) quedan como antecedente; sus principios siguen dentro del ciclo.
 
 ## Metodología de trabajo vigente (operador, 2026-11-19)
 
